@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .storage.local import LocalStorage
 from .storage.s3 import S3Storage
-from .routes import folders, items, thumbs, search
+from .routes import folders, items, thumbs, search, files
 
 app = FastAPI(title="Lenscat Backend")
 
@@ -36,6 +36,7 @@ app.include_router(folders.router)
 app.include_router(items.router)
 app.include_router(thumbs.router)
 app.include_router(search.router)
+app.include_router(files.router)
 
 @app.get("/health")
 def health():

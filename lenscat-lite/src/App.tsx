@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Toolbar from './components/Toolbar'
 import FolderTree from './components/FolderTree'
 import Grid from './components/Grid'
+import Viewer from './components/Viewer'
 import Inspector from './components/Inspector'
 import { useFolder } from './api/folders'
 import './styles.css'
@@ -21,6 +22,7 @@ function App(){
   const [current, setCurrent] = useState<string>('/')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
+  const [viewer, setViewer] = useState<string | null>(null)
   const [leftW, setLeftW] = useState<number>(160)
   const [rightW, setRightW] = useState<number>(240)
   const appRef = useRef<HTMLDivElement | null>(null)
@@ -90,9 +92,10 @@ function App(){
       <Toolbar onSearch={setQuery} />
       <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={setCurrent} onResize={startResizeLeft} />
       <div className="main">
-        <Grid items={items} onOpen={(p)=>{ setSelected(p) }} />
+        <Grid items={items} onOpen={(p)=>{ setSelected(p); }} onOpenViewer={(p)=> setViewer(p)} />
       </div>
       <Inspector path={selected} item={items.find(i=>i.path===selected) ?? undefined} onResize={startResizeRight} />
+      {viewer && <Viewer path={viewer} onClose={()=> setViewer(null)} />}
     </div>
   )
 }

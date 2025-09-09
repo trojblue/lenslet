@@ -1,9 +1,13 @@
-import React, { useMemo, useRef } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Item } from '../lib/types'
 import Thumb from './Thumb'
+import { api } from '../api/client'
 
-export default function Grid({ items, onOpen }:{ items: Item[]; onOpen:(p:string)=>void }){
+export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; onOpen:(p:string)=>void; onOpenViewer:(p:string)=>void }){
+  const [previewFor, setPreviewFor] = useState<string | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [hoverTimer, setHoverTimer] = useState<number | null>(null)
   const parentRef = useRef<HTMLDivElement | null>(null)
   const columnWidth = 220 // includes padding/gap; adjust with CSS
   const gap = 12
@@ -28,11 +32,36 @@ export default function Grid({ items, onOpen }:{ items: Item[]; onOpen:(p:string
           return (
             <div key={row.key} style={{ position: 'absolute', top: 0, left: 0, transform: `translateY(${row.start}px)`, display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap }}>
               {slice.map(it => (
-                <Thumb key={it.path} path={it.path} name={it.name} onClick={()=>onOpen(it.path)} />
+                <div key={it.path} style={{ position:'relative' }}
+                     onDoubleClick={()=> onOpenViewer(it.path)}
+                     onMouseLeave={()=>{ if (hoverTimer) { window.clearTimeout(hoverTimer); setHoverTimer(null) }; setPreviewFor(null); setPreviewUrl(null) }}>
+                  <Thumb path={it.path} name={it.name} onClick={()=>onOpen(it.path)} />
+                  <div style={{ position:'absolute', right:6, bottom:6, width:18, height:18, background:'rgba(0,0,0,0.6)', borderRadius:4, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10 }}
+                       onMouseEnter={()=>{
+                         if (hoverTimer) window.clearTimeout(hoverTimer)
+                         const t = window.setTimeout(async ()=>{
+                           setPreviewFor(it.path)
+                           try {
+                             const blob = await api.getFile(it.path)
+                             setPreviewUrl(URL.createObjectURL(blob))
+                           } catch {}
+                         }, 500)
+                         setHoverTimer(t)
+                       }}
+                       onMouseLeave={()=>{ if (hoverTimer) window.clearTimeout(hoverTimer); setHoverTimer(null); setPreviewFor(null); setPreviewUrl(null) }}
+                  >
+                    🔍
+                  </div>
+                </div>
               ))}
             </div>
           )
         })}
+        {previewFor && previewUrl && (
+          <div style={{ position:'fixed', top:'48px', left:'var(--left)', right:'var(--right)', bottom:0, zIndex:9, display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none' }}>
+            <img src={previewUrl} alt="preview" style={{ maxWidth:'96%', maxHeight:'96%', objectFit:'contain', transition:'opacity 160ms ease', opacity:0.98 }} />
+          </div>
+        )}
       </div>
     </div>
   )

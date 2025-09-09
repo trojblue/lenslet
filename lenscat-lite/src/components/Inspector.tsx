@@ -9,7 +9,7 @@ export default function Inspector({ path, item, onResize }:{ path: string | null
   const [tags, setTags] = useState<string>('')
   const [notes, setNotes] = useState<string>('')
 
-  useEffect(() => { if (data) { setTags((data.tags||[]).join(', ')); setNotes(data.notes||'') } }, [data?.updatedAt])
+  useEffect(() => { if (data) { setTags((data.tags||[]).join(', ')); setNotes(data.notes||'') } }, [data?.updated_at])
 
   if (!enabled) return <div className="inspector"><div className="resizer resizer-right" onMouseDown={onResize} /></div>
   return (
@@ -24,11 +24,11 @@ export default function Inspector({ path, item, onResize }:{ path: string | null
       </div>
       <div className="panel">
         <div className="label">Tags (comma-separated)</div>
-        <input className="input" value={tags} onChange={e=>setTags(e.target.value)} onBlur={()=> mut.mutate({ ...(data||{v:1,tags:[],notes:'',updatedAt:'',updatedBy:''}), tags: tags.split(',').map(s=>s.trim()).filter(Boolean), updatedAt: new Date().toISOString(), updatedBy: 'web' })} />
+        <input className="input" value={tags} onChange={e=>setTags(e.target.value)} onBlur={()=> mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), tags: tags.split(',').map(s=>s.trim()).filter(Boolean), updated_at: new Date().toISOString(), updated_by: 'web' })} />
       </div>
       <div className="panel">
         <div className="label">Notes</div>
-        <textarea className="textarea" value={notes} onChange={e=>setNotes(e.target.value)} onBlur={()=> mut.mutate({ ...(data||{v:1,tags:[],notes:'',updatedAt:'',updatedBy:''}), notes, updatedAt: new Date().toISOString(), updatedBy: 'web' })} />
+        <textarea className="textarea" value={notes} onChange={e=>setNotes(e.target.value)} onBlur={()=> mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), notes, updated_at: new Date().toISOString(), updated_by: 'web' })} />
       </div>
       <div className="panel">
         <div className="label">Source URL</div>

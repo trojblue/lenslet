@@ -8,9 +8,9 @@ export default function Thumb({ path, name, onClick }:{ path:string; name:string
   useEffect(() => {
     let alive = true
     if (!url) {
-      const { promise } = api.getThumb(path)
-      promise.then(b => { if (!alive) return; const u = URL.createObjectURL(b); blobUrlCache.set(path, u); setUrl(u) })
-             .catch(()=>{})
+      api.getThumb(path)
+        .then(b => { if (!alive) return; const u = URL.createObjectURL(b); blobUrlCache.set(path, u); setUrl(u) })
+        .catch(()=>{})
     }
     return () => { alive = false }
   }, [path, url])

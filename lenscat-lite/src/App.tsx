@@ -28,7 +28,7 @@ function App(){
   return (
     <div className="app">
       <Toolbar onSearch={setQuery} />
-      <FolderTree current={current} roots={[{label:'Root', path:'/'}]} onOpen={setCurrent} />
+      <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={setCurrent} />
       <div className="main">
         <Grid items={items} onOpen={(p)=>{ setSelected(p) }} />
       </div>

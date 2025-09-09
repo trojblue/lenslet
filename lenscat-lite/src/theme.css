@@ -11,11 +11,17 @@
 html,body,#root { height: 100%; background: var(--bg); color: var(--text); }
 body { margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 
-.app { display: grid; grid-template-columns: 260px 1fr 360px; grid-template-rows: 48px 1fr; height: 100%; }
+.app { display: grid; grid-template-columns: var(--left, 260px) 1fr var(--right, 360px); grid-template-rows: 48px 1fr; height: 100%; position: relative; }
 .toolbar { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .sidebar { grid-column: 1; grid-row: 2; overflow: auto; border-right: 1px solid var(--border); background: var(--panel); }
 .main { grid-column: 2; grid-row: 2; position: relative; }
 .inspector { grid-column: 3; grid-row: 2; border-left: 1px solid var(--border); background: var(--panel); overflow: auto; }
+
+/* Resizers */
+.resizer { position: absolute; top: 48px; bottom: 0; width: 6px; cursor: col-resize; z-index: 5; }
+.resizer-left { left: calc(var(--left, 260px) - 3px); }
+.resizer-right { right: calc(var(--right, 360px) - 3px); }
+.resizer:hover { background: rgba(58,143,255,0.2); }
 
 /* Grid cells */
 .grid { height: 100%; overflow: auto; padding: 12px; }

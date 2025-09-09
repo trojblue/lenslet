@@ -1,7 +1,7 @@
 import React from 'react'
 import type { FolderIndex } from '../lib/types'
 
-export default function FolderTree({ current, roots, data, onOpen }:{ current: string; roots: { label: string; path: string }[]; data?: FolderIndex; onOpen:(p:string)=>void }){
+export default function FolderTree({ current, roots, data, onOpen, onResize }:{ current: string; roots: { label: string; path: string }[]; data?: FolderIndex; onOpen:(p:string)=>void; onResize?:(e:React.MouseEvent)=>void }){
   const join = (a: string, b: string) => {
     const aa = a.replace(/\/+$/, '')
     const bb = b.replace(/^\/+/, '')
@@ -22,6 +22,7 @@ export default function FolderTree({ current, roots, data, onOpen }:{ current: s
           </div>
         ))}
       </div>
+      <div className="resizer resizer-left" onMouseDown={onResize} />
     </div>
   )
 }

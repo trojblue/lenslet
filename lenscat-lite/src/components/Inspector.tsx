@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useSidecar, useUpdateSidecar } from '../api/items'
 import { fmtBytes } from '../lib/util'
 
-export default function Inspector({ path, item }:{ path: string | null; item?: { size:number; w:number; h:number; type:string; } }){
+export default function Inspector({ path, item, onResize }:{ path: string | null; item?: { size:number; w:number; h:number; type:string; }; onResize?:(e:React.MouseEvent)=>void }){
   const enabled = !!path
   const { data, isLoading } = useSidecar(path ?? '')
   const mut = useUpdateSidecar(path ?? '')
@@ -11,7 +11,7 @@ export default function Inspector({ path, item }:{ path: string | null; item?: {
 
   useEffect(() => { if (data) { setTags((data.tags||[]).join(', ')); setNotes(data.notes||'') } }, [data?.updatedAt])
 
-  if (!enabled) return <div className="inspector" />
+  if (!enabled) return <div className="inspector"><div className="resizer resizer-right" onMouseDown={onResize} /></div>
   return (
     <div className="inspector">
       <div className="panel">
@@ -34,6 +34,7 @@ export default function Inspector({ path, item }:{ path: string | null; item?: {
         <div className="label">Source URL</div>
         <div className="url">{path}</div>
       </div>
+      <div className="resizer resizer-right" onMouseDown={onResize} />
     </div>
   )
 }

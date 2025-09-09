@@ -1,0 +1,38 @@
+:root {
+  --bg: #1e1e1e;
+  --panel: #252525;
+  --hover: #2a2a2a;
+  --text: #eeeeee;
+  --muted: #aaaaaa;
+  --accent: #3a8fff;
+  --border: rgba(255,255,255,0.08);
+}
+* { box-sizing: border-box }
+html,body,#root { height: 100%; background: var(--bg); color: var(--text); }
+body { margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+
+.app { display: grid; grid-template-columns: 260px 1fr 360px; grid-template-rows: 48px 1fr; height: 100%; }
+.toolbar { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.sidebar { grid-column: 1; grid-row: 2; overflow: auto; border-right: 1px solid var(--border); background: var(--panel); }
+.main { grid-column: 2; grid-row: 2; position: relative; }
+.inspector { grid-column: 3; grid-row: 2; border-left: 1px solid var(--border); background: var(--panel); overflow: auto; }
+
+/* Grid cells */
+.grid { height: 100%; overflow: auto; padding: 12px; }
+.cell { position: relative; background: var(--hover); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: 100%; aspect-ratio: 1 / 1; contain: content; content-visibility: auto; contain-intrinsic-size: 200px 200px; }
+.cell:hover { outline: 1px solid var(--accent); transform: translateZ(0); }
+.thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+.meta { position: absolute; left: 6px; bottom: 6px; padding: 2px 6px; background: rgba(0,0,0,0.5); border-radius: 6px; color: var(--text); font-size: 12px; }
+
+/* Tree */
+.tree { padding: 8px; }
+.tree-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.tree-item.active { background: rgba(58,143,255,0.2); border-left: 2px solid var(--accent); }
+.tree-item:hover { background: #2a2a2a; }
+
+/* Inspector */
+.panel { padding: 12px; border-bottom: 1px solid var(--border); }
+.label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+.input, .textarea { width: 100%; background: #1b1b1b; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+.textarea { min-height: 100px; resize: vertical; }
+.url { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); word-break: break-all; }

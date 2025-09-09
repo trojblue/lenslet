@@ -1,0 +1,20 @@
+# Lenscat-lite (Frontend Boilerplate)
+Fast, minimal gallery UI. Bring your own FastAPI.
+
+## Why this is not bloat
+- No global store, no UI kit, no CSS-in-JS.
+- Query cache + virtual grid only.
+- CSS variables for theming.
+- Abortable fetch helper, 30 lines total infra.
+
+## Env
+- `VITE_API_BASE` -> backend base URL
+
+## Perf checklist
+- Thumbnails only in grid (server should serve `<file>.thumbnail`).
+- Use folder manifests (`_index.json`) for aspect boxes to avoid CLS.
+- Overscan small (4 rows), AbortController cancels offscreen fetches.
+
+## Extend
+- Add more sources by extending backend; UI stays the same.
+- Drop-in Tauri later by swapping `api/client.ts` with host bridge.

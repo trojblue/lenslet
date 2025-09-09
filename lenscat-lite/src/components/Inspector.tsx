@@ -1,0 +1,39 @@
+import React, { useEffect, useState } from 'react'
+import { useSidecar, useUpdateSidecar } from '../api/items'
+import { fmtBytes } from '../lib/util'
+
+export default function Inspector({ path, item }:{ path: string | null; item?: { size:number; w:number; h:number; type:string; } }){
+  const enabled = !!path
+  const { data, isLoading } = useSidecar(path ?? '')
+  const mut = useUpdateSidecar(path ?? '')
+  const [tags, setTags] = useState<string>('')
+  const [notes, setNotes] = useState<string>('')
+
+  useEffect(() => { if (data) { setTags((data.tags||[]).join(', ')); setNotes(data.notes||'') } }, [data?.updatedAt])
+
+  if (!enabled) return <div className="inspector" />
+  return (
+    <div className="inspector">
+      <div className="panel">
+        <div className="label">Details</div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
+          <div>Type<br/><span className="url">{item?.type}</span></div>
+          <div>Size<br/><span className="url">{item? fmtBytes(item.size): '-'}</span></div>
+          <div>Dims<br/><span className="url">{item? `${item.w}×${item.h}`: '-'}</span></div>
+        </div>
+      </div>
+      <div className="panel">
+        <div className="label">Tags (comma-separated)</div>
+        <input className="input" value={tags} onChange={e=>setTags(e.target.value)} onBlur={()=> mut.mutate({ ...(data||{v:1,tags:[],notes:'',updatedAt:'',updatedBy:''}), tags: tags.split(',').map(s=>s.trim()).filter(Boolean), updatedAt: new Date().toISOString(), updatedBy: 'web' })} />
+      </div>
+      <div className="panel">
+        <div className="label">Notes</div>
+        <textarea className="textarea" value={notes} onChange={e=>setNotes(e.target.value)} onBlur={()=> mut.mutate({ ...(data||{v:1,tags:[],notes:'',updatedAt:'',updatedBy:''}), notes, updatedAt: new Date().toISOString(), updatedBy: 'web' })} />
+      </div>
+      <div className="panel">
+        <div className="label">Source URL</div>
+        <div className="url">{path}</div>
+      </div>
+    </div>
+  )
+}

@@ -25,6 +25,7 @@ body { margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, san
 
 /* Grid cells */
 .grid { height: 100%; overflow: auto; padding: 12px; }
+.grid:focus { outline: none; box-shadow: none; }
 .cell { position: relative; background: var(--hover); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: 100%; aspect-ratio: 1 / 1; contain: content; content-visibility: auto; contain-intrinsic-size: 200px 200px; user-select: none; -webkit-user-select: none; }
 .cell.selected { outline: 2px solid var(--accent); }
 .cell:hover { outline: 1px solid var(--accent); transform: translateZ(0); }

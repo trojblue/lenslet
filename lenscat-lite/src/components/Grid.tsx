@@ -71,7 +71,7 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
                              const blob = await api.getFile(it.path)
                              setPreviewUrl(URL.createObjectURL(blob))
                            } catch {}
-                         }, 500)
+                         }, 350)
                          setHoverTimer(t)
                        }}
                        onMouseLeave={()=>{ if (hoverTimer) window.clearTimeout(hoverTimer); setHoverTimer(null); setPreviewFor(null); setPreviewUrl(null) }}

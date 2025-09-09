@@ -1,1 +1,0 @@
-"""Lenscat backend package."""

@@ -1,6 +1,4 @@
-*.tar
-*.tfevents*
-credentials.toml
+data/
 repomix-output.md
 
 convnext_checkpoints_archive

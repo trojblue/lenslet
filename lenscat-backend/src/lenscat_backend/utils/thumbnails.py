@@ -4,9 +4,10 @@ import io
 from typing import Optional
 
 try:
-    import pyvips
+    import pyvips  # may raise OSError if libvips is missing
     PYVIPS_AVAILABLE = True
-except ImportError:
+except Exception:
+    # Handle ImportError or OSError (no libvips on system)
     PYVIPS_AVAILABLE = False
     pyvips = None
 

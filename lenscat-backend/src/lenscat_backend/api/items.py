@@ -1,6 +1,6 @@
 """Item API endpoints."""
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from fastapi.responses import Response
 
 import orjson
@@ -57,7 +57,7 @@ async def get_item(
 @router.put("", response_model=Sidecar)
 async def update_item(
     path: str = Query(..., description="Item path"),
-    sidecar: Sidecar,
+    sidecar: Sidecar = Body(...),
     storage: StorageBackend = Depends(get_storage)
 ):
     """Update item metadata."""

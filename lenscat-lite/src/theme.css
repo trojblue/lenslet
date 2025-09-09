@@ -25,10 +25,11 @@ body { margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, san
 
 /* Grid cells */
 .grid { height: 100%; overflow: auto; padding: 12px; }
-.cell { position: relative; background: var(--hover); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: 100%; aspect-ratio: 1 / 1; contain: content; content-visibility: auto; contain-intrinsic-size: 200px 200px; }
+.cell { position: relative; background: var(--hover); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: 100%; aspect-ratio: 1 / 1; contain: content; content-visibility: auto; contain-intrinsic-size: 200px 200px; user-select: none; -webkit-user-select: none; }
+.cell.selected { outline: 2px solid var(--accent); }
 .cell:hover { outline: 1px solid var(--accent); transform: translateZ(0); }
-.thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
-.meta { position: absolute; left: 6px; bottom: 6px; padding: 2px 6px; background: rgba(0,0,0,0.5); border-radius: 6px; color: var(--text); font-size: 12px; }
+.thumb { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.meta { position: absolute; left: 6px; bottom: 6px; padding: 2px 6px; background: rgba(0,0,0,0.5); border-radius: 6px; color: var(--text); font-size: 12px; user-select: none; -webkit-user-select: none; }
 
 /* Tree */
 .tree { padding: 8px; }

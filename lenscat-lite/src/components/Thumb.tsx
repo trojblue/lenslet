@@ -3,7 +3,7 @@ import { api } from '../api/client'
 
 const blobUrlCache = new Map<string, string>()
 
-export default function Thumb({ path, name, onClick }:{ path:string; name:string; onClick:()=>void }){
+export default function Thumb({ path, name, onClick, selected }:{ path:string; name:string; onClick:()=>void; selected?: boolean }){
   const [url, setUrl] = useState<string | null>(blobUrlCache.get(path) ?? null)
   useEffect(() => {
     let alive = true
@@ -15,7 +15,7 @@ export default function Thumb({ path, name, onClick }:{ path:string; name:string
     return () => { alive = false }
   }, [path, url])
   return (
-    <div className="cell" onClick={onClick}>
+    <div className={`cell${selected ? ' selected' : ''}`} onClick={onClick}>
       {url ? <img className="thumb" src={url} alt={name} loading="lazy" decoding="async" /> : null}
       <div className="meta">{name}</div>
     </div>

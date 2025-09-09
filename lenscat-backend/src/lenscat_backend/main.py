@@ -70,7 +70,7 @@ if __name__ == "__main__":
     reload = os.getenv("RELOAD", "false").lower() == "true"
     
     uvicorn.run(
-        "src.main:app",
+        "lenscat_backend.main:app",
         host=host,
         port=port,
         reload=reload,

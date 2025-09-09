@@ -32,7 +32,7 @@ if __name__ == "__main__":
     print(f"📖 API Docs: http://localhost:8000/docs")
     
     uvicorn.run(
-        "main:app",
+        "lenscat_backend.main:app",
         host=os.environ["HOST"],
         port=int(os.environ["PORT"]),
         reload=True,

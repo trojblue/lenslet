@@ -18,3 +18,15 @@ Fast, minimal gallery UI. Bring your own FastAPI.
 ## Extend
 - Add more sources by extending backend; UI stays the same.
 - Drop-in Tauri later by swapping `api/client.ts` with host bridge.
+
+---
+
+The boilerplate is complete and ready for development:
+
+1. npm install to install dependencies
+
+2. Set VITE_API_BASE environment variable
+
+3. npm run dev to start development server
+
+4. Backend should serve the API endpoints defined in the PRD

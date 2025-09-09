@@ -1,0 +1,10 @@
+# Alternative to pyproject.toml for simpler deployment
+fastapi
+uvicorn[standard]
+aioboto3
+pyvips
+pillow
+orjson
+blake3
+aiofiles
+python-multipart

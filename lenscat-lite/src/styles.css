@@ -154,3 +154,40 @@
   transition: opacity 160ms ease;
   opacity: 0.98;
 }
+
+/* Viewer constrained to main area */
+.viewer {
+  position: absolute;
+  inset: 48px var(--right, 240px) 0 var(--left, 160px); /* respect sidebars */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel); /* match gallery background */
+  z-index: 40;
+  overflow: hidden;
+}
+
+.viewer.grabbable { cursor: grab; }
+.viewer.dragging { cursor: grabbing; user-select: none; }
+
+.viewer-img {
+  max-width: 96%;
+  max-height: 96%;
+  object-fit: contain;
+  transition: opacity 120ms ease; /* remove transform animation for snappier pan */
+  transform-origin: center center;
+  opacity: 0.99;
+  will-change: transform;
+}
+
+.viewer-back {
+  position: absolute;
+  top: 60px;
+  left: calc(var(--left, 160px) + 12px);
+  padding: 6px 10px;
+  background: #1b1b1b;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}

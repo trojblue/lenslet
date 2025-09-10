@@ -92,10 +92,23 @@ function App(){
       <Toolbar onSearch={setQuery} />
       <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={setCurrent} onResize={startResizeLeft} />
       <div className="main">
-        <Grid items={items} onOpen={(p)=>{ setSelected(p); }} onOpenViewer={(p)=> setViewer(p)} />
+        <Grid items={items} onOpen={(p)=>{ setSelected(p); }} onOpenViewer={(p)=> { setViewer(p); setSelected(p) }} />
       </div>
       <Inspector path={selected} item={items.find(i=>i.path===selected) ?? undefined} onResize={startResizeRight} />
-      {viewer && <Viewer path={viewer} onClose={()=> setViewer(null)} />}
+      {viewer && (
+        <Viewer
+          path={viewer}
+          onClose={()=> setViewer(null)}
+          onNavigate={(delta)=>{
+            const paths = items.map(i=> i.path)
+            const idx = paths.indexOf(viewer)
+            if (idx === -1) return
+            const next = Math.min(paths.length - 1, Math.max(0, idx + delta))
+            const np = paths[next]
+            if (np && np !== viewer) { setViewer(np); setSelected(np) }
+          }}
+        />
+      )}
     </div>
   )
 }

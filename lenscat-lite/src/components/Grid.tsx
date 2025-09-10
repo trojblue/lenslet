@@ -48,6 +48,22 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
 
   const rows = rowVirtualizer.getVirtualItems()
 
+  // Snappy smooth scroll helper (~150ms)
+  const smoothScrollTo = (el: HTMLElement, top: number, duration = 150) => {
+    const start = el.scrollTop
+    const delta = top - start
+    if (Math.abs(delta) < 2) { el.scrollTop = top; return }
+    const startTs = performance.now()
+    const step = (now: number) => {
+      const t = Math.min(1, (now - startTs) / duration)
+      // easeOutCubic
+      const eased = 1 - Math.pow(1 - t, 3)
+      el.scrollTop = start + delta * eased
+      if (t < 1) requestAnimationFrame(step)
+    }
+    requestAnimationFrame(step)
+  }
+
   useEffect(() => {
     const el = parentRef.current
     if (!el) return
@@ -67,6 +83,16 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
       if (nextItem) {
         setActive(nextItem.path)
         onOpen(nextItem.path)
+        // If the row is outside of the viewport, scroll it to the top
+        const rowIdx = Math.floor(next / Math.max(1, columns))
+        const scrollTop = el.scrollTop
+        const viewBottom = scrollTop + el.clientHeight
+        const rowTop = rowIdx * rowH
+        const rowBottom = rowTop + rowH
+        if (rowTop < scrollTop || rowBottom > viewBottom) {
+          try { smoothScrollTo(el, rowTop, 150) }
+          catch { try { rowVirtualizer.scrollToIndex(rowIdx, { align: 'start' as const }) } catch {} }
+        }
       }
     }
     el.addEventListener('keydown', onKey)

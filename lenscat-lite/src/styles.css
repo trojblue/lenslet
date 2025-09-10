@@ -7,7 +7,17 @@
   height: 100%;
   overflow: auto;
   outline: none;
+
+  /* Better Windows/Linux scrollbar (Firefox) */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(130,130,140,0.7) rgba(255,255,255,0.06);
 }
+
+/* Chromium/Edge scrollbar styling */
+.grid::-webkit-scrollbar { height: 12px; width: 12px; }
+.grid::-webkit-scrollbar-track { background: rgba(255,255,255,0.06); border-radius: 8px; }
+.grid::-webkit-scrollbar-thumb { background: rgba(130,130,140,0.7); border-radius: 8px; }
+.grid::-webkit-scrollbar-thumb:hover { background: rgba(150,150,160,0.85); }
 
 /* Virtualizer outer container that holds absolute-positioned rows */
 .grid-rows {

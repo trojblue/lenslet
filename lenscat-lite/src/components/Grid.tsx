@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useEffect, useLayoutEffect } from 'react'
+import React, { useRef, useState, useEffect, useLayoutEffect } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Item } from '../lib/types'
 import Thumb from './Thumb'
@@ -16,24 +16,24 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
   useLayoutEffect(() => {
     const el = parentRef.current
     if (!el) return
-     const measure = () => {
-       const cs = getComputedStyle(el)
-       const inner = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-       setWidth(inner)
-     }
-     const ro = new ResizeObserver(measure)
-     ro.observe(el)
-     measure()
+    const measure = () => {
+      const cs = getComputedStyle(el)
+      const inner = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+      setWidth(inner)
+    }
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    measure()
     return () => ro.disconnect()
   }, [])
 
-  const gap = 12
-  const targetCell = 220
-  
-  const columns = Math.max(1, Math.floor((width + gap) / (targetCell + gap)))
-  const cellW   = (width - gap * (columns - 1)) / columns       // ← float
-  const rowH    = (cellW * 4) / 3 + gap                         // ← float
-  
+  const GAP = 12
+  const TARGET_CELL = 220
+  const ASPECT = { w: 4, h: 3 } // width : height
+
+  const columns = Math.max(1, Math.floor((width + GAP) / (TARGET_CELL + GAP)))
+  const cellW   = (width - GAP * (columns - 1)) / columns
+  const rowH    = (cellW * ASPECT.h) / ASPECT.w + GAP // fixed geometry
 
   const rowCount = Math.ceil(items.length / Math.max(1, columns))
 
@@ -42,9 +42,7 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
     getScrollElement: () => parentRef.current,
     estimateSize: () => rowH,
     overscan: 6,
-    measureElement: el => el.getBoundingClientRect().height
   })
-  
 
   const rows = rowVirtualizer.getVirtualItems()
 
@@ -71,49 +69,50 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
     }
     el.addEventListener('keydown', onKey)
     return () => { el.removeEventListener('keydown', onKey) }
-  }, [items, active, columns])
+  }, [items, active, columns, onOpen, onOpenViewer])
 
   // Re-measure when layout parameters change
   useEffect(() => { rowVirtualizer.measure() }, [columns, rowH])
 
   return (
-    <div className="grid" ref={parentRef} tabIndex={0}>
-      <div key={columns} style={{ height: rowVirtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+    <div className="grid" ref={parentRef} tabIndex={0} style={{ ['--gap' as any]: `${GAP}px` }}>
+      <div key={columns} className="grid-rows" style={{ height: rowVirtualizer.getTotalSize() }}>
         {rows.map(row => {
           const start = row.index * columns
           const slice = items.slice(start, start + columns)
           return (
-            <div ref={rowVirtualizer.measureElement} 
-            key={row.key} 
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              transform: `translate3d(0, ${row.start}px, 0)`,  // allows sub-pixel
-              display: 'grid',
-              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-              gap,
-              paddingBottom: gap,
-            }}
+            <div
+              key={row.key}
+              className="grid-row"
+              style={{
+                transform: `translate3d(0, ${row.start}px, 0)`,
+                gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+              }}
             >
               {slice.map(it => (
-                <div key={it.path} style={{ position:'relative' }}
-                     onDoubleClick={()=> onOpenViewer(it.path)}
-                     onMouseLeave={()=>{ if (hoverTimer) { window.clearTimeout(hoverTimer); setHoverTimer(null) }; setPreviewFor(null); setPreviewUrl(null) }}>
-                  <Thumb path={it.path} name={it.name} selected={active===it.path} onClick={()=>{ setActive(it.path); onOpen(it.path) }} />
-                  <div style={{ position:'absolute', right:6, bottom:6, width:18, height:18, background:'rgba(0,0,0,0.6)', borderRadius:4, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, userSelect:'none' }}
-                       onMouseEnter={()=>{
-                         if (hoverTimer) window.clearTimeout(hoverTimer)
-                         const t = window.setTimeout(async ()=>{
-                           setPreviewFor(it.path)
-                           try {
-                             const blob = await api.getFile(it.path)
-                             setPreviewUrl(URL.createObjectURL(blob))
-                           } catch {}
-                         }, 350)
-                         setHoverTimer(t)
-                       }}
-                       onMouseLeave={()=>{ if (hoverTimer) window.clearTimeout(hoverTimer); setHoverTimer(null); setPreviewFor(null); setPreviewUrl(null) }}
+                <div
+                  key={it.path}
+                  className="grid-cell"
+                  onDoubleClick={()=> onOpenViewer(it.path)}
+                  onMouseLeave={()=>{ if (hoverTimer) { window.clearTimeout(hoverTimer); setHoverTimer(null) }; setPreviewFor(null); setPreviewUrl(null) }}
+                >
+                  <div className="cell-content">
+                    <Thumb path={it.path} name={it.name} selected={active===it.path} onClick={()=>{ setActive(it.path); onOpen(it.path) }} />
+                  </div>
+                  <div
+                    className="cell-zoom"
+                    onMouseEnter={()=>{
+                      if (hoverTimer) window.clearTimeout(hoverTimer)
+                      const t = window.setTimeout(async ()=>{
+                        setPreviewFor(it.path)
+                        try {
+                          const blob = await api.getFile(it.path)
+                          setPreviewUrl(URL.createObjectURL(blob))
+                        } catch {}
+                      }, 350)
+                      setHoverTimer(t)
+                    }}
+                    onMouseLeave={()=>{ if (hoverTimer) window.clearTimeout(hoverTimer); setHoverTimer(null); setPreviewFor(null); setPreviewUrl(null) }}
                   >
                     🔍
                   </div>
@@ -123,8 +122,8 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
           )
         })}
         {previewFor && previewUrl && (
-          <div style={{ position:'fixed', top:'48px', left:'var(--left)', right:'var(--right)', bottom:0, zIndex:9, display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none' }}>
-            <img src={previewUrl} alt="preview" style={{ maxWidth:'96%', maxHeight:'96%', objectFit:'contain', transition:'opacity 160ms ease', opacity:0.98 }} />
+          <div className="preview-backdrop">
+            <img src={previewUrl} alt="preview" className="preview-img" />
           </div>
         )}
       </div>

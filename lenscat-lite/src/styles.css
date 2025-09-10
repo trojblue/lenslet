@@ -1,1 +1,110 @@
 @import './theme.css';
+
+/* Grid container */
+.grid {
+  --gap: 12px;
+  position: relative;
+  height: 100%;
+  overflow: auto;
+  outline: none;
+}
+
+/* Virtualizer outer container that holds absolute-positioned rows */
+.grid-rows {
+  position: relative;
+  width: 100%;
+}
+
+/* Each virtualized row */
+.grid-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0; /* stretch to full width */
+  width: 100%;
+  display: grid;
+  gap: var(--gap);
+  padding-bottom: var(--gap);
+  will-change: transform;
+  contain: content;
+}
+
+/* Fixed-geometry cell with uniform aspect ratio */
+.grid-cell {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--thumb-bg, #121212);
+  content-visibility: auto;
+  contain-intrinsic-size: 240px 180px; /* approximate 4:3 */
+}
+
+/* Fill the cell; host for the Thumb component */
+.cell-content {
+  position: absolute;
+  inset: 0;
+}
+
+/* Ensure Thumb component fills the cell */
+.cell-content > .cell {
+  position: absolute;
+  inset: 0;
+}
+
+.cell-content > .cell > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cell-content > .cell > .meta {
+  position: absolute;
+  left: 6px;
+  right: 28px; /* room for zoom badge */
+  bottom: 6px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.9);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+
+/* Zoom/magnifier badge */
+.cell-zoom {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 18px;
+  height: 18px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  user-select: none;
+  pointer-events: auto;
+}
+
+/* Hover preview overlay */
+.preview-backdrop {
+  position: fixed;
+  top: 48px;
+  left: var(--left);
+  right: var(--right);
+  bottom: 0;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.preview-img {
+  max-width: 96%;
+  max-height: 96%;
+  object-fit: contain;
+  transition: opacity 160ms ease;
+  opacity: 0.98;
+}

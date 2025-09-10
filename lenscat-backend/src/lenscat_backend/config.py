@@ -11,5 +11,6 @@ class Settings:
     s3_endpoint: str | None = os.getenv("S3_ENDPOINT")
     thumb_long_edge: int = int(os.getenv("THUMB_LONG_EDGE", "256"))
     thumb_quality: int = int(os.getenv("THUMB_QUALITY", "70"))
+    frontend_dist: str = os.getenv("FRONTEND_DIST", os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../lenscat-lite/dist")))
 
 settings = Settings()

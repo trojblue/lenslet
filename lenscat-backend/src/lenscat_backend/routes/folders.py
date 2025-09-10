@@ -28,9 +28,22 @@ def get_folder(path: str, request: Request):
             continue
         full = storage.join(path, name)
         size = storage.size(full)
-        # best effort minimal meta (no full read if avoidable)
-        # For local, we could open file. For S3, skip heavy read; dimensions can be absent until sidecar exists.
+        # Try sidecar first for dimensions
         w = h = 0
+        try:
+            scp = full + '.json'
+            if storage.exists(scp):
+                data = jsonio.loads(storage.read_bytes(scp))
+                exif = data.get('exif') or {}
+                w = int(exif.get('width', 0) or 0)
+                h = int(exif.get('height', 0) or 0)
+            if (not w or not h) and storage.exists(full):
+                # As a fallback for local storage, read once to get basic dimensions
+                meta = basic_meta(storage.read_bytes(full))
+                w = int(meta.get('width', 0) or 0)
+                h = int(meta.get('height', 0) or 0)
+        except Exception:
+            w = h = 0
         thumb = storage.exists(full + ".thumbnail")
         meta = storage.exists(full + ".json")
         items.append(Item(path=full, name=name, type=_guess_mime(name), w=w, h=h, size=size, hasThumb=thumb, hasMeta=meta))

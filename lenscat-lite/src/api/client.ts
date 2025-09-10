@@ -1,6 +1,8 @@
 import { fetchJSON, fetchBlob } from '../lib/fetcher'
 import type { FolderIndex, Sidecar } from '../lib/types'
 
+// When deployed behind the same origin as the backend, leave BASE empty.
+// During local dev, Vite's proxy forwards these to the backend.
 const BASE = import.meta.env.VITE_API_BASE ?? ''
 
 export const api = {

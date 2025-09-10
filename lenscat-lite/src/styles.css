@@ -29,24 +29,33 @@
   contain: content;
 }
 
-/* Fixed-geometry cell with uniform aspect ratio */
+/* Grid cell wrapper (no clipping so caption can sit in row gap) */
 .grid-cell {
   position: relative;
-  aspect-ratio: 4 / 3;
-  overflow: hidden;
-  border-radius: 6px;
-  background: var(--thumb-bg, #121212);
-  content-visibility: auto;
-  contain-intrinsic-size: 240px 180px; /* approximate 4:3 */
 }
 
-/* Fill the cell; host for the Thumb component */
+/* Media area maintains aspect ratio and rounds corners */
+.cell-media {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--thumb-bg, #121212);
+}
+
+/* Selection highlight on media only */
+.grid-cell.is-selected .cell-media {
+  outline: 3px solid rgba(100, 150, 255, 0.9);
+  outline-offset: 0;
+}
+
+/* Fill the media area; host for the Thumb component */
 .cell-content {
   position: absolute;
   inset: 0;
 }
 
-/* Ensure Thumb component fills the cell */
+/* Ensure Thumb component fills the media */
 .cell-content > .cell {
   position: absolute;
   inset: 0;
@@ -59,15 +68,9 @@
   display: block;
 }
 
+/* Hide legacy in-image filename overlay from Thumb; we now use caption below */
 .cell-content > .cell > .meta {
-  position: absolute;
-  left: 6px;
-  right: 28px; /* room for zoom badge */
-  bottom: 6px;
-  font-size: 11px;
-  color: rgba(255,255,255,0.9);
-  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
-  pointer-events: none;
+  display: none;
 }
 
 /* Zoom/magnifier badge */
@@ -85,6 +88,30 @@
   font-size: 10px;
   user-select: none;
   pointer-events: auto;
+}
+
+/* Caption sits visually in the gap beneath the image */
+.cell-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px; /* breathing room between media and text */
+  padding: 0 2px;  /* minimal horizontal padding */
+  color: rgba(255,255,255,0.92);
+}
+
+.cell-caption .filename {
+  font-size: 14px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell-caption .filesize {
+  font-size: 12px;
+  line-height: 16px;
+  opacity: 0.75;
 }
 
 /* Hover preview overlay */

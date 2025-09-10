@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .storage.local import LocalStorage
@@ -41,3 +42,7 @@ app.include_router(files.router)
 @app.get("/health")
 def health():
     return {"ok": True}
+
+# Serve frontend (single-port deployment)
+if settings.frontend_dist and os.path.isdir(settings.frontend_dist):
+    app.mount("/", StaticFiles(directory=settings.frontend_dist, html=True), name="frontend")

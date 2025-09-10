@@ -1,6 +1,7 @@
 from __future__ import annotations
 from fastapi import APIRouter, Response, HTTPException, Request
 from ..utils.thumbs import make_thumbnail
+from ..config import settings
 from ..utils.exif import basic_meta
 from ..utils import jsonio
 
@@ -18,7 +19,7 @@ def get_thumb(path: str, request: Request):
     if not storage.exists(path):
         raise HTTPException(404, "file not found")
     raw = storage.read_bytes(path)
-    thumb = make_thumbnail(raw)
+    thumb = make_thumbnail(raw, settings.thumb_long_edge, settings.thumb_quality)
     storage.write_bytes(thumb_path, thumb)
     # optionally write dimensions to sidecar if missing
     try:

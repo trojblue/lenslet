@@ -30,10 +30,12 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
   const GAP = 12
   const TARGET_CELL = 220
   const ASPECT = { w: 4, h: 3 } // width : height
+  const CAPTION_H = 44 // px reserved for filename + size
 
   const columns = Math.max(1, Math.floor((width + GAP) / (TARGET_CELL + GAP)))
   const cellW   = (width - GAP * (columns - 1)) / columns
-  const rowH    = (cellW * ASPECT.h) / ASPECT.w + GAP // fixed geometry
+  const mediaH  = (cellW * ASPECT.h) / ASPECT.w
+  const rowH    = mediaH + CAPTION_H + GAP // media + caption + gap
 
   const rowCount = Math.ceil(items.length / Math.max(1, columns))
 
@@ -92,29 +94,36 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
               {slice.map(it => (
                 <div
                   key={it.path}
-                  className="grid-cell"
-                  onDoubleClick={()=> onOpenViewer(it.path)}
-                  onMouseLeave={()=>{ if (hoverTimer) { window.clearTimeout(hoverTimer); setHoverTimer(null) }; setPreviewFor(null); setPreviewUrl(null) }}
+                  className={`grid-cell ${active===it.path ? 'is-selected' : ''}`}
                 >
-                  <div className="cell-content">
-                    <Thumb path={it.path} name={it.name} selected={active===it.path} onClick={()=>{ setActive(it.path); onOpen(it.path) }} />
-                  </div>
                   <div
-                    className="cell-zoom"
-                    onMouseEnter={()=>{
-                      if (hoverTimer) window.clearTimeout(hoverTimer)
-                      const t = window.setTimeout(async ()=>{
+                    className="cell-media"
+                    onDoubleClick={()=> onOpenViewer(it.path)}
+                    onMouseLeave={()=>{ if (hoverTimer) { window.clearTimeout(hoverTimer); setHoverTimer(null) }; setPreviewFor(null); setPreviewUrl(null) }}
+                  >
+                    <div className="cell-content">
+                      <Thumb path={it.path} name={it.name} selected={active===it.path} onClick={()=>{ setActive(it.path); onOpen(it.path) }} />
+                    </div>
+                    <div
+                      className="cell-zoom"
+                      onMouseEnter={async ()=>{
+                        if (hoverTimer) window.clearTimeout(hoverTimer)
                         setPreviewFor(it.path)
                         try {
                           const blob = await api.getFile(it.path)
                           setPreviewUrl(URL.createObjectURL(blob))
                         } catch {}
-                      }, 350)
-                      setHoverTimer(t)
-                    }}
-                    onMouseLeave={()=>{ if (hoverTimer) window.clearTimeout(hoverTimer); setHoverTimer(null); setPreviewFor(null); setPreviewUrl(null) }}
-                  >
-                    🔍
+                        const t = window.setTimeout(()=>{}, 200)
+                        setHoverTimer(t)
+                      }}
+                      onMouseLeave={()=>{ if (hoverTimer) window.clearTimeout(hoverTimer); setHoverTimer(null); setPreviewFor(null); setPreviewUrl(null) }}
+                    >
+                      🔍
+                    </div>
+                  </div>
+                  <div className="cell-caption">
+                    <div className="filename" title={it.name}>{it.name}</div>
+                    <div className="filesize">{it.w} × {it.h}</div>
                   </div>
                 </div>
               ))}

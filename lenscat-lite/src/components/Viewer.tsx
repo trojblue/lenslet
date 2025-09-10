@@ -86,6 +86,8 @@ export default function Viewer({ path, onClose, onNavigate }:{ path: string; onC
           src={url}
           alt="viewer"
           className="viewer-img"
+          draggable={false}
+          onDragStart={(e)=>{ e.preventDefault() }}
           onLoad={(ev)=>{
             const cont = containerRef.current
             const im = ev.currentTarget

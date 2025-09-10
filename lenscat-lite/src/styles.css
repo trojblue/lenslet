@@ -178,6 +178,9 @@
   transform-origin: center center;
   opacity: 0.99;
   will-change: transform;
+  -webkit-user-drag: none;
+  user-drag: none;
+  user-select: none;
 }
 
 .viewer-back {

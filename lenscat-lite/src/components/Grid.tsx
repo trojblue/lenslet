@@ -16,17 +16,24 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
   useLayoutEffect(() => {
     const el = parentRef.current
     if (!el) return
-    const ro = new ResizeObserver(([e]) => setWidth(e.contentRect.width))
-    ro.observe(el)
-    setWidth(el.clientWidth)
+     const measure = () => {
+       const cs = getComputedStyle(el)
+       const inner = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+       setWidth(inner)
+     }
+     const ro = new ResizeObserver(measure)
+     ro.observe(el)
+     measure()
     return () => ro.disconnect()
   }, [])
 
   const gap = 12
   const targetCell = 220
+  
   const columns = Math.max(1, Math.floor((width + gap) / (targetCell + gap)))
-  const cellW = Math.max(1, Math.floor((width - gap * Math.max(0, columns - 1)) / Math.max(1, columns)))
-  const rowH = Math.round((cellW * 4) / 3) + gap // aspect 3:4 + gap
+  const cellW   = (width - gap * (columns - 1)) / columns       // ← float
+  const rowH    = (cellW * 4) / 3 + gap                         // ← float
+  
 
   const rowCount = Math.ceil(items.length / Math.max(1, columns))
 
@@ -35,8 +42,9 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
     getScrollElement: () => parentRef.current,
     estimateSize: () => rowH,
     overscan: 6,
-    measureElement: (el) => el.getBoundingClientRect().height
+    measureElement: el => el.getBoundingClientRect().height
   })
+  
 
   const rows = rowVirtualizer.getVirtualItems()
 
@@ -75,7 +83,19 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
           const start = row.index * columns
           const slice = items.slice(start, start + columns)
           return (
-            <div ref={rowVirtualizer.measureElement} key={row.key} style={{ position: 'absolute', top: 0, left: 0, transform: `translateY(${row.start}px)`, display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap }}>
+            <div ref={rowVirtualizer.measureElement} 
+            key={row.key} 
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              transform: `translate3d(0, ${row.start}px, 0)`,  // allows sub-pixel
+              display: 'grid',
+              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+              gap,
+              paddingBottom: gap,
+            }}
+            >
               {slice.map(it => (
                 <div key={it.path} style={{ position:'relative' }}
                      onDoubleClick={()=> onOpenViewer(it.path)}

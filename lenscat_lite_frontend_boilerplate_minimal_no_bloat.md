@@ -148,7 +148,7 @@ body { margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, san
 
 /* Inspector */
 .panel { padding: 12px; border-bottom: 1px solid var(--border); }
-.label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+.label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; getBoundingClientRect().height: 6px; }
 .input, .textarea { width: 100%; background: #1b1b1b; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
 .textarea { min-height: 100px; resize: vertical; }
 .url { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); word-break: break-all; }
@@ -354,7 +354,7 @@ export default function Thumb({ path, name, onClick }:{ path:string; name:string
     return () => { alive = false }
   }, [path])
   return (
-    <div className="cell" onClick={onClick}>
+    <div className="cell" style={{ height: rowH - gap }} onClick={onClick}>
       {url ? <img className="thumb" src={url} alt={name} loading="lazy" decoding="async" /> : null}
       <div className="meta">{name}</div>
     </div>

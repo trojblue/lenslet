@@ -176,6 +176,8 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
                         path={it.path}
                         name={it.name}
                         selected={(active===it.path) || selectedSet.has(it.path)}
+                        displayW={cellW}
+                        displayH={mediaH}
                         onClick={(ev: React.MouseEvent)=>{
                           setActive(it.path)
                           // ctrl/cmd toggles, otherwise single select

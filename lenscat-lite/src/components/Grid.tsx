@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react'
+import React, { useMemo, useRef, useState, useEffect, useLayoutEffect } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Item } from '../lib/types'
 import Thumb from './Thumb'
@@ -10,16 +10,32 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
   const [hoverTimer, setHoverTimer] = useState<number | null>(null)
   const [active, setActive] = useState<string | null>(null)
   const parentRef = useRef<HTMLDivElement | null>(null)
-  const columnWidth = 220 // includes padding/gap; adjust with CSS
+
+  // Track container width accurately
+  const [width, setWidth] = useState(0)
+  useLayoutEffect(() => {
+    const el = parentRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setWidth(e.contentRect.width))
+    ro.observe(el)
+    setWidth(el.clientWidth)
+    return () => ro.disconnect()
+  }, [])
+
   const gap = 12
-  const columns = Math.max(1, Math.floor((parentRef.current?.clientWidth ?? 800) / (columnWidth + gap)))
-  const rowCount = Math.ceil(items.length / columns)
+  const targetCell = 220
+  const columns = Math.max(1, Math.floor((width + gap) / (targetCell + gap)))
+  const cellW = Math.max(1, Math.floor((width - gap * Math.max(0, columns - 1)) / Math.max(1, columns)))
+  const rowH = Math.round((cellW * 4) / 3) + gap // aspect 3:4 + gap
+
+  const rowCount = Math.ceil(items.length / Math.max(1, columns))
 
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => columnWidth + gap,
-    overscan: 4
+    estimateSize: () => rowH,
+    overscan: 6,
+    measureElement: (el) => el.getBoundingClientRect().height
   })
 
   const rows = rowVirtualizer.getVirtualItems()
@@ -30,7 +46,7 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
     const onKey = (e: KeyboardEvent) => {
       if (!items.length) return
       const idx = active ? items.findIndex(i => i.path === active) : 0
-      const col = columns
+      const col = Math.max(1, columns)
       let next = idx
       if (e.key === 'ArrowRight' || e.key === 'd') next = Math.min(items.length - 1, idx + 1)
       else if (e.key === 'ArrowLeft' || e.key === 'a') next = Math.max(0, idx - 1)
@@ -49,14 +65,17 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
     return () => { el.removeEventListener('keydown', onKey) }
   }, [items, active, columns])
 
+  // Re-measure when layout parameters change
+  useEffect(() => { rowVirtualizer.measure() }, [columns, rowH])
+
   return (
     <div className="grid" ref={parentRef} tabIndex={0}>
-      <div style={{ height: rowVirtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+      <div key={columns} style={{ height: rowVirtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
         {rows.map(row => {
           const start = row.index * columns
           const slice = items.slice(start, start + columns)
           return (
-            <div key={row.key} style={{ position: 'absolute', top: 0, left: 0, transform: `translateY(${row.start}px)`, display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap }}>
+            <div ref={rowVirtualizer.measureElement} key={row.key} style={{ position: 'absolute', top: 0, left: 0, transform: `translateY(${row.start}px)`, display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap }}>
               {slice.map(it => (
                 <div key={it.path} style={{ position:'relative' }}
                      onDoubleClick={()=> onOpenViewer(it.path)}

@@ -9,12 +9,12 @@
 }
 * { box-sizing: border-box }
 html,body,#root { height: 100%; background: var(--bg); color: var(--text); }
-body { margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+body { margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow: hidden; }
 
 .app { display: grid; grid-template-columns: var(--left, 260px) 1fr var(--right, 360px); grid-template-rows: 48px 1fr; height: 100%; position: relative; }
 .toolbar { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .sidebar { grid-column: 1; grid-row: 2; overflow: auto; border-right: 1px solid var(--border); background: var(--panel); }
-.main { grid-column: 2; grid-row: 2; position: relative; }
+.main { grid-column: 2; grid-row: 2; position: relative; overflow: auto; }
 .inspector { grid-column: 3; grid-row: 2; border-left: 1px solid var(--border); background: var(--panel); overflow: auto; }
 
 /* Resizers */
@@ -26,7 +26,7 @@ body { margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, san
 /* Grid cells */
 .grid { height: 100%; overflow: auto; padding: 12px; }
 .grid:focus { outline: none; box-shadow: none; }
-.cell { position: relative; background: var(--hover); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: 100%; aspect-ratio: 1 / 1; contain: content; content-visibility: auto; contain-intrinsic-size: 200px 200px; user-select: none; -webkit-user-select: none; }
+.cell { position: relative; background: var(--hover); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: 100%; aspect-ratio: 3 / 4; contain: content; content-visibility: auto; contain-intrinsic-size: 220px 294px; user-select: none; -webkit-user-select: none; }
 .cell.selected { outline: 2px solid var(--accent); }
 .cell:hover { outline: 1px solid var(--accent); transform: translateZ(0); }
 .thumb { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; user-select: none; -webkit-user-select: none; }

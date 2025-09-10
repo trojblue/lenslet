@@ -8,6 +8,8 @@ export default defineConfig({
       '/item': 'http://127.0.0.1:7070',
       '/thumb': 'http://127.0.0.1:7070',
       '/file': 'http://127.0.0.1:7070',
+      '/move': 'http://127.0.0.1:7070',
+      // allow POST /file for uploads
       '/search': 'http://127.0.0.1:7070',
       '/health': 'http://127.0.0.1:7070'
     }

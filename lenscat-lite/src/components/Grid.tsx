@@ -125,6 +125,33 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
                 <div
                   key={it.path}
                   className={`grid-cell ${active===it.path ? 'is-selected' : ''}`}
+                  draggable
+                  onDragStart={(e)=>{
+                    try {
+                      e.dataTransfer?.setData('text/lenscat-path', it.path)
+                      e.dataTransfer?.setData('text/plain', it.path)
+                      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove'
+                      // Create a lightweight drag image (semi-transparent thumb) positioned below cursor
+                      const host = e.currentTarget as HTMLElement
+                      const img = host.querySelector('.cell-content img') as HTMLImageElement | null
+                      const ghost = document.createElement('div')
+                      ghost.className = 'drag-ghost'
+                      const ghostImg = document.createElement('img')
+                      ghostImg.draggable = false
+                      ghostImg.alt = 'drag'
+                      // Prefer actual loaded thumb; otherwise let it remain empty
+                      if (img && img.src) ghostImg.src = img.src
+                      ghost.appendChild(ghostImg)
+                      document.body.appendChild(ghost)
+                      // Anchor cursor at top-center so the image sits below the pointer
+                      const w = ghost.getBoundingClientRect().width || 150
+                      e.dataTransfer!.setDragImage(ghost, Math.round(w/2), 0)
+                      // cleanup on dragend
+                      const cleanup = () => { try { ghost.remove() } catch {} ; window.removeEventListener('dragend', cleanup) }
+                      window.addEventListener('dragend', cleanup)
+                    } catch {}
+                  }}
+                  onDragEnd={()=>{ /* cleanup happens via window listener above */ }}
                 >
                   <div
                     className="cell-media"

@@ -44,7 +44,7 @@ function App(){
       if (Number.isFinite(rv) && rv > 0) setRightW(rv)
     } catch {}
   }, [])
-  const { data } = useFolder(current)
+  const { data, refetch } = useFolder(current)
 
   const items = useMemo(()=> data?.items ?? [], [data])
 
@@ -170,6 +170,47 @@ function App(){
     return () => window.removeEventListener('popstate', onPop)
   }, [viewer])
 
+  const [isDraggingOver, setDraggingOver] = useState(false)
+
+  useEffect(() => {
+    const el = appRef.current
+    if (!el) return
+    const onDragOver = (e: DragEvent) => {
+      if (!e.dataTransfer) return
+      if (Array.from(e.dataTransfer.types).includes('Files')) {
+        e.preventDefault()
+        setDraggingOver(true)
+      }
+    }
+    const onDragLeave = (e: DragEvent) => {
+      setDraggingOver(false)
+    }
+    const onDrop = async (e: DragEvent) => {
+      if (!e.dataTransfer) return
+      e.preventDefault()
+      setDraggingOver(false)
+      const files = Array.from(e.dataTransfer.files || [])
+      if (!files.length) return
+      // Only allow in a leaf folder (has items or no dirs)
+      const isLeaf = (data?.dirs?.length ?? 0) === 0
+      if (!isLeaf) return
+      for (const f of files) {
+        try {
+          await api.uploadFile(current, f)
+          await refetch()
+        } catch {}
+      }
+    }
+    el.addEventListener('dragover', onDragOver)
+    el.addEventListener('dragleave', onDragLeave)
+    el.addEventListener('drop', onDrop)
+    return () => {
+      el.removeEventListener('dragover', onDragOver)
+      el.removeEventListener('dragleave', onDragLeave)
+      el.removeEventListener('drop', onDrop)
+    }
+  }, [current, data?.dirs, refetch])
+
   return (
     <div className="app" ref={appRef} style={{ ['--left' as any]: `${leftW}px`, ['--right' as any]: `${rightW}px` }}>
       <Toolbar
@@ -200,6 +241,9 @@ function App(){
             if (np && np !== viewer) { setViewer(np); setSelected(np) }
           }}
         />
+      )}
+      {isDraggingOver && (
+        <div className="drop-overlay">Drop images to upload</div>
       )}
     </div>
   )

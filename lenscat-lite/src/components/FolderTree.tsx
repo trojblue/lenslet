@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import type { FolderIndex } from '../lib/types'
 import { useFolder } from '../api/folders'
+import { api } from '../api/client'
+import { useQueryClient } from '@tanstack/react-query'
 
 type Root = { label: string; path: string }
 
@@ -47,8 +49,9 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
   const { data } = useFolder(path)
   const idx = initial && path === initial.path ? initial : data
   const isActive = current === path
-  const isLeaf = (idx?.items?.length ?? 0) > 0
+  const isLeaf = (idx?.dirs?.length ?? 0) === 0
   const count = isLeaf ? idx?.items?.length ?? 0 : 0
+  const qc = useQueryClient()
 
   const toggle = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -61,7 +64,40 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
 
   return (
     <div>
-      <div className={`tree-item ${isActive?'active':''}`} style={{ paddingLeft: 8 + depth * 14 }} onClick={()=> onOpen(path)}>
+      <div
+        className={`tree-item ${isActive?'active':''}`}
+        style={{ paddingLeft: 8 + depth * 14, outline: 'none' }}
+        onClick={()=> onOpen(path)}
+        onDragOver={(e)=>{
+          const types = Array.from(e.dataTransfer?.types || [])
+          if (types.includes('text/lenscat-path')) { e.preventDefault() }
+        }}
+        onDragEnter={(e)=>{
+          const types = Array.from(e.dataTransfer?.types || [])
+          if (types.includes('text/lenscat-path') && isLeaf) {
+            e.preventDefault()
+            ;(e.currentTarget as HTMLElement).classList.add('drop-target')
+          }
+        }}
+        onDragLeave={(e)=>{
+          ;(e.currentTarget as HTMLElement).classList.remove('drop-target')
+        }}
+        onDrop={async (e)=>{
+          const dt = e.dataTransfer
+          if (!dt) return
+          e.preventDefault()
+          ;(e.currentTarget as HTMLElement).classList.remove('drop-target')
+          const src = dt.getData('text/lenscat-path') || dt.getData('text/plain')
+          if (!src) return
+          const srcDir = src.split('/').slice(0,-1).join('/') || '/'
+          try {
+            await api.moveFile(src, path)
+            // Invalidate/refetch both folders
+            qc.invalidateQueries({ queryKey: ['folder', srcDir] })
+            qc.invalidateQueries({ queryKey: ['folder', path] })
+          } catch {}
+        }}
+      >
         <span className="tree-toggle" onClick={toggle}>{isExpanded? '▾' : '▸'}</span>
         <span className="tree-label">{label}</span>
         {isLeaf && <span className="tree-count">{count}</span>}

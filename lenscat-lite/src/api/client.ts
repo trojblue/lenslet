@@ -17,5 +17,19 @@ export const api = {
   prefetchFile: async (path: string) => {
     const blob = await fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`).promise
     if ((blob.size || 0) <= 40 * 1024 * 1024) fileCache.set(path, blob)
+  },
+  uploadFile: async (dest: string, file: File) => {
+    const fd = new FormData()
+    fd.append('dest', dest)
+    fd.append('file', file)
+    const { promise } = fetchJSON<{ ok: boolean; path: string }>(`${BASE}/file`, { method: 'POST', body: fd as any })
+    return promise
+  },
+  moveFile: async (src: string, dest: string) => {
+    const fd = new FormData()
+    fd.append('src', src)
+    fd.append('dest', dest)
+    const { promise } = fetchJSON<{ ok: boolean; path: string }>(`${BASE}/move`, { method: 'POST', body: fd as any })
+    return promise
   }
 }

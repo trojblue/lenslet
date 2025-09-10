@@ -29,6 +29,7 @@ function App(){
   const [leftW, setLeftW] = useState<number>(160)
   const [rightW, setRightW] = useState<number>(240)
   const appRef = useRef<HTMLDivElement | null>(null)
+  const viewerHistoryPushedRef = useRef(false)
   const leftWRef = useRef(leftW)
   const rightWRef = useRef(rightW)
   useEffect(() => { leftWRef.current = leftW }, [leftW])
@@ -123,6 +124,8 @@ function App(){
         const raw = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
         const next = raw ? decodeURI(raw) : '/'
         const norm = next.startsWith('/') ? next : `/${next}`
+        // Any folder hash navigation should exit fullscreen
+        setViewer(null)
         setCurrent(prev => (prev === norm ? prev : norm))
       } catch {}
     }
@@ -140,24 +143,51 @@ function App(){
     } catch {}
   }
 
+  // Manage viewer history entry so browser Back closes fullscreen first
+  const openViewer = (p: string) => {
+    setViewer(p)
+    if (!viewerHistoryPushedRef.current) {
+      try { window.history.pushState({ viewer: true }, '', window.location.href); viewerHistoryPushedRef.current = true } catch {}
+    }
+  }
+
+  const closeViewer = () => {
+    setViewer(null)
+    if (viewerHistoryPushedRef.current) {
+      viewerHistoryPushedRef.current = false
+      try { window.history.back() } catch {}
+    }
+  }
+
+  useEffect(() => {
+    const onPop = () => {
+      if (viewer) {
+        viewerHistoryPushedRef.current = false
+        setViewer(null)
+      }
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [viewer])
+
   return (
     <div className="app" ref={appRef} style={{ ['--left' as any]: `${leftW}px`, ['--right' as any]: `${rightW}px` }}>
       <Toolbar
         onSearch={setQuery}
         viewerActive={!!viewer}
-        onBack={()=> setViewer(null)}
+        onBack={closeViewer}
         zoomPercent={viewer ? currentZoom : undefined}
         onZoomPercentChange={(p)=> setRequestedZoom(p)}
       />
       <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={startResizeLeft} />
       <div className="main">
-        <Grid items={items} onOpen={(p)=>{ setSelected(p); }} onOpenViewer={(p)=> { setViewer(p); setSelected(p) }} />
+        <Grid items={items} onOpen={(p)=>{ setSelected(p); }} onOpenViewer={(p)=> { openViewer(p); setSelected(p) }} />
       </div>
       <Inspector path={selected} item={items.find(i=>i.path===selected) ?? undefined} onResize={startResizeRight} />
       {viewer && (
         <Viewer
           path={viewer}
-          onClose={()=> setViewer(null)}
+          onClose={closeViewer}
           onZoomChange={(p)=> setCurrentZoom(Math.round(p))}
           requestedZoomPercent={requestedZoom}
           onZoomRequestConsumed={()=> setRequestedZoom(null)}

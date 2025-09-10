@@ -6,6 +6,7 @@ import Grid from './components/Grid'
 import Viewer from './components/Viewer'
 import Inspector from './components/Inspector'
 import { useFolder } from './api/folders'
+import { api } from './api/client'
 import './styles.css'
 
 const qc = new QueryClient()
@@ -23,6 +24,8 @@ function App(){
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const [viewer, setViewer] = useState<string | null>(null)
+  const [requestedZoom, setRequestedZoom] = useState<number | null>(null)
+  const [currentZoom, setCurrentZoom] = useState<number>(100)
   const [leftW, setLeftW] = useState<number>(160)
   const [rightW, setRightW] = useState<number>(240)
   const appRef = useRef<HTMLDivElement | null>(null)
@@ -87,6 +90,18 @@ function App(){
     window.addEventListener('mouseup', onUp)
   }
 
+  // Prefetch neighbors for the open viewer (previous and next)
+  useEffect(() => {
+    if (!viewer) return
+    const paths = items.map(i=> i.path)
+    const idx = paths.indexOf(viewer)
+    if (idx === -1) return
+    const prev = paths[idx - 1]
+    const next = paths[idx + 1]
+    try { if (prev) api.prefetchFile(prev) } catch {}
+    try { if (next) api.prefetchFile(next) } catch {}
+  }, [viewer, items])
+
   // Initialize current folder from URL hash and keep in sync
   useEffect(() => {
     try {
@@ -118,7 +133,13 @@ function App(){
 
   return (
     <div className="app" ref={appRef} style={{ ['--left' as any]: `${leftW}px`, ['--right' as any]: `${rightW}px` }}>
-      <Toolbar onSearch={setQuery} />
+      <Toolbar
+        onSearch={setQuery}
+        viewerActive={!!viewer}
+        onBack={()=> setViewer(null)}
+        zoomPercent={viewer ? currentZoom : undefined}
+        onZoomPercentChange={(p)=> setRequestedZoom(p)}
+      />
       <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={startResizeLeft} />
       <div className="main">
         <Grid items={items} onOpen={(p)=>{ setSelected(p); }} onOpenViewer={(p)=> { setViewer(p); setSelected(p) }} />
@@ -128,6 +149,9 @@ function App(){
         <Viewer
           path={viewer}
           onClose={()=> setViewer(null)}
+          onZoomChange={(p)=> setCurrentZoom(Math.round(p))}
+          requestedZoomPercent={requestedZoom}
+          onZoomRequestConsumed={()=> setRequestedZoom(null)}
           onNavigate={(delta)=>{
             const paths = items.map(i=> i.path)
             const idx = paths.indexOf(viewer)

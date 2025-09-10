@@ -1,4 +1,5 @@
 import { fetchJSON, fetchBlob } from '../lib/fetcher'
+import { blobCache } from '../lib/blobCache'
 import type { FolderIndex, Sidecar } from '../lib/types'
 
 // When deployed behind the same origin as the backend, leave BASE empty.
@@ -10,5 +11,6 @@ export const api = {
   getSidecar: (path: string) => fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`).promise,
   putSidecar: (path: string, body: Sidecar) => fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).promise,
   getThumb: (path: string) => fetchBlob(`${BASE}/thumb?path=${encodeURIComponent(path)}`).promise,
-  getFile: (path: string) => fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`).promise
+  getFile: (path: string) => blobCache.getOrFetch(path, () => fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`).promise),
+  prefetchFile: (path: string) => blobCache.prefetch(path, () => fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`).promise)
 }

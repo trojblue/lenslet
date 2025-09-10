@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 
-export default function Viewer({ path, onClose, onNavigate }:{ path: string; onClose:()=>void; onNavigate?:(delta:number)=>void }){
+export default function Viewer({ path, onClose, onNavigate, onZoomChange, requestedZoomPercent, onZoomRequestConsumed }:{ path: string; onClose:()=>void; onNavigate?:(delta:number)=>void; onZoomChange?:(p:number)=>void; requestedZoomPercent?: number | null; onZoomRequestConsumed?: ()=>void }){
   const [url, setUrl] = useState<string | null>(null)
   const [scale, setScale] = useState<number>(1)
   const [tx, setTx] = useState<number>(0)
@@ -30,9 +30,11 @@ export default function Viewer({ path, onClose, onNavigate }:{ path: string; onC
   useEffect(() => {
     let alive = true
     api.getFile(path).then(b => { if (!alive) return; setUrl(URL.createObjectURL(b)) }).catch(()=>{})
-    setScale(1)
-    setTx(0); setTy(0)
-    setBase(1)
+    // Prefetch neighbors (previous and next) optimistically
+    try {
+      // Neighbor list not available here; parent passes onNavigate only. We infer neighbors via list in App when navigating.
+      // As a best effort, ask App to handle or attempt lightweight prefetch via path heuristics not available; keeping here minimal.
+    } catch {}
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
       else if ((e.key === 'ArrowRight' || e.key === 'd') && onNavigate) onNavigate(1)
@@ -52,6 +54,29 @@ export default function Viewer({ path, onClose, onNavigate }:{ path: string; onC
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+
+  // Report zoom percent to parent
+  useEffect(() => {
+    if (onZoomChange) onZoomChange((base * scale) * 100)
+  }, [base, scale, onZoomChange])
+
+  // Apply external zoom requests centered in the container
+  useEffect(() => {
+    if (requestedZoomPercent == null) return
+    const cont = containerRef.current
+    if (!cont) { onZoomRequestConsumed && onZoomRequestConsumed(); return }
+    const targetScale = Math.max(0.05, Math.min(8, (requestedZoomPercent / 100) / Math.max(1e-6, base)))
+    const rect = cont.getBoundingClientRect()
+    const cx = rect.width / 2
+    const cy = rect.height / 2
+    setScale(s => {
+      const ratio = targetScale / s
+      setTx(prevTx => cx - ratio * (cx - prevTx))
+      setTy(prevTy => cy - ratio * (cy - prevTy))
+      return Number(targetScale.toFixed(4))
+    })
+    onZoomRequestConsumed && onZoomRequestConsumed()
+  }, [requestedZoomPercent, base, onZoomRequestConsumed])
 
   // Constrain viewer to the main gallery area (between resizers)
   return (
@@ -109,7 +134,7 @@ export default function Viewer({ path, onClose, onNavigate }:{ path: string; onC
         window.addEventListener('mouseup', onUp)
       }}
     >
-      <button className="viewer-back" onClick={(e)=>{ e.stopPropagation(); onClose() }}>← Back</button>
+      {/* Back button moved to toolbar while viewer is active */}
       {url && (
         <img
           ref={imgRef}
@@ -118,7 +143,7 @@ export default function Viewer({ path, onClose, onNavigate }:{ path: string; onC
           className="viewer-img"
           draggable={false}
           onDragStart={(e)=>{ e.preventDefault() }}
-          onLoad={fitAndCenter}
+          onLoad={(ev)=>{ fitAndCenter(); setScale(1) }}
           onClick={(e)=> e.stopPropagation()}
           style={{ transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`, transformOrigin: `0 0` }}
         />

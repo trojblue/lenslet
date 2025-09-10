@@ -128,7 +128,12 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
                     onMouseLeave={()=>{ if (hoverTimer) { window.clearTimeout(hoverTimer); setHoverTimer(null) }; setPreviewFor(null); setPreviewUrl(null) }}
                   >
                     <div className="cell-content">
-                      <Thumb path={it.path} name={it.name} selected={active===it.path} onClick={()=>{ setActive(it.path); onOpen(it.path) }} />
+                      <Thumb
+                        path={it.path}
+                        name={it.name}
+                        selected={active===it.path}
+                        onClick={()=>{ setActive(it.path); onOpen(it.path); try { api.prefetchFile(it.path) } catch {} }}
+                      />
                     </div>
                     <div
                       className="cell-zoom"

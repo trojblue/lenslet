@@ -70,7 +70,11 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
         onClick={()=> onOpen(path)}
         onDragOver={(e)=>{
           const types = Array.from(e.dataTransfer?.types || [])
-          if (types.includes('text/lenscat-path')) { e.preventDefault() }
+          if (types.includes('text/lenscat-path')) {
+            e.preventDefault()
+            // keep target highlighted while cursor is anywhere over the row
+            if (isLeaf) (e.currentTarget as HTMLElement).classList.add('drop-target')
+          }
         }}
         onDragEnter={(e)=>{
           const types = Array.from(e.dataTransfer?.types || [])
@@ -80,7 +84,11 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
           }
         }}
         onDragLeave={(e)=>{
-          ;(e.currentTarget as HTMLElement).classList.remove('drop-target')
+          // Only remove highlight if cursor truly left the element (not moving between children)
+          const target = e.currentTarget as HTMLElement
+          const over = document.elementFromPoint(e.clientX, e.clientY)
+          if (over && target.contains(over)) return
+          target.classList.remove('drop-target')
         }}
         onDrop={async (e)=>{
           const dt = e.dataTransfer
@@ -95,6 +103,12 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
             // Invalidate/refetch both folders
             qc.invalidateQueries({ queryKey: ['folder', srcDir] })
             qc.invalidateQueries({ queryKey: ['folder', path] })
+            // Optimistically update source folder cache to immediately remove item and adjust count
+            qc.setQueryData<any>(['folder', srcDir], (old) => {
+              if (!old || !Array.isArray(old.items)) return old
+              const next = { ...old, items: old.items.filter((i: any) => i.path !== src) }
+              return next
+            })
           } catch {}
         }}
       >

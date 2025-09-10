@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 
 type Root = { label: string; path: string }
 
-export default function FolderTree({ current, roots, data, onOpen, onResize }:{ current: string; roots: Root[]; data?: FolderIndex; onOpen:(p:string)=>void; onResize?:(e:React.MouseEvent)=>void }){
+export default function FolderTree({ current, roots, data, onOpen, onResize, onContextMenu }:{ current: string; roots: Root[]; data?: FolderIndex; onOpen:(p:string)=>void; onResize?:(e:React.MouseEvent)=>void; onContextMenu?:(e:React.MouseEvent, path:string)=>void }){
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['/']))
 
   useEffect(() => {
@@ -29,7 +29,7 @@ export default function FolderTree({ current, roots, data, onOpen, onResize }:{ 
     <div className="sidebar">
       <div className="tree">
         {roots.map(r => (
-          <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} initial={data} />
+          <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} onContextMenu={onContextMenu} initial={data} />
         ))}
       </div>
       <div className="resizer resizer-left" onMouseDown={onResize} />
@@ -44,7 +44,7 @@ function joinPath(a: string, b: string) {
   return joined.startsWith('/') ? joined : `/${joined}`
 }
 
-function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, initial }:{ path:string; label:string; depth:number; current:string; expanded:Set<string>; setExpanded:(u:(s:Set<string>)=>Set<string>)=>void; onOpen:(p:string)=>void; initial?:FolderIndex }){
+function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, onContextMenu, initial }:{ path:string; label:string; depth:number; current:string; expanded:Set<string>; setExpanded:(u:(s:Set<string>)=>Set<string>)=>void; onOpen:(p:string)=>void; onContextMenu?:(e:React.MouseEvent, path:string)=>void; initial?:FolderIndex }){
   const isExpanded = expanded.has(path)
   const { data } = useFolder(path)
   const idx = initial && path === initial.path ? initial : data
@@ -68,6 +68,7 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
         className={`tree-item ${isActive?'active':''}`}
         style={{ paddingLeft: 8 + depth * 14, outline: 'none' }}
         onClick={()=> onOpen(path)}
+        onContextMenu={(e)=> { e.preventDefault(); e.stopPropagation(); onContextMenu && onContextMenu(e, path) }}
         onDragOver={(e)=>{
           const types = Array.from(e.dataTransfer?.types || [])
           if (types.includes('text/lenscat-path') || types.includes('application/x-lenscat-paths')) {

@@ -4,7 +4,7 @@ import type { Item } from '../lib/types'
 import Thumb from './Thumb'
 import { api } from '../api/client'
 
-export default function Grid({ items, selected, onSelectionChange, onOpenViewer }:{ items: Item[]; selected: string[]; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void }){
+export default function Grid({ items, selected, onSelectionChange, onOpenViewer, onContextMenuItem }:{ items: Item[]; selected: string[]; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void; onContextMenuItem?:(e:React.MouseEvent, path:string)=>void }){
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [hoverTimer, setHoverTimer] = useState<number | null>(null)
@@ -158,6 +158,7 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer 
                     } catch {}
                   }}
                   onDragEnd={()=>{ /* cleanup happens via window listener above */ }}
+                  onContextMenu={(e)=>{ e.preventDefault(); e.stopPropagation(); if (onContextMenuItem) onContextMenuItem(e, it.path) }}
                 >
                   <div
                     className="cell-media"

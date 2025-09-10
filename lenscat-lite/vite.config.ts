@@ -9,6 +9,8 @@ export default defineConfig({
       '/thumb': 'http://127.0.0.1:7070',
       '/file': 'http://127.0.0.1:7070',
       '/move': 'http://127.0.0.1:7070',
+      '/delete': 'http://127.0.0.1:7070',
+      '/export-intent': 'http://127.0.0.1:7070',
       // allow POST /file for uploads
       '/search': 'http://127.0.0.1:7070',
       '/health': 'http://127.0.0.1:7070'

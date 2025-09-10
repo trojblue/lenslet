@@ -280,6 +280,27 @@
   pointer-events: none;
 }
 
+/* Context menu */
+.ctx {
+  position: fixed;
+  z-index: 1000;
+  background: #1b1b1b;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 160px;
+  padding: 6px 0;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+.ctx-item {
+  padding: 8px 12px;
+  color: var(--text);
+  cursor: default;
+}
+.ctx-item:hover { background: #2a2a2a; }
+.ctx-item.disabled { color: var(--muted); cursor: not-allowed; }
+.ctx-sep { height: 1px; background: var(--border); margin: 6px 0; }
+.ctx-danger { color: #ff6b6b; }
+
 /* Custom drag ghost - lightweight, semi-transparent */
 .drag-ghost {
   position: fixed;

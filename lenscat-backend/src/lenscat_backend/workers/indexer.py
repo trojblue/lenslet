@@ -49,6 +49,11 @@ async def build_index(storage, path: str):
         items.append({"path": full, "name": name, "type": _guess(full), "w": w, "h": h, "size": size, "hasThumb": hasThumb, "hasMeta": hasMeta})
     idx = {"v":1, "path": path, "generatedAt": datetime.now(timezone.utc).isoformat(), "items": items, "dirs": [{"name": d, "kind": "branch"} for d in dirs]}
     storage.write_bytes(storage.join(path, "_index.json"), jsonio.dumps(idx))
+    # Also ensure parent index reflects this folder's presence when called
+    try:
+        parent = storage.join(path, "..") if path else ""
+    except Exception:
+        parent = ""
 
 async def ensure_thumb(storage, full: str):
     tpath = full + ".thumbnail"

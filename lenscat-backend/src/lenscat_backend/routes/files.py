@@ -3,6 +3,9 @@ from fastapi import APIRouter, Response, HTTPException, Request, UploadFile, Fil
 import os
 from . import folders
 from ..workers.indexer import build_index, ensure_thumb
+from pydantic import BaseModel
+from ..storage.s3 import S3Storage
+from ..utils import jsonio
 
 router = APIRouter()
 
@@ -57,6 +60,12 @@ async def post_file(
         await build_index(storage, dest)
     except Exception:
         pass
+    try:
+        # Also refresh parent directory to reflect newly created folders
+        parent = os.path.dirname(dest) or "/"
+        await build_index(storage, parent)
+    except Exception:
+        pass
 
     return {"ok": True, "path": target_path}
 
@@ -82,7 +91,16 @@ async def post_move(
         for suf in (".json", ".thumbnail"):
             sp = src + suf
             if storage.exists(sp):
-                storage.write_bytes(target + suf, storage.read_bytes(sp))
+                if suf == ".json" and dest.strip("/").split("/")[-1] == "_trash_":
+                    try:
+                        data = jsonio.loads(storage.read_bytes(sp))
+                        if not data.get("original_position"):
+                            data["original_position"] = src
+                        storage.write_bytes(target + suf, jsonio.dumps(data))
+                    except Exception:
+                        storage.write_bytes(target + suf, storage.read_bytes(sp))
+                else:
+                    storage.write_bytes(target + suf, storage.read_bytes(sp))
     except Exception:
         pass
     # Best effort: delete originals (ignore on failure)
@@ -102,6 +120,12 @@ async def post_move(
         await build_index(storage, dest)
     except Exception:
         pass
+    try:
+        # Also refresh parent dir (e.g., root) to include any newly created folder names
+        parent = os.path.dirname(dest) or "/"
+        await build_index(storage, parent)
+    except Exception:
+        pass
     return {"ok": True, "path": target}
 
 
@@ -115,5 +139,68 @@ def _delete_path(storage, path: str):
                 os.remove(ap)
             except FileNotFoundError:
                 pass
+    except Exception:
+        pass
+
+
+@router.post("/export-intent")
+async def export_intent(request: Request, path: str = Form(...)):
+    # Best-effort: simply acknowledge on server (placeholder for future export pipeline)
+    try:
+        print(f"export-intent: {path}")
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+class DeleteBody(BaseModel):
+    paths: list[str]
+
+
+@router.post("/delete")
+async def delete_files(request: Request, body: DeleteBody):
+    storage = request.state.storage
+    if storage is None:
+        raise HTTPException(500, "Storage not configured")
+    src_dirs: set[str] = set()
+    for p in body.paths:
+        if not p:
+            continue
+        src_dirs.add(os.path.dirname(p) or "/")
+        # Delete main file and companions
+        _delete_any(storage, p)
+        for suf in (".json", ".thumbnail"):
+            _delete_any(storage, p + suf)
+    # Refresh indexes for affected folders
+    for d in src_dirs:
+        try:
+            await build_index(storage, d)
+        except Exception:
+            pass
+    return {"ok": True}
+
+
+def _delete_any(storage, path: str):
+    try:
+        # Local
+        from ..storage.local import LocalStorage
+        if isinstance(storage, LocalStorage):
+            ap = storage._abs(path)  # type: ignore[attr-defined]
+            try:
+                os.remove(ap)
+            except FileNotFoundError:
+                pass
+            return
+    except Exception:
+        pass
+    try:
+        # S3
+        if isinstance(storage, S3Storage):
+            key = storage._key(path)  # type: ignore[attr-defined]
+            try:
+                storage.s3.delete_object(Bucket=storage.bucket, Key=key)
+            except Exception:
+                pass
+            return
     except Exception:
         pass

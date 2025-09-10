@@ -31,5 +31,15 @@ export const api = {
     fd.append('dest', dest)
     const { promise } = fetchJSON<{ ok: boolean; path: string }>(`${BASE}/move`, { method: 'POST', body: fd as any })
     return promise
+  },
+  deleteFiles: async (paths: string[]) => {
+    const { promise } = fetchJSON<{ ok: boolean }>(`${BASE}/delete`, { method: 'POST', headers: { 'content-type':'application/json' }, body: JSON.stringify({ paths }) })
+    return promise
+  },
+  exportIntent: async (path: string) => {
+    const fd = new FormData()
+    fd.append('path', path)
+    const { promise } = fetchJSON<{ ok: boolean }>(`${BASE}/export-intent`, { method: 'POST', body: fd as any })
+    return promise
   }
 }

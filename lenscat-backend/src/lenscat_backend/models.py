@@ -34,6 +34,7 @@ class Sidecar(BaseModel):
     notes: str = ""
     exif: dict | None = None
     hash: str | None = None
+    original_position: str | None = None
     updated_at: str
     updated_by: str
 

@@ -171,6 +171,7 @@ function App(){
   }, [viewer])
 
   const [isDraggingOver, setDraggingOver] = useState(false)
+  const [ctx, setCtx] = useState<{ x:number; y:number; kind:'tree'|'grid'; payload:any } | null>(null)
 
   useEffect(() => {
     const el = appRef.current
@@ -211,6 +212,14 @@ function App(){
     }
   }, [current, data?.dirs, refetch])
 
+  useEffect(() => {
+    const onGlobalClick = () => setCtx(null)
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setCtx(null) }
+    window.addEventListener('click', onGlobalClick)
+    window.addEventListener('keydown', onEsc)
+    return () => { window.removeEventListener('click', onGlobalClick); window.removeEventListener('keydown', onEsc) }
+  }, [])
+
   return (
     <div className="app" ref={appRef} style={{ ['--left' as any]: `${leftW}px`, ['--right' as any]: `${rightW}px` }}>
       <Toolbar
@@ -220,9 +229,13 @@ function App(){
         zoomPercent={viewer ? currentZoom : undefined}
         onZoomPercentChange={(p)=> setRequestedZoom(p)}
       />
-      <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={startResizeLeft} />
+      <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={startResizeLeft}
+        onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
+      />
       <div className="main">
-        <Grid items={items} selected={selectedPaths} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { openViewer(p); setSelectedPaths([p]) }} />
+        <Grid items={items} selected={selectedPaths} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { openViewer(p); setSelectedPaths([p]) }}
+          onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
+        />
       </div>
       <Inspector path={selectedPaths[0] ?? null} selectedPaths={selectedPaths} items={items} onResize={startResizeRight} />
       {viewer && (
@@ -244,6 +257,53 @@ function App(){
       )}
       {isDraggingOver && (
         <div className="drop-overlay">Drop images to upload</div>
+      )}
+      {ctx && (
+        <div className="ctx" style={{ left: ctx.x, top: ctx.y }} onClick={e=> e.stopPropagation()}>
+          {ctx.kind === 'tree' && (
+            <>
+              <div className="ctx-item disabled" onClick={async ()=>{ try { await api.exportIntent(ctx.payload.path) } catch {} }}>Export (disabled)</div>
+            </>
+          )}
+          {ctx.kind === 'grid' && (
+            <>
+              {/* Move to trash */}
+              <div className={`ctx-item${current.endsWith('/_trash_') ? ' disabled' : ''}`} onClick={async ()=>{
+                if (current.endsWith('/_trash_')) return
+                const trash = `/_trash_`
+                for (const p of ctx.payload.paths as string[]) { try { await api.moveFile(p, trash) } catch {} }
+                // invalidate and optimistic update
+                try { await refetch() } catch {}
+                setCtx(null)
+              }}>Move to trash</div>
+              <div className="ctx-sep" />
+              {/* Permanent delete (only inside _trash_) */}
+              {current.endsWith('/_trash_') && (
+                <div className="ctx-item ctx-danger" onClick={async ()=>{
+                  try { await api.deleteFiles(ctx.payload.paths as string[]) } catch {}
+                  try { await refetch() } catch {}
+                  setCtx(null)
+                }}>Permanent delete</div>
+              )}
+              {current.endsWith('/_trash_') && (
+                <div className="ctx-item" onClick={async ()=>{
+                  // Recover: read sidecar for each and move back to original_position if present
+                  const toRecover = ctx.payload.paths as string[]
+                  for (const p of toRecover) {
+                    try {
+                      const sc = await api.getSidecar(p)
+                      const dest = (sc as any).original_position ? ((sc as any).original_position as string).split('/').slice(0,-1).join('/') : '/'
+                      const targetDir = dest || '/'
+                      await api.moveFile(p, targetDir)
+                    } catch {}
+                  }
+                  try { await refetch() } catch {}
+                  setCtx(null)
+                }}>Recover</div>
+              )}
+            </>
+          )}
+        </div>
       )}
     </div>
   )

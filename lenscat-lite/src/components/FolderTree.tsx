@@ -70,16 +70,22 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
         onClick={()=> onOpen(path)}
         onDragOver={(e)=>{
           const types = Array.from(e.dataTransfer?.types || [])
-          if (types.includes('text/lenscat-path')) {
+          if (types.includes('text/lenscat-path') || types.includes('application/x-lenscat-paths')) {
             e.preventDefault()
             // keep target highlighted while cursor is anywhere over the row
-            if (isLeaf) (e.currentTarget as HTMLElement).classList.add('drop-target')
+            if (isLeaf) {
+              // ensure only one drop-target at a time
+              document.querySelectorAll('.tree-item.drop-target').forEach(el => { if (el !== e.currentTarget) el.classList.remove('drop-target') })
+              ;(e.currentTarget as HTMLElement).classList.add('drop-target')
+            }
           }
         }}
         onDragEnter={(e)=>{
           const types = Array.from(e.dataTransfer?.types || [])
-          if (types.includes('text/lenscat-path') && isLeaf) {
+          if ((types.includes('text/lenscat-path') || types.includes('application/x-lenscat-paths')) && isLeaf) {
             e.preventDefault()
+            // ensure only one drop-target at a time
+            document.querySelectorAll('.tree-item.drop-target').forEach(el => { if (el !== e.currentTarget) el.classList.remove('drop-target') })
             ;(e.currentTarget as HTMLElement).classList.add('drop-target')
           }
         }}
@@ -95,18 +101,23 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
           if (!dt) return
           e.preventDefault()
           ;(e.currentTarget as HTMLElement).classList.remove('drop-target')
-          const src = dt.getData('text/lenscat-path') || dt.getData('text/plain')
-          if (!src) return
-          const srcDir = src.split('/').slice(0,-1).join('/') || '/'
+          const multi = dt.getData('application/x-lenscat-paths')
+          const paths: string[] = multi ? JSON.parse(multi) : [dt.getData('text/lenscat-path') || dt.getData('text/plain')]
+          const filtered = paths.filter(Boolean)
+          if (!filtered.length) return
+          let srcDir = filtered[0].split('/').slice(0,-1).join('/') || '/'
+          if (!srcDir.startsWith('/')) srcDir = `/${srcDir}`
+          let destPath = path
+          if (!destPath.startsWith('/')) destPath = `/${destPath}`
           try {
-            await api.moveFile(src, path)
+            for (const p of filtered) { await api.moveFile(p, destPath) }
             // Invalidate/refetch both folders
             qc.invalidateQueries({ queryKey: ['folder', srcDir] })
-            qc.invalidateQueries({ queryKey: ['folder', path] })
+            qc.invalidateQueries({ queryKey: ['folder', destPath] })
             // Optimistically update source folder cache to immediately remove item and adjust count
             qc.setQueryData<any>(['folder', srcDir], (old) => {
               if (!old || !Array.isArray(old.items)) return old
-              const next = { ...old, items: old.items.filter((i: any) => i.path !== src) }
+              const next = { ...old, items: old.items.filter((i: any) => !filtered.includes(i.path)) }
               return next
             })
           } catch {}

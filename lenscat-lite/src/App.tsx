@@ -22,7 +22,7 @@ export default function AppRoot(){
 function App(){
   const [current, setCurrent] = useState<string>('/')
   const [query, setQuery] = useState('')
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([])
   const [viewer, setViewer] = useState<string | null>(null)
   const [requestedZoom, setRequestedZoom] = useState<number | null>(null)
   const [currentZoom, setCurrentZoom] = useState<number>(100)
@@ -222,9 +222,9 @@ function App(){
       />
       <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={startResizeLeft} />
       <div className="main">
-        <Grid items={items} onOpen={(p)=>{ setSelected(p); }} onOpenViewer={(p)=> { openViewer(p); setSelected(p) }} />
+        <Grid items={items} selected={selectedPaths} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { openViewer(p); setSelectedPaths([p]) }} />
       </div>
-      <Inspector path={selected} item={items.find(i=>i.path===selected) ?? undefined} onResize={startResizeRight} />
+      <Inspector path={selectedPaths[0] ?? null} selectedPaths={selectedPaths} items={items} onResize={startResizeRight} />
       {viewer && (
         <Viewer
           path={viewer}

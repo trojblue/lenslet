@@ -4,7 +4,7 @@ import type { Item } from '../lib/types'
 import Thumb from './Thumb'
 import { api } from '../api/client'
 
-export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; onOpen:(p:string)=>void; onOpenViewer:(p:string)=>void }){
+export default function Grid({ items, selected, onSelectionChange, onOpenViewer }:{ items: Item[]; selected: string[]; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void }){
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [hoverTimer, setHoverTimer] = useState<number | null>(null)
@@ -82,7 +82,7 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
       const nextItem = items[next]
       if (nextItem) {
         setActive(nextItem.path)
-        onOpen(nextItem.path)
+        onSelectionChange([nextItem.path])
         // If the row is outside of the viewport, scroll it to the top
         const rowIdx = Math.floor(next / Math.max(1, columns))
         const scrollTop = el.scrollTop
@@ -97,10 +97,12 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
     }
     el.addEventListener('keydown', onKey)
     return () => { el.removeEventListener('keydown', onKey) }
-  }, [items, active, columns, onOpen, onOpenViewer])
+  }, [items, active, columns, onOpenViewer])
 
   // Re-measure when layout parameters change
   useEffect(() => { rowVirtualizer.measure() }, [columns, rowH])
+
+  const selectedSet = new Set(selected)
 
   return (
     <div className="grid" ref={parentRef} tabIndex={0} style={{ ['--gap' as any]: `${GAP}px` }}>
@@ -124,13 +126,17 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
               {slice.map(it => (
                 <div
                   key={it.path}
-                  className={`grid-cell ${active===it.path ? 'is-selected' : ''}`}
+                  className={`grid-cell ${(active===it.path || selectedSet.has(it.path)) ? 'is-selected' : ''}`}
                   draggable
                   onDragStart={(e)=>{
                     try {
-                      e.dataTransfer?.setData('text/lenscat-path', it.path)
-                      e.dataTransfer?.setData('text/plain', it.path)
+                      const paths = selectedSet.has(it.path) && selected.length>0 ? selected : [it.path]
+                      e.dataTransfer?.setData('application/x-lenscat-paths', JSON.stringify(paths))
+                      e.dataTransfer?.setData('text/lenscat-path', paths[0])
+                      e.dataTransfer?.setData('text/plain', paths.join('\n'))
                       if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove'
+                      // mark drag-active to adjust tree hover visuals
+                      try { document.body.classList.add('drag-active') } catch {}
                       // Create a lightweight drag image (semi-transparent thumb) positioned below cursor
                       const host = e.currentTarget as HTMLElement
                       const img = host.querySelector('.cell-content img') as HTMLImageElement | null
@@ -147,7 +153,7 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
                       const w = ghost.getBoundingClientRect().width || 150
                       e.dataTransfer!.setDragImage(ghost, Math.round(w/2), 0)
                       // cleanup on dragend
-                      const cleanup = () => { try { ghost.remove() } catch {} ; window.removeEventListener('dragend', cleanup) }
+                      const cleanup = () => { try { ghost.remove() } catch {} ; try { document.body.classList.remove('drag-active') } catch {} ; window.removeEventListener('dragend', cleanup) }
                       window.addEventListener('dragend', cleanup)
                     } catch {}
                   }}
@@ -162,8 +168,19 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
                       <Thumb
                         path={it.path}
                         name={it.name}
-                        selected={active===it.path}
-                        onClick={()=>{ setActive(it.path); onOpen(it.path); try { api.prefetchFile(it.path); api.prefetchThumb(it.path) } catch {} }}
+                        selected={(active===it.path) || selectedSet.has(it.path)}
+                        onClick={(ev: React.MouseEvent)=>{
+                          setActive(it.path)
+                          // ctrl/cmd toggles, otherwise single select
+                          if (ev.ctrlKey || ev.metaKey) {
+                            const next = new Set(selected)
+                            if (next.has(it.path)) next.delete(it.path); else next.add(it.path)
+                            onSelectionChange(Array.from(next))
+                          } else {
+                            onSelectionChange([it.path])
+                          }
+                          try { api.prefetchFile(it.path); api.prefetchThumb(it.path) } catch {}
+                        }}
                       />
                     </div>
                     <div

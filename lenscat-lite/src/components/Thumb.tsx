@@ -3,7 +3,7 @@ import { api } from '../api/client'
 
 const blobUrlCache = new Map<string, string>()
 
-export default function Thumb({ path, name, onClick, selected }:{ path:string; name:string; onClick:()=>void; selected?: boolean }){
+export default function Thumb({ path, name, onClick, selected }:{ path:string; name:string; onClick:(e:React.MouseEvent)=>void; selected?: boolean }){
   const [url, setUrl] = useState<string | null>(blobUrlCache.get(path) ?? null)
   useEffect(() => {
     let alive = true

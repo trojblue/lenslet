@@ -87,10 +87,39 @@ function App(){
     window.addEventListener('mouseup', onUp)
   }
 
+  // Initialize current folder from URL hash and keep in sync
+  useEffect(() => {
+    try {
+      const raw = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
+      const initial = raw ? decodeURI(raw) : '/'
+      if (initial && typeof initial === 'string') setCurrent(initial.startsWith('/') ? initial : `/${initial}`)
+    } catch {}
+    const onHash = () => {
+      try {
+        const raw = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
+        const next = raw ? decodeURI(raw) : '/'
+        const norm = next.startsWith('/') ? next : `/${next}`
+        setCurrent(prev => (prev === norm ? prev : norm))
+      } catch {}
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  const openFolder = (p: string) => {
+    // Close fullscreen viewer when navigating to another folder
+    setViewer(null)
+    setCurrent(p)
+    try {
+      const nextHash = `#${encodeURI(p)}`
+      if (window.location.hash !== nextHash) window.location.hash = nextHash
+    } catch {}
+  }
+
   return (
     <div className="app" ref={appRef} style={{ ['--left' as any]: `${leftW}px`, ['--right' as any]: `${rightW}px` }}>
       <Toolbar onSearch={setQuery} />
-      <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={setCurrent} onResize={startResizeLeft} />
+      <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={startResizeLeft} />
       <div className="main">
         <Grid items={items} onOpen={(p)=>{ setSelected(p); }} onOpenViewer={(p)=> { setViewer(p); setSelected(p) }} />
       </div>

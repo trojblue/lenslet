@@ -160,8 +160,9 @@
   position: absolute;
   inset: 48px var(--right, 240px) 0 var(--left, 160px); /* respect sidebars */
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* Anchor children to top-left; JS translate() from (0,0) controls positioning */
+  align-items: flex-start;
+  justify-content: flex-start;
   background: var(--panel); /* match gallery background */
   z-index: 40;
   overflow: hidden;
@@ -171,15 +172,15 @@
 .viewer.dragging { cursor: grabbing; user-select: none; }
 
 .viewer-img {
-  max-width: 96%;
-  max-height: 96%;
+  max-width: none;
+  max-height: none;
   object-fit: contain;
   transition: opacity 120ms ease; /* remove transform animation for snappier pan */
-  transform-origin: center center;
+  /* Translate from top-left */
+  transform-origin: 0 0;
   opacity: 0.99;
   will-change: transform;
   -webkit-user-drag: none;
-  user-drag: none;
   user-select: none;
 }
 

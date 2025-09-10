@@ -11,6 +11,22 @@ export default function Viewer({ path, onClose, onNavigate }:{ path: string; onC
   const containerRef = useRef<HTMLDivElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
 
+  // Compute base fit (no upscaling) and center within the container
+  const fitAndCenter = () => {
+    const cont = containerRef.current
+    const im = imgRef.current
+    if (!cont || !im || !im.naturalWidth || !im.naturalHeight) return
+    const r = cont.getBoundingClientRect()
+    const bw = r.width / im.naturalWidth
+    const bh = r.height / im.naturalHeight
+    const b = Math.min(1, Math.min(bw, bh))
+    setBase(b)
+    const imgW = im.naturalWidth * b
+    const imgH = im.naturalHeight * b
+    setTx((r.width - imgW)/2)
+    setTy((r.height - imgH)/2)
+  }
+
   useEffect(() => {
     let alive = true
     api.getFile(path).then(b => { if (!alive) return; setUrl(URL.createObjectURL(b)) }).catch(()=>{})
@@ -26,11 +42,22 @@ export default function Viewer({ path, onClose, onNavigate }:{ path: string; onC
     return () => { alive = false; window.removeEventListener('keydown', onKey); if (url) URL.revokeObjectURL(url) }
   }, [path])
 
+  // Refit and re-center when the viewer container resizes
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      fitAndCenter()
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   // Constrain viewer to the main gallery area (between resizers)
   return (
     <div
       ref={containerRef}
-      className={`viewer${scale>1?' grabbable':''}${dragging?' dragging':''}`}
+      className={`viewer grabbable${dragging?' dragging':''}`}
       onClick={onClose}
       onWheel={(e)=>{
         e.preventDefault()
@@ -54,9 +81,12 @@ export default function Viewer({ path, onClose, onNavigate }:{ path: string; onC
         })
       }}
       onMouseDown={(e)=>{
-        // start drag only if clicking within the viewer area and when zoomed in beyond base
+        // Start drag only when pressing on the image (so background clicks still close)
         const cont = containerRef.current
-        if (!cont || scale <= 1) return
+        const im = imgRef.current
+        if (!cont || !im) return
+        const target = e.target as Node
+        if (target !== im) return
         const rect = cont.getBoundingClientRect()
         if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return
         e.preventDefault()
@@ -88,21 +118,7 @@ export default function Viewer({ path, onClose, onNavigate }:{ path: string; onC
           className="viewer-img"
           draggable={false}
           onDragStart={(e)=>{ e.preventDefault() }}
-          onLoad={(ev)=>{
-            const cont = containerRef.current
-            const im = ev.currentTarget
-            if (!cont) return
-            const r = cont.getBoundingClientRect()
-            const bw = r.width / im.naturalWidth
-            const bh = r.height / im.naturalHeight
-            const b = Math.min(bw, bh)
-            setBase(b)
-            // center at base
-            const imgW = im.naturalWidth * b
-            const imgH = im.naturalHeight * b
-            setTx((r.width - imgW)/2)
-            setTy((r.height - imgH)/2)
-          }}
+          onLoad={fitAndCenter}
           onClick={(e)=> e.stopPropagation()}
           style={{ transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`, transformOrigin: `0 0` }}
         />

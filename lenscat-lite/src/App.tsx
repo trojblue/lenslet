@@ -96,11 +96,20 @@ function App(){
     const paths = items.map(i=> i.path)
     const idx = paths.indexOf(viewer)
     if (idx === -1) return
-    const prev = paths[idx - 1]
-    const next = paths[idx + 1]
-    try { if (prev) api.prefetchFile(prev) } catch {}
-    try { if (next) api.prefetchFile(next) } catch {}
+    const prevs = [paths[idx - 1], paths[idx - 2]].filter(Boolean) as string[]
+    const nexts = [paths[idx + 1], paths[idx + 2]].filter(Boolean) as string[]
+    for (const p of prevs) { try { api.prefetchFile(p) } catch {} }
+    for (const p of nexts) { try { api.prefetchFile(p) } catch {} }
+    // Prefetch their thumbnails too (very cheap)
+    for (const p of [...prevs, ...nexts]) { try { api.prefetchThumb(p) } catch {} }
   }, [viewer, items])
+
+  // On folder load, prefetch fullsize for the first 5 items (respect size cap)
+  useEffect(() => {
+    if (!data || !Array.isArray(data.items)) return
+    const firstFive = data.items.slice(0, 5)
+    for (const it of firstFive) { try { api.prefetchFile(it.path) } catch {} }
+  }, [data?.path])
 
   // Initialize current folder from URL hash and keep in sync
   useEffect(() => {

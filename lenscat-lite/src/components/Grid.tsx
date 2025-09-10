@@ -108,6 +108,10 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
         {rows.map(row => {
           const start = row.index * columns
           const slice = items.slice(start, start + columns)
+          // Prefetch thumbnails for the next page worth of items when we render this row
+          const nextPageStart = (row.index + 1) * columns
+          const nextPageItems = items.slice(nextPageStart, nextPageStart + columns)
+          for (const it of nextPageItems) { try { api.prefetchThumb(it.path) } catch {} }
           return (
             <div
               key={row.key}
@@ -132,7 +136,7 @@ export default function Grid({ items, onOpen, onOpenViewer }:{ items: Item[]; on
                         path={it.path}
                         name={it.name}
                         selected={active===it.path}
-                        onClick={()=>{ setActive(it.path); onOpen(it.path); try { api.prefetchFile(it.path) } catch {} }}
+                        onClick={()=>{ setActive(it.path); onOpen(it.path); try { api.prefetchFile(it.path); api.prefetchThumb(it.path) } catch {} }}
                       />
                     </div>
                     <div

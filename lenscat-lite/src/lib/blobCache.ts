@@ -3,7 +3,7 @@
 
 type CacheEntry = { blob: Blob; size: number }
 
-class BlobLRUCache {
+export class BlobLRUCache {
   private store: Map<string, CacheEntry> = new Map()
   private inflight: Map<string, Promise<Blob>> = new Map()
   private totalBytes = 0
@@ -66,6 +66,8 @@ class BlobLRUCache {
   }
 }
 
-export const blobCache = new BlobLRUCache(80 * 1024 * 1024) // ~80MB
+// Separate caches for full images and thumbnails
+export const fileCache = new BlobLRUCache(60 * 1024 * 1024) // ~60MB
+export const thumbCache = new BlobLRUCache(20 * 1024 * 1024) // ~20MB
 
 

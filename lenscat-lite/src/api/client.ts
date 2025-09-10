@@ -1,16 +1,21 @@
 import { fetchJSON, fetchBlob } from '../lib/fetcher'
-import { blobCache } from '../lib/blobCache'
+import { fileCache, thumbCache } from '../lib/blobCache'
 import type { FolderIndex, Sidecar } from '../lib/types'
 
 // When deployed behind the same origin as the backend, leave BASE empty.
 // During local dev, Vite's proxy forwards these to the backend.
-const BASE = import.meta.env.VITE_API_BASE ?? ''
+const BASE = (import.meta as any).env?.VITE_API_BASE ?? ''
 
 export const api = {
   getFolder: (path: string, page?: number) => fetchJSON<FolderIndex>(`${BASE}/folders?path=${encodeURIComponent(path)}${page!=null?`&page=${page}`:''}`).promise,
   getSidecar: (path: string) => fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`).promise,
   putSidecar: (path: string, body: Sidecar) => fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).promise,
-  getThumb: (path: string) => fetchBlob(`${BASE}/thumb?path=${encodeURIComponent(path)}`).promise,
-  getFile: (path: string) => blobCache.getOrFetch(path, () => fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`).promise),
-  prefetchFile: (path: string) => blobCache.prefetch(path, () => fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`).promise)
+  getThumb: (path: string) => thumbCache.getOrFetch(path, () => fetchBlob(`${BASE}/thumb?path=${encodeURIComponent(path)}`).promise),
+  prefetchThumb: (path: string) => thumbCache.prefetch(path, () => fetchBlob(`${BASE}/thumb?path=${encodeURIComponent(path)}`).promise),
+  getFile: (path: string) => fileCache.getOrFetch(path, () => fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`).promise),
+  // Prefetch with a 40MB size cap to avoid caching abnormally large originals
+  prefetchFile: async (path: string) => {
+    const blob = await fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`).promise
+    if ((blob.size || 0) <= 40 * 1024 * 1024) fileCache.set(path, blob)
+  }
 }

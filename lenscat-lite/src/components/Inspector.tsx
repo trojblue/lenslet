@@ -33,8 +33,8 @@ export default function Inspector({ path, item, onResize }:{ path: string | null
     <div className="inspector">
       {/* Thumbnail */}
       <div className="panel" style={{ display:'flex', justifyContent:'center' }}>
-        <div style={{ position:'relative', borderRadius:8, overflow:'hidden', border:'1px solid var(--border)' }}>
-          {thumbUrl && <img src={thumbUrl} alt="thumb" style={{ display:'block', width:220, height:'auto' }} />}
+        <div style={{ position:'relative', borderRadius:8, overflow:'hidden', border:'1px solid var(--border)', width: 220, height: 160, background:'var(--panel)' }}>
+          {thumbUrl && <img src={thumbUrl} alt="thumb" style={{ display:'block', width:'100%', height:'100%', objectFit:'contain' }} />}
           {!!ext && <div style={{ position:'absolute', top:6, left:6, background:'#1b1b1b', border:'1px solid var(--border)', color:'var(--text)', fontSize:12, padding:'2px 6px', borderRadius:6 }}>{ext}</div>}
         </div>
       </div>

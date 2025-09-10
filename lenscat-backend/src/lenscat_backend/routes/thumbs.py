@@ -13,14 +13,23 @@ def get_thumb(path: str, request: Request):
     if storage is None:
         raise HTTPException(500, "Storage not configured")
     thumb_path = path + ".thumbnail"
-    if storage.exists(thumb_path):
-        return Response(content=storage.read_bytes(thumb_path), media_type="image/webp")
+    try:
+        if storage.exists(thumb_path):
+            return Response(content=storage.read_bytes(thumb_path), media_type="image/webp")
+    except ValueError:
+        raise HTTPException(400, "invalid path")
     # generate on demand
-    if not storage.exists(path):
-        raise HTTPException(404, "file not found")
-    raw = storage.read_bytes(path)
+    try:
+        if not storage.exists(path):
+            raise HTTPException(404, "file not found")
+        raw = storage.read_bytes(path)
+    except ValueError:
+        raise HTTPException(400, "invalid path")
     thumb = make_thumbnail(raw, settings.thumb_long_edge, settings.thumb_quality)
-    storage.write_bytes(thumb_path, thumb)
+    try:
+        storage.write_bytes(thumb_path, thumb)
+    except ValueError:
+        raise HTTPException(400, "invalid path")
     # optionally write dimensions to sidecar if missing
     try:
         sc_path = path + ".json"

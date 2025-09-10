@@ -11,9 +11,12 @@ def search(request: Request, q: str = "", limit: int = 100):
     if storage is None:
         raise HTTPException(500, "Storage not configured")
     rollup_path = "_rollup.json"
-    if not storage.exists(rollup_path):
+    try:
+        if not storage.exists(rollup_path):
+            return SearchResult(items=[])
+        data = jsonio.loads(storage.read_bytes(rollup_path))
+    except ValueError:
         return SearchResult(items=[])
-    data = jsonio.loads(storage.read_bytes(rollup_path))
     items = []
     ql = q.lower()
     for it in data.get('items', []):

@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Settings:
-    root_path: str = os.getenv("ROOT_PATH", "./data")
+    # Restrict ROOT_PATH to an absolute path; default stays within repo's data dir
+    root_path: str = os.path.abspath(os.getenv("ROOT_PATH", "./data"))
     s3_bucket: str | None = os.getenv("S3_BUCKET")
     s3_prefix: str = os.getenv("S3_PREFIX", "")
     aws_region: str | None = os.getenv("AWS_REGION")

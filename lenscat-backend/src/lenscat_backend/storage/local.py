@@ -4,10 +4,23 @@ from .base import Storage
 
 class LocalStorage(Storage):
     def __init__(self, root: str):
+        # Resolve the configured root to an absolute, symlink-resolved path
         self.root = os.path.abspath(root)
+        self._root_real = os.path.realpath(self.root)
 
     def _abs(self, path: str) -> str:
-        return os.path.abspath(os.path.join(self.root, path.lstrip("/")))
+        # Join requested path under root and normalize
+        candidate = os.path.abspath(os.path.join(self._root_real, path.lstrip("/")))
+        # Resolve symlinks and ensure the final path is within the storage root
+        real = os.path.realpath(candidate)
+        try:
+            common = os.path.commonpath([self._root_real, real])
+        except Exception:
+            # Fallback for edge cases; deny on error
+            raise ValueError("invalid path")
+        if common != self._root_real:
+            raise ValueError("invalid path")
+        return real
 
     def list_dir(self, path: str):
         p = self._abs(path)

@@ -17,11 +17,17 @@ def get_folder(path: str, request: Request):
         raise HTTPException(500, "Storage not configured")
 
     index_path = storage.join(path, INDEX_NAME)
-    if storage.exists(index_path):
-        data = jsonio.loads(storage.read_bytes(index_path))
-        return FolderIndex(**data)
+    try:
+        if storage.exists(index_path):
+            data = jsonio.loads(storage.read_bytes(index_path))
+            return FolderIndex(**data)
+    except ValueError:
+        raise HTTPException(400, "invalid path")
 
-    files, dirs = storage.list_dir(path)
+    try:
+        files, dirs = storage.list_dir(path)
+    except ValueError:
+        raise HTTPException(400, "invalid path")
     items: list[Item] = []
     for name in files:
         if not (name.lower().endswith(('.jpg','.jpeg','.png','.webp'))):
@@ -50,7 +56,10 @@ def get_folder(path: str, request: Request):
 
     dir_entries = [DirEntry(name=d, kind='branch') for d in dirs]
     idx = FolderIndex(path=path, generatedAt=datetime.now(timezone.utc).isoformat(), items=items, dirs=dir_entries)
-    storage.write_bytes(index_path, jsonio.dumps(idx.model_dump()))
+    try:
+        storage.write_bytes(index_path, jsonio.dumps(idx.model_dump()))
+    except ValueError:
+        pass
     return idx
 
 def _guess_mime(name: str) -> str:

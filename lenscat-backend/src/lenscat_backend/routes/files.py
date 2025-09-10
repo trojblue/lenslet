@@ -20,9 +20,17 @@ def get_file(path: str, request: Request):
     storage = request.state.storage
     if storage is None:
         raise HTTPException(500, "Storage not configured")
-    if not storage.exists(path):
-        raise HTTPException(404, "file not found")
-    data = storage.read_bytes(path)
+    # Restrict served files to expected image types and safe paths
+    lower = (path or "").lower()
+    if not (lower.endswith(".jpg") or lower.endswith(".jpeg") or lower.endswith(".png") or lower.endswith(".webp")):
+        raise HTTPException(400, "unsupported file type")
+    try:
+        if not storage.exists(path):
+            raise HTTPException(404, "file not found")
+        data = storage.read_bytes(path)
+    except ValueError:
+        # Raised by LocalStorage when the path escapes root
+        raise HTTPException(400, "invalid path")
     return Response(content=data, media_type=_guess_mime(path))
 
 
@@ -49,7 +57,10 @@ async def post_file(
     blob = await file.read()
     if not blob:
         raise HTTPException(400, "empty upload")
-    storage.write_bytes(target_path, blob)
+    try:
+        storage.write_bytes(target_path, blob)
+    except ValueError:
+        raise HTTPException(400, "invalid path")
 
     # Best-effort: generate thumbnail/sidecar and refresh index for the folder
     try:
@@ -79,13 +90,19 @@ async def post_move(
     storage = request.state.storage
     if storage is None:
         raise HTTPException(500, "Storage not configured")
-    if not storage.exists(src):
-        raise HTTPException(404, "source not found")
+    try:
+        if not storage.exists(src):
+            raise HTTPException(404, "source not found")
+    except ValueError:
+        raise HTTPException(400, "invalid path")
     name = os.path.basename(src)
     target = storage.join(dest, name)
     # Read/write then remove original (works across Local/S3 APIs we expose)
-    blob = storage.read_bytes(src)
-    storage.write_bytes(target, blob)
+    try:
+        blob = storage.read_bytes(src)
+        storage.write_bytes(target, blob)
+    except ValueError:
+        raise HTTPException(400, "invalid path")
     try:
         # Also move sidecar and thumbnail if present
         for suf in (".json", ".thumbnail"):

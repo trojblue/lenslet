@@ -44,6 +44,11 @@
   position: relative;
   height: 100%;
   overflow: auto;
+  contain: layout paint size;
+  will-change: scroll-position;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+  -webkit-overflow-scrolling: touch;
   outline: none;
 
   /* Better Windows/Linux scrollbar (Firefox) */
@@ -96,6 +101,7 @@
   padding-bottom: var(--gap);
   will-change: transform;
   contain: content;
+  content-visibility: auto;
 }
 
 /* Grid cell wrapper (no clipping so caption can sit in row gap) */
@@ -156,8 +162,16 @@
   justify-content: center;
   font-size: 10px;
   user-select: none;
-  pointer-events: auto;
+  pointer-events: none; /* hidden by default */
+  opacity: 0; /* hidden by default */
+  transition: opacity 120ms ease;
 }
+
+/* Hide hover UI while flinging to avoid decode/paint work */
+.grid.is-scrolling .cell-zoom { opacity: 0; pointer-events: none; }
+
+/* Show zoom badge only when hovering image (and not while flinging) */
+.cell-media:hover .cell-zoom { opacity: 1; pointer-events: auto; }
 
 /* Caption sits visually in the gap beneath the image */
 .cell-caption {
@@ -203,10 +217,10 @@
 .preview-backdrop {
   position: fixed;
   top: 48px;
-  left: var(--left);
-  right: var(--right);
+  left: 0;
+  right: 0;
   bottom: 0;
-  z-index: 9;
+  z-index: 999; /* ensure above virtualized rows */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -214,8 +228,8 @@
 }
 
 .preview-img {
-  max-width: 96%;
-  max-height: 96%;
+  max-width: 80vw; /* about 20% smaller than full viewport */
+  max-height: 80vh;
   object-fit: contain;
   transition: opacity 160ms ease;
   opacity: 0.98;

@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Item } from '../lib/types'
 import Thumb from './Thumb'
@@ -43,26 +44,30 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
     count: rowCount,
     getScrollElement: () => parentRef.current,
     estimateSize: () => rowH,
-    overscan: 6,
+    overscan: 8,
   })
 
   const rows = rowVirtualizer.getVirtualItems()
 
-  // Snappy smooth scroll helper (~150ms)
-  const smoothScrollTo = (el: HTMLElement, top: number, duration = 150) => {
-    const start = el.scrollTop
-    const delta = top - start
-    if (Math.abs(delta) < 2) { el.scrollTop = top; return }
-    const startTs = performance.now()
-    const step = (now: number) => {
-      const t = Math.min(1, (now - startTs) / duration)
-      // easeOutCubic
-      const eased = 1 - Math.pow(1 - t, 3)
-      el.scrollTop = start + delta * eased
-      if (t < 1) requestAnimationFrame(step)
-    }
-    requestAnimationFrame(step)
+  // Native compositor-driven smooth scrolling helper
+  const scrollRowIntoView = (el: HTMLElement, top: number) => {
+    try { el.scrollTo({ top, behavior: 'smooth' }) }
+    catch { el.scrollTop = top }
   }
+
+  const [isScrolling, setIsScrolling] = useState(false)
+  useEffect(() => {
+    const el = parentRef.current
+    if (!el) return
+    let t: any = 0
+    const onScroll = () => {
+      setIsScrolling(true)
+      window.clearTimeout(t)
+      t = window.setTimeout(() => setIsScrolling(false), 120)
+    }
+    el.addEventListener('scroll', onScroll, { passive: true } as any)
+    return () => el.removeEventListener('scroll', onScroll as any)
+  }, [])
 
   useEffect(() => {
     const el = parentRef.current
@@ -90,7 +95,7 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
         const rowTop = rowIdx * rowH
         const rowBottom = rowTop + rowH
         if (rowTop < scrollTop || rowBottom > viewBottom) {
-          try { smoothScrollTo(el, rowTop, 150) }
+          try { scrollRowIntoView(el, rowTop) }
           catch { try { rowVirtualizer.scrollToIndex(rowIdx, { align: 'start' as const }) } catch {} }
         }
       }
@@ -105,7 +110,7 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
   const selectedSet = new Set(selected)
 
   return (
-    <div className="grid" ref={parentRef} tabIndex={0} style={{ ['--gap' as any]: `${GAP}px` }}>
+    <div className={`grid${isScrolling ? ' is-scrolling' : ''}`} ref={parentRef} tabIndex={0} style={{ ['--gap' as any]: `${GAP}px` }}>
       <div key={columns} className="grid-rows" style={{ height: rowVirtualizer.getTotalSize() }}>
         {rows.map(row => {
           const start = row.index * columns
@@ -121,6 +126,7 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
               style={{
                 transform: `translate3d(0, ${row.start}px, 0)`,
                 gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                containIntrinsicSize: `${rowH}px 100%` as any,
               }}
             >
               {slice.map(it => (
@@ -187,6 +193,7 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
                     <div
                       className="cell-zoom"
                       onMouseEnter={async ()=>{
+                        if (isScrolling) return
                         if (hoverTimer) window.clearTimeout(hoverTimer)
                         setPreviewFor(it.path)
                         try {
@@ -210,10 +217,11 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
             </div>
           )
         })}
-        {previewFor && previewUrl && (
+        {previewFor && previewUrl && createPortal(
           <div className="preview-backdrop">
             <img src={previewUrl} alt="preview" className="preview-img" />
-          </div>
+          </div>,
+          document.body
         )}
       </div>
     </div>

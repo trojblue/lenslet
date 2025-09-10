@@ -57,6 +57,27 @@
 .grid::-webkit-scrollbar-thumb { background: rgba(130,130,140,0.7); border-radius: 8px; }
 .grid::-webkit-scrollbar-thumb:hover { background: rgba(150,150,160,0.85); }
 
+/* Apply consistent scrollbar styling app-wide (left tree, right inspector, textareas) */
+.sidebar,
+.inspector,
+.textarea {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(130,130,140,0.7) rgba(255,255,255,0.06);
+}
+
+.sidebar::-webkit-scrollbar,
+.inspector::-webkit-scrollbar,
+.textarea::-webkit-scrollbar { height: 12px; width: 12px; }
+.sidebar::-webkit-scrollbar-track,
+.inspector::-webkit-scrollbar-track,
+.textarea::-webkit-scrollbar-track { background: rgba(255,255,255,0.06); border-radius: 8px; }
+.sidebar::-webkit-scrollbar-thumb,
+.inspector::-webkit-scrollbar-thumb,
+.textarea::-webkit-scrollbar-thumb { background: rgba(130,130,140,0.7); border-radius: 8px; }
+.sidebar::-webkit-scrollbar-thumb:hover,
+.inspector::-webkit-scrollbar-thumb:hover,
+.textarea::-webkit-scrollbar-thumb:hover { background: rgba(150,150,160,0.85); }
+
 /* Virtualizer outer container that holds absolute-positioned rows */
 .grid-rows {
   position: relative;

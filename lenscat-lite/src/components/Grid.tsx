@@ -9,6 +9,7 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [hoverTimer, setHoverTimer] = useState<number | null>(null)
+  const [delayPassed, setDelayPassed] = useState<boolean>(false)
   const [active, setActive] = useState<string | null>(null)
   const previewUrlRef = useRef<string | null>(null)
   const parentRef = useRef<HTMLDivElement | null>(null)
@@ -110,8 +111,9 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
 
   const selectedSet = new Set(selected)
 
+  const hasPreview = !!(previewFor && previewUrl && delayPassed)
   return (
-    <div className={`grid${isScrolling ? ' is-scrolling' : ''}`} ref={parentRef} tabIndex={0} style={{ ['--gap' as any]: `${GAP}px` }}>
+    <div className={`grid${isScrolling ? ' is-scrolling' : ''}${hasPreview ? ' has-preview' : ''}`} ref={parentRef} tabIndex={0} style={{ ['--gap' as any]: `${GAP}px` }}>
       <div key={columns} className="grid-rows" style={{ height: rowVirtualizer.getTotalSize() }}>
         {rows.map(row => {
           const start = row.index * columns
@@ -167,12 +169,14 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
                 >
                   <div
                     className="cell-media"
+                    onMouseEnter={()=>{ try { api.prefetchFile(it.path) } catch {} }}
                     onDoubleClick={()=> onOpenViewer(it.path)}
                     onMouseLeave={()=>{
                       if (hoverTimer) { window.clearTimeout(hoverTimer); setHoverTimer(null) }
                       setPreviewFor(null)
                       if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} ; previewUrlRef.current = null }
                       setPreviewUrl(null)
+                      setDelayPassed(false)
                     }}
                   >
                     <div className="cell-content">
@@ -197,11 +201,12 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
                       />
                     </div>
                     <div
-                      className="cell-zoom"
+                      className="cell-zoom-hit"
                       onMouseEnter={async ()=>{
                         if (isScrolling) return
                         if (hoverTimer) window.clearTimeout(hoverTimer)
                         setPreviewFor(it.path)
+                        setDelayPassed(false)
                         try {
                           const blob = await api.getFile(it.path)
                           const u = URL.createObjectURL(blob)
@@ -209,12 +214,19 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
                           previewUrlRef.current = u
                           setPreviewUrl(u)
                         } catch {}
-                        const t = window.setTimeout(()=>{}, 200)
-                        setHoverTimer(t)
+                        const t = window.setTimeout(()=>{ setDelayPassed(true) }, 350)
+                        setHoverTimer(t as any)
                       }}
-                      onMouseLeave={()=>{ if (hoverTimer) window.clearTimeout(hoverTimer); setHoverTimer(null); setPreviewFor(null); if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} ; previewUrlRef.current = null }; setPreviewUrl(null) }}
+                      onMouseLeave={()=>{
+                        if (hoverTimer) window.clearTimeout(hoverTimer)
+                        setHoverTimer(null)
+                        setDelayPassed(false)
+                        setPreviewFor(null)
+                        if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} ; previewUrlRef.current = null }
+                        setPreviewUrl(null)
+                      }}
                     >
-                      🔍
+                      <div className="cell-zoom">🔍</div>
                     </div>
                   </div>
                   <div className="cell-caption">
@@ -226,8 +238,8 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
             </div>
           )
         })}
-        {previewFor && previewUrl && createPortal(
-          <div className="preview-backdrop">
+        {previewFor && previewUrl && delayPassed && createPortal(
+          <div className="preview-backdrop is-active">
             <img src={previewUrl} alt="preview" className="preview-img" />
           </div>,
           document.body

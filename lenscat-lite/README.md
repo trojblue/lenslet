@@ -23,10 +23,12 @@ Fast, minimal gallery UI. Bring your own FastAPI.
 
 The boilerplate is complete and ready for development:
 
-1. npm install to install dependencies
+1. `npm install` to install dependencies
 
 2. Set VITE_API_BASE environment variable
 
-3. npm run dev to start development server
+3. `npm run dev` to start development server
 
 4. Backend should serve the API endpoints defined in the PRD
+
+5. (run: )`npm run build` to build the frontend

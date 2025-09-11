@@ -29,6 +29,11 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
     return () => { alive = false }
   }, [path])
 
+  // Revoke on unmount if still present
+  useEffect(() => {
+    return () => { if (thumbUrl) { try { URL.revokeObjectURL(thumbUrl) } catch {} } }
+  }, [thumbUrl])
+
   const filename = path ? path.split('/').pop() || path : ''
   const ext = (() => {
     if (filename.includes('.')) return filename.slice(filename.lastIndexOf('.') + 1).toUpperCase()

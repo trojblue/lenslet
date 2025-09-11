@@ -10,6 +10,7 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [hoverTimer, setHoverTimer] = useState<number | null>(null)
   const [active, setActive] = useState<string | null>(null)
+  const previewUrlRef = useRef<string | null>(null)
   const parentRef = useRef<HTMLDivElement | null>(null)
 
   // Track container width accurately
@@ -138,8 +139,6 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
                     try {
                       const paths = selectedSet.has(it.path) && selected.length>0 ? selected : [it.path]
                       e.dataTransfer?.setData('application/x-lenscat-paths', JSON.stringify(paths))
-                      e.dataTransfer?.setData('text/lenscat-path', paths[0])
-                      e.dataTransfer?.setData('text/plain', paths.join('\n'))
                       if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove'
                       // mark drag-active to adjust tree hover visuals
                       try { document.body.classList.add('drag-active') } catch {}
@@ -169,7 +168,12 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
                   <div
                     className="cell-media"
                     onDoubleClick={()=> onOpenViewer(it.path)}
-                    onMouseLeave={()=>{ if (hoverTimer) { window.clearTimeout(hoverTimer); setHoverTimer(null) }; setPreviewFor(null); setPreviewUrl(null) }}
+                    onMouseLeave={()=>{
+                      if (hoverTimer) { window.clearTimeout(hoverTimer); setHoverTimer(null) }
+                      setPreviewFor(null)
+                      if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} ; previewUrlRef.current = null }
+                      setPreviewUrl(null)
+                    }}
                   >
                     <div className="cell-content">
                       <Thumb
@@ -200,12 +204,15 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
                         setPreviewFor(it.path)
                         try {
                           const blob = await api.getFile(it.path)
-                          setPreviewUrl(URL.createObjectURL(blob))
+                          const u = URL.createObjectURL(blob)
+                          if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} }
+                          previewUrlRef.current = u
+                          setPreviewUrl(u)
                         } catch {}
                         const t = window.setTimeout(()=>{}, 200)
                         setHoverTimer(t)
                       }}
-                      onMouseLeave={()=>{ if (hoverTimer) window.clearTimeout(hoverTimer); setHoverTimer(null); setPreviewFor(null); setPreviewUrl(null) }}
+                      onMouseLeave={()=>{ if (hoverTimer) window.clearTimeout(hoverTimer); setHoverTimer(null); setPreviewFor(null); if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} ; previewUrlRef.current = null }; setPreviewUrl(null) }}
                     >
                       🔍
                     </div>

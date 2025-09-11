@@ -44,6 +44,11 @@ export default function Viewer({ path, onClose, onNavigate, onZoomChange, reques
     return () => { alive = false; window.removeEventListener('keydown', onKey); if (url) URL.revokeObjectURL(url) }
   }, [path])
 
+  // Defensive revoke on unmount
+  useEffect(() => {
+    return () => { if (url) { try { URL.revokeObjectURL(url) } catch {} } }
+  }, [url])
+
   // Refit and re-center when the viewer container resizes
   useEffect(() => {
     const el = containerRef.current

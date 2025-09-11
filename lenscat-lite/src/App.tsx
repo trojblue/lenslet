@@ -34,6 +34,18 @@ function App(){
   const rightWRef = useRef(rightW)
   useEffect(() => { leftWRef.current = leftW }, [leftW])
   useEffect(() => { rightWRef.current = rightW }, [rightW])
+  const ALLOWED_PATH = /^[\/a-zA-Z0-9._\-\/]{1,512}$/
+  function sanitizePath(raw: string | null | undefined): string {
+    try {
+      const decoded = decodeURI(raw || '')
+      const withLeading = decoded.startsWith('/') ? decoded : `/${decoded}`
+      const squashed = withLeading.replace(/\/{2,}/g, '/')
+      if (!ALLOWED_PATH.test(squashed)) return '/'
+      return squashed
+    } catch {
+      return '/'
+    }
+  }
   // load from localStorage after mount; ignore if access is blocked
   useEffect(() => {
     try {
@@ -116,14 +128,13 @@ function App(){
   useEffect(() => {
     try {
       const raw = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
-      const initial = raw ? decodeURI(raw) : '/'
-      if (initial && typeof initial === 'string') setCurrent(initial.startsWith('/') ? initial : `/${initial}`)
+      const initial = sanitizePath(raw)
+      setCurrent(initial)
     } catch {}
     const onHash = () => {
       try {
         const raw = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
-        const next = raw ? decodeURI(raw) : '/'
-        const norm = next.startsWith('/') ? next : `/${next}`
+        const norm = sanitizePath(raw)
         // Any folder hash navigation should exit fullscreen
         setViewer(null)
         setCurrent(prev => (prev === norm ? prev : norm))
@@ -136,9 +147,10 @@ function App(){
   const openFolder = (p: string) => {
     // Close fullscreen viewer when navigating to another folder
     setViewer(null)
-    setCurrent(p)
+    const safe = sanitizePath(p)
+    setCurrent(safe)
     try {
-      const nextHash = `#${encodeURI(p)}`
+      const nextHash = `#${encodeURI(safe)}`
       if (window.location.hash !== nextHash) window.location.hash = nextHash
     } catch {}
   }

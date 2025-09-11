@@ -71,7 +71,7 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
         onContextMenu={(e)=> { e.preventDefault(); e.stopPropagation(); onContextMenu && onContextMenu(e, path) }}
         onDragOver={(e)=>{
           const types = Array.from(e.dataTransfer?.types || [])
-          if (types.includes('text/lenscat-path') || types.includes('application/x-lenscat-paths')) {
+          if (types.includes('application/x-lenscat-paths')) {
             e.preventDefault()
             // keep target highlighted while cursor is anywhere over the row
             if (isLeaf) {
@@ -83,7 +83,7 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
         }}
         onDragEnter={(e)=>{
           const types = Array.from(e.dataTransfer?.types || [])
-          if ((types.includes('text/lenscat-path') || types.includes('application/x-lenscat-paths')) && isLeaf) {
+          if ((types.includes('application/x-lenscat-paths')) && isLeaf) {
             e.preventDefault()
             // ensure only one drop-target at a time
             document.querySelectorAll('.tree-item.drop-target').forEach(el => { if (el !== e.currentTarget) el.classList.remove('drop-target') })
@@ -103,7 +103,7 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
           e.preventDefault()
           ;(e.currentTarget as HTMLElement).classList.remove('drop-target')
           const multi = dt.getData('application/x-lenscat-paths')
-          const paths: string[] = multi ? JSON.parse(multi) : [dt.getData('text/lenscat-path') || dt.getData('text/plain')]
+          const paths: string[] = multi ? JSON.parse(multi) : []
           const filtered = paths.filter(Boolean)
           if (!filtered.length) return
           let srcDir = filtered[0].split('/').slice(0,-1).join('/') || '/'

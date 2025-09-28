@@ -155,12 +155,12 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
               </button>
             )
           })}
-          <button className="button" style={{ marginLeft: 8 }} onClick={()=>{
+          <button className="button" style={{ marginLeft: 8 }} onClick={async ()=>{
             if (multi && selectedPaths.length) {
-              bulkUpdateSidecars(selectedPaths, { star: null })
+              await bulkUpdateSidecars(selectedPaths, { star: null })
               onStarChanged && onStarChanged(selectedPaths, null)
             } else {
-              mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), star: null, updated_at: new Date().toISOString(), updated_by: 'web' })
+              await (async ()=>{ const next = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any; try { await mut.mutateAsync({ ...next, star: null, updated_at: new Date().toISOString(), updated_by: 'web' }) } catch {} })()
               if (path) onStarChanged && onStarChanged([path], null)
             }
           }} title="Clear (key 0)">0</button>

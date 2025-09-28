@@ -72,7 +72,7 @@ async def ensure_thumb(storage, full: str):
                 data["exif"] = meta
             storage.write_bytes(scp, jsonio.dumps(data))
         else:
-            sc = {"v":1, "tags":[], "notes":"", "exif":meta, "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by":"worker"}
+            sc = {"v":1, "tags":[], "notes":"", "exif":meta, "star": None, "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by":"worker"}
             storage.write_bytes(scp, jsonio.dumps(sc))
     except Exception:
         pass

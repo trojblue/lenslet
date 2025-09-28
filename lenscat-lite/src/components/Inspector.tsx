@@ -10,6 +10,7 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
   const [tags, setTags] = useState<string>('')
   const [notes, setNotes] = useState<string>('')
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
+  const star = (data as any)?.star ?? null
 
   const multi = (selectedPaths?.length ?? 0) > 1
   const selectedItems = useMemo(() => {
@@ -20,6 +21,24 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
   const totalSize = useMemo(() => selectedItems.reduce((a, b:any)=> a + (b.size||0), 0), [selectedItems])
 
   useEffect(() => { if (data) { setTags((data.tags||[]).join(', ')); setNotes(data.notes||'') } }, [data?.updated_at])
+
+  // Keyboard shortcuts for rating: 1..5 sets, 0 unsets
+  useEffect(() => {
+    if (!path) return
+    const onKey = (e: KeyboardEvent) => {
+      if (!path) return
+      const target = e.target as HTMLElement | null
+      if (target && (target.closest('input, textarea, [contenteditable="true"]'))) return
+      const k = e.key
+      if (!/^[0-5]$/.test(k)) return
+      e.preventDefault()
+      const val = k === '0' ? null : Number(k)
+      const base = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any
+      mut.mutate({ ...base, star: val, updated_at: new Date().toISOString(), updated_by: 'web' })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [path, data?.updated_at])
 
   // Load thumbnail for the selected item
   useEffect(() => {
@@ -81,6 +100,27 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
         <div className="panel">
           <div className="label">Tags (comma-separated)</div>
           <input className="input" value={tags} onChange={e=>setTags(e.target.value)} onBlur={()=> mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), tags: tags.split(',').map(s=>s.trim()).filter(Boolean), updated_at: new Date().toISOString(), updated_by: 'web' })} />
+        </div>
+      )}
+      {!multi && (
+        <div className="panel">
+          <div className="label">Rating</div>
+          <div style={{ display:'flex', gap: 4 }}>
+            {Array.from({ length: 5 }).map((_, i) => {
+              const v = i + 1
+              const filled = (star ?? 0) >= v
+              return (
+                <button key={v} className="button" style={{ width: 28, padding: 0 }} onClick={()=>{
+                  const next = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any
+                  const val = (star===v) ? null : v
+                  mut.mutate({ ...next, star: val, updated_at: new Date().toISOString(), updated_by: 'web' })
+                }} title={`${v} star${v>1?'s':''} (key ${v})`}>
+                  {filled ? '★' : '☆'}
+                </button>
+              )
+            })}
+            <button className="button" style={{ marginLeft: 8 }} onClick={()=> mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), star: null, updated_at: new Date().toISOString(), updated_by: 'web' })} title="Clear (key 0)">0</button>
+          </div>
         </div>
       )}
       {!multi && (

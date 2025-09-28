@@ -18,7 +18,7 @@ def get_item(path: str, request: Request):
         raise HTTPException(400, "invalid path")
     if not exists:
         # create a minimal read-only view
-        sc = Sidecar(tags=[], notes="", exif=None, updated_at=datetime.now(timezone.utc).isoformat(), updated_by="server")
+        sc = Sidecar(tags=[], notes="", exif=None, star=None, updated_at=datetime.now(timezone.utc).isoformat(), updated_by="server")
         return sc
     try:
         data = jsonio.loads(storage.read_bytes(sidecar_path))

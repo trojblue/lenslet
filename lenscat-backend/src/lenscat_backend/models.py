@@ -35,6 +35,8 @@ class Sidecar(BaseModel):
     exif: dict | None = None
     hash: str | None = None
     original_position: str | None = None
+    # star rating from 1..5; None or 0 means unset
+    star: int | None = None
     updated_at: str
     updated_by: str
 

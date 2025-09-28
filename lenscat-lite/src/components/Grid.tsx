@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useLayoutEffect } from 'react'
+import React, { useRef, useState, useEffect, useLayoutEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Item } from '../lib/types'
@@ -13,6 +13,7 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
   const [active, setActive] = useState<string | null>(null)
   const previewUrlRef = useRef<string | null>(null)
   const parentRef = useRef<HTMLDivElement | null>(null)
+  const anchorRef = useRef<string | null>(null)
 
   // Track container width accurately
   const [width, setWidth] = useState(0)
@@ -41,6 +42,13 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
   const rowH    = mediaH + CAPTION_H + GAP // media + caption + gap
 
   const rowCount = Math.ceil(items.length / Math.max(1, columns))
+
+  // Fast lookup from path -> index for range selections
+  const pathToIndex = useMemo(() => {
+    const map = new Map<string, number>()
+    for (let i = 0; i < items.length; i++) map.set(items[i].path, i)
+    return map
+  }, [items])
 
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
@@ -90,6 +98,7 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
       if (nextItem) {
         setActive(nextItem.path)
         onSelectionChange([nextItem.path])
+        try { anchorRef.current = nextItem.path } catch {}
         // If the row is outside of the viewport, scroll it to the top
         const rowIdx = Math.floor(next / Math.max(1, columns))
         const scrollTop = el.scrollTop
@@ -188,14 +197,38 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
                         displayH={mediaH}
                         onClick={(ev: React.MouseEvent)=>{
                           setActive(it.path)
-                          // ctrl/cmd toggles, otherwise single select
-                          if (ev.ctrlKey || ev.metaKey) {
+                          const isShift = !!ev.shiftKey
+                          const isToggle = !!(ev.ctrlKey || ev.metaKey)
+
+                          if (isShift) {
+                            const anchorPath = anchorRef.current ?? active ?? (selected[0] ?? it.path)
+                            const aIdx = pathToIndex.get(anchorPath) ?? items.findIndex(i => i.path === anchorPath)
+                            const bIdx = pathToIndex.get(it.path) ?? items.findIndex(i => i.path === it.path)
+                            if (aIdx !== -1 && bIdx !== -1) {
+                              const start = Math.min(aIdx, bIdx)
+                              const end = Math.max(aIdx, bIdx)
+                              const range = items.slice(start, end + 1).map(x => x.path)
+                              if (isToggle) {
+                                const next = new Set(selected)
+                                for (const p of range) next.add(p)
+                                onSelectionChange(Array.from(next))
+                              } else {
+                                onSelectionChange(range)
+                              }
+                            } else {
+                              onSelectionChange([it.path])
+                            }
+                            // Preserve existing anchor on shift to allow repeated range selections
+                          } else if (isToggle) {
                             const next = new Set(selected)
                             if (next.has(it.path)) next.delete(it.path); else next.add(it.path)
                             onSelectionChange(Array.from(next))
+                            try { anchorRef.current = it.path } catch {}
                           } else {
                             onSelectionChange([it.path])
+                            try { anchorRef.current = it.path } catch {}
                           }
+
                           try { api.prefetchFile(it.path); api.prefetchThumb(it.path) } catch {}
                         }}
                       />

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useSidecar, useUpdateSidecar } from '../api/items'
+import { useSidecar, useUpdateSidecar, bulkUpdateSidecars } from '../api/items'
 import { fmtBytes } from '../lib/util'
 import { api } from '../api/client'
 
@@ -33,8 +33,12 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
       if (!/^[0-5]$/.test(k)) return
       e.preventDefault()
       const val = k === '0' ? null : Number(k)
-      const base = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any
-      mut.mutate({ ...base, star: val, updated_at: new Date().toISOString(), updated_by: 'web' })
+      if (multi && selectedPaths.length) {
+        bulkUpdateSidecars(selectedPaths, { star: val })
+      } else {
+        const base = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any
+        mut.mutate({ ...base, star: val, updated_at: new Date().toISOString(), updated_by: 'web' })
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -89,40 +93,73 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
         )}
       </div>
       {/* Notes */}
-      {!multi && (
-        <div className="panel">
-          <div className="label">Notes</div>
-          <textarea className="textarea" value={notes} onChange={e=>setNotes(e.target.value)} onBlur={()=> mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), notes, updated_at: new Date().toISOString(), updated_by: 'web' })} />
-        </div>
-      )}
+      <div className="panel">
+        <div className="label">{multi ? 'Notes (apply to all)' : 'Notes'}</div>
+        <textarea
+          className="textarea"
+          value={notes}
+          onChange={e=>setNotes(e.target.value)}
+          onBlur={()=> {
+            if (multi && selectedPaths.length) {
+              bulkUpdateSidecars(selectedPaths, { notes })
+            } else {
+              mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), notes, updated_at: new Date().toISOString(), updated_by: 'web' })
+            }
+          }}
+        />
+      </div>
       {/* Tags */}
-      {!multi && (
-        <div className="panel">
-          <div className="label">Tags (comma-separated)</div>
-          <input className="input" value={tags} onChange={e=>setTags(e.target.value)} onBlur={()=> mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), tags: tags.split(',').map(s=>s.trim()).filter(Boolean), updated_at: new Date().toISOString(), updated_by: 'web' })} />
+      <div className="panel">
+        <div className="label">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
+        <input
+          className="input"
+          value={tags}
+          onChange={e=>setTags(e.target.value)}
+          onBlur={()=> {
+            const parsed = tags.split(',').map(s=>s.trim()).filter(Boolean)
+            if (multi && selectedPaths.length) {
+              bulkUpdateSidecars(selectedPaths, { tags: parsed })
+            } else {
+              mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), tags: parsed, updated_at: new Date().toISOString(), updated_by: 'web' })
+            }
+          }}
+        />
+      </div>
+      <div className="panel">
+        <div className="label">{multi ? 'Rating (apply to all)' : 'Rating'}</div>
+        <div style={{ display:'flex', gap: 6, alignItems:'center' }}>
+          {Array.from({ length: 5 }).map((_, i) => {
+            const v = i + 1
+            const filled = (star ?? 0) >= v
+            return (
+              <button
+                key={v}
+                className="button"
+                style={{ width: 28, height: 28, padding: 0, borderRadius: 6, background: filled? 'rgba(255, 200, 0, 0.15)': '#1b1b1b', border:'1px solid var(--border)', color: filled? '#ffd166':'#aaa' }}
+                onClick={()=>{
+                  const val = (star===v && !multi) ? null : v
+                  if (multi && selectedPaths.length) {
+                    bulkUpdateSidecars(selectedPaths, { star: val })
+                  } else {
+                    const next = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any
+                    mut.mutate({ ...next, star: val, updated_at: new Date().toISOString(), updated_by: 'web' })
+                  }
+                }}
+                title={`${v} star${v>1?'s':''} (key ${v})`}
+              >
+                {filled ? '★' : '☆'}
+              </button>
+            )
+          })}
+          <button className="button" style={{ marginLeft: 8 }} onClick={()=>{
+            if (multi && selectedPaths.length) {
+              bulkUpdateSidecars(selectedPaths, { star: null })
+            } else {
+              mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), star: null, updated_at: new Date().toISOString(), updated_by: 'web' })
+            }
+          }} title="Clear (key 0)">0</button>
         </div>
-      )}
-      {!multi && (
-        <div className="panel">
-          <div className="label">Rating</div>
-          <div style={{ display:'flex', gap: 4 }}>
-            {Array.from({ length: 5 }).map((_, i) => {
-              const v = i + 1
-              const filled = (star ?? 0) >= v
-              return (
-                <button key={v} className="button" style={{ width: 28, padding: 0 }} onClick={()=>{
-                  const next = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any
-                  const val = (star===v) ? null : v
-                  mut.mutate({ ...next, star: val, updated_at: new Date().toISOString(), updated_by: 'web' })
-                }} title={`${v} star${v>1?'s':''} (key ${v})`}>
-                  {filled ? '★' : '☆'}
-                </button>
-              )
-            })}
-            <button className="button" style={{ marginLeft: 8 }} onClick={()=> mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), star: null, updated_at: new Date().toISOString(), updated_by: 'web' })} title="Clear (key 0)">0</button>
-          </div>
-        </div>
-      )}
+      </div>
       {!multi && (
         <div className="panel">
           <div className="label">Details</div>

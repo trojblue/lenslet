@@ -13,3 +13,20 @@ export function useUpdateSidecar(path: string) {
     onSuccess: (data) => { qc.setQueryData(['item', path], data) }
   })
 }
+
+// Helper for bulk updates: fetch each sidecar, merge fields, and PUT back
+export async function bulkUpdateSidecars(paths: string[], fields: Partial<Sidecar>) {
+  const now = new Date().toISOString()
+  for (const p of paths) {
+    try {
+      const current = await api.getSidecar(p)
+      const next: Sidecar = {
+        ...(current as any),
+        ...fields,
+        updated_at: now,
+        updated_by: 'web',
+      } as Sidecar
+      await api.putSidecar(p, next)
+    } catch {}
+  }
+}

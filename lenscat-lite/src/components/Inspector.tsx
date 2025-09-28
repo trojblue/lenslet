@@ -35,9 +35,11 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
       const val = k === '0' ? null : Number(k)
       if (multi && selectedPaths.length) {
         bulkUpdateSidecars(selectedPaths, { star: val })
+        onStarChanged && onStarChanged(selectedPaths, val)
       } else {
         const base = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any
         mut.mutate({ ...base, star: val, updated_at: new Date().toISOString(), updated_by: 'web' })
+        if (path) onStarChanged && onStarChanged([path], val)
       }
     }
     window.addEventListener('keydown', onKey)

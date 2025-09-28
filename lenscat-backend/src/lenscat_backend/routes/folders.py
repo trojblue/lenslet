@@ -20,7 +20,20 @@ def get_folder(path: str, request: Request):
     try:
         if storage.exists(index_path):
             data = jsonio.loads(storage.read_bytes(index_path))
-            return FolderIndex(**data)
+            idx = FolderIndex(**data)
+            # Enrich with live star values from sidecars so filters/counts stay fresh
+            try:
+                for it in idx.items:
+                    scp = it.path + '.json'
+                    if storage.exists(scp):
+                        try:
+                            sc = jsonio.loads(storage.read_bytes(scp))
+                            it.star = sc.get('star')
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            return idx
     except ValueError:
         raise HTTPException(400, "invalid path")
 

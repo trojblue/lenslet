@@ -72,10 +72,12 @@ export default function Toolbar({
                       </div>
                     )
                   })}
-                  <div onClick={()=> onToggleStar && onToggleStar(0)} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 6px', borderRadius:6, cursor:'pointer' }}>
-                    <div style={{ fontSize:13 }}>None</div>
-                    <div style={{ opacity:0.8, fontSize:12 }}>{starCounts?.['0'] ?? 0}</div>
-                  </div>
+                  {(() => { const activeNone = !!(starFilters||[]).includes(0); return (
+                    <div onClick={()=> onToggleStar && onToggleStar(0)} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 6px', borderRadius:6, cursor:'pointer', background: activeNone? 'rgba(58,143,255,0.15)':'transparent' }}>
+                      <div style={{ fontSize:13, color: activeNone? 'var(--text)' : 'var(--text)' }}>None</div>
+                      <div style={{ opacity:0.8, fontSize:12 }}>{starCounts?.['0'] ?? 0}</div>
+                    </div>
+                  )})()}
                   <div style={{ height:1, background:'var(--border)', margin:'6px 0' }} />
                   <div style={{ display:'flex', gap:8 }}>
                     <button className="toolbar-back" onClick={onClearStars} style={{ height:26, padding:'0 10px' }}>All</button>

@@ -14,6 +14,7 @@ class Item(BaseModel):
     hasThumb: bool = False
     hasMeta: bool = False
     hash: str | None = None
+    addedAt: str | None = None
 
 class DirEntry(BaseModel):
     name: str

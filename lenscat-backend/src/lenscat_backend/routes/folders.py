@@ -52,7 +52,7 @@ def get_folder(path: str, request: Request):
             w = h = 0
         thumb = storage.exists(full + ".thumbnail")
         meta = storage.exists(full + ".json")
-        items.append(Item(path=full, name=name, type=_guess_mime(name), w=w, h=h, size=size, hasThumb=thumb, hasMeta=meta))
+        items.append(Item(path=full, name=name, type=_guess_mime(name), w=w, h=h, size=size, hasThumb=thumb, hasMeta=meta, addedAt=datetime.now(timezone.utc).isoformat()))
 
     dir_entries = [DirEntry(name=d, kind='branch') for d in dirs]
     idx = FolderIndex(path=path, generatedAt=datetime.now(timezone.utc).isoformat(), items=items, dirs=dir_entries)

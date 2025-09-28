@@ -28,6 +28,8 @@ function App(){
   const [currentZoom, setCurrentZoom] = useState<number>(100)
   const [leftW, setLeftW] = useState<number>(160)
   const [rightW, setRightW] = useState<number>(240)
+  const [sortKey, setSortKey] = useState<'name'|'added'>('added')
+  const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc')
   const appRef = useRef<HTMLDivElement | null>(null)
   const viewerHistoryPushedRef = useRef(false)
   const leftWRef = useRef(leftW)
@@ -58,7 +60,42 @@ function App(){
   }, [])
   const { data, refetch } = useFolder(current)
 
-  const items = useMemo(()=> data?.items ?? [], [data])
+  const items = useMemo(()=> {
+    const arr = [...(data?.items ?? [])]
+    if (sortKey === 'name') {
+      arr.sort((a,b)=> a.name.localeCompare(b.name))
+    } else {
+      // addedAt may be missing; fallback to name for stability
+      arr.sort((a,b)=> {
+        const ta = a.addedAt ? Date.parse(a.addedAt) : 0
+        const tb = b.addedAt ? Date.parse(b.addedAt) : 0
+        if (ta === tb) return a.name.localeCompare(b.name)
+        return ta - tb
+      })
+    }
+    if (sortDir === 'desc') arr.reverse()
+    return arr
+  }, [data, sortKey, sortDir])
+
+  // Load persisted sort on mount
+  useEffect(() => {
+    try {
+      const ls = window.localStorage
+      const sk = ls.getItem('sortKey') as any
+      const sd = ls.getItem('sortDir') as any
+      if (sk === 'name' || sk === 'added') setSortKey(sk)
+      if (sd === 'asc' || sd === 'desc') setSortDir(sd)
+    } catch {}
+  }, [])
+
+  // Persist sort whenever it changes
+  useEffect(() => {
+    try {
+      const ls = window.localStorage
+      ls.setItem('sortKey', sortKey)
+      ls.setItem('sortDir', sortDir)
+    } catch {}
+  }, [sortKey, sortDir])
 
   const startResizeLeft = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -240,6 +277,10 @@ function App(){
         onBack={closeViewer}
         zoomPercent={viewer ? currentZoom : undefined}
         onZoomPercentChange={(p)=> setRequestedZoom(p)}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onSortKey={setSortKey}
+        onSortDir={setSortDir}
       />
       <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={startResizeLeft}
         onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}

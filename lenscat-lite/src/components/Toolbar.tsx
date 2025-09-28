@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 export default function Toolbar({
   onSearch,
@@ -10,6 +10,10 @@ export default function Toolbar({
   sortDir,
   onSortKey,
   onSortDir,
+  starFilters,
+  onToggleStar,
+  onClearStars,
+  starCounts,
 }:{
   onSearch: (q: string) => void
   viewerActive?: boolean
@@ -20,7 +24,22 @@ export default function Toolbar({
   sortDir?: 'asc' | 'desc'
   onSortKey?: (k: 'name' | 'added') => void
   onSortDir?: (d: 'asc' | 'desc') => void
+  starFilters?: number[] | null
+  onToggleStar?: (v: number) => void
+  onClearStars?: () => void
+  starCounts?: { [k: string]: number }
 }){
+  const [openRating, setOpenRating] = useState(false)
+  const ratingRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as HTMLElement
+      if (!ratingRef.current) return
+      if (!ratingRef.current.contains(t)) setOpenRating(false)
+    }
+    if (openRating) window.addEventListener('click', onClick)
+    return () => window.removeEventListener('click', onClick)
+  }, [openRating])
   return (
     <div className="toolbar">
       <div className="toolbar-left">
@@ -28,7 +47,7 @@ export default function Toolbar({
           <button className="toolbar-back" onClick={onBack}>← Back</button>
         )}
         {!viewerActive && (
-          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <div style={{ display:'flex', gap:8, alignItems:'center', position:'relative' }}>
             <select className="input" style={{ height:28 }} value={sortKey||'added'} onChange={e=> onSortKey && onSortKey((e.target.value as any) || 'added')}>
               <option value="added">Date added</option>
               <option value="name">Filename</option>
@@ -36,6 +55,34 @@ export default function Toolbar({
             <button className="toolbar-back" onClick={()=> onSortDir && onSortDir((sortDir||'desc')==='desc'?'asc':'desc')} title="Toggle sort">
               {(sortDir||'desc')==='desc' ? '↓' : '↑'}
             </button>
+            <div ref={ratingRef}>
+              <button className="toolbar-back" onClick={()=> setOpenRating(v=>!v)} title="Filter by rating" style={{ height:28, padding:'0 10px', display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ fontSize:14 }}>★</span>
+                <span style={{ fontSize:13 }}>Rating</span>
+              </button>
+              {openRating && (
+                <div style={{ position:'absolute', top:38, left:0, background:'#1b1b1b', border:'1px solid var(--border)', borderRadius:8, padding:6, boxShadow:'0 10px 26px rgba(0,0,0,0.35)', width:200 }}>
+                  {[5,4,3,2,1].map(v => {
+                    const active = !!(starFilters||[]).includes(v)
+                    const count = starCounts?.[String(v)] ?? 0
+                    return (
+                      <div key={v} onClick={()=> onToggleStar && onToggleStar(v)} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 6px', borderRadius:6, cursor:'pointer', background: active? 'rgba(58,143,255,0.15)':'transparent' }}>
+                        <div style={{ color: active? '#ffd166' : 'var(--text)', fontSize:13 }}>{'★'.repeat(v)}{'☆'.repeat(5-v)}</div>
+                        <div style={{ opacity:0.8, fontSize:12 }}>{count}</div>
+                      </div>
+                    )
+                  })}
+                  <div onClick={()=> onToggleStar && onToggleStar(0)} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 6px', borderRadius:6, cursor:'pointer' }}>
+                    <div style={{ fontSize:13 }}>None</div>
+                    <div style={{ opacity:0.8, fontSize:12 }}>{starCounts?.['0'] ?? 0}</div>
+                  </div>
+                  <div style={{ height:1, background:'var(--border)', margin:'6px 0' }} />
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button className="toolbar-back" onClick={onClearStars} style={{ height:26, padding:'0 10px' }}>All</button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

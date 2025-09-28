@@ -3,7 +3,7 @@ import { useSidecar, useUpdateSidecar, bulkUpdateSidecars } from '../api/items'
 import { fmtBytes } from '../lib/util'
 import { api } from '../api/client'
 
-export default function Inspector({ path, selectedPaths = [], items = [], onResize }:{ path: string | null; selectedPaths?: string[]; items?: { path:string; size:number; w:number; h:number; type:string; }[]; onResize?:(e:React.MouseEvent)=>void }){
+export default function Inspector({ path, selectedPaths = [], items = [], onResize, onStarChanged }:{ path: string | null; selectedPaths?: string[]; items?: { path:string; size:number; w:number; h:number; type:string; }[]; onResize?:(e:React.MouseEvent)=>void; onStarChanged?:(paths:string[], val:number|null)=>void }){
   const enabled = !!path
   const { data, isLoading } = useSidecar(path ?? '')
   const mut = useUpdateSidecar(path ?? '')
@@ -140,9 +140,11 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
                   const val = (star===v && !multi) ? null : v
                   if (multi && selectedPaths.length) {
                     bulkUpdateSidecars(selectedPaths, { star: val })
+                    onStarChanged && onStarChanged(selectedPaths, val)
                   } else {
                     const next = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any
                     mut.mutate({ ...next, star: val, updated_at: new Date().toISOString(), updated_by: 'web' })
+                    if (path) onStarChanged && onStarChanged([path], val)
                   }
                 }}
                 title={`${v} star${v>1?'s':''} (key ${v})`}
@@ -154,8 +156,10 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
           <button className="button" style={{ marginLeft: 8 }} onClick={()=>{
             if (multi && selectedPaths.length) {
               bulkUpdateSidecars(selectedPaths, { star: null })
+              onStarChanged && onStarChanged(selectedPaths, null)
             } else {
               mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), star: null, updated_at: new Date().toISOString(), updated_by: 'web' })
+              if (path) onStarChanged && onStarChanged([path], null)
             }
           }} title="Clear (key 0)">0</button>
         </div>

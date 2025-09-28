@@ -30,6 +30,8 @@ function App(){
   const [rightW, setRightW] = useState<number>(240)
   const [sortKey, setSortKey] = useState<'name'|'added'>('added')
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc')
+  const [starFilters, setStarFilters] = useState<number[] | null>(null)
+  const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, number | null>>({})
   const appRef = useRef<HTMLDivElement | null>(null)
   const viewerHistoryPushedRef = useRef(false)
   const leftWRef = useRef(leftW)
@@ -61,7 +63,9 @@ function App(){
   const { data, refetch } = useFolder(current)
 
   const items = useMemo(()=> {
-    const arr = [...(data?.items ?? [])]
+    // merge live star overrides so filtered items disappear immediately after edits
+    const merged = (data?.items ?? []).map(it => ({ ...it, star: (localStarOverrides[it.path]!==undefined ? localStarOverrides[it.path] : it.star) }))
+    const arr = [...merged]
     if (sortKey === 'name') {
       arr.sort((a,b)=> a.name.localeCompare(b.name))
     } else {
@@ -74,8 +78,15 @@ function App(){
       })
     }
     if (sortDir === 'desc') arr.reverse()
-    return arr
-  }, [data, sortKey, sortDir])
+    // Apply star filter
+    const filtered = arr.filter(it => {
+      if (!starFilters || !starFilters.length) return true
+      const val = it.star ?? 0
+      // Treat 0 as None; only match when 0 is in filters
+      return starFilters.includes(val)
+    })
+    return filtered
+  }, [data, sortKey, sortDir, starFilters, localStarOverrides])
 
   // Load persisted sort on mount
   useEffect(() => {
@@ -83,8 +94,10 @@ function App(){
       const ls = window.localStorage
       const sk = ls.getItem('sortKey') as any
       const sd = ls.getItem('sortDir') as any
+      const sf = ls.getItem('starFilters')
       if (sk === 'name' || sk === 'added') setSortKey(sk)
       if (sd === 'asc' || sd === 'desc') setSortDir(sd)
+      if (sf) { try { const arr = JSON.parse(sf); if (Array.isArray(arr)) setStarFilters(arr.filter((n:any)=>[0,1,2,3,4,5].includes(n))) } catch {} }
     } catch {}
   }, [])
 
@@ -94,8 +107,9 @@ function App(){
       const ls = window.localStorage
       ls.setItem('sortKey', sortKey)
       ls.setItem('sortDir', sortDir)
+      ls.setItem('starFilters', JSON.stringify(starFilters || []))
     } catch {}
-  }, [sortKey, sortDir])
+  }, [sortKey, sortDir, starFilters])
 
   const startResizeLeft = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -281,6 +295,24 @@ function App(){
         sortDir={sortDir}
         onSortKey={setSortKey}
         onSortDir={setSortDir}
+        starFilters={starFilters}
+        onToggleStar={(v)=>{
+          setStarFilters(prev => {
+            const next = new Set(prev || [])
+            if (next.has(v)) next.delete(v); else next.add(v)
+            return Array.from(next)
+          })
+        }}
+        onClearStars={()=> setStarFilters([])}
+        starCounts={(() => {
+          const merged = (data?.items ?? []).map(it => ({ ...it, star: (localStarOverrides[it.path]!==undefined ? localStarOverrides[it.path] : it.star) }))
+          const counts: Record<string, number> = { '0':0, '1':0, '2':0, '3':0, '4':0, '5':0 }
+          for (const it of merged) {
+            const v = (it.star ?? 0)
+            counts[String(v)] = (counts[String(v)] || 0) + 1
+          }
+          return counts
+        })()}
       />
       <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={startResizeLeft}
         onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
@@ -290,7 +322,13 @@ function App(){
           onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
         />
       </div>
-      <Inspector path={selectedPaths[0] ?? null} selectedPaths={selectedPaths} items={items} onResize={startResizeRight} />
+      <Inspector path={selectedPaths[0] ?? null} selectedPaths={selectedPaths} items={items} onResize={startResizeRight} onStarChanged={(paths, val)=>{
+        setLocalStarOverrides(prev => {
+          const next = { ...prev }
+          for (const p of paths) next[p] = val
+          return next
+        })
+      }} />
       {viewer && (
         <Viewer
           path={viewer}

@@ -38,9 +38,11 @@ def get_folder(path: str, request: Request):
         w = h = 0
         try:
             scp = full + '.json'
+            sc_star = None
             if storage.exists(scp):
                 data = jsonio.loads(storage.read_bytes(scp))
                 exif = data.get('exif') or {}
+                sc_star = data.get('star')
                 w = int(exif.get('width', 0) or 0)
                 h = int(exif.get('height', 0) or 0)
             if (not w or not h) and storage.exists(full):
@@ -52,7 +54,7 @@ def get_folder(path: str, request: Request):
             w = h = 0
         thumb = storage.exists(full + ".thumbnail")
         meta = storage.exists(full + ".json")
-        items.append(Item(path=full, name=name, type=_guess_mime(name), w=w, h=h, size=size, hasThumb=thumb, hasMeta=meta, addedAt=datetime.now(timezone.utc).isoformat()))
+        items.append(Item(path=full, name=name, type=_guess_mime(name), w=w, h=h, size=size, hasThumb=thumb, hasMeta=meta, addedAt=datetime.now(timezone.utc).isoformat(), star=(sc_star if 'sc_star' in locals() else None)))
 
     dir_entries = [DirEntry(name=d, kind='branch') for d in dirs]
     idx = FolderIndex(path=path, generatedAt=datetime.now(timezone.utc).isoformat(), items=items, dirs=dir_entries)

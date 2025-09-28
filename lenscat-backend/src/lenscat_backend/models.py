@@ -15,6 +15,7 @@ class Item(BaseModel):
     hasMeta: bool = False
     hash: str | None = None
     addedAt: str | None = None
+    star: int | None = None
 
 class DirEntry(BaseModel):
     name: str

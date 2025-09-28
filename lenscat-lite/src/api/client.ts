@@ -2,9 +2,13 @@ import { fetchJSON, fetchBlob } from '../lib/fetcher'
 import { fileCache, thumbCache } from '../lib/blobCache'
 import type { FolderIndex, Sidecar } from '../lib/types'
 
-// When deployed behind the same origin as the backend, leave BASE empty.
-// During local dev, Vite's proxy forwards these to the backend.
-const BASE = (import.meta as any).env?.VITE_API_BASE ?? ''
+// Prefer same-origin in production/tunnel; use VITE_API_BASE only for local dev.
+// If VITE_API_BASE points to localhost but the page is served from a non-localhost
+// origin (e.g., via Cloudflare tunnel), ignore it and use same-origin.
+const envBase = (import.meta as any).env?.VITE_API_BASE as string | undefined
+const isLocalHost = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(window.location.hostname)
+const envPointsToLocal = !!envBase && /localhost|127\.0\.0\.1|\[::1\]/i.test(envBase)
+const BASE = !isLocalHost && envPointsToLocal ? '' : (envBase ?? '')
 
 export const api = {
   getFolder: (path: string, page?: number) => fetchJSON<FolderIndex>(`${BASE}/folders?path=${encodeURIComponent(path)}${page!=null?`&page=${page}`:''}`).promise,

@@ -85,6 +85,19 @@ export default function Toolbar({
                 </div>
               )}
             </div>
+            {(() => {
+              const sf = starFilters || []
+              if (!sf.length) return null
+              const stars = sf.filter(v => v > 0).sort((a,b)=>b-a)
+              const label = stars.length ? stars.join(',') : (sf.includes(0) ? 'None' : '')
+              return (
+                <div className="filter-pill" aria-label={`Rating filter active: ${label}`} title={`Rating filter: ${label}`}>
+                  <span className="filter-pill-star">★</span>
+                  <span className="filter-pill-text">{label}</span>
+                  <button className="filter-pill-close" aria-label="Clear rating filter" onClick={onClearStars}>×</button>
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>

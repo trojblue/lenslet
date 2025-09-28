@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useSidecar, useUpdateSidecar, bulkUpdateSidecars } from '../api/items'
+import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate } from '../api/items'
 import { fmtBytes } from '../lib/util'
 import { api } from '../api/client'
 
@@ -141,12 +141,13 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
                 onClick={()=>{
                   const val = (star===v && !multi) ? null : v
                   if (multi && selectedPaths.length) {
-                    bulkUpdateSidecars(selectedPaths, { star: val })
                     onStarChanged && onStarChanged(selectedPaths, val)
+                    bulkUpdateSidecars(selectedPaths, { star: val })
                   } else {
-                    const next = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any
-                    mut.mutate({ ...next, star: val, updated_at: new Date().toISOString(), updated_by: 'web' })
-                    if (path) onStarChanged && onStarChanged([path], val)
+                    if (path) {
+                      onStarChanged && onStarChanged([path], val)
+                      queueSidecarUpdate(path, { star: val })
+                    }
                   }
                 }}
                 title={`${v} star${v>1?'s':''} (key ${v})`}

@@ -27,14 +27,7 @@ export async function bulkUpdateSidecars(paths: string[], fields: Partial<Sideca
     while (idx < paths.length) {
       const p = paths[idx++]
       try {
-        const current = await api.getSidecar(p)
-        const next: Sidecar = { ...(current as any), ...fields, updated_at: now, updated_by: 'web' } as Sidecar
-        // retry a few times for transient failures
-        let attempts = 0
-        for (;;) {
-          try { await api.putSidecar(p, next); break }
-          catch (e) { if (++attempts >= 3) throw e; await new Promise(r=> setTimeout(r, 200 * Math.pow(2, attempts))) }
-        }
+        await queueSidecarUpdate(p, fields, now)
       } catch (e) {
         // Surface in console for visibility; do not swallow silently
         try { console.error('bulkUpdate failed for', p, e) } catch {}
@@ -43,4 +36,43 @@ export async function bulkUpdateSidecars(paths: string[], fields: Partial<Sideca
   }
   for (let i = 0; i < Math.min(CONCURRENCY, paths.length); i++) results.push(worker())
   await Promise.all(results)
+}
+
+// Optimistic, per-path update queue so rapid changes coalesce and persist reliably
+const pendingPatches = new Map<string, Partial<Sidecar>>()
+const inflightByPath = new Map<string, Promise<void>>()
+
+export async function queueSidecarUpdate(path: string, patch: Partial<Sidecar>, timestamp?: string) {
+  const now = timestamp ?? new Date().toISOString()
+  // merge with pending for this path
+  const existing = pendingPatches.get(path) || {}
+  pendingPatches.set(path, { ...existing, ...patch })
+  // if already flushing, let that cycle pick up the merged patch
+  if (inflightByPath.has(path)) return inflightByPath.get(path)!
+
+  const flush = (async () => {
+    try {
+      for (;;) {
+        const toSend = pendingPatches.get(path)
+        if (!toSend) break
+        pendingPatches.delete(path)
+        // fetch latest server copy to avoid clobbering unrelated fields
+        let base: Sidecar
+        try { base = await api.getSidecar(path) as Sidecar }
+        catch { base = { v:1, tags:[], notes:'', updated_at: now, updated_by:'web' } as any }
+        const next: Sidecar = { ...(base as any), ...(toSend as any), updated_at: now, updated_by: 'web' }
+        // retry with backoff
+        let attempts = 0
+        for (;;) {
+          try { await api.putSidecar(path, next); break }
+          catch (e) { if (++attempts >= 3) throw e; await new Promise(r=> setTimeout(r, 200 * Math.pow(2, attempts))) }
+        }
+        // loop to see if more patches accumulated while we were PUTing
+      }
+    } finally {
+      inflightByPath.delete(path)
+    }
+  })()
+  inflightByPath.set(path, flush)
+  return flush
 }

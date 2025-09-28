@@ -10,7 +10,13 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
   const [tags, setTags] = useState<string>('')
   const [notes, setNotes] = useState<string>('')
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
-  const star = (data as any)?.star ?? null
+  const itemStarFromList = useMemo(() => {
+    try {
+      const it = (items as any[]).find(i => i.path === path) as any
+      return (it && (it.star ?? it.star === 0)) ? (it.star ?? null) : null
+    } catch { return null }
+  }, [items, path])
+  const star = (itemStarFromList ?? (data as any)?.star) ?? null
 
   const multi = (selectedPaths?.length ?? 0) > 1
   const selectedItems = useMemo(() => {

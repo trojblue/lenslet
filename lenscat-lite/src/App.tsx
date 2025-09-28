@@ -38,7 +38,7 @@ function App(){
   const rightWRef = useRef(rightW)
   useEffect(() => { leftWRef.current = leftW }, [leftW])
   useEffect(() => { rightWRef.current = rightW }, [rightW])
-  const ALLOWED_PATH = /^[\/a-zA-Z0-9._\-\/]{1,512}$/
+  const ALLOWED_PATH = /^[\/@a-zA-Z0-9._\-\/]{1,512}$/
   function sanitizePath(raw: string | null | undefined): string {
     try {
       const decoded = decodeURI(raw || '')
@@ -342,7 +342,7 @@ function App(){
             if (idx === -1) return
             const next = Math.min(paths.length - 1, Math.max(0, idx + delta))
             const np = paths[next]
-            if (np && np !== viewer) { setViewer(np); setSelected(np) }
+            if (np && np !== viewer) { setViewer(np) }
           }}
         />
       )}

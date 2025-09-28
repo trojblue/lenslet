@@ -6,6 +6,7 @@ import Grid from './components/Grid'
 import Viewer from './components/Viewer'
 import Inspector from './components/Inspector'
 import { useFolder } from './api/folders'
+import { useSearch } from './api/search'
 import { api } from './api/client'
 import './styles.css'
 
@@ -61,10 +62,14 @@ function App(){
     } catch {}
   }, [])
   const { data, refetch } = useFolder(current)
+  const searching = query.trim().length > 0
+  const search = useSearch(searching ? query : '')
 
   const items = useMemo(()=> {
+    // Determine base list: search results when searching, otherwise folder items
+    const base = searching ? (search.data?.items ?? []) : (data?.items ?? [])
     // merge live star overrides so filtered items disappear immediately after edits
-    const merged = (data?.items ?? []).map(it => ({ ...it, star: (localStarOverrides[it.path]!==undefined ? localStarOverrides[it.path] : it.star) }))
+    const merged = base.map(it => ({ ...it, star: (localStarOverrides[it.path]!==undefined ? localStarOverrides[it.path] : it.star) }))
     const arr = [...merged]
     if (sortKey === 'name') {
       arr.sort((a,b)=> a.name.localeCompare(b.name))
@@ -86,7 +91,15 @@ function App(){
       return starFilters.includes(val)
     })
     return filtered
-  }, [data, sortKey, sortDir, starFilters, localStarOverrides])
+  }, [searching, search.data, data, sortKey, sortDir, starFilters, localStarOverrides])
+
+  // Clear selection and viewer when entering a search
+  useEffect(() => {
+    if (searching) {
+      setSelectedPaths([])
+      setViewer(null)
+    }
+  }, [searching])
 
   // Load persisted sort on mount
   useEffect(() => {
@@ -353,7 +366,7 @@ function App(){
         <div className="ctx" style={{ left: ctx.x, top: ctx.y }} onClick={e=> e.stopPropagation()}>
           {ctx.kind === 'tree' && (
             <>
-              <div className="ctx-item disabled" onClick={async ()=>{ try { await api.exportIntent(ctx.payload.path) } catch {} }}>Export (disabled)</div>
+              <div className="ctx-item disabled" onClick={(e)=>{ e.stopPropagation() }}>Export (disabled)</div>
             </>
           )}
           {ctx.kind === 'grid' && (

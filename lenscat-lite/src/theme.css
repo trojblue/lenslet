@@ -109,7 +109,7 @@ body {
   border-radius: 8px;
   overflow: hidden;
   width: 100%;
-  aspect-ratio: 3 / 4;
+  aspect-ratio: auto;
   contain: paint; /* optional; safe with virtualization */
   user-select: none;
   -webkit-user-select: none;

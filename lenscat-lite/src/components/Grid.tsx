@@ -121,8 +121,18 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
   const selectedSet = new Set(selected)
 
   const hasPreview = !!(previewFor && previewUrl && delayPassed)
+  useEffect(() => { parentRef.current?.focus() }, [])
+
   return (
-    <div className={`grid${isScrolling ? ' is-scrolling' : ''}${hasPreview ? ' has-preview' : ''}`} ref={parentRef} tabIndex={0} style={{ ['--gap' as any]: `${GAP}px` }}>
+    <div
+      role="grid"
+      aria-label="Gallery"
+      className={`grid${isScrolling ? ' is-scrolling' : ''}${hasPreview ? ' has-preview' : ''}`}
+      ref={parentRef}
+      tabIndex={0}
+      onMouseDown={() => parentRef.current?.focus()}
+      style={{ ['--gap' as any]: `${GAP}px` }}
+    >
       <div key={columns} className="grid-rows" style={{ height: rowVirtualizer.getTotalSize() }}>
         {rows.map(row => {
           const start = row.index * columns

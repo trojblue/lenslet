@@ -106,6 +106,7 @@ export default function Toolbar({
 
       <div className="toolbar-right">
         <input
+          aria-label="Search filename, tags, notes"
           placeholder="Search filename, tags, notes…"
           onChange={e=>onSearch(e.target.value)}
           className="input"

@@ -2,19 +2,17 @@ import React, { useEffect, useState } from 'react'
 import { api } from '../api/client'
 
 const blobUrlCache = new Map<string, string>()
-const lruOrder: string[] = []
 const MAX_BLOBS = 400
 
 function remember(key: string, url: string) {
+  if (blobUrlCache.has(key)) blobUrlCache.delete(key)
   blobUrlCache.set(key, url)
-  lruOrder.push(key)
-  if (lruOrder.length > MAX_BLOBS) {
-    const old = lruOrder.shift()
-    if (old) {
-      const u = blobUrlCache.get(old)
-      if (u) { try { URL.revokeObjectURL(u) } catch {} }
-      blobUrlCache.delete(old)
-    }
+  while (blobUrlCache.size > MAX_BLOBS) {
+    const first = blobUrlCache.entries().next().value as [string, string]
+    if (!first) break
+    const [oldKey, oldUrl] = first
+    blobUrlCache.delete(oldKey)
+    try { URL.revokeObjectURL(oldUrl) } catch {}
   }
 }
 
@@ -31,7 +29,7 @@ export default function Thumb({ path, name, onClick, selected, displayW, display
     let alive = true
     if (!url) {
       api.getThumb(path)
-        .then(b => { if (!alive) return; const u = URL.createObjectURL(b); remember(path, u); setUrl(u) })
+        .then(b => { if (!alive) return; const u = URL.createObjectURL(b); remember(path, u); setUrl(prev => { if (prev && prev !== u) { try { URL.revokeObjectURL(prev) } catch {} } return u }) })
         .catch(()=>{})
     }
     return () => { alive = false }

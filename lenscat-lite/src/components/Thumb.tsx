@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 
 const blobUrlCache = new Map<string, string>()
@@ -23,19 +23,49 @@ if (typeof window !== 'undefined') {
   }, { once: true } as any)
 }
 
-export default function Thumb({ path, name, onClick, selected, displayW, displayH }:{ path:string; name:string; onClick:(e:React.MouseEvent)=>void; selected?: boolean; displayW?: number; displayH?: number }){
+export default function Thumb({ path, name, onClick, selected, displayW, displayH, ioRoot, isScrolling, priority }:{ path:string; name:string; onClick:(e:React.MouseEvent)=>void; selected?: boolean; displayW?: number; displayH?: number; ioRoot?: Element | null; isScrolling?: boolean; priority?: boolean }){
+  const hostRef = useRef<HTMLDivElement | null>(null)
   const [url, setUrl] = useState<string | null>(blobUrlCache.get(path) ?? null)
+  const [inView, setInView] = useState<boolean>(false)
+
+  // Observe visibility within the grid scroll container to defer loading until visible
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.target === host) {
+            setInView(entry.isIntersecting || entry.intersectionRatio > 0)
+          }
+        }
+      },
+      { root: ioRoot ?? null, rootMargin: '200px 0px', threshold: 0.01 }
+    )
+    observer.observe(host)
+    return () => { try { observer.unobserve(host) } catch {} ; try { observer.disconnect() } catch {} }
+  }, [ioRoot, path])
+
+  // Load when visible and not actively scrolling, or immediately if priority
   useEffect(() => {
     let alive = true
-    if (!url) {
+    if (!url && ((inView && !isScrolling) || priority)) {
       api.getThumb(path)
-        .then(b => { if (!alive) return; const u = URL.createObjectURL(b); remember(path, u); setUrl(prev => { if (prev && prev !== u) { try { URL.revokeObjectURL(prev) } catch {} } return u }) })
+        .then(b => {
+          if (!alive) return
+          const u = URL.createObjectURL(b)
+          remember(path, u)
+          setUrl(prev => {
+            if (prev && prev !== u) { try { URL.revokeObjectURL(prev) } catch {} }
+            return u
+          })
+        })
         .catch(()=>{})
     }
     return () => { alive = false }
-  }, [path, url])
+  }, [path, url, inView, isScrolling, priority])
   return (
-    <div className={`cell${selected ? ' selected' : ''}`} onClick={onClick}>
+    <div ref={hostRef} className={`cell${selected ? ' selected' : ''}`} onClick={onClick}>
       {url ? (
         <img
           className="thumb"

@@ -13,5 +13,8 @@ class Settings:
     thumb_long_edge: int = int(os.getenv("THUMB_LONG_EDGE", "256"))
     thumb_quality: int = int(os.getenv("THUMB_QUALITY", "70"))
     frontend_dist: str = os.getenv("FRONTEND_DIST", os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../lenscat-lite/dist")))
+    # Worker concurrency controls
+    index_concurrency: int = int(os.getenv("INDEX_CONCURRENCY", str(os.cpu_count() or 4)))
+    progress_interval_s: float = float(os.getenv("PROGRESS_INTERVAL_S", "2.0"))
 
 settings = Settings()

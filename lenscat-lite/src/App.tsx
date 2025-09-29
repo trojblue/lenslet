@@ -25,6 +25,7 @@ function App(){
   const [query, setQuery] = useState('')
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
   const [viewer, setViewer] = useState<string | null>(null)
+  const [restoreGridToSelectionToken, setRestoreGridToSelectionToken] = useState<number>(0)
   const [requestedZoom, setRequestedZoom] = useState<number | null>(null)
   const [currentZoom, setCurrentZoom] = useState<number>(100)
   const [leftW, setLeftW] = useState<number>(160)
@@ -240,6 +241,8 @@ function App(){
       if (viewer) {
         viewerHistoryPushedRef.current = false
         setViewer(null)
+        // Signal grid to restore to current selection when exiting viewer
+        setRestoreGridToSelectionToken(t => t + 1)
       }
     }
     window.addEventListener('popstate', onPop)
@@ -331,7 +334,7 @@ function App(){
         onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
       />
       <div className="main">
-        <Grid items={items} selected={selectedPaths} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { openViewer(p); setSelectedPaths([p]) }}
+        <Grid items={items} selected={selectedPaths} restoreToSelectionToken={restoreGridToSelectionToken} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { openViewer(p); setSelectedPaths([p]) }}
           onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
         />
       </div>
@@ -355,7 +358,7 @@ function App(){
             if (idx === -1) return
             const next = Math.min(paths.length - 1, Math.max(0, idx + delta))
             const np = paths[next]
-            if (np && np !== viewer) { setViewer(np) }
+            if (np && np !== viewer) { setViewer(np); setSelectedPaths([np]) }
           }}
         />
       )}

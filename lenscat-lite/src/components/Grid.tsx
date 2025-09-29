@@ -5,7 +5,7 @@ import type { Item } from '../lib/types'
 import Thumb from './Thumb'
 import { api } from '../api/client'
 
-export default function Grid({ items, selected, onSelectionChange, onOpenViewer, onContextMenuItem }:{ items: Item[]; selected: string[]; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void; onContextMenuItem?:(e:React.MouseEvent, path:string)=>void }){
+export default function Grid({ items, selected, restoreToSelectionToken, onSelectionChange, onOpenViewer, onContextMenuItem }:{ items: Item[]; selected: string[]; restoreToSelectionToken?: number; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void; onContextMenuItem?:(e:React.MouseEvent, path:string)=>void }){
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [hoverTimer, setHoverTimer] = useState<number | null>(null)
@@ -118,6 +118,21 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
   // Re-measure when layout parameters change
   useEffect(() => { rowVirtualizer.measure() }, [columns, rowH])
 
+  // When explicitly requested (e.g., after closing fullscreen viewer), jump instantly to the first selected item's row
+  useLayoutEffect(() => {
+    const el = parentRef.current
+    if (!el) return
+    if (!restoreToSelectionToken) return
+    if (!selected || selected.length === 0) return
+    const first = selected[0]
+    const idx = pathToIndex.get(first)
+    if (idx == null || idx < 0) return
+    const col = Math.max(1, columns)
+    const rowIdx = Math.floor(idx / col)
+    const targetTop = rowIdx * rowH
+    try { el.scrollTop = targetTop } catch {}
+  }, [restoreToSelectionToken])
+
   const selectedSet = new Set(selected)
 
   const hasPreview = !!(previewFor && previewUrl && delayPassed)
@@ -137,10 +152,19 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
         {rows.map(row => {
           const start = row.index * columns
           const slice = items.slice(start, start + columns)
-          // Prefetch thumbnails for the next page worth of items when we render this row
+          const isTopmostVisibleRow = row.index === rows[0]?.index
+          // Prefetch current row first to ensure above-the-fold loads before others
+          try {
+            if (!isScrolling) {
+              for (const it of slice) { try { api.prefetchThumb(it.path) } catch {} }
+            }
+          } catch {}
+          // Prefetch thumbnails for the next page worth of items afterward
           const nextPageStart = (row.index + 1) * columns
           const nextPageItems = items.slice(nextPageStart, nextPageStart + columns)
-          for (const it of nextPageItems) { try { api.prefetchThumb(it.path) } catch {} }
+          if (!isScrolling) {
+            for (const it of nextPageItems) { try { api.prefetchThumb(it.path) } catch {} }
+          }
           return (
             <div
               key={row.key}
@@ -205,6 +229,9 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
                         selected={(active===it.path) || selectedSet.has(it.path)}
                         displayW={cellW}
                         displayH={mediaH}
+                        ioRoot={parentRef.current}
+                        isScrolling={isScrolling}
+                        priority={isTopmostVisibleRow}
                         onClick={(ev: React.MouseEvent)=>{
                           setActive(it.path)
                           const isShift = !!ev.shiftKey
@@ -239,7 +266,7 @@ export default function Grid({ items, selected, onSelectionChange, onOpenViewer,
                             try { anchorRef.current = it.path } catch {}
                           }
 
-                          try { api.prefetchFile(it.path); api.prefetchThumb(it.path) } catch {}
+                          try { if (!isScrolling) { api.prefetchFile(it.path); api.prefetchThumb(it.path) } } catch {}
                         }}
                       />
                     </div>

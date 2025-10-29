@@ -6,7 +6,7 @@ from ..utils import jsonio
 router = APIRouter()
 
 @router.get("/search", response_model=SearchResult)
-def search(request: Request, q: str = "", limit: int = 100):
+def search(request: Request, q: str = "", path: str = "/", limit: int = 100):
     storage = request.state.storage
     if storage is None:
         raise HTTPException(500, "Storage not configured")
@@ -19,8 +19,14 @@ def search(request: Request, q: str = "", limit: int = 100):
         return SearchResult(items=[])
     items = []
     ql = q.lower()
+    # Normalize scope prefix: include only items under this folder (paths in rollup may not start with '/')
+    path_norm = (path or "").lstrip("/")
+    scope_prefix = path_norm + "/" if path_norm else ""
     for it in data.get('items', []):
         hay = (it.get('name','') + ' ' + ' '.join(it.get('tags',[])) + ' ' + it.get('notes','')).lower()
+        p = (it.get('path','') or '').lstrip('/')
+        if path_norm and not (p == path_norm or p.startswith(scope_prefix)):
+            continue
         if ql in hay:
             items.append(Item(**{
                 'path': it['path'], 'name': it.get('name',''), 'type': it.get('type','image/jpeg'),

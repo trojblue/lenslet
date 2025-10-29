@@ -64,7 +64,7 @@ function App(){
   }, [])
   const { data, refetch } = useFolder(current)
   const searching = query.trim().length > 0
-  const search = useSearch(searching ? query : '')
+  const search = useSearch(searching ? query : '', current)
 
   const items = useMemo(()=> {
     // Determine base list: search results when searching, otherwise folder items

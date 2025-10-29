@@ -3,11 +3,14 @@ import { api } from '../api/client'
 
 export default function Viewer({ path, onClose, onNavigate, onZoomChange, requestedZoomPercent, onZoomRequestConsumed }:{ path: string; onClose:()=>void; onNavigate?:(delta:number)=>void; onZoomChange?:(p:number)=>void; requestedZoomPercent?: number | null; onZoomRequestConsumed?: ()=>void }){
   const [url, setUrl] = useState<string | null>(null)
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null)
   const [scale, setScale] = useState<number>(1)
   const [tx, setTx] = useState<number>(0)
   const [ty, setTy] = useState<number>(0)
   const [base, setBase] = useState<number>(1) // fit-to-container scale
+  const [ready, setReady] = useState<boolean>(false)
   const [dragging, setDragging] = useState<boolean>(false)
+  const [visible, setVisible] = useState<boolean>(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
 
@@ -30,24 +33,33 @@ export default function Viewer({ path, onClose, onNavigate, onZoomChange, reques
   useEffect(() => {
     let alive = true
     api.getFile(path).then(b => { if (!alive) return; setUrl(URL.createObjectURL(b)) }).catch(()=>{})
+    api.getThumb(path).then(b => { if (!alive) return; setThumbUrl(URL.createObjectURL(b)) }).catch(()=>{})
     // Prefetch neighbors (previous and next) optimistically
     try {
       // Neighbor list not available here; parent passes onNavigate only. We infer neighbors via list in App when navigating.
       // As a best effort, ask App to handle or attempt lightweight prefetch via path heuristics not available; keeping here minimal.
     } catch {}
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') { setVisible(false); window.setTimeout(() => onClose(), 110) }
       else if ((e.key === 'ArrowRight' || e.key === 'd') && onNavigate) onNavigate(1)
       else if ((e.key === 'ArrowLeft' || e.key === 'a') && onNavigate) onNavigate(-1)
     }
     window.addEventListener('keydown', onKey)
-    return () => { alive = false; window.removeEventListener('keydown', onKey); if (url) URL.revokeObjectURL(url) }
+    // fade in container on mount
+    try { requestAnimationFrame(() => setVisible(true)) } catch { setVisible(true) }
+    return () => { alive = false; window.removeEventListener('keydown', onKey); if (url) URL.revokeObjectURL(url); if (thumbUrl) URL.revokeObjectURL(thumbUrl) }
   }, [path])
 
   // Defensive revoke on unmount
   useEffect(() => {
     return () => { if (url) { try { URL.revokeObjectURL(url) } catch {} } }
   }, [url])
+  useEffect(() => {
+    return () => { if (thumbUrl) { try { URL.revokeObjectURL(thumbUrl) } catch {} } }
+  }, [thumbUrl])
+
+  // When image/url changes, reset readiness so we can avoid initial flash at natural size
+  useEffect(() => { setReady(false) }, [url])
 
   // Refit and re-center when the viewer container resizes
   useEffect(() => {
@@ -87,8 +99,12 @@ export default function Viewer({ path, onClose, onNavigate, onZoomChange, reques
   return (
     <div
       ref={containerRef}
-      className={`viewer grabbable${dragging?' dragging':''}`}
-      onClick={onClose}
+      className={`viewer grabbable${dragging?' dragging':''}${visible?' is-visible':''}`}
+      onClick={() => {
+        // fade out on background click
+        setVisible(false)
+        window.setTimeout(() => onClose(), 110)
+      }}
       onWheel={(e)=>{
         e.preventDefault()
         const dir = e.deltaY > 0 ? -1 : 1
@@ -140,6 +156,16 @@ export default function Viewer({ path, onClose, onNavigate, onZoomChange, reques
       }}
     >
       {/* Back button moved to toolbar while viewer is active */}
+      {thumbUrl && (
+        <img
+          src={thumbUrl}
+          alt="thumb"
+          className="viewer-thumb"
+          draggable={false}
+          onDragStart={(e)=> e.preventDefault()}
+          style={{ transform: `translate(${tx}px, ${ty}px) scale(${base})`, transformOrigin: `0 0`, opacity: ready ? 0 : 0.5 }}
+        />
+      )}
       {url && (
         <img
           ref={imgRef}
@@ -148,9 +174,9 @@ export default function Viewer({ path, onClose, onNavigate, onZoomChange, reques
           className="viewer-img"
           draggable={false}
           onDragStart={(e)=>{ e.preventDefault() }}
-          onLoad={(ev)=>{ fitAndCenter(); setScale(1) }}
+          onLoad={(ev)=>{ fitAndCenter(); setScale(1); try { requestAnimationFrame(()=> setReady(true)) } catch { setReady(true) } }}
           onClick={(e)=> e.stopPropagation()}
-          style={{ transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`, transformOrigin: `0 0` }}
+          style={{ transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`, transformOrigin: `0 0`, opacity: ready ? 0.99 : 0 }}
         />
       )}
     </div>

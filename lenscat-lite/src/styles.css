@@ -272,7 +272,11 @@
   background: var(--panel); /* match gallery background */
   z-index: 40;
   overflow: hidden;
+  opacity: 0;
+  transition: opacity 110ms cubic-bezier(0.33, 1, 0.68, 1);
 }
+
+.viewer.is-visible { opacity: 1; }
 
 .viewer.grabbable { cursor: grab; }
 .viewer.dragging { cursor: grabbing; user-select: none; }
@@ -281,13 +285,24 @@
   max-width: none;
   max-height: none;
   object-fit: contain;
-  transition: opacity 120ms ease; /* remove transform animation for snappier pan */
+  transition: opacity 110ms cubic-bezier(0.33, 1, 0.68, 1); /* quick ease-out */
   /* Translate from top-left */
   transform-origin: 0 0;
   opacity: 0.99;
   will-change: transform;
   -webkit-user-drag: none;
   user-select: none;
+}
+
+.viewer-thumb {
+  position: absolute;
+  top: 0; left: 0;
+  max-width: none; max-height: none;
+  object-fit: contain;
+  opacity: 0.5;
+  filter: blur(0.25px);
+  pointer-events: none;
+  transition: opacity 110ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
 .viewer-back {
@@ -397,9 +412,9 @@ mark{
 
 /* Selection highlight wraps entire card area (media + caption) */
 .grid-cell.is-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
   border-radius: 10px;
-  /* Use box-shadow so ring isn't clipped by adjacent row stacking contexts */
-  box-shadow: 0 0 0 2px var(--accent);
 }
 
 /* Selection toolbar appearing when there’s a selection */

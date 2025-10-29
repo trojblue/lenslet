@@ -27,6 +27,7 @@ export default function Thumb({ path, name, onClick, selected, displayW, display
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [url, setUrl] = useState<string | null>(blobUrlCache.get(path) ?? null)
   const [inView, setInView] = useState<boolean>(false)
+  const [loaded, setLoaded] = useState<boolean>(false)
 
   // Observe visibility within the grid scroll container to defer loading until visible
   useEffect(() => {
@@ -64,15 +65,19 @@ export default function Thumb({ path, name, onClick, selected, displayW, display
     }
     return () => { alive = false }
   }, [path, url, inView, isScrolling, priority])
+
+  // Reset loaded state when URL changes
+  useEffect(() => { setLoaded(false) }, [url])
   return (
     <div ref={hostRef} className={`cell${selected ? ' selected' : ''}`} onClick={onClick}>
       {url ? (
         <img
-          className="thumb"
+          className={`thumb${loaded ? ' is-loaded' : ''}`}
           src={url}
           alt={name}
           loading="lazy"
           decoding="async"
+          onLoad={()=> setLoaded(true)}
           width={displayW ? Math.round(displayW) : undefined}
           height={displayH ? Math.round(displayH) : undefined}
         />

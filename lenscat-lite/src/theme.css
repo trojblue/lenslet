@@ -163,7 +163,11 @@ body {
   pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
+  opacity: 0; /* start hidden to avoid harsh flash from dark bg */
+  transition: opacity 160ms ease; /* short, gentle fade */
 }
+
+.thumb.is-loaded { opacity: 1; }
 
 .meta {
   position: absolute;

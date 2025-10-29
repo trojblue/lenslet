@@ -59,10 +59,31 @@ export default function Grid({ items, selected, restoreToSelectionToken, onSelec
 
   const rows = rowVirtualizer.getVirtualItems()
 
-  // Native compositor-driven smooth scrolling helper
+  // Faster, smooth scroll helper (~140ms ease-out)
+  const scrollAnimRef = useRef<number | null>(null)
   const scrollRowIntoView = (el: HTMLElement, top: number) => {
-    try { el.scrollTo({ top, behavior: 'smooth' }) }
-    catch { el.scrollTop = top }
+    try {
+      if (scrollAnimRef.current != null) { try { cancelAnimationFrame(scrollAnimRef.current) } catch {} ; scrollAnimRef.current = null }
+      const start = el.scrollTop
+      const delta = top - start
+      if (Math.abs(delta) < 1) { el.scrollTop = top; return }
+      const D = 140 // ms
+      const t0 = performance.now()
+      const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3)
+      const step = (now: number) => {
+        const p = Math.min(1, (now - t0) / D)
+        const eased = easeOutCubic(p)
+        el.scrollTop = start + delta * eased
+        if (p < 1) {
+          scrollAnimRef.current = requestAnimationFrame(step)
+        } else {
+          scrollAnimRef.current = null
+        }
+      }
+      scrollAnimRef.current = requestAnimationFrame(step)
+    } catch {
+      el.scrollTop = top
+    }
   }
 
   const [isScrolling, setIsScrolling] = useState(false)
@@ -99,19 +120,15 @@ export default function Grid({ items, selected, restoreToSelectionToken, onSelec
         setActive(nextItem.path)
         onSelectionChange([nextItem.path])
         try { anchorRef.current = nextItem.path } catch {}
-        // Ensure visibility with minimal scroll instead of snapping to top
+        // If the row is outside of the viewport, scroll it to the top
         const rowIdx = Math.floor(next / Math.max(1, columns))
         const scrollTop = el.scrollTop
         const viewBottom = scrollTop + el.clientHeight
         const rowTop = rowIdx * rowH
         const rowBottom = rowTop + rowH
-        if (rowTop < scrollTop) {
-          // Scroll up just enough so rowTop becomes visible
-          try { el.scrollTo({ top: rowTop, behavior: 'smooth' }) } catch { el.scrollTop = rowTop }
-        } else if (rowBottom > viewBottom) {
-          // Scroll down just enough so rowBottom fits at the bottom
-          const target = rowBottom - el.clientHeight
-          try { el.scrollTo({ top: target, behavior: 'smooth' }) } catch { el.scrollTop = target }
+        if (rowTop < scrollTop || rowBottom > viewBottom) {
+          try { scrollRowIntoView(el, rowTop) }
+          catch { try { rowVirtualizer.scrollToIndex(rowIdx, { align: 'start' as const }) } catch {} }
         }
       }
     }

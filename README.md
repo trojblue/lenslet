@@ -2,6 +2,23 @@
 
 A minimal, fast, boring (on purpose) gallery system with React frontend and FastAPI backend. Built for performance and simplicity.
 
+## Starting the project
+
+
+in frontend folder, run the following commands to build the frontend:
+```bash
+npm run build
+```
+
+in backend folder, run the following commands:
+
+```bash
+uvicorn src.lenscat_backend.main:app --reload --host 127.0.0.1  --port 7070
+```
+---
+
+
+
 ## Architecture
 
 - **Frontend**: React + TanStack Query/Virtual + minimal CSS

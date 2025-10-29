@@ -5,7 +5,7 @@ import type { Item } from '../lib/types'
 import Thumb from './Thumb'
 import { api } from '../api/client'
 
-export default function Grid({ items, selected, restoreToSelectionToken, onSelectionChange, onOpenViewer, onContextMenuItem }:{ items: Item[]; selected: string[]; restoreToSelectionToken?: number; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void; onContextMenuItem?:(e:React.MouseEvent, path:string)=>void }){
+export default function Grid({ items, selected, restoreToSelectionToken, onSelectionChange, onOpenViewer, onContextMenuItem, highlight }:{ items: Item[]; selected: string[]; restoreToSelectionToken?: number; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void; onContextMenuItem?:(e:React.MouseEvent, path:string)=>void; highlight?: string }){
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [hoverTimer, setHoverTimer] = useState<number | null>(null)
@@ -99,15 +99,19 @@ export default function Grid({ items, selected, restoreToSelectionToken, onSelec
         setActive(nextItem.path)
         onSelectionChange([nextItem.path])
         try { anchorRef.current = nextItem.path } catch {}
-        // If the row is outside of the viewport, scroll it to the top
+        // Ensure visibility with minimal scroll instead of snapping to top
         const rowIdx = Math.floor(next / Math.max(1, columns))
         const scrollTop = el.scrollTop
         const viewBottom = scrollTop + el.clientHeight
         const rowTop = rowIdx * rowH
         const rowBottom = rowTop + rowH
-        if (rowTop < scrollTop || rowBottom > viewBottom) {
-          try { scrollRowIntoView(el, rowTop) }
-          catch { try { rowVirtualizer.scrollToIndex(rowIdx, { align: 'start' as const }) } catch {} }
+        if (rowTop < scrollTop) {
+          // Scroll up just enough so rowTop becomes visible
+          try { el.scrollTo({ top: rowTop, behavior: 'smooth' }) } catch { el.scrollTop = rowTop }
+        } else if (rowBottom > viewBottom) {
+          // Scroll down just enough so rowBottom fits at the bottom
+          const target = rowBottom - el.clientHeight
+          try { el.scrollTo({ top: target, behavior: 'smooth' }) } catch { el.scrollTop = target }
         }
       }
     }
@@ -299,8 +303,20 @@ export default function Grid({ items, selected, restoreToSelectionToken, onSelec
                       <div className="cell-zoom">🔍</div>
                     </div>
                   </div>
-                  <div className="cell-caption">
-                    <div className="filename" title={it.name}>{it.name}</div>
+                    <div className="cell-caption">
+                    <div className="filename" title={it.name}>{(() => {
+                      const q = (highlight||'').trim()
+                      if (!q) return it.name
+                      const hay = it.name
+                      const idx = hay.toLowerCase().indexOf(q.toLowerCase())
+                      if (idx === -1) return it.name
+                      const before = hay.slice(0, idx)
+                      const match = hay.slice(idx, idx + q.length)
+                      const after = hay.slice(idx + q.length)
+                      return (<>
+                        {before}<mark>{match}</mark>{after}
+                      </>)
+                    })()}</div>
                     <div className="filesize">{it.w} × {it.h}</div>
                   </div>
                 </div>

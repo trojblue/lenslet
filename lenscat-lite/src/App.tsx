@@ -299,6 +299,32 @@ function App(){
     return () => { window.removeEventListener('click', onGlobalClick); window.removeEventListener('keydown', onEsc) }
   }, [])
 
+  // Global shortcuts: Backspace up, Ctrl/Cmd+A select all, Esc clear selection, '/' focus search
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target && target.closest('input, textarea, [contenteditable="true"]')) return
+      if (viewer) return // let viewer handle its own keys
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault()
+        // go up one level
+        const parts = current.split('/').filter(Boolean)
+        const up = parts.slice(0, -1).join('/')
+        openFolder('/' + up)
+      } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'a')) {
+        e.preventDefault()
+        setSelectedPaths(items.map(i => i.path))
+      } else if (e.key === 'Escape') {
+        if (selectedPaths.length) { e.preventDefault(); setSelectedPaths([]) }
+      } else if (e.key === '/') {
+        e.preventDefault()
+        try { (document.querySelector('.toolbar-right .input') as HTMLInputElement | null)?.focus() } catch {}
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [current, items, selectedPaths, viewer])
+
   return (
     <div className="app" ref={appRef} style={{ ['--left' as any]: `${leftW}px`, ['--right' as any]: `${rightW}px` }}>
       <Toolbar
@@ -334,9 +360,40 @@ function App(){
         onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
       />
       <div className="main">
+        <div className="breadcrumb">
+          {(() => {
+            const parts = current.split('/').filter(Boolean)
+            const segs: { label:string; path:string }[] = []
+            let acc = ''
+            for (const p of parts) { acc = acc ? `${acc}/${p}` : `/${p}`; segs.push({ label: p, path: acc }) }
+            return (
+              <>
+                <a href={`#${encodeURI('/')}`} onClick={(e)=>{ e.preventDefault(); openFolder('/') }}>Root</a>
+                {segs.map((s, i) => (
+                  <span key={s.path}>
+                    <span style={{ opacity:0.5, margin:'0 6px' }}>/</span>
+                    {i < segs.length-1 ? (
+                      <a href={`#${encodeURI(s.path)}`} onClick={(e)=>{ e.preventDefault(); openFolder(s.path) }}>{s.label}</a>
+                    ) : (
+                      <span aria-current="page">{s.label}</span>
+                    )}
+                  </span>
+                ))}
+                <span className="copy" role="button" aria-label="Copy path" title="Copy path" onClick={()=>{ try { navigator.clipboard.writeText(current) } catch {} }}>⧉</span>
+              </>
+            )
+          })()}
+        </div>
         <Grid items={items} selected={selectedPaths} restoreToSelectionToken={restoreGridToSelectionToken} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { openViewer(p); setSelectedPaths([p]) }}
+          highlight={searching ? query : ''}
           onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
         />
+        {!!selectedPaths.length && (
+          <div className="selection-bar">
+            <div>{selectedPaths.length} selected</div>
+            <button className="toolbar-back" onClick={()=> setSelectedPaths([])}>Clear</button>
+          </div>
+        )}
       </div>
       <Inspector path={selectedPaths[0] ?? null} selectedPaths={selectedPaths} items={items} onResize={startResizeRight} onStarChanged={(paths, val)=>{
         setLocalStarOverrides(prev => {

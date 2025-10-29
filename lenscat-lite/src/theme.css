@@ -88,7 +88,7 @@ body {
   grid-column: 2;
   grid-row: 2;
   position: relative;
-  overflow: auto;
+  overflow: hidden; /* let inner .grid own scrolling to avoid double scrollbars */
 }
 
 .inspector {

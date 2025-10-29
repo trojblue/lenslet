@@ -3,6 +3,7 @@ import type { FolderIndex } from '../lib/types'
 import { useFolder } from '../api/folders'
 import { api } from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
+import { middleTruncate } from '../lib/util'
 
 type Root = { label: string; path: string }
 
@@ -125,7 +126,7 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
         }}
       >
         <span className="tree-toggle" onClick={toggle}>{isExpanded? '▾' : '▸'}</span>
-        <span className="tree-label">{label}</span>
+        <span className="tree-label" title={label}>{middleTruncate(label, 28)}</span>
         {isLeaf && <span className="tree-count">{count}</span>}
       </div>
       {isExpanded && idx?.dirs?.map(d => (

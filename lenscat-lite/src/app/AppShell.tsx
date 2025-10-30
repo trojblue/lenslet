@@ -4,13 +4,14 @@ import FolderTree from '../features/folders/FolderTree'
 import VirtualGrid from '../features/browse/components/VirtualGrid'
 import Viewer from '../features/viewer/Viewer'
 import Inspector from '../features/inspector/Inspector'
-import { useFolder } from '../api/folders'
-import { useSearch } from '../api/search'
-import { api } from '../api/client'
+import { useFolder } from '../shared/api/folders'
+import { useSearch } from '../shared/api/search'
+import { api } from '../shared/api/client'
 import { readHash, writeHash, sanitizePath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import { useSidebars } from './layout/useSidebars'
 import ContextMenu, { MenuItem } from './menu/ContextMenu'
+import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 
 export default function AppShell(){
   const [current, setCurrent] = useState<string>('/')
@@ -305,6 +306,44 @@ export default function AppShell(){
                     } catch {}
                   }
                   try { await refetch() } catch {}
+                  setCtx(null)
+                }})
+              }
+              if (sel.length) {
+                arr.push({ label: 'Export ratings (CSV)', onClick: () => {
+                  try {
+                    const set = new Set(sel)
+                    const subset = items.filter(i => set.has(i.path))
+                    const data = mapItemsToRatings(subset)
+                    const csv = toRatingsCsv(data)
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = 'ratings.csv'
+                    document.body.appendChild(a)
+                    a.click()
+                    a.remove()
+                    URL.revokeObjectURL(url)
+                  } catch {}
+                  setCtx(null)
+                }})
+                arr.push({ label: 'Export ratings (JSON)', onClick: () => {
+                  try {
+                    const set = new Set(sel)
+                    const subset = items.filter(i => set.has(i.path))
+                    const data = mapItemsToRatings(subset)
+                    const json = toRatingsJson(data)
+                    const blob = new Blob([json], { type: 'application/json;charset=utf-8' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = 'ratings.json'
+                    document.body.appendChild(a)
+                    a.click()
+                    a.remove()
+                    URL.revokeObjectURL(url)
+                  } catch {}
                   setCtx(null)
                 }})
               }

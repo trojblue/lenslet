@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Item } from '../../../lib/types'
 import Thumb from '../../../components/Thumb'
-import { api } from '../../../api/client'
+import { api } from '../../../shared/api/client'
 import { flatLayout } from '../model/layouts'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 

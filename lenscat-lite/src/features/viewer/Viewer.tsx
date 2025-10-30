@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { api } from '../../api/client'
+import { api } from '../../shared/api/client'
 
 export default function Viewer({ path, onClose, onNavigate, onZoomChange, requestedZoomPercent, onZoomRequestConsumed }:{ path: string; onClose:()=>void; onNavigate?:(delta:number)=>void; onZoomChange?:(p:number)=>void; requestedZoomPercent?: number | null; onZoomRequestConsumed?: ()=>void }){
   const [url, setUrl] = useState<string | null>(null)

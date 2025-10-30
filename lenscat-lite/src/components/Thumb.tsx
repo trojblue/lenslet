@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { api } from '../api/client'
+import { api } from '../shared/api/client'
 
 const blobUrlCache = new Map<string, string>()
 const MAX_BLOBS = 400

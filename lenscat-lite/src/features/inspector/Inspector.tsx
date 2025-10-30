@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate } from '../../api/items'
+import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate } from '../../shared/api/items'
 import { fmtBytes } from '../../lib/util'
-import { api } from '../../api/client'
+import { api } from '../../shared/api/client'
 
 export default function Inspector({ path, selectedPaths = [], items = [], onResize, onStarChanged }:{ path: string | null; selectedPaths?: string[]; items?: { path:string; size:number; w:number; h:number; type:string; }[]; onResize?:(e:React.MouseEvent)=>void; onStarChanged?:(paths:string[], val:number|null)=>void }){
   const enabled = !!path

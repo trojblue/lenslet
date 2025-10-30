@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import type { FolderIndex } from '../../lib/types'
-import { useFolder } from '../../api/folders'
-import { api } from '../../api/client'
+import { useFolder } from '../../shared/api/folders'
+import { api } from '../../shared/api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { middleTruncate } from '../../lib/util'
 

@@ -4,6 +4,8 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Item } from '../../../lib/types'
 import Thumb from '../../../components/Thumb'
 import { api } from '../../../api/client'
+import { flatLayout } from '../model/layouts'
+import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 
 export default function VirtualGrid({ items, selected, restoreToSelectionToken, onSelectionChange, onOpenViewer, onContextMenuItem, highlight }:{ items: Item[]; selected: string[]; restoreToSelectionToken?: number; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void; onContextMenuItem?:(e:React.MouseEvent, path:string)=>void; highlight?: string }){
   const [previewFor, setPreviewFor] = useState<string | null>(null)
@@ -35,10 +37,7 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
   const ASPECT = { w: 4, h: 3 }
   const CAPTION_H = 44
 
-  const columns = Math.max(1, Math.floor((width + GAP) / (TARGET_CELL + GAP)))
-  const cellW   = (width - GAP * (columns - 1)) / columns
-  const mediaH  = (cellW * ASPECT.h) / ASPECT.w
-  const rowH    = mediaH + CAPTION_H + GAP
+  const { columns, cellW, mediaH, rowH } = flatLayout({ containerW: width, gap: GAP, targetCell: TARGET_CELL, aspect: ASPECT, captionH: CAPTION_H })
 
   const rowCount = Math.ceil(items.length / Math.max(1, columns))
 
@@ -91,36 +90,29 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
     const el = parentRef.current
     if (!el) return
     const onKey = (e: KeyboardEvent) => {
-      if (!items.length) return
-      const idx = active ? items.findIndex(i => i.path === active) : 0
-      const col = Math.max(1, columns)
-      let next = idx
-      if (e.key === 'ArrowRight' || e.key === 'd') next = Math.min(items.length - 1, idx + 1)
-      else if (e.key === 'ArrowLeft' || e.key === 'a') next = Math.max(0, idx - 1)
-      else if (e.key === 'ArrowDown' || e.key === 's') next = Math.min(items.length - 1, idx + col)
-      else if (e.key === 'ArrowUp' || e.key === 'w') next = Math.max(0, idx - col)
-      else if (e.key === 'Enter') { if (active) onOpenViewer(active); return }
-      else return
+      const result = getNextIndexForKeyNav(items, Math.max(1, columns), active, e)
+      if (result == null) return
       e.preventDefault()
+      if (result === 'open') { if (active) onOpenViewer(active); return }
+      const next = result
       const nextItem = items[next]
-      if (nextItem) {
-        setActive(nextItem.path)
-        onSelectionChange([nextItem.path])
-        try { anchorRef.current = nextItem.path } catch {}
-        const rowIdx = Math.floor(next / Math.max(1, columns))
-        const scrollTop = el.scrollTop
-        const viewBottom = scrollTop + el.clientHeight
-        const rowTop = rowIdx * rowH
-        const rowBottom = rowTop + rowH
-        if (rowTop < scrollTop || rowBottom > viewBottom) {
-          try { scrollRowIntoView(el, rowTop) }
-          catch { try { rowVirtualizer.scrollToIndex(rowIdx, { align: 'start' as const }) } catch {} }
-        }
+      if (!nextItem) return
+      setActive(nextItem.path)
+      onSelectionChange([nextItem.path])
+      try { anchorRef.current = nextItem.path } catch {}
+      const rowIdx = Math.floor(next / Math.max(1, columns))
+      const scrollTop = el.scrollTop
+      const viewBottom = scrollTop + el.clientHeight
+      const rowTop = rowIdx * rowH
+      const rowBottom = rowTop + rowH
+      if (rowTop < scrollTop || rowBottom > viewBottom) {
+        try { scrollRowIntoView(el, rowTop) }
+        catch { try { rowVirtualizer.scrollToIndex(rowIdx, { align: 'start' as const }) } catch {} }
       }
     }
     el.addEventListener('keydown', onKey)
     return () => { el.removeEventListener('keydown', onKey) }
-  }, [items, active, columns, onOpenViewer])
+  }, [items, active, columns, onOpenViewer, rowH])
 
   useEffect(() => { rowVirtualizer.measure() }, [columns, rowH])
 

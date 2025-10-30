@@ -8,6 +8,7 @@ import { useFolder } from '../api/folders'
 import { useSearch } from '../api/search'
 import { api } from '../api/client'
 import { readHash, writeHash, sanitizePath } from './routing/hash'
+import { applyFilters, applySort } from '../features/browse/model/apply'
 import { useSidebars } from './layout/useSidebars'
 
 export default function AppShell(){
@@ -48,24 +49,9 @@ export default function AppShell(){
   const items = useMemo(()=> {
     const base = searching ? (search.data?.items ?? []) : (data?.items ?? [])
     const merged = base.map(it => ({ ...it, star: (localStarOverrides[it.path]!==undefined ? localStarOverrides[it.path] : it.star) }))
-    const arr = [...merged]
-    if (sortKey === 'name') {
-      arr.sort((a,b)=> a.name.localeCompare(b.name))
-    } else {
-      arr.sort((a,b)=> {
-        const ta = a.addedAt ? Date.parse(a.addedAt) : 0
-        const tb = b.addedAt ? Date.parse(b.addedAt) : 0
-        if (ta === tb) return a.name.localeCompare(b.name)
-        return ta - tb
-      })
-    }
-    if (sortDir === 'desc') arr.reverse()
-    const filtered = arr.filter(it => {
-      if (!starFilters || !starFilters.length) return true
-      const val = it.star ?? 0
-      return starFilters.includes(val)
-    })
-    return filtered
+    const filtered = applyFilters(merged, starFilters)
+    const sorted = applySort(filtered, sortKey, sortDir)
+    return sorted
   }, [searching, search.data, data, sortKey, sortDir, starFilters, localStarOverrides])
 
   useEffect(() => {

@@ -122,9 +122,9 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
           const nextPageItems = items.slice(nextPageStart, nextPageStart + columns)
           if (!isScrolling) { for (const it of nextPageItems) { try { api.prefetchThumb(it.path) } catch {} } }
           return (
-            <div key={row.key} className="grid-row" style={{ transform: `translate3d(0, ${row.start}px, 0)`, gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, containIntrinsicSize: `${rowH}px 100%` as any }}>
+            <div key={row.key} className="grid-row" role="row" style={{ transform: `translate3d(0, ${row.start}px, 0)`, gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, containIntrinsicSize: `${rowH}px 100%` as any }}>
               {slice.map(it => (
-                <div key={it.path} className={`grid-cell ${(active===it.path || selectedSet.has(it.path)) ? 'is-selected' : ''}`} draggable onDragStart={(e)=>{
+                <div key={it.path} className={`grid-cell ${(active===it.path || selectedSet.has(it.path)) ? 'is-selected' : ''}`} role="gridcell" aria-selected={selectedSet.has(it.path) || active===it.path} draggable onDragStart={(e)=>{
                   try {
                     const paths = selectedSet.has(it.path) && selected.length>0 ? selected : [it.path]
                     e.dataTransfer?.setData('application/x-lenscat-paths', JSON.stringify(paths))
@@ -186,14 +186,16 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
                       if (hoverTimer) window.clearTimeout(hoverTimer)
                       setPreviewFor(it.path)
                       setDelayPassed(false)
-                      try {
-                        const blob = await api.getFile(it.path)
-                        const u = URL.createObjectURL(blob)
-                        if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} }
-                        previewUrlRef.current = u
-                        setPreviewUrl(u)
-                      } catch {}
-                      const t = window.setTimeout(()=>{ setDelayPassed(true) }, 350)
+                      const t = window.setTimeout(async () => {
+                        try {
+                          const blob = await api.getFile(it.path)
+                          const u = URL.createObjectURL(blob)
+                          if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} }
+                          previewUrlRef.current = u
+                          setPreviewUrl(u)
+                          setDelayPassed(true)
+                        } catch {}
+                      }, 350)
                       setHoverTimer(t as any)
                     }} onMouseLeave={()=>{
                       if (hoverTimer) window.clearTimeout(hoverTimer)

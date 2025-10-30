@@ -12,6 +12,7 @@ import { applyFilters, applySort } from '../features/browse/model/apply'
 import { useSidebars } from './layout/useSidebars'
 import ContextMenu, { MenuItem } from './menu/ContextMenu'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
+import { useDebounced } from '../shared/hooks/useDebounced'
 
 export default function AppShell(){
   const [current, setCurrent] = useState<string>('/')
@@ -46,7 +47,8 @@ export default function AppShell(){
 
   const { data, refetch } = useFolder(current)
   const searching = query.trim().length > 0
-  const search = useSearch(searching ? query : '', current)
+  const debouncedQ = useDebounced(query, 250)
+  const search = useSearch(searching ? debouncedQ : '', current)
 
   const items = useMemo(()=> {
     const base = searching ? (search.data?.items ?? []) : (data?.items ?? [])
@@ -292,6 +294,7 @@ export default function AppShell(){
               }})
               if (inTrash) {
                 arr.push({ label: 'Permanent delete', danger: true, onClick: async () => {
+                  if (!confirm(`Delete ${sel.length} file(s) permanently? This cannot be undone.`)) return
                   try { await api.deleteFiles(sel) } catch {}
                   try { await refetch() } catch {}
                   setCtx(null)

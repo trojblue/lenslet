@@ -20,7 +20,7 @@ export default function FolderTree({ current, roots, data, onOpen, onResize, onC
 
   return (
     <div className="sidebar">
-      <div className="tree">
+      <div className="tree" role="tree" aria-label="Folders">
         {roots.map(r => (
           <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} onContextMenu={onContextMenu} initial={data} />
         ))}
@@ -55,9 +55,31 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
     <div>
       <div
         className={`tree-item ${isActive?'active':''}`}
+        role="treeitem"
+        aria-level={depth+1}
+        aria-expanded={isLeaf ? undefined : isExpanded}
+        aria-selected={isActive}
+        tabIndex={isActive ? 0 : -1}
         style={{ paddingLeft: 8 + depth * 14, outline: 'none' }}
         onClick={()=> onOpen(path)}
         onContextMenu={(e)=> { e.preventDefault(); e.stopPropagation(); onContextMenu && onContextMenu(e, path) }}
+        onKeyDown={(e)=>{
+          if (e.key === 'Enter') { e.preventDefault(); onOpen(path) }
+          else if (e.key === 'ArrowRight') { if (!isLeaf && !isExpanded) { e.preventDefault(); setExpanded(prev => { const next = new Set(prev); next.add(path); return next }) } }
+          else if (e.key === 'ArrowLeft') { if (!isLeaf && isExpanded) { e.preventDefault(); setExpanded(prev => { const next = new Set(prev); next.delete(path); return next }) } }
+          else if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+            e.preventDefault()
+            const items = Array.from(document.querySelectorAll('.tree .tree-item')) as HTMLElement[]
+            const idx = items.findIndex(el => el === e.currentTarget)
+            if (idx === -1) return
+            let nextIdx = idx
+            if (e.key === 'ArrowDown') nextIdx = Math.min(items.length - 1, idx + 1)
+            else if (e.key === 'ArrowUp') nextIdx = Math.max(0, idx - 1)
+            else if (e.key === 'Home') nextIdx = 0
+            else if (e.key === 'End') nextIdx = items.length - 1
+            items[nextIdx]?.focus()
+          }
+        }}
         onDragOver={(e)=>{
           const types = Array.from(e.dataTransfer?.types || [])
           if (types.includes('application/x-lenscat-paths')) {

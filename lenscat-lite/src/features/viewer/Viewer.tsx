@@ -18,6 +18,7 @@ export default function Viewer({ path, onClose, onNavigate, onZoomChange, reques
     }
     window.addEventListener('keydown', onKey)
     try { requestAnimationFrame(() => setVisible(true)) } catch { setVisible(true) }
+    try { requestAnimationFrame(() => containerRef.current?.focus()) } catch { try { containerRef.current?.focus() } catch {} }
     return () => { alive = false; window.removeEventListener('keydown', onKey); if (url) URL.revokeObjectURL(url); if (thumbUrl) URL.revokeObjectURL(thumbUrl) }
   }, [path])
 
@@ -49,10 +50,15 @@ export default function Viewer({ path, onClose, onNavigate, onZoomChange, reques
   return (
     <div
       ref={containerRef}
+      role="dialog"
+      aria-modal={true}
+      aria-label="Image viewer"
+      tabIndex={-1}
       className={`viewer grabbable${dragging?' dragging':''}${visible?' is-visible':''}`}
       onClick={() => { setVisible(false); window.setTimeout(() => onClose(), 110) }}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
+      onKeyDown={(e)=>{ if (e.key === 'Tab') { e.preventDefault() } }}
     >
       <button
         aria-label="Close"

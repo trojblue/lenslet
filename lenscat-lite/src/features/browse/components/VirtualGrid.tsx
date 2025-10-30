@@ -7,7 +7,7 @@ import { flatLayout } from '../model/layouts'
 import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 
-export default function VirtualGrid({ items, selected, restoreToSelectionToken, onSelectionChange, onOpenViewer, onContextMenuItem, highlight }:{ items: Item[]; selected: string[]; restoreToSelectionToken?: number; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void; onContextMenuItem?:(e:React.MouseEvent, path:string)=>void; highlight?: string }){
+export default function VirtualGrid({ items, selected, restoreToSelectionToken, onSelectionChange, onOpenViewer, onContextMenuItem, highlight, suppressSelectionHighlight = false }:{ items: Item[]; selected: string[]; restoreToSelectionToken?: number; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void; onContextMenuItem?:(e:React.MouseEvent, path:string)=>void; highlight?: string; suppressSelectionHighlight?: boolean }){
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [hoverTimer, setHoverTimer] = useState<number | null>(null)
@@ -112,6 +112,7 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
   const selectedSet = new Set(selected)
   const hasPreview = !!(previewFor && previewUrl && delayPassed)
   useEffect(() => { parentRef.current?.focus() }, [])
+  useEffect(() => { if (suppressSelectionHighlight) { try { parentRef.current?.blur() } catch {} ; try { setFocused(null) } catch {} } }, [suppressSelectionHighlight])
 
   const activeDescendantId = focused ? `cell-${encodeURIComponent(focused)}` : undefined
 
@@ -128,8 +129,10 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
           if (!isScrolling && rows.length <= 20) { for (const it of nextPageItems) { try { api.prefetchThumb(it.path) } catch {} } }
           return (
             <div key={row.key} className="grid-row" role="row" style={{ transform: `translate3d(0, ${row.start}px, 0)`, gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, containIntrinsicSize: `${rowH}px 100%` as any }}>
-              {slice.map(it => (
-                <div id={`cell-${encodeURIComponent(it.path)}`} key={it.path} className={`grid-cell ${(active===it.path || selectedSet.has(it.path)) ? 'is-selected' : ''}`} role="gridcell" aria-selected={selectedSet.has(it.path) || active===it.path} tabIndex={focused===it.path?0:-1} onFocus={()=> setFocused(it.path)} draggable onDragStart={(e)=>{
+              {slice.map(it => {
+                const isVisuallySelected = !suppressSelectionHighlight && ((active===it.path) || selectedSet.has(it.path))
+                return (
+                <div id={`cell-${encodeURIComponent(it.path)}`} key={it.path} className={`grid-cell ${isVisuallySelected ? 'is-selected' : ''}`} role="gridcell" aria-selected={isVisuallySelected} tabIndex={focused===it.path?0:-1} onFocus={()=> setFocused(it.path)} draggable onDragStart={(e)=>{
                   try {
                     const paths = selectedSet.has(it.path) && selected.length>0 ? selected : [it.path]
                     e.dataTransfer?.setData('application/x-lenscat-paths', JSON.stringify(paths))
@@ -147,8 +150,16 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
                     document.body.appendChild(ghost)
                     const w = ghost.getBoundingClientRect().width || 150
                     e.dataTransfer!.setDragImage(ghost, Math.round(w/2), 0)
-                    const cleanup = () => { try { ghost.remove() } catch {} ; try { document.body.classList.remove('drag-active') } catch {} ; window.removeEventListener('dragend', cleanup) }
+                    const cleanup = () => {
+                      try { ghost.remove() } catch {}
+                      try { document.body.classList.remove('drag-active') } catch {}
+                      window.removeEventListener('dragend', cleanup)
+                      window.removeEventListener('pointerup', cleanup)
+                      document.removeEventListener('visibilitychange', cleanup)
+                    }
                     window.addEventListener('dragend', cleanup)
+                    window.addEventListener('pointerup', cleanup)
+                    document.addEventListener('visibilitychange', cleanup)
                   } catch {}
                 }} onDragEnd={()=>{}} onContextMenu={(e)=>{ e.preventDefault(); e.stopPropagation(); if (onContextMenuItem) onContextMenuItem(e, it.path) }}>
                   <div className="cell-media" onMouseEnter={()=>{ try { api.prefetchFile(it.path) } catch {} }} onDoubleClick={()=> onOpenViewer(it.path)} onMouseLeave={()=>{
@@ -159,7 +170,7 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
                     setDelayPassed(false)
                   }}>
                     <div className="cell-content">
-                      <ThumbCard path={it.path} name={it.name} selected={(active===it.path) || selectedSet.has(it.path)} displayW={cellW} displayH={mediaH} ioRoot={parentRef.current} isScrolling={isScrolling} priority={isTopmostVisibleRow} onClick={(ev: React.MouseEvent)=>{
+                      <ThumbCard path={it.path} name={it.name} selected={isVisuallySelected} displayW={cellW} displayH={mediaH} ioRoot={parentRef.current} isScrolling={isScrolling} priority={isTopmostVisibleRow} onClick={(ev: React.MouseEvent)=>{
                         setActive(it.path)
                         setFocused(it.path)
                         const isShift = !!ev.shiftKey
@@ -194,14 +205,14 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
                       setPreviewFor(it.path)
                       setDelayPassed(false)
                       const t = window.setTimeout(async () => {
-                        try {
-                          const blob = await api.getFile(it.path)
-                          const u = URL.createObjectURL(blob)
-                          if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} }
-                          previewUrlRef.current = u
-                          setPreviewUrl(u)
+                      try {
+                        const blob = await api.getFile(it.path)
+                        const u = URL.createObjectURL(blob)
+                        if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} }
+                        previewUrlRef.current = u
+                        setPreviewUrl(u)
                           setDelayPassed(true)
-                        } catch {}
+                      } catch {}
                       }, 350)
                       setHoverTimer(t as any)
                     }} onMouseLeave={()=>{
@@ -230,7 +241,7 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
                     <div className="filesize">{it.w} × {it.h}</div>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )
         })}

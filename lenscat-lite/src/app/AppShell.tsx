@@ -124,6 +124,10 @@ export default function AppShell(){
       viewerHistoryPushedRef.current = false
       try { window.history.back() } catch {}
     }
+    try {
+      const p = lastFocusedPathRef.current
+      if (p) (document.getElementById(`cell-${encodeURIComponent(p)}`) as HTMLElement | null)?.focus()
+    } catch {}
   }
 
   useEffect(() => {
@@ -140,6 +144,7 @@ export default function AppShell(){
 
   const [isDraggingOver, setDraggingOver] = useState(false)
   const [ctx, setCtx] = useState<{ x:number; y:number; kind:'tree'|'grid'; payload:any } | null>(null)
+  const lastFocusedPathRef = useRef<string | null>(null)
 
   useEffect(() => {
     const el = appRef.current
@@ -248,8 +253,9 @@ export default function AppShell(){
             )
           })()}
         </div>
-        <VirtualGrid items={items} selected={selectedPaths} restoreToSelectionToken={restoreGridToSelectionToken} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { openViewer(p); setSelectedPaths([p]) }}
+        <VirtualGrid items={items} selected={selectedPaths} restoreToSelectionToken={restoreGridToSelectionToken} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
           highlight={searching ? normalizedQ : ''}
+          suppressSelectionHighlight={!!viewer}
           onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
         />
         {!!selectedPaths.length && (
@@ -283,7 +289,7 @@ export default function AppShell(){
         <div className="drop-overlay">Drop images to upload</div>
       )}
       {ctx && (() => {
-        const items: MenuItem[] = ctx.kind === 'tree'
+        const menuItems: MenuItem[] = ctx.kind === 'tree'
           ? [ { label: 'Export (disabled)', disabled: true, onClick: () => {} } ]
           : (() => {
               const inTrash = current.endsWith('/_trash_')
@@ -356,7 +362,7 @@ export default function AppShell(){
               }
               return arr
             })()
-        return (<ContextMenu x={ctx.x} y={ctx.y} items={items} />)
+        return (<ContextMenu x={ctx.x} y={ctx.y} items={menuItems} />)
       })()}
     </div>
   )

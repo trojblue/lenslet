@@ -13,6 +13,7 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
   const [hoverTimer, setHoverTimer] = useState<number | null>(null)
   const [delayPassed, setDelayPassed] = useState<boolean>(false)
   const [active, setActive] = useState<string | null>(null)
+  const [focused, setFocused] = useState<string | null>(null)
   const previewUrlRef = useRef<string | null>(null)
   const parentRef = useRef<HTMLDivElement | null>(null)
   const anchorRef = useRef<string | null>(null)
@@ -66,13 +67,14 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
     const el = parentRef.current
     if (!el) return
     const onKey = (e: KeyboardEvent) => {
-      const result = getNextIndexForKeyNav(items, Math.max(1, columns), active, e)
+      const result = getNextIndexForKeyNav(items, Math.max(1, columns), focused, e)
       if (result == null) return
       e.preventDefault()
-      if (result === 'open') { if (active) onOpenViewer(active); return }
+      if (result === 'open') { if (focused) onOpenViewer(focused); return }
       const next = result
       const nextItem = items[next]
       if (!nextItem) return
+      setFocused(nextItem.path)
       setActive(nextItem.path)
       onSelectionChange([nextItem.path])
       try { anchorRef.current = nextItem.path } catch {}
@@ -85,10 +87,11 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
         try { scrollRowIntoView(el, rowTop) }
         catch { try { rowVirtualizer.scrollToIndex(rowIdx, { align: 'start' as const }) } catch {} }
       }
+      try { (document.getElementById(`cell-${encodeURIComponent(nextItem.path)}`) as HTMLElement | null)?.focus() } catch {}
     }
     el.addEventListener('keydown', onKey)
     return () => { el.removeEventListener('keydown', onKey) }
-  }, [items, active, columns, onOpenViewer, rowH])
+  }, [items, focused, columns, onOpenViewer, rowH])
 
   // measure handled in hook
 
@@ -110,8 +113,10 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
   const hasPreview = !!(previewFor && previewUrl && delayPassed)
   useEffect(() => { parentRef.current?.focus() }, [])
 
+  const activeDescendantId = focused ? `cell-${encodeURIComponent(focused)}` : undefined
+
   return (
-    <div role="grid" aria-label="Gallery" className={`grid${isScrolling ? ' is-scrolling' : ''}${hasPreview ? ' has-preview' : ''}`} ref={parentRef} tabIndex={0} onMouseDown={() => parentRef.current?.focus()} style={{ ['--gap' as any]: `${GAP}px` }}>
+    <div role="grid" aria-label="Gallery" className={`grid${isScrolling ? ' is-scrolling' : ''}${hasPreview ? ' has-preview' : ''}`} ref={parentRef} tabIndex={0} aria-activedescendant={activeDescendantId} onMouseDown={() => parentRef.current?.focus()} style={{ ['--gap' as any]: `${GAP}px` }}>
       <div key={columns} className="grid-rows" style={{ height: rowVirtualizer.getTotalSize() }}>
         {rows.map(row => {
           const start = row.index * columns
@@ -120,11 +125,11 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
           try { if (!isScrolling) { for (const it of slice) { try { api.prefetchThumb(it.path) } catch {} } } } catch {}
           const nextPageStart = (row.index + 1) * columns
           const nextPageItems = items.slice(nextPageStart, nextPageStart + columns)
-          if (!isScrolling) { for (const it of nextPageItems) { try { api.prefetchThumb(it.path) } catch {} } }
+          if (!isScrolling && rows.length <= 20) { for (const it of nextPageItems) { try { api.prefetchThumb(it.path) } catch {} } }
           return (
             <div key={row.key} className="grid-row" role="row" style={{ transform: `translate3d(0, ${row.start}px, 0)`, gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, containIntrinsicSize: `${rowH}px 100%` as any }}>
               {slice.map(it => (
-                <div key={it.path} className={`grid-cell ${(active===it.path || selectedSet.has(it.path)) ? 'is-selected' : ''}`} role="gridcell" aria-selected={selectedSet.has(it.path) || active===it.path} draggable onDragStart={(e)=>{
+                <div id={`cell-${encodeURIComponent(it.path)}`} key={it.path} className={`grid-cell ${(active===it.path || selectedSet.has(it.path)) ? 'is-selected' : ''}`} role="gridcell" aria-selected={selectedSet.has(it.path) || active===it.path} tabIndex={focused===it.path?0:-1} onFocus={()=> setFocused(it.path)} draggable onDragStart={(e)=>{
                   try {
                     const paths = selectedSet.has(it.path) && selected.length>0 ? selected : [it.path]
                     e.dataTransfer?.setData('application/x-lenscat-paths', JSON.stringify(paths))
@@ -156,6 +161,7 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
                     <div className="cell-content">
                       <ThumbCard path={it.path} name={it.name} selected={(active===it.path) || selectedSet.has(it.path)} displayW={cellW} displayH={mediaH} ioRoot={parentRef.current} isScrolling={isScrolling} priority={isTopmostVisibleRow} onClick={(ev: React.MouseEvent)=>{
                         setActive(it.path)
+                        setFocused(it.path)
                         const isShift = !!ev.shiftKey
                         const isToggle = !!(ev.ctrlKey || ev.metaKey)
                         if (isShift) {
@@ -179,6 +185,7 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
                           try { anchorRef.current = it.path } catch {}
                         }
                         try { if (!isScrolling) { api.prefetchFile(it.path); api.prefetchThumb(it.path) } } catch {}
+                        try { (document.getElementById(`cell-${encodeURIComponent(it.path)}`) as HTMLElement | null)?.focus() } catch {}
                       }} />
                     </div>
                     <div className="cell-zoom-hit" onMouseEnter={async ()=>{

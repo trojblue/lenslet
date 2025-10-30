@@ -48,7 +48,8 @@ export default function AppShell(){
   const { data, refetch } = useFolder(current)
   const searching = query.trim().length > 0
   const debouncedQ = useDebounced(query, 250)
-  const search = useSearch(searching ? debouncedQ : '', current)
+  const normalizedQ = useMemo(()=> debouncedQ.trim().replace(/\s+/g, ' '), [debouncedQ])
+  const search = useSearch(searching ? normalizedQ : '', current)
 
   const items = useMemo(()=> {
     const base = searching ? (search.data?.items ?? []) : (data?.items ?? [])
@@ -155,7 +156,7 @@ export default function AppShell(){
       const files = Array.from(e.dataTransfer.files || [])
       if (!files.length) return
       const isLeaf = (data?.dirs?.length ?? 0) === 0
-      if (!isLeaf) return
+      if (!isLeaf) { try { alert('Uploads are only allowed into empty folders.') } catch {} ; return }
       for (const f of files) { try { await api.uploadFile(current, f); await refetch() } catch {} }
     }
     el.addEventListener('dragover', onDragOver)
@@ -220,6 +221,9 @@ export default function AppShell(){
         onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
       />
       <div className="main">
+        <div aria-live="polite" style={{ position:'absolute', left:-9999, top:'auto', width:1, height:1, overflow:'hidden' }}>
+          {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
+        </div>
         <div className="breadcrumb">
           {(() => {
             const parts = current.split('/').filter(Boolean)
@@ -245,7 +249,7 @@ export default function AppShell(){
           })()}
         </div>
         <VirtualGrid items={items} selected={selectedPaths} restoreToSelectionToken={restoreGridToSelectionToken} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { openViewer(p); setSelectedPaths([p]) }}
-          highlight={searching ? query : ''}
+          highlight={searching ? normalizedQ : ''}
           onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
         />
         {!!selectedPaths.length && (

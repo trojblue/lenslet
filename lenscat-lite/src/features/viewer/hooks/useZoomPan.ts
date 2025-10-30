@@ -29,7 +29,7 @@ export function useZoomPan() {
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => { fitAndCenter() })
+    const ro = new ResizeObserver(() => { try { requestAnimationFrame(() => fitAndCenter()) } catch { fitAndCenter() } })
     ro.observe(el)
     return () => ro.disconnect()
   }, [])

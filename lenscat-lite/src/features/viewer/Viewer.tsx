@@ -54,6 +54,14 @@ export default function Viewer({ path, onClose, onNavigate, onZoomChange, reques
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
     >
+      <button
+        aria-label="Close"
+        onClick={(e)=>{ e.stopPropagation(); setVisible(false); window.setTimeout(() => onClose(), 110) }}
+        className="toolbar-back"
+        style={{ position:'absolute', top:12, right:12, zIndex:3 }}
+      >
+        ✕
+      </button>
       {thumbUrl && (
         <img
           src={thumbUrl}

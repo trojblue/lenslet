@@ -56,12 +56,12 @@ export default function Toolbar({
               {(sortDir||'desc')==='desc' ? '↓' : '↑'}
             </button>
             <div ref={ratingRef}>
-              <button className="toolbar-back" onClick={()=> setOpenRating(v=>!v)} title="Filter by rating" style={{ height:28, padding:'0 10px', display:'flex', alignItems:'center', gap:6 }}>
+              <button className="toolbar-back" onClick={()=> setOpenRating(v=>!v)} title="Filter by rating" aria-haspopup="dialog" aria-expanded={openRating} style={{ height:28, padding:'0 10px', display:'flex', alignItems:'center', gap:6 }}>
                 <span style={{ fontSize:14 }}>★</span>
                 <span style={{ fontSize:13 }}>Rating</span>
               </button>
               {openRating && (
-                <div style={{ position:'absolute', top:38, left:0, background:'#1b1b1b', border:'1px solid var(--border)', borderRadius:8, padding:6, boxShadow:'0 10px 26px rgba(0,0,0,0.35)', width:200 }}>
+                <div role="dialog" aria-label="Filter by rating" style={{ position:'absolute', top:38, left:0, background:'#1b1b1b', border:'1px solid var(--border)', borderRadius:8, padding:6, boxShadow:'0 10px 26px rgba(0,0,0,0.35)', width:200 }} onKeyDown={(e)=>{ if (e.key==='Escape') setOpenRating(false) }}>
                   {[5,4,3,2,1].map(v => {
                     const active = !!(starFilters||[]).includes(v)
                     const count = starCounts?.[String(v)] ?? 0

@@ -10,6 +10,7 @@ import { api } from '../api/client'
 import { readHash, writeHash, sanitizePath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import { useSidebars } from './layout/useSidebars'
+import ContextMenu, { MenuItem } from './menu/ContextMenu'
 
 export default function AppShell(){
   const [current, setCurrent] = useState<string>('/')
@@ -274,34 +275,28 @@ export default function AppShell(){
       {isDraggingOver && (
         <div className="drop-overlay">Drop images to upload</div>
       )}
-      {ctx && (
-        <div className="ctx" style={{ left: ctx.x, top: ctx.y }} onClick={e=> e.stopPropagation()}>
-          {ctx.kind === 'tree' && (
-            <>
-              <div className="ctx-item disabled" onClick={(e)=>{ e.stopPropagation() }}>Export (disabled)</div>
-            </>
-          )}
-          {ctx.kind === 'grid' && (
-            <>
-              <div className={`ctx-item${current.endsWith('/_trash_') ? ' disabled' : ''}`} onClick={async ()=>{
-                if (current.endsWith('/_trash_')) return
-                const trash = `/_trash_`
-                for (const p of ctx.payload.paths as string[]) { try { await api.moveFile(p, trash) } catch {} }
+      {ctx && (() => {
+        const items: MenuItem[] = ctx.kind === 'tree'
+          ? [ { label: 'Export (disabled)', disabled: true, onClick: () => {} } ]
+          : (() => {
+              const inTrash = current.endsWith('/_trash_')
+              const sel = (ctx.payload.paths as string[]) || []
+              const arr: MenuItem[] = []
+              arr.push({ label: 'Move to trash', disabled: inTrash, onClick: async () => {
+                if (inTrash) return
+                const trash = '/_trash_'
+                for (const p of sel) { try { await api.moveFile(p, trash) } catch {} }
                 try { await refetch() } catch {}
                 setCtx(null)
-              }}>Move to trash</div>
-              <div className="ctx-sep" />
-              {current.endsWith('/_trash_') && (
-                <div className="ctx-item ctx-danger" onClick={async ()=>{
-                  try { await api.deleteFiles(ctx.payload.paths as string[]) } catch {}
+              }})
+              if (inTrash) {
+                arr.push({ label: 'Permanent delete', danger: true, onClick: async () => {
+                  try { await api.deleteFiles(sel) } catch {}
                   try { await refetch() } catch {}
                   setCtx(null)
-                }}>Permanent delete</div>
-              )}
-              {current.endsWith('/_trash_') && (
-                <div className="ctx-item" onClick={async ()=>{
-                  const toRecover = ctx.payload.paths as string[]
-                  for (const p of toRecover) {
+                }})
+                arr.push({ label: 'Recover', onClick: async () => {
+                  for (const p of sel) {
                     try {
                       const sc = await api.getSidecar(p)
                       const dest = (sc as any).original_position ? ((sc as any).original_position as string).split('/').slice(0,-1).join('/') : '/'
@@ -311,12 +306,12 @@ export default function AppShell(){
                   }
                   try { await refetch() } catch {}
                   setCtx(null)
-                }}>Recover</div>
-              )}
-            </>
-          )}
-        </div>
-      )}
+                }})
+              }
+              return arr
+            })()
+        return (<ContextMenu x={ctx.x} y={ctx.y} items={items} />)
+      })()}
     </div>
   )
 }

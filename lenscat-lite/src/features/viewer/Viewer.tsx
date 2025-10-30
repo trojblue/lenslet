@@ -1,33 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { api } from '../../shared/api/client'
+import { useZoomPan } from './hooks/useZoomPan'
 
 export default function Viewer({ path, onClose, onNavigate, onZoomChange, requestedZoomPercent, onZoomRequestConsumed }:{ path: string; onClose:()=>void; onNavigate?:(delta:number)=>void; onZoomChange?:(p:number)=>void; requestedZoomPercent?: number | null; onZoomRequestConsumed?: ()=>void }){
   const [url, setUrl] = useState<string | null>(null)
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
-  const [scale, setScale] = useState<number>(1)
-  const [tx, setTx] = useState<number>(0)
-  const [ty, setTy] = useState<number>(0)
-  const [base, setBase] = useState<number>(1)
-  const [ready, setReady] = useState<boolean>(false)
-  const [dragging, setDragging] = useState<boolean>(false)
-  const [visible, setVisible] = useState<boolean>(false)
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const imgRef = useRef<HTMLImageElement | null>(null)
-
-  const fitAndCenter = () => {
-    const cont = containerRef.current
-    const im = imgRef.current
-    if (!cont || !im || !im.naturalWidth || !im.naturalHeight) return
-    const r = cont.getBoundingClientRect()
-    const bw = r.width / im.naturalWidth
-    const bh = r.height / im.naturalHeight
-    const b = Math.min(1, Math.min(bw, bh))
-    setBase(b)
-    const imgW = im.naturalWidth * b
-    const imgH = im.naturalHeight * b
-    setTx((r.width - imgW)/2)
-    setTy((r.height - imgH)/2)
-  }
+  const { scale, setScale, tx, setTx, ty, setTy, base, setBase, ready, setReady, dragging, visible, setVisible, containerRef, imgRef, fitAndCenter, handleWheel, handleMouseDown } = useZoomPan()
 
   useEffect(() => {
     let alive = true
@@ -47,13 +25,7 @@ export default function Viewer({ path, onClose, onNavigate, onZoomChange, reques
   useEffect(() => { return () => { if (thumbUrl) { try { URL.revokeObjectURL(thumbUrl) } catch {} } } }, [thumbUrl])
   useEffect(() => { setReady(false) }, [url])
 
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const ro = new ResizeObserver(() => { fitAndCenter() })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+  // resize observer moved into hook
 
   useEffect(() => { if (onZoomChange) onZoomChange((base * scale) * 100) }, [base, scale, onZoomChange])
 
@@ -79,45 +51,8 @@ export default function Viewer({ path, onClose, onNavigate, onZoomChange, reques
       ref={containerRef}
       className={`viewer grabbable${dragging?' dragging':''}${visible?' is-visible':''}`}
       onClick={() => { setVisible(false); window.setTimeout(() => onClose(), 110) }}
-      onWheel={(e)=>{
-        e.preventDefault()
-        const dir = e.deltaY > 0 ? -1 : 1
-        const BASE = 1.2
-        const MIN = 0.05
-        const MAX = 8.0
-        const cont = containerRef.current
-        if (!cont) return
-        const crect = cont.getBoundingClientRect()
-        const cx = e.clientX - crect.left
-        const cy = e.clientY - crect.top
-        setScale(s => {
-          const next = Math.min(MAX, Math.max(MIN, s * Math.pow(BASE, dir)))
-          const ratio = next / s
-          setTx(prevTx => cx - ratio * (cx - prevTx))
-          setTy(prevTy => cy - ratio * (cy - prevTy))
-          return Number(next.toFixed(4))
-        })
-      }}
-      onMouseDown={(e)=>{
-        const cont = containerRef.current
-        const im = imgRef.current
-        if (!cont || !im) return
-        const target = e.target as Node
-        if (target !== im) return
-        const rect = cont.getBoundingClientRect()
-        if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return
-        e.preventDefault()
-        e.stopPropagation()
-        setDragging(true)
-        const startX = e.clientX
-        const startY = e.clientY
-        const startTx = tx
-        const startTy = ty
-        const onMove = (ev: MouseEvent) => { setTx(startTx + (ev.clientX - startX)); setTy(startTy + (ev.clientY - startY)) }
-        const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); setDragging(false) }
-        window.addEventListener('mousemove', onMove)
-        window.addEventListener('mouseup', onUp)
-      }}
+      onWheel={handleWheel}
+      onMouseDown={handleMouseDown}
     >
       {thumbUrl && (
         <img

@@ -1,10 +1,10 @@
 import React, { useRef, useState, useEffect, useLayoutEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Item } from '../../../lib/types'
-import Thumb from '../../../components/Thumb'
+import ThumbCard from './ThumbCard'
 import { api } from '../../../shared/api/client'
 import { flatLayout } from '../model/layouts'
+import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 
 export default function VirtualGrid({ items, selected, restoreToSelectionToken, onSelectionChange, onOpenViewer, onContextMenuItem, highlight }:{ items: Item[]; selected: string[]; restoreToSelectionToken?: number; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void; onContextMenuItem?:(e:React.MouseEvent, path:string)=>void; highlight?: string }){
@@ -17,29 +17,12 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
   const parentRef = useRef<HTMLDivElement | null>(null)
   const anchorRef = useRef<string | null>(null)
 
-  const [width, setWidth] = useState(0)
-  useLayoutEffect(() => {
-    const el = parentRef.current
-    if (!el) return
-    const measure = () => {
-      const cs = getComputedStyle(el)
-      const inner = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-      setWidth(inner)
-    }
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    measure()
-    return () => ro.disconnect()
-  }, [])
-
   const GAP = 12
   const TARGET_CELL = 220
   const ASPECT = { w: 4, h: 3 }
   const CAPTION_H = 44
 
-  const { columns, cellW, mediaH, rowH } = flatLayout({ containerW: width, gap: GAP, targetCell: TARGET_CELL, aspect: ASPECT, captionH: CAPTION_H })
-
-  const rowCount = Math.ceil(items.length / Math.max(1, columns))
+  const { columns, cellW, mediaH, rowH, rowVirtualizer, rows } = useVirtualGrid(parentRef as any, items.length, { gap: GAP, targetCell: TARGET_CELL, aspect: ASPECT, captionH: CAPTION_H })
 
   const pathToIndex = useMemo(() => {
     const map = new Map<string, number>()
@@ -47,14 +30,7 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
     return map
   }, [items])
 
-  const rowVirtualizer = useVirtualizer({
-    count: rowCount,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => rowH,
-    overscan: 8,
-  })
-
-  const rows = rowVirtualizer.getVirtualItems()
+  
 
   const scrollAnimRef = useRef<number | null>(null)
   const scrollRowIntoView = (el: HTMLElement, top: number) => {
@@ -114,7 +90,7 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
     return () => { el.removeEventListener('keydown', onKey) }
   }, [items, active, columns, onOpenViewer, rowH])
 
-  useEffect(() => { rowVirtualizer.measure() }, [columns, rowH])
+  // measure handled in hook
 
   useLayoutEffect(() => {
     const el = parentRef.current
@@ -178,7 +154,7 @@ export default function VirtualGrid({ items, selected, restoreToSelectionToken, 
                     setDelayPassed(false)
                   }}>
                     <div className="cell-content">
-                      <Thumb path={it.path} name={it.name} selected={(active===it.path) || selectedSet.has(it.path)} displayW={cellW} displayH={mediaH} ioRoot={parentRef.current} isScrolling={isScrolling} priority={isTopmostVisibleRow} onClick={(ev: React.MouseEvent)=>{
+                      <ThumbCard path={it.path} name={it.name} selected={(active===it.path) || selectedSet.has(it.path)} displayW={cellW} displayH={mediaH} ioRoot={parentRef.current} isScrolling={isScrolling} priority={isTopmostVisibleRow} onClick={(ev: React.MouseEvent)=>{
                         setActive(it.path)
                         const isShift = !!ev.shiftKey
                         const isToggle = !!(ev.ctrlKey || ev.metaKey)

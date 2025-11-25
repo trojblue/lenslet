@@ -1,4 +1,42 @@
-@import './theme.css';
+@import "tailwindcss";
+@import './theme.css' layer(base);
+
+/* Custom design tokens - Tailwind v4 @theme */
+@theme {
+  /* Colors mapped from theme.css variables */
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-hover: var(--hover);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+
+  /* Typography */
+  --font-sans: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+
+  /* Border radius */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 10px;
+
+  /* Spacing */
+  --spacing-toolbar: 48px;
+
+  /* Z-index scale */
+  --z-toolbar: 50;
+  --z-viewer: 40;
+  --z-overlay: 60;
+  --z-menu: 1000;
+}
 /* Top toolbar */
 .toolbar {
   position: fixed;

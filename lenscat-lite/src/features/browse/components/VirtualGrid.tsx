@@ -136,8 +136,17 @@ export default function VirtualGrid({
   const activeDescendantId = focused ? `cell-${encodeURIComponent(focused)}` : undefined
 
   return (
-    <div role="grid" aria-label="Gallery" className={`grid${isScrolling ? ' is-scrolling' : ''}${hasPreview ? ' has-preview' : ''}`} ref={parentRef} tabIndex={0} aria-activedescendant={activeDescendantId} onMouseDown={() => parentRef.current?.focus()} style={{ ['--gap' as any]: `${GAP}px` }}>
-      <div key={columns} className="grid-rows" style={{ height: rowVirtualizer.getTotalSize() }}>
+    <div 
+      role="grid" 
+      aria-label="Gallery" 
+      className={`relative h-full overflow-auto p-3 outline-none scrollbar-thin ${hasPreview ? 'cursor-zoom-in' : ''}`}
+      ref={parentRef} 
+      tabIndex={0} 
+      aria-activedescendant={activeDescendantId} 
+      onMouseDown={() => parentRef.current?.focus()} 
+      style={{ ['--gap' as any]: `${GAP}px` }}
+    >
+      <div key={columns} className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
         {rows.map(row => {
           const start = row.index * columns
           const slice = items.slice(start, start + columns)
@@ -147,11 +156,25 @@ export default function VirtualGrid({
           const nextPageItems = items.slice(nextPageStart, nextPageStart + columns)
           if (!isScrolling && rows.length <= 20) { for (const it of nextPageItems) { try { api.prefetchThumb(it.path) } catch {} } }
           return (
-            <div key={row.key} className="grid-row" role="row" style={{ transform: `translate3d(0, ${row.start}px, 0)`, gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, containIntrinsicSize: `${rowH}px 100%` as any }}>
+            <div 
+              key={row.key} 
+              className="absolute top-0 left-0 right-0 w-full grid gap-[var(--gap)] pb-[var(--gap)] will-change-transform"
+              role="row" 
+              style={{ transform: `translate3d(0, ${row.start}px, 0)`, gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+            >
               {slice.map(it => {
                 const isVisuallySelected = !suppressSelectionHighlight && ((active===it.path) || selectedSet.has(it.path))
                 return (
-                <div id={`cell-${encodeURIComponent(it.path)}`} key={it.path} className={`grid-cell ${isVisuallySelected ? 'is-selected' : ''}`} role="gridcell" aria-selected={isVisuallySelected} tabIndex={focused===it.path?0:-1} onFocus={()=> setFocused(it.path)} draggable onDragStart={(e)=>{
+                <div 
+                  id={`cell-${encodeURIComponent(it.path)}`} 
+                  key={it.path} 
+                  className={`relative ${isVisuallySelected ? 'outline outline-2 outline-accent outline-offset-2 rounded-[10px]' : ''}`}
+                  role="gridcell" 
+                  aria-selected={isVisuallySelected} 
+                  tabIndex={focused===it.path?0:-1} 
+                  onFocus={()=> setFocused(it.path)} 
+                  draggable 
+                  onDragStart={(e)=>{
                   try {
                     const paths = selectedSet.has(it.path) && selected.length>0 ? selected : [it.path]
                     e.dataTransfer?.setData('application/x-lenscat-paths', JSON.stringify(paths))
@@ -181,14 +204,18 @@ export default function VirtualGrid({
                     document.addEventListener('visibilitychange', cleanup)
                   } catch {}
                 }} onDragEnd={()=>{}} onContextMenu={(e)=>{ e.preventDefault(); e.stopPropagation(); if (onContextMenuItem) onContextMenuItem(e, it.path) }}>
-                  <div className="cell-media" onMouseEnter={()=>{ try { api.prefetchFile(it.path) } catch {} }} onDoubleClick={()=> onOpenViewer(it.path)} onMouseLeave={()=>{
+                  <div 
+                    className="relative aspect-[4/3] rounded-lg overflow-hidden bg-[var(--thumb-bg,#121212)] group"
+                    onMouseEnter={()=>{ try { api.prefetchFile(it.path) } catch {} }} 
+                    onDoubleClick={()=> onOpenViewer(it.path)} 
+                    onMouseLeave={()=>{
                     if (hoverTimer) { window.clearTimeout(hoverTimer); setHoverTimer(null) }
                     setPreviewFor(null)
                     if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} ; previewUrlRef.current = null }
                     setPreviewUrl(null)
                     setDelayPassed(false)
                   }}>
-                    <div className="cell-content">
+                    <div className="cell-content absolute inset-0">
                       <ThumbCard path={it.path} name={it.name} selected={isVisuallySelected} displayW={cellW} displayH={mediaH} ioRoot={parentRef.current} isScrolling={isScrolling} priority={isTopmostVisibleRow} onClick={(ev: React.MouseEvent)=>{
                         setActive(it.path)
                         setFocused(it.path)
@@ -218,7 +245,9 @@ export default function VirtualGrid({
                         try { (document.getElementById(`cell-${encodeURIComponent(it.path)}`) as HTMLElement | null)?.focus() } catch {}
                       }} />
                     </div>
-                    <div className="cell-zoom-hit" onMouseEnter={async ()=>{
+                    <div 
+                      className="absolute right-0 bottom-0 w-7 h-7 cursor-zoom-in"
+                      onMouseEnter={async ()=>{
                       if (isScrolling) return
                       if (hoverTimer) window.clearTimeout(hoverTimer)
                       setPreviewFor(it.path)
@@ -242,11 +271,11 @@ export default function VirtualGrid({
                       if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} ; previewUrlRef.current = null }
                       setPreviewUrl(null)
                     }}>
-                      <div className="cell-zoom">🔍</div>
+                      <div className="absolute right-1 bottom-1 w-[22px] h-[22px] bg-black/55 rounded-full flex items-center justify-center text-xs select-none opacity-0 group-hover:opacity-100 transition-opacity duration-[120ms]">🔍</div>
                     </div>
                   </div>
-                  <div className="cell-caption">
-                    <div className="filename" title={it.name}>{(() => {
+                  <div className="flex flex-col gap-0.5 mt-2 px-0.5 text-white/90">
+                    <div className="text-sm leading-[18px] line-clamp-2 break-words hyphens-auto" title={it.name}>{(() => {
                       const q = (highlight||'').trim()
                       if (!q) return it.name
                       const hay = it.name
@@ -255,9 +284,9 @@ export default function VirtualGrid({
                       const before = hay.slice(0, idx)
                       const match = hay.slice(idx, idx + q.length)
                       const after = hay.slice(idx + q.length)
-                      return (<>{before}<mark>{match}</mark>{after}</>)
+                      return (<>{before}<mark className="bg-accent/20 text-inherit rounded px-0.5">{match}</mark>{after}</>)
                     })()}</div>
-                    <div className="filesize">{it.w} × {it.h}</div>
+                    <div className="text-xs leading-4 opacity-75">{it.w} × {it.h}</div>
                   </div>
                 </div>
               )})}
@@ -265,8 +294,8 @@ export default function VirtualGrid({
           )
         })}
         {previewFor && previewUrl && delayPassed && createPortal(
-          <div className="preview-backdrop is-active">
-            <img src={previewUrl} alt="preview" className="preview-img" />
+          <div className="fixed inset-0 top-12 z-[999] flex items-center justify-center pointer-events-none bg-black/20 opacity-100">
+            <img src={previewUrl} alt="preview" className="max-w-[80vw] max-h-[80vh] object-contain opacity-[0.98]" />
           </div>,
           document.body
         )}
@@ -274,5 +303,3 @@ export default function VirtualGrid({
     </div>
   )
 }
-
-

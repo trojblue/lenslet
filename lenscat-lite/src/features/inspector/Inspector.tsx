@@ -165,35 +165,40 @@ export default function Inspector({
     [items, path]
   )
 
-  if (!enabled) return <div className="inspector"><div className="resizer resizer-right" onMouseDown={onResize} /></div>
+  if (!enabled) return (
+    <div className="col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
+      <div className="absolute top-12 bottom-0 w-1.5 cursor-col-resize z-10 right-[calc(var(--right)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
+    </div>
+  )
+
   return (
-    <div className="inspector">
+    <div className="col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
       {!multi && (
-        <div className="panel" style={{ display:'flex', justifyContent:'center' }}>
-          <div style={{ position:'relative', borderRadius:8, overflow:'hidden', border:'1px solid var(--border)', width: 220, height: 160, background:'var(--panel)' }}>
-            {thumbUrl && <img src={thumbUrl} alt="thumb" style={{ display:'block', width:'100%', height:'100%', objectFit:'contain' }} />}
-            {!!ext && <div style={{ position:'absolute', top:6, left:6, background:'#1b1b1b', border:'1px solid var(--border)', color:'var(--text)', fontSize:12, padding:'2px 6px', borderRadius:6 }}>{ext}</div>}
+        <div className="p-3 border-b border-border flex justify-center">
+          <div className="relative rounded-lg overflow-hidden border border-border w-[220px] h-[160px] bg-panel">
+            {thumbUrl && <img src={thumbUrl} alt="thumb" className="block w-full h-full object-contain" />}
+            {!!ext && <div className="absolute top-1.5 left-1.5 bg-[#1b1b1b] border border-border text-text text-xs px-1.5 py-0.5 rounded-md">{ext}</div>}
           </div>
         </div>
       )}
-      <div className="panel">
+      <div className="p-3 border-b border-border">
         {multi ? (
           <>
-            <div className="label">Selection</div>
-            <div className="url">{selectedPaths.length} files selected</div>
-            <div className="url">Total size: {fmtBytes(totalSize)}</div>
+            <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Selection</div>
+            <div className="font-mono text-muted break-all">{selectedPaths.length} files selected</div>
+            <div className="font-mono text-muted break-all">Total size: {fmtBytes(totalSize)}</div>
           </>
         ) : (
           <>
-            <div className="label">Filename</div>
-            <div className="url" title={filename}>{filename}</div>
+            <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Filename</div>
+            <div className="font-mono text-muted break-all" title={filename}>{filename}</div>
           </>
         )}
       </div>
-      <div className="panel">
-        <div className="label">{multi ? 'Notes (apply to all)' : 'Notes'}</div>
+      <div className="p-3 border-b border-border">
+        <div className="text-muted text-xs uppercase tracking-wide mb-1.5">{multi ? 'Notes (apply to all)' : 'Notes'}</div>
         <textarea
-          className="textarea"
+          className="w-full bg-[#1b1b1b] text-text border border-border rounded-lg p-2 min-h-[100px] resize-y scrollbar-thin"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           onBlur={() => {
@@ -212,10 +217,10 @@ export default function Inspector({
           aria-label={multi ? 'Notes for selected items' : 'Notes'}
         />
       </div>
-      <div className="panel">
-        <div className="label">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
+      <div className="p-3 border-b border-border">
+        <div className="text-muted text-xs uppercase tracking-wide mb-1.5">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
         <input
-          className="input"
+          className="w-full h-8 bg-[#1b1b1b] text-text border border-border rounded-lg px-2"
           value={tags}
           onChange={(e) => setTags(e.target.value)}
           onBlur={() => {
@@ -235,24 +240,15 @@ export default function Inspector({
           aria-label={multi ? 'Tags for selected items' : 'Tags'}
         />
       </div>
-      <div className="panel">
-        <div className="label">{multi ? 'Rating (apply to all)' : 'Rating'}</div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }} role="radiogroup" aria-label="Star rating">
+      <div className="p-3 border-b border-border">
+        <div className="text-muted text-xs uppercase tracking-wide mb-1.5">{multi ? 'Rating (apply to all)' : 'Rating'}</div>
+        <div className="flex gap-1.5 items-center" role="radiogroup" aria-label="Star rating">
           {[1, 2, 3, 4, 5].map((v) => {
             const filled = (star ?? 0) >= v
             return (
               <button
                 key={v}
-                className="button"
-                style={{
-                  width: 28,
-                  height: 28,
-                  padding: 0,
-                  borderRadius: 6,
-                  background: filled ? 'rgba(255, 200, 0, 0.15)' : '#1b1b1b',
-                  border: '1px solid var(--border)',
-                  color: filled ? '#ffd166' : '#aaa',
-                }}
+                className={`w-7 h-7 p-0 rounded-md border border-border ${filled ? 'bg-[rgba(255,200,0,0.15)] text-[#ffd166]' : 'bg-[#1b1b1b] text-[#aaa]'}`}
                 onClick={() => {
                   const val: StarRating = star === v && !multi ? null : (v as 1 | 2 | 3 | 4 | 5)
                   if (multi && selectedPaths.length) {
@@ -272,8 +268,7 @@ export default function Inspector({
             )
           })}
           <button
-            className="button"
-            style={{ marginLeft: 8 }}
+            className="ml-2 px-2 py-1 bg-[#1b1b1b] text-text border border-border rounded-md"
             onClick={async () => {
               if (multi && selectedPaths.length) {
                 await bulkUpdateSidecars(selectedPaths, { star: null })
@@ -297,36 +292,34 @@ export default function Inspector({
         </div>
       </div>
       {!multi && currentItem && (
-        <div className="panel">
-          <div className="label">Details</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div className="p-3 border-b border-border">
+          <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Details</div>
+          <div className="grid grid-cols-2 gap-2">
             <div>
               Type
               <br />
-              <span className="url">{currentItem.type}</span>
+              <span className="font-mono text-muted break-all">{currentItem.type}</span>
             </div>
             <div>
               Size
               <br />
-              <span className="url">{fmtBytes(currentItem.size)}</span>
+              <span className="font-mono text-muted break-all">{fmtBytes(currentItem.size)}</span>
             </div>
             <div>
               Dimensions
               <br />
-              <span className="url">{currentItem.w}×{currentItem.h}</span>
+              <span className="font-mono text-muted break-all">{currentItem.w}×{currentItem.h}</span>
             </div>
           </div>
         </div>
       )}
       {!multi && (
-        <div className="panel">
-          <div className="label">Source URL</div>
-          <div className="url">{path}</div>
+        <div className="p-3 border-b border-border">
+          <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Source URL</div>
+          <div className="font-mono text-muted break-all">{path}</div>
         </div>
       )}
-      <div className="resizer resizer-right" onMouseDown={onResize} />
+      <div className="absolute top-12 bottom-0 w-1.5 cursor-col-resize z-10 right-[calc(var(--right)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
     </div>
   )
 }
-
-

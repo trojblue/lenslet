@@ -41,46 +41,46 @@ export default function Toolbar({
     return () => window.removeEventListener('click', onClick)
   }, [openRating])
   return (
-    <div className="toolbar">
-      <div className="toolbar-left">
+    <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[1fr_auto_1fr] items-center px-3 gap-3 bg-panel border-b border-border z-toolbar col-span-full row-start-1">
+      <div className="flex items-center gap-2">
         {viewerActive && (
-          <button className="toolbar-back" onClick={onBack}>← Back</button>
+          <button className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={onBack}>← Back</button>
         )}
         {!viewerActive && (
-          <div style={{ display:'flex', gap:8, alignItems:'center', position:'relative' }}>
-            <select className="input" style={{ height:28 }} value={sortKey||'added'} onChange={e=> onSortKey && onSortKey((e.target.value as any) || 'added')}>
+          <div className="flex gap-2 items-center relative">
+            <select className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text" value={sortKey||'added'} onChange={e=> onSortKey && onSortKey((e.target.value as any) || 'added')}>
               <option value="added">Date added</option>
               <option value="name">Filename</option>
             </select>
-            <button className="toolbar-back" onClick={()=> onSortDir && onSortDir((sortDir||'desc')==='desc'?'asc':'desc')} title="Toggle sort">
+            <button className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={()=> onSortDir && onSortDir((sortDir||'desc')==='desc'?'asc':'desc')} title="Toggle sort">
               {(sortDir||'desc')==='desc' ? '↓' : '↑'}
             </button>
             <div ref={ratingRef}>
-              <button className="toolbar-back" onClick={()=> setOpenRating(v=>!v)} title="Filter by rating" aria-haspopup="dialog" aria-expanded={openRating} style={{ height:28, padding:'0 10px', display:'flex', alignItems:'center', gap:6 }}>
-                <span style={{ fontSize:14 }}>★</span>
-                <span style={{ fontSize:13 }}>Rating</span>
+              <button className="h-7 px-2.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer flex items-center gap-1.5" onClick={()=> setOpenRating(v=>!v)} title="Filter by rating" aria-haspopup="dialog" aria-expanded={openRating}>
+                <span className="text-sm">★</span>
+                <span className="text-[13px]">Rating</span>
               </button>
               {openRating && (
-                <div role="dialog" aria-label="Filter by rating" style={{ position:'absolute', top:38, left:0, background:'#1b1b1b', border:'1px solid var(--border)', borderRadius:8, padding:6, boxShadow:'0 10px 26px rgba(0,0,0,0.35)', width:200 }} onKeyDown={(e)=>{ if (e.key==='Escape') setOpenRating(false) }}>
+                <div role="dialog" aria-label="Filter by rating" className="absolute top-[38px] left-0 bg-[#1b1b1b] border border-border rounded-lg p-1.5 shadow-[0_10px_26px_rgba(0,0,0,0.35)] w-[200px]" onKeyDown={(e)=>{ if (e.key==='Escape') setOpenRating(false) }}>
                   {[5,4,3,2,1].map(v => {
                     const active = !!(starFilters||[]).includes(v)
                     const count = starCounts?.[String(v)] ?? 0
                     return (
-                      <div key={v} onClick={()=> onToggleStar && onToggleStar(v)} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 6px', borderRadius:6, cursor:'pointer', background: active? 'rgba(58,143,255,0.15)':'transparent' }}>
-                        <div style={{ color: active? '#ffd166' : 'var(--text)', fontSize:13 }}>{'★'.repeat(v)}{'☆'.repeat(5-v)}</div>
-                        <div style={{ opacity:0.8, fontSize:12 }}>{count}</div>
+                      <div key={v} onClick={()=> onToggleStar && onToggleStar(v)} className={`flex items-center justify-between px-1.5 py-1 rounded-md cursor-pointer ${active ? 'bg-accent/15' : ''}`}>
+                        <div className={`text-[13px] ${active ? 'text-[#ffd166]' : 'text-text'}`}>{'★'.repeat(v)}{'☆'.repeat(5-v)}</div>
+                        <div className="opacity-80 text-xs">{count}</div>
                       </div>
                     )
                   })}
                   {(() => { const activeNone = !!(starFilters||[]).includes(0); return (
-                    <div onClick={()=> onToggleStar && onToggleStar(0)} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 6px', borderRadius:6, cursor:'pointer', background: activeNone? 'rgba(58,143,255,0.15)':'transparent' }}>
-                      <div style={{ fontSize:13, color: activeNone? 'var(--text)' : 'var(--text)' }}>None</div>
-                      <div style={{ opacity:0.8, fontSize:12 }}>{starCounts?.['0'] ?? 0}</div>
+                    <div onClick={()=> onToggleStar && onToggleStar(0)} className={`flex items-center justify-between px-1.5 py-1 rounded-md cursor-pointer ${activeNone ? 'bg-accent/15' : ''}`}>
+                      <div className="text-[13px] text-text">None</div>
+                      <div className="opacity-80 text-xs">{starCounts?.['0'] ?? 0}</div>
                     </div>
                   )})()}
-                  <div style={{ height:1, background:'var(--border)', margin:'6px 0' }} />
-                  <div style={{ display:'flex', gap:8 }}>
-                    <button className="toolbar-back" onClick={onClearStars} style={{ height:26, padding:'0 10px' }}>All</button>
+                  <div className="h-px bg-border my-1.5" />
+                  <div className="flex gap-2">
+                    <button className="h-[26px] px-2.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={onClearStars}>All</button>
                   </div>
                 </div>
               )}
@@ -91,10 +91,10 @@ export default function Toolbar({
               const stars = sf.filter(v => v > 0).sort((a,b)=>b-a)
               const label = stars.length ? stars.join(',') : (sf.includes(0) ? 'None' : '')
               return (
-                <div className="filter-pill" aria-label={`Rating filter active: ${label}`} title={`Rating filter: ${label}`}>
-                  <span className="filter-pill-star">★</span>
-                  <span className="filter-pill-text">{label}</span>
-                  <button className="filter-pill-close" aria-label="Clear rating filter" onClick={onClearStars}>×</button>
+                <div className="inline-flex items-center gap-1.5 px-2 py-1 pl-1.5 bg-accent/20 border border-border text-text rounded-[10px] h-[26px]" aria-label={`Rating filter active: ${label}`} title={`Rating filter: ${label}`}>
+                  <span className="text-[#ffd166] text-[13px] leading-none">★</span>
+                  <span className="text-[13px] opacity-95">{label}</span>
+                  <button className="w-[18px] h-[18px] rounded-full border border-border bg-black/25 text-text cursor-pointer inline-flex items-center justify-center leading-none p-0 hover:bg-black/35" aria-label="Clear rating filter" onClick={onClearStars}>×</button>
                 </div>
               )
             })()}
@@ -103,7 +103,7 @@ export default function Toolbar({
       </div>
 
       {viewerActive && (
-        <div className="toolbar-center">
+        <div className="flex items-center gap-2.5 justify-center">
           <input
             type="range"
             min={5}
@@ -113,21 +113,18 @@ export default function Toolbar({
             onChange={e => onZoomPercentChange && onZoomPercentChange(Number(e.target.value))}
             className="zoom-slider"
           />
-          <span className="zoom-label">{Math.round(zoomPercent ?? 100)}%</span>
+          <span className="text-xs opacity-80 min-w-[42px] text-right">{Math.round(zoomPercent ?? 100)}%</span>
         </div>
       )}
 
-      <div className="toolbar-right">
+      <div className="flex items-center gap-2 justify-end">
         <input
           aria-label="Search filename, tags, notes"
           placeholder="Search filename, tags, notes…"
           onChange={e=>onSearch(e.target.value)}
-          className="input"
-          style={{width: 360}}
+          className="h-8 w-[360px] rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text"
         />
       </div>
     </div>
   )
 }
-
-

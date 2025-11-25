@@ -323,7 +323,7 @@ export default function AppShell() {
   }, [current, items, selectedPaths, viewer, openFolder])
 
   return (
-    <div className="app" ref={appRef} style={{ ['--left' as any]: `${leftW}px`, ['--right' as any]: `${rightW}px` }}>
+    <div className="grid h-full grid-cols-[var(--left)_1fr_var(--right)] grid-rows-[48px_1fr]" ref={appRef} style={{ ['--left' as any]: `${leftW}px`, ['--right' as any]: `${rightW}px` }}>
       <Toolbar
         onSearch={setQuery}
         viewerActive={!!viewer}
@@ -352,11 +352,11 @@ export default function AppShell() {
       <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={onResizeLeft}
         onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
       />
-      <div className="main">
-        <div aria-live="polite" style={{ position:'absolute', left:-9999, top:'auto', width:1, height:1, overflow:'hidden' }}>
+      <div className="col-start-2 row-start-2 relative overflow-hidden">
+        <div aria-live="polite" className="sr-only">
           {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
         </div>
-        <div className="breadcrumb">
+        <div className="sticky top-0 z-10 px-3 py-2.5 bg-panel backdrop-blur-sm shadow-[0_1px_0_rgba(255,255,255,.04),0_6px_8px_-6px_rgba(0,0,0,.5)]">
           {(() => {
             const parts = current.split('/').filter(Boolean)
             const segs: { label:string; path:string }[] = []
@@ -364,18 +364,18 @@ export default function AppShell() {
             for (const p of parts) { acc = acc ? `${acc}/${p}` : `/${p}`; segs.push({ label: p, path: acc }) }
             return (
               <>
-                <a href={`#${encodeURI('/')}`} onClick={(e)=>{ e.preventDefault(); openFolder('/') }}>Root</a>
+                <a href={`#${encodeURI('/')}`} onClick={(e)=>{ e.preventDefault(); openFolder('/') }} className="text-text opacity-85 no-underline hover:opacity-100 hover:underline">Root</a>
                 {segs.map((s, i) => (
                   <span key={s.path}>
-                    <span style={{ opacity:0.5, margin:'0 6px' }}>/</span>
+                    <span className="opacity-50 mx-1.5">/</span>
                     {i < segs.length-1 ? (
-                      <a href={`#${encodeURI(s.path)}`} onClick={(e)=>{ e.preventDefault(); openFolder(s.path) }}>{s.label}</a>
+                      <a href={`#${encodeURI(s.path)}`} onClick={(e)=>{ e.preventDefault(); openFolder(s.path) }} className="text-text opacity-85 no-underline hover:opacity-100 hover:underline">{s.label}</a>
                     ) : (
                       <span aria-current="page">{s.label}</span>
                     )}
                   </span>
                 ))}
-                <span className="copy" role="button" aria-label="Copy path" title="Copy path" onClick={()=>{ try { navigator.clipboard.writeText(current) } catch {} }}>⧉</span>
+                <span className="opacity-0 hover:opacity-100 ml-2 cursor-pointer text-xs text-muted" role="button" aria-label="Copy path" title="Copy path" onClick={()=>{ try { navigator.clipboard.writeText(current) } catch {} }}>⧉</span>
               </>
             )
           })()}
@@ -386,9 +386,9 @@ export default function AppShell() {
           onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
         />
         {!!selectedPaths.length && (
-          <div className="selection-bar">
+          <div className="sticky bottom-0 z-10 flex gap-3 items-center px-3 py-2 mt-2 bg-black/60 backdrop-blur-sm border-t border-white/5 rounded-t-lg">
             <div>{selectedPaths.length} selected</div>
-            <button className="toolbar-back" onClick={()=> setSelectedPaths([])}>Clear</button>
+            <button className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={()=> setSelectedPaths([])}>Clear</button>
           </div>
         )}
       </div>
@@ -413,7 +413,7 @@ export default function AppShell() {
         />
       )}
       {isDraggingOver && (
-        <div className="drop-overlay">Drop images to upload</div>
+        <div className="fixed inset-0 top-[48px] left-[var(--left)] right-[var(--right)] bg-accent/10 border-2 border-dashed border-accent text-text flex items-center justify-center text-lg z-overlay pointer-events-none">Drop images to upload</div>
       )}
       {ctx && <ContextMenuItems ctx={ctx} current={current} items={items} refetch={refetch} setCtx={setCtx} />}
     </div>

@@ -144,11 +144,16 @@ export default function ThumbCard({
   useEffect(() => {
     setUrl(blobUrlCache.get(path) ?? null)
   }, [path])
+
   return (
-    <div ref={hostRef} className={`cell${selected ? ' selected' : ''}`} onClick={onClick}>
+    <div 
+      ref={hostRef} 
+      className={`absolute inset-0 relative bg-hover border border-border rounded-lg overflow-hidden select-none ${selected ? 'outline-2 outline-accent' : ''} hover:outline hover:outline-1 hover:outline-accent`}
+      onClick={onClick}
+    >
       {url ? (
         <img
-          className={`thumb${loaded ? ' is-loaded' : ''}`}
+          className={`w-full h-full object-cover block pointer-events-none select-none opacity-0 transition-opacity duration-[160ms] ${loaded ? 'opacity-100' : ''}`}
           src={url}
           alt={name}
           loading="lazy"
@@ -158,9 +163,6 @@ export default function ThumbCard({
           height={displayH ? Math.round(displayH) : undefined}
         />
       ) : null}
-      <div className="meta">{name}</div>
     </div>
   )
 }
-
-

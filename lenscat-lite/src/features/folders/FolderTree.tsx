@@ -39,13 +39,13 @@ export default function FolderTree({
   }, [current])
 
   return (
-    <div className="sidebar">
-      <div className="tree" role="tree" aria-label="Folders">
+    <div className="col-start-1 row-start-2 overflow-auto border-r border-border bg-panel scrollbar-thin">
+      <div className="p-2" role="tree" aria-label="Folders">
         {roots.map(r => (
           <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} onContextMenu={onContextMenu} initial={data} />
         ))}
       </div>
-      <div className="resizer resizer-left" onMouseDown={onResize} />
+      <div className="absolute top-12 bottom-0 w-1.5 cursor-col-resize z-10 left-[calc(var(--left)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
     </div>
   )
 }
@@ -89,13 +89,13 @@ function TreeNode({
   return (
     <div>
       <div
-        className={`tree-item ${isActive?'active':''}`}
+        className={`flex items-center gap-2 py-2 px-2.5 rounded-md cursor-pointer min-h-7 outline-none hover:bg-hover ${isActive ? 'bg-accent/20 border-l-2 border-accent' : ''}`}
         role="treeitem"
         aria-level={depth+1}
         aria-expanded={isLeaf ? undefined : isExpanded}
         aria-selected={isActive}
         tabIndex={isActive ? 0 : -1}
-        style={{ paddingLeft: 8 + depth * 14, outline: 'none' }}
+        style={{ paddingLeft: 8 + depth * 14 }}
         onClick={()=> onOpen(path)}
         onContextMenu={(e)=> { e.preventDefault(); e.stopPropagation(); onContextMenu && onContextMenu(e, path) }}
         onKeyDown={(e)=>{
@@ -104,7 +104,7 @@ function TreeNode({
           else if (e.key === 'ArrowLeft') { if (!isLeaf && isExpanded) { e.preventDefault(); setExpanded(prev => { const next = new Set(prev); next.delete(path); return next }) } }
           else if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
             e.preventDefault()
-            const items = Array.from(document.querySelectorAll('.tree .tree-item')) as HTMLElement[]
+            const items = Array.from(document.querySelectorAll('[role="tree"] [role="treeitem"]')) as HTMLElement[]
             const idx = items.findIndex(el => el === e.currentTarget)
             if (idx === -1) return
             let nextIdx = idx
@@ -120,7 +120,7 @@ function TreeNode({
           if (types.includes('application/x-lenscat-paths')) {
             e.preventDefault()
             if (isLeaf) {
-              document.querySelectorAll('.tree-item.drop-target').forEach(el => { if (el !== e.currentTarget) el.classList.remove('drop-target') })
+              document.querySelectorAll('[role="treeitem"].drop-target').forEach(el => { if (el !== e.currentTarget) el.classList.remove('drop-target') })
               ;(e.currentTarget as HTMLElement).classList.add('drop-target')
             }
           }
@@ -129,7 +129,7 @@ function TreeNode({
           const types = Array.from(e.dataTransfer?.types || [])
           if ((types.includes('application/x-lenscat-paths')) && isLeaf) {
             e.preventDefault()
-            document.querySelectorAll('.tree-item.drop-target').forEach(el => { if (el !== e.currentTarget) el.classList.remove('drop-target') })
+            document.querySelectorAll('[role="treeitem"].drop-target').forEach(el => { if (el !== e.currentTarget) el.classList.remove('drop-target') })
             ;(e.currentTarget as HTMLElement).classList.add('drop-target')
           }
         }}
@@ -163,9 +163,9 @@ function TreeNode({
           } catch {}
         }}
       >
-        <span className="tree-toggle" onClick={toggle}>{isExpanded? '▾' : '▸'}</span>
-        <span className="tree-label" title={label}>{middleTruncate(label, 28)}</span>
-        {isLeaf && <span className="tree-count">{count}</span>}
+        <span className="w-3.5 text-center opacity-80" onClick={toggle}>{isExpanded? '▾' : '▸'}</span>
+        <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap" title={label}>{middleTruncate(label, 28)}</span>
+        {isLeaf && <span className="text-xs text-muted bg-white/5 border border-border rounded-[10px] px-1.5">{count}</span>}
       </div>
       {isExpanded && idx?.dirs?.map(d => (
         <TreeNode key={d.name} path={joinPath(path, d.name)} label={d.name} depth={depth+1} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} />
@@ -173,5 +173,3 @@ function TreeNode({
     </div>
   )
 }
-
-

@@ -1,30 +1,93 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { api } from '../../shared/api/client'
 import { useZoomPan } from './hooks/useZoomPan'
 
-export default function Viewer({ path, onClose, onNavigate, onZoomChange, requestedZoomPercent, onZoomRequestConsumed }:{ path: string; onClose:()=>void; onNavigate?:(delta:number)=>void; onZoomChange?:(p:number)=>void; requestedZoomPercent?: number | null; onZoomRequestConsumed?: ()=>void }){
+interface ViewerProps {
+  path: string
+  onClose: () => void
+  onNavigate?: (delta: number) => void
+  onZoomChange?: (percent: number) => void
+  requestedZoomPercent?: number | null
+  onZoomRequestConsumed?: () => void
+}
+
+export default function Viewer({
+  path,
+  onClose,
+  onNavigate,
+  onZoomChange,
+  requestedZoomPercent,
+  onZoomRequestConsumed,
+}: ViewerProps) {
   const [url, setUrl] = useState<string | null>(null)
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
   const { scale, setScale, tx, setTx, ty, setTy, base, setBase, ready, setReady, dragging, visible, setVisible, containerRef, imgRef, fitAndCenter, handleWheel, handleMouseDown } = useZoomPan()
 
+  // Load image and thumbnail when path changes
   useEffect(() => {
     let alive = true
-    api.getFile(path).then(b => { if (!alive) return; setUrl(URL.createObjectURL(b)) }).catch(()=>{})
-    api.getThumb(path).then(b => { if (!alive) return; setThumbUrl(URL.createObjectURL(b)) }).catch(()=>{})
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setVisible(false); window.setTimeout(() => onClose(), 110) }
-      else if ((e.key === 'ArrowRight' || e.key === 'd') && onNavigate) onNavigate(1)
-      else if ((e.key === 'ArrowLeft' || e.key === 'a') && onNavigate) onNavigate(-1)
+    
+    // Load full image
+    api.getFile(path)
+      .then((b) => {
+        if (!alive) return
+        setUrl(URL.createObjectURL(b))
+      })
+      .catch(() => {})
+    
+    // Load thumbnail for low-res preview
+    api.getThumb(path)
+      .then((b) => {
+        if (!alive) return
+        setThumbUrl(URL.createObjectURL(b))
+      })
+      .catch(() => {})
+    
+    // Fade in and focus
+    requestAnimationFrame(() => {
+      setVisible(true)
+      containerRef.current?.focus()
+    })
+    
+    return () => {
+      alive = false
     }
-    window.addEventListener('keydown', onKey)
-    try { requestAnimationFrame(() => setVisible(true)) } catch { setVisible(true) }
-    try { requestAnimationFrame(() => containerRef.current?.focus()) } catch { try { containerRef.current?.focus() } catch {} }
-    return () => { alive = false; window.removeEventListener('keydown', onKey); if (url) URL.revokeObjectURL(url); if (thumbUrl) URL.revokeObjectURL(thumbUrl) }
   }, [path])
 
-  useEffect(() => { return () => { if (url) { try { URL.revokeObjectURL(url) } catch {} } } }, [url])
-  useEffect(() => { return () => { if (thumbUrl) { try { URL.revokeObjectURL(thumbUrl) } catch {} } } }, [thumbUrl])
-  useEffect(() => { setReady(false) }, [url])
+  // Keyboard navigation
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setVisible(false)
+        setTimeout(onClose, 110)
+      } else if ((e.key === 'ArrowRight' || e.key === 'd') && onNavigate) {
+        onNavigate(1)
+      } else if ((e.key === 'ArrowLeft' || e.key === 'a') && onNavigate) {
+        onNavigate(-1)
+      }
+    }
+    
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, onNavigate])
+
+  // Clean up blob URLs
+  useEffect(() => {
+    return () => {
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [url])
+  
+  useEffect(() => {
+    return () => {
+      if (thumbUrl) URL.revokeObjectURL(thumbUrl)
+    }
+  }, [thumbUrl])
+  
+  // Reset ready state when URL changes
+  useEffect(() => {
+    setReady(false)
+  }, [url])
 
   // resize observer moved into hook
 

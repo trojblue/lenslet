@@ -1,13 +1,32 @@
-import React, { useRef, useState, useEffect, useLayoutEffect, useMemo } from 'react'
+import React, { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { Item } from '../../../lib/types'
 import ThumbCard from './ThumbCard'
 import { api } from '../../../shared/api/client'
-import { flatLayout } from '../model/layouts'
 import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 
-export default function VirtualGrid({ items, selected, restoreToSelectionToken, onSelectionChange, onOpenViewer, onContextMenuItem, highlight, suppressSelectionHighlight = false }:{ items: Item[]; selected: string[]; restoreToSelectionToken?: number; onSelectionChange:(paths:string[])=>void; onOpenViewer:(p:string)=>void; onContextMenuItem?:(e:React.MouseEvent, path:string)=>void; highlight?: string; suppressSelectionHighlight?: boolean }){
+interface VirtualGridProps {
+  items: Item[]
+  selected: string[]
+  restoreToSelectionToken?: number
+  onSelectionChange: (paths: string[]) => void
+  onOpenViewer: (path: string) => void
+  onContextMenuItem?: (e: React.MouseEvent, path: string) => void
+  highlight?: string
+  suppressSelectionHighlight?: boolean
+}
+
+export default function VirtualGrid({
+  items,
+  selected,
+  restoreToSelectionToken,
+  onSelectionChange,
+  onOpenViewer,
+  onContextMenuItem,
+  highlight,
+  suppressSelectionHighlight = false,
+}: VirtualGridProps) {
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [hoverTimer, setHoverTimer] = useState<number | null>(null)

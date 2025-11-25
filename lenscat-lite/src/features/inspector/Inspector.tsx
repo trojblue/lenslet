@@ -1,74 +1,169 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate } from '../../shared/api/items'
 import { fmtBytes } from '../../lib/util'
 import { api } from '../../shared/api/client'
+import type { Item, StarRating, Sidecar } from '../../lib/types'
+import { isInputElement } from '../../lib/keyboard'
 
-export default function Inspector({ path, selectedPaths = [], items = [], onResize, onStarChanged }:{ path: string | null; selectedPaths?: string[]; items?: { path:string; size:number; w:number; h:number; type:string; }[]; onResize?:(e:React.MouseEvent)=>void; onStarChanged?:(paths:string[], val:number|null)=>void }){
+interface InspectorItem {
+  path: string
+  size: number
+  w: number
+  h: number
+  type: string
+  star?: number | null
+}
+
+interface InspectorProps {
+  path: string | null
+  selectedPaths?: string[]
+  items?: InspectorItem[]
+  onResize?: (e: React.MouseEvent) => void
+  onStarChanged?: (paths: string[], val: StarRating) => void
+}
+
+export default function Inspector({
+  path,
+  selectedPaths = [],
+  items = [],
+  onResize,
+  onStarChanged,
+}: InspectorProps) {
   const enabled = !!path
   const { data, isLoading } = useSidecar(path ?? '')
   const mut = useUpdateSidecar(path ?? '')
-  const [tags, setTags] = useState<string>('')
-  const [notes, setNotes] = useState<string>('')
+  
+  // Form state
+  const [tags, setTags] = useState('')
+  const [notes, setNotes] = useState('')
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
-  const itemStarFromList = useMemo(() => {
-    try {
-      const it = (items as any[]).find(i => i.path === path) as any
-      return (it && (it.star ?? it.star === 0)) ? (it.star ?? null) : null
-    } catch { return null }
+  
+  // Get star from item list (optimistic local value) or sidecar
+  const itemStarFromList = useMemo((): number | null => {
+    const it = items.find((i) => i.path === path)
+    if (it && it.star !== undefined) return it.star
+    return null
   }, [items, path])
-  const star = (itemStarFromList ?? (data as any)?.star) ?? null
+  
+  const star = itemStarFromList ?? data?.star ?? null
 
-  const multi = (selectedPaths?.length ?? 0) > 1
+  const multi = selectedPaths.length > 1
+  
   const selectedItems = useMemo(() => {
-    if (!Array.isArray(items)) return [] as any[]
     const set = new Set(selectedPaths)
-    return items.filter(i => set.has(i.path))
+    return items.filter((i) => set.has(i.path))
   }, [items, selectedPaths])
-  const totalSize = useMemo(() => selectedItems.reduce((a, b:any)=> a + (b.size||0), 0), [selectedItems])
+  
+  const totalSize = useMemo(
+    () => selectedItems.reduce((acc, it) => acc + (it.size || 0), 0),
+    [selectedItems]
+  )
 
-  useEffect(() => { if (data) { setTags((data.tags||[]).join(', ')); setNotes(data.notes||'') } }, [data?.updated_at])
+  // Sync form state when sidecar data changes
+  useEffect(() => {
+    if (data) {
+      setTags((data.tags || []).join(', '))
+      setNotes(data.notes || '')
+    }
+  }, [data?.updated_at])
 
+  // Create a base sidecar for updates
+  const createBaseSidecar = useCallback((): Sidecar => {
+    return data ?? {
+      v: 1,
+      tags: [],
+      notes: '',
+      updated_at: '',
+      updated_by: 'web',
+    }
+  }, [data])
+
+  // Keyboard shortcuts for star ratings (0-5)
   useEffect(() => {
     if (!path) return
+    
     const onKey = (e: KeyboardEvent) => {
-      if (!path) return
-      const target = e.target as HTMLElement | null
-      if (target && (target.closest('input, textarea, [contenteditable="true"]'))) return
+      if (isInputElement(e.target)) return
+      
       const k = e.key
       if (!/^[0-5]$/.test(k)) return
+      
       e.preventDefault()
-      const val = k === '0' ? null : Number(k)
+      const val: StarRating = k === '0' ? null : (Number(k) as 1 | 2 | 3 | 4 | 5)
+      
       if (multi && selectedPaths.length) {
         bulkUpdateSidecars(selectedPaths, { star: val })
-        onStarChanged && onStarChanged(selectedPaths, val)
+        onStarChanged?.(selectedPaths, val)
       } else {
-        const base = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any
-        mut.mutate({ ...base, star: val, updated_at: new Date().toISOString(), updated_by: 'web' })
-        if (path) onStarChanged && onStarChanged([path], val)
+        const base = createBaseSidecar()
+        mut.mutate({
+          ...base,
+          star: val,
+          updated_at: new Date().toISOString(),
+          updated_by: 'web',
+        })
+        onStarChanged?.([path], val)
       }
     }
+    
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [path, data?.updated_at])
+  }, [path, multi, selectedPaths, createBaseSidecar, mut, onStarChanged])
 
+  // Load thumbnail when path changes
   useEffect(() => {
+    if (!path) {
+      if (thumbUrl) {
+        URL.revokeObjectURL(thumbUrl)
+      }
+      setThumbUrl(null)
+      return
+    }
+    
     let alive = true
-    if (!path) { if (thumbUrl) { try { URL.revokeObjectURL(thumbUrl) } catch {} } setThumbUrl(null); return }
-    api.getThumb(path).then(b => { if (!alive) return; try { const u = URL.createObjectURL(b); if (thumbUrl) URL.revokeObjectURL(thumbUrl); setThumbUrl(u) } catch {} }).catch(()=>{})
-    return () => { alive = false }
+    api.getThumb(path)
+      .then((blob) => {
+        if (!alive) return
+        const url = URL.createObjectURL(blob)
+        setThumbUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev)
+          return url
+        })
+      })
+      .catch(() => {
+        // Ignore thumbnail load errors
+      })
+    
+    return () => {
+      alive = false
+    }
   }, [path])
 
+  // Clean up thumbnail URL on unmount
   useEffect(() => {
-    return () => { if (thumbUrl) { try { URL.revokeObjectURL(thumbUrl) } catch {} } }
+    return () => {
+      if (thumbUrl) {
+        URL.revokeObjectURL(thumbUrl)
+      }
+    }
   }, [thumbUrl])
 
   const filename = path ? path.split('/').pop() || path : ''
-  const ext = (() => {
-    if (filename.includes('.')) return filename.slice(filename.lastIndexOf('.') + 1).toUpperCase()
-    const it = (items.find(i=>i.path===path) as any)
-    if (it?.type && typeof it.type === 'string' && it.type.includes('/')) return it.type.split('/')[1].toUpperCase()
+  const ext = useMemo(() => {
+    if (filename.includes('.')) {
+      return filename.slice(filename.lastIndexOf('.') + 1).toUpperCase()
+    }
+    const it = items.find((i) => i.path === path)
+    if (it?.type?.includes('/')) {
+      return it.type.split('/')[1].toUpperCase()
+    }
     return ''
-  })()
+  }, [filename, items, path])
+  
+  const currentItem = useMemo(
+    () => items.find((i) => i.path === path),
+    [items, path]
+  )
 
   if (!enabled) return <div className="inspector"><div className="resizer resizer-right" onMouseDown={onResize} /></div>
   return (
@@ -100,14 +195,21 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
         <textarea
           className="textarea"
           value={notes}
-          onChange={e=>setNotes(e.target.value)}
-          onBlur={()=> {
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={() => {
             if (multi && selectedPaths.length) {
               bulkUpdateSidecars(selectedPaths, { notes })
             } else {
-              mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), notes, updated_at: new Date().toISOString(), updated_by: 'web' })
+              const base = createBaseSidecar()
+              mut.mutate({
+                ...base,
+                notes,
+                updated_at: new Date().toISOString(),
+                updated_by: 'web',
+              })
             }
           }}
+          aria-label={multi ? 'Notes for selected items' : 'Notes'}
         />
       </div>
       <div className="panel">
@@ -115,64 +217,104 @@ export default function Inspector({ path, selectedPaths = [], items = [], onResi
         <input
           className="input"
           value={tags}
-          onChange={e=>setTags(e.target.value)}
-          onBlur={()=> {
-            const parsed = tags.split(',').map(s=>s.trim()).filter(Boolean)
+          onChange={(e) => setTags(e.target.value)}
+          onBlur={() => {
+            const parsed = tags.split(',').map((s) => s.trim()).filter(Boolean)
             if (multi && selectedPaths.length) {
               bulkUpdateSidecars(selectedPaths, { tags: parsed })
             } else {
-              mut.mutate({ ...(data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}), tags: parsed, updated_at: new Date().toISOString(), updated_by: 'web' })
+              const base = createBaseSidecar()
+              mut.mutate({
+                ...base,
+                tags: parsed,
+                updated_at: new Date().toISOString(),
+                updated_by: 'web',
+              })
             }
           }}
+          aria-label={multi ? 'Tags for selected items' : 'Tags'}
         />
       </div>
       <div className="panel">
         <div className="label">{multi ? 'Rating (apply to all)' : 'Rating'}</div>
-        <div style={{ display:'flex', gap: 6, alignItems:'center' }}>
-          {Array.from({ length: 5 }).map((_, i) => {
-            const v = i + 1
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }} role="radiogroup" aria-label="Star rating">
+          {[1, 2, 3, 4, 5].map((v) => {
             const filled = (star ?? 0) >= v
             return (
               <button
                 key={v}
                 className="button"
-                style={{ width: 28, height: 28, padding: 0, borderRadius: 6, background: filled? 'rgba(255, 200, 0, 0.15)': '#1b1b1b', border:'1px solid var(--border)', color: filled? '#ffd166':'#aaa' }}
-                onClick={()=>{
-                  const val = (star===v && !multi) ? null : v
+                style={{
+                  width: 28,
+                  height: 28,
+                  padding: 0,
+                  borderRadius: 6,
+                  background: filled ? 'rgba(255, 200, 0, 0.15)' : '#1b1b1b',
+                  border: '1px solid var(--border)',
+                  color: filled ? '#ffd166' : '#aaa',
+                }}
+                onClick={() => {
+                  const val: StarRating = star === v && !multi ? null : (v as 1 | 2 | 3 | 4 | 5)
                   if (multi && selectedPaths.length) {
-                    onStarChanged && onStarChanged(selectedPaths, val)
+                    onStarChanged?.(selectedPaths, val)
                     bulkUpdateSidecars(selectedPaths, { star: val })
-                  } else {
-                    if (path) {
-                      onStarChanged && onStarChanged([path], val)
-                      queueSidecarUpdate(path, { star: val })
-                    }
+                  } else if (path) {
+                    onStarChanged?.([path], val)
+                    queueSidecarUpdate(path, { star: val })
                   }
                 }}
-                title={`${v} star${v>1?'s':''} (key ${v})`}
+                title={`${v} star${v > 1 ? 's' : ''} (key ${v})`}
+                aria-label={`${v} star${v > 1 ? 's' : ''}`}
+                aria-pressed={star === v}
               >
                 {filled ? '★' : '☆'}
               </button>
             )
           })}
-          <button className="button" style={{ marginLeft: 8 }} onClick={async ()=>{
-            if (multi && selectedPaths.length) {
-              await bulkUpdateSidecars(selectedPaths, { star: null })
-              onStarChanged && onStarChanged(selectedPaths, null)
-            } else {
-              await (async ()=>{ const next = (data||{v:1,tags:[],notes:'',updated_at:'',updated_by:''}) as any; try { await mut.mutateAsync({ ...next, star: null, updated_at: new Date().toISOString(), updated_by: 'web' }) } catch {} })()
-              if (path) onStarChanged && onStarChanged([path], null)
-            }
-          }} title="Clear (key 0)">0</button>
+          <button
+            className="button"
+            style={{ marginLeft: 8 }}
+            onClick={async () => {
+              if (multi && selectedPaths.length) {
+                await bulkUpdateSidecars(selectedPaths, { star: null })
+                onStarChanged?.(selectedPaths, null)
+              } else if (path) {
+                const base = createBaseSidecar()
+                await mut.mutateAsync({
+                  ...base,
+                  star: null,
+                  updated_at: new Date().toISOString(),
+                  updated_by: 'web',
+                }).catch(() => {})
+                onStarChanged?.([path], null)
+              }
+            }}
+            title="Clear rating (key 0)"
+            aria-label="Clear rating"
+          >
+            0
+          </button>
         </div>
       </div>
-      {!multi && (
+      {!multi && currentItem && (
         <div className="panel">
           <div className="label">Details</div>
-          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
-            <div>Type<br/><span className="url">{(items.find(i=>i.path===path)||{} as any)?.type}</span></div>
-            <div>Size<br/><span className="url">{(() => { const it = items.find(i=>i.path===path) as any; return it? fmtBytes(it.size): '-' })()}</span></div>
-            <div>Dims<br/><span className="url">{(() => { const it = items.find(i=>i.path===path) as any; return it? `${it.w}×${it.h}`: '-' })()}</span></div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              Type
+              <br />
+              <span className="url">{currentItem.type}</span>
+            </div>
+            <div>
+              Size
+              <br />
+              <span className="url">{fmtBytes(currentItem.size)}</span>
+            </div>
+            <div>
+              Dimensions
+              <br />
+              <span className="url">{currentItem.w}×{currentItem.h}</span>
+            </div>
           </div>
         </div>
       )}

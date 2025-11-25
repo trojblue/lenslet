@@ -1,13 +1,33 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import type { FolderIndex } from '../../lib/types'
 import { useFolder } from '../../shared/api/folders'
 import { api } from '../../shared/api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { middleTruncate } from '../../lib/util'
+import { joinPath } from '../../app/routing/hash'
 
-type Root = { label: string; path: string }
+interface Root {
+  label: string
+  path: string
+}
 
-export default function FolderTree({ current, roots, data, onOpen, onResize, onContextMenu }:{ current: string; roots: Root[]; data?: FolderIndex; onOpen:(p:string)=>void; onResize?:(e:React.MouseEvent)=>void; onContextMenu?:(e:React.MouseEvent, path:string)=>void }){
+interface FolderTreeProps {
+  current: string
+  roots: Root[]
+  data?: FolderIndex
+  onOpen: (path: string) => void
+  onResize?: (e: React.MouseEvent) => void
+  onContextMenu?: (e: React.MouseEvent, path: string) => void
+}
+
+export default function FolderTree({
+  current,
+  roots,
+  data,
+  onOpen,
+  onResize,
+  onContextMenu,
+}: FolderTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['/']))
 
   useEffect(() => {
@@ -30,14 +50,29 @@ export default function FolderTree({ current, roots, data, onOpen, onResize, onC
   )
 }
 
-function joinPath(a: string, b: string) {
-  const aa = a.replace(/\/+$/, '')
-  const bb = b.replace(/^\/+/, '')
-  const joined = [aa, bb].filter(Boolean).join('/')
-  return joined.startsWith('/') ? joined : `/${joined}`
+interface TreeNodeProps {
+  path: string
+  label: string
+  depth: number
+  current: string
+  expanded: Set<string>
+  setExpanded: (updater: (s: Set<string>) => Set<string>) => void
+  onOpen: (path: string) => void
+  onContextMenu?: (e: React.MouseEvent, path: string) => void
+  initial?: FolderIndex
 }
 
-function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, onContextMenu, initial }:{ path:string; label:string; depth:number; current:string; expanded:Set<string>; setExpanded:(u:(s:Set<string>)=>Set<string>)=>void; onOpen:(p:string)=>void; onContextMenu?:(e:React.MouseEvent, path:string)=>void; initial?:FolderIndex }){
+function TreeNode({
+  path,
+  label,
+  depth,
+  current,
+  expanded,
+  setExpanded,
+  onOpen,
+  onContextMenu,
+  initial,
+}: TreeNodeProps) {
   const isExpanded = expanded.has(path)
   const { data } = useFolder(path)
   const idx = initial && path === initial.path ? initial : data
@@ -121,10 +156,9 @@ function TreeNode({ path, label, depth, current, expanded, setExpanded, onOpen, 
             for (const p of filtered) { await api.moveFile(p, destPath) }
             qc.invalidateQueries({ queryKey: ['folder', srcDir] })
             qc.invalidateQueries({ queryKey: ['folder', destPath] })
-            qc.setQueryData<any>(['folder', srcDir], (old) => {
+            qc.setQueryData<FolderIndex | undefined>(['folder', srcDir], (old) => {
               if (!old || !Array.isArray(old.items)) return old
-              const next = { ...old, items: old.items.filter((i: any) => !filtered.includes(i.path)) }
-              return next
+              return { ...old, items: old.items.filter((i) => !filtered.includes(i.path)) }
             })
           } catch {}
         }}

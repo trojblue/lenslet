@@ -1,65 +1,149 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../../../shared/api/client'
 
-const blobUrlCache = new Map<string, string>()
-const MAX_BLOBS = 400
-
-function remember(key: string, url: string) {
-  if (blobUrlCache.has(key)) blobUrlCache.delete(key)
-  blobUrlCache.set(key, url)
-  while (blobUrlCache.size > MAX_BLOBS) {
-    const first = blobUrlCache.entries().next().value as [string, string]
-    if (!first) break
-    const [oldKey, oldUrl] = first
-    blobUrlCache.delete(oldKey)
-    try { URL.revokeObjectURL(oldUrl) } catch {}
+/**
+ * LRU cache for blob URLs to prevent memory leaks.
+ * Automatically revokes old URLs when the cache exceeds MAX_BLOBS.
+ */
+class BlobUrlCache {
+  private cache = new Map<string, string>()
+  private readonly maxSize: number
+  
+  constructor(maxSize: number = 400) {
+    this.maxSize = maxSize
+    
+    // Clean up on page unload
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', () => this.clear(), { once: true })
+    }
+  }
+  
+  get(key: string): string | undefined {
+    const url = this.cache.get(key)
+    if (url) {
+      // Refresh LRU position
+      this.cache.delete(key)
+      this.cache.set(key, url)
+    }
+    return url
+  }
+  
+  set(key: string, url: string): void {
+    // Remove existing entry if present
+    if (this.cache.has(key)) {
+      this.cache.delete(key)
+    }
+    
+    // Evict oldest entries if at capacity
+    while (this.cache.size >= this.maxSize) {
+      const oldest = this.cache.keys().next().value
+      if (oldest === undefined) break
+      const oldUrl = this.cache.get(oldest)
+      this.cache.delete(oldest)
+      if (oldUrl) {
+        try { URL.revokeObjectURL(oldUrl) } catch {}
+      }
+    }
+    
+    this.cache.set(key, url)
+  }
+  
+  clear(): void {
+    for (const url of this.cache.values()) {
+      try { URL.revokeObjectURL(url) } catch {}
+    }
+    this.cache.clear()
   }
 }
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    for (const u of blobUrlCache.values()) { try { URL.revokeObjectURL(u) } catch {} }
-    blobUrlCache.clear()
-  }, { once: true } as any)
+const blobUrlCache = new BlobUrlCache(400)
+
+interface ThumbCardProps {
+  path: string
+  name: string
+  onClick: (e: React.MouseEvent) => void
+  selected?: boolean
+  displayW?: number
+  displayH?: number
+  ioRoot?: Element | null
+  isScrolling?: boolean
+  priority?: boolean
 }
 
-export default function ThumbCard({ path, name, onClick, selected, displayW, displayH, ioRoot, isScrolling, priority }:{ path:string; name:string; onClick:(e:React.MouseEvent)=>void; selected?: boolean; displayW?: number; displayH?: number; ioRoot?: Element | null; isScrolling?: boolean; priority?: boolean }){
-  const hostRef = useRef<HTMLDivElement | null>(null)
-  const [url, setUrl] = useState<string | null>(blobUrlCache.get(path) ?? null)
-  const [inView, setInView] = useState<boolean>(false)
-  const [loaded, setLoaded] = useState<boolean>(false)
+export default function ThumbCard({
+  path,
+  name,
+  onClick,
+  selected,
+  displayW,
+  displayH,
+  ioRoot,
+  isScrolling,
+  priority,
+}: ThumbCardProps) {
+  const hostRef = useRef<HTMLDivElement>(null)
+  const [url, setUrl] = useState<string | null>(() => blobUrlCache.get(path) ?? null)
+  const [inView, setInView] = useState(false)
+  const [loaded, setLoaded] = useState(false)
 
+  // Intersection observer for lazy loading
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
+    
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.target === host) { setInView(entry.isIntersecting || entry.intersectionRatio > 0) }
+          if (entry.target === host) {
+            setInView(entry.isIntersecting || entry.intersectionRatio > 0)
+          }
         }
       },
       { root: ioRoot ?? null, rootMargin: '200px 0px', threshold: 0.01 }
     )
+    
     observer.observe(host)
-    return () => { try { observer.unobserve(host) } catch {} ; try { observer.disconnect() } catch {} }
-  }, [ioRoot, path])
-
-  useEffect(() => {
-    let alive = true
-    if (!url && ((inView && !isScrolling) || priority)) {
-      api.getThumb(path)
-        .then(b => {
-          if (!alive) return
-          const u = URL.createObjectURL(b)
-          remember(path, u)
-          setUrl(prev => { if (prev && prev !== u) { try { URL.revokeObjectURL(prev) } catch {} } ; return u })
-        })
-        .catch(()=>{})
+    return () => {
+      observer.unobserve(host)
+      observer.disconnect()
     }
-    return () => { alive = false }
+  }, [ioRoot])
+
+  // Load thumbnail when visible and not scrolling
+  useEffect(() => {
+    // Already have URL
+    if (url) return
+    
+    // Not ready to load
+    if (!((inView && !isScrolling) || priority)) return
+    
+    let alive = true
+    
+    api.getThumb(path)
+      .then((blob) => {
+        if (!alive) return
+        const newUrl = URL.createObjectURL(blob)
+        blobUrlCache.set(path, newUrl)
+        setUrl(newUrl)
+      })
+      .catch(() => {
+        // Ignore thumbnail load errors
+      })
+    
+    return () => {
+      alive = false
+    }
   }, [path, url, inView, isScrolling, priority])
 
-  useEffect(() => { setLoaded(false) }, [url])
+  // Reset loaded state when URL changes
+  useEffect(() => {
+    setLoaded(false)
+  }, [url])
+  
+  // Reset URL when path changes
+  useEffect(() => {
+    setUrl(blobUrlCache.get(path) ?? null)
+  }, [path])
   return (
     <div ref={hostRef} className={`cell${selected ? ' selected' : ''}`} onClick={onClick}>
       {url ? (

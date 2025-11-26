@@ -2,11 +2,7 @@
 
 This document covers development setup, architecture, and contribution guidelines for Lenslet.
 
-## Development Setup
-
-### Project Structure
-
-The repository contains multiple components:
+## Project Structure
 
 ```
 lenslet/
@@ -19,18 +15,18 @@ lenslet/
 │   │   └── memory.py        # In-memory caching
 │   └── frontend/            # Bundled React UI (built)
 │
-├── lenscat-lite/            # Frontend source
-│   ├── src/
-│   │   ├── api/            # API client
-│   │   ├── app/            # React components
-│   │   ├── features/       # Feature modules
-│   │   └── shared/         # Shared utilities
-│   ├── package.json
-│   └── vite.config.ts
+├── frontend/                 # Frontend source (React dev)
+│   └── src/
+│       ├── api/             # API client
+│       ├── app/             # React components
+│       └── lib/             # Utilities
 │
-└── lenscat-backend/         # Legacy backend (reference)
-    └── src/lenscat_backend/
+├── pyproject.toml
+├── README.md
+└── DEVELOPMENT.md
 ```
+
+## Development Setup
 
 ### Installing for Development
 
@@ -51,7 +47,7 @@ pip install -e ".[dev]"
 The frontend is a React + Vite application:
 
 ```bash
-cd lenscat-lite
+cd frontend
 
 # Install dependencies
 npm install
@@ -76,7 +72,6 @@ lenslet /path/to/test/images --reload
 Or run the server directly:
 
 ```bash
-cd src
 python -m lenslet.cli /path/to/images --reload
 ```
 
@@ -90,9 +85,10 @@ python -m lenslet.cli /path/to/images --reload
 - Uses dependency injection for storage
 
 **Storage Layer** (`storage/`)
-- `LocalStorage`: Read-only filesystem access
+- `LocalStorage`: Read-only filesystem access with path security
 - `MemoryStorage`: Wraps LocalStorage with in-memory caching
 - All indexing and thumbnails stored in RAM
+- Lazy dimension loading for fast startup with large directories
 
 **API Endpoints:**
 - `GET /folders?path=<path>` - List folder contents
@@ -149,7 +145,7 @@ When frontend changes are made:
 
 ```bash
 # Build frontend
-cd lenscat-lite
+cd frontend
 npm run build
 
 # Copy to package
@@ -182,8 +178,8 @@ Following the "minimal, fast, boring (on purpose)" principles:
 
 - Time to first gallery render: < 2s cold start
 - Thumbnail generation: < 100ms per image
-- Directory indexing: > 50 images/sec
-- Memory usage: < 100MB + (thumbnails × 15KB)
+- Directory indexing: > 1000 images/sec (stat-only)
+- Memory usage: < 100MB + (thumbnails x 15KB)
 
 ## Publishing
 
@@ -192,7 +188,7 @@ Following the "minimal, fast, boring (on purpose)" principles:
 ```bash
 # Bump version in src/lenslet/__init__.py
 # Rebuild frontend if needed
-cd lenscat-lite && npm run build
+cd frontend && npm run build
 cp -r dist/* ../src/lenslet/frontend/
 
 # Build and upload
@@ -223,4 +219,3 @@ twine upload dist/*
 ## License
 
 MIT License
-

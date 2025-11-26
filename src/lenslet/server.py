@@ -92,6 +92,32 @@ def create_app(
         thumb_quality=thumb_quality,
     )
 
+    def _storage(request: Request) -> MemoryStorage:
+        return request.state.storage  # type: ignore[attr-defined]
+
+    def _ensure_image(storage: MemoryStorage, path: str) -> None:
+        try:
+            storage.validate_image_path(path)
+        except FileNotFoundError:
+            raise HTTPException(404, "file not found")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    def _to_item(storage: MemoryStorage, cached) -> Item:
+        meta = storage.get_metadata(cached.path)
+        return Item(
+            path=cached.path,
+            name=cached.name,
+            type=cached.mime,
+            w=cached.width,
+            h=cached.height,
+            size=cached.size,
+            hasThumb=True,
+            hasMeta=True,
+            addedAt=datetime.fromtimestamp(cached.mtime, tz=timezone.utc).isoformat(),
+            star=meta.get("star"),
+        )
+
     # Inject storage via middleware
     @app.middleware("http")
     async def attach_storage(request: Request, call_next):
@@ -107,7 +133,7 @@ def create_app(
 
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(path: str = "/", request: Request = None):
-        storage: MemoryStorage = request.state.storage
+        storage = _storage(request)
         try:
             index = storage.get_index(path)
         except ValueError:
@@ -115,22 +141,7 @@ def create_app(
         except FileNotFoundError:
             raise HTTPException(404, "folder not found")
 
-        items = []
-        for it in index.items:
-            meta = storage.get_metadata(it.path)
-            items.append(Item(
-                path=it.path,
-                name=it.name,
-                type=it.mime,
-                w=it.width,
-                h=it.height,
-                size=it.size,
-                hasThumb=True,
-                hasMeta=True,
-                addedAt=datetime.fromtimestamp(it.mtime, tz=timezone.utc).isoformat(),
-                star=meta.get("star"),
-            ))
-
+        items = [_to_item(storage, it) for it in index.items]
         dirs = [DirEntry(name=d, kind="branch") for d in index.dirs]
 
         return FolderIndex(
@@ -142,12 +153,8 @@ def create_app(
 
     @app.get("/item")
     def get_item(path: str, request: Request = None):
-        storage: MemoryStorage = request.state.storage
-        try:
-            if not storage.exists(path):
-                raise HTTPException(404, "file not found")
-        except ValueError:
-            raise HTTPException(400, "invalid path")
+        storage = _storage(request)
+        _ensure_image(storage, path)
 
         meta = storage.get_metadata(path)
         return Sidecar(
@@ -161,7 +168,8 @@ def create_app(
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request = None):
-        storage: MemoryStorage = request.state.storage
+        storage = _storage(request)
+        _ensure_image(storage, path)
         # Update in-memory metadata (session-only)
         meta = storage.get_metadata(path)
         meta["tags"] = body.tags
@@ -172,12 +180,8 @@ def create_app(
 
     @app.get("/thumb")
     def get_thumb(path: str, request: Request = None):
-        storage: MemoryStorage = request.state.storage
-        try:
-            if not storage.exists(path):
-                raise HTTPException(404, "file not found")
-        except ValueError:
-            raise HTTPException(400, "invalid path")
+        storage = _storage(request)
+        _ensure_image(storage, path)
 
         thumb = storage.get_thumbnail(path)
         if thumb is None:
@@ -186,66 +190,16 @@ def create_app(
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
-        storage: MemoryStorage = request.state.storage
-        lower = (path or "").lower()
-        if not any(lower.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")):
-            raise HTTPException(400, "unsupported file type")
-        try:
-            if not storage.exists(path):
-                raise HTTPException(404, "file not found")
-            data = storage.read_bytes(path)
-        except ValueError:
-            raise HTTPException(400, "invalid path")
+        storage = _storage(request)
+        _ensure_image(storage, path)
+        data = storage.read_bytes(path)
         return Response(content=data, media_type=storage._guess_mime(path))
 
     @app.get("/search", response_model=SearchResult)
     def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
-        storage: MemoryStorage = request.state.storage
-        # Simple search across all indexed items
-        results = []
-        ql = q.lower()
-        path_norm = path.lstrip("/")
-        scope_prefix = path_norm + "/" if path_norm else ""
-
-        # Collect all items from all cached indexes
-        all_items = []
-        for idx in storage._indexes.values():
-            for it in idx.items:
-                all_items.append(it)
-
-        # If no indexes cached yet, try to index root
-        if not all_items:
-            try:
-                idx = storage.get_index("/")
-                all_items = idx.items
-            except Exception:
-                pass
-
-        for it in all_items:
-            p = it.path.lstrip("/")
-            if path_norm and not (p == path_norm or p.startswith(scope_prefix)):
-                continue
-            meta = storage.get_metadata(it.path)
-            hay = " ".join([
-                it.name,
-                " ".join(meta.get("tags", [])),
-                meta.get("notes", ""),
-            ]).lower()
-            if ql in hay:
-                results.append(Item(
-                    path=it.path,
-                    name=it.name,
-                    type=it.mime,
-                    w=it.width,
-                    h=it.height,
-                    size=it.size,
-                    hasThumb=True,
-                    hasMeta=True,
-                ))
-                if len(results) >= limit:
-                    break
-
-        return SearchResult(items=results)
+        storage = _storage(request)
+        hits = storage.search(query=q, path=path, limit=limit)
+        return SearchResult(items=[_to_item(storage, it) for it in hits])
 
     # Mount frontend if dist exists
     frontend_dist = Path(__file__).parent / "frontend"
@@ -253,4 +207,3 @@ def create_app(
         app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
 
     return app
-

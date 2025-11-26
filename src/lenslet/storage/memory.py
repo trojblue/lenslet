@@ -54,6 +54,13 @@ class MemoryStorage:
         """Normalize path for consistent cache keys."""
         return path.strip("/") if path else ""
 
+    def _abs_path(self, path: str) -> str:
+        """Fast, safe absolute path resolution via LocalStorage."""
+        return self.local.resolve_path(path)
+
+    def _is_supported_image(self, name: str) -> bool:
+        return name.lower().endswith(self.IMAGE_EXTS)
+
     def list_dir(self, path: str) -> tuple[list[str], list[str]]:
         """List directory, filtering out metadata files."""
         files, dirs = self.local.list_dir(path)
@@ -98,13 +105,24 @@ class MemoryStorage:
             return self._indexes[norm]
         return self._build_index(path)
 
+    def validate_image_path(self, path: str) -> None:
+        """Ensure path is a supported image and exists on disk."""
+        if not path:
+            raise ValueError("empty path")
+        if not self._is_supported_image(path):
+            raise ValueError("unsupported file type")
+        # Resolve to catch traversal attempts even if file is missing
+        self._abs_path(path)
+        if not self.exists(path):
+            raise FileNotFoundError(path)
+
     def _build_index(self, path: str) -> CachedIndex:
         """Build and cache folder index. Fast - no image reading."""
         norm = self._normalize_path(path)
         files, dirs = self.list_dir(path)
 
         items: list[CachedItem] = []
-        image_files = [f for f in files if f.lower().endswith(self.IMAGE_EXTS)]
+        image_files = [f for f in files if self._is_supported_image(f)]
         
         # Log progress for large directories
         total = len(image_files)
@@ -114,16 +132,15 @@ class MemoryStorage:
         for i, name in enumerate(image_files):
             full = self.join(path, name)
             try:
-                # Fast stat-only - NO image reading here
-                abs_path = os.path.join(self.local._root_real, full.lstrip("/"))
+                abs_path = self._abs_path(full)
                 stat = os.stat(abs_path)
                 size = stat.st_size
                 mtime = stat.st_mtime
                 mime = self._guess_mime(name)
-                
+
                 # Dimensions are loaded lazily (0 = not loaded yet)
                 w, h = self._dimensions.get(full, (0, 0))
-                
+
                 items.append(CachedItem(
                     path=full, name=name, mime=mime,
                     width=w, height=h, size=size, mtime=mtime
@@ -154,7 +171,7 @@ class MemoryStorage:
 
         # Try fast header-only read first
         try:
-            abs_path = os.path.join(self.local._root_real, path.lstrip("/"))
+            abs_path = self._abs_path(path)
             dims = self._read_dimensions_fast(abs_path)
             if dims:
                 self._dimensions[path] = dims
@@ -261,6 +278,38 @@ class MemoryStorage:
             h = (data[3] | (data[4] << 8) | (data[5] << 16)) + 1
             return w, h
         return None
+
+    def _all_items(self) -> list[CachedItem]:
+        """Return cached items; build root index if nothing is cached yet."""
+        if self._indexes:
+            return [it for idx in self._indexes.values() for it in idx.items]
+        try:
+            return list(self.get_index("/").items)
+        except Exception:
+            return []
+
+    def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[CachedItem]:
+        """Simple in-memory search over cached indexes."""
+        q = (query or "").lower()
+        norm = self._normalize_path(path)
+        scope_prefix = f"{norm}/" if norm else ""
+
+        results: list[CachedItem] = []
+        for item in self._all_items():
+            logical_path = item.path.lstrip("/")
+            if norm and not (logical_path == norm or logical_path.startswith(scope_prefix)):
+                continue
+            meta = self.get_metadata(item.path)
+            haystack = " ".join([
+                item.name,
+                " ".join(meta.get("tags", [])),
+                meta.get("notes", ""),
+            ]).lower()
+            if q in haystack:
+                results.append(item)
+                if len(results) >= limit:
+                    break
+        return results
 
     def get_thumbnail(self, path: str) -> bytes | None:
         """Get thumbnail, generating if needed."""

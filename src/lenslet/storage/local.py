@@ -10,8 +10,13 @@ class LocalStorage(Storage):
         self.root = os.path.abspath(root)
         self._root_real = os.path.realpath(self.root)
 
-    def _abs(self, path: str) -> str:
-        """Convert relative path to absolute, with security check."""
+    @property
+    def root_real(self) -> str:
+        """Real path to the configured root (exposed for fast stat calls)."""
+        return self._root_real
+
+    def resolve_path(self, path: str) -> str:
+        """Convert relative path to absolute, with security checks."""
         candidate = os.path.abspath(os.path.join(self._root_real, path.lstrip("/")))
         real = os.path.realpath(candidate)
         try:
@@ -23,7 +28,7 @@ class LocalStorage(Storage):
         return real
 
     def list_dir(self, path: str) -> tuple[list[str], list[str]]:
-        p = self._abs(path)
+        p = self.resolve_path(path)
         files, dirs = [], []
         for name in os.listdir(p):
             # Skip hidden files and our own metadata files
@@ -37,7 +42,7 @@ class LocalStorage(Storage):
         return files, dirs
 
     def read_bytes(self, path: str) -> bytes:
-        with open(self._abs(path), "rb") as f:
+        with open(self.resolve_path(path), "rb") as f:
             return f.read()
 
     def write_bytes(self, path: str, data: bytes) -> None:
@@ -46,20 +51,19 @@ class LocalStorage(Storage):
 
     def exists(self, path: str) -> bool:
         try:
-            return os.path.exists(self._abs(path))
+            return os.path.exists(self.resolve_path(path))
         except ValueError:
             return False
 
     def size(self, path: str) -> int:
-        return os.path.getsize(self._abs(path))
+        return os.path.getsize(self.resolve_path(path))
 
     def join(self, *parts: str) -> str:
         return "/".join([p.strip("/") for p in parts if p])
 
     def etag(self, path: str) -> str | None:
         try:
-            st = os.stat(self._abs(path))
+            st = os.stat(self.resolve_path(path))
             return f"{st.st_mtime_ns}-{st.st_size}"
         except FileNotFoundError:
             return None
-

@@ -1,6 +1,7 @@
 data/
 data_orig/
 repomix-output.md
+data_backup/
 
 convnext_checkpoints_archive
 *.ckpt

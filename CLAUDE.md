@@ -4,255 +4,195 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Lenslet is a minimal, fast, boring (on purpose) gallery system with a React frontend and FastAPI backend. It uses flat file storage (local/S3) with no database, storing metadata in JSON sidecars next to images.
+Lenslet is a lightweight, pip-installable image gallery server. It runs entirely in-memory, indexing directories on-the-fly and generating thumbnails without writing any files to the source directory.
 
 **Core Architecture:**
-- **Frontend:** React + TanStack Query/Virtual + minimal CSS (no global state, UI kits, or CSS-in-JS)
-- **Backend:** FastAPI + flat file storage (local/S3) + async workers
-- **Storage:** No database - JSON manifests (`_index.json`) + sidecars (`.json`) + thumbnails (`.thumbnail`)
+- **CLI:** `lenslet <dir> --port <port>` starts the server
+- **Backend:** FastAPI server with in-memory storage (no database, no sidecars written)
+- **Frontend:** React + TanStack Query/Virtual, bundled into the Python package
+- **Storage:** Read-only filesystem access, all caching in RAM
+
+## Project Structure
+
+```
+lenslet/
+├── src/lenslet/              # Main package (pip installable)
+│   ├── __init__.py          # Version
+│   ├── cli.py               # CLI entry point (argparse)
+│   ├── server.py            # FastAPI application
+│   ├── storage/
+│   │   ├── base.py          # Storage protocol
+│   │   ├── local.py         # Read-only filesystem
+│   │   └── memory.py        # In-memory caching
+│   └── frontend/            # BUILT React UI (bundled in wheel)
+│
+├── frontend/                 # Frontend SOURCE (for development)
+│   ├── src/
+│   │   ├── api/             # API client
+│   │   ├── app/             # React components
+│   │   ├── features/        # Feature modules
+│   │   └── lib/             # Utilities
+│   ├── package.json
+│   └── vite.config.ts
+│
+├── pyproject.toml
+├── README.md
+└── DEVELOPMENT.md
+```
 
 ## Common Development Commands
 
-### Frontend (lenscat-lite/)
+### Backend
 
 ```bash
+# Install in editable mode
+pip install -e .
+pip install -e ".[dev]"
+
+# Run the gallery
+lenslet /path/to/images --port 7070
+
+# With auto-reload for development
+lenslet /path/to/images --reload
+
+# Or run as module
+python -m lenslet.cli /path/to/images --reload
+```
+
+### Frontend
+
+```bash
+cd frontend
+
 # Install dependencies
 npm install
 
-# Development server (runs on http://localhost:5173)
+# Development server (proxies API to :7070)
 npm run dev
 
-# Production build
+# Build for production
 npm run build
 
-# Preview production build
-npm run preview
+# Copy built files to package
+cp -r dist/* ../src/lenslet/frontend/
 ```
 
-**Environment:** Create `.env.local` with:
-```
-VITE_API_BASE=http://localhost:7070/api
-```
+### Full Stack Development
 
-### Backend (lenscat-backend/)
+1. **Backend:** `lenslet /path/to/images --port 7070`
+2. **Frontend:** `cd frontend && npm run dev`
+3. Frontend dev server runs at http://localhost:5173, proxies API to :7070
+
+### Building & Publishing
 
 ```bash
-# Install dependencies (from project root with pyproject.toml)
-cd lenscat-backend
-pip install -e .
+# Build the wheel (includes bundled frontend)
+python -m build
 
-# Start backend server (runs on http://127.0.0.1:7070)
-uvicorn src.lenscat_backend.main:app --reload --host 127.0.0.1 --port 7070
+# Check wheel contents
+unzip -l dist/lenslet-*.whl
 
-# Or use the Python module directly
-python -m src.lenscat_backend.main
-```
-
-**Environment:** Backend uses `.env` with:
-```
-ROOT_PATH=./data
-S3_BUCKET=
-S3_PREFIX=
-AWS_REGION=
-S3_ENDPOINT=
-THUMB_LONG_EDGE=256
-THUMB_QUALITY=70
-```
-
-### Running Full Stack
-
-1. **Backend first:** `cd lenscat-backend && uvicorn src.lenscat_backend.main:app --reload --host 127.0.0.1 --port 7070`
-2. **Frontend:** `cd lenscat-lite && npm run dev`
-
-### Single-Port Deployment
-
-Build frontend and serve via backend:
-```bash
-cd lenscat-lite && npm run build
-cd ../lenscat-backend
-FRONTEND_DIST=../lenscat-lite/dist uvicorn src.lenscat_backend.main:app --host 0.0.0.0 --port 7070
+# Publish
+pip install twine
+twine upload dist/*
 ```
 
 ## Code Architecture
 
-### Backend Structure (lenscat-backend/src/lenscat_backend/)
+### Backend (src/lenslet/)
 
-- **`main.py`**: FastAPI app, CORS, storage initialization, route registration
-- **`config.py`**: Settings via environment variables (dataclass-based)
-- **`models.py`**: Pydantic models for API contracts
-- **`routes/`**: API endpoints
-  - `folders.py`: List folder contents (`GET /api/folders`)
-  - `items.py`: Get/update item metadata (`GET/PUT /api/item`)
-  - `thumbs.py`: Get/generate thumbnails (`GET/POST /api/thumb`)
-  - `search.py`: Search items (`GET /api/search`)
-  - `files.py`: Serve original files
-- **`storage/`**: Storage abstractions
-  - `base.py`: Abstract storage interface
-  - `s3.py`: S3 implementation (aioboto3)
-  - `local.py`: Local filesystem implementation
-- **`utils/`**: Utilities
-  - `exif.py`: EXIF extraction (Pillow)
-  - `hashing.py`: BLAKE3 hashing
-  - `jsonio.py`: JSON serialization (orjson)
-- **`workers/`**: Background workers for indexing/thumbnails
+- **`cli.py`**: Argparse CLI, starts uvicorn server
+- **`server.py`**: FastAPI app factory with routes
+- **`storage/local.py`**: Read-only filesystem with path security
+- **`storage/memory.py`**: Wraps LocalStorage with in-memory caching
+  - Lazy dimension loading (fast startup with large directories)
+  - On-demand thumbnail generation
+  - Search across cached indexes
 
-**Storage Dependency Injection:** STORAGE singleton is injected via middleware into `request.state.storage`
-
-### Frontend Structure (lenscat-lite/src/)
-
-- **`main.tsx`**: Entry point
-- **`App.tsx`**: Root component with QueryClientProvider
-- **`app/`**: App-level components
-  - `AppShell.tsx`: Main layout shell
-  - `menu/ContextMenu.tsx`: Context menu component
-- **`features/`**: Feature-based modules
-  - `browse/`: Grid browsing
-    - `components/VirtualGrid.tsx`: Virtualized grid (TanStack Virtual)
-    - `components/ThumbCard.tsx`: Thumbnail cards
-  - `folders/FolderTree.tsx`: Folder navigation tree
-  - `inspector/Inspector.tsx`: Image inspector/metadata editor
-  - `viewer/Viewer.tsx`: Full-size image viewer
-- **`shared/`**: Shared UI components
-  - `ui/Toolbar.tsx`: Toolbar component
-- **`api/`**: API client and TanStack Query hooks
-- **`lib/`**: Utilities and types
-- **`styles.css`**: Main styles (Eagle-inspired dark theme)
-- **`theme.css`**: Theme variables
-
-**State Management:** TanStack Query for server state + local component state only. No Redux or global stores.
-
-### Folder Model
-
-The system supports recursive hierarchies:
-
-- **Branch folders**: Contain only subfolders (no images)
-- **Leaf folders**: Either real (contains images) or pointer (contains `.lenscat.folder.json` pointing to S3/local)
-- **Mixed leaf/branch is invalid**: Throw error and show red badge in UI
-
-### File Conventions
-
-For image `foo.webp`:
-- **Sidecar metadata**: `foo.webp.json` - tags, notes, EXIF, hash, timestamps
-- **Thumbnail**: `foo.webp.thumbnail` - WebP, ≤256px long edge, quality ~70
-
-Folder-level files:
-- **`_index.json`**: Folder manifest (items, dirs, metadata)
-- **`_rollup.json`**: Search index at root
-- **`.lenscat.folder.json`**: Pointer folder config
-
-### API Endpoints
-
-- `GET /api/folders?path=<path>` - List folder contents
-- `GET /api/item?path=<path>` - Get item metadata
-- `PUT /api/item?path=<path>` - Update item metadata (sidecars)
-- `GET /api/thumb?path=<path>` - Get/generate thumbnail
-- `POST /api/thumb?path=<path>` - Force regenerate thumbnail
-- `GET /api/search?q=<query>` - Search items (filename/tags/notes)
-- `GET /api/files?path=<path>` - Serve original file
+**API Endpoints:**
+- `GET /folders?path=<path>` - List folder contents
+- `GET /item?path=<path>` - Get item metadata
+- `PUT /item?path=<path>` - Update metadata (session-only)
+- `GET /thumb?path=<path>` - Get/generate thumbnail
+- `GET /file?path=<path>` - Get original file
+- `GET /search?q=<query>` - Search items
 - `GET /health` - Health check
+
+### Frontend (frontend/src/)
+
+- **`App.tsx`**: Root component with QueryClientProvider
+- **`app/AppShell.tsx`**: Main layout
+- **`features/browse/`**: Virtualized grid browsing
+- **`features/folders/`**: Folder tree navigation
+- **`features/inspector/`**: Image metadata editor
+- **`features/viewer/`**: Full-size image viewer
+- **`api/`**: API client and TanStack Query hooks
+
+**Tech Stack:**
+- React 18, TanStack Query, TanStack Virtual
+- Radix UI for accessible components
+- Tailwind CSS for styling
 
 ## Development Philosophy
 
-**Core principles from dev_notes/Developer_note.md:**
+**"Minimal, fast, boring (on purpose)"**
 
-1. **Do the simplest thing that works** - No RxJS, DI containers, or clever wrappers for basic tasks
-2. **Fail fast, fail loud** - Throw early with exact context, surface errors in UI
-3. **Zero clever wrappers** - Use the platform until it hurts, then add thinnest layer possible
-4. **Data > code** - Store rules/config in JSON files, code reads data
-5. **Sidecar is the source** - Metadata lives next to images, browser cache is disposable
+1. **Do the simplest thing that works** - No clever wrappers for basic tasks
+2. **Fail fast, fail loud** - Throw early with exact context
+3. **Zero clever wrappers** - Use the platform until it hurts
+4. **Explicit over implicit** - No magic, no global state
+5. **Read-only source** - Never write to the image directory
 
 ### Key Constraints
 
-- **Supported formats only:** JPEG, PNG, WebP (no HEIC)
-- **No local secrets/state:** Tags/notes write immediately to sidecars
-- **No database:** All state in JSON + files for MVP
+- **Supported formats:** JPEG, PNG, WebP only
+- **In-memory only:** All state lost on restart (by design)
+- **No database:** Everything cached in RAM
 - **Max PR size:** ~400 lines net change
 
-### Performance Budgets
+### Performance Targets
 
-- **Time to first grid (TTFG):** < 700ms hot, < 2s cold
-- **Scroll performance:** < 1.5% dropped frames
-- **Inspector open:** < 150ms
-- **Thumbnail cache hit:** > 85% after first browse
-
-**Performance techniques:**
-- Virtualize grid with fixed cell geometry (no masonry in v0)
-- Pre-sized thumbnails only in grid (`.thumbnail` files)
-- `content-visibility: auto` + `contain-intrinsic-size` on grid items
-- Only animate `transform`/`opacity` (no layout properties)
-- Batch by folder, AbortController for offscreen loads, prefetch one row ahead
-- EXIF/parse/JSON I/O in workers (Web Workers frontend, Python workers backend)
-
-### Dependencies
-
-**Frontend (minimal):**
-- React, TanStack Query, TanStack Virtual
-- NO: moment.js, lodash, UI kits, Redux, runtime CSS-in-JS
-
-**Backend (minimal):**
-- FastAPI, uvicorn, aioboto3, boto3, orjson, blake3, Pillow
-- NO: PostgreSQL, ORM, heavy frameworks
-
-**Before adding a dependency:**
-- Can native APIs do it in ≤20 lines? Do that instead
-- Is it tree-shakeable and <10KB gzipped?
-- Does it force unwanted patterns (global stores, decorators)?
-
-### Error Handling
-
-- **Hard invariants → throw:** Mixed leaf/branch, pointer loops, missing permissions
-- **User-facing banner** with exact path + action suggestions
-- **Logs:** Include `sourceId`, `path`, `op`, `etag/hash`, `user`, `ts` (no stack traces in UI)
+- Directory indexing: > 1000 images/sec (stat-only, lazy dimensions)
+- Thumbnail generation: < 100ms per image
+- Time to first grid: < 2s cold start
+- Memory: ~100MB + (thumbnails × 15KB)
 
 ### Code Style
 
 **Python:**
-- Use ruff + black + mypy (if configured)
-- Functions < 50 lines, modules < 300 lines
-- Boring, explicit naming (`buildFolderManifest`, not `scry`)
+- Type hints everywhere
+- Functions < 50 lines
+- No global state
 
 **TypeScript:**
-- eslint with strict mode, no `any`
-- Components < 200 lines, hooks < 80 lines
-- Boring, explicit naming
-
-**Comments:** Focus on "why" not "what". Link to decisions/rationale if non-obvious.
+- Strict mode, no `any`
+- Components < 200 lines
+- State in TanStack Query cache
 
 ## Important Notes
 
-### Sidecar Sync Rules
+### Two Frontend Folders
 
-- **Source of truth:** Sidecar next to the image
-- **Last-writer-wins** on notes using `updatedAt` timestamp
-- **Set-merge** on tags (additive)
-- Client sends `If-Match` with ETag, fetch latest on mismatch, merge, retry PUT
+| Folder | Purpose | In pip package? |
+|--------|---------|-----------------|
+| `frontend/` | Source code for development | No |
+| `src/lenslet/frontend/` | Built assets (JS/CSS/HTML) | Yes |
 
-### Avoid These Footguns
+After frontend changes:
+```bash
+cd frontend && npm run build
+cp -r dist/* ../src/lenslet/frontend/
+```
 
-- Ad-hoc caching without invalidation → always key by `(path, etag/hash, variant)`
-- Animating box-shadow/border on 2,000 elements → jank
-- Recursive folder walkers without cycle detection in pointer configs
-- Writing local-only notes (not allowed - must write to sidecars)
-- Batching optimizations that delay first paint (first paint > perfect batching)
+### Storage Behavior
 
-### Testing
+- `LocalStorage`: Read-only filesystem, validates paths against root
+- `MemoryStorage`: Wraps LocalStorage, caches indexes/thumbnails/metadata in RAM
+- **Never writes** to the source directory
 
-- **Unit:** Pointer resolution, leaf/branch validation, sidecar merge
-- **Integration (backend):** S3 list → manifest → search
-- **Smoke (frontend):** Load 10k-item fixture; assert TTFG < 2s; scroll without jank
+### Avoid These
 
-## When to Add Abstractions
-
-**Likely OK patterns (≤40 lines each):**
-- Abortable fetch helper (~20 lines)
-- Queue with concurrency for thumbnail preloads (≤40 lines)
-- Guard utils: `isLeaf`, `isPointer`, `assertBranch` (≤10 lines each)
-- Retry with jitter for flaky S3 GETs (≤15 lines)
-
-**NOT OK:**
-- 100-line "unified fetch abstraction" for two endpoints
-- Global state management before actually needing it
-- Helpers/utilities for one-time operations
-- Abstractions for hypothetical future requirements
-
-Three similar lines of code is better than a premature abstraction.
+- Writing any files to the image directory
+- Blocking on dimension reading during indexing (use lazy loading)
+- Global state or singletons
+- Over-engineering for hypothetical requirements

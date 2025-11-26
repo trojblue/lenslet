@@ -149,6 +149,7 @@ cd frontend
 npm run build
 
 # Copy to package
+rm -rf ../src/lenslet/frontend/*
 cp -r dist/* ../src/lenslet/frontend/
 
 # Rebuild Python package

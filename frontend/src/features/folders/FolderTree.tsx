@@ -3,7 +3,6 @@ import type { FolderIndex } from '../../lib/types'
 import { useFolder } from '../../shared/api/folders'
 import { api } from '../../shared/api/client'
 import { useQueryClient } from '@tanstack/react-query'
-import { middleTruncate } from '../../lib/util'
 import { joinPath } from '../../app/routing/hash'
 
 interface Root {
@@ -40,7 +39,7 @@ export default function FolderTree({
 
   return (
     <div className="col-start-1 row-start-2 overflow-auto border-r border-border bg-panel scrollbar-thin">
-      <div className="p-2" role="tree" aria-label="Folders">
+      <div className="p-1" role="tree" aria-label="Folders">
         {roots.map(r => (
           <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} onContextMenu={onContextMenu} initial={data} />
         ))}
@@ -89,7 +88,7 @@ function TreeNode({
   return (
     <div>
       <div
-        className={`flex items-center gap-2 py-2 px-2.5 rounded-md cursor-pointer min-h-7 outline-none hover:bg-hover ${isActive ? 'bg-accent/20 border-l-2 border-accent' : ''}`}
+        className={`flex items-center gap-1.5 py-0.5 px-2 rounded-md cursor-pointer min-h-[28px] outline-none transition-colors duration-75 ${isActive ? 'bg-accent/20 text-accent font-medium' : 'hover:bg-white/5 text-text'}`}
         role="treeitem"
         aria-level={depth+1}
         aria-expanded={isLeaf ? undefined : isExpanded}
@@ -163,9 +162,9 @@ function TreeNode({
           } catch {}
         }}
       >
-        <span className="w-3.5 text-center opacity-80" onClick={toggle}>{isExpanded? '▾' : '▸'}</span>
-        <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap" title={label}>{middleTruncate(label, 28)}</span>
-        {isLeaf && <span className="text-xs text-muted bg-white/5 border border-border rounded-[10px] px-1.5">{count}</span>}
+        <span className="w-4 text-center opacity-60 hover:opacity-100 text-[10px]" onClick={toggle}>{isExpanded? '▼' : '▶'}</span>
+        <span className="flex-1 overflow-hidden truncate text-sm" title={label}>{label}</span>
+        {isLeaf && <span className="text-[10px] opacity-50 bg-white/5 border border-white/5 rounded px-1.5 min-w-[24px] text-center">{count}</span>}
       </div>
       {isExpanded && idx?.dirs?.map(d => (
         <TreeNode key={d.name} path={joinPath(path, d.name)} label={d.name} depth={depth+1} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} />

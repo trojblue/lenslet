@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 export function useSidebars(appRef: React.RefObject<HTMLDivElement | null>) {
-  const [leftW, setLeftW] = useState<number>(160)
+  const [leftW, setLeftW] = useState<number>(250)
   const [rightW, setRightW] = useState<number>(240)
   const leftWRef = useRef(leftW)
   const rightWRef = useRef(rightW)
@@ -24,7 +24,7 @@ export function useSidebars(appRef: React.RefObject<HTMLDivElement | null>) {
     const rect = app.getBoundingClientRect()
     const onMove = (ev: MouseEvent) => {
       const x = ev.clientX - rect.left
-      const min = 160
+      const min = 200
       const max = Math.max(min, rect.width - rightWRef.current - 200)
       const nw = Math.min(Math.max(x, min), max)
       setLeftW(nw)

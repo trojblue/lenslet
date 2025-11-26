@@ -1,0 +1,62 @@
+[project]
+name = "lenslet"
+version = "0.1.0"
+description = "Lightweight image gallery server - no database, no files left behind"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "yada", email = "trojblue@gmail.com"}
+]
+keywords = ["image", "gallery", "server", "viewer", "photos"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+]
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pillow>=10.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+lenslet = "lenslet.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/trojblue/lenslet"
+Repository = "https://github.com/trojblue/lenslet"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lenslet"]
+artifacts = ["src/lenslet/frontend/**"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/lenslet/**",
+    "README.md",
+    "LICENSE",
+]
+artifacts = ["src/lenslet/frontend/**"]
+

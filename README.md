@@ -1,203 +1,73 @@
-# Lenslet Gallery System
+# Lenslet
 
-A minimal, fast, boring (on purpose) gallery system with React frontend and FastAPI backend. Built for performance and simplicity.
+A lightweight image gallery server that runs entirely in-memory. Point it at a directory of images and browse them in your browser. No database, no metadata files left behind.
 
-## Starting the project
+## Introduction
 
+Lenslet is a self-contained image gallery server designed for simplicity and speed. It indexes directories on-the-fly, generates thumbnails in memory, and serves everything through a clean web interface. Perfect for quickly browsing local image collections without modifying the source directory.
 
-in frontend folder, run the following commands to build the frontend:
-```bash
-npm run build
-```
+## Features
 
-in backend folder, run the following commands:
+- **Clean operation**: No files written to your image directories
+- **In-memory indexing**: Fast directory scanning and caching
+- **On-demand thumbnails**: Generated and cached in RAM
+- **Full web UI**: Browse, search, and view images in your browser
+- **Metadata support**: Add tags, notes, and ratings (session-only)
+- **Single command**: Just point to a directory and go
 
-```bash
-uvicorn src.lenscat_backend.main:app --reload --host 127.0.0.1  --port 7070
-```
----
-
-
-
-## Architecture
-
-- **Frontend**: React + TanStack Query/Virtual + minimal CSS
-- **Backend**: FastAPI + flat file storage (local/S3) + async workers
-- **Storage**: No database - JSON manifests + sidecars + thumbnails
-
-## Quick Start
-
-### 1. Backend Setup
+## Installation
 
 ```bash
-cd lenscat-backend
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create sample data (optional)
-python scripts/create_sample_data.py
-
-# Start backend
-python scripts/dev.py
+pip install lenslet
 ```
 
-Backend runs at `http://localhost:8000` with API docs at `/docs`.
+## Usage
 
-### 2. Frontend Setup
+### Basic Usage
 
 ```bash
-cd lenscat-lite
-
-# Install dependencies  
-npm install
-
-# Set API endpoint
-echo "VITE_API_BASE=http://localhost:8000/api" > .env.local
-
-# Start frontend
-npm run dev
+lenslet /path/to/images
 ```
 
-Frontend runs at `http://localhost:5173`.
+Then open http://127.0.0.1:7070 in your browser.
 
-## Project Structure
+### Options
 
-```
-lenslet/
-├── lenscat-backend/          # FastAPI backend
-│   ├── src/
-│   │   ├── api/             # API endpoints
-│   │   ├── models/          # Pydantic models  
-│   │   ├── storage/         # Storage backends (local/S3)
-│   │   ├── workers/         # Indexing & thumbnail workers
-│   │   ├── utils/           # Utilities (EXIF, hashing, thumbs)
-│   │   └── main.py          # FastAPI app
-│   ├── scripts/             # Development scripts
-│   ├── data/                # Local storage (dev)
-│   └── requirements.txt
-│
-├── lenscat-lite/            # React frontend  
-│   ├── src/
-│   │   ├── api/            # API client & query hooks
-│   │   ├── components/     # React components
-│   │   ├── hooks/          # Custom hooks
-│   │   ├── lib/            # Utilities & types
-│   │   ├── App.tsx         # Main app
-│   │   └── main.tsx        # Entry point
-│   ├── package.json
-│   └── vite.config.ts
-│
-└── dev_notes/               # Design documents
-    ├── Developer_note.md    # Core dev principles
-    ├── PRD_v0.md           # Frontend PRD
-    └── PRD_v0_backend.md   # Backend PRD
-```
-
-## Key Features
-
-### Backend
-- **Dual storage**: Local filesystem or S3 with unified API
-- **Smart indexing**: On-demand folder manifest building
-- **Fast thumbnails**: pyvips + WebP generation
-- **Simple search**: Full-text across filenames, tags, notes
-- **Flat files**: No database, JSON manifests + sidecars
-- **Performance**: Async workers, caching, BLAKE3 hashing
-
-### Frontend  
-- **Virtualized grid**: Smooth scrolling for thousands of images
-- **Eagle-inspired theme**: Dark, minimal, performance-first
-- **Real-time metadata**: Tags/notes save to sidecars immediately
-- **Keyboard navigation**: Arrow keys, Enter, shortcuts
-- **Responsive**: Works on desktop and mobile
-- **No bloat**: No global state, UI kits, or CSS-in-JS
-
-## Development Philosophy
-
-Following the **"minimal, fast, boring (on purpose)"** principles:
-
-1. **Do the simplest thing that works**
-2. **Fail fast, fail loud** 
-3. **Zero clever wrappers**
-4. **Data > code** (store rules in JSON, not code)
-5. **Sidecar is the source** (metadata lives next to images)
-
-## File Organization
-
-The system expects this structure:
-
-```
-data/
-├── _index.json              # Root folder manifest
-├── _rollup.json            # Search index
-├── image1.jpg              # Image file
-├── image1.jpg.json         # Sidecar metadata
-├── image1.jpg.thumbnail    # WebP thumbnail
-└── subfolder/
-    ├── _index.json         # Subfolder manifest
-    └── ...
-```
-
-## Configuration
-
-### Backend (.env)
 ```bash
-STORAGE_TYPE=local          # or s3
-LOCAL_ROOT=./data
-S3_BUCKET=my-gallery
-S3_PREFIX=gallery/
-HOST=0.0.0.0
-PORT=8000
+lenslet <directory> [options]
+
+Options:
+  -p, --port PORT              Port to listen on (default: 7070)
+  -H, --host HOST              Host to bind to (default: 127.0.0.1)
+  --thumb-size SIZE            Thumbnail short edge in pixels (default: 256)
+  --thumb-quality QUALITY      Thumbnail WebP quality 1-100 (default: 70)
+  --reload                     Enable auto-reload for development
+  -v, --version                Show version and exit
 ```
 
-### Frontend (.env.local)
+### Examples
+
+Serve images from your Pictures folder:
 ```bash
-VITE_API_BASE=http://localhost:8000/api
+lenslet ~/Pictures
 ```
 
-## Performance Targets
-
-- **Time to first grid**: < 700ms hot, < 2s cold
-- **Scroll performance**: < 1.5% dropped frames  
-- **Inspector open**: < 150ms
-- **Thumbnail cache hit**: > 85%
-- **Indexing throughput**: > 300 items/sec
-
-## Deployment
-
-### Docker Backend
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY src/ ./src/
-EXPOSE 8000
-CMD ["python", "-m", "src.main"]
-```
-
-### Static Frontend
+Use a custom port:
 ```bash
-npm run build
-# Deploy dist/ to CDN/static hosting
+lenslet ~/Photos --port 8080
 ```
 
-## API Endpoints
+Make accessible on local network:
+```bash
+lenslet ~/Images --host 0.0.0.0 --port 7070
+```
 
-- `GET /api/folders?path=<path>` - List folder contents
-- `GET /api/item?path=<path>` - Get item metadata  
-- `PUT /api/item?path=<path>` - Update item metadata
-- `GET /api/thumb?path=<path>` - Get/generate thumbnail
-- `GET /api/search?q=<query>` - Search items
-- `GET /api/health` - System health
+## Notes
 
-## Contributing
-
-1. Follow the dev guide principles in `dev_notes/`
-2. Keep PRs < 400 lines
-3. Test with sample data
-4. Maintain performance budgets
-5. No clever abstractions
+- All indexes, thumbnails, and metadata are kept in memory
+- Metadata changes (tags, ratings, notes) are lost when the server stops
+- Supports JPEG, PNG, and WebP formats
+- Hidden files and folders (starting with `.`) are ignored
 
 ## License
 

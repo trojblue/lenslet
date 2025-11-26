@@ -13,7 +13,7 @@ import { useSidebars } from './layout/useSidebars'
 import ContextMenu, { MenuItem } from './menu/ContextMenu'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 import { useDebounced } from '../shared/hooks/useDebounced'
-import type { Item, SortKey, SortDir, ContextMenuState, StarRating } from '../lib/types'
+import type { Item, SortKey, SortDir, ContextMenuState, StarRating, ViewMode } from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
 import { safeJsonParse } from '../lib/util'
 
@@ -22,6 +22,7 @@ const STORAGE_KEYS = {
   sortKey: 'sortKey',
   sortDir: 'sortDir',
   starFilters: 'starFilters',
+  viewMode: 'viewMode',
 } as const
 
 export default function AppShell() {
@@ -40,6 +41,7 @@ export default function AppShell() {
   const [sortKey, setSortKey] = useState<SortKey>('added')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [starFilters, setStarFilters] = useState<number[]>([])
+  const [viewMode, setViewMode] = useState<ViewMode>('grid')
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
@@ -65,7 +67,12 @@ export default function AppShell() {
     const onHash = () => {
       const norm = sanitizePath(readHash())
       setViewer(null)
-      setCurrent((prev) => (prev === norm ? prev : norm))
+      // Only trigger "restore selection into view" when the folder/tab actually changes
+      setCurrent((prev) => {
+        if (prev === norm) return prev
+        setRestoreGridToSelectionToken((t) => t + 1)
+        return norm
+      })
     }
     
     window.addEventListener('hashchange', onHash)
@@ -114,6 +121,7 @@ export default function AppShell() {
       const storedSortKey = localStorage.getItem(STORAGE_KEYS.sortKey)
       const storedSortDir = localStorage.getItem(STORAGE_KEYS.sortDir)
       const storedStarFilters = localStorage.getItem(STORAGE_KEYS.starFilters)
+      const storedViewMode = localStorage.getItem(STORAGE_KEYS.viewMode) as ViewMode | null
       
       if (storedSortKey === 'name' || storedSortKey === 'added') {
         setSortKey(storedSortKey)
@@ -127,6 +135,9 @@ export default function AppShell() {
           setStarFilters(parsed.filter((n) => [0, 1, 2, 3, 4, 5].includes(n)))
         }
       }
+      if (storedViewMode === 'grid' || storedViewMode === 'adaptive') {
+        setViewMode(storedViewMode)
+      }
     } catch {
       // Ignore localStorage errors (private browsing, etc.)
     }
@@ -138,10 +149,11 @@ export default function AppShell() {
       localStorage.setItem(STORAGE_KEYS.sortKey, sortKey)
       localStorage.setItem(STORAGE_KEYS.sortDir, sortDir)
       localStorage.setItem(STORAGE_KEYS.starFilters, JSON.stringify(starFilters))
+      localStorage.setItem(STORAGE_KEYS.viewMode, viewMode)
     } catch {
       // Ignore localStorage errors
     }
-  }, [sortKey, sortDir, starFilters])
+  }, [sortKey, sortDir, starFilters, viewMode])
 
   // Prefetch neighbors for the open viewer (previous and next)
   useEffect(() => {
@@ -205,13 +217,14 @@ export default function AppShell() {
     }
   }, [])
 
-  // Handle browser back/forward
+  // Handle browser back/forward specifically for closing the viewer.
+  // NOTE: We intentionally do NOT touch grid scroll position here – closing
+  // the fullscreen viewer should leave the grid exactly where it was.
   useEffect(() => {
     const onPop = () => {
       if (viewer) {
         viewerHistoryPushedRef.current = false
         setViewer(null)
-        setRestoreGridToSelectionToken((t) => t + 1)
       }
     }
     window.addEventListener('popstate', onPop)
@@ -348,6 +361,8 @@ export default function AppShell() {
         }}
         onClearStars={() => setStarFilters([])}
         starCounts={starCounts}
+        viewMode={viewMode}
+        onViewMode={setViewMode}
       />
       <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={onResizeLeft}
         onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
@@ -383,6 +398,7 @@ export default function AppShell() {
         <VirtualGrid items={items} selected={selectedPaths} restoreToSelectionToken={restoreGridToSelectionToken} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
           highlight={searching ? normalizedQ : ''}
           suppressSelectionHighlight={!!viewer}
+          viewMode={viewMode}
           onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
         />
         {!!selectedPaths.length && (

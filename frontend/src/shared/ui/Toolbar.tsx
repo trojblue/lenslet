@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import type { ViewMode } from '../../lib/types'
 
 export default function Toolbar({
   onSearch,
@@ -14,6 +15,8 @@ export default function Toolbar({
   onToggleStar,
   onClearStars,
   starCounts,
+  viewMode,
+  onViewMode,
 }:{
   onSearch: (q: string) => void
   viewerActive?: boolean
@@ -28,6 +31,8 @@ export default function Toolbar({
   onToggleStar?: (v: number) => void
   onClearStars?: () => void
   starCounts?: { [k: string]: number }
+  viewMode?: ViewMode
+  onViewMode?: (v: ViewMode) => void
 }){
   const [openRating, setOpenRating] = useState(false)
   const ratingRef = useRef<HTMLDivElement | null>(null)
@@ -48,7 +53,12 @@ export default function Toolbar({
         )}
         {!viewerActive && (
           <div className="flex gap-2 items-center relative">
-            <select className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text" value={sortKey||'added'} onChange={e=> onSortKey && onSortKey((e.target.value as any) || 'added')}>
+            <select className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text" value={viewMode||'grid'} onChange={e=> onViewMode && onViewMode(e.target.value as ViewMode)} title="View mode">
+              <option value="grid">Grid</option>
+              <option value="adaptive">Adaptive</option>
+            </select>
+            <div className="w-px h-5 bg-border mx-1"></div>
+            <select className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text" value={sortKey||'added'} onChange={e=> onSortKey && onSortKey((e.target.value as any) || 'added')} title="Sort by">
               <option value="added">Date added</option>
               <option value="name">Filename</option>
             </select>

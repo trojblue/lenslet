@@ -139,7 +139,22 @@ class MemoryStorage:
                 mime = self._guess_mime(name)
 
                 # Dimensions are loaded lazily (0 = not loaded yet)
+                # Try to get from cache first, but if 0/0, try fast read if small enough or requested?
+                # For now, we keep it 0/0 to be lazy as requested.
+                # The frontend handles 0/0 gracefully or triggers a fetch if needed.
                 w, h = self._dimensions.get(full, (0, 0))
+                
+                # If missing dimensions, try fast header read immediately
+                # This makes "lazy" loading actually eager but lightweight (header only)
+                # which is critical for adaptive layout to work on first load.
+                if w == 0 or h == 0:
+                    try:
+                        dims = self._read_dimensions_fast(abs_path)
+                        if dims:
+                            w, h = dims
+                            self._dimensions[full] = (w, h)
+                    except Exception:
+                        pass  # Keep as 0,0 if failed
 
                 items.append(CachedItem(
                     path=full, name=name, mime=mime,

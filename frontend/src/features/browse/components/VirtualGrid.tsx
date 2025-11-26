@@ -1,6 +1,6 @@
-import React, { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
+import React, { useRef, useState, useEffect, useLayoutEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import type { Item } from '../../../lib/types'
+import type { Item, ViewMode } from '../../../lib/types'
 import ThumbCard from './ThumbCard'
 import { api } from '../../../shared/api/client'
 import { useVirtualGrid } from '../hooks/useVirtualGrid'
@@ -15,6 +15,7 @@ interface VirtualGridProps {
   onContextMenuItem?: (e: React.MouseEvent, path: string) => void
   highlight?: string
   suppressSelectionHighlight?: boolean
+  viewMode?: ViewMode
 }
 
 export default function VirtualGrid({
@@ -26,6 +27,7 @@ export default function VirtualGrid({
   onContextMenuItem,
   highlight,
   suppressSelectionHighlight = false,
+  viewMode = 'grid',
 }: VirtualGridProps) {
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -42,15 +44,13 @@ export default function VirtualGrid({
   const ASPECT = { w: 4, h: 3 }
   const CAPTION_H = 44
 
-  const { columns, cellW, mediaH, rowH, rowVirtualizer, rows } = useVirtualGrid(parentRef as any, items.length, { gap: GAP, targetCell: TARGET_CELL, aspect: ASPECT, captionH: CAPTION_H })
+  const { width, layout, rowVirtualizer, virtualRows } = useVirtualGrid(parentRef as any, items, { gap: GAP, targetCell: TARGET_CELL, aspect: ASPECT, captionH: CAPTION_H, viewMode })
 
   const pathToIndex = useMemo(() => {
     const map = new Map<string, number>()
     for (let i = 0; i < items.length; i++) map.set(items[i].path, i)
     return map
   }, [items])
-
-  
 
   const scrollAnimRef = useRef<number | null>(null)
   const scrollRowIntoView = (el: HTMLElement, top: number) => {
@@ -82,11 +82,13 @@ export default function VirtualGrid({
     return () => el.removeEventListener('scroll', onScroll as any)
   }, [])
 
+  const effectiveColumns = layout.mode === 'grid' ? layout.columns : Math.max(1, Math.floor(width / (TARGET_CELL + GAP)))
+
   useEffect(() => {
     const el = parentRef.current
     if (!el) return
     const onKey = (e: KeyboardEvent) => {
-      const result = getNextIndexForKeyNav(items, Math.max(1, columns), focused, e)
+      const result = getNextIndexForKeyNav(items, Math.max(1, effectiveColumns), focused, e)
       if (result == null) return
       e.preventDefault()
       if (result === 'open') { if (focused) onOpenViewer(focused); return }
@@ -97,11 +99,32 @@ export default function VirtualGrid({
       setActive(nextItem.path)
       onSelectionChange([nextItem.path])
       try { anchorRef.current = nextItem.path } catch {}
-      const rowIdx = Math.floor(next / Math.max(1, columns))
+      
+      // Find row for next item
+      let rowIdx = 0
+      if (layout.mode === 'grid') {
+        rowIdx = Math.floor(next / Math.max(1, layout.columns))
+      } else {
+        let low = 0, high = layout.rows.length - 1
+        while (low <= high) {
+            const mid = (low + high) >> 1
+            const r = layout.rows[mid]
+            if (next >= r.items[0].originalIndex && next <= r.items[r.items.length-1].originalIndex) {
+                rowIdx = mid
+                break
+            }
+            if (next < r.items[0].originalIndex) high = mid - 1
+            else low = mid + 1
+        }
+      }
+
       const scrollTop = el.scrollTop
       const viewBottom = scrollTop + el.clientHeight
-      const rowTop = rowIdx * rowH
-      const rowBottom = rowTop + rowH
+      
+      const rowTop = layout.mode === 'adaptive' ? (layout.rows[rowIdx]?.start ?? 0) : (rowIdx * layout.rowH)
+      const rowHeight = layout.mode === 'adaptive' ? (layout.rows[rowIdx]?.height ?? 0) : layout.rowH
+      const rowBottom = rowTop + rowHeight
+
       if (rowTop < scrollTop || rowBottom > viewBottom) {
         try { scrollRowIntoView(el, rowTop) }
         catch { try { rowVirtualizer.scrollToIndex(rowIdx, { align: 'start' as const }) } catch {} }
@@ -110,9 +133,7 @@ export default function VirtualGrid({
     }
     el.addEventListener('keydown', onKey)
     return () => { el.removeEventListener('keydown', onKey) }
-  }, [items, focused, columns, onOpenViewer, rowH])
-
-  // measure handled in hook
+  }, [items, focused, effectiveColumns, onOpenViewer, layout])
 
   useLayoutEffect(() => {
     const el = parentRef.current
@@ -122,11 +143,27 @@ export default function VirtualGrid({
     const first = selected[0]
     const idx = pathToIndex.get(first)
     if (idx == null || idx < 0) return
-    const col = Math.max(1, columns)
-    const rowIdx = Math.floor(idx / col)
-    const targetTop = rowIdx * rowH
+    
+    let rowIdx = 0
+    if (layout.mode === 'grid') {
+        rowIdx = Math.floor(idx / Math.max(1, layout.columns))
+    } else {
+        let low = 0, high = layout.rows.length - 1
+        while (low <= high) {
+            const mid = (low + high) >> 1
+            const r = layout.rows[mid]
+            if (idx >= r.items[0].originalIndex && idx <= r.items[r.items.length-1].originalIndex) {
+                rowIdx = mid
+                break
+            }
+            if (idx < r.items[0].originalIndex) high = mid - 1
+            else low = mid + 1
+        }
+    }
+    const targetTop = layout.mode === 'adaptive' ? (layout.rows[rowIdx]?.start ?? 0) : (rowIdx * layout.rowH)
+    
     try { el.scrollTop = targetTop } catch {}
-  }, [restoreToSelectionToken])
+  }, [restoreToSelectionToken, layout])
 
   const selectedSet = new Set(selected)
   const hasPreview = !!(previewFor && previewUrl && delayPassed)
@@ -146,24 +183,57 @@ export default function VirtualGrid({
       onMouseDown={() => parentRef.current?.focus()} 
       style={{ ['--gap' as any]: `${GAP}px` }}
     >
-      <div key={columns} className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
-        {rows.map(row => {
-          const start = row.index * columns
-          const slice = items.slice(start, start + columns)
-          const isTopmostVisibleRow = row.index === rows[0]?.index
-          try { if (!isScrolling) { for (const it of slice) { try { api.prefetchThumb(it.path) } catch {} } } } catch {}
-          const nextPageStart = (row.index + 1) * columns
-          const nextPageItems = items.slice(nextPageStart, nextPageStart + columns)
-          if (!isScrolling && rows.length <= 20) { for (const it of nextPageItems) { try { api.prefetchThumb(it.path) } catch {} } }
+      <div key={`${viewMode}-${effectiveColumns}`} className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+        {virtualRows.map(row => {
+          let rowItems: { item: Item, displayW: number, displayH: number }[] = []
+          let rowStyle: React.CSSProperties = {}
+          let rowClass = ""
+
+          if (layout.mode === 'adaptive') {
+             const rowData = layout.rows[row.index]
+             if (!rowData) return null
+             rowItems = rowData.items
+             rowStyle = {
+                 height: rowData.height,
+                 transform: `translate3d(0, ${row.start}px, 0)`,
+                 display: 'flex',
+                 gap: GAP,
+                 paddingBottom: GAP,
+             }
+             rowClass = "absolute top-0 left-0 right-0 w-full will-change-transform"
+          } else {
+             const start = row.index * layout.columns
+             const slice = items.slice(start, start + layout.columns)
+             rowItems = slice.map(it => ({ item: it, displayW: layout.cellW, displayH: layout.mediaH }))
+             rowStyle = {
+                 transform: `translate3d(0, ${row.start}px, 0)`,
+                 gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
+                 gap: GAP,
+                 paddingBottom: GAP,
+             }
+             rowClass = "absolute top-0 left-0 right-0 w-full grid will-change-transform"
+          }
+          
+          // Prefetch logic
+          const isTopmostVisibleRow = row.index === virtualRows[0]?.index
+          try { if (!isScrolling) { for (const { item: it } of rowItems) { try { api.prefetchThumb(it.path) } catch {} } } } catch {}
+          
           return (
             <div 
               key={row.key} 
-              className="absolute top-0 left-0 right-0 w-full grid gap-[var(--gap)] pb-[var(--gap)] will-change-transform"
+              className={rowClass}
               role="row" 
-              style={{ transform: `translate3d(0, ${row.start}px, 0)`, gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+              style={rowStyle}
             >
-              {slice.map(it => {
+              {rowItems.map(({ item: it, displayW, displayH }) => {
                 const isVisuallySelected = !suppressSelectionHighlight && ((active===it.path) || selectedSet.has(it.path))
+                const wrapperStyle = layout.mode === 'adaptive' ? { width: displayW } : {}
+                const imageContainerStyle = layout.mode === 'adaptive' ? { height: displayH } : {}
+                
+                const itemContainerClass = layout.mode === 'adaptive' 
+                    ? "relative rounded-lg overflow-hidden bg-[var(--thumb-bg,#121212)] group shrink-0" 
+                    : "relative aspect-[4/3] rounded-lg overflow-hidden bg-[var(--thumb-bg,#121212)] group"
+
                 return (
                 <div 
                   id={`cell-${encodeURIComponent(it.path)}`} 
@@ -174,6 +244,7 @@ export default function VirtualGrid({
                   tabIndex={focused===it.path?0:-1} 
                   onFocus={()=> setFocused(it.path)} 
                   draggable 
+                  style={wrapperStyle}
                   onDragStart={(e)=>{
                   try {
                     const paths = selectedSet.has(it.path) && selected.length>0 ? selected : [it.path]
@@ -205,7 +276,8 @@ export default function VirtualGrid({
                   } catch {}
                 }} onDragEnd={()=>{}} onContextMenu={(e)=>{ e.preventDefault(); e.stopPropagation(); if (onContextMenuItem) onContextMenuItem(e, it.path) }}>
                   <div 
-                    className="relative aspect-[4/3] rounded-lg overflow-hidden bg-[var(--thumb-bg,#121212)] group"
+                    className={itemContainerClass}
+                    style={imageContainerStyle}
                     onMouseEnter={()=>{ try { api.prefetchFile(it.path) } catch {} }} 
                     onDoubleClick={()=> onOpenViewer(it.path)} 
                     onMouseLeave={()=>{
@@ -216,7 +288,7 @@ export default function VirtualGrid({
                     setDelayPassed(false)
                   }}>
                     <div className="cell-content absolute inset-0">
-                      <ThumbCard path={it.path} name={it.name} selected={isVisuallySelected} displayW={cellW} displayH={mediaH} ioRoot={parentRef.current} isScrolling={isScrolling} priority={isTopmostVisibleRow} onClick={(ev: React.MouseEvent)=>{
+                      <ThumbCard path={it.path} name={it.name} selected={isVisuallySelected} displayW={displayW} displayH={displayH} ioRoot={parentRef.current} isScrolling={isScrolling} priority={isTopmostVisibleRow} onClick={(ev: React.MouseEvent)=>{
                         setActive(it.path)
                         setFocused(it.path)
                         const isShift = !!ev.shiftKey

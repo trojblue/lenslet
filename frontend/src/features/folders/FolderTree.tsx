@@ -88,13 +88,13 @@ function TreeNode({
   return (
     <div>
       <div
-        className={`flex items-center gap-1.5 py-0.5 px-2 rounded-md cursor-pointer min-h-[28px] outline-none transition-colors duration-75 ${isActive ? 'bg-accent/20 text-accent font-medium' : 'hover:bg-white/5 text-text'}`}
+        className={`group flex items-center gap-1.5 py-0.5 px-2 rounded-md cursor-pointer min-h-[26px] outline-none transition-colors duration-75 ${isActive ? 'bg-accent/15 text-accent font-medium' : 'text-muted hover:text-text hover:bg-white/5'}`}
         role="treeitem"
         aria-level={depth+1}
         aria-expanded={isLeaf ? undefined : isExpanded}
         aria-selected={isActive}
         tabIndex={isActive ? 0 : -1}
-        style={{ paddingLeft: 8 + depth * 14 }}
+        style={{ paddingLeft: 8 + depth * 12 }}
         onClick={()=> onOpen(path)}
         onContextMenu={(e)=> { e.preventDefault(); e.stopPropagation(); onContextMenu && onContextMenu(e, path) }}
         onKeyDown={(e)=>{
@@ -162,9 +162,22 @@ function TreeNode({
           } catch {}
         }}
       >
-        <span className="w-4 text-center opacity-60 hover:opacity-100 text-[10px]" onClick={toggle}>{isExpanded? '▼' : '▶'}</span>
-        <span className="flex-1 overflow-hidden truncate text-sm" title={label}>{label}</span>
-        {isLeaf && <span className="text-[10px] opacity-50 bg-white/5 border border-white/5 rounded px-1.5 min-w-[24px] text-center">{count}</span>}
+        <span className={`w-4 text-center flex items-center justify-center ${isExpanded ? 'opacity-70' : 'opacity-40 group-hover:opacity-70'}`} onClick={toggle}>
+          {isLeaf ? (
+            <span className="opacity-0"></span>
+          ) : (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+              <path d="m9 18 6-6-6-6"/>
+            </svg>
+          )}
+        </span>
+        
+        <svg className={`w-4 h-4 shrink-0 ${isActive ? 'text-accent fill-accent/20' : 'text-muted group-hover:text-text'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+        </svg>
+
+        <span className="flex-1 overflow-hidden truncate text-[13px] leading-none pt-0.5" title={label}>{label}</span>
+        {isLeaf && <span className="text-[10px] opacity-40 font-mono">{count}</span>}
       </div>
       {isExpanded && idx?.dirs?.map(d => (
         <TreeNode key={d.name} path={joinPath(path, d.name)} label={d.name} depth={depth+1} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} />

@@ -153,7 +153,7 @@ export default function ThumbCard({
     >
       {url ? (
         <img
-          className={`w-full h-full object-cover block pointer-events-none select-none opacity-0 transition-opacity duration-[160ms] ${loaded ? 'opacity-100' : ''}`}
+          className={`w-full h-full object-cover block pointer-events-none select-none opacity-0 transition-opacity duration-[200ms] ${loaded ? 'opacity-100' : ''}`}
           src={url}
           alt={name}
           loading="lazy"

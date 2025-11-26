@@ -233,14 +233,14 @@ export default function VirtualGrid({
                 const imageContainerStyle = layout.mode === 'adaptive' ? { height: displayH } : {}
                 
                 const itemContainerClass = layout.mode === 'adaptive' 
-                    ? "relative rounded-lg overflow-hidden bg-[var(--thumb-bg,#121212)] group shrink-0" 
-                    : "relative aspect-[4/3] rounded-lg overflow-hidden bg-[var(--thumb-bg,#121212)] group"
+                    ? "relative rounded-lg overflow-hidden bg-[var(--thumb-bg)] group shrink-0" 
+                    : "relative aspect-[4/3] rounded-lg overflow-hidden bg-[var(--thumb-bg)] group"
 
                 return (
                 <div 
                   id={`cell-${encodeURIComponent(it.path)}`} 
                   key={it.path} 
-                  className={`relative ${isVisuallySelected ? 'outline outline-2 outline-accent outline-offset-2 rounded-[10px]' : ''}`}
+                  className={`relative group ${isVisuallySelected ? 'z-10' : 'z-0'}`}
                   role="gridcell" 
                   aria-selected={isVisuallySelected} 
                   tabIndex={focused===it.path?0:-1} 
@@ -320,7 +320,7 @@ export default function VirtualGrid({
                       }} />
                     </div>
                     <div 
-                      className="absolute right-0 bottom-0 w-7 h-7 cursor-zoom-in"
+                      className="absolute right-1 bottom-1 w-6 h-6 bg-black/60 rounded-full flex items-center justify-center text-xs select-none opacity-0 group-hover:opacity-100 transition-opacity duration-[120ms] cursor-zoom-in hover:bg-black/80"
                       onMouseEnter={async ()=>{
                       if (isScrolling) return
                       if (hoverTimer) window.clearTimeout(hoverTimer)
@@ -345,22 +345,11 @@ export default function VirtualGrid({
                       if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} ; previewUrlRef.current = null }
                       setPreviewUrl(null)
                     }}>
-                      <div className="absolute right-1 bottom-1 w-[22px] h-[22px] bg-black/55 rounded-full flex items-center justify-center text-xs select-none opacity-0 group-hover:opacity-100 transition-opacity duration-[120ms]">🔍</div>
+                      🔍
                     </div>
                   </div>
-                  <div className="flex flex-col gap-0.5 mt-2 px-0.5 text-white/90">
-                    <div className="text-sm leading-[18px] line-clamp-2 break-words hyphens-auto" title={it.name}>{(() => {
-                      const q = (highlight||'').trim()
-                      if (!q) return it.name
-                      const hay = it.name
-                      const idx = hay.toLowerCase().indexOf(q.toLowerCase())
-                      if (idx === -1) return it.name
-                      const before = hay.slice(0, idx)
-                      const match = hay.slice(idx, idx + q.length)
-                      const after = hay.slice(idx + q.length)
-                      return (<>{before}<mark className="bg-accent/20 text-inherit rounded px-0.5">{match}</mark>{after}</>)
-                    })()}</div>
-                    <div className="text-xs leading-4 opacity-75">{it.w} × {it.h}</div>
+                  <div className="flex flex-col items-center gap-0.5 mt-1.5 px-0.5 text-text">
+                    <div className="text-[11px] leading-[14px] opacity-50 font-mono">{it.w} × {it.h}</div>
                   </div>
                 </div>
               )})}

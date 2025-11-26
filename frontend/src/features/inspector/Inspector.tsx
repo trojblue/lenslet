@@ -172,55 +172,66 @@ export default function Inspector({
   )
 
   return (
-    <div className="col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
+    <div className="col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative text-sm">
+      {/* Header - Filename or Selection */}
+      <div className="p-4 border-b border-border bg-bg/30">
+        {multi ? (
+          <div className="flex flex-col gap-1">
+            <div className="text-base font-medium text-text flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent"><path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 8v10a2 2 0 0 0 2 2h13"/></svg>
+              {selectedPaths.length} Selected
+            </div>
+            <div className="text-xs text-muted font-mono pl-6">{fmtBytes(totalSize)} total</div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+             <div className="font-medium text-text break-all leading-snug select-text" title={filename}>
+                {filename}
+             </div>
+             <div className="flex items-center gap-3 text-xs text-muted">
+                <span className="bg-white/5 px-1.5 rounded border border-white/5">{ext}</span>
+                {currentItem && <span>{fmtBytes(currentItem.size)}</span>}
+             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Thumbnail Preview (Single only) */}
       {!multi && (
-        <div className="p-3 border-b border-border flex justify-center">
-          <div className="relative rounded-lg overflow-hidden border border-border w-[220px] h-[160px] bg-panel">
-            {thumbUrl && <img src={thumbUrl} alt="thumb" className="block w-full h-full object-contain" />}
-            {!!ext && <div className="absolute top-1.5 left-1.5 bg-[#1b1b1b] border border-border text-text text-xs px-1.5 py-0.5 rounded-md">{ext}</div>}
+        <div className="p-4 border-b border-border flex justify-center bg-bg/10">
+          <div className="relative rounded-lg overflow-hidden border border-border/50 w-full aspect-[4/3] bg-black/20 flex items-center justify-center">
+            {thumbUrl ? (
+               <img src={thumbUrl} alt="thumb" className="max-w-full max-h-full object-contain shadow-lg" />
+            ) : (
+               <div className="text-muted opacity-20 text-4xl">🖼</div>
+            )}
           </div>
         </div>
       )}
-      <div className="p-3 border-b border-border">
-        {multi ? (
-          <>
-            <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Selection</div>
-            <div className="font-mono text-muted break-all">{selectedPaths.length} files selected</div>
-            <div className="font-mono text-muted break-all">Total size: {fmtBytes(totalSize)}</div>
-          </>
-        ) : (
-          <>
-            <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Filename</div>
-            <div className="font-mono text-muted break-all" title={filename}>{filename}</div>
-          </>
-        )}
-      </div>
-      <div className="p-3 border-b border-border">
-        <div className="text-muted text-xs uppercase tracking-wide mb-1.5">{multi ? 'Notes (apply to all)' : 'Notes'}</div>
-        <textarea
-          className="w-full bg-[#1b1b1b] text-text border border-border rounded-lg p-2 min-h-[100px] resize-y scrollbar-thin"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          onBlur={() => {
-            if (multi && selectedPaths.length) {
-              bulkUpdateSidecars(selectedPaths, { notes })
-            } else {
-              const base = createBaseSidecar()
-              mut.mutate({
-                ...base,
-                notes,
-                updated_at: new Date().toISOString(),
-                updated_by: 'web',
-              })
-            }
-          }}
-          aria-label={multi ? 'Notes for selected items' : 'Notes'}
-        />
-      </div>
-      <div className="p-3 border-b border-border">
-        <div className="text-muted text-xs uppercase tracking-wide mb-1.5">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
+
+      {/* Basic Info Section */}
+      {!multi && currentItem && (
+        <div className="p-4 border-b border-border">
+          <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Basic Info</h3>
+          <div className="grid grid-cols-[80px_1fr] gap-y-2 text-[13px]">
+            <div className="text-muted">Dimensions</div>
+            <div className="font-mono select-text">{currentItem.w} × {currentItem.h}</div>
+            
+            <div className="text-muted">Path</div>
+            <div className="font-mono text-xs text-muted break-all select-text leading-relaxed opacity-80" title={path || ''}>{path}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Tags Section */}
+      <div className="p-4 border-b border-border">
+        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3 flex justify-between">
+           <span>Tags</span>
+           {multi && <span className="text-[10px] bg-accent/10 text-accent px-1 rounded">Multi-edit</span>}
+        </h3>
         <input
-          className="w-full h-8 bg-[#1b1b1b] text-text border border-border rounded-lg px-2"
+          className="w-full h-8 bg-black/20 focus:bg-black/40 text-text border border-border rounded-md px-2.5 text-[13px] placeholder:text-muted/40 outline-none focus:border-accent/50 transition-colors"
+          placeholder="Add tags (comma separated)..."
           value={tags}
           onChange={(e) => setTags(e.target.value)}
           onBlur={() => {
@@ -237,18 +248,50 @@ export default function Inspector({
               })
             }
           }}
-          aria-label={multi ? 'Tags for selected items' : 'Tags'}
+        />
+        <div className="flex flex-wrap gap-1.5 mt-2.5">
+           {tags.split(',').filter(t => t.trim()).map(t => (
+              <span key={t} className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-accent/10 text-accent/90 border border-accent/20">
+                 {t.trim()}
+              </span>
+           ))}
+        </div>
+      </div>
+
+      {/* Notes Section */}
+      <div className="p-4 border-b border-border">
+        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Notes</h3>
+        <textarea
+          className="w-full bg-black/20 focus:bg-black/40 text-text border border-border rounded-md p-2.5 text-[13px] min-h-[80px] resize-y scrollbar-thin placeholder:text-muted/40 outline-none focus:border-accent/50 transition-colors"
+          placeholder="Add notes..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={() => {
+            if (multi && selectedPaths.length) {
+              bulkUpdateSidecars(selectedPaths, { notes })
+            } else {
+              const base = createBaseSidecar()
+              mut.mutate({
+                ...base,
+                notes,
+                updated_at: new Date().toISOString(),
+                updated_by: 'web',
+              })
+            }
+          }}
         />
       </div>
-      <div className="p-3 border-b border-border">
-        <div className="text-muted text-xs uppercase tracking-wide mb-1.5">{multi ? 'Rating (apply to all)' : 'Rating'}</div>
-        <div className="flex gap-1.5 items-center" role="radiogroup" aria-label="Star rating">
+
+      {/* Rating Section */}
+      <div className="p-4">
+        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Rating</h3>
+        <div className="flex gap-1 items-center bg-black/20 p-1.5 rounded-lg w-fit border border-border/50" role="radiogroup" aria-label="Star rating">
           {[1, 2, 3, 4, 5].map((v) => {
             const filled = (star ?? 0) >= v
             return (
               <button
                 key={v}
-                className={`w-7 h-7 p-0 rounded-md border border-border ${filled ? 'bg-[rgba(255,200,0,0.15)] text-[#ffd166]' : 'bg-[#1b1b1b] text-[#aaa]'}`}
+                className={`w-8 h-8 p-0 rounded flex items-center justify-center transition-all duration-150 ${filled ? 'text-[#ffd166] scale-110' : 'text-muted hover:text-text hover:bg-white/5'}`}
                 onClick={() => {
                   const val: StarRating = star === v && !multi ? null : (v as 1 | 2 | 3 | 4 | 5)
                   if (multi && selectedPaths.length) {
@@ -259,16 +302,15 @@ export default function Inspector({
                     queueSidecarUpdate(path, { star: val })
                   }
                 }}
-                title={`${v} star${v > 1 ? 's' : ''} (key ${v})`}
-                aria-label={`${v} star${v > 1 ? 's' : ''}`}
-                aria-pressed={star === v}
+                title={`${v} star${v > 1 ? 's' : ''}`}
               >
-                {filled ? '★' : '☆'}
+                <span className="text-lg leading-none">{filled ? '★' : '☆'}</span>
               </button>
             )
           })}
+          <div className="w-px h-4 bg-border mx-1" />
           <button
-            className="ml-2 px-2 py-1 bg-[#1b1b1b] text-text border border-border rounded-md"
+            className="px-2 py-1 text-xs text-muted hover:text-text hover:bg-white/5 rounded transition-colors"
             onClick={async () => {
               if (multi && selectedPaths.length) {
                 await bulkUpdateSidecars(selectedPaths, { star: null })
@@ -284,41 +326,13 @@ export default function Inspector({
                 onStarChanged?.([path], null)
               }
             }}
-            title="Clear rating (key 0)"
-            aria-label="Clear rating"
+            title="Clear rating"
           >
-            0
+            Clear
           </button>
         </div>
       </div>
-      {!multi && currentItem && (
-        <div className="p-3 border-b border-border">
-          <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Details</div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              Type
-              <br />
-              <span className="font-mono text-muted break-all">{currentItem.type}</span>
-            </div>
-            <div>
-              Size
-              <br />
-              <span className="font-mono text-muted break-all">{fmtBytes(currentItem.size)}</span>
-            </div>
-            <div>
-              Dimensions
-              <br />
-              <span className="font-mono text-muted break-all">{currentItem.w}×{currentItem.h}</span>
-            </div>
-          </div>
-        </div>
-      )}
-      {!multi && (
-        <div className="p-3 border-b border-border">
-          <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Source URL</div>
-          <div className="font-mono text-muted break-all">{path}</div>
-        </div>
-      )}
+
       <div className="absolute top-12 bottom-0 w-1.5 cursor-col-resize z-10 right-[calc(var(--right)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
     </div>
   )

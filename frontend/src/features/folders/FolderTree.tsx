@@ -168,7 +168,17 @@ function TreeNode({
         {isLeaf && <span className="text-[10px] opacity-50 bg-white/5 border border-white/5 rounded px-1.5 min-w-[24px] text-center">{count}</span>}
       </div>
       {isExpanded && idx?.dirs?.map(d => (
-        <TreeNode key={d.name} path={joinPath(path, d.name)} label={d.name} depth={depth+1} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} />
+        <TreeNode
+          key={d.name}
+          path={joinPath(path, d.name)}
+          label={d.name}
+          depth={depth+1}
+          current={current}
+          expanded={expanded}
+          setExpanded={setExpanded}
+          onOpen={onOpen}
+          onContextMenu={onContextMenu}
+        />
       ))}
     </div>
   )

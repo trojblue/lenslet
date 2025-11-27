@@ -523,9 +523,69 @@ function ContextMenuItems({
   setCtx: (ctx: ContextMenuState | null) => void
 }) {
   const inTrash = isTrashPath(current)
+  const joinChild = (parent: string, name: string) => (parent === '/' ? `/${name}` : `${parent}/${name}`)
+  const [exporting, setExporting] = React.useState<'csv' | 'json' | null>(null)
+
+  const timestamp = () => new Date().toISOString().replace(/[:.]/g, '-')
+
+  // Recursively collect items for a folder (including subfolders)
+  const collectFolderItems = async (root: string): Promise<Item[]> => {
+    const stack = [root]
+    const seen = new Set<string>()
+    const all: Item[] = []
+
+    while (stack.length) {
+      const p = stack.pop()!
+      if (seen.has(p)) continue
+      seen.add(p)
+      try {
+        const folder = await api.getFolder(p)
+        all.push(...folder.items)
+        for (const d of folder.dirs) {
+          if (d.kind === 'branch') {
+            stack.push(joinChild(p, d.name))
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to fetch folder ${p}:`, err)
+      }
+    }
+
+    return all
+  }
+
+  const exportFolder = (format: 'csv' | 'json') => async () => {
+    setExporting(format)
+    const folderPath = ctx.payload.path || current
+    try {
+      const folderItems = await collectFolderItems(folderPath)
+      const ratings = mapItemsToRatings(folderItems)
+      const content = format === 'csv' ? toRatingsCsv(ratings) : toRatingsJson(ratings)
+      const mime = format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8'
+      const slug = folderPath === '/' ? 'root' : (folderPath.replace(/^\/+/, '') || 'root').replace(/\//g, '_')
+      downloadBlob(new Blob([content], { type: mime }), `metadata_${slug}_${timestamp()}.${format}`)
+    } catch (err) {
+      console.error('Failed to export folder:', err)
+      alert('Failed to export folder. See console for details.')
+    } finally {
+      setExporting(null)
+      setCtx(null)
+    }
+  }
   
   const menuItems: MenuItem[] = ctx.kind === 'tree'
-    ? [{ label: 'Export (disabled)', disabled: true, onClick: () => {} }]
+    ? [
+        {
+          label: exporting === 'csv' ? 'Exporting CSV…' : 'Export metadata (CSV)',
+          disabled: !!exporting,
+          onClick: exportFolder('csv'),
+        },
+        {
+          label: exporting === 'json' ? 'Exporting JSON…' : 'Export metadata (JSON)',
+          disabled: !!exporting,
+          onClick: exportFolder('json'),
+        },
+      ]
     : (() => {
         const sel = ctx.payload.paths ?? []
         const arr: MenuItem[] = []
@@ -591,26 +651,44 @@ function ContextMenuItems({
         // Export ratings
         if (sel.length) {
           arr.push({
-            label: 'Export ratings (CSV)',
-            onClick: () => {
-              const selSet = new Set(sel)
-              const subset = items.filter((i) => selSet.has(i.path))
-              const ratings = mapItemsToRatings(subset)
-              const csv = toRatingsCsv(ratings)
-              downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), 'ratings.csv')
-              setCtx(null)
+            label: exporting === 'csv' ? 'Exporting CSV…' : 'Export metadata (CSV)',
+            disabled: !!exporting,
+            onClick: async () => {
+              setExporting('csv')
+              try {
+                const selSet = new Set(sel)
+                const subset = items.filter((i) => selSet.has(i.path))
+                const ratings = mapItemsToRatings(subset)
+                const csv = toRatingsCsv(ratings)
+                downloadBlob(
+                  new Blob([csv], { type: 'text/csv;charset=utf-8' }),
+                  `metadata_selection_${timestamp()}.csv`
+                )
+              } finally {
+                setExporting(null)
+                setCtx(null)
+              }
             },
           })
           
           arr.push({
-            label: 'Export ratings (JSON)',
-            onClick: () => {
-              const selSet = new Set(sel)
-              const subset = items.filter((i) => selSet.has(i.path))
-              const ratings = mapItemsToRatings(subset)
-              const json = toRatingsJson(ratings)
-              downloadBlob(new Blob([json], { type: 'application/json;charset=utf-8' }), 'ratings.json')
-              setCtx(null)
+            label: exporting === 'json' ? 'Exporting JSON…' : 'Export metadata (JSON)',
+            disabled: !!exporting,
+            onClick: async () => {
+              setExporting('json')
+              try {
+                const selSet = new Set(sel)
+                const subset = items.filter((i) => selSet.has(i.path))
+                const ratings = mapItemsToRatings(subset)
+                const json = toRatingsJson(ratings)
+                downloadBlob(
+                  new Blob([json], { type: 'application/json;charset=utf-8' }),
+                  `metadata_selection_${timestamp()}.json`
+                )
+              } finally {
+                setExporting(null)
+                setCtx(null)
+              }
             },
           })
         }

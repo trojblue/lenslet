@@ -167,6 +167,8 @@ oneliner:
 ```bash
 cd frontend && npm run build && cp -r dist/* ../src/lenslet/frontend/ && cd ..
 python -m build
+
+# lenslet data_backup --port 7070
 ```
 ## Development Philosophy
 

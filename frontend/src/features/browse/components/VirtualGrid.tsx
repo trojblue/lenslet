@@ -348,7 +348,7 @@ export default function VirtualGrid({
                       <div className="absolute right-1 bottom-1 w-[22px] h-[22px] bg-black/55 rounded-full flex items-center justify-center text-xs select-none opacity-0 group-hover:opacity-100 transition-opacity duration-[120ms]">🔍</div>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-0.5 mt-2 px-0.5 text-white/90">
+                  <div className="flex flex-col items-center text-center gap-0 mt-1 px-0.5 text-white/90">
                     <div className="text-sm leading-[18px] line-clamp-2 break-words hyphens-auto" title={it.name}>{(() => {
                       const q = (highlight||'').trim()
                       if (!q) return it.name
@@ -360,7 +360,7 @@ export default function VirtualGrid({
                       const after = hay.slice(idx + q.length)
                       return (<>{before}<mark className="bg-accent/20 text-inherit rounded px-0.5">{match}</mark>{after}</>)
                     })()}</div>
-                    <div className="text-xs leading-4 opacity-75">{it.w} × {it.h}</div>
+                    <div className="text-[11px] leading-[15px] opacity-70">{it.w} × {it.h}</div>
                   </div>
                 </div>
               )})}

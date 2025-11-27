@@ -6,7 +6,7 @@
 pip install lenslet
 
 # For S3 support:
-pip install unibox
+pip install "lenslet[s3]"  # installs boto3
 ```
 
 ## 30-Second Example
@@ -121,7 +121,7 @@ lenslet.launch(datasets, port=8080)  # Use different port
 
 **S3 not working?**
 ```bash
-pip install unibox
+pip install "lenslet[s3]"  # ensures boto3 is installed
 # Ensure AWS credentials configured
 ```
 
@@ -141,4 +141,3 @@ pkill -f "lenslet.*7070"  # Replace 7070 with your port
 | Programmatic | ❌ No | ✅ Yes |
 
 Both modes are read-only, fast, and use the same UI!
-

@@ -23,7 +23,7 @@ lenslet.launch(datasets, blocking=False, port=7070)
 pip install lenslet
 
 # For S3 support:
-pip install unibox
+pip install "lenslet[s3]"  # installs boto3
 ```
 
 ## API Reference
@@ -69,7 +69,7 @@ lenslet.launch(
 
 **Raises:**
 - `ValueError`: If datasets is empty
-- `ImportError`: If S3 URIs are used but unibox is not installed
+- `ImportError`: If S3 URIs are used but boto3 is not installed
 
 ## Supported Image Sources
 
@@ -86,7 +86,7 @@ datasets = {
 
 ### S3 URIs
 
-Requires `unibox` package. S3 URIs are automatically detected and converted to presigned URLs.
+Requires `boto3` package (installed via `lenslet[s3]`). S3 URIs are automatically detected and converted to presigned URLs.
 
 ```python
 datasets = {
@@ -212,7 +212,7 @@ lenslet.launch(datasets, port=8080)
 
 ### S3 Images Not Loading
 
-1. Ensure `unibox` is installed: `pip install unibox`
+1. Ensure `boto3` is installed: `pip install \"lenslet[s3]\"`
 2. Check AWS credentials are configured
 3. Verify S3 URIs are correct (format: `s3://bucket/key`)
 
@@ -249,4 +249,3 @@ These features are planned but not yet implemented:
 - [Examples](../examples/programmatic_api_example.py): Detailed usage examples
 - [README](../README.md): General lenslet documentation
 - [Development](../DEVELOPMENT.md): Contributing guide
-

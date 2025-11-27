@@ -1,6 +1,6 @@
 [project]
 name = "lenslet"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lightweight image gallery server - no database, no files left behind"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,7 +37,7 @@ dev = [
     "httpx>=0.27",
 ]
 s3 = [
-    "unibox>=0.1.0",
+    "boto3>=1.34",
 ]
 
 [project.scripts]
@@ -62,4 +62,3 @@ include = [
     "LICENSE",
 ]
 artifacts = ["src/lenslet/frontend/**"]
-

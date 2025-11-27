@@ -72,15 +72,31 @@ class DatasetStorage:
         """Check if path is an S3 URI."""
         return path.startswith("s3://")
 
-    def _get_presigned_url(self, s3_uri: str) -> str:
-        """Convert S3 URI to presigned URL using unibox."""
+    def _get_presigned_url(self, s3_uri: str, expires_in: int = 3600) -> str:
+        """Convert S3 URI to a presigned HTTPS URL using boto3."""
         try:
-            import unibox as ub
-            return ub.presigns(s3_uri)
-        except ImportError:
-            raise ImportError("unibox package required for S3 support. Install with: pip install unibox")
-        except Exception as e:
-            raise RuntimeError(f"Failed to presign S3 URI: {e}")
+            import boto3
+            from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise ImportError(
+                "boto3 package required for S3 support. Install with: pip install lenslet[s3]"
+            ) from exc
+
+        parsed = urlparse(s3_uri)
+        bucket = parsed.netloc
+        key = parsed.path.lstrip("/")
+        if not bucket or not key:
+            raise ValueError(f"Invalid S3 URI: {s3_uri}")
+
+        try:
+            s3_client = boto3.client("s3")
+            return s3_client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": bucket, "Key": key},
+                ExpiresIn=expires_in,
+            )
+        except (BotoCoreError, ClientError, NoCredentialsError) as e:
+            raise RuntimeError(f"Failed to presign S3 URI: {e}") from e
 
     def _is_supported_image(self, name: str) -> bool:
         """Check if file is a supported image."""
@@ -353,4 +369,3 @@ class DatasetStorage:
         if n.endswith(".png"):
             return "image/png"
         return "image/jpeg"
-

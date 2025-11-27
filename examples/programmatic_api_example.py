@@ -29,7 +29,7 @@ def example_local_images():
     # Your notebook/script can continue running while gallery is in background
 
 
-# Example 2: S3 images (requires unibox package)
+# Example 2: S3 images (requires boto3, install with lenslet[s3])
 # ================================================
 def example_s3_images():
     """Launch with S3 URIs (automatically converted to presigned URLs)."""
@@ -184,4 +184,3 @@ if __name__ == "__main__":
     print("  import lenslet")
     print("  datasets = {'my_images': ['/path/img1.jpg', '/path/img2.jpg']}")
     print("  lenslet.launch(datasets, blocking=False, port=7070)")
-

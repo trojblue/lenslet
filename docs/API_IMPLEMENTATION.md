@@ -37,7 +37,7 @@ def launch(
 
 **Key capabilities:**
 - Handles both local file paths and S3 URIs
-- Automatic S3 presigned URL generation via `unibox`
+- Automatic S3 presigned URL generation via `boto3`
 - Lazy loading of image dimensions
 - On-demand thumbnail generation
 - Session-only metadata support
@@ -72,7 +72,7 @@ Added optional dependency for S3 support:
 ```toml
 [project.optional-dependencies]
 s3 = [
-    "unibox>=0.1.0",
+    "boto3>=1.34",
 ]
 ```
 
@@ -164,18 +164,22 @@ S3 URIs detected by `s3://` prefix via `_is_s3_uri()`
 
 ### Presigning
 
-Uses `unibox.presigns()` to convert S3 URIs to temporary HTTPS URLs:
+Uses `boto3.client('s3').generate_presigned_url()` to convert S3 URIs to temporary HTTPS URLs:
 
 ```python
-import unibox as ub
-url = ub.presigns(s3_uri)
+import boto3
+client = boto3.client("s3")
+url = client.generate_presigned_url(
+    "get_object",
+    Params={"Bucket": bucket, "Key": key},
+)
 ```
 
 ### Access
 
 - S3 images downloaded on-demand via presigned URLs
 - Standard `urllib.request` used for downloads
-- No AWS SDK required (delegated to `unibox`)
+- AWS SDK required only when using S3 (provided by optional `boto3` dependency)
 - Credentials must be configured (standard AWS env/config)
 
 ## Testing
@@ -305,4 +309,3 @@ The programmatic API integrates seamlessly with existing codebase:
 The programmatic API implementation successfully extends lenslet to support Python/notebook workflows while maintaining all the benefits of the original CLI tool. The implementation is clean, well-tested, and follows the existing codebase patterns.
 
 Users can now seamlessly integrate lenslet into their data science workflows, view S3 images, and organize collections into named datasets - all without leaving their Jupyter notebooks.
-

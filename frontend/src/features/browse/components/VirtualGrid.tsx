@@ -240,7 +240,7 @@ export default function VirtualGrid({
                 <div 
                   id={`cell-${encodeURIComponent(it.path)}`} 
                   key={it.path} 
-                  className={`relative ${isVisuallySelected ? 'outline outline-2 outline-accent outline-offset-2 rounded-[10px]' : ''}`}
+                  className={`relative min-w-0 ${isVisuallySelected ? 'outline outline-2 outline-accent outline-offset-2 rounded-[10px]' : ''}`}
                   role="gridcell" 
                   aria-selected={isVisuallySelected} 
                   tabIndex={focused===it.path?0:-1} 
@@ -349,7 +349,7 @@ export default function VirtualGrid({
                     </div>
                   </div>
                   <div className="flex flex-col items-center text-center gap-0 mt-1 px-0.5 text-white/90">
-                    <div className="text-sm leading-[18px] line-clamp-2 break-words hyphens-auto" title={it.name}>{(() => {
+                    <div className="text-sm leading-[18px] thumb-filename line-clamp-2 break-words hyphens-auto text-center" title={it.name}>{(() => {
                       const q = (highlight||'').trim()
                       if (!q) return it.name
                       const hay = it.name

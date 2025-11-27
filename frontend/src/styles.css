@@ -118,6 +118,17 @@
   display: block;
 }
 
+/* Clamp long filenames in gallery captions */
+.thumb-filename {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  max-width: 100%;
+}
+
 /* Drop target highlight for tree nodes */
 .drop-target {
   background: rgba(58, 143, 255, 0.15) !important;

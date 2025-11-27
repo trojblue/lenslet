@@ -309,3 +309,5 @@ The programmatic API integrates seamlessly with existing codebase:
 The programmatic API implementation successfully extends lenslet to support Python/notebook workflows while maintaining all the benefits of the original CLI tool. The implementation is clean, well-tested, and follows the existing codebase patterns.
 
 Users can now seamlessly integrate lenslet into their data science workflows, view S3 images, and organize collections into named datasets - all without leaving their Jupyter notebooks.
+
+

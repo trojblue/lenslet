@@ -163,7 +163,7 @@ cd ..
 python -m build
 ```
 
-oneliner:
+one-liner:
 ```bash
 cd frontend && npm run build && cp -r dist/* ../src/lenslet/frontend/ && cd ..
 python -m build

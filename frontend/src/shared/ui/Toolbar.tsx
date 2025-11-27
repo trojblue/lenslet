@@ -50,7 +50,7 @@ export default function Toolbar({
     return () => window.removeEventListener('click', onClick)
   }, [openRating])
   return (
-    <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[1fr_auto_1fr] items-center px-3 gap-3 bg-panel border-b border-border z-toolbar col-span-full row-start-1">
+    <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[auto_1fr_auto] items-center px-3 gap-3 bg-panel border-b border-border z-toolbar col-span-full row-start-1">
       <div className="flex items-center gap-2">
         {viewerActive && (
           <button className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={onBack}>← Back</button>
@@ -61,21 +61,6 @@ export default function Toolbar({
               <option value="grid">Grid</option>
               <option value="adaptive">Adaptive</option>
             </select>
-            {onGridItemSize && (
-              <div className="flex items-center gap-2 ml-1">
-                <span className="text-xs text-muted">Size</span>
-                <input
-                  type="range"
-                  min={80}
-                  max={500}
-                  step={10}
-                  value={gridItemSize ?? 220}
-                  onChange={(e)=> onGridItemSize(Number(e.target.value))}
-                  className="w-28 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer hover:bg-white/20 transition-colors [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-text"
-                  aria-label="Thumbnail size"
-                />
-              </div>
-            )}
             <div className="w-px h-5 bg-border mx-1"></div>
             <select className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text" value={sortKey||'added'} onChange={e=> onSortKey && onSortKey((e.target.value as any) || 'added')} title="Sort by">
               <option value="added">Date added</option>
@@ -131,27 +116,45 @@ export default function Toolbar({
         )}
       </div>
 
-      {viewerActive && (
-        <div className="flex items-center gap-2.5 justify-center">
-          <input
-            type="range"
-            min={5}
-            max={800}
-            step={1}
-            value={Math.round(Math.max(5, Math.min(800, zoomPercent ?? 100)))}
-            onChange={e => onZoomPercentChange && onZoomPercentChange(Number(e.target.value))}
-            className="zoom-slider"
-          />
-          <span className="text-xs opacity-80 min-w-[42px] text-right">{Math.round(zoomPercent ?? 100)}%</span>
-        </div>
-      )}
+      <div className="flex items-center gap-3 justify-center">
+        {viewerActive ? (
+          <>
+            <input
+              type="range"
+              min={5}
+              max={800}
+              step={1}
+              value={Math.round(Math.max(5, Math.min(800, zoomPercent ?? 100)))}
+              onChange={e => onZoomPercentChange && onZoomPercentChange(Number(e.target.value))}
+              className="zoom-slider"
+            />
+            <span className="text-xs opacity-80 min-w-[42px] text-right">{Math.round(zoomPercent ?? 100)}%</span>
+          </>
+        ) : (
+          onGridItemSize && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted">Size</span>
+              <input
+                type="range"
+                min={80}
+                max={500}
+                step={10}
+                value={gridItemSize ?? 220}
+                onChange={(e)=> onGridItemSize(Number(e.target.value))}
+                className="w-32 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer hover:bg-white/20 transition-colors [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-text"
+                aria-label="Thumbnail size"
+              />
+            </div>
+          )
+        )}
+      </div>
 
-      <div className="flex items-center gap-2 justify-end">
+      <div className="flex items-center gap-2 justify-end toolbar-right">
         <input
           aria-label="Search filename, tags, notes"
-          placeholder="Search filename, tags, notes…"
+          placeholder="Search..."
           onChange={e=>onSearch(e.target.value)}
-          className="h-8 w-[360px] rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text"
+          className="input h-8 w-[220px] focus:w-[280px] transition-all duration-200 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text"
         />
       </div>
     </div>

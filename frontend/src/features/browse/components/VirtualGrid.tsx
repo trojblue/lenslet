@@ -5,6 +5,7 @@ import ThumbCard from './ThumbCard'
 import { api } from '../../../shared/api/client'
 import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
+import type { AdaptiveRow } from '../model/adaptive'
 
 interface VirtualGridProps {
   items: Item[]
@@ -54,6 +55,30 @@ export default function VirtualGrid({
     return map
   }, [items])
 
+  const adaptivePositions = useMemo(() => {
+    if (layout.mode !== 'adaptive') return null
+    const map = new Map<string, { row: number, center: number, order: number }>()
+    layout.rows.forEach((row: AdaptiveRow, rowIdx: number) => {
+      let x = 0
+      row.items.forEach((it, order) => {
+        const center = x + it.displayW / 2
+        map.set(it.item.path, { row: rowIdx, center, order })
+        x += it.displayW + GAP
+      })
+    })
+    return map
+  }, [layout])
+
+  const adaptiveRowMeta = useMemo(() => {
+    if (layout.mode !== 'adaptive') return null
+    let offset = 0
+    return layout.rows.map(r => {
+      const start = offset
+      offset += r.height
+      return { start, height: r.height }
+    })
+  }, [layout])
+
   const scrollAnimRef = useRef<number | null>(null)
   const scrollRowIntoView = (el: HTMLElement, top: number) => {
     try {
@@ -86,16 +111,66 @@ export default function VirtualGrid({
 
   const effectiveColumns = layout.mode === 'grid' ? layout.columns : Math.max(1, Math.floor(width / (TARGET_CELL + GAP)))
 
+  const findClosestInRow = (rowIdx: number, targetCenter: number): string | null => {
+    if (layout.mode !== 'adaptive') return null
+    const row = layout.rows[rowIdx]
+    if (!row) return null
+    let x = 0
+    let best: { path: string; dist: number } | null = null
+    row.items.forEach(it => {
+      const center = x + it.displayW / 2
+      const dist = Math.abs(center - targetCenter)
+      if (!best || dist < best.dist) {
+        best = { path: it.item.path, dist }
+      }
+      x += it.displayW + GAP
+    })
+    return best?.path ?? null
+  }
+
+  const getNextPath = (current: string | null, e: KeyboardEvent): string | 'open' | null => {
+    if (!items.length) return null
+    // Default to first item when nothing is focused
+    const currentPath = current ?? items[0].path
+
+    if (layout.mode !== 'adaptive') {
+      const nextIdx = getNextIndexForKeyNav(items, effectiveColumns, currentPath, e)
+      if (nextIdx === 'open' || nextIdx == null) return nextIdx
+      return items[nextIdx]?.path ?? null
+    }
+
+    const info = adaptivePositions?.get(currentPath)
+    if (!info) return currentPath
+
+    const idx = pathToIndex.get(currentPath) ?? 0
+    const key = e.key
+
+    if (key === 'Enter') return 'open'
+
+    // Horizontal moves stay in reading order using the flat list
+    if (key === 'ArrowRight' || key === 'd') return items[Math.min(items.length - 1, idx + 1)]?.path ?? currentPath
+    if (key === 'ArrowLeft' || key === 'a') return items[Math.max(0, idx - 1)]?.path ?? currentPath
+
+    const delta = key === 'ArrowDown' || key === 's' ? 1 : key === 'ArrowUp' || key === 'w' ? -1 : 0
+    if (delta === 0) return null
+
+    const targetRow = info.row + delta
+    if (targetRow < 0 || targetRow >= (layout.rows?.length ?? 0)) return currentPath
+
+    const targetCenter = info.center
+    const candidate = findClosestInRow(targetRow, targetCenter)
+    return candidate ?? currentPath
+  }
+
   useEffect(() => {
     const el = parentRef.current
     if (!el) return
     const onKey = (e: KeyboardEvent) => {
-      const result = getNextIndexForKeyNav(items, Math.max(1, effectiveColumns), focused, e)
-      if (result == null) return
+      const nextPath = getNextPath(focused, e)
+      if (nextPath == null) return
       e.preventDefault()
-      if (result === 'open') { if (focused) onOpenViewer(focused); return }
-      const next = result
-      const nextItem = items[next]
+      if (nextPath === 'open') { if (focused) onOpenViewer(focused); return }
+      const nextItem = items.find(i => i.path === nextPath)
       if (!nextItem) return
       setFocused(nextItem.path)
       setActive(nextItem.path)
@@ -103,39 +178,27 @@ export default function VirtualGrid({
       try { anchorRef.current = nextItem.path } catch {}
       
       // Find row for next item
-      let rowIdx = 0
-      if (layout.mode === 'grid') {
-        rowIdx = Math.floor(next / Math.max(1, layout.columns))
-      } else {
-        let low = 0, high = layout.rows.length - 1
-        while (low <= high) {
-            const mid = (low + high) >> 1
-            const r = layout.rows[mid]
-            if (next >= r.items[0].originalIndex && next <= r.items[r.items.length-1].originalIndex) {
-                rowIdx = mid
-                break
-            }
-            if (next < r.items[0].originalIndex) high = mid - 1
-            else low = mid + 1
-        }
-      }
+      const nextRowIdx = layout.mode === 'grid'
+        ? Math.floor((pathToIndex.get(nextItem.path) ?? 0) / Math.max(1, layout.columns))
+        : (adaptivePositions?.get(nextItem.path)?.row ?? 0)
 
       const scrollTop = el.scrollTop
       const viewBottom = scrollTop + el.clientHeight
-      
-      const rowTop = layout.mode === 'adaptive' ? (layout.rows[rowIdx]?.start ?? 0) : (rowIdx * layout.rowH)
-      const rowHeight = layout.mode === 'adaptive' ? (layout.rows[rowIdx]?.height ?? 0) : layout.rowH
-      const rowBottom = rowTop + rowHeight
+      const rowTop = layout.mode === 'adaptive' 
+        ? (adaptiveRowMeta?.[nextRowIdx]?.start ?? 0)
+        : nextRowIdx * layout.rowH
+      const rowBottom = layout.mode === 'adaptive'
+        ? rowTop + (adaptiveRowMeta?.[nextRowIdx]?.height ?? 0)
+        : rowTop + layout.rowH
 
       if (rowTop < scrollTop || rowBottom > viewBottom) {
-        try { scrollRowIntoView(el, rowTop) }
-        catch { try { rowVirtualizer.scrollToIndex(rowIdx, { align: 'start' as const }) } catch {} }
+        scrollRowIntoView(el, rowTop)
       }
       try { (document.getElementById(`cell-${encodeURIComponent(nextItem.path)}`) as HTMLElement | null)?.focus() } catch {}
     }
     el.addEventListener('keydown', onKey)
     return () => { el.removeEventListener('keydown', onKey) }
-  }, [items, focused, effectiveColumns, onOpenViewer, layout])
+  }, [items, focused, effectiveColumns, onOpenViewer, layout, adaptivePositions, adaptiveRowMeta, pathToIndex])
 
   useLayoutEffect(() => {
     const el = parentRef.current
@@ -162,10 +225,10 @@ export default function VirtualGrid({
             else low = mid + 1
         }
     }
-    const targetTop = layout.mode === 'adaptive' ? (layout.rows[rowIdx]?.start ?? 0) : (rowIdx * layout.rowH)
+    const targetTop = layout.mode === 'adaptive' ? (adaptiveRowMeta?.[rowIdx]?.start ?? 0) : (rowIdx * layout.rowH)
     
     try { el.scrollTop = targetTop } catch {}
-  }, [restoreToSelectionToken, layout])
+  }, [restoreToSelectionToken, layout, adaptiveRowMeta])
 
   const selectedSet = new Set(selected)
   const hasPreview = !!(previewFor && previewUrl && delayPassed)

@@ -24,6 +24,8 @@ const STORAGE_KEYS = {
   starFilters: 'starFilters',
   viewMode: 'viewMode',
   gridItemSize: 'gridItemSize',
+  leftOpen: 'leftOpen',
+  rightOpen: 'rightOpen',
 } as const
 
 export default function AppShell() {
@@ -44,6 +46,8 @@ export default function AppShell() {
   const [starFilters, setStarFilters] = useState<number[]>([])
   const [viewMode, setViewMode] = useState<ViewMode>('adaptive')
   const [gridItemSize, setGridItemSize] = useState<number>(220)
+  const [leftOpen, setLeftOpen] = useState(true)
+  const [rightOpen, setRightOpen] = useState(true)
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
@@ -126,6 +130,8 @@ export default function AppShell() {
       const storedStarFilters = localStorage.getItem(STORAGE_KEYS.starFilters)
       const storedViewMode = localStorage.getItem(STORAGE_KEYS.viewMode) as ViewMode | null
       const storedGridSize = localStorage.getItem(STORAGE_KEYS.gridItemSize)
+      const storedLeftOpen = localStorage.getItem(STORAGE_KEYS.leftOpen)
+      const storedRightOpen = localStorage.getItem(STORAGE_KEYS.rightOpen)
       
       if (storedSortKey === 'name' || storedSortKey === 'added') {
         setSortKey(storedSortKey)
@@ -148,6 +154,8 @@ export default function AppShell() {
           setGridItemSize(size)
         }
       }
+      if (storedLeftOpen === '0' || storedLeftOpen === 'false') setLeftOpen(false)
+      if (storedRightOpen === '0' || storedRightOpen === 'false') setRightOpen(false)
     } catch {
       // Ignore localStorage errors (private browsing, etc.)
     }
@@ -161,10 +169,12 @@ export default function AppShell() {
       localStorage.setItem(STORAGE_KEYS.starFilters, JSON.stringify(starFilters))
       localStorage.setItem(STORAGE_KEYS.viewMode, viewMode)
       localStorage.setItem(STORAGE_KEYS.gridItemSize, String(gridItemSize))
+      localStorage.setItem(STORAGE_KEYS.leftOpen, leftOpen ? '1' : '0')
+      localStorage.setItem(STORAGE_KEYS.rightOpen, rightOpen ? '1' : '0')
     } catch {
       // Ignore localStorage errors
     }
-  }, [sortKey, sortDir, starFilters, viewMode, gridItemSize])
+  }, [sortKey, sortDir, starFilters, viewMode, gridItemSize, leftOpen, rightOpen])
 
   // Ctrl + scroll adjusts thumbnail size (override browser zoom)
   useEffect(() => {
@@ -330,12 +340,21 @@ export default function AppShell() {
     }
   }, [])
 
-  // Global keyboard shortcuts (when not in viewer)
+  // Global keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Ignore if in input field
       if (isInputElement(e.target)) return
-      // Ignore if viewer is open (viewer has its own handlers)
+
+      // Toggle sidebars
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        if (e.altKey) setRightOpen((v) => !v)
+        else setLeftOpen((v) => !v)
+        return
+      }
+
+      // Ignore if viewer is open (viewer has its own handlers) for other shortcuts
       if (viewer) return
       
       if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -360,8 +379,11 @@ export default function AppShell() {
     return () => window.removeEventListener('keydown', onKey)
   }, [current, items, selectedPaths, viewer, openFolder])
 
+  const leftCol = leftOpen ? `${leftW}px` : '0px'
+  const rightCol = rightOpen ? `${rightW}px` : '0px'
+
   return (
-    <div className="grid h-full grid-cols-[var(--left)_1fr_var(--right)] grid-rows-[48px_1fr]" ref={appRef} style={{ ['--left' as any]: `${leftW}px`, ['--right' as any]: `${rightW}px` }}>
+    <div className="grid h-full grid-cols-[var(--left)_1fr_var(--right)] grid-rows-[48px_1fr]" ref={appRef} style={{ ['--left' as any]: leftCol, ['--right' as any]: rightCol }}>
       <Toolbar
         onSearch={setQuery}
         viewerActive={!!viewer}
@@ -390,10 +412,16 @@ export default function AppShell() {
         onViewMode={setViewMode}
         gridItemSize={gridItemSize}
         onGridItemSize={setGridItemSize}
+        leftOpen={leftOpen}
+        rightOpen={rightOpen}
+        onToggleLeft={()=> setLeftOpen(v=>!v)}
+        onToggleRight={()=> setRightOpen(v=>!v)}
       />
-      <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={onResizeLeft}
-        onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
-      />
+      {leftOpen && (
+        <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={onResizeLeft}
+          onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
+        />
+      )}
       <div className="col-start-2 row-start-2 relative overflow-hidden" ref={gridShellRef}>
         <div aria-live="polite" className="sr-only">
           {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
@@ -434,9 +462,11 @@ export default function AppShell() {
         />
         {/* Bottom selection bar removed intentionally */}
       </div>
-      <Inspector path={selectedPaths[0] ?? null} selectedPaths={selectedPaths} items={items} onResize={onResizeRight} onStarChanged={(paths, val)=>{
-        setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })
-      }} />
+      {rightOpen && (
+        <Inspector path={selectedPaths[0] ?? null} selectedPaths={selectedPaths} items={items} onResize={onResizeRight} onStarChanged={(paths, val)=>{
+          setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })
+        }} />
+      )}
       {viewer && (
         <Viewer
           path={viewer}

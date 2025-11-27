@@ -19,6 +19,10 @@ export default function Toolbar({
   onViewMode,
   gridItemSize,
   onGridItemSize,
+  leftOpen,
+  rightOpen,
+  onToggleLeft,
+  onToggleRight,
 }:{
   onSearch: (q: string) => void
   viewerActive?: boolean
@@ -37,6 +41,10 @@ export default function Toolbar({
   onViewMode?: (v: ViewMode) => void
   gridItemSize?: number
   onGridItemSize?: (s: number) => void
+  leftOpen?: boolean
+  rightOpen?: boolean
+  onToggleLeft?: () => void
+  onToggleRight?: () => void
 }){
   const [openRating, setOpenRating] = useState(false)
   const ratingRef = useRef<HTMLDivElement | null>(null)
@@ -150,6 +158,29 @@ export default function Toolbar({
       </div>
 
       <div className="flex items-center gap-2 justify-end toolbar-right">
+        <div className="flex items-center gap-1 mr-1">
+          <button
+            className={`h-8 w-8 rounded-lg border border-border bg-[#1b1b1b] text-text flex items-center justify-center hover:bg-[#252525] ${leftOpen ? 'opacity-100' : 'opacity-60'}`}
+            title={leftOpen ? 'Hide left panel (Ctrl+B)' : 'Show left panel (Ctrl+B)'}
+            onClick={onToggleLeft}
+            aria-pressed={leftOpen}
+            aria-label="Toggle left panel"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="6" height="14" rx="1.5"/><rect x="11" y="5" width="10" height="14" rx="1.5"/></svg>
+          </button>
+          <button
+            className={`h-8 w-8 rounded-lg border border-border bg-[#1b1b1b] text-text flex items-center justify-center hover:bg-[#252525] ${rightOpen ? 'opacity-100' : 'opacity-60'}`}
+            title={rightOpen ? 'Hide right panel (Ctrl+Alt+B)' : 'Show right panel (Ctrl+Alt+B)'}
+            onClick={onToggleRight}
+            aria-pressed={rightOpen}
+            aria-label="Toggle right panel"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="15" y="5" width="6" height="14" rx="1.5" />
+              <rect x="3" y="5" width="10" height="14" rx="1.5" />
+            </svg>
+          </button>
+        </div>
         <input
           aria-label="Search filename, tags, notes"
           placeholder="Search..."

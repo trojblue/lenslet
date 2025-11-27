@@ -17,6 +17,8 @@ export default function Toolbar({
   starCounts,
   viewMode,
   onViewMode,
+  gridItemSize,
+  onGridItemSize,
 }:{
   onSearch: (q: string) => void
   viewerActive?: boolean
@@ -33,6 +35,8 @@ export default function Toolbar({
   starCounts?: { [k: string]: number }
   viewMode?: ViewMode
   onViewMode?: (v: ViewMode) => void
+  gridItemSize?: number
+  onGridItemSize?: (s: number) => void
 }){
   const [openRating, setOpenRating] = useState(false)
   const ratingRef = useRef<HTMLDivElement | null>(null)
@@ -57,6 +61,21 @@ export default function Toolbar({
               <option value="grid">Grid</option>
               <option value="adaptive">Adaptive</option>
             </select>
+            {onGridItemSize && (
+              <div className="flex items-center gap-2 ml-1">
+                <span className="text-xs text-muted">Size</span>
+                <input
+                  type="range"
+                  min={80}
+                  max={500}
+                  step={10}
+                  value={gridItemSize ?? 220}
+                  onChange={(e)=> onGridItemSize(Number(e.target.value))}
+                  className="w-28 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer hover:bg-white/20 transition-colors [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-text"
+                  aria-label="Thumbnail size"
+                />
+              </div>
+            )}
             <div className="w-px h-5 bg-border mx-1"></div>
             <select className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text" value={sortKey||'added'} onChange={e=> onSortKey && onSortKey((e.target.value as any) || 'added')} title="Sort by">
               <option value="added">Date added</option>

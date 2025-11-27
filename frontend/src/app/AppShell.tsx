@@ -23,6 +23,7 @@ const STORAGE_KEYS = {
   sortDir: 'sortDir',
   starFilters: 'starFilters',
   viewMode: 'viewMode',
+  gridItemSize: 'gridItemSize',
 } as const
 
 export default function AppShell() {
@@ -42,12 +43,14 @@ export default function AppShell() {
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [starFilters, setStarFilters] = useState<number[]>([])
   const [viewMode, setViewMode] = useState<ViewMode>('adaptive')
+  const [gridItemSize, setGridItemSize] = useState<number>(220)
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
   
   // Refs
   const appRef = useRef<HTMLDivElement>(null)
+  const gridShellRef = useRef<HTMLDivElement>(null)
   const viewerHistoryPushedRef = useRef(false)
   const lastFocusedPathRef = useRef<string | null>(null)
 
@@ -122,6 +125,7 @@ export default function AppShell() {
       const storedSortDir = localStorage.getItem(STORAGE_KEYS.sortDir)
       const storedStarFilters = localStorage.getItem(STORAGE_KEYS.starFilters)
       const storedViewMode = localStorage.getItem(STORAGE_KEYS.viewMode) as ViewMode | null
+      const storedGridSize = localStorage.getItem(STORAGE_KEYS.gridItemSize)
       
       if (storedSortKey === 'name' || storedSortKey === 'added') {
         setSortKey(storedSortKey)
@@ -138,6 +142,12 @@ export default function AppShell() {
       if (storedViewMode === 'grid' || storedViewMode === 'adaptive') {
         setViewMode(storedViewMode)
       }
+      if (storedGridSize) {
+        const size = Number(storedGridSize)
+        if (!isNaN(size) && size >= 80 && size <= 500) {
+          setGridItemSize(size)
+        }
+      }
     } catch {
       // Ignore localStorage errors (private browsing, etc.)
     }
@@ -150,10 +160,25 @@ export default function AppShell() {
       localStorage.setItem(STORAGE_KEYS.sortDir, sortDir)
       localStorage.setItem(STORAGE_KEYS.starFilters, JSON.stringify(starFilters))
       localStorage.setItem(STORAGE_KEYS.viewMode, viewMode)
+      localStorage.setItem(STORAGE_KEYS.gridItemSize, String(gridItemSize))
     } catch {
       // Ignore localStorage errors
     }
-  }, [sortKey, sortDir, starFilters, viewMode])
+  }, [sortKey, sortDir, starFilters, viewMode, gridItemSize])
+
+  // Ctrl + scroll adjusts thumbnail size (override browser zoom)
+  useEffect(() => {
+    const shell = gridShellRef.current
+    if (!shell) return
+    const clamp = (v: number) => Math.min(500, Math.max(80, v))
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      setGridItemSize((prev) => clamp(prev + (e.deltaY < 0 ? 20 : -20)))
+    }
+    shell.addEventListener('wheel', onWheel, { passive: false })
+    return () => shell.removeEventListener('wheel', onWheel)
+  }, [])
 
   // Prefetch neighbors for the open viewer (previous and next)
   useEffect(() => {
@@ -363,11 +388,13 @@ export default function AppShell() {
         starCounts={starCounts}
         viewMode={viewMode}
         onViewMode={setViewMode}
+        gridItemSize={gridItemSize}
+        onGridItemSize={setGridItemSize}
       />
       <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={onResizeLeft}
         onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
       />
-      <div className="col-start-2 row-start-2 relative overflow-hidden">
+      <div className="col-start-2 row-start-2 relative overflow-hidden" ref={gridShellRef}>
         <div aria-live="polite" className="sr-only">
           {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
         </div>
@@ -402,6 +429,7 @@ export default function AppShell() {
           highlight={searching ? normalizedQ : ''}
           suppressSelectionHighlight={!!viewer}
           viewMode={viewMode}
+          targetCellSize={gridItemSize}
           onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
         />
         {/* Bottom selection bar removed intentionally */}

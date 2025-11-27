@@ -16,6 +16,7 @@ interface VirtualGridProps {
   highlight?: string
   suppressSelectionHighlight?: boolean
   viewMode?: ViewMode
+  targetCellSize?: number
 }
 
 export default function VirtualGrid({
@@ -28,6 +29,7 @@ export default function VirtualGrid({
   highlight,
   suppressSelectionHighlight = false,
   viewMode = 'grid',
+  targetCellSize = 220,
 }: VirtualGridProps) {
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -40,7 +42,7 @@ export default function VirtualGrid({
   const anchorRef = useRef<string | null>(null)
 
   const GAP = 12
-  const TARGET_CELL = 220
+  const TARGET_CELL = targetCellSize
   const ASPECT = { w: 4, h: 3 }
   const CAPTION_H = 44
 

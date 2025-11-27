@@ -23,7 +23,7 @@ pip install lenslet
 
 ## Usage
 
-### Basic Usage
+### Command Line Interface
 
 ```bash
 lenslet /path/to/images
@@ -31,7 +31,7 @@ lenslet /path/to/images
 
 Then open http://127.0.0.1:7070 in your browser.
 
-### Options
+**Options:**
 
 ```bash
 lenslet <directory> [options]
@@ -42,25 +42,46 @@ Options:
   --thumb-size SIZE            Thumbnail short edge in pixels (default: 256)
   --thumb-quality QUALITY      Thumbnail WebP quality 1-100 (default: 70)
   --reload                     Enable auto-reload for development
+  --verbose                    Show detailed server logs
   -v, --version                Show version and exit
 ```
 
-### Examples
+**Examples:**
 
-Serve images from your Pictures folder:
 ```bash
+# Serve images from your Pictures folder
 lenslet ~/Pictures
-```
 
-Use a custom port:
-```bash
+# Use a custom port
 lenslet ~/Photos --port 8080
-```
 
-Make accessible on local network:
-```bash
+# Make accessible on local network
 lenslet ~/Images --host 0.0.0.0 --port 7070
 ```
+
+### Programmatic API (Python/Jupyter)
+
+Launch lenslet directly from Python code or notebooks:
+
+```python
+import lenslet
+
+datasets = {
+    "my_images": ["/path/to/img1.jpg", "/path/to/img2.jpg"],
+    "more_images": ["s3://bucket/img3.jpg"],  # S3 URIs supported!
+}
+
+# Launch in non-blocking mode (returns immediately)
+lenslet.launch(datasets, blocking=False, port=7070)
+```
+
+**Key Features:**
+- 🚀 **Jupyter-friendly**: Non-blocking mode for notebooks
+- ☁️ **S3 support**: Automatically handles S3 URIs via presigned URLs
+- 📁 **Multiple datasets**: Organize images into named collections
+- 🔗 **Mixed sources**: Combine local files and S3 images
+
+See [Programmatic API Documentation](docs/PROGRAMMATIC_API.md) for details and examples.
 
 ## Notes
 

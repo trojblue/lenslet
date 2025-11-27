@@ -61,6 +61,12 @@ npm run build
 
 The dev server runs at http://localhost:5173 and proxies API requests to http://localhost:7070.
 
+#### UI controls (current UX shortcuts)
+- View mode defaults to **Adaptive**; switch via the toolbar dropdown.
+- Thumbnail size slider in the toolbar persists; `Ctrl + mouse wheel` over the gallery adjusts the same size (prevents browser zoom).
+- Sidebar visibility: `Ctrl+B` toggles the left folder tree; `Ctrl+Alt+B` toggles the right inspector. The same toggles exist as small icon buttons beside the search box.
+- Search focus: `/` focuses the search box when not already in an input field.
+
 ### Running the Backend
 
 For development with auto-reload:

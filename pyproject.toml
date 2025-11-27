@@ -36,6 +36,9 @@ dev = [
     "pytest>=8.0",
     "httpx>=0.27",
 ]
+s3 = [
+    "unibox>=0.1.0",
+]
 
 [project.scripts]
 lenslet = "lenslet.cli:main"

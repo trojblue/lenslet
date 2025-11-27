@@ -48,6 +48,11 @@ def main():
         help="Enable auto-reload for development",
     )
     parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show detailed server logs",
+    )
+    parser.add_argument(
         "-v", "--version",
         action="store_true",
         help="Show version and exit",
@@ -98,7 +103,7 @@ def main():
         host=args.host,
         port=args.port,
         reload=args.reload,
-        log_level="info",
+        log_level="info" if args.verbose else "warning",
     )
 
 

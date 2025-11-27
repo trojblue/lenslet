@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 from .storage.memory import MemoryStorage
+from .storage.dataset import DatasetStorage
 
 
 # --- Models ---
@@ -130,6 +131,157 @@ def create_app(
     @app.get("/health")
     def health():
         return {"ok": True, "mode": "memory", "root": root_path}
+
+    @app.get("/folders", response_model=FolderIndex)
+    def get_folder(path: str = "/", request: Request = None):
+        storage = _storage(request)
+        try:
+            index = storage.get_index(path)
+        except ValueError:
+            raise HTTPException(400, "invalid path")
+        except FileNotFoundError:
+            raise HTTPException(404, "folder not found")
+
+        items = [_to_item(storage, it) for it in index.items]
+        dirs = [DirEntry(name=d, kind="branch") for d in index.dirs]
+
+        return FolderIndex(
+            path=path,
+            generatedAt=index.generated_at,
+            items=items,
+            dirs=dirs,
+        )
+
+    @app.get("/item")
+    def get_item(path: str, request: Request = None):
+        storage = _storage(request)
+        _ensure_image(storage, path)
+
+        meta = storage.get_metadata(path)
+        return Sidecar(
+            tags=meta.get("tags", []),
+            notes=meta.get("notes", ""),
+            exif={"width": meta.get("width", 0), "height": meta.get("height", 0)},
+            star=meta.get("star"),
+            updated_at=datetime.now(timezone.utc).isoformat(),
+            updated_by="server",
+        )
+
+    @app.put("/item")
+    def put_item(path: str, body: Sidecar, request: Request = None):
+        storage = _storage(request)
+        _ensure_image(storage, path)
+        # Update in-memory metadata (session-only)
+        meta = storage.get_metadata(path)
+        meta["tags"] = body.tags
+        meta["notes"] = body.notes
+        meta["star"] = body.star
+        storage.set_metadata(path, meta)
+        return body
+
+    @app.get("/thumb")
+    def get_thumb(path: str, request: Request = None):
+        storage = _storage(request)
+        _ensure_image(storage, path)
+
+        thumb = storage.get_thumbnail(path)
+        if thumb is None:
+            raise HTTPException(500, "failed to generate thumbnail")
+        return Response(content=thumb, media_type="image/webp")
+
+    @app.get("/file")
+    def get_file(path: str, request: Request = None):
+        storage = _storage(request)
+        _ensure_image(storage, path)
+        data = storage.read_bytes(path)
+        return Response(content=data, media_type=storage._guess_mime(path))
+
+    @app.get("/search", response_model=SearchResult)
+    def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
+        storage = _storage(request)
+        hits = storage.search(query=q, path=path, limit=limit)
+        return SearchResult(items=[_to_item(storage, it) for it in hits])
+
+    # Mount frontend if dist exists
+    frontend_dist = Path(__file__).parent / "frontend"
+    if frontend_dist.is_dir():
+        app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+
+    return app
+
+
+def create_app_from_datasets(
+    datasets: dict[str, list[str]],
+    thumb_size: int = 256,
+    thumb_quality: int = 70,
+) -> FastAPI:
+    """Create FastAPI app with in-memory dataset storage."""
+
+    app = FastAPI(
+        title="Lenslet",
+        description="Lightweight image gallery server (dataset mode)",
+    )
+
+    # CORS for browser access
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Create dataset storage
+    storage = DatasetStorage(
+        datasets=datasets,
+        thumb_size=thumb_size,
+        thumb_quality=thumb_quality,
+    )
+
+    def _storage(request: Request) -> DatasetStorage:
+        return request.state.storage  # type: ignore[attr-defined]
+
+    def _ensure_image(storage: DatasetStorage, path: str) -> None:
+        try:
+            storage.validate_image_path(path)
+        except FileNotFoundError:
+            raise HTTPException(404, "file not found")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    def _to_item(storage: DatasetStorage, cached) -> Item:
+        meta = storage.get_metadata(cached.path)
+        return Item(
+            path=cached.path,
+            name=cached.name,
+            type=cached.mime,
+            w=cached.width,
+            h=cached.height,
+            size=cached.size,
+            hasThumb=True,
+            hasMeta=True,
+            addedAt=datetime.fromtimestamp(cached.mtime, tz=timezone.utc).isoformat(),
+            star=meta.get("star"),
+        )
+
+    # Inject storage via middleware
+    @app.middleware("http")
+    async def attach_storage(request: Request, call_next):
+        request.state.storage = storage
+        response = await call_next(request)
+        return response
+
+    # --- Routes ---
+
+    @app.get("/health")
+    def health():
+        dataset_names = list(datasets.keys())
+        total_images = sum(len(paths) for paths in datasets.values())
+        return {
+            "ok": True,
+            "mode": "dataset",
+            "datasets": dataset_names,
+            "total_images": total_images,
+        }
 
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(path: str = "/", request: Request = None):

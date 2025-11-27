@@ -41,7 +41,7 @@ export default function AppShell() {
   const [sortKey, setSortKey] = useState<SortKey>('added')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [starFilters, setStarFilters] = useState<number[]>([])
-  const [viewMode, setViewMode] = useState<ViewMode>('grid')
+  const [viewMode, setViewMode] = useState<ViewMode>('adaptive')
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})

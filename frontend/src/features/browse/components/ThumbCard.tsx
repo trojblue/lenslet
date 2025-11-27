@@ -84,7 +84,7 @@ export default function ThumbCard({
   const hostRef = useRef<HTMLDivElement>(null)
   const [url, setUrl] = useState<string | null>(() => blobUrlCache.get(path) ?? null)
   const [inView, setInView] = useState(false)
-  const [loaded, setLoaded] = useState(false)
+  const [loaded, setLoaded] = useState(() => !!url)
 
   // Intersection observer for lazy loading
   useEffect(() => {
@@ -137,7 +137,18 @@ export default function ThumbCard({
 
   // Reset loaded state when URL changes
   useEffect(() => {
-    setLoaded(false)
+    if (!url) {
+      setLoaded(false)
+      return
+    }
+
+    // If the image is already cached, mark it loaded to avoid flicker (e.g. after browser zoom/layout shifts).
+    const imgEl = hostRef.current?.querySelector('img') as HTMLImageElement | null
+    if (imgEl && imgEl.complete && imgEl.naturalWidth > 0) {
+      setLoaded(true)
+    } else {
+      setLoaded(false)
+    }
   }, [url])
   
   // Reset URL when path changes

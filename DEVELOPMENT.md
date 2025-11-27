@@ -157,6 +157,10 @@ cd ..
 python -m build
 ```
 
+oneliner:
+```bash
+cd frontend && npm run build && cp -r dist/* ../src/lenslet/frontend/ && cd .. && python -m build
+```
 ## Development Philosophy
 
 Following the "minimal, fast, boring (on purpose)" principles:

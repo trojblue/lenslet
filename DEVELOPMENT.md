@@ -159,7 +159,8 @@ python -m build
 
 oneliner:
 ```bash
-cd frontend && npm run build && cp -r dist/* ../src/lenslet/frontend/ && cd .. && python -m build
+cd frontend && npm run build && cp -r dist/* ../src/lenslet/frontend/ && cd ..
+python -m build
 ```
 ## Development Philosophy
 

@@ -371,42 +371,40 @@ export default function AppShell() {
         <div aria-live="polite" className="sr-only">
           {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
         </div>
-        <div className="sticky top-0 z-10 px-3 py-2.5 bg-panel backdrop-blur-sm shadow-[0_1px_0_rgba(255,255,255,.04),0_6px_8px_-6px_rgba(0,0,0,.5)]">
-          {(() => {
-            const parts = current.split('/').filter(Boolean)
-            const segs: { label:string; path:string }[] = []
-            let acc = ''
-            for (const p of parts) { acc = acc ? `${acc}/${p}` : `/${p}`; segs.push({ label: p, path: acc }) }
-            return (
-              <>
-                <a href={`#${encodeURI('/')}`} onClick={(e)=>{ e.preventDefault(); openFolder('/') }} className="text-text opacity-85 no-underline hover:opacity-100 hover:underline">Root</a>
-                {segs.map((s, i) => (
-                  <span key={s.path}>
-                    <span className="opacity-50 mx-1.5">/</span>
-                    {i < segs.length-1 ? (
-                      <a href={`#${encodeURI(s.path)}`} onClick={(e)=>{ e.preventDefault(); openFolder(s.path) }} className="text-text opacity-85 no-underline hover:opacity-100 hover:underline">{s.label}</a>
-                    ) : (
-                      <span aria-current="page">{s.label}</span>
-                    )}
-                  </span>
-                ))}
-                <span className="opacity-0 hover:opacity-100 ml-2 cursor-pointer text-xs text-muted" role="button" aria-label="Copy path" title="Copy path" onClick={()=>{ try { navigator.clipboard.writeText(current) } catch {} }}>⧉</span>
-              </>
-            )
-          })()}
-        </div>
+        {/* Breadcrumb / path bar intentionally hidden for now */}
+        {false && (
+          <div className="sticky top-0 z-10 px-3 py-2.5 bg-panel backdrop-blur-sm shadow-[0_1px_0_rgba(255,255,255,.04),0_6px_8px_-6px_rgba(0,0,0,.5)]">
+            {(() => {
+              const parts = current.split('/').filter(Boolean)
+              const segs: { label:string; path:string }[] = []
+              let acc = ''
+              for (const p of parts) { acc = acc ? `${acc}/${p}` : `/${p}`; segs.push({ label: p, path: acc }) }
+              return (
+                <>
+                  <a href={`#${encodeURI('/')}`} onClick={(e)=>{ e.preventDefault(); openFolder('/') }} className="text-text opacity-85 no-underline hover:opacity-100 hover:underline">Root</a>
+                  {segs.map((s, i) => (
+                    <span key={s.path}>
+                      <span className="opacity-50 mx-1.5">/</span>
+                      {i < segs.length-1 ? (
+                        <a href={`#${encodeURI(s.path)}`} onClick={(e)=>{ e.preventDefault(); openFolder(s.path) }} className="text-text opacity-85 no-underline hover:opacity-100 hover:underline">{s.label}</a>
+                      ) : (
+                        <span aria-current="page">{s.label}</span>
+                      )}
+                    </span>
+                  ))}
+                  <span className="opacity-0 hover:opacity-100 ml-2 cursor-pointer text-xs text-muted" role="button" aria-label="Copy path" title="Copy path" onClick={()=>{ try { navigator.clipboard.writeText(current) } catch {} }}>⧉</span>
+                </>
+              )
+            })()}
+          </div>
+        )}
         <VirtualGrid items={items} selected={selectedPaths} restoreToSelectionToken={restoreGridToSelectionToken} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
           highlight={searching ? normalizedQ : ''}
           suppressSelectionHighlight={!!viewer}
           viewMode={viewMode}
           onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
         />
-        {!!selectedPaths.length && (
-          <div className="sticky bottom-0 z-10 flex gap-3 items-center px-3 py-2 mt-2 bg-black/60 backdrop-blur-sm border-t border-white/5 rounded-t-lg">
-            <div>{selectedPaths.length} selected</div>
-            <button className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={()=> setSelectedPaths([])}>Clear</button>
-          </div>
-        )}
+        {/* Bottom selection bar removed intentionally */}
       </div>
       <Inspector path={selectedPaths[0] ?? null} selectedPaths={selectedPaths} items={items} onResize={onResizeRight} onStarChanged={(paths, val)=>{
         setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })

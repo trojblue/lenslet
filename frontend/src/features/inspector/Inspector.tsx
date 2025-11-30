@@ -37,6 +37,10 @@ export default function Inspector({
   const [tags, setTags] = useState('')
   const [notes, setNotes] = useState('')
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
+  const [metaText, setMetaText] = useState('')
+  const [metaError, setMetaError] = useState<string | null>(null)
+  const [metaState, setMetaState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
+  const [copied, setCopied] = useState(false)
   
   // Get star from item list (optimistic local value) or sidecar
   const itemStarFromList = useMemo((): number | null => {
@@ -65,7 +69,11 @@ export default function Inspector({
       setTags((data.tags || []).join(', '))
       setNotes(data.notes || '')
     }
-  }, [data?.updated_at])
+    setMetaText('')
+    setMetaError(null)
+    setMetaState('idle')
+    setCopied(false)
+  }, [data?.updated_at, path])
 
   // Create a base sidecar for updates
   const createBaseSidecar = useCallback((): Sidecar => {
@@ -164,6 +172,34 @@ export default function Inspector({
     () => items.find((i) => i.path === path),
     [items, path]
   )
+
+  const fetchMetadata = useCallback(async () => {
+    if (!path) return
+    setMetaState('loading')
+    setMetaError(null)
+    try {
+      const res = await api.getMetadata(path)
+      const pretty = JSON.stringify(res.meta, null, 2)
+      setMetaText(pretty)
+      setMetaState('loaded')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load metadata'
+      setMetaText(msg)
+      setMetaError(msg)
+      setMetaState('error')
+    }
+  }, [path])
+
+  const copyMetadata = useCallback(() => {
+    if (!metaText) return
+    navigator.clipboard?.writeText(metaText).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    }).catch((err) => {
+      const msg = err instanceof Error ? err.message : 'Copy failed'
+      setMetaError(msg)
+    })
+  }, [metaText])
 
   if (!enabled) return (
     <div className="col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
@@ -311,6 +347,38 @@ export default function Inspector({
               <span className="font-mono text-muted break-all">{currentItem.w}×{currentItem.h}</span>
             </div>
           </div>
+        </div>
+      )}
+      {!multi && (
+        <div className="p-3 border-b border-border">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="text-muted text-xs uppercase tracking-wide">Metadata</div>
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                className="px-2 py-1 bg-[#1b1b1b] text-text border border-border rounded-md disabled:opacity-60"
+                onClick={fetchMetadata}
+                disabled={!path || metaState === 'loading'}
+              >
+                {metaState === 'loading' ? 'Loading…' : 'Show meta'}
+              </button>
+              {metaText && (
+                <button
+                  className="text-muted underline underline-offset-2 hover:text-text disabled:opacity-60"
+                  onClick={copyMetadata}
+                  disabled={!metaText}
+                  title="Copy metadata"
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              )}
+            </div>
+          </div>
+          <pre className="bg-[#0f0f0f] text-[11px] font-mono text-muted border border-border rounded-lg p-2 h-48 overflow-auto whitespace-pre-wrap leading-[1.3]">
+            {metaState === 'loading'
+              ? 'Loading metadata…'
+              : (metaText || 'PNG metadata not loaded yet.')}
+          </pre>
+          {metaError && <div className="text-[11px] text-red-400 mt-1 break-words">{metaError}</div>}
         </div>
       )}
       {!multi && (

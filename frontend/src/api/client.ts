@@ -1,6 +1,6 @@
 import { fetchJSON, fetchBlob } from '../lib/fetcher'
 import { fileCache, thumbCache } from '../lib/blobCache'
-import type { FolderIndex, Sidecar, FileOpResponse, SearchResult } from '../lib/types'
+import type { FolderIndex, Sidecar, FileOpResponse, SearchResult, ImageMetadataResponse } from '../lib/types'
 import { BASE } from './base'
 
 /** Maximum file size to cache in prefetch (40MB) */
@@ -39,6 +39,13 @@ export const api = {
    */
   getSidecar: (path: string): Promise<Sidecar> => {
     return fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`).promise
+  },
+
+  /**
+   * Fetch heavy image metadata (PNG text chunks, etc) on-demand.
+   */
+  getMetadata: (path: string): Promise<ImageMetadataResponse> => {
+    return fetchJSON<ImageMetadataResponse>(`${BASE}/metadata?path=${encodeURIComponent(path)}`).promise
   },
 
   /**

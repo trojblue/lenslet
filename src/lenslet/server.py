@@ -1,5 +1,6 @@
 """FastAPI server for Lenslet."""
 from __future__ import annotations
+import io
 import os
 from pathlib import Path
 from datetime import datetime, timezone
@@ -10,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Literal
 
+from .metadata import read_png_info
 from .storage.memory import MemoryStorage
 from .storage.dataset import DatasetStorage
 
@@ -62,6 +64,12 @@ class Sidecar(BaseModel):
 
 class SearchResult(BaseModel):
     items: list[Item]
+
+
+class ImageMetadataResponse(BaseModel):
+    path: str
+    format: Literal["png"]
+    meta: dict
 
 
 # --- App Factory ---
@@ -166,6 +174,25 @@ def create_app(
             updated_at=datetime.now(timezone.utc).isoformat(),
             updated_by="server",
         )
+
+    @app.get("/metadata", response_model=ImageMetadataResponse)
+    def get_metadata(path: str, request: Request = None):
+        storage = _storage(request)
+        _ensure_image(storage, path)
+
+        mime = storage._guess_mime(path)  # type: ignore[attr-defined]
+        if mime != "image/png":
+            raise HTTPException(415, "metadata reading currently supports PNG images only")
+
+        try:
+            raw = storage.read_bytes(path)
+            meta = read_png_info(io.BytesIO(raw))
+        except HTTPException:
+            raise
+        except Exception as exc:  # pragma: no cover - unexpected parse errors
+            raise HTTPException(500, f"failed to parse metadata: {exc}")
+
+        return ImageMetadataResponse(path=path, format="png", meta=meta)
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request = None):
@@ -317,6 +344,25 @@ def create_app_from_datasets(
             updated_at=datetime.now(timezone.utc).isoformat(),
             updated_by="server",
         )
+
+    @app.get("/metadata", response_model=ImageMetadataResponse)
+    def get_metadata(path: str, request: Request = None):
+        storage = _storage(request)
+        _ensure_image(storage, path)
+
+        mime = storage._guess_mime(path)  # type: ignore[attr-defined]
+        if mime != "image/png":
+            raise HTTPException(415, "metadata reading currently supports PNG images only")
+
+        try:
+            raw = storage.read_bytes(path)
+            meta = read_png_info(io.BytesIO(raw))
+        except HTTPException:
+            raise
+        except Exception as exc:  # pragma: no cover - unexpected parse errors
+            raise HTTPException(500, f"failed to parse metadata: {exc}")
+
+        return ImageMetadataResponse(path=path, format="png", meta=meta)
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request = None):

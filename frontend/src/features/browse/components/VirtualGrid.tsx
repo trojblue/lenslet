@@ -69,6 +69,13 @@ export default function VirtualGrid({
     return map
   }, [layout])
 
+  // Keep active item in sync with external selection changes (e.g., viewer navigation)
+  useEffect(() => {
+    if (!selected.length) return
+    const first = selected[0]
+    if (active !== first) setActive(first)
+  }, [selected, active])
+
   const adaptiveRowMeta = useMemo(() => {
     if (layout.mode !== 'adaptive') return null
     let offset = 0

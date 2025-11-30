@@ -5,6 +5,72 @@ import { api } from '../../shared/api/client'
 import type { Item, StarRating, Sidecar } from '../../lib/types'
 import { isInputElement } from '../../lib/keyboard'
 
+// Try to turn JSON-looking strings (common in PNG text chunks) back into objects
+function normalizeMetadata(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeMetadata)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, normalizeMetadata(v)])
+    )
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    const looksJson =
+      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+      (trimmed.startsWith('"') && trimmed.endsWith('"'))
+
+    if (looksJson) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        return normalizeMetadata(parsed)
+      } catch {
+        return value
+      }
+    }
+  }
+  return value
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// Lightweight JSON-ish syntax highlighting without extra deps
+function highlightJson(json: string): string {
+  const tokenRe = /(\"(\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*\"(?:\s*:)?|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b)/g
+  let result = ''
+  let lastIndex = 0
+
+  for (const match of json.matchAll(tokenRe)) {
+    const start = match.index ?? 0
+    const token = match[0]
+    result += escapeHtml(json.slice(lastIndex, start))
+
+    let color = '#cdd3dd' // fallback muted
+    if (token.startsWith('"') && token.trimEnd().endsWith(':')) {
+      color = '#a7c4ff' // keys
+    } else if (token.startsWith('"')) {
+      color = '#9ad4b5' // strings
+    } else if (/true|false|null/.test(token)) {
+      color = '#c4b4f5' // literals
+    } else {
+      color = '#d7c08c' // numbers
+    }
+
+    result += `<span style="color:${color}">${escapeHtml(token)}</span>`
+    lastIndex = start + token.length
+  }
+
+  result += escapeHtml(json.slice(lastIndex))
+  return result
+}
+
 interface InspectorItem {
   path: string
   size: number
@@ -179,7 +245,8 @@ export default function Inspector({
     setMetaError(null)
     try {
       const res = await api.getMetadata(path)
-      const pretty = JSON.stringify(res.meta, null, 2)
+      const normalized = normalizeMetadata(res.meta)
+      const pretty = JSON.stringify(normalized, null, 2)
       setMetaText(pretty)
       setMetaState('loaded')
     } catch (err) {
@@ -200,6 +267,11 @@ export default function Inspector({
       setMetaError(msg)
     })
   }, [metaText])
+
+  const highlightedMeta = useMemo(() => (metaText ? highlightJson(metaText) : ''), [metaText])
+  const metaContent = metaState === 'loading'
+    ? 'Loading metadata…'
+    : (metaText || 'PNG metadata not loaded yet.')
 
   if (!enabled) return (
     <div className="col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
@@ -231,10 +303,10 @@ export default function Inspector({
           </>
         )}
       </div>
-      <div className="p-3 border-b border-border">
-        <div className="text-muted text-xs uppercase tracking-wide mb-1.5">{multi ? 'Notes (apply to all)' : 'Notes'}</div>
+      <div className="p-3 border-b border-border space-y-2">
         <textarea
-          className="w-full bg-[#1b1b1b] text-text border border-border rounded-lg p-2 min-h-[100px] resize-y scrollbar-thin"
+          className="w-full bg-transparent text-text border border-border/60 rounded-md px-2 py-1 min-h-[38px] resize-y scrollbar-thin placeholder:text-[#6d6d6d] focus:border-border"
+          placeholder="Add notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           onBlur={() => {
@@ -252,29 +324,30 @@ export default function Inspector({
           }}
           aria-label={multi ? 'Notes for selected items' : 'Notes'}
         />
-      </div>
-      <div className="p-3 border-b border-border">
-        <div className="text-muted text-xs uppercase tracking-wide mb-1.5">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
-        <input
-          className="w-full h-8 bg-[#1b1b1b] text-text border border-border rounded-lg px-2"
-          value={tags}
-          onChange={(e) => setTags(e.target.value)}
-          onBlur={() => {
-            const parsed = tags.split(',').map((s) => s.trim()).filter(Boolean)
-            if (multi && selectedPaths.length) {
-              bulkUpdateSidecars(selectedPaths, { tags: parsed })
-            } else {
-              const base = createBaseSidecar()
-              mut.mutate({
-                ...base,
-                tags: parsed,
-                updated_at: new Date().toISOString(),
-                updated_by: 'web',
-              })
-            }
-          }}
-          aria-label={multi ? 'Tags for selected items' : 'Tags'}
-        />
+        <div>
+          <div className="text-[11px] text-muted mb-1">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
+          <input
+            className="w-full h-9 bg-transparent text-text border border-border/60 rounded-md px-2 placeholder:text-[#6d6d6d] focus:border-border"
+            placeholder="tag1, tag2"
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            onBlur={() => {
+              const parsed = tags.split(',').map((s) => s.trim()).filter(Boolean)
+              if (multi && selectedPaths.length) {
+                bulkUpdateSidecars(selectedPaths, { tags: parsed })
+              } else {
+                const base = createBaseSidecar()
+                mut.mutate({
+                  ...base,
+                  tags: parsed,
+                  updated_at: new Date().toISOString(),
+                  updated_by: 'web',
+                })
+              }
+            }}
+            aria-label={multi ? 'Tags for selected items' : 'Tags'}
+          />
+        </div>
       </div>
       <div className="p-3 border-b border-border">
         <div className="text-muted text-xs uppercase tracking-wide mb-1.5">{multi ? 'Rating (apply to all)' : 'Rating'}</div>
@@ -374,9 +447,12 @@ export default function Inspector({
             </div>
           </div>
           <pre className="bg-[#0f0f0f] text-[11px] font-mono text-muted border border-border rounded-lg p-2 h-48 overflow-auto whitespace-pre-wrap leading-[1.3]">
-            {metaState === 'loading'
-              ? 'Loading metadata…'
-              : (metaText || 'PNG metadata not loaded yet.')}
+            {metaState === 'loaded' && metaText ? (
+              <code
+                className="block whitespace-pre-wrap"
+                dangerouslySetInnerHTML={{ __html: highlightedMeta }}
+              />
+            ) : metaContent}
           </pre>
           {metaError && <div className="text-[11px] text-red-400 mt-1 break-words">{metaError}</div>}
         </div>

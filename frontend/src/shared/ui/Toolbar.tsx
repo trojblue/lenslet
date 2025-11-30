@@ -23,6 +23,10 @@ export default function Toolbar({
   rightOpen,
   onToggleLeft,
   onToggleRight,
+  onPrevImage,
+  onNextImage,
+  canPrevImage,
+  canNextImage,
 }:{
   onSearch: (q: string) => void
   viewerActive?: boolean
@@ -45,6 +49,10 @@ export default function Toolbar({
   rightOpen?: boolean
   onToggleLeft?: () => void
   onToggleRight?: () => void
+  onPrevImage?: () => void
+  onNextImage?: () => void
+  canPrevImage?: boolean
+  canNextImage?: boolean
 }){
   const [openRating, setOpenRating] = useState(false)
   const ratingRef = useRef<HTMLDivElement | null>(null)
@@ -178,6 +186,30 @@ export default function Toolbar({
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="15" y="5" width="6" height="14" rx="1.5" />
               <rect x="3" y="5" width="10" height="14" rx="1.5" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex items-center gap-2 ml-4">
+          <button
+            className={`h-8 w-8 rounded-lg border border-[#3a3a3a] bg-[#252525] text-[#cfd1d4] flex items-center justify-center transition-colors hover:bg-[#2f2f2f] hover:border-[#4a4a4a] ${canPrevImage ? 'opacity-90 cursor-pointer' : 'opacity-45 cursor-not-allowed'}`}
+            title="Previous image (A / ←)"
+            onClick={() => canPrevImage && onPrevImage && onPrevImage()}
+            aria-label="Previous image"
+            aria-disabled={!canPrevImage}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <button
+            className={`h-8 w-8 rounded-lg border border-[#3a3a3a] bg-[#252525] text-[#cfd1d4] flex items-center justify-center transition-colors hover:bg-[#2f2f2f] hover:border-[#4a4a4a] ${canNextImage ? 'opacity-90 cursor-pointer' : 'opacity-45 cursor-not-allowed'}`}
+            title="Next image (D / →)"
+            onClick={() => canNextImage && onNextImage && onNextImage()}
+            aria-label="Next image"
+            aria-disabled={!canNextImage}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 6l6 6-6 6" />
             </svg>
           </button>
         </div>

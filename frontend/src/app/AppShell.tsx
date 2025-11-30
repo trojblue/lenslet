@@ -105,6 +105,8 @@ export default function AppShell() {
     return applySort(filtered, sortKey, sortDir)
   }, [searching, search.data, data, sortKey, sortDir, starFilters, localStarOverrides])
 
+  const itemPaths = useMemo(() => items.map((i) => i.path), [items])
+
   // Compute star counts for the filter UI
   const starCounts = useMemo(() => {
     const baseItems = data?.items ?? []
@@ -195,24 +197,23 @@ export default function AppShell() {
   // Prefetch neighbors for the open viewer (previous and next)
   useEffect(() => {
     if (!viewer) return
-    
-    const paths = items.map((i) => i.path)
-    const idx = paths.indexOf(viewer)
+
+    const idx = itemPaths.indexOf(viewer)
     if (idx === -1) return
-    
+
     // Prefetch 2 items in each direction
     const neighbors = [
-      paths[idx - 2],
-      paths[idx - 1],
-      paths[idx + 1],
-      paths[idx + 2],
+      itemPaths[idx - 2],
+      itemPaths[idx - 1],
+      itemPaths[idx + 1],
+      itemPaths[idx + 2],
     ].filter((p): p is string => Boolean(p))
-    
+
     for (const p of neighbors) {
       api.prefetchFile(p)
       api.prefetchThumb(p)
     }
-  }, [viewer, items])
+  }, [viewer, itemPaths])
 
   // On folder load, prefetch fullsize for the first few items
   useEffect(() => {
@@ -384,6 +385,24 @@ export default function AppShell() {
   const leftCol = leftOpen ? `${leftW}px` : '0px'
   const rightCol = rightOpen ? `${rightW}px` : '0px'
 
+  const navCurrent = viewer ?? selectedPaths[0] ?? null
+  const navIdx = navCurrent ? itemPaths.indexOf(navCurrent) : -1
+  const canPrevImage = navIdx > 0
+  const canNextImage = navIdx >= 0 && navIdx < itemPaths.length - 1
+
+  const handleNavigate = useCallback((delta: number) => {
+    if (!itemPaths.length) return
+    const currentPath = viewer ?? selectedPaths[0]
+    if (!currentPath) return
+    const idx = itemPaths.indexOf(currentPath)
+    if (idx === -1) return
+    const next = Math.min(itemPaths.length - 1, Math.max(0, idx + delta))
+    const nextPath = itemPaths[next]
+    if (!nextPath || nextPath === currentPath) return
+    if (viewer) setViewer(nextPath)
+    setSelectedPaths([nextPath])
+  }, [itemPaths, viewer, selectedPaths])
+
   return (
     <div className="grid h-full grid-cols-[var(--left)_1fr_var(--right)] grid-rows-[48px_1fr]" ref={appRef} style={{ ['--left' as any]: leftCol, ['--right' as any]: rightCol }}>
       <Toolbar
@@ -418,6 +437,10 @@ export default function AppShell() {
         rightOpen={rightOpen}
         onToggleLeft={()=> setLeftOpen(v=>!v)}
         onToggleRight={()=> setRightOpen(v=>!v)}
+        onPrevImage={() => handleNavigate(-1)}
+        onNextImage={() => handleNavigate(1)}
+        canPrevImage={canPrevImage}
+        canNextImage={canNextImage}
       />
       {leftOpen && (
         <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={onResizeLeft}
@@ -476,14 +499,7 @@ export default function AppShell() {
           onZoomChange={(p)=> setCurrentZoom(Math.round(p))}
           requestedZoomPercent={requestedZoom}
           onZoomRequestConsumed={()=> setRequestedZoom(null)}
-          onNavigate={(delta)=>{
-            const paths = items.map(i=> i.path)
-            const idx = paths.indexOf(viewer)
-            if (idx === -1) return
-            const next = Math.min(paths.length - 1, Math.max(0, idx + delta))
-            const np = paths[next]
-            if (np && np !== viewer) { setViewer(np); setSelectedPaths([np]) }
-          }}
+          onNavigate={handleNavigate}
         />
       )}
       {isDraggingOver && (

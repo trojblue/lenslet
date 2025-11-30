@@ -408,7 +408,34 @@ export default function VirtualGrid({
                       if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} ; previewUrlRef.current = null }
                       setPreviewUrl(null)
                     }}>
-                      <div className="absolute right-1 bottom-1 w-[22px] h-[22px] bg-black/55 rounded-full flex items-center justify-center text-xs select-none opacity-0 group-hover:opacity-100 transition-opacity duration-[120ms]">🔍</div>
+                      <div
+                        className="absolute right-0 bottom-0 h-[18px] w-[18px] flex items-center justify-center text-text select-none opacity-0 group-hover:opacity-50 hover:opacity-100 transition-all duration-[140ms]"
+                        style={{
+                          clipPath: 'path("M0 9C0 4.02944 4.02944 0 9 0H18V18H0V9Z")',
+                          background: 'linear-gradient(135deg, rgba(18,18,18,0.9) 0%, rgba(34,34,34,0.9) 60%, rgba(22,22,22,0.9) 100%)',
+                          borderTop: '1px solid rgba(255,255,255,0.08)',
+                          borderLeft: '1px solid rgba(255,255,255,0.08)',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.45)',
+                          backdropFilter: 'blur(1px)'
+                        }}
+                      >
+                        <svg
+                          width="11"
+                          height="11"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.7"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="text-[#d9dce2]"
+                          aria-hidden="true"
+                          style={{ transform: 'translate(0px,0px)' }}
+                        >
+                          <circle cx="11" cy="11" r="5.4" />
+                          <path d="M15.5 15.5 L19 19" />
+                        </svg>
+                      </div>
                     </div>
                   </div>
                   <div className="flex flex-col items-center text-center gap-0 mt-1 px-0.5 text-white/90">

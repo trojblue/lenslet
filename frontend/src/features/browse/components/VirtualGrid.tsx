@@ -117,15 +117,15 @@ export default function VirtualGrid({
     if (!row) return null
     let x = 0
     let best: { path: string; dist: number } | null = null
-    row.items.forEach(it => {
+    for (const it of row.items) {
       const center = x + it.displayW / 2
       const dist = Math.abs(center - targetCenter)
       if (!best || dist < best.dist) {
         best = { path: it.item.path, dist }
       }
       x += it.displayW + GAP
-    })
-    return best?.path ?? null
+    }
+    return best ? best.path : null
   }
 
   const getNextPath = (current: string | null, e: KeyboardEvent): string | 'open' | null => {

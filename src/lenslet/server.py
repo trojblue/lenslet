@@ -11,6 +11,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Literal
 
+
+class NoCacheIndexStaticFiles(StaticFiles):
+    """Serve static assets with no-cache for HTML shell.
+
+    Keeps JS/CSS cacheable while forcing index.html to revalidate so
+    rebuilt frontends are picked up immediately.
+    """
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        if response.media_type == "text/html":
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
 from .metadata import read_png_info
 from .storage.memory import MemoryStorage
 from .storage.dataset import DatasetStorage
@@ -246,7 +262,7 @@ def create_app(
     # Mount frontend if dist exists
     frontend_dist = Path(__file__).parent / "frontend"
     if frontend_dist.is_dir():
-        app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+        app.mount("/", NoCacheIndexStaticFiles(directory=str(frontend_dist), html=True), name="frontend")
 
     return app
 
@@ -422,6 +438,6 @@ def create_app_from_datasets(
     # Mount frontend if dist exists
     frontend_dist = Path(__file__).parent / "frontend"
     if frontend_dist.is_dir():
-        app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+        app.mount("/", NoCacheIndexStaticFiles(directory=str(frontend_dist), html=True), name="frontend")
 
     return app

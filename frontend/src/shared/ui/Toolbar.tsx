@@ -166,7 +166,34 @@ export default function Toolbar({
       </div>
 
       <div className="flex items-center gap-2 justify-end toolbar-right">
-        <div className="flex items-center gap-1 mr-1">
+        {viewerActive && (
+          <div className="flex items-center gap-2 mr-1">
+            <button
+              className={`h-7 w-7 rounded-md border border-[#3a3a3a] bg-[#252525] text-[#cfd1d4] flex items-center justify-center transition-colors hover:bg-[#2f2f2f] hover:border-[#4a4a4a] ${canPrevImage ? 'opacity-90 cursor-pointer' : 'opacity-45 cursor-not-allowed'}`}
+              title="Previous image (A / ←)"
+              onClick={() => canPrevImage && onPrevImage && onPrevImage()}
+              aria-label="Previous image"
+              aria-disabled={!canPrevImage}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+            <button
+              className={`h-7 w-7 rounded-md border border-[#3a3a3a] bg-[#252525] text-[#cfd1d4] flex items-center justify-center transition-colors hover:bg-[#2f2f2f] hover:border-[#4a4a4a] ${canNextImage ? 'opacity-90 cursor-pointer' : 'opacity-45 cursor-not-allowed'}`}
+              title="Next image (D / →)"
+              onClick={() => canNextImage && onNextImage && onNextImage()}
+              aria-label="Next image"
+              aria-disabled={!canNextImage}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-center gap-1 ml-1">
           <button
             className={`h-8 w-8 rounded-lg border border-border bg-[#1b1b1b] text-text flex items-center justify-center hover:bg-[#252525] ${leftOpen ? 'opacity-100' : 'opacity-60'}`}
             title={leftOpen ? 'Hide left panel (Ctrl+B)' : 'Show left panel (Ctrl+B)'}
@@ -189,30 +216,7 @@ export default function Toolbar({
             </svg>
           </button>
         </div>
-        <div className="flex items-center gap-2 ml-4">
-          <button
-            className={`h-8 w-8 rounded-lg border border-[#3a3a3a] bg-[#252525] text-[#cfd1d4] flex items-center justify-center transition-colors hover:bg-[#2f2f2f] hover:border-[#4a4a4a] ${canPrevImage ? 'opacity-90 cursor-pointer' : 'opacity-45 cursor-not-allowed'}`}
-            title="Previous image (A / ←)"
-            onClick={() => canPrevImage && onPrevImage && onPrevImage()}
-            aria-label="Previous image"
-            aria-disabled={!canPrevImage}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </button>
-          <button
-            className={`h-8 w-8 rounded-lg border border-[#3a3a3a] bg-[#252525] text-[#cfd1d4] flex items-center justify-center transition-colors hover:bg-[#2f2f2f] hover:border-[#4a4a4a] ${canNextImage ? 'opacity-90 cursor-pointer' : 'opacity-45 cursor-not-allowed'}`}
-            title="Next image (D / →)"
-            onClick={() => canNextImage && onNextImage && onNextImage()}
-            aria-label="Next image"
-            aria-disabled={!canNextImage}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 6l6 6-6 6" />
-            </svg>
-          </button>
-        </div>
+
         <input
           aria-label="Search filename, tags, notes"
           placeholder="Search..."

@@ -107,6 +107,7 @@ export default function Inspector({
   const [metaError, setMetaError] = useState<string | null>(null)
   const [metaState, setMetaState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
   const [copied, setCopied] = useState(false)
+  const [copiedField, setCopiedField] = useState<string | null>(null)
   
   // Get star from item list (optimistic local value) or sidecar
   const itemStarFromList = useMemo((): number | null => {
@@ -272,6 +273,16 @@ export default function Inspector({
   const metaContent = metaState === 'loading'
     ? 'Loading metadata…'
     : (metaText || 'PNG metadata not loaded yet.')
+  const metaLoaded = metaState === 'loaded' && !!metaText
+  const metaHeightClass = metaLoaded ? 'h-48' : 'h-24'
+
+  const copyInfo = useCallback((key: string, text: string) => {
+    if (!text) return
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopiedField(key)
+      setTimeout(() => setCopiedField((curr) => (curr === key ? null : curr)), 1000)
+    }).catch(() => {})
+  }, [])
 
   if (!enabled) return (
     <div className="col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
@@ -303,9 +314,9 @@ export default function Inspector({
           </>
         )}
       </div>
-      <div className="p-3 border-b border-border space-y-2">
+      <div className="p-3 border-b border-border space-y-1.5">
         <textarea
-          className="w-full bg-transparent text-text border border-border/60 rounded-md px-2 py-1 min-h-[38px] resize-y scrollbar-thin placeholder:text-[#6d6d6d] focus:border-border"
+          className="w-full bg-transparent text-text border border-border/60 rounded-md px-2 py-1 min-h-[32px] resize-y scrollbar-thin placeholder:text-[#6d6d6d] focus:border-border"
           placeholder="Add notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
@@ -349,79 +360,6 @@ export default function Inspector({
           />
         </div>
       </div>
-      <div className="p-3 border-b border-border">
-        <div className="text-muted text-xs uppercase tracking-wide mb-1.5">{multi ? 'Rating (apply to all)' : 'Rating'}</div>
-        <div className="flex gap-1.5 items-center" role="radiogroup" aria-label="Star rating">
-          {[1, 2, 3, 4, 5].map((v) => {
-            const filled = (star ?? 0) >= v
-            return (
-              <button
-                key={v}
-                className={`w-7 h-7 p-0 rounded-md border border-border ${filled ? 'bg-[rgba(255,200,0,0.15)] text-[#ffd166]' : 'bg-[#1b1b1b] text-[#aaa]'}`}
-                onClick={() => {
-                  const val: StarRating = star === v && !multi ? null : (v as 1 | 2 | 3 | 4 | 5)
-                  if (multi && selectedPaths.length) {
-                    onStarChanged?.(selectedPaths, val)
-                    bulkUpdateSidecars(selectedPaths, { star: val })
-                  } else if (path) {
-                    onStarChanged?.([path], val)
-                    queueSidecarUpdate(path, { star: val })
-                  }
-                }}
-                title={`${v} star${v > 1 ? 's' : ''} (key ${v})`}
-                aria-label={`${v} star${v > 1 ? 's' : ''}`}
-                aria-pressed={star === v}
-              >
-                {filled ? '★' : '☆'}
-              </button>
-            )
-          })}
-          <button
-            className="ml-2 px-2 py-1 bg-[#1b1b1b] text-text border border-border rounded-md"
-            onClick={async () => {
-              if (multi && selectedPaths.length) {
-                await bulkUpdateSidecars(selectedPaths, { star: null })
-                onStarChanged?.(selectedPaths, null)
-              } else if (path) {
-                const base = createBaseSidecar()
-                await mut.mutateAsync({
-                  ...base,
-                  star: null,
-                  updated_at: new Date().toISOString(),
-                  updated_by: 'web',
-                }).catch(() => {})
-                onStarChanged?.([path], null)
-              }
-            }}
-            title="Clear rating (key 0)"
-            aria-label="Clear rating"
-          >
-            0
-          </button>
-        </div>
-      </div>
-      {!multi && currentItem && (
-        <div className="p-3 border-b border-border">
-          <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Details</div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              Type
-              <br />
-              <span className="font-mono text-muted break-all">{currentItem.type}</span>
-            </div>
-            <div>
-              Size
-              <br />
-              <span className="font-mono text-muted break-all">{fmtBytes(currentItem.size)}</span>
-            </div>
-            <div>
-              Dimensions
-              <br />
-              <span className="font-mono text-muted break-all">{currentItem.w}×{currentItem.h}</span>
-            </div>
-          </div>
-        </div>
-      )}
       {!multi && (
         <div className="p-3 border-b border-border">
           <div className="flex items-center justify-between mb-1.5">
@@ -446,8 +384,8 @@ export default function Inspector({
               )}
             </div>
           </div>
-          <pre className="bg-[#0f0f0f] text-[11px] font-mono text-muted border border-border rounded-lg p-2 h-48 overflow-auto whitespace-pre-wrap leading-[1.3]">
-            {metaState === 'loaded' && metaText ? (
+          <pre className={`bg-[#0f0f0f] text-[11px] font-mono text-muted border border-border rounded-lg p-2 ${metaHeightClass} overflow-auto whitespace-pre-wrap leading-[1.3]`}>
+            {metaLoaded ? (
               <code
                 className="block whitespace-pre-wrap"
                 dangerouslySetInnerHTML={{ __html: highlightedMeta }}
@@ -457,12 +395,74 @@ export default function Inspector({
           {metaError && <div className="text-[11px] text-red-400 mt-1 break-words">{metaError}</div>}
         </div>
       )}
-      {!multi && (
-        <div className="p-3 border-b border-border">
-          <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Source URL</div>
-          <div className="font-mono text-muted break-all">{path}</div>
+      <div className="p-3 border-b border-border">
+        <div className="text-muted text-xs uppercase tracking-wide mb-1">Basic info</div>
+        <div className="flex items-center gap-2 text-[12px] mb-1" role="radiogroup" aria-label="Star rating">
+          <span className="text-muted w-16 shrink-0">{multi ? 'Rating (all)' : 'Rating'}</span>
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4, 5].map((v) => {
+              const filled = (star ?? 0) >= v
+              return (
+                <button
+                  key={v}
+                  className={`w-6 h-6 flex items-center justify-center rounded border border-border/60 bg-transparent text-[13px] ${filled ? 'text-[#e7c46a]' : 'text-[#6f6f6f]'} hover:border-border hover:text-[#e7c46a] transition-colors`}
+                  onClick={() => {
+                    const val: StarRating = star === v && !multi ? null : (v as 1 | 2 | 3 | 4 | 5)
+                    if (multi && selectedPaths.length) {
+                      onStarChanged?.(selectedPaths, val)
+                      bulkUpdateSidecars(selectedPaths, { star: val })
+                    } else if (path) {
+                      onStarChanged?.([path], val)
+                      queueSidecarUpdate(path, { star: val })
+                    }
+                  }}
+                  title={`${v} star${v > 1 ? 's' : ''} (key ${v})`}
+                  aria-label={`${v} star${v > 1 ? 's' : ''}`}
+                  aria-pressed={star === v}
+                >
+                  {filled ? '★' : '☆'}
+                </button>
+              )
+            })}
+          </div>
         </div>
-      )}
+        {!multi && currentItem && (
+          <div className="text-[12px] space-y-1">
+            <div
+              className="flex justify-between cursor-pointer hover:text-text hover:underline"
+              onClick={() => copyInfo('dimensions', `${currentItem.w}×${currentItem.h}`)}
+              title="Click to copy dimensions"
+            >
+              <span className="text-muted w-20 shrink-0">Dimensions</span>
+              <span className="font-mono text-text">{copiedField === 'dimensions' ? 'Copied' : `${currentItem.w}×${currentItem.h}`}</span>
+            </div>
+            <div
+              className="flex justify-between cursor-pointer hover:text-text hover:underline"
+              onClick={() => copyInfo('size', fmtBytes(currentItem.size))}
+              title="Click to copy size"
+            >
+              <span className="text-muted w-20 shrink-0">Size</span>
+              <span className="font-mono text-text">{copiedField === 'size' ? 'Copied' : fmtBytes(currentItem.size)}</span>
+            </div>
+            <div
+              className="flex justify-between cursor-pointer hover:text-text hover:underline"
+              onClick={() => copyInfo('type', currentItem.type)}
+              title="Click to copy type"
+            >
+              <span className="text-muted w-20 shrink-0">Type</span>
+              <span className="font-mono text-text break-all text-right">{copiedField === 'type' ? 'Copied' : currentItem.type}</span>
+            </div>
+            <div
+              className="flex justify-between cursor-pointer hover:text-text hover:underline"
+              onClick={() => path && copyInfo('source', path)}
+              title="Click to copy source path"
+            >
+              <span className="text-muted w-20 shrink-0">Source</span>
+              <span className="font-mono text-text break-all text-right max-w-[70%]">{copiedField === 'source' ? 'Copied' : path}</span>
+            </div>
+          </div>
+        )}
+      </div>
       <div className="absolute top-12 bottom-0 w-1.5 cursor-col-resize z-10 right-[calc(var(--right)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
     </div>
   )

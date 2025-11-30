@@ -160,6 +160,20 @@ def create_app(
             dirs=dirs,
         )
 
+    @app.post("/refresh")
+    def refresh(path: str = "/", request: Request = None):
+        storage = _storage(request)
+        try:
+            target = storage._abs_path(path)
+        except ValueError:
+            raise HTTPException(400, "invalid path")
+
+        if not os.path.isdir(target):
+            raise HTTPException(404, "folder not found")
+
+        storage.invalidate_subtree(path)
+        return {"ok": True}
+
     @app.get("/item")
     def get_item(path: str, request: Request = None):
         storage = _storage(request)
@@ -329,6 +343,12 @@ def create_app_from_datasets(
             items=items,
             dirs=dirs,
         )
+
+    @app.post("/refresh")
+    def refresh(path: str = "/", request: Request = None):
+        # Dataset mode is static for now, but keep API parity with memory mode
+        _ = path
+        return {"ok": True, "note": "dataset mode is static"}
 
     @app.get("/item")
     def get_item(path: str, request: Request = None):

@@ -24,6 +24,9 @@ datasets = {
         "s3://bucket/image1.jpg",
         "s3://bucket/image2.jpg",
     ],
+    "web_images": [
+        "https://example.com/cat.jpg",
+    ],
 }
 
 # Launch the gallery
@@ -38,6 +41,7 @@ That's it! The gallery runs in the background while your script/notebook continu
 
 - 🚀 **Non-blocking**: Returns immediately, perfect for Jupyter notebooks
 - ☁️ **S3 Support**: Automatically handles S3 URIs with presigned URLs
+- 🌐 **HTTP/HTTPS URLs**: Serve images directly from web URLs
 - 📁 **Multiple Datasets**: Organize images into named collections
 - 🔗 **Mixed Sources**: Combine local files and S3 in the same list
 - 💨 **Fast**: In-memory indexing and caching

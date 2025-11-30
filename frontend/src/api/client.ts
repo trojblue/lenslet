@@ -1,6 +1,6 @@
 import { fetchJSON, fetchBlob } from '../lib/fetcher'
 import { fileCache, thumbCache } from '../lib/blobCache'
-import type { FolderIndex, Sidecar, FileOpResponse, SearchResult, ImageMetadataResponse } from '../lib/types'
+import type { FolderIndex, Sidecar, FileOpResponse, RefreshResponse, SearchResult, ImageMetadataResponse } from '../lib/types'
 import { BASE } from './base'
 
 /** Maximum file size to cache in prefetch (40MB) */
@@ -32,6 +32,16 @@ export const api = {
     if (q) params.set('q', q)
     if (path) params.set('path', path)
     return fetchJSON<SearchResult>(`${BASE}/search?${params}`).promise
+  },
+
+  /**
+   * Manually refresh a folder subtree on the backend.
+   */
+  refreshFolder: (path: string): Promise<RefreshResponse> => {
+    const params = new URLSearchParams({ path })
+    return fetchJSON<RefreshResponse>(`${BASE}/refresh?${params}`, {
+      method: 'POST',
+    }).promise
   },
 
   /**

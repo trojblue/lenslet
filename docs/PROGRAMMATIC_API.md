@@ -45,7 +45,7 @@ lenslet.launch(
 
 - `datasets` (dict): Dictionary mapping dataset names to lists of image paths/URIs
   - Keys: Dataset names (will appear as folders in the gallery)
-  - Values: Lists of image paths (local file paths or S3 URIs)
+  - Values: Lists of image paths (local file paths, HTTP/HTTPS URLs, or S3 URIs)
   
 - `blocking` (bool, default=False): Execution mode
   - `False`: Launches in subprocess, returns immediately (for notebooks)
@@ -109,6 +109,20 @@ datasets = {
         "/local/image1.jpg",
         "s3://bucket/image2.jpg",
         "/local/image3.png",
+        "https://example.com/remote4.jpg",
+    ]
+}
+```
+
+### HTTP/HTTPS URLs
+
+Plain web URLs are accepted as-is. No credentials or presigning required.
+
+```python
+datasets = {
+    "web": [
+        "https://example.com/cat.jpg",
+        "https://images.site/dog.png",
     ]
 }
 ```

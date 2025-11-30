@@ -10,12 +10,14 @@ import { api } from '../shared/api/client'
 import { readHash, writeHash, sanitizePath, getParentPath, isTrashPath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import { useSidebars } from './layout/useSidebars'
+import { useQueryClient } from '@tanstack/react-query'
 import ContextMenu, { MenuItem } from './menu/ContextMenu'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 import { useDebounced } from '../shared/hooks/useDebounced'
 import type { Item, SortKey, SortDir, ContextMenuState, StarRating, ViewMode } from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
 import { safeJsonParse } from '../lib/util'
+import { fileCache, thumbCache } from '../lib/blobCache'
 
 /** Local storage keys for persisted settings */
 const STORAGE_KEYS = {
@@ -524,9 +526,53 @@ function ContextMenuItems({
 }) {
   const inTrash = isTrashPath(current)
   const joinChild = (parent: string, name: string) => (parent === '/' ? `/${name}` : `${parent}/${name}`)
+  const queryClient = useQueryClient()
+  const [refreshing, setRefreshing] = React.useState(false)
   const [exporting, setExporting] = React.useState<'csv' | 'json' | null>(null)
 
   const timestamp = () => new Date().toISOString().replace(/[:.]/g, '-')
+
+  const invalidateFolderSubtree = (target: string) => {
+    const matches = (candidate: string) => {
+      if (target === '/') return true
+      return candidate === target || candidate.startsWith(`${target}/`)
+    }
+
+    queryClient.invalidateQueries({
+      predicate: ({ queryKey }) => {
+        if (!Array.isArray(queryKey)) return false
+        if (queryKey[0] !== 'folder') return false
+        const keyPath = typeof queryKey[1] === 'string' ? queryKey[1] : ''
+        return matches(keyPath)
+      },
+    })
+  }
+
+  const normalizePath = (p: string | undefined): string => {
+    const safe = sanitizePath(p || '/')
+    return safe === '' ? '/' : safe
+  }
+
+  const handleRefresh = async () => {
+    const target = normalizePath(ctx.payload.path || '/')
+    setRefreshing(true)
+    try {
+      await api.refreshFolder(target)
+      invalidateFolderSubtree(target)
+
+      if (current === target || current.startsWith(target === '/' ? '/' : `${target}/`)) {
+        await refetch()
+      }
+
+      thumbCache.evictPrefix(target)
+      fileCache.evictPrefix(target)
+    } catch (err) {
+      console.error('Failed to refresh folder:', err)
+    } finally {
+      setRefreshing(false)
+      setCtx(null)
+    }
+  }
 
   // Recursively collect items for a folder (including subfolders)
   const collectFolderItems = async (root: string): Promise<Item[]> => {
@@ -576,13 +622,18 @@ function ContextMenuItems({
   const menuItems: MenuItem[] = ctx.kind === 'tree'
     ? [
         {
+          label: refreshing ? 'Refreshing…' : 'Refresh',
+          disabled: refreshing,
+          onClick: handleRefresh,
+        },
+        {
           label: exporting === 'csv' ? 'Exporting CSV…' : 'Export metadata (CSV)',
-          disabled: !!exporting,
+          disabled: !!exporting || refreshing,
           onClick: exportFolder('csv'),
         },
         {
           label: exporting === 'json' ? 'Exporting JSON…' : 'Export metadata (JSON)',
-          disabled: !!exporting,
+          disabled: !!exporting || refreshing,
           onClick: exportFolder('json'),
         },
       ]

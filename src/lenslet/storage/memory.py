@@ -392,6 +392,40 @@ class MemoryStorage:
             self._metadata.pop(path, None)
             self._dimensions.pop(path, None)
 
+    def invalidate_subtree(self, path: str) -> None:
+        """Drop all cached entries for a folder and its descendants."""
+        norm = self._normalize_path(path)
+
+        # Normalize item path to "/foo" form for prefix matching
+        def _canonical_item(p: str) -> str:
+            p = "/" + p.lstrip("/") if p else "/"
+            if p != "/":
+                p = p.rstrip("/")
+            return p
+
+        canonical = _canonical_item(path)
+
+        # Invalidate folder indexes at or below the target
+        if not norm:  # root => clear everything fast
+            self._indexes.clear()
+        else:
+            prefix = f"{norm}/"
+            for key in list(self._indexes.keys()):
+                if key == norm or key.startswith(prefix):
+                    self._indexes.pop(key, None)
+
+        # Invalidate per-item caches (thumbs, metadata, dimensions)
+        def _matches(item_path: str) -> bool:
+            candidate = _canonical_item(item_path)
+            if canonical == "/":
+                return True
+            return candidate == canonical or candidate.startswith(canonical + "/")
+
+        for cache in (self._thumbnails, self._metadata, self._dimensions):
+            for key in list(cache.keys()):
+                if _matches(key):
+                    cache.pop(key, None)
+
     @staticmethod
     def _guess_mime(name: str) -> str:
         n = name.lower()

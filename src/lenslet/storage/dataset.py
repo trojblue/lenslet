@@ -72,6 +72,10 @@ class DatasetStorage:
         """Check if path is an S3 URI."""
         return path.startswith("s3://")
 
+    def _is_http_url(self, path: str) -> bool:
+        """Check if path is an HTTP/HTTPS URL."""
+        return path.startswith("http://") or path.startswith("https://")
+
     def _get_presigned_url(self, s3_uri: str, expires_in: int = 3600) -> str:
         """Convert S3 URI to a presigned HTTPS URL using boto3."""
         try:
@@ -104,7 +108,7 @@ class DatasetStorage:
 
     def _extract_name(self, path: str) -> str:
         """Extract filename from local path or S3 URI."""
-        if self._is_s3_uri(path):
+        if self._is_s3_uri(path) or self._is_http_url(path):
             parsed = urlparse(path)
             return os.path.basename(parsed.path)
         return os.path.basename(path)
@@ -140,11 +144,12 @@ class DatasetStorage:
                 # Create logical path: /dataset_name/filename
                 logical_path = f"/{dataset_name}/{name}"
                 
-                # Determine if S3 or local
+                # Determine source type
                 is_s3 = self._is_s3_uri(source_path)
+                is_http = self._is_http_url(source_path)
                 url = None
                 size = 0
-                
+
                 if is_s3:
                     # For S3, get presigned URL
                     try:
@@ -154,6 +159,10 @@ class DatasetStorage:
                     except Exception as e:
                         print(f"[lenslet] Warning: Failed to presign {source_path}: {e}")
                         continue
+                elif is_http:
+                    # Plain HTTP/HTTPS URL — use as-is
+                    url = source_path
+                    size = 0
                 else:
                     # For local, validate and get size
                     if not os.path.exists(source_path):
@@ -369,6 +378,5 @@ class DatasetStorage:
         if n.endswith(".png"):
             return "image/png"
         return "image/jpeg"
-
 
 

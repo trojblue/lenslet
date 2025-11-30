@@ -70,7 +70,10 @@ import lenslet
 
 datasets = {
     "my_images": ["/path/to/img1.jpg", "/path/to/img2.jpg"],
-    "more_images": ["s3://bucket/img3.jpg"],  # S3 URIs supported!
+    "more_images": [
+        "s3://bucket/img3.jpg",           # S3 URIs
+        "https://example.com/img4.jpg",   # HTTP/HTTPS URLs
+    ],
 }
 
 # Launch in non-blocking mode (returns immediately)

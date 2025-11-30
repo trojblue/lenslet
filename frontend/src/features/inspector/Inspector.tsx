@@ -373,10 +373,10 @@ export default function Inspector({
         <div className="p-3 border-b border-border">
           <div className="flex items-center justify-between mb-1.5">
             <div className="text-muted text-xs uppercase tracking-wide">Metadata</div>
-            <div className="flex items-center gap-2 text-xs justify-end">
+            <div className="flex items-center gap-1 text-xs ml-auto w-fit">
               {metaText && (
                 <button
-                  className="text-muted underline underline-offset-2 hover:text-text disabled:opacity-60 min-w-[54px] text-center"
+                  className="text-muted underline underline-offset-2 hover:text-text disabled:opacity-60 min-w-[48px] text-center"
                   onClick={copyMetadata}
                   disabled={!metaText}
                   title="Copy metadata"
@@ -385,7 +385,7 @@ export default function Inspector({
                 </button>
               )}
               <button
-                className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[84px]"
+                className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[78px]"
                 onClick={fetchMetadata}
                 disabled={!path || metaState === 'loading'}
               >

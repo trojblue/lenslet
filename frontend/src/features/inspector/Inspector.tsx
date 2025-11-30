@@ -108,6 +108,7 @@ export default function Inspector({
   const [metaState, setMetaState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
   const [copied, setCopied] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
+  const [valueHeights, setValueHeights] = useState<Record<string, number>>({})
   
   // Get star from item list (optimistic local value) or sidecar
   const itemStarFromList = useMemo((): number | null => {
@@ -284,6 +285,15 @@ export default function Inspector({
     }).catch(() => {})
   }, [])
 
+  const rememberHeight = useCallback((key: string, el: HTMLSpanElement | null) => {
+    if (el && !valueHeights[key]) {
+      const h = el.offsetHeight
+      if (h) {
+        setValueHeights((prev) => (prev[key] ? prev : { ...prev, [key]: h }))
+      }
+    }
+  }, [valueHeights])
+
   if (!enabled) return (
     <div className="col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
       <div className="absolute top-12 bottom-0 w-1.5 cursor-col-resize z-10 right-[calc(var(--right)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
@@ -363,17 +373,10 @@ export default function Inspector({
         <div className="p-3 border-b border-border">
           <div className="flex items-center justify-between mb-1.5">
             <div className="text-muted text-xs uppercase tracking-wide">Metadata</div>
-            <div className="flex items-center gap-2 text-xs">
-              <button
-                className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
-                onClick={fetchMetadata}
-                disabled={!path || metaState === 'loading'}
-              >
-                {metaState === 'loading' ? 'Loading…' : 'Show meta'}
-              </button>
+            <div className="flex items-center gap-2 text-xs justify-end">
               {metaText && (
                 <button
-                  className="text-muted underline underline-offset-2 hover:text-text disabled:opacity-60"
+                  className="text-muted underline underline-offset-2 hover:text-text disabled:opacity-60 min-w-[54px] text-center"
                   onClick={copyMetadata}
                   disabled={!metaText}
                   title="Copy metadata"
@@ -381,6 +384,13 @@ export default function Inspector({
                   {copied ? 'Copied' : 'Copy'}
                 </button>
               )}
+              <button
+                className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[84px]"
+                onClick={fetchMetadata}
+                disabled={!path || metaState === 'loading'}
+              >
+                {metaState === 'loading' ? 'Loading…' : 'Show meta'}
+              </button>
             </div>
           </div>
           <pre className={`bg-[#0f0f0f] text-[11px] font-mono text-muted border border-border rounded-lg p-2 ${metaHeightClass} overflow-auto whitespace-pre-wrap leading-[1.3]`}>
@@ -436,7 +446,13 @@ export default function Inspector({
               >
                 Dimensions
               </span>
-              <span className="font-mono text-text inline-block text-right min-w-[80px]">{copiedField === 'dimensions' ? 'Copied' : `${currentItem.w}×${currentItem.h}`}</span>
+              <span
+                className="font-mono text-text inline-block text-right min-w-[80px]"
+                ref={(el) => rememberHeight('dimensions', el)}
+                style={valueHeights.dimensions ? { minHeight: valueHeights.dimensions } : undefined}
+              >
+                {copiedField === 'dimensions' ? 'Copied' : `${currentItem.w}×${currentItem.h}`}
+              </span>
             </div>
             <div
               className="flex justify-between"
@@ -447,7 +463,13 @@ export default function Inspector({
               >
                 Size
               </span>
-              <span className="font-mono text-text inline-block text-right min-w-[80px]">{copiedField === 'size' ? 'Copied' : fmtBytes(currentItem.size)}</span>
+              <span
+                className="font-mono text-text inline-block text-right min-w-[80px]"
+                ref={(el) => rememberHeight('size', el)}
+                style={valueHeights.size ? { minHeight: valueHeights.size } : undefined}
+              >
+                {copiedField === 'size' ? 'Copied' : fmtBytes(currentItem.size)}
+              </span>
             </div>
             <div
               className="flex justify-between"
@@ -458,7 +480,13 @@ export default function Inspector({
               >
                 Type
               </span>
-              <span className="font-mono text-text break-all text-right inline-block min-w-[80px]">{copiedField === 'type' ? 'Copied' : currentItem.type}</span>
+              <span
+                className="font-mono text-text break-all text-right inline-block min-w-[80px]"
+                ref={(el) => rememberHeight('type', el)}
+                style={valueHeights.type ? { minHeight: valueHeights.type } : undefined}
+              >
+                {copiedField === 'type' ? 'Copied' : currentItem.type}
+              </span>
             </div>
             <div
               className="flex justify-between"
@@ -469,7 +497,13 @@ export default function Inspector({
               >
                 Source
               </span>
-              <span className="font-mono text-text break-all text-right max-w-[70%] inline-block min-w-[80px]">{copiedField === 'source' ? 'Copied' : path}</span>
+              <span
+                className="font-mono text-text break-all text-right max-w-[70%] inline-block min-w-[80px]"
+                ref={(el) => rememberHeight('source', el)}
+                style={valueHeights.source ? { minHeight: valueHeights.source } : undefined}
+              >
+                {copiedField === 'source' ? 'Copied' : path}
+              </span>
             </div>
           </div>
         )}

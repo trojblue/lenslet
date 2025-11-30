@@ -309,8 +309,7 @@ export default function Inspector({
           </>
         ) : (
           <>
-            <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Filename</div>
-            <div className="font-mono text-muted break-all" title={filename}>{filename}</div>
+            <div className="font-mono text-text break-all" title={filename}>{filename}</div>
           </>
         )}
       </div>
@@ -366,7 +365,7 @@ export default function Inspector({
             <div className="text-muted text-xs uppercase tracking-wide">Metadata</div>
             <div className="flex items-center gap-2 text-xs">
               <button
-                className="px-2 py-1 bg-[#1b1b1b] text-text border border-border rounded-md disabled:opacity-60"
+                className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
                 onClick={fetchMetadata}
                 disabled={!path || metaState === 'loading'}
               >
@@ -429,36 +428,48 @@ export default function Inspector({
         {!multi && currentItem && (
           <div className="text-[12px] space-y-1">
             <div
-              className="flex justify-between cursor-pointer hover:text-text hover:underline"
-              onClick={() => copyInfo('dimensions', `${currentItem.w}×${currentItem.h}`)}
-              title="Click to copy dimensions"
+              className="flex justify-between"
             >
-              <span className="text-muted w-20 shrink-0">Dimensions</span>
-              <span className="font-mono text-text">{copiedField === 'dimensions' ? 'Copied' : `${currentItem.w}×${currentItem.h}`}</span>
+              <span
+                className="text-muted w-20 shrink-0 cursor-pointer"
+                onClick={() => copyInfo('dimensions', `${currentItem.w}×${currentItem.h}`)}
+              >
+                Dimensions
+              </span>
+              <span className="font-mono text-text inline-block text-right min-w-[80px]">{copiedField === 'dimensions' ? 'Copied' : `${currentItem.w}×${currentItem.h}`}</span>
             </div>
             <div
-              className="flex justify-between cursor-pointer hover:text-text hover:underline"
-              onClick={() => copyInfo('size', fmtBytes(currentItem.size))}
-              title="Click to copy size"
+              className="flex justify-between"
             >
-              <span className="text-muted w-20 shrink-0">Size</span>
-              <span className="font-mono text-text">{copiedField === 'size' ? 'Copied' : fmtBytes(currentItem.size)}</span>
+              <span
+                className="text-muted w-20 shrink-0 cursor-pointer"
+                onClick={() => copyInfo('size', fmtBytes(currentItem.size))}
+              >
+                Size
+              </span>
+              <span className="font-mono text-text inline-block text-right min-w-[80px]">{copiedField === 'size' ? 'Copied' : fmtBytes(currentItem.size)}</span>
             </div>
             <div
-              className="flex justify-between cursor-pointer hover:text-text hover:underline"
-              onClick={() => copyInfo('type', currentItem.type)}
-              title="Click to copy type"
+              className="flex justify-between"
             >
-              <span className="text-muted w-20 shrink-0">Type</span>
-              <span className="font-mono text-text break-all text-right">{copiedField === 'type' ? 'Copied' : currentItem.type}</span>
+              <span
+                className="text-muted w-20 shrink-0 cursor-pointer"
+                onClick={() => copyInfo('type', currentItem.type)}
+              >
+                Type
+              </span>
+              <span className="font-mono text-text break-all text-right inline-block min-w-[80px]">{copiedField === 'type' ? 'Copied' : currentItem.type}</span>
             </div>
             <div
-              className="flex justify-between cursor-pointer hover:text-text hover:underline"
-              onClick={() => path && copyInfo('source', path)}
-              title="Click to copy source path"
+              className="flex justify-between"
             >
-              <span className="text-muted w-20 shrink-0">Source</span>
-              <span className="font-mono text-text break-all text-right max-w-[70%]">{copiedField === 'source' ? 'Copied' : path}</span>
+              <span
+                className="text-muted w-20 shrink-0 cursor-pointer"
+                onClick={() => path && copyInfo('source', path)}
+              >
+                Source
+              </span>
+              <span className="font-mono text-text break-all text-right max-w-[70%] inline-block min-w-[80px]">{copiedField === 'source' ? 'Copied' : path}</span>
             </div>
           </div>
         )}

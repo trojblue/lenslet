@@ -166,9 +166,12 @@ python -m build
 one-liner:
 ```bash
 cd frontend && npm run build && rm -rf ../src/lenslet/frontend/* && cp -r dist/* ../src/lenslet/frontend/ && cd ..
-python -m build
+
+rm -rf dist/* && python -m build
 
 # lenslet data_backup --port 7070
+# twine upload dist/*
+
 ```
 ## Development Philosophy
 

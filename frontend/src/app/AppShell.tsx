@@ -133,6 +133,19 @@ export default function AppShell() {
     setSortDir(dir)
   }, [sortKey])
 
+  const formatTitle = useCallback((path: string) => {
+    if (path === '/' || path === '') return 'Lenscat - Root'
+    const segments = path.split('/').filter(Boolean)
+    if (!segments.length) return 'Lenscat'
+    const tail = segments.slice(-2).join('/')
+    const display = segments.length > 2 ? `.../${tail}` : `/${tail}`
+    return `Lenscat - ${display}`
+  }, [])
+
+  useEffect(() => {
+    document.title = formatTitle(current)
+  }, [current, formatTitle])
+
   // Clear selection when entering search mode
   useEffect(() => {
     if (searching) {

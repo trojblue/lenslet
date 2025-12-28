@@ -45,6 +45,7 @@ export default function AppShell() {
   // Sort and filter state
   const [sortKey, setSortKey] = useState<SortKey>('added')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [randomSeed, setRandomSeed] = useState<number>(() => Date.now())
   const [starFilters, setStarFilters] = useState<number[]>([])
   const [viewMode, setViewMode] = useState<ViewMode>('adaptive')
   const [gridItemSize, setGridItemSize] = useState<number>(220)
@@ -102,8 +103,8 @@ export default function AppShell() {
       star: localStarOverrides[it.path] !== undefined ? localStarOverrides[it.path] : it.star,
     }))
     const filtered = applyFilters(merged, starFilters.length > 0 ? starFilters : null)
-    return applySort(filtered, sortKey, sortDir)
-  }, [searching, search.data, data, sortKey, sortDir, starFilters, localStarOverrides])
+    return applySort(filtered, sortKey, sortDir, randomSeed)
+  }, [searching, search.data, data, sortKey, sortDir, starFilters, localStarOverrides, randomSeed])
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
 
@@ -117,6 +118,20 @@ export default function AppShell() {
     }
     return counts
   }, [data?.items, localStarOverrides])
+
+  const handleSortKey = useCallback((k: SortKey) => {
+    setSortKey(k)
+    if (k === 'random') {
+      setRandomSeed(Date.now())
+    }
+  }, [])
+
+  const handleSortDir = useCallback((dir: SortDir) => {
+    if (sortKey === 'random') {
+      setRandomSeed(Date.now())
+    }
+    setSortDir(dir)
+  }, [sortKey])
 
   // Clear selection when entering search mode
   useEffect(() => {
@@ -137,8 +152,11 @@ export default function AppShell() {
       const storedLeftOpen = localStorage.getItem(STORAGE_KEYS.leftOpen)
       const storedRightOpen = localStorage.getItem(STORAGE_KEYS.rightOpen)
       
-      if (storedSortKey === 'name' || storedSortKey === 'added') {
+      if (storedSortKey === 'name' || storedSortKey === 'added' || storedSortKey === 'random') {
         setSortKey(storedSortKey)
+        if (storedSortKey === 'random') {
+          setRandomSeed(Date.now())
+        }
       }
       if (storedSortDir === 'asc' || storedSortDir === 'desc') {
         setSortDir(storedSortDir)
@@ -413,8 +431,8 @@ export default function AppShell() {
         onZoomPercentChange={(p)=> setRequestedZoom(p)}
         sortKey={sortKey}
         sortDir={sortDir}
-        onSortKey={setSortKey}
-        onSortDir={setSortDir}
+        onSortKey={handleSortKey}
+        onSortDir={handleSortDir}
         starFilters={starFilters}
         onToggleStar={(v) => {
           setStarFilters((prev) => {

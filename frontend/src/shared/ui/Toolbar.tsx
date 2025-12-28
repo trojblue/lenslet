@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import type { ViewMode } from '../../lib/types'
+import type { SortDir, SortKey, ViewMode } from '../../lib/types'
 
 export default function Toolbar({
   onSearch,
@@ -33,10 +33,10 @@ export default function Toolbar({
   onBack?: () => void
   zoomPercent?: number
   onZoomPercentChange?: (p: number) => void
-  sortKey?: 'name' | 'added'
-  sortDir?: 'asc' | 'desc'
-  onSortKey?: (k: 'name' | 'added') => void
-  onSortDir?: (d: 'asc' | 'desc') => void
+  sortKey?: SortKey
+  sortDir?: SortDir
+  onSortKey?: (k: SortKey) => void
+  onSortDir?: (d: SortDir) => void
   starFilters?: number[] | null
   onToggleStar?: (v: number) => void
   onClearStars?: () => void
@@ -78,12 +78,13 @@ export default function Toolbar({
               <option value="adaptive">Adaptive</option>
             </select>
             <div className="w-px h-5 bg-border mx-1"></div>
-            <select className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text" value={sortKey||'added'} onChange={e=> onSortKey && onSortKey((e.target.value as any) || 'added')} title="Sort by">
+            <select className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text" value={sortKey||'added'} onChange={e=> onSortKey && onSortKey((e.target.value as SortKey) || 'added')} title="Sort by">
               <option value="added">Date added</option>
               <option value="name">Filename</option>
+              <option value="random">Random</option>
             </select>
-            <button className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={()=> onSortDir && onSortDir((sortDir||'desc')==='desc'?'asc':'desc')} title="Toggle sort">
-              {(sortDir||'desc')==='desc' ? '↓' : '↑'}
+            <button className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={()=> onSortDir && onSortDir((sortDir||'desc')==='desc'?'asc':'desc')} title={sortKey === 'random' ? 'Shuffle' : 'Toggle sort'}>
+              {sortKey === 'random' ? '⟳' : ((sortDir||'desc')==='desc' ? '↓' : '↑')}
             </button>
             <div ref={ratingRef}>
               <button className="h-7 px-2.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer flex items-center gap-1.5" onClick={()=> setOpenRating(v=>!v)} title="Filter by rating" aria-haspopup="dialog" aria-expanded={openRating}>

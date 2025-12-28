@@ -134,12 +134,12 @@ export default function AppShell() {
   }, [sortKey])
 
   const formatTitle = useCallback((path: string) => {
-    if (path === '/' || path === '') return 'Lenscat - Root'
+    if (path === '/' || path === '') return 'Lenslet - Root'
     const segments = path.split('/').filter(Boolean)
-    if (!segments.length) return 'Lenscat'
+    if (!segments.length) return 'Lenslet'
     const tail = segments.slice(-2).join('/')
     const display = segments.length > 2 ? `.../${tail}` : `/${tail}`
-    return `Lenscat - ${display}`
+    return `Lenslet - ${display}`
   }, [])
 
   useEffect(() => {

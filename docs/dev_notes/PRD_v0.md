@@ -47,7 +47,7 @@ So the tree is a mix of branch-only nodes and leaf nodes (real/pointer). That ke
   - **Native folder:** holds images directly.
   - **Pointer folder:** has a **config file** pointing elsewhere.
 
-**Config file spec (`.lenscat.folder.json`):**
+**Config file spec (`.lenslet.folder.json`):**
 
 ```json
 {

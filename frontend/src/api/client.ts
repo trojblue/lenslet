@@ -7,7 +7,7 @@ import { BASE } from './base'
 const MAX_PREFETCH_SIZE = 40 * 1024 * 1024
 
 /**
- * API client for the lenscat backend.
+ * API client for the lenslet backend.
  * All methods return promises and handle caching where appropriate.
  */
 export const api = {

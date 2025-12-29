@@ -10,8 +10,8 @@ Put it **outside**. One repo, two siblings. Don’t stuff a Python backend insid
 ## Suggested layout
 
 ```
-lenscat/
-├─ frontend/           # your Lenscat-lite UI (what we already scaffolded)
+lenslet/
+├─ frontend/           # your lenslet-lite UI (what we already scaffolded)
 ├─ backend/            # FastAPI + workers (Python)
 ├─ shared/             # OpenAPI spec + JSON Schemas (source of truth)
 ├─ infra/              # docker-compose for MinIO (S3), nginx, etc. (optional)

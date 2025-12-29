@@ -322,7 +322,7 @@ Each step is safe to ship independently and revertible.
 - **Hidden coupling via contexts:**
    Only layout widths and viewer history get contexts; all other state remains local or in React Query.
 - **Drag & drop complexities:**
-   Keep existing MIME (`application/x-lenscat-paths`) and behavior; factor helpers into `shared/lib/dnd.ts`.
+   Keep existing MIME (`application/x-lenslet-paths`) and behavior; factor helpers into `shared/lib/dnd.ts`.
 
 ------
 

@@ -33,7 +33,7 @@
 # Fix Plan (overview)
 
 1. **Drag-and-drop path leak**
-   - Remove all `text/*` payloads. Use a single **app-scoped** custom MIME: `application/x-lenscat-paths` (JSON array).
+   - Remove all `text/*` payloads. Use a single **app-scoped** custom MIME: `application/x-lenslet-paths` (JSON array).
    - Update both producer (Grid) and consumers (Tree) accordingly.
 2. **Untrusted `window.location.hash`**
    - Sanitize before use: allow only `/[a-zA-Z0-9._\-/]`, collapse `//`, cap at 512 chars.
@@ -56,15 +56,15 @@
 **Before** (excerpt):
 
 ```ts
-e.dataTransfer?.setData('application/x-lenscat-paths', JSON.stringify(paths))
-e.dataTransfer?.setData('text/lenscat-path', paths[0])
+e.dataTransfer?.setData('application/x-lenslet-paths', JSON.stringify(paths))
+e.dataTransfer?.setData('text/lenslet-path', paths[0])
 e.dataTransfer?.setData('text/plain', paths.join('\n'))
 ```
 
 **After**:
 
 ```ts
-e.dataTransfer?.setData('application/x-lenscat-paths', JSON.stringify(paths))
+e.dataTransfer?.setData('application/x-lenslet-paths', JSON.stringify(paths))
 if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove'
 ```
 
@@ -76,27 +76,27 @@ No other types. This prevents other sites from trivially reading your internal p
 
 ```ts
 const types = Array.from(e.dataTransfer?.types || [])
-if (types.includes('text/lenscat-path') || types.includes('application/x-lenscat-paths')) { ... }
+if (types.includes('text/lenslet-path') || types.includes('application/x-lenslet-paths')) { ... }
 ```
 
 **After**:
 
 ```ts
 const types = Array.from(e.dataTransfer?.types || [])
-if (types.includes('application/x-lenscat-paths')) { ... }
+if (types.includes('application/x-lenslet-paths')) { ... }
 ```
 
 **Before** (drop handler):
 
 ```ts
-const multi = dt.getData('application/x-lenscat-paths')
-const paths: string[] = multi ? JSON.parse(multi) : [dt.getData('text/lenscat-path') || dt.getData('text/plain')]
+const multi = dt.getData('application/x-lenslet-paths')
+const paths: string[] = multi ? JSON.parse(multi) : [dt.getData('text/lenslet-path') || dt.getData('text/plain')]
 ```
 
 **After**:
 
 ```ts
-const multi = dt.getData('application/x-lenscat-paths')
+const multi = dt.getData('application/x-lenslet-paths')
 const paths: string[] = multi ? JSON.parse(multi) : []
 ```
 
@@ -387,7 +387,7 @@ Notes:
 
 # Rationale (tie-back to risks)
 
-- **DND leakage:** removing `text/plain` (and any `text/*`) closes the easy exfil path when users drag into hostile pages. Keeping only `application/x-lenscat-paths` is both sufficient and private.
+- **DND leakage:** removing `text/plain` (and any `text/*`) closes the easy exfil path when users drag into hostile pages. Keeping only `application/x-lenslet-paths` is both sufficient and private.
 - **Hash input:** strict allow-list + length cap prevents path-shaped payloads from becoming backend amplification/spam vectors.
 - **Blob URLs:** object URLs are process-global; without revocation, repeated use is an unbounded leak. The tiny LRU + targeted revokes fixes this with <40 lines.
 - **CSP & framing:** future slip-ups (e.g., `dangerouslySetInnerHTML`) won’t instantly become RCE/XSS, and the UI can’t be clickjacked.

@@ -117,7 +117,7 @@ function TreeNode({
         }}
         onDragOver={(e)=>{
           const types = Array.from(e.dataTransfer?.types || [])
-          if (types.includes('application/x-lenscat-paths')) {
+          if (types.includes('application/x-lenslet-paths')) {
             e.preventDefault()
             if (isLeaf) {
               document.querySelectorAll('[role="treeitem"].drop-target').forEach(el => { if (el !== e.currentTarget) el.classList.remove('drop-target') })
@@ -127,7 +127,7 @@ function TreeNode({
         }}
         onDragEnter={(e)=>{
           const types = Array.from(e.dataTransfer?.types || [])
-          if ((types.includes('application/x-lenscat-paths')) && isLeaf) {
+          if ((types.includes('application/x-lenslet-paths')) && isLeaf) {
             e.preventDefault()
             document.querySelectorAll('[role="treeitem"].drop-target').forEach(el => { if (el !== e.currentTarget) el.classList.remove('drop-target') })
             ;(e.currentTarget as HTMLElement).classList.add('drop-target')
@@ -144,7 +144,7 @@ function TreeNode({
           if (!dt) return
           e.preventDefault()
           ;(e.currentTarget as HTMLElement).classList.remove('drop-target')
-          const multi = dt.getData('application/x-lenscat-paths')
+          const multi = dt.getData('application/x-lenslet-paths')
           const paths: string[] = multi ? JSON.parse(multi) : []
           const filtered = paths.filter(Boolean)
           if (!filtered.length) return

@@ -305,16 +305,19 @@ export default function Toolbar({
 
         <div className="flex items-center gap-1 ml-1">
           <button
-            className={`h-8 w-8 rounded-lg border border-border bg-[#1b1b1b] text-text flex items-center justify-center hover:bg-[#252525] ${leftOpen ? 'opacity-100' : 'opacity-60'}`}
+            className={`relative group h-8 w-8 rounded-lg border border-border bg-[#1b1b1b] text-text flex items-center justify-center hover:bg-[#252525] ${leftOpen ? 'opacity-100' : 'opacity-60'}`}
             title={leftOpen ? 'Hide left panel (Ctrl+B)' : 'Show left panel (Ctrl+B)'}
             onClick={onToggleLeft}
             aria-pressed={leftOpen}
             aria-label="Toggle left panel"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="6" height="14" rx="1.5"/><rect x="11" y="5" width="10" height="14" rx="1.5"/></svg>
+            <span className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-[#121212] px-2 py-1 text-[11px] text-text opacity-0 shadow-[0_6px_16px_rgba(0,0,0,0.45)] transition-opacity group-hover:opacity-100 z-[var(--z-menu)]">
+              {leftOpen ? 'Hide left panel (Ctrl+B)' : 'Show left panel (Ctrl+B)'}
+            </span>
           </button>
           <button
-            className={`h-8 w-8 rounded-lg border border-border bg-[#1b1b1b] text-text flex items-center justify-center hover:bg-[#252525] ${rightOpen ? 'opacity-100' : 'opacity-60'}`}
+            className={`relative group h-8 w-8 rounded-lg border border-border bg-[#1b1b1b] text-text flex items-center justify-center hover:bg-[#252525] ${rightOpen ? 'opacity-100' : 'opacity-60'}`}
             title={rightOpen ? 'Hide right panel (Ctrl+Alt+B)' : 'Show right panel (Ctrl+Alt+B)'}
             onClick={onToggleRight}
             aria-pressed={rightOpen}
@@ -324,6 +327,9 @@ export default function Toolbar({
               <rect x="15" y="5" width="6" height="14" rx="1.5" />
               <rect x="3" y="5" width="10" height="14" rx="1.5" />
             </svg>
+            <span className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-[#121212] px-2 py-1 text-[11px] text-text opacity-0 shadow-[0_6px_16px_rgba(0,0,0,0.45)] transition-opacity group-hover:opacity-100 z-[var(--z-menu)]">
+              {rightOpen ? 'Hide right panel (Ctrl+Alt+B)' : 'Show right panel (Ctrl+Alt+B)'}
+            </span>
           </button>
         </div>
 

@@ -681,18 +681,27 @@ export default function AppShell() {
         <div className="col-start-1 row-start-2 relative border-r border-border bg-panel overflow-hidden">
           <div className="absolute inset-y-0 left-0 w-10 border-r border-border flex flex-col items-center gap-2 py-3 bg-[#141414]">
             <button
-              className={`w-7 h-7 rounded-md border border-border text-xs flex items-center justify-center ${leftTool === 'folders' ? 'bg-accent/20 text-accent' : 'bg-[#1b1b1b] text-text'}`}
+              className={`w-7 h-7 rounded-md border border-border flex items-center justify-center ${leftTool === 'folders' ? 'bg-accent/20 text-accent' : 'bg-[#1b1b1b] text-text'}`}
               title="Folders"
+              aria-label="Folders"
               onClick={() => setLeftTool('folders')}
             >
-              F
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 7.5h6l2-2h10a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z" />
+              </svg>
             </button>
             <button
-              className={`w-7 h-7 rounded-md border border-border text-xs flex items-center justify-center ${leftTool === 'metrics' ? 'bg-accent/20 text-accent' : 'bg-[#1b1b1b] text-text'}`}
+              className={`w-7 h-7 rounded-md border border-border flex items-center justify-center ${leftTool === 'metrics' ? 'bg-accent/20 text-accent' : 'bg-[#1b1b1b] text-text'}`}
               title="Metrics"
+              aria-label="Metrics"
               onClick={() => setLeftTool('metrics')}
             >
-              M
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 19V9" />
+                <path d="M10 19V5" />
+                <path d="M16 19v-7" />
+                <path d="M3 19h18" />
+              </svg>
             </button>
           </div>
           <div className="ml-10 h-full">

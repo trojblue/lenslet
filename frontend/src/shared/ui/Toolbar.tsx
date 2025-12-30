@@ -87,7 +87,7 @@ export default function Toolbar({
   const sortDir = effectiveSort.dir
   const isRandom = effectiveSort.kind === 'builtin' && effectiveSort.key === 'random'
   return (
-    <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[auto_1fr_auto] items-center px-3 gap-3 bg-panel border-b border-border z-toolbar col-span-full row-start-1">
+    <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[auto_1fr_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1">
       <div className="flex items-center gap-2">
         {viewerActive && (
           <button className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={onBack}>← Back</button>
@@ -264,7 +264,7 @@ export default function Toolbar({
               <div
                 role="dialog"
                 aria-label="Smart Folders"
-                className="absolute right-0 top-[38px] bg-[#1b1b1b] border border-border rounded-lg p-1.5 shadow-[0_10px_26px_rgba(0,0,0,0.35)] w-[220px]"
+                className="absolute right-0 top-[38px] bg-[#1b1b1b] border border-border rounded-lg p-1.5 shadow-[0_10px_26px_rgba(0,0,0,0.35)] w-[220px] z-[var(--z-menu)]"
               >
                 <div className="text-[11px] uppercase tracking-wide text-muted px-1.5 py-1">Smart Folders</div>
                 <div className="max-h-[220px] overflow-auto scrollbar-thin">

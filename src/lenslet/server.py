@@ -51,6 +51,8 @@ class Item(BaseModel):
     hash: str | None = None
     addedAt: str | None = None
     star: int | None = None
+    comments: str | None = None
+    url: str | None = None
     metrics: dict[str, float] | None = None
 
 
@@ -176,6 +178,8 @@ def create_app(
             hasMeta=True,
             addedAt=datetime.fromtimestamp(cached.mtime, tz=timezone.utc).isoformat(),
             star=meta.get("star"),
+            comments=meta.get("notes", ""),
+            url=getattr(cached, "url", None),
             metrics=getattr(cached, "metrics", None),
         )
 
@@ -375,6 +379,8 @@ def create_app_from_datasets(
             hasMeta=True,
             addedAt=datetime.fromtimestamp(cached.mtime, tz=timezone.utc).isoformat(),
             star=meta.get("star"),
+            comments=meta.get("notes", ""),
+            url=getattr(cached, "url", None),
             metrics=getattr(cached, "metrics", None),
         )
 

@@ -16,6 +16,7 @@ export interface ToolbarProps {
   starFilters?: number[] | null
   onToggleStar?: (v: number) => void
   onClearStars?: () => void
+  onClearFilters?: () => void
   starCounts?: { [k: string]: number }
   viewMode?: ViewMode
   onViewMode?: (v: ViewMode) => void
@@ -45,6 +46,7 @@ export default function Toolbar({
   starFilters,
   onToggleStar,
   onClearStars,
+  onClearFilters,
   starCounts,
   viewMode,
   onViewMode,
@@ -128,7 +130,9 @@ export default function Toolbar({
 
   // Count active star filters
   const activeStarCount = (starFilters || []).length
-  const totalFilterCount = (filterCount || 0) + (activeStarCount > 0 ? 1 : 0)
+  const totalFilterCount = typeof filterCount === 'number'
+    ? filterCount
+    : (activeStarCount > 0 ? 1 : 0)
 
   return (
     <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[auto_1fr_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1">
@@ -273,7 +277,11 @@ export default function Toolbar({
                   <button
                     className="dropdown-item text-muted hover:text-text"
                     onClick={() => {
-                      onClearStars?.()
+                      if (onClearFilters) {
+                        onClearFilters()
+                      } else {
+                        onClearStars?.()
+                      }
                     }}
                     disabled={totalFilterCount === 0}
                   >

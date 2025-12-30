@@ -11,4 +11,17 @@ export const sortByAdded: Comparator<Item> = (a,b) => {
   return ta - tb
 }
 
+export const sortByMetric = (key: string): Comparator<Item> => {
+  return (a, b) => {
+    const va = a.metrics?.[key]
+    const vb = b.metrics?.[key]
+    const aMissing = va == null
+    const bMissing = vb == null
+    if (aMissing && bMissing) return sortByName(a, b)
+    if (aMissing) return 1
+    if (bMissing) return -1
+    if (va === vb) return sortByName(a, b)
+    return (va as number) - (vb as number)
+  }
+}
 

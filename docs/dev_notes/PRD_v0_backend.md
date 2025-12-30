@@ -2,7 +2,7 @@
 
 # PRD — Backend (Python, FastAPI + Workers)
 
-**Codename:** Lenscat-backend
+**Codename:** lenslet-backend
  **Owner:** You
  **Version:** v0.1 (MVP)
  **Date:** [Insert date]

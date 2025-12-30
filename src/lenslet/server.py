@@ -30,6 +30,8 @@ class NoCacheIndexStaticFiles(StaticFiles):
 from .metadata import read_png_info
 from .storage.memory import MemoryStorage
 from .storage.dataset import DatasetStorage
+from .storage.parquet import ParquetStorage
+from .workspace import Workspace
 
 
 # --- Models ---
@@ -49,6 +51,9 @@ class Item(BaseModel):
     hash: str | None = None
     addedAt: str | None = None
     star: int | None = None
+    comments: str | None = None
+    url: str | None = None
+    metrics: dict[str, float] | None = None
 
 
 class DirEntry(BaseModel):
@@ -88,12 +93,18 @@ class ImageMetadataResponse(BaseModel):
     meta: dict
 
 
+class ViewsPayload(BaseModel):
+    version: int = 1
+    views: list[dict] = Field(default_factory=list)
+
+
 # --- App Factory ---
 
 def create_app(
     root_path: str,
     thumb_size: int = 256,
     thumb_quality: int = 70,
+    no_write: bool = False,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
@@ -110,17 +121,43 @@ def create_app(
         allow_headers=["*"],
     )
 
-    # Create in-memory storage
-    storage = MemoryStorage(
-        root=root_path,
-        thumb_size=thumb_size,
-        thumb_quality=thumb_quality,
-    )
+    # Create storage (prefer Parquet dataset if present)
+    items_path = Path(root_path) / "items.parquet"
+    storage_mode = "memory"
+    if items_path.is_file():
+        try:
+            storage = ParquetStorage(
+                root=root_path,
+                thumb_size=thumb_size,
+                thumb_quality=thumb_quality,
+            )
+            storage_mode = "parquet"
+        except Exception as exc:
+            print(f"[lenslet] Warning: Failed to load Parquet dataset: {exc}")
+            storage = MemoryStorage(
+                root=root_path,
+                thumb_size=thumb_size,
+                thumb_quality=thumb_quality,
+            )
+            storage_mode = "memory"
+    else:
+        storage = MemoryStorage(
+            root=root_path,
+            thumb_size=thumb_size,
+            thumb_quality=thumb_quality,
+        )
 
-    def _storage(request: Request) -> MemoryStorage:
+    workspace = Workspace.for_dataset(root_path, can_write=not no_write)
+    try:
+        workspace.ensure()
+    except Exception as exc:
+        print(f"[lenslet] Warning: failed to initialize workspace: {exc}")
+        workspace.can_write = False
+
+    def _storage(request: Request):
         return request.state.storage  # type: ignore[attr-defined]
 
-    def _ensure_image(storage: MemoryStorage, path: str) -> None:
+    def _ensure_image(storage, path: str) -> None:
         try:
             storage.validate_image_path(path)
         except FileNotFoundError:
@@ -128,7 +165,7 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
-    def _to_item(storage: MemoryStorage, cached) -> Item:
+    def _to_item(storage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
         return Item(
             path=cached.path,
@@ -141,6 +178,9 @@ def create_app(
             hasMeta=True,
             addedAt=datetime.fromtimestamp(cached.mtime, tz=timezone.utc).isoformat(),
             star=meta.get("star"),
+            comments=meta.get("notes", ""),
+            url=getattr(cached, "url", None),
+            metrics=getattr(cached, "metrics", None),
         )
 
     # Inject storage via middleware
@@ -154,7 +194,12 @@ def create_app(
 
     @app.get("/health")
     def health():
-        return {"ok": True, "mode": "memory", "root": root_path}
+        return {
+            "ok": True,
+            "mode": storage_mode,
+            "root": root_path,
+            "can_write": workspace.can_write,
+        }
 
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(path: str = "/", request: Request = None):
@@ -178,6 +223,9 @@ def create_app(
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
+        if storage_mode != "memory":
+            return {"ok": True, "note": f"{storage_mode} mode is static"}
+
         storage = _storage(request)
         try:
             target = storage._abs_path(path)
@@ -259,6 +307,18 @@ def create_app(
         hits = storage.search(query=q, path=path, limit=limit)
         return SearchResult(items=[_to_item(storage, it) for it in hits])
 
+    @app.get("/views", response_model=ViewsPayload)
+    def get_views():
+        return workspace.load_views()
+
+    @app.put("/views", response_model=ViewsPayload)
+    def put_views(body: ViewsPayload):
+        if not workspace.can_write:
+            raise HTTPException(403, "no-write mode")
+        payload = body.model_dump()
+        workspace.write_views(payload)
+        return body
+
     # Mount frontend if dist exists
     frontend_dist = Path(__file__).parent / "frontend"
     if frontend_dist.is_dir():
@@ -293,6 +353,7 @@ def create_app_from_datasets(
         thumb_size=thumb_size,
         thumb_quality=thumb_quality,
     )
+    workspace = Workspace.for_dataset(None, can_write=False)
 
     def _storage(request: Request) -> DatasetStorage:
         return request.state.storage  # type: ignore[attr-defined]
@@ -318,6 +379,9 @@ def create_app_from_datasets(
             hasMeta=True,
             addedAt=datetime.fromtimestamp(cached.mtime, tz=timezone.utc).isoformat(),
             star=meta.get("star"),
+            comments=meta.get("notes", ""),
+            url=getattr(cached, "url", None),
+            metrics=getattr(cached, "metrics", None),
         )
 
     # Inject storage via middleware
@@ -338,6 +402,7 @@ def create_app_from_datasets(
             "mode": "dataset",
             "datasets": dataset_names,
             "total_images": total_images,
+            "can_write": workspace.can_write,
         }
 
     @app.get("/folders", response_model=FolderIndex)
@@ -434,6 +499,18 @@ def create_app_from_datasets(
         storage = _storage(request)
         hits = storage.search(query=q, path=path, limit=limit)
         return SearchResult(items=[_to_item(storage, it) for it in hits])
+
+    @app.get("/views", response_model=ViewsPayload)
+    def get_views():
+        return workspace.load_views()
+
+    @app.put("/views", response_model=ViewsPayload)
+    def put_views(body: ViewsPayload):
+        if not workspace.can_write:
+            raise HTTPException(403, "no-write mode")
+        payload = body.model_dump()
+        workspace.write_views(payload)
+        return body
 
     # Mount frontend if dist exists
     frontend_dist = Path(__file__).parent / "frontend"

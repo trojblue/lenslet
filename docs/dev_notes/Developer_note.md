@@ -80,7 +80,7 @@ Perf budget (enforce it):
 - Lists `items[]` (name, w, h, size, hasThumb, hasMeta, hash?) and `dirs[]` (name, kind).
 - If large: paginate by stable alphabetical chunks (`_index_0.json`, `_index_1.json`).
 
-### Pointer Config (`.lenscat.folder.json`)
+### Pointer Config (`.lenslet.folder.json`)
 
 - `kind: "pointer"`, `target: {type: "s3"|"local", bucket/prefix or path}`, `label`, `readonly`.
 

@@ -30,8 +30,7 @@ export const BASE = computeApiBase()
 try {
   if ((import.meta as any).env?.DEV) {
     // Helpful during local dev to see which API origin is used
-    console.info('[lenscat] API BASE:', BASE || '(same-origin)')
+    console.info('[lenslet] API BASE:', BASE || '(same-origin)')
   }
 } catch {}
-
 

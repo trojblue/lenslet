@@ -1,13 +1,13 @@
 import { fetchJSON, fetchBlob } from '../lib/fetcher'
 import { fileCache, thumbCache } from '../lib/blobCache'
-import type { FolderIndex, Sidecar, FileOpResponse, RefreshResponse, SearchResult, ImageMetadataResponse } from '../lib/types'
+import type { FolderIndex, Sidecar, FileOpResponse, RefreshResponse, SearchResult, ImageMetadataResponse, ViewsPayload } from '../lib/types'
 import { BASE } from './base'
 
 /** Maximum file size to cache in prefetch (40MB) */
 const MAX_PREFETCH_SIZE = 40 * 1024 * 1024
 
 /**
- * API client for the lenscat backend.
+ * API client for the lenslet backend.
  * All methods return promises and handle caching where appropriate.
  */
 export const api = {
@@ -168,6 +168,24 @@ export const api = {
     return fetchJSON<{ ok: boolean }>(`${BASE}/export-intent`, {
       method: 'POST',
       body: fd,
+    }).promise
+  },
+
+  /**
+   * Fetch saved Smart Folders (views).
+   */
+  getViews: (): Promise<ViewsPayload> => {
+    return fetchJSON<ViewsPayload>(`${BASE}/views`).promise
+  },
+
+  /**
+   * Persist saved Smart Folders (views).
+   */
+  saveViews: (payload: ViewsPayload): Promise<ViewsPayload> => {
+    return fetchJSON<ViewsPayload>(`${BASE}/views`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     }).promise
   },
 }

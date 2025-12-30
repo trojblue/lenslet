@@ -1,9 +1,9 @@
-import type { Item, SortDir, SortKey } from '../../../lib/types'
-import { byStars } from './filters'
-import { sortByAdded, sortByName } from './sorters'
+import type { FilterAST, Item, SortSpec } from '../../../lib/types'
+import { applyFilterAst } from './filters'
+import { sortByAdded, sortByMetric, sortByName } from './sorters'
 
-export function applyFilters(items: Item[], stars: number[] | null) {
-  return items.filter(byStars(stars))
+export function applyFilters(items: Item[], filters: FilterAST | null) {
+  return applyFilterAst(items, filters)
 }
 
 function mulberry32(seed: number): () => number {
@@ -26,14 +26,15 @@ function shuffleWithSeed<T>(items: T[], seed: number): T[] {
   return arr
 }
 
-export function applySort(items: Item[], kind: SortKey, dir: SortDir, randomSeed?: number) {
-  if (kind === 'random') {
+export function applySort(items: Item[], sort: SortSpec, randomSeed?: number) {
+  if (sort.kind === 'builtin' && sort.key === 'random') {
     const seed = randomSeed ?? Date.now()
     return shuffleWithSeed(items, seed)
   }
 
-  const cmp = kind === 'name' ? sortByName : sortByAdded
+  const cmp = sort.kind === 'metric'
+    ? sortByMetric(sort.key)
+    : (sort.key === 'name' ? sortByName : sortByAdded)
   const arr = [...items].sort(cmp)
-  return dir === 'desc' ? arr.reverse() : arr
+  return sort.dir === 'desc' ? arr.reverse() : arr
 }
-

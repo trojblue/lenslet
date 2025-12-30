@@ -4,7 +4,7 @@ Below is a tiny, opinionated boilerplate you can paste into a new repo. It’s R
 
 ## Project Structure
 ```
-lenscat-lite/
+lenslet-lite/
 ├─ package.json
 ├─ tsconfig.json
 ├─ vite.config.ts
@@ -42,7 +42,7 @@ lenscat-lite/
 ## package.json (minimal deps)
 ```json
 {
-  "name": "lenscat-lite",
+  "name": "lenslet-lite",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -101,7 +101,7 @@ export default defineConfig({ plugins: [react()] })
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Lenscat-lite</title>
+    <title>lenslet-lite</title>
   </head>
   <body>
     <div id="root"></div>
@@ -502,7 +502,7 @@ createRoot(document.getElementById('root')!).render(<App />)
 
 ## README.md (operational notes)
 ```md
-# Lenscat-lite (Frontend Boilerplate)
+# lenslet-lite (Frontend Boilerplate)
 Fast, minimal gallery UI. Bring your own FastAPI.
 
 ## Why this is not bloat

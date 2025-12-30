@@ -9,21 +9,43 @@ import { useSearch } from '../shared/api/search'
 import { api } from '../shared/api/client'
 import { readHash, writeHash, sanitizePath, getParentPath, isTrashPath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
+import {
+  countActiveFilters,
+  getStarFilter,
+  normalizeFilterAst,
+  setCommentsContainsFilter,
+  setCommentsNotContainsFilter,
+  setDateRangeFilter,
+  setHeightCompareFilter,
+  setMetricRangeFilter,
+  setNameContainsFilter,
+  setNameNotContainsFilter,
+  setStarFilter,
+  setStarsNotInFilter,
+  setUrlContainsFilter,
+  setUrlNotContainsFilter,
+  setWidthCompareFilter,
+} from '../features/browse/model/filters'
+import MetricsPanel from '../features/metrics/MetricsPanel'
 import { useSidebars } from './layout/useSidebars'
 import { useQueryClient } from '@tanstack/react-query'
 import ContextMenu, { MenuItem } from './menu/ContextMenu'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 import { useDebounced } from '../shared/hooks/useDebounced'
-import type { Item, SortKey, SortDir, ContextMenuState, StarRating, ViewMode } from '../lib/types'
+import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState } from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
 import { safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
+import { FetchError } from '../lib/fetcher'
 
 /** Local storage keys for persisted settings */
 const STORAGE_KEYS = {
   sortKey: 'sortKey',
   sortDir: 'sortDir',
+  sortSpec: 'sortSpec',
   starFilters: 'starFilters',
+  filterAst: 'filterAst',
+  selectedMetric: 'selectedMetric',
   viewMode: 'viewMode',
   gridItemSize: 'gridItemSize',
   leftOpen: 'leftOpen',
@@ -42,15 +64,20 @@ export default function AppShell() {
   const [requestedZoom, setRequestedZoom] = useState<number | null>(null)
   const [currentZoom, setCurrentZoom] = useState(100)
   
-  // Sort and filter state
-  const [sortKey, setSortKey] = useState<SortKey>('added')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  // View state (filters + sort)
+  const [viewState, setViewState] = useState<ViewState>(() => ({
+    filters: { and: [] },
+    sort: { kind: 'builtin', key: 'added', dir: 'desc' },
+    selectedMetric: undefined,
+  }))
   const [randomSeed, setRandomSeed] = useState<number>(() => Date.now())
-  const [starFilters, setStarFilters] = useState<number[]>([])
   const [viewMode, setViewMode] = useState<ViewMode>('adaptive')
   const [gridItemSize, setGridItemSize] = useState<number>(220)
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
+  const [leftTool, setLeftTool] = useState<'folders' | 'metrics'>('folders')
+  const [views, setViews] = useState<SavedView[]>([])
+  const [activeViewId, setActiveViewId] = useState<string | null>(null)
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
@@ -94,44 +121,235 @@ export default function AppShell() {
   const debouncedQ = useDebounced(query, 250)
   const normalizedQ = useMemo(() => debouncedQ.trim().replace(/\s+/g, ' '), [debouncedQ])
   const search = useSearch(searching ? normalizedQ : '', current)
+  const starFilters = useMemo(() => getStarFilter(viewState.filters), [viewState.filters])
 
-  // Merge items with local star overrides and apply sort/filters
-  const items = useMemo((): Item[] => {
+  // Pool items (current scope) + derived view (filters/sort)
+  const poolItems = useMemo((): Item[] => {
     const base = searching ? (search.data?.items ?? []) : (data?.items ?? [])
-    const merged = base.map((it) => ({
+    return base.map((it) => ({
       ...it,
       star: localStarOverrides[it.path] !== undefined ? localStarOverrides[it.path] : it.star,
     }))
-    const filtered = applyFilters(merged, starFilters.length > 0 ? starFilters : null)
-    return applySort(filtered, sortKey, sortDir, randomSeed)
-  }, [searching, search.data, data, sortKey, sortDir, starFilters, localStarOverrides, randomSeed])
+  }, [searching, search.data, data, localStarOverrides])
+
+  const items = useMemo((): Item[] => {
+    const filtered = applyFilters(poolItems, viewState.filters)
+    return applySort(filtered, viewState.sort, randomSeed)
+  }, [poolItems, viewState.filters, viewState.sort, randomSeed])
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
 
   // Compute star counts for the filter UI
   const starCounts = useMemo(() => {
-    const baseItems = data?.items ?? []
+    const baseItems = poolItems
     const counts: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 }
     for (const it of baseItems) {
       const star = localStarOverrides[it.path] ?? it.star ?? 0
       counts[String(star)] = (counts[String(star)] || 0) + 1
     }
     return counts
-  }, [data?.items, localStarOverrides])
+  }, [poolItems, localStarOverrides])
 
-  const handleSortKey = useCallback((k: SortKey) => {
-    setSortKey(k)
-    if (k === 'random') {
+  const metricKeys = useMemo(() => {
+    const keys = new Set<string>()
+    let scanned = 0
+    for (const it of poolItems) {
+      const metrics = it.metrics
+      if (metrics) {
+        for (const key of Object.keys(metrics)) {
+          keys.add(key)
+        }
+      }
+      scanned += 1
+      if (scanned >= 250 && keys.size > 0) break
+    }
+    return Array.from(keys).sort()
+  }, [poolItems])
+
+  useEffect(() => {
+    if (!metricKeys.length) return
+    setViewState((prev) => {
+      const nextKey = prev.selectedMetric && metricKeys.includes(prev.selectedMetric)
+        ? prev.selectedMetric
+        : metricKeys[0]
+      if (nextKey === prev.selectedMetric) return prev
+      return { ...prev, selectedMetric: nextKey }
+    })
+  }, [metricKeys])
+
+  useEffect(() => {
+    if (viewState.sort.kind !== 'metric') return
+    if (metricKeys.includes(viewState.sort.key)) return
+    setViewState((prev) => ({
+      ...prev,
+      sort: { kind: 'builtin', key: 'added', dir: prev.sort.dir },
+    }))
+  }, [metricKeys, viewState.sort])
+
+  const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
+
+  const updateFilters = useCallback((updater: (filters: FilterAST) => FilterAST) => {
+    setViewState((prev) => ({
+      ...prev,
+      filters: updater(prev.filters),
+    }))
+  }, [])
+
+  const handleFiltersChange = useCallback((filters: FilterAST) => {
+    setViewState((prev) => ({
+      ...prev,
+      filters,
+    }))
+  }, [])
+
+  const handleClearStars = useCallback(() => {
+    updateFilters((filters) => setStarFilter(filters, []))
+  }, [updateFilters])
+
+  const handleClearFilters = useCallback(() => {
+    setViewState((prev) => ({
+      ...prev,
+      filters: { and: [] },
+    }))
+  }, [])
+
+  const handleMetricRange = useCallback((key: string, range: { min: number; max: number } | null) => {
+    updateFilters((filters) => setMetricRangeFilter(filters, key, range))
+  }, [updateFilters])
+
+  const filterChips = useMemo(() => {
+    const chips: { id: string; label: string; onRemove: () => void }[] = []
+    for (const clause of viewState.filters.and) {
+      if ('stars' in clause) {
+        const stars = clause.stars || []
+        if (!stars.length) continue
+        chips.push({
+          id: 'stars',
+          label: `Rating in: ${formatStarValues(stars)}`,
+          onRemove: () => handleClearStars(),
+        })
+      } else if ('starsIn' in clause) {
+        const stars = clause.starsIn.values || []
+        if (!stars.length) continue
+        chips.push({
+          id: 'stars-in',
+          label: `Rating in: ${formatStarValues(stars)}`,
+          onRemove: () => handleClearStars(),
+        })
+      } else if ('starsNotIn' in clause) {
+        const stars = clause.starsNotIn.values || []
+        if (!stars.length) continue
+        chips.push({
+          id: 'stars-not-in',
+          label: `Rating not in: ${formatStarValues(stars)}`,
+          onRemove: () => updateFilters((filters) => setStarsNotInFilter(filters, [])),
+        })
+      } else if ('nameContains' in clause) {
+        const value = clause.nameContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'name-contains',
+          label: `Filename contains: ${value}`,
+          onRemove: () => updateFilters((filters) => setNameContainsFilter(filters, '')),
+        })
+      } else if ('nameNotContains' in clause) {
+        const value = clause.nameNotContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'name-not-contains',
+          label: `Filename not: ${value}`,
+          onRemove: () => updateFilters((filters) => setNameNotContainsFilter(filters, '')),
+        })
+      } else if ('commentsContains' in clause) {
+        const value = clause.commentsContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'comments-contains',
+          label: `Comments contain: ${value}`,
+          onRemove: () => updateFilters((filters) => setCommentsContainsFilter(filters, '')),
+        })
+      } else if ('commentsNotContains' in clause) {
+        const value = clause.commentsNotContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'comments-not-contains',
+          label: `Comments not: ${value}`,
+          onRemove: () => updateFilters((filters) => setCommentsNotContainsFilter(filters, '')),
+        })
+      } else if ('urlContains' in clause) {
+        const value = clause.urlContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'url-contains',
+          label: `URL contains: ${value}`,
+          onRemove: () => updateFilters((filters) => setUrlContainsFilter(filters, '')),
+        })
+      } else if ('urlNotContains' in clause) {
+        const value = clause.urlNotContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'url-not-contains',
+          label: `URL not: ${value}`,
+          onRemove: () => updateFilters((filters) => setUrlNotContainsFilter(filters, '')),
+        })
+      } else if ('dateRange' in clause) {
+        const { from, to } = clause.dateRange
+        if (!from && !to) continue
+        chips.push({
+          id: 'date-range',
+          label: `Date: ${formatDateRange(from, to)}`,
+          onRemove: () => updateFilters((filters) => setDateRangeFilter(filters, null)),
+        })
+      } else if ('widthCompare' in clause) {
+        const { op, value } = clause.widthCompare
+        chips.push({
+          id: 'width-compare',
+          label: `Width ${op} ${value}`,
+          onRemove: () => updateFilters((filters) => setWidthCompareFilter(filters, null)),
+        })
+      } else if ('heightCompare' in clause) {
+        const { op, value } = clause.heightCompare
+        chips.push({
+          id: 'height-compare',
+          label: `Height ${op} ${value}`,
+          onRemove: () => updateFilters((filters) => setHeightCompareFilter(filters, null)),
+        })
+      } else if ('metricRange' in clause) {
+        const { key, min, max } = clause.metricRange
+        chips.push({
+          id: `metric:${key}`,
+          label: `${key}: ${formatRange(min, max)}`,
+          onRemove: () => handleMetricRange(key, null),
+        })
+      }
+    }
+    return chips
+  }, [viewState.filters, handleClearStars, handleMetricRange, updateFilters])
+
+  const handleToggleStar = useCallback((v: number) => {
+    const next = new Set(starFilters)
+    if (next.has(v)) {
+      next.delete(v)
+    } else {
+      next.add(v)
+    }
+    setViewState((prev) => ({
+      ...prev,
+      filters: setStarFilter(prev.filters, Array.from(next)),
+    }))
+  }, [starFilters])
+
+  const openMetricsPanel = useCallback(() => {
+    setLeftOpen(true)
+    setLeftTool('metrics')
+  }, [])
+
+  const handleSortChange = useCallback((next: SortSpec) => {
+    setViewState((prev) => ({ ...prev, sort: next }))
+    if (next.kind === 'builtin' && next.key === 'random') {
       setRandomSeed(Date.now())
     }
   }, [])
-
-  const handleSortDir = useCallback((dir: SortDir) => {
-    if (sortKey === 'random') {
-      setRandomSeed(Date.now())
-    }
-    setSortDir(dir)
-  }, [sortKey])
 
   const formatTitle = useCallback((path: string) => {
     if (path === '/' || path === '') return 'Lenslet | Root'
@@ -146,6 +364,20 @@ export default function AppShell() {
     document.title = formatTitle(current)
   }, [current, formatTitle])
 
+  useEffect(() => {
+    let alive = true
+    api.getViews()
+      .then((payload: ViewsPayload) => {
+        if (!alive) return
+        setViews(payload.views || [])
+      })
+      .catch(() => {
+        if (!alive) return
+        setViews([])
+      })
+    return () => { alive = false }
+  }, [])
+
   // Clear selection when entering search mode
   useEffect(() => {
     if (searching) {
@@ -159,27 +391,65 @@ export default function AppShell() {
     try {
       const storedSortKey = localStorage.getItem(STORAGE_KEYS.sortKey)
       const storedSortDir = localStorage.getItem(STORAGE_KEYS.sortDir)
+      const storedSortSpec = localStorage.getItem(STORAGE_KEYS.sortSpec)
       const storedStarFilters = localStorage.getItem(STORAGE_KEYS.starFilters)
+      const storedFilterAst = localStorage.getItem(STORAGE_KEYS.filterAst)
+      const storedSelectedMetric = localStorage.getItem(STORAGE_KEYS.selectedMetric)
       const storedViewMode = localStorage.getItem(STORAGE_KEYS.viewMode) as ViewMode | null
       const storedGridSize = localStorage.getItem(STORAGE_KEYS.gridItemSize)
       const storedLeftOpen = localStorage.getItem(STORAGE_KEYS.leftOpen)
       const storedRightOpen = localStorage.getItem(STORAGE_KEYS.rightOpen)
-      
-      if (storedSortKey === 'name' || storedSortKey === 'added' || storedSortKey === 'random') {
-        setSortKey(storedSortKey)
-        if (storedSortKey === 'random') {
-          setRandomSeed(Date.now())
+
+      const parseSortSpec = (raw: string | null): SortSpec | null => {
+        if (!raw) return null
+        const parsed = safeJsonParse<SortSpec>(raw)
+        if (!parsed || typeof parsed !== 'object') return null
+        if (parsed.kind === 'builtin') {
+          if ((parsed.key === 'name' || parsed.key === 'added' || parsed.key === 'random') &&
+            (parsed.dir === 'asc' || parsed.dir === 'desc')) {
+            return parsed
+          }
         }
+        if (parsed.kind === 'metric') {
+          if (typeof parsed.key === 'string' && parsed.key.length > 0 &&
+            (parsed.dir === 'asc' || parsed.dir === 'desc')) {
+            return parsed
+          }
+        }
+        return null
       }
-      if (storedSortDir === 'asc' || storedSortDir === 'desc') {
-        setSortDir(storedSortDir)
+
+      const sort: SortSpec = parseSortSpec(storedSortSpec) ?? {
+        kind: 'builtin',
+        key: storedSortKey === 'name' || storedSortKey === 'added' || storedSortKey === 'random' ? storedSortKey : 'added',
+        dir: storedSortDir === 'asc' || storedSortDir === 'desc' ? storedSortDir : 'desc',
       }
+      if (sort.key === 'random') {
+        setRandomSeed(Date.now())
+      }
+
+      const parseFilterAst = (raw: string | null): FilterAST | null => {
+        if (!raw) return null
+        const parsed = safeJsonParse<unknown>(raw)
+        return normalizeFilterAst(parsed)
+      }
+
+      let filters = parseFilterAst(storedFilterAst) ?? { and: [] }
       if (storedStarFilters) {
         const parsed = safeJsonParse<number[]>(storedStarFilters)
         if (Array.isArray(parsed)) {
-          setStarFilters(parsed.filter((n) => [0, 1, 2, 3, 4, 5].includes(n)))
+          const stars = parsed.filter((n) => [0, 1, 2, 3, 4, 5].includes(n))
+          filters = setStarFilter(filters, stars)
         }
       }
+
+      setViewState((prev) => ({
+        ...prev,
+        sort,
+        filters,
+        selectedMetric: storedSelectedMetric || prev.selectedMetric,
+      }))
+
       if (storedViewMode === 'grid' || storedViewMode === 'adaptive') {
         setViewMode(storedViewMode)
       }
@@ -199,9 +469,17 @@ export default function AppShell() {
   // Persist settings when they change
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEYS.sortKey, sortKey)
-      localStorage.setItem(STORAGE_KEYS.sortDir, sortDir)
+      localStorage.setItem(STORAGE_KEYS.sortKey, viewState.sort.kind === 'builtin' ? viewState.sort.key : 'added')
+      localStorage.setItem(STORAGE_KEYS.sortDir, viewState.sort.dir)
+      localStorage.setItem(STORAGE_KEYS.sortSpec, JSON.stringify(viewState.sort))
+      const starFilters = getStarFilter(viewState.filters)
       localStorage.setItem(STORAGE_KEYS.starFilters, JSON.stringify(starFilters))
+      localStorage.setItem(STORAGE_KEYS.filterAst, JSON.stringify(viewState.filters))
+      if (viewState.selectedMetric) {
+        localStorage.setItem(STORAGE_KEYS.selectedMetric, viewState.selectedMetric)
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.selectedMetric)
+      }
       localStorage.setItem(STORAGE_KEYS.viewMode, viewMode)
       localStorage.setItem(STORAGE_KEYS.gridItemSize, String(gridItemSize))
       localStorage.setItem(STORAGE_KEYS.leftOpen, leftOpen ? '1' : '0')
@@ -209,7 +487,7 @@ export default function AppShell() {
     } catch {
       // Ignore localStorage errors
     }
-  }, [sortKey, sortDir, starFilters, viewMode, gridItemSize, leftOpen, rightOpen])
+  }, [viewState, viewMode, gridItemSize, leftOpen, rightOpen])
 
   // Ctrl + scroll adjusts thumbnail size (override browser zoom)
   useEffect(() => {
@@ -263,6 +541,46 @@ export default function AppShell() {
     setCurrent(safe)
     writeHash(safe)
   }, [])
+
+  const handleSaveView = useCallback(async () => {
+    const name = window.prompt('Save Smart Folder as:', 'New Smart Folder')
+    if (!name) return
+    const id = makeUniqueViewId(name, views)
+    const payload: SavedView = {
+      id,
+      name,
+      pool: { kind: 'folder', path: current },
+      view: JSON.parse(JSON.stringify(viewState)),
+    }
+    const nextViews = [...views.filter((v) => v.id !== id), payload]
+    setViews(nextViews)
+    setActiveViewId(id)
+    try {
+      await api.saveViews({ version: 1, views: nextViews })
+    } catch (err) {
+      if (err instanceof FetchError && err.status === 403) {
+        const blob = new Blob([JSON.stringify({ version: 1, views: nextViews }, null, 2)], { type: 'application/json' })
+        downloadBlob(blob, `lenslet-smart-folder-${id}.json`)
+        alert('No-write mode: exported Smart Folder JSON instead of saving.')
+        return
+      }
+      console.error('Failed to save Smart Folder:', err)
+    }
+  }, [current, viewState, views])
+
+  useEffect(() => {
+    if (!activeViewId) return
+    const view = views.find((v) => v.id === activeViewId)
+    if (!view) {
+      setActiveViewId(null)
+      return
+    }
+    const samePool = view.pool.path === current
+    const sameView = JSON.stringify(view.view) === JSON.stringify(viewState)
+    if (!samePool || !sameView) {
+      setActiveViewId(null)
+    }
+  }, [activeViewId, views, current, viewState])
 
   const openViewer = useCallback((p: string) => {
     setViewer(p)
@@ -442,23 +760,15 @@ export default function AppShell() {
         onBack={closeViewer}
         zoomPercent={viewer ? currentZoom : undefined}
         onZoomPercentChange={(p)=> setRequestedZoom(p)}
-        sortKey={sortKey}
-        sortDir={sortDir}
-        onSortKey={handleSortKey}
-        onSortDir={handleSortDir}
+        sortSpec={viewState.sort}
+        metricKeys={metricKeys}
+        onSortChange={handleSortChange}
+        filterCount={activeFilterCount}
+        onOpenFilters={openMetricsPanel}
         starFilters={starFilters}
-        onToggleStar={(v) => {
-          setStarFilters((prev) => {
-            const next = new Set(prev)
-            if (next.has(v)) {
-              next.delete(v)
-            } else {
-              next.add(v)
-            }
-            return Array.from(next)
-          })
-        }}
-        onClearStars={() => setStarFilters([])}
+        onToggleStar={handleToggleStar}
+        onClearStars={handleClearStars}
+        onClearFilters={handleClearFilters}
         starCounts={starCounts}
         viewMode={viewMode}
         onViewMode={setViewMode}
@@ -474,14 +784,121 @@ export default function AppShell() {
         canNextImage={canNextImage}
       />
       {leftOpen && (
-        <FolderTree current={current} roots={[{label:'Root', path:'/'}]} data={data} onOpen={openFolder} onResize={onResizeLeft}
-          onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
-        />
+        <div className="col-start-1 row-start-2 relative border-r border-border bg-panel overflow-hidden">
+          <div className="absolute inset-y-0 left-0 w-10 border-r border-border flex flex-col items-center gap-2 py-3 bg-surface-overlay">
+            <button
+              className={`w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors ${leftTool === 'folders' ? 'bg-accent-muted text-accent' : 'bg-surface text-text hover:bg-surface-hover'}`}
+              title="Folders"
+              aria-label="Folders"
+              aria-pressed={leftTool === 'folders'}
+              onClick={() => setLeftTool('folders')}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 7.5h6l2-2h10a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z" />
+              </svg>
+            </button>
+            <button
+              className={`w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors ${leftTool === 'metrics' ? 'bg-accent-muted text-accent' : 'bg-surface text-text hover:bg-surface-hover'}`}
+              title="Metrics / Filters"
+              aria-label="Metrics and Filters"
+              aria-pressed={leftTool === 'metrics'}
+              onClick={() => setLeftTool('metrics')}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 19V9" />
+                <path d="M10 19V5" />
+                <path d="M16 19v-7" />
+                <path d="M3 19h18" />
+              </svg>
+            </button>
+          </div>
+          <div className="ml-10 h-full">
+            {leftTool === 'folders' ? (
+              <div className="h-full flex flex-col">
+                <div className="px-2 py-2 border-b border-border">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[11px] uppercase tracking-wide text-muted">Smart Folders</div>
+                    <button
+                      className="btn btn-sm btn-ghost text-xs"
+                      onClick={handleSaveView}
+                      title="Save current view as Smart Folder"
+                    >
+                      + New
+                    </button>
+                  </div>
+                  {views.length ? (
+                    <div className="flex flex-col gap-1">
+                      {views.map((view) => {
+                        const active = view.id === activeViewId
+                        return (
+                          <button
+                            key={view.id}
+                            className={`text-left px-2 py-1.5 rounded-md text-sm ${active ? 'bg-accent-muted text-accent' : 'hover:bg-hover text-text'}`}
+                            onClick={() => {
+                              setActiveViewId(view.id)
+                              const safeFilters = normalizeFilterAst(view.view?.filters) ?? { and: [] }
+                              setViewState({ ...view.view, filters: safeFilters })
+                              openFolder(view.pool.path)
+                              setLeftTool('metrics')
+                            }}
+                          >
+                            {view.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted px-1 py-1.5">No saved Smart Folders yet.</div>
+                  )}
+                </div>
+                <FolderTree
+                  current={current}
+                  roots={[{ label: 'Root', path: '/' }]}
+                  data={data}
+                  onOpen={(p) => { setActiveViewId(null); openFolder(p) }}
+                  onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
+                  className="flex-1 min-h-0 overflow-auto scrollbar-thin"
+                  showResizeHandle={false}
+                />
+              </div>
+            ) : (
+              <MetricsPanel
+                items={poolItems}
+                filteredItems={items}
+                metricKeys={metricKeys}
+                selectedMetric={viewState.selectedMetric}
+                onSelectMetric={(key) => setViewState((prev) => ({ ...prev, selectedMetric: key }))}
+                filters={viewState.filters}
+                onChangeRange={handleMetricRange}
+                onChangeFilters={handleFiltersChange}
+              />
+            )}
+          </div>
+          <div className="absolute top-12 bottom-0 right-0 w-1.5 cursor-col-resize z-10 hover:bg-accent/20" onMouseDown={onResizeLeft} />
+        </div>
       )}
-      <div className="col-start-2 row-start-2 relative overflow-hidden" ref={gridShellRef}>
+      <div className="col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>
         <div aria-live="polite" className="sr-only">
           {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
         </div>
+        {filterChips.length > 0 && (
+          <div className="sticky top-0 z-10 px-3 py-2 bg-panel/80 backdrop-blur-sm border-b border-border">
+            <div className="flex flex-wrap gap-2">
+              {filterChips.map((chip) => (
+                <span key={chip.id} className="inline-flex items-center gap-1.5 px-2 py-1 bg-accent/15 border border-border text-text rounded-[10px] text-[12px]">
+                  <span>{chip.label}</span>
+                  <button
+                    className="w-[18px] h-[18px] rounded-full border border-border bg-black/25 text-text cursor-pointer inline-flex items-center justify-center leading-none p-0 hover:bg-black/35"
+                    aria-label={`Clear filter ${chip.label}`}
+                    onClick={chip.onRemove}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {/* Breadcrumb / path bar intentionally hidden for now */}
         {false && (
           <div className="sticky top-0 z-10 px-3 py-2.5 bg-panel backdrop-blur-sm shadow-[0_1px_0_rgba(255,255,255,.04),0_6px_8px_-6px_rgba(0,0,0,.5)]">
@@ -509,13 +926,15 @@ export default function AppShell() {
             })()}
           </div>
         )}
-        <VirtualGrid items={items} selected={selectedPaths} restoreToSelectionToken={restoreGridToSelectionToken} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
-          highlight={searching ? normalizedQ : ''}
-          suppressSelectionHighlight={!!viewer}
-          viewMode={viewMode}
-          targetCellSize={gridItemSize}
-          onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
-        />
+        <div className="flex-1 min-h-0">
+          <VirtualGrid items={items} selected={selectedPaths} restoreToSelectionToken={restoreGridToSelectionToken} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
+            highlight={searching ? normalizedQ : ''}
+            suppressSelectionHighlight={!!viewer}
+            viewMode={viewMode}
+            targetCellSize={gridItemSize}
+            onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
+          />
+        </div>
         {/* Bottom selection bar removed intentionally */}
       </div>
       {rightOpen && (
@@ -539,6 +958,49 @@ export default function AppShell() {
       {ctx && <ContextMenuItems ctx={ctx} current={current} items={items} refetch={refetch} setCtx={setCtx} />}
     </div>
   )
+}
+
+function makeUniqueViewId(name: string, views: SavedView[]): string {
+  const base = slugify(name) || 'view'
+  const existing = new Set(views.map((v) => v.id))
+  if (!existing.has(base)) return base
+  let idx = 2
+  while (existing.has(`${base}-${idx}`)) idx += 1
+  return `${base}-${idx}`
+}
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function formatStarValues(values: number[]): string {
+  const stars = values.filter((v) => v > 0).sort((a, b) => b - a)
+  const hasNone = values.includes(0)
+  const parts = [...stars.map((v) => String(v))]
+  if (hasNone) parts.push('None')
+  return parts.join(', ')
+}
+
+function formatDateRange(from?: string, to?: string): string {
+  if (from && to) return `${from} to ${to}`
+  if (from) return `from ${from}`
+  if (to) return `to ${to}`
+  return ''
+}
+
+function formatRange(min: number, max: number): string {
+  return `${formatNumber(min)}–${formatNumber(max)}`
+}
+
+function formatNumber(value: number): string {
+  const abs = Math.abs(value)
+  if (abs >= 1000) return value.toFixed(0)
+  if (abs >= 10) return value.toFixed(2)
+  return value.toFixed(3)
 }
 
 /**

@@ -99,7 +99,11 @@ def _parse_png_text_chunks(data: bytes) -> List[Dict[str, Any]]:
 def read_png_info(file_obj) -> Dict[str, Any]:
     """
     Given an uploaded file (path or file-like), return structured PNG text info.
-    Also surface Pillow's .info (which often contains 'parameters').
+    
+    Returns a dict with:
+    - found_text_chunks: list of parsed PNG text chunks (tEXt, zTXt, iTXt)
+    - pil_info: raw PIL .info dict
+    - quick_fields: commonly-used fields extracted for convenience
     """
     if hasattr(file_obj, "read"):
         data = file_obj.read()
@@ -107,8 +111,11 @@ def read_png_info(file_obj) -> Dict[str, Any]:
         with open(file_obj, "rb") as f:
             data = f.read()
 
-    # chunks = _parse_png_text_chunks(data)
+    # Parse PNG text chunks manually for full extraction
+    found_text_chunks = _parse_png_text_chunks(data)
 
+    # Also get PIL's parsed info (may overlap but provides additional fields)
+    pil_info: Dict[str, Any] = {}
     try:
         img = Image.open(io.BytesIO(data))
         pil_info = dict(img.info)
@@ -123,5 +130,22 @@ def read_png_info(file_obj) -> Dict[str, Any]:
     except Exception as e:
         pil_info = {"_error": f"Pillow failed to open PNG: {e}"}
 
-    return pil_info
+    # Build quick_fields from commonly-used metadata keys
+    quick_fields: Dict[str, Any] = {}
+    # First check PIL info for these fields
+    for field in ("parameters", "Software", "prompt", "Description"):
+        if field in pil_info:
+            quick_fields[field] = pil_info[field]
+    # Also check extracted chunks as fallback
+    for chunk in found_text_chunks:
+        keyword = chunk.get("keyword", "")
+        if keyword in ("parameters", "Software", "prompt", "Description"):
+            if keyword not in quick_fields:
+                quick_fields[keyword] = chunk.get("text", "")
+
+    return {
+        "found_text_chunks": found_text_chunks,
+        "pil_info": pil_info,
+        "quick_fields": quick_fields,
+    }
 

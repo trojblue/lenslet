@@ -1,6 +1,6 @@
 [project]
 name = "lenslet"
-version = "0.1.6"
+version = "0.2.0"
 description = "Lightweight image gallery server - no database, no files left behind"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,6 +29,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pillow>=10.4",
+    "pyarrow>=14.0",
 ]
 
 [project.optional-dependencies]

@@ -320,7 +320,7 @@ export default function VirtualGrid({
                   onDragStart={(e)=>{
                   try {
                     const paths = selectedSet.has(it.path) && selected.length>0 ? selected : [it.path]
-                    e.dataTransfer?.setData('application/x-lenscat-paths', JSON.stringify(paths))
+                    e.dataTransfer?.setData('application/x-lenslet-paths', JSON.stringify(paths))
                     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove'
                     try { document.body.classList.add('drag-active') } catch {}
                     const host = e.currentTarget as HTMLElement

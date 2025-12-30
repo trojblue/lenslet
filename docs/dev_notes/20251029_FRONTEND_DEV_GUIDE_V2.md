@@ -140,7 +140,7 @@ Throw on hard invariants and **show a banner** with the fix:
 
 - Arrow/WASD moves active; **Shift** creates range from anchor; **Cmd/Ctrl** toggles.
 - **Enter** opens viewer. **Esc** clears selection. **/** focuses search.
-- Drag: custom ghost; payload `application/x-lenscat-paths` JSON array.
+- Drag: custom ghost; payload `application/x-lenslet-paths` JSON array.
 
 **Viewer**
 

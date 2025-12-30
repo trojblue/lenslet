@@ -1,0 +1,7 @@
+docs/
+examples/
+notebooks/
+tests/
+src/lenslet/frontend/
+repomix*
+repomix*/

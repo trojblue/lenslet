@@ -62,7 +62,7 @@ Alright, tiny gallery gremlin, I read your whole Franken-repo. It’s… actuall
 ## Security & robustness
 
 * **Path sanitizer:** `ALLOWED_PATH` is strict and fine for your use case. Still, treat server APIs as source of truth—never trust client path checks.
-* **Drag payload:** Using `application/x-lenscat-paths` is good. Consider validating list length & dedup on server, not just client.
+* **Drag payload:** Using `application/x-lenslet-paths` is good. Consider validating list length & dedup on server, not just client.
 * **Blob revocation:** You’re disciplined. Also revoke preview blob on backdrop unmount (you already do with `previewUrlRef`—nice).
 
 ## UX nits

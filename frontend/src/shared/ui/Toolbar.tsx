@@ -1,45 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react'
-import type { SortDir, SortKey, ViewMode } from '../../lib/types'
+import Dropdown, { DropdownMenu } from './Dropdown'
+import type { SortSpec, ViewMode } from '../../lib/types'
 
-export default function Toolbar({
-  onSearch,
-  viewerActive,
-  onBack,
-  zoomPercent,
-  onZoomPercentChange,
-  sortKey,
-  sortDir,
-  onSortKey,
-  onSortDir,
-  starFilters,
-  onToggleStar,
-  onClearStars,
-  starCounts,
-  viewMode,
-  onViewMode,
-  gridItemSize,
-  onGridItemSize,
-  leftOpen,
-  rightOpen,
-  onToggleLeft,
-  onToggleRight,
-  onPrevImage,
-  onNextImage,
-  canPrevImage,
-  canNextImage,
-}:{
+export interface ToolbarProps {
   onSearch: (q: string) => void
   viewerActive?: boolean
   onBack?: () => void
   zoomPercent?: number
   onZoomPercentChange?: (p: number) => void
-  sortKey?: SortKey
-  sortDir?: SortDir
-  onSortKey?: (k: SortKey) => void
-  onSortDir?: (d: SortDir) => void
+  sortSpec?: SortSpec
+  metricKeys?: string[]
+  onSortChange?: (spec: SortSpec) => void
+  filterCount?: number
+  onOpenFilters?: () => void
   starFilters?: number[] | null
   onToggleStar?: (v: number) => void
   onClearStars?: () => void
+  onClearFilters?: () => void
   starCounts?: { [k: string]: number }
   viewMode?: ViewMode
   onViewMode?: (v: ViewMode) => void
@@ -53,86 +30,292 @@ export default function Toolbar({
   onNextImage?: () => void
   canPrevImage?: boolean
   canNextImage?: boolean
-}){
-  const [openRating, setOpenRating] = useState(false)
-  const ratingRef = useRef<HTMLDivElement | null>(null)
+}
+
+export default function Toolbar({
+  onSearch,
+  viewerActive,
+  onBack,
+  zoomPercent,
+  onZoomPercentChange,
+  sortSpec,
+  metricKeys,
+  onSortChange,
+  filterCount,
+  onOpenFilters,
+  starFilters,
+  onToggleStar,
+  onClearStars,
+  onClearFilters,
+  starCounts,
+  viewMode,
+  onViewMode,
+  gridItemSize,
+  onGridItemSize,
+  leftOpen,
+  rightOpen,
+  onToggleLeft,
+  onToggleRight,
+  onPrevImage,
+  onNextImage,
+  canPrevImage,
+  canNextImage,
+}: ToolbarProps) {
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const filtersRef = useRef<HTMLDivElement>(null)
+
+  // Close filters on click outside
   useEffect(() => {
+    if (!filtersOpen) return
     const onClick = (e: MouseEvent) => {
-      const t = e.target as HTMLElement
-      if (!ratingRef.current) return
-      if (!ratingRef.current.contains(t)) setOpenRating(false)
+      if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) {
+        setFiltersOpen(false)
+      }
     }
-    if (openRating) window.addEventListener('click', onClick)
+    window.addEventListener('click', onClick)
     return () => window.removeEventListener('click', onClick)
-  }, [openRating])
+  }, [filtersOpen])
+
+  const effectiveSort: SortSpec = sortSpec ?? { kind: 'builtin', key: 'added', dir: 'desc' }
+  const sortDir = effectiveSort.dir
+  const isRandom = effectiveSort.kind === 'builtin' && effectiveSort.key === 'random'
+
+  // Build sort options with groups
+  const sortOptions = [
+    {
+      label: 'Layout',
+      options: [
+        { value: 'layout:grid', label: 'Grid' },
+        { value: 'layout:masonry', label: 'Masonry' },
+      ],
+    },
+    {
+      label: 'Sort by',
+      options: [
+        { value: 'builtin:added', label: 'Date added' },
+        { value: 'builtin:name', label: 'Filename' },
+        { value: 'builtin:random', label: 'Random' },
+        ...(metricKeys && metricKeys.length > 0
+          ? metricKeys.map((key) => ({ value: `metric:${key}`, label: key }))
+          : []),
+      ],
+    },
+  ]
+
+  // Determine current sort/layout value
+  const currentLayout = viewMode === 'adaptive' ? 'layout:masonry' : 'layout:grid'
+  const currentSort = effectiveSort.kind === 'metric'
+    ? `metric:${effectiveSort.key}`
+    : `builtin:${effectiveSort.key}`
+
+  const handleSortLayoutChange = (value: string) => {
+    if (value.startsWith('layout:')) {
+      const mode = value === 'layout:masonry' ? 'adaptive' : 'grid'
+      onViewMode?.(mode)
+    } else {
+      onSortChange?.(parseSort(value, effectiveSort))
+    }
+  }
+
+  // Get display label for sort dropdown
+  const getSortLabel = () => {
+    if (effectiveSort.kind === 'metric') return effectiveSort.key
+    switch (effectiveSort.key) {
+      case 'added': return 'Date added'
+      case 'name': return 'Filename'
+      case 'random': return 'Random'
+      default: return 'Sort'
+    }
+  }
+
+  // Count active star filters
+  const activeStarCount = (starFilters || []).length
+  const totalFilterCount = typeof filterCount === 'number'
+    ? filterCount
+    : (activeStarCount > 0 ? 1 : 0)
+
   return (
-    <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[auto_1fr_auto] items-center px-3 gap-3 bg-panel border-b border-border z-toolbar col-span-full row-start-1">
+    <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[auto_1fr_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1">
+      {/* Left section */}
       <div className="flex items-center gap-2">
         {viewerActive && (
-          <button className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={onBack}>← Back</button>
+          <button className="btn" onClick={onBack}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            Back
+          </button>
         )}
+
         {!viewerActive && (
-          <div className="flex gap-2 items-center relative">
-            <select className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text" value={viewMode||'grid'} onChange={e=> onViewMode && onViewMode(e.target.value as ViewMode)} title="View mode">
-              <option value="grid">Grid</option>
-              <option value="adaptive">Adaptive</option>
-            </select>
-            <div className="w-px h-5 bg-border mx-1"></div>
-            <select className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text" value={sortKey||'added'} onChange={e=> onSortKey && onSortKey((e.target.value as SortKey) || 'added')} title="Sort by">
-              <option value="added">Date added</option>
-              <option value="name">Filename</option>
-              <option value="random">Random</option>
-            </select>
-            <button className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={()=> onSortDir && onSortDir((sortDir||'desc')==='desc'?'asc':'desc')} title={sortKey === 'random' ? 'Shuffle' : 'Toggle sort'}>
-              {sortKey === 'random' ? '⟳' : ((sortDir||'desc')==='desc' ? '↓' : '↑')}
+          <div className="flex gap-2 items-center">
+            {/* Sort dropdown */}
+            <Dropdown
+              value={currentSort}
+              onChange={handleSortLayoutChange}
+              options={sortOptions}
+              title="Sort and layout options"
+              aria-label="Sort and layout"
+              triggerClassName="min-w-[110px]"
+            />
+
+            {/* Sort direction toggle */}
+            <button
+              className="btn btn-icon"
+              onClick={() => {
+                if (!onSortChange) return
+                if (isRandom) {
+                  onSortChange(effectiveSort) // Re-shuffle
+                } else {
+                  onSortChange({ ...effectiveSort, dir: sortDir === 'desc' ? 'asc' : 'desc' })
+                }
+              }}
+              title={isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`}
+              aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
+            >
+              {isRandom ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+              ) : sortDir === 'desc' ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14" />
+                  <path d="M19 12l-7 7-7-7" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 19V5" />
+                  <path d="M5 12l7-7 7 7" />
+                </svg>
+              )}
             </button>
-            <div ref={ratingRef}>
-              <button className="h-7 px-2.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer flex items-center gap-1.5" onClick={()=> setOpenRating(v=>!v)} title="Filter by rating" aria-haspopup="dialog" aria-expanded={openRating}>
-                <span className="text-sm">★</span>
-                <span className="text-[13px]">Rating</span>
+
+            <div className="w-px h-5 bg-border" />
+
+            {/* Unified Filters dropdown */}
+            <div ref={filtersRef} className="relative">
+              <button
+                className={`btn ${totalFilterCount > 0 ? 'btn-active' : ''}`}
+                onClick={() => setFiltersOpen((v) => !v)}
+                aria-haspopup="dialog"
+                aria-expanded={filtersOpen}
+                title="Filters"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                </svg>
+                <span>Filters</span>
+                {totalFilterCount > 0 && (
+                  <span className="px-1.5 py-0.5 text-[11px] rounded-full bg-accent-strong text-text">
+                    {totalFilterCount}
+                  </span>
+                )}
               </button>
-              {openRating && (
-                <div role="dialog" aria-label="Filter by rating" className="absolute top-[38px] left-0 bg-[#1b1b1b] border border-border rounded-lg p-1.5 shadow-[0_10px_26px_rgba(0,0,0,0.35)] w-[200px]" onKeyDown={(e)=>{ if (e.key==='Escape') setOpenRating(false) }}>
-                  {[5,4,3,2,1].map(v => {
-                    const active = !!(starFilters||[]).includes(v)
-                    const count = starCounts?.[String(v)] ?? 0
-                    return (
-                      <div key={v} onClick={()=> onToggleStar && onToggleStar(v)} className={`flex items-center justify-between px-1.5 py-1 rounded-md cursor-pointer ${active ? 'bg-accent/15' : ''}`}>
-                        <div className={`text-[13px] ${active ? 'text-[#ffd166]' : 'text-text'}`}>{'★'.repeat(v)}{'☆'.repeat(5-v)}</div>
-                        <div className="opacity-80 text-xs">{count}</div>
-                      </div>
-                    )
-                  })}
-                  {(() => { const activeNone = !!(starFilters||[]).includes(0); return (
-                    <div onClick={()=> onToggleStar && onToggleStar(0)} className={`flex items-center justify-between px-1.5 py-1 rounded-md cursor-pointer ${activeNone ? 'bg-accent/15' : ''}`}>
-                      <div className="text-[13px] text-text">None</div>
-                      <div className="opacity-80 text-xs">{starCounts?.['0'] ?? 0}</div>
-                    </div>
-                  )})()}
-                  <div className="h-px bg-border my-1.5" />
-                  <div className="flex gap-2">
-                    <button className="h-[26px] px-2.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={onClearStars}>All</button>
+
+              {filtersOpen && (
+                <div
+                  role="dialog"
+                  aria-label="Filters"
+                  className="dropdown-panel w-[240px]"
+                  style={{ top: '38px', left: 0 }}
+                >
+                  {/* Rating section */}
+                  <div className="dropdown-label">Rating</div>
+                  <div className="px-1">
+                    {[5, 4, 3, 2, 1].map((v) => {
+                      const active = (starFilters || []).includes(v)
+                      const count = starCounts?.[String(v)] ?? 0
+                      return (
+                        <button
+                          key={v}
+                          onClick={() => onToggleStar?.(v)}
+                          className={`dropdown-item justify-between ${active ? 'bg-accent-muted' : ''}`}
+                        >
+                          <span className={active ? 'text-star-active' : 'text-text'}>
+                            {'★'.repeat(v)}{'☆'.repeat(5 - v)}
+                          </span>
+                          <span className="text-xs text-muted">{count}</span>
+                        </button>
+                      )
+                    })}
+                    <button
+                      onClick={() => onToggleStar?.(0)}
+                      className={`dropdown-item justify-between ${(starFilters || []).includes(0) ? 'bg-accent-muted' : ''}`}
+                    >
+                      <span className="text-text">Unrated</span>
+                      <span className="text-xs text-muted">{starCounts?.['0'] ?? 0}</span>
+                    </button>
                   </div>
+
+                  <div className="dropdown-divider" />
+
+                  {/* Metrics section */}
+                  <div className="dropdown-label">Metrics</div>
+                  <button
+                    className="dropdown-item"
+                    onClick={() => {
+                      setFiltersOpen(false)
+                      onOpenFilters?.()
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 19V9" />
+                      <path d="M10 19V5" />
+                      <path d="M16 19v-7" />
+                      <path d="M3 19h18" />
+                    </svg>
+                    <span>Open Metrics Panel</span>
+                    {(filterCount || 0) > 0 && (
+                      <span className="ml-auto text-xs text-muted">{filterCount} active</span>
+                    )}
+                  </button>
+
+                  <div className="dropdown-divider" />
+
+                  {/* Clear all */}
+                  <button
+                    className="dropdown-item text-muted hover:text-text"
+                    onClick={() => {
+                      if (onClearFilters) {
+                        onClearFilters()
+                      } else {
+                        onClearStars?.()
+                      }
+                    }}
+                    disabled={totalFilterCount === 0}
+                  >
+                    Clear all filters
+                  </button>
                 </div>
               )}
             </div>
-            {(() => {
-              const sf = starFilters || []
-              if (!sf.length) return null
-              const stars = sf.filter(v => v > 0).sort((a,b)=>b-a)
-              const label = stars.length ? stars.join(',') : (sf.includes(0) ? 'None' : '')
-              return (
-                <div className="inline-flex items-center gap-1.5 px-2 py-1 pl-1.5 bg-accent/20 border border-border text-text rounded-[10px] h-[26px]" aria-label={`Rating filter active: ${label}`} title={`Rating filter: ${label}`}>
-                  <span className="text-[#ffd166] text-[13px] leading-none">★</span>
-                  <span className="text-[13px] opacity-95">{label}</span>
-                  <button className="w-[18px] h-[18px] rounded-full border border-border bg-black/25 text-text cursor-pointer inline-flex items-center justify-center leading-none p-0 hover:bg-black/35" aria-label="Clear rating filter" onClick={onClearStars}>×</button>
-                </div>
-              )
-            })()}
+
+            {/* Active filter chips */}
+            {activeStarCount > 0 && (
+              <div className="filter-chip">
+                <span className="text-star-active">★</span>
+                <span>
+                  {(() => {
+                    const sf = starFilters || []
+                    const stars = sf.filter((v) => v > 0).sort((a, b) => b - a)
+                    return stars.length ? stars.join(',') : sf.includes(0) ? 'None' : ''
+                  })()}
+                </span>
+                <button
+                  className="filter-chip-remove"
+                  onClick={onClearStars}
+                  aria-label="Clear rating filter"
+                >
+                  ×
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
+      {/* Center section - size slider */}
       <div className="flex items-center gap-3 justify-center">
         {viewerActive ? (
           <>
@@ -142,10 +325,13 @@ export default function Toolbar({
               max={800}
               step={1}
               value={Math.round(Math.max(5, Math.min(800, zoomPercent ?? 100)))}
-              onChange={e => onZoomPercentChange && onZoomPercentChange(Number(e.target.value))}
+              onChange={(e) => onZoomPercentChange?.(Number(e.target.value))}
               className="zoom-slider"
+              aria-label="Zoom level"
             />
-            <span className="text-xs opacity-80 min-w-[42px] text-right">{Math.round(zoomPercent ?? 100)}%</span>
+            <span className="text-xs text-muted min-w-[42px] text-right">
+              {Math.round(zoomPercent ?? 100)}%
+            </span>
           </>
         ) : (
           onGridItemSize && (
@@ -157,8 +343,8 @@ export default function Toolbar({
                 max={500}
                 step={10}
                 value={gridItemSize ?? 220}
-                onChange={(e)=> onGridItemSize(Number(e.target.value))}
-                className="w-32 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer hover:bg-white/20 transition-colors [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-text"
+                onChange={(e) => onGridItemSize(Number(e.target.value))}
+                className="w-32 h-1.5 bg-border rounded-full appearance-none cursor-pointer hover:bg-hover transition-colors [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-text [&::-moz-range-thumb]:border-0"
                 aria-label="Thumbnail size"
               />
             </div>
@@ -166,46 +352,51 @@ export default function Toolbar({
         )}
       </div>
 
+      {/* Right section */}
       <div className="flex items-center gap-2 justify-end toolbar-right">
         {viewerActive && (
-          <div className="flex items-center gap-2 mr-1">
+          <div className="flex items-center gap-1 mr-1">
             <button
-              className={`h-7 w-7 rounded-md border border-[#3a3a3a] bg-[#252525] text-[#cfd1d4] flex items-center justify-center transition-colors hover:bg-[#2f2f2f] hover:border-[#4a4a4a] ${canPrevImage ? 'opacity-90 cursor-pointer' : 'opacity-45 cursor-not-allowed'}`}
+              className={`btn btn-icon ${canPrevImage ? '' : 'opacity-40 cursor-not-allowed'}`}
               title="Previous image (A / ←)"
-              onClick={() => canPrevImage && onPrevImage && onPrevImage()}
+              onClick={() => canPrevImage && onPrevImage?.()}
               aria-label="Previous image"
               aria-disabled={!canPrevImage}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 18l-6-6 6-6" />
               </svg>
             </button>
             <button
-              className={`h-7 w-7 rounded-md border border-[#3a3a3a] bg-[#252525] text-[#cfd1d4] flex items-center justify-center transition-colors hover:bg-[#2f2f2f] hover:border-[#4a4a4a] ${canNextImage ? 'opacity-90 cursor-pointer' : 'opacity-45 cursor-not-allowed'}`}
+              className={`btn btn-icon ${canNextImage ? '' : 'opacity-40 cursor-not-allowed'}`}
               title="Next image (D / →)"
-              onClick={() => canNextImage && onNextImage && onNextImage()}
+              onClick={() => canNextImage && onNextImage?.()}
               aria-label="Next image"
               aria-disabled={!canNextImage}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 6l6 6-6 6" />
               </svg>
             </button>
           </div>
         )}
 
-        <div className="flex items-center gap-1 ml-1">
+        {/* Panel toggles */}
+        <div className="flex items-center gap-1">
           <button
-            className={`h-8 w-8 rounded-lg border border-border bg-[#1b1b1b] text-text flex items-center justify-center hover:bg-[#252525] ${leftOpen ? 'opacity-100' : 'opacity-60'}`}
+            className={`btn btn-icon ${leftOpen ? '' : 'opacity-50'}`}
             title={leftOpen ? 'Hide left panel (Ctrl+B)' : 'Show left panel (Ctrl+B)'}
             onClick={onToggleLeft}
             aria-pressed={leftOpen}
             aria-label="Toggle left panel"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="6" height="14" rx="1.5"/><rect x="11" y="5" width="10" height="14" rx="1.5"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="5" width="6" height="14" rx="1.5" />
+              <rect x="11" y="5" width="10" height="14" rx="1.5" />
+            </svg>
           </button>
           <button
-            className={`h-8 w-8 rounded-lg border border-border bg-[#1b1b1b] text-text flex items-center justify-center hover:bg-[#252525] ${rightOpen ? 'opacity-100' : 'opacity-60'}`}
+            className={`btn btn-icon ${rightOpen ? '' : 'opacity-50'}`}
             title={rightOpen ? 'Hide right panel (Ctrl+Alt+B)' : 'Show right panel (Ctrl+Alt+B)'}
             onClick={onToggleRight}
             aria-pressed={rightOpen}
@@ -218,13 +409,29 @@ export default function Toolbar({
           </button>
         </div>
 
+        {/* Search input */}
         <input
           aria-label="Search filename, tags, notes"
           placeholder="Search..."
-          onChange={e=>onSearch(e.target.value)}
-          className="input h-8 w-[220px] focus:w-[280px] transition-all duration-200 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text"
+          onChange={(e) => onSearch(e.target.value)}
+          className="h-8 w-[200px] focus:w-[260px] transition-all duration-200 rounded-lg px-3 border border-border bg-surface text-text placeholder:text-muted"
         />
       </div>
     </div>
   )
+}
+
+function parseSort(value: string, fallback: SortSpec): SortSpec {
+  if (value.startsWith('metric:')) {
+    const key = value.slice('metric:'.length)
+    if (!key) return fallback
+    return { kind: 'metric', key, dir: fallback.dir }
+  }
+  if (value.startsWith('builtin:')) {
+    const key = value.slice('builtin:'.length) as 'name' | 'added' | 'random' | string
+    if (key === 'name' || key === 'added' || key === 'random') {
+      return { kind: 'builtin', key, dir: fallback.dir }
+    }
+  }
+  return fallback
 }

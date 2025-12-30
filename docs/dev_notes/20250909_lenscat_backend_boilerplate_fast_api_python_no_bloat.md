@@ -39,9 +39,9 @@ backend/
 ## pyproject.toml (minimal deps)
 ```toml
 [project]
-name = "lenscat-backend"
+name = "lenslet-backend"
 version = "0.1.0"
-description = "Lenscat flat-file backend (FastAPI)"
+description = "lenslet flat-file backend (FastAPI)"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "you" }]
@@ -550,7 +550,7 @@ from .storage.local import LocalStorage
 from .storage.s3 import S3Storage
 from .routes import folders, items, thumbs, search
 
-app = FastAPI(title="Lenscat Backend")
+app = FastAPI(title="lenslet Backend")
 
 # CORS for local dev
 app.add_middleware(
@@ -700,8 +700,8 @@ if __name__ == '__main__':
 
 ## README.md (how to run)
 ```md
-# Lenscat Backend (Boilerplate)
-Flat-file FastAPI backend for Lenscat-lite. No database. JSON + thumbnails next to originals.
+# lenslet Backend (Boilerplate)
+Flat-file FastAPI backend for lenslet-lite. No database. JSON + thumbnails next to originals.
 
 ## Quickstart
 ```bash

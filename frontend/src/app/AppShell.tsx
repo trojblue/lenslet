@@ -172,6 +172,20 @@ export default function AppShell() {
 
   const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
 
+  const handleClearStars = useCallback(() => {
+    setViewState((prev) => ({
+      ...prev,
+      filters: setStarFilter(prev.filters, []),
+    }))
+  }, [])
+
+  const handleMetricRange = useCallback((key: string, range: { min: number; max: number } | null) => {
+    setViewState((prev) => ({
+      ...prev,
+      filters: setMetricRangeFilter(prev.filters, key, range),
+    }))
+  }, [])
+
   const filterChips = useMemo(() => {
     const chips: { id: string; label: string; onRemove: () => void }[] = []
     for (const clause of viewState.filters.and) {
@@ -209,20 +223,6 @@ export default function AppShell() {
       filters: setStarFilter(prev.filters, Array.from(next)),
     }))
   }, [starFilters])
-
-  const handleClearStars = useCallback(() => {
-    setViewState((prev) => ({
-      ...prev,
-      filters: setStarFilter(prev.filters, []),
-    }))
-  }, [])
-
-  const handleMetricRange = useCallback((key: string, range: { min: number; max: number } | null) => {
-    setViewState((prev) => ({
-      ...prev,
-      filters: setMetricRangeFilter(prev.filters, key, range),
-    }))
-  }, [])
 
   const openMetricsPanel = useCallback(() => {
     setLeftOpen(true)

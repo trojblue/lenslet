@@ -49,7 +49,7 @@ export default function FieldPicker({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <div className="max-h-[220px] overflow-auto">
+        <div className="max-h-[220px] overflow-auto scrollbar-thin">
           {grouped.length === 0 ? (
             <div className="text-xs text-muted px-2 py-2">No matches.</div>
           ) : (

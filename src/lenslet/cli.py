@@ -48,6 +48,11 @@ def main():
         help="Enable auto-reload for development",
     )
     parser.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Disable workspace writes (.lenslet/) for one-off sessions",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Show detailed server logs",
@@ -77,6 +82,9 @@ def main():
         sys.exit(1)
 
     # Print startup banner
+    has_parquet = (directory / "items.parquet").is_file()
+    mode_label = "Parquet dataset" if has_parquet else "In-memory (no files written)"
+
     print(f"""
 ┌─────────────────────────────────────────────────┐
 │                   🔍 Lenslet                    │
@@ -84,7 +92,8 @@ def main():
 ├─────────────────────────────────────────────────┤
 │  Directory: {str(directory)[:35]:<35} │
 │  Server:    http://{args.host}:{args.port:<24} │
-│  Mode:      In-memory (no files written)        │
+│  Mode:      {mode_label:<35} │
+│  No-write:  {"ON" if args.no_write else "off":<35} │
 └─────────────────────────────────────────────────┘
 """)
 
@@ -96,6 +105,7 @@ def main():
         root_path=str(directory),
         thumb_size=args.thumb_size,
         thumb_quality=args.thumb_quality,
+        no_write=args.no_write,
     )
 
     uvicorn.run(
@@ -109,4 +119,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

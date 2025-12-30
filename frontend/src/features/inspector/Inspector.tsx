@@ -41,6 +41,14 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#39;')
 }
 
+function formatMetricValue(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return '–'
+  const abs = Math.abs(value)
+  if (abs >= 1000) return value.toFixed(0)
+  if (abs >= 10) return value.toFixed(2)
+  return value.toFixed(3)
+}
+
 // Lightweight JSON-ish syntax highlighting without extra deps
 function highlightJson(json: string): string {
   const tokenRe = /(\"(\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*\"(?:\s*:)?|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b)/g
@@ -78,6 +86,7 @@ interface InspectorItem {
   h: number
   type: string
   star?: number | null
+  metrics?: Record<string, number | null> | null
 }
 
 interface InspectorProps {
@@ -505,6 +514,31 @@ export default function Inspector({
                 {copiedField === 'source' ? 'Copied' : path}
               </span>
             </div>
+            {(() => {
+              const metrics = currentItem.metrics || null
+              if (!metrics) return null
+              const entries = Object.entries(metrics).filter(([, v]) => v != null)
+              if (!entries.length) return null
+              const sorted = entries.sort(([a], [b]) => a.localeCompare(b))
+              const show = sorted.slice(0, 12)
+              const remaining = sorted.length - show.length
+              return (
+                <div className="mt-3">
+                  <div className="text-muted text-xs uppercase tracking-wide mb-1">Metrics</div>
+                  <div className="space-y-1">
+                    {show.map(([key, val]) => (
+                      <div key={key} className="flex justify-between">
+                        <span className="text-muted w-24 shrink-0">{key}</span>
+                        <span className="font-mono text-text text-right">{formatMetricValue(val)}</span>
+                      </div>
+                    ))}
+                    {remaining > 0 && (
+                      <div className="text-[11px] text-muted">+{remaining} more</div>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>

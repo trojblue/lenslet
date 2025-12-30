@@ -18,6 +18,8 @@ interface FolderTreeProps {
   onOpen: (path: string) => void
   onResize?: (e: React.MouseEvent) => void
   onContextMenu?: (e: React.MouseEvent, path: string) => void
+  className?: string
+  showResizeHandle?: boolean
 }
 
 export default function FolderTree({
@@ -27,6 +29,8 @@ export default function FolderTree({
   onOpen,
   onResize,
   onContextMenu,
+  className,
+  showResizeHandle = true,
 }: FolderTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['/']))
 
@@ -38,14 +42,18 @@ export default function FolderTree({
     setExpanded(prev => { const next = new Set(prev); for (const a of acc) next.add(a); return next })
   }, [current])
 
+  const containerClass = className ?? 'h-full overflow-auto bg-panel scrollbar-thin'
+
   return (
-    <div className="col-start-1 row-start-2 overflow-auto border-r border-border bg-panel scrollbar-thin">
+    <div className={containerClass}>
       <div className="p-1" role="tree" aria-label="Folders">
         {roots.map(r => (
           <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} onContextMenu={onContextMenu} initial={data} />
         ))}
       </div>
-      <div className="absolute top-12 bottom-0 w-1.5 cursor-col-resize z-10 left-[calc(var(--left)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
+      {showResizeHandle && (
+        <div className="absolute top-12 bottom-0 w-1.5 cursor-col-resize z-10 left-[calc(var(--left)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
+      )}
     </div>
   )
 }

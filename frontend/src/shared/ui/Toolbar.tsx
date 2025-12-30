@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import type { SortDir, SortKey, ViewMode } from '../../lib/types'
+import type { SavedView, SortSpec, ViewMode } from '../../lib/types'
 
 export default function Toolbar({
   onSearch,
@@ -7,10 +7,15 @@ export default function Toolbar({
   onBack,
   zoomPercent,
   onZoomPercentChange,
-  sortKey,
-  sortDir,
-  onSortKey,
-  onSortDir,
+  sortSpec,
+  metricKeys,
+  onSortChange,
+  filterCount,
+  onOpenFilters,
+  views,
+  activeViewId,
+  onApplyView,
+  onSaveView,
   starFilters,
   onToggleStar,
   onClearStars,
@@ -33,10 +38,15 @@ export default function Toolbar({
   onBack?: () => void
   zoomPercent?: number
   onZoomPercentChange?: (p: number) => void
-  sortKey?: SortKey
-  sortDir?: SortDir
-  onSortKey?: (k: SortKey) => void
-  onSortDir?: (d: SortDir) => void
+  sortSpec?: SortSpec
+  metricKeys?: string[]
+  onSortChange?: (spec: SortSpec) => void
+  filterCount?: number
+  onOpenFilters?: () => void
+  views?: SavedView[]
+  activeViewId?: string | null
+  onApplyView?: (view: SavedView) => void
+  onSaveView?: () => void
   starFilters?: number[] | null
   onToggleStar?: (v: number) => void
   onClearStars?: () => void
@@ -55,16 +65,27 @@ export default function Toolbar({
   canNextImage?: boolean
 }){
   const [openRating, setOpenRating] = useState(false)
+  const [openViews, setOpenViews] = useState(false)
   const ratingRef = useRef<HTMLDivElement | null>(null)
+  const viewsRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       const t = e.target as HTMLElement
-      if (!ratingRef.current) return
-      if (!ratingRef.current.contains(t)) setOpenRating(false)
+      if (openRating && ratingRef.current && !ratingRef.current.contains(t)) {
+        setOpenRating(false)
+      }
+      if (openViews && viewsRef.current && !viewsRef.current.contains(t)) {
+        setOpenViews(false)
+      }
     }
-    if (openRating) window.addEventListener('click', onClick)
+    if (openRating || openViews) window.addEventListener('click', onClick)
     return () => window.removeEventListener('click', onClick)
-  }, [openRating])
+  }, [openRating, openViews])
+
+  const effectiveSort: SortSpec = sortSpec ?? { kind: 'builtin', key: 'added', dir: 'desc' }
+  const sortValue = serializeSort(effectiveSort)
+  const sortDir = effectiveSort.dir
+  const isRandom = effectiveSort.kind === 'builtin' && effectiveSort.key === 'random'
   return (
     <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[auto_1fr_auto] items-center px-3 gap-3 bg-panel border-b border-border z-toolbar col-span-full row-start-1">
       <div className="flex items-center gap-2">
@@ -78,13 +99,46 @@ export default function Toolbar({
               <option value="adaptive">Adaptive</option>
             </select>
             <div className="w-px h-5 bg-border mx-1"></div>
-            <select className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text" value={sortKey||'added'} onChange={e=> onSortKey && onSortKey((e.target.value as SortKey) || 'added')} title="Sort by">
-              <option value="added">Date added</option>
-              <option value="name">Filename</option>
-              <option value="random">Random</option>
+            <select
+              className="h-7 rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text"
+              value={sortValue}
+              onChange={(e) => onSortChange && onSortChange(parseSort(e.target.value, effectiveSort))}
+              title="Sort by"
+            >
+              <option value="builtin:added">Date added</option>
+              <option value="builtin:name">Filename</option>
+              <option value="builtin:random">Random</option>
+              {metricKeys && metricKeys.length > 0 && (
+                <optgroup label="Metrics">
+                  {metricKeys.map((key) => (
+                    <option key={key} value={`metric:${key}`}>{key}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
-            <button className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer" onClick={()=> onSortDir && onSortDir((sortDir||'desc')==='desc'?'asc':'desc')} title={sortKey === 'random' ? 'Shuffle' : 'Toggle sort'}>
-              {sortKey === 'random' ? '⟳' : ((sortDir||'desc')==='desc' ? '↓' : '↑')}
+            <button
+              className="px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer"
+              onClick={() => {
+                if (!onSortChange) return
+                if (isRandom) {
+                  onSortChange(effectiveSort)
+                } else {
+                  onSortChange({ ...effectiveSort, dir: sortDir === 'desc' ? 'asc' : 'desc' })
+                }
+              }}
+              title={isRandom ? 'Shuffle' : 'Toggle sort'}
+            >
+              {isRandom ? '⟳' : (sortDir === 'desc' ? '↓' : '↑')}
+            </button>
+            <button
+              className={`h-7 px-2.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer flex items-center gap-1.5 ${filterCount ? 'bg-accent/15 border-accent/30' : ''}`}
+              onClick={onOpenFilters}
+              title="Open filters"
+            >
+              <span className="text-[13px]">Filter</span>
+              {filterCount ? (
+                <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-accent/30 text-text">{filterCount}</span>
+              ) : null}
             </button>
             <div ref={ratingRef}>
               <button className="h-7 px-2.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer flex items-center gap-1.5" onClick={()=> setOpenRating(v=>!v)} title="Filter by rating" aria-haspopup="dialog" aria-expanded={openRating}>
@@ -194,6 +248,61 @@ export default function Toolbar({
           </div>
         )}
 
+        {!viewerActive && (
+          <div ref={viewsRef} className="relative">
+            <button
+              className="h-8 px-2.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer flex items-center gap-1.5"
+              onClick={() => setOpenViews((v) => !v)}
+              aria-haspopup="dialog"
+              aria-expanded={openViews}
+              title="Smart Folders"
+            >
+              <span className="text-sm">Views</span>
+              <span className="text-xs opacity-70">▾</span>
+            </button>
+            {openViews && (
+              <div
+                role="dialog"
+                aria-label="Smart Folders"
+                className="absolute right-0 top-[38px] bg-[#1b1b1b] border border-border rounded-lg p-1.5 shadow-[0_10px_26px_rgba(0,0,0,0.35)] w-[220px]"
+              >
+                <div className="text-[11px] uppercase tracking-wide text-muted px-1.5 py-1">Smart Folders</div>
+                <div className="max-h-[220px] overflow-auto scrollbar-thin">
+                  {(views && views.length > 0) ? (
+                    views.map((view) => {
+                      const active = view.id === activeViewId
+                      return (
+                        <button
+                          key={view.id}
+                          className={`w-full text-left px-2 py-1.5 rounded-md text-sm cursor-pointer ${active ? 'bg-accent/20 text-accent' : 'hover:bg-white/5 text-text'}`}
+                          onClick={() => {
+                            setOpenViews(false)
+                            onApplyView && onApplyView(view)
+                          }}
+                        >
+                          {view.name}
+                        </button>
+                      )
+                    })
+                  ) : (
+                    <div className="text-xs text-muted px-2 py-2">No saved views yet.</div>
+                  )}
+                </div>
+                <div className="h-px bg-border my-1.5" />
+                <button
+                  className="w-full h-7 px-2.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer"
+                  onClick={() => {
+                    setOpenViews(false)
+                    onSaveView && onSaveView()
+                  }}
+                >
+                  Save as Smart Folder
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center gap-1 ml-1">
           <button
             className={`h-8 w-8 rounded-lg border border-border bg-[#1b1b1b] text-text flex items-center justify-center hover:bg-[#252525] ${leftOpen ? 'opacity-100' : 'opacity-60'}`}
@@ -227,4 +336,23 @@ export default function Toolbar({
       </div>
     </div>
   )
+}
+
+function serializeSort(sort: SortSpec): string {
+  return sort.kind === 'metric' ? `metric:${sort.key}` : `builtin:${sort.key}`
+}
+
+function parseSort(value: string, fallback: SortSpec): SortSpec {
+  if (value.startsWith('metric:')) {
+    const key = value.slice('metric:'.length)
+    if (!key) return fallback
+    return { kind: 'metric', key, dir: fallback.dir }
+  }
+  if (value.startsWith('builtin:')) {
+    const key = value.slice('builtin:'.length) as 'name' | 'added' | 'random' | string
+    if (key === 'name' || key === 'added' || key === 'random') {
+      return { kind: 'builtin', key, dir: fallback.dir }
+    }
+  }
+  return fallback
 }

@@ -315,7 +315,7 @@ export default function Inspector({
         <div className="p-3 border-b border-border flex justify-center">
           <div className="relative rounded-lg overflow-hidden border border-border w-[220px] h-[160px] bg-panel">
             {thumbUrl && <img src={thumbUrl} alt="thumb" className="block w-full h-full object-contain" />}
-            {!!ext && <div className="absolute top-1.5 left-1.5 bg-[#1b1b1b] border border-border text-text text-xs px-1.5 py-0.5 rounded-md">{ext}</div>}
+            {!!ext && <div className="absolute top-1.5 left-1.5 bg-surface border border-border text-text text-xs px-1.5 py-0.5 rounded-md">{ext}</div>}
           </div>
         </div>
       )}
@@ -334,7 +334,7 @@ export default function Inspector({
       </div>
       <div className="p-3 border-b border-border space-y-1.5">
         <textarea
-          className="w-full bg-transparent text-text border border-border/60 rounded-md px-2 py-1 min-h-[32px] resize-y scrollbar-thin placeholder:text-[#6d6d6d] focus:border-border"
+          className="w-full bg-transparent text-text border border-border/60 rounded-md px-2 py-1 min-h-[32px] resize-y scrollbar-thin placeholder:text-muted focus:border-border"
           placeholder="Add notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
@@ -356,7 +356,7 @@ export default function Inspector({
         <div>
           <div className="text-[11px] text-muted mb-1">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
           <input
-            className="w-full h-9 bg-transparent text-text border border-border/60 rounded-md px-2 placeholder:text-[#6d6d6d] focus:border-border"
+            className="w-full h-9 bg-transparent text-text border border-border/60 rounded-md px-2 placeholder:text-muted focus:border-border"
             placeholder="tag1, tag2"
             value={tags}
             onChange={(e) => setTags(e.target.value)}
@@ -402,7 +402,7 @@ export default function Inspector({
               </button>
             </div>
           </div>
-          <pre className={`bg-[#0f0f0f] text-[11px] font-mono text-muted border border-border rounded-lg p-2 ${metaHeightClass} overflow-auto whitespace-pre-wrap leading-[1.3]`}>
+          <pre className={`bg-surface-inset text-[11px] font-mono text-muted border border-border rounded-lg p-2 ${metaHeightClass} overflow-auto whitespace-pre-wrap leading-[1.3]`}>
             {metaLoaded ? (
               <code
                 className="block whitespace-pre-wrap"
@@ -410,7 +410,7 @@ export default function Inspector({
               />
             ) : metaContent}
           </pre>
-          {metaError && <div className="text-[11px] text-red-400 mt-1 break-words">{metaError}</div>}
+          {metaError && <div className="text-[11px] text-danger mt-1 break-words">{metaError}</div>}
         </div>
       )}
       <div className="p-3 border-b border-border">
@@ -423,7 +423,7 @@ export default function Inspector({
               return (
                 <button
                   key={v}
-                  className={`w-6 h-6 flex items-center justify-center rounded border border-border/60 bg-transparent text-[13px] ${filled ? 'text-[#e7c46a]' : 'text-[#6f6f6f]'} hover:border-border hover:text-[#e7c46a] transition-colors`}
+                  className={`w-6 h-6 flex items-center justify-center rounded border border-border/60 bg-transparent text-[13px] ${filled ? 'text-star-active' : 'text-star-inactive'} hover:border-border hover:text-star-hover transition-colors`}
                   onClick={() => {
                     const val: StarRating = star === v && !multi ? null : (v as 1 | 2 | 3 | 4 | 5)
                     if (multi && selectedPaths.length) {

@@ -100,7 +100,7 @@ export default function MetricsPanel({
       <div>
         <label className="block text-xs uppercase tracking-wide text-muted mb-1">Metric</label>
         <select
-          className="h-8 w-full rounded-lg px-2.5 border border-border bg-[#1b1b1b] text-text"
+          className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
           value={activeMetric}
           onChange={(e) => onSelectMetric(e.target.value)}
         >
@@ -111,7 +111,7 @@ export default function MetricsPanel({
       </div>
 
       {population ? (
-        <div className="rounded-xl border border-border bg-[#161616] p-3">
+        <div className="rounded-xl border border-border bg-panel p-3">
           <div className="flex items-center justify-between text-xs text-muted mb-2">
             <span>Population: {population.count}</span>
             <span>Filtered: {filtered?.count ?? 0}</span>
@@ -120,7 +120,7 @@ export default function MetricsPanel({
             ref={svgRef}
             viewBox={`0 0 ${BIN_COUNT} 100`}
             preserveAspectRatio="none"
-            className="w-full h-28 cursor-crosshair rounded-md bg-[#121212]"
+            className="w-full h-28 cursor-crosshair rounded-md bg-surface-inset"
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -140,7 +140,7 @@ export default function MetricsPanel({
           </div>
           <div className="flex items-center gap-2 mt-2">
             <button
-              className="h-7 px-2.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer"
+              className="btn btn-sm"
               onClick={() => activeMetric && onChangeRange(activeMetric, null)}
             >
               Clear

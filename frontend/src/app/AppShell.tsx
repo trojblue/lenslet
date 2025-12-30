@@ -652,14 +652,6 @@ export default function AppShell() {
         onSortChange={handleSortChange}
         filterCount={activeFilterCount}
         onOpenFilters={openMetricsPanel}
-        views={views}
-        activeViewId={activeViewId}
-        onApplyView={(view) => {
-          setActiveViewId(view.id)
-          setViewState(view.view)
-          openFolder(view.pool.path)
-        }}
-        onSaveView={handleSaveView}
         starFilters={starFilters}
         onToggleStar={handleToggleStar}
         onClearStars={handleClearStars}
@@ -679,11 +671,12 @@ export default function AppShell() {
       />
       {leftOpen && (
         <div className="col-start-1 row-start-2 relative border-r border-border bg-panel overflow-hidden">
-          <div className="absolute inset-y-0 left-0 w-10 border-r border-border flex flex-col items-center gap-2 py-3 bg-[#141414]">
+          <div className="absolute inset-y-0 left-0 w-10 border-r border-border flex flex-col items-center gap-2 py-3 bg-surface-overlay">
             <button
-              className={`w-7 h-7 rounded-md border border-border flex items-center justify-center ${leftTool === 'folders' ? 'bg-accent/20 text-accent' : 'bg-[#1b1b1b] text-text'}`}
+              className={`w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors ${leftTool === 'folders' ? 'bg-accent-muted text-accent' : 'bg-surface text-text hover:bg-surface-hover'}`}
               title="Folders"
               aria-label="Folders"
+              aria-pressed={leftTool === 'folders'}
               onClick={() => setLeftTool('folders')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -691,9 +684,10 @@ export default function AppShell() {
               </svg>
             </button>
             <button
-              className={`w-7 h-7 rounded-md border border-border flex items-center justify-center ${leftTool === 'metrics' ? 'bg-accent/20 text-accent' : 'bg-[#1b1b1b] text-text'}`}
-              title="Metrics"
-              aria-label="Metrics"
+              className={`w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors ${leftTool === 'metrics' ? 'bg-accent-muted text-accent' : 'bg-surface text-text hover:bg-surface-hover'}`}
+              title="Metrics / Filters"
+              aria-label="Metrics and Filters"
+              aria-pressed={leftTool === 'metrics'}
               onClick={() => setLeftTool('metrics')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -708,7 +702,16 @@ export default function AppShell() {
             {leftTool === 'folders' ? (
               <div className="h-full flex flex-col">
                 <div className="px-2 py-2 border-b border-border">
-                  <div className="text-[11px] uppercase tracking-wide text-muted mb-2">Smart Folders</div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[11px] uppercase tracking-wide text-muted">Smart Folders</div>
+                    <button
+                      className="btn btn-sm btn-ghost text-xs"
+                      onClick={handleSaveView}
+                      title="Save current view as Smart Folder"
+                    >
+                      + New
+                    </button>
+                  </div>
                   {views.length ? (
                     <div className="flex flex-col gap-1">
                       {views.map((view) => {
@@ -716,7 +719,7 @@ export default function AppShell() {
                         return (
                           <button
                             key={view.id}
-                            className={`text-left px-2 py-1.5 rounded-md text-sm ${active ? 'bg-accent/20 text-accent' : 'hover:bg-white/5 text-text'}`}
+                            className={`text-left px-2 py-1.5 rounded-md text-sm ${active ? 'bg-accent-muted text-accent' : 'hover:bg-hover text-text'}`}
                             onClick={() => {
                               setActiveViewId(view.id)
                               setViewState(view.view)
@@ -730,7 +733,7 @@ export default function AppShell() {
                       })}
                     </div>
                   ) : (
-                    <div className="text-xs text-muted px-1 py-1.5">No saved views.</div>
+                    <div className="text-xs text-muted px-1 py-1.5">No saved Smart Folders yet.</div>
                   )}
                 </div>
                 <FolderTree

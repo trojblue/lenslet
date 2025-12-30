@@ -127,9 +127,9 @@ export default function Viewer({
       <button
         aria-label="Close"
         onClick={(e)=>{ e.stopPropagation(); setVisible(false); window.setTimeout(() => onClose(), 110) }}
-        className="absolute top-3 right-3 z-10 px-2.5 py-1.5 bg-[#1b1b1b] text-text border border-border rounded-lg cursor-pointer"
+        className="btn absolute top-3 right-3 z-10"
       >
-        ✕
+        ✕ Close
       </button>
       {thumbUrl && (
         <img

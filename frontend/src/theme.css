@@ -1,13 +1,49 @@
 /* Base theme variables */
 :root {
+  /* Core backgrounds */
   --bg: #0f0f10;
   --panel: #18181b;
   --hover: #27272a;
-  --text: #e4e4e7;
-  --muted: #71717a;
-  --accent: #3b82f6;
   --border: #27272a;
   --thumb-bg: transparent;
+  
+  /* Elevated surfaces (buttons, dropdowns, inputs) */
+  --surface: #1b1b1b;
+  --surface-hover: #252525;
+  --surface-active: #2f2f2f;
+  --surface-overlay: #141414;
+  --surface-inset: #121212;
+  
+  /* Text colors */
+  --text: #e4e4e7;
+  --text-secondary: #cfd1d4;
+  --muted: #71717a;
+  
+  /* Accent colors */
+  --accent: #3b82f6;
+  --accent-hover: #4a8fff;
+  --accent-muted: rgba(59, 130, 246, 0.15);
+  --accent-strong: rgba(59, 130, 246, 0.3);
+  
+  /* Star/rating colors */
+  --star-active: #ffd166;
+  --star-inactive: #6f6f6f;
+  --star-hover: #e7c46a;
+  
+  /* Semantic colors */
+  --danger: #ff6b6b;
+  --success: #9ad4b5;
+  
+  /* Border variants */
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-strong: #3a3a3a;
+  --border-hover: #4a4a4a;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 10px 26px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
 * {

@@ -1,4 +1,4 @@
-import type { FilterAST, FilterClause, FilterExpr, FilterNode, Item } from '../../../lib/types'
+import type { FilterAST, FilterClause, Item } from '../../../lib/types'
 
 type CompareOp = '<' | '<=' | '>' | '>='
 
@@ -6,33 +6,16 @@ const STAR_VALUES = new Set([0, 1, 2, 3, 4, 5])
 const COMPARE_OPS = new Set<CompareOp>(['<', '<=', '>', '>='])
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 
-export type FilterPath = number[]
-
 export function applyFilterAst(items: Item[], filters: FilterAST | null): Item[] {
-  if (!filters || !hasActiveClauses(filters)) return items
-  return items.filter((it) => matchesNode(it, filters))
+  if (!filters || !filters.and.length) return items
+  return items.filter((it) => matchesAll(it, filters.and))
 }
 
-function hasActiveClauses(node: FilterNode): boolean {
-  if (isFilterExpr(node)) {
-    const children = getExprNodes(node)
-    if (!children.length) return false
-    for (const child of children) {
-      if (hasActiveClauses(child)) return true
-    }
-    return false
+function matchesAll(item: Item, clauses: FilterClause[]): boolean {
+  for (const clause of clauses) {
+    if (!matchesClause(item, clause)) return false
   }
   return true
-}
-
-function matchesNode(item: Item, node: FilterNode): boolean {
-  if (isFilterExpr(node)) {
-    const children = getExprNodes(node)
-    if (!children.length) return true
-    if (isAllExpr(node)) return children.every((child) => matchesNode(item, child))
-    return children.some((child) => matchesNode(item, child))
-  }
-  return matchesClause(item, node)
 }
 
 function matchesClause(item: Item, clause: FilterClause): boolean {
@@ -133,30 +116,21 @@ function matchesClause(item: Item, clause: FilterClause): boolean {
 
 export function normalizeFilterAst(raw: unknown): FilterAST | null {
   if (!raw || typeof raw !== 'object') return null
-
-  if (isLegacyAst(raw)) {
-    const normalized: FilterClause[] = []
-    for (const clause of raw.and) {
-      const next = normalizeClause(clause)
-      if (next) normalized.push(next)
-    }
-    return { all: normalized }
+  const and = (raw as FilterAST).and
+  if (!Array.isArray(and)) return null
+  const normalized: FilterClause[] = []
+  for (const clause of and) {
+    const next = normalizeClause(clause)
+    if (next) normalized.push(next)
   }
-
-  if (!isFilterExprLike(raw)) return null
-  return normalizeExpr(raw, true)
+  return { and: normalized }
 }
 
 export function getStarFilter(filters: FilterAST): number[] {
-  const values = new Set<number>()
-  walkFilterClauses(filters, (clause) => {
-    if ('stars' in clause) {
-      clause.stars.forEach((v) => values.add(v))
-    } else if ('starsIn' in clause) {
-      clause.starsIn.values.forEach((v) => values.add(v))
-    }
-  })
-  return Array.from(values)
+  const legacy = filters.and.find((c) => 'stars' in c) as { stars: number[] } | undefined
+  const include = filters.and.find((c) => 'starsIn' in c) as { starsIn: { values: number[] } } | undefined
+  if (include?.starsIn?.values) return include.starsIn.values
+  return legacy?.stars ?? []
 }
 
 export function setStarFilter(filters: FilterAST, stars: number[]): FilterAST {
@@ -164,114 +138,104 @@ export function setStarFilter(filters: FilterAST, stars: number[]): FilterAST {
 }
 
 export function getStarsInFilter(filters: FilterAST): number[] {
-  const clause = findFirstClause(filters, (c) => 'starsIn' in c || 'stars' in c)
-  if (!clause) return []
-  if ('starsIn' in clause) return clause.starsIn.values ?? []
-  return 'stars' in clause ? clause.stars ?? [] : []
+  const clause = filters.and.find((c) => 'starsIn' in c) as { starsIn: { values: number[] } } | undefined
+  return clause?.starsIn?.values ?? []
 }
 
 export function setStarsInFilter(filters: FilterAST, values: number[]): FilterAST {
   const normalized = normalizeStarValues(values)
-  let next = removeClausesByPredicate(filters, (c) => 'starsIn' in c || 'stars' in c)
-  if (!normalized.length) return next
-  next = addClauseToRoot(next, { starsIn: { values: normalized } })
-  return next
+  const rest = filters.and.filter((c) => !('starsIn' in c) && !('stars' in c))
+  if (!normalized.length) return { and: rest }
+  return { and: [{ starsIn: { values: normalized } }, ...rest] }
 }
 
 export function getStarsNotInFilter(filters: FilterAST): number[] {
-  const clause = findFirstClause(filters, (c) => 'starsNotIn' in c)
-  return clause && 'starsNotIn' in clause ? clause.starsNotIn.values ?? [] : []
+  const clause = filters.and.find((c) => 'starsNotIn' in c) as { starsNotIn: { values: number[] } } | undefined
+  return clause?.starsNotIn?.values ?? []
 }
 
 export function setStarsNotInFilter(filters: FilterAST, values: number[]): FilterAST {
   const normalized = normalizeStarValues(values)
-  let next = removeClausesByPredicate(filters, (c) => 'starsNotIn' in c)
-  if (!normalized.length) return next
-  next = addClauseToRoot(next, { starsNotIn: { values: normalized } })
-  return next
+  const rest = filters.and.filter((c) => !('starsNotIn' in c))
+  if (!normalized.length) return { and: rest }
+  return { and: [{ starsNotIn: { values: normalized } }, ...rest] }
 }
 
 export function getNameContainsFilter(filters: FilterAST): string | null {
-  const clause = findFirstClause(filters, (c) => 'nameContains' in c)
-  return clause && 'nameContains' in clause ? clause.nameContains.value ?? null : null
+  const clause = filters.and.find((c) => 'nameContains' in c) as { nameContains: { value: string } } | undefined
+  return clause?.nameContains?.value ?? null
 }
 
 export function setNameContainsFilter(filters: FilterAST, value: string | null): FilterAST {
   const normalized = normalizeTextValue(value)
-  let next = removeClausesByPredicate(filters, (c) => 'nameContains' in c)
-  if (!normalized) return next
-  next = addClauseToRoot(next, { nameContains: { value: normalized } })
-  return next
+  const rest = filters.and.filter((c) => !('nameContains' in c))
+  if (!normalized) return { and: rest }
+  return { and: [{ nameContains: { value: normalized } }, ...rest] }
 }
 
 export function getNameNotContainsFilter(filters: FilterAST): string | null {
-  const clause = findFirstClause(filters, (c) => 'nameNotContains' in c)
-  return clause && 'nameNotContains' in clause ? clause.nameNotContains.value ?? null : null
+  const clause = filters.and.find((c) => 'nameNotContains' in c) as { nameNotContains: { value: string } } | undefined
+  return clause?.nameNotContains?.value ?? null
 }
 
 export function setNameNotContainsFilter(filters: FilterAST, value: string | null): FilterAST {
   const normalized = normalizeTextValue(value)
-  let next = removeClausesByPredicate(filters, (c) => 'nameNotContains' in c)
-  if (!normalized) return next
-  next = addClauseToRoot(next, { nameNotContains: { value: normalized } })
-  return next
+  const rest = filters.and.filter((c) => !('nameNotContains' in c))
+  if (!normalized) return { and: rest }
+  return { and: [{ nameNotContains: { value: normalized } }, ...rest] }
 }
 
 export function getCommentsContainsFilter(filters: FilterAST): string | null {
-  const clause = findFirstClause(filters, (c) => 'commentsContains' in c)
-  return clause && 'commentsContains' in clause ? clause.commentsContains.value ?? null : null
+  const clause = filters.and.find((c) => 'commentsContains' in c) as { commentsContains: { value: string } } | undefined
+  return clause?.commentsContains?.value ?? null
 }
 
 export function setCommentsContainsFilter(filters: FilterAST, value: string | null): FilterAST {
   const normalized = normalizeTextValue(value)
-  let next = removeClausesByPredicate(filters, (c) => 'commentsContains' in c)
-  if (!normalized) return next
-  next = addClauseToRoot(next, { commentsContains: { value: normalized } })
-  return next
+  const rest = filters.and.filter((c) => !('commentsContains' in c))
+  if (!normalized) return { and: rest }
+  return { and: [{ commentsContains: { value: normalized } }, ...rest] }
 }
 
 export function getCommentsNotContainsFilter(filters: FilterAST): string | null {
-  const clause = findFirstClause(filters, (c) => 'commentsNotContains' in c)
-  return clause && 'commentsNotContains' in clause ? clause.commentsNotContains.value ?? null : null
+  const clause = filters.and.find((c) => 'commentsNotContains' in c) as { commentsNotContains: { value: string } } | undefined
+  return clause?.commentsNotContains?.value ?? null
 }
 
 export function setCommentsNotContainsFilter(filters: FilterAST, value: string | null): FilterAST {
   const normalized = normalizeTextValue(value)
-  let next = removeClausesByPredicate(filters, (c) => 'commentsNotContains' in c)
-  if (!normalized) return next
-  next = addClauseToRoot(next, { commentsNotContains: { value: normalized } })
-  return next
+  const rest = filters.and.filter((c) => !('commentsNotContains' in c))
+  if (!normalized) return { and: rest }
+  return { and: [{ commentsNotContains: { value: normalized } }, ...rest] }
 }
 
 export function getUrlContainsFilter(filters: FilterAST): string | null {
-  const clause = findFirstClause(filters, (c) => 'urlContains' in c)
-  return clause && 'urlContains' in clause ? clause.urlContains.value ?? null : null
+  const clause = filters.and.find((c) => 'urlContains' in c) as { urlContains: { value: string } } | undefined
+  return clause?.urlContains?.value ?? null
 }
 
 export function setUrlContainsFilter(filters: FilterAST, value: string | null): FilterAST {
   const normalized = normalizeTextValue(value)
-  let next = removeClausesByPredicate(filters, (c) => 'urlContains' in c)
-  if (!normalized) return next
-  next = addClauseToRoot(next, { urlContains: { value: normalized } })
-  return next
+  const rest = filters.and.filter((c) => !('urlContains' in c))
+  if (!normalized) return { and: rest }
+  return { and: [{ urlContains: { value: normalized } }, ...rest] }
 }
 
 export function getUrlNotContainsFilter(filters: FilterAST): string | null {
-  const clause = findFirstClause(filters, (c) => 'urlNotContains' in c)
-  return clause && 'urlNotContains' in clause ? clause.urlNotContains.value ?? null : null
+  const clause = filters.and.find((c) => 'urlNotContains' in c) as { urlNotContains: { value: string } } | undefined
+  return clause?.urlNotContains?.value ?? null
 }
 
 export function setUrlNotContainsFilter(filters: FilterAST, value: string | null): FilterAST {
   const normalized = normalizeTextValue(value)
-  let next = removeClausesByPredicate(filters, (c) => 'urlNotContains' in c)
-  if (!normalized) return next
-  next = addClauseToRoot(next, { urlNotContains: { value: normalized } })
-  return next
+  const rest = filters.and.filter((c) => !('urlNotContains' in c))
+  if (!normalized) return { and: rest }
+  return { and: [{ urlNotContains: { value: normalized } }, ...rest] }
 }
 
 export function getDateRangeFilter(filters: FilterAST): { from?: string; to?: string } | null {
-  const clause = findFirstClause(filters, (c) => 'dateRange' in c)
-  return clause && 'dateRange' in clause ? clause.dateRange ?? null : null
+  const clause = filters.and.find((c) => 'dateRange' in c) as { dateRange: { from?: string; to?: string } } | undefined
+  return clause?.dateRange ?? null
 }
 
 export function setDateRangeFilter(
@@ -280,42 +244,45 @@ export function setDateRangeFilter(
 ): FilterAST {
   const from = normalizeDateValue(range?.from ?? null)
   const to = normalizeDateValue(range?.to ?? null)
-  let next = removeClausesByPredicate(filters, (c) => 'dateRange' in c)
-  if (!from && !to) return next
-  next = addClauseToRoot(next, { dateRange: { ...(from ? { from } : {}), ...(to ? { to } : {}) } })
-  return next
+  const rest = filters.and.filter((c) => !('dateRange' in c))
+  if (!from && !to) return { and: rest }
+  return { and: [{ dateRange: { ...(from ? { from } : {}), ...(to ? { to } : {}) } }, ...rest] }
 }
 
 export function getWidthCompareFilter(filters: FilterAST): { op: CompareOp; value: number } | null {
-  const clause = findFirstClause(filters, (c) => 'widthCompare' in c)
-  return clause && 'widthCompare' in clause ? clause.widthCompare ?? null : null
+  const clause = filters.and.find((c) => 'widthCompare' in c) as
+    | { widthCompare: { op: CompareOp; value: number } }
+    | undefined
+  return clause?.widthCompare ?? null
 }
 
 export function setWidthCompareFilter(filters: FilterAST, compare: { op: CompareOp; value: number } | null): FilterAST {
-  let next = removeClausesByPredicate(filters, (c) => 'widthCompare' in c)
-  if (!compare || !Number.isFinite(compare.value) || !COMPARE_OPS.has(compare.op)) return next
-  next = addClauseToRoot(next, { widthCompare: { op: compare.op, value: compare.value } })
-  return next
+  const rest = filters.and.filter((c) => !('widthCompare' in c))
+  if (!compare || !Number.isFinite(compare.value) || !COMPARE_OPS.has(compare.op)) return { and: rest }
+  return { and: [{ widthCompare: { op: compare.op, value: compare.value } }, ...rest] }
 }
 
 export function getHeightCompareFilter(filters: FilterAST): { op: CompareOp; value: number } | null {
-  const clause = findFirstClause(filters, (c) => 'heightCompare' in c)
-  return clause && 'heightCompare' in clause ? clause.heightCompare ?? null : null
+  const clause = filters.and.find((c) => 'heightCompare' in c) as
+    | { heightCompare: { op: CompareOp; value: number } }
+    | undefined
+  return clause?.heightCompare ?? null
 }
 
 export function setHeightCompareFilter(
   filters: FilterAST,
   compare: { op: CompareOp; value: number } | null
 ): FilterAST {
-  let next = removeClausesByPredicate(filters, (c) => 'heightCompare' in c)
-  if (!compare || !Number.isFinite(compare.value) || !COMPARE_OPS.has(compare.op)) return next
-  next = addClauseToRoot(next, { heightCompare: { op: compare.op, value: compare.value } })
-  return next
+  const rest = filters.and.filter((c) => !('heightCompare' in c))
+  if (!compare || !Number.isFinite(compare.value) || !COMPARE_OPS.has(compare.op)) return { and: rest }
+  return { and: [{ heightCompare: { op: compare.op, value: compare.value } }, ...rest] }
 }
 
 export function getMetricRangeFilter(filters: FilterAST, key: string): { min: number; max: number } | null {
-  const clause = findFirstClause(filters, (c) => 'metricRange' in c && c.metricRange.key === key)
-  return clause && 'metricRange' in clause ? clause.metricRange ?? null : null
+  const clause = filters.and.find((c) => 'metricRange' in c && c.metricRange.key === key) as
+    | { metricRange: { key: string; min: number; max: number } }
+    | undefined
+  return clause?.metricRange ?? null
 }
 
 export function setMetricRangeFilter(
@@ -323,79 +290,14 @@ export function setMetricRangeFilter(
   key: string,
   range: { min: number; max: number } | null
 ): FilterAST {
-  let next = removeClausesByPredicate(filters, (c) => 'metricRange' in c && c.metricRange.key === key)
-  if (!range) return next
-  next = addClauseToRoot(next, { metricRange: { key, min: range.min, max: range.max } })
-  return next
+  const rest = filters.and.filter((c) => !('metricRange' in c && c.metricRange.key === key))
+  if (!range) return { and: rest }
+  return { and: [{ metricRange: { key, min: range.min, max: range.max } }, ...rest] }
 }
 
 export function countActiveFilters(filters: FilterAST): number {
   const normalized = normalizeFilterAst(filters)
-  if (!normalized) return 0
-  return countClauses(normalized)
-}
-
-export function walkFilterClauses(
-  node: FilterNode,
-  visit: (clause: FilterClause, path: FilterPath) => void,
-  path: FilterPath = []
-): void {
-  if (isFilterExpr(node)) {
-    const children = getExprNodes(node)
-    children.forEach((child, index) => {
-      walkFilterClauses(child, visit, [...path, index])
-    })
-    return
-  }
-  visit(node, path)
-}
-
-export function removeClauseAtPath(filters: FilterAST, path: FilterPath): FilterAST {
-  const next = removeNodeAtPath(filters, path)
-  if (!next || !isFilterExpr(next)) return { all: [] }
-  return next
-}
-
-function removeNodeAtPath(node: FilterNode, path: FilterPath): FilterNode | null {
-  if (!path.length) return node
-  if (!isFilterExpr(node)) return node
-  const mode = getExprMode(node)
-  const children = [...getExprNodes(node)]
-  const index = path[0]
-  if (index < 0 || index >= children.length) return node
-
-  if (path.length === 1) {
-    children.splice(index, 1)
-  } else {
-    const updated = removeNodeAtPath(children[index], path.slice(1))
-    if (!updated) {
-      children.splice(index, 1)
-    } else {
-      children[index] = updated
-    }
-  }
-
-  if (!children.length) return null
-  return mode === 'all' ? { all: children } : { any: children }
-}
-
-function normalizeExpr(raw: FilterExpr, allowEmpty: boolean): FilterExpr | null {
-  const mode = getExprMode(raw)
-  const rawNodes = getExprNodes(raw)
-  const normalizedNodes: FilterNode[] = []
-  for (const node of rawNodes) {
-    const normalized = normalizeNode(node, false)
-    if (normalized) normalizedNodes.push(normalized)
-  }
-  if (!normalizedNodes.length && !allowEmpty) return null
-  return mode === 'all' ? { all: normalizedNodes } : { any: normalizedNodes }
-}
-
-function normalizeNode(raw: unknown, allowEmpty: boolean): FilterNode | null {
-  if (isFilterExprLike(raw)) {
-    return normalizeExpr(raw, allowEmpty)
-  }
-  return normalizeClause(raw)
+  return normalized ? normalized.and.length : 0
 }
 
 function normalizeClause(clause: unknown): FilterClause | null {
@@ -544,80 +446,4 @@ function toNumber(value: unknown): number | null {
     if (Number.isFinite(num)) return num
   }
   return null
-}
-
-function isLegacyAst(raw: unknown): raw is { and: unknown[] } {
-  return Boolean(
-    raw
-    && typeof raw === 'object'
-    && 'and' in raw
-    && Array.isArray((raw as { and?: unknown }).and)
-  )
-}
-
-function isFilterExprLike(raw: unknown): raw is FilterExpr {
-  return Boolean(
-    raw
-    && typeof raw === 'object'
-    && (('all' in raw && Array.isArray((raw as { all?: unknown }).all))
-      || ('any' in raw && Array.isArray((raw as { any?: unknown }).any)))
-  )
-}
-
-function isFilterExpr(node: FilterNode | unknown): node is FilterExpr {
-  return isFilterExprLike(node)
-}
-
-function isAllExpr(expr: FilterExpr): expr is { all: FilterNode[] } {
-  return 'all' in expr
-}
-
-function getExprMode(expr: FilterExpr): 'all' | 'any' {
-  return isAllExpr(expr) ? 'all' : 'any'
-}
-
-function getExprNodes(expr: FilterExpr): FilterNode[] {
-  return isAllExpr(expr) ? expr.all : expr.any
-}
-
-function countClauses(node: FilterNode): number {
-  if (isFilterExpr(node)) {
-    return getExprNodes(node).reduce((acc, child) => acc + countClauses(child), 0)
-  }
-  return 1
-}
-
-function findFirstClause(filters: FilterAST, predicate: (clause: FilterClause) => boolean): FilterClause | null {
-  let found: FilterClause | null = null
-  walkFilterClauses(filters, (clause) => {
-    if (!found && predicate(clause)) found = clause
-  })
-  return found
-}
-
-function removeClausesByPredicate(filters: FilterAST, predicate: (clause: FilterClause) => boolean): FilterAST {
-  const next = pruneNode(filters, predicate)
-  if (!next || !isFilterExpr(next)) return { all: [] }
-  return next
-}
-
-function pruneNode(node: FilterNode, predicate: (clause: FilterClause) => boolean): FilterNode | null {
-  if (!isFilterExpr(node)) {
-    return predicate(node) ? null : node
-  }
-  const mode = getExprMode(node)
-  const children = getExprNodes(node)
-  const nextChildren: FilterNode[] = []
-  for (const child of children) {
-    const next = pruneNode(child, predicate)
-    if (next) nextChildren.push(next)
-  }
-  if (!nextChildren.length) return null
-  return mode === 'all' ? { all: nextChildren } : { any: nextChildren }
-}
-
-function addClauseToRoot(filters: FilterAST, clause: FilterClause): FilterAST {
-  const mode = getExprMode(filters)
-  const nodes = [...getExprNodes(filters), clause]
-  return mode === 'all' ? { all: nodes } : { any: nodes }
 }

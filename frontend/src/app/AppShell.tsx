@@ -13,10 +13,18 @@ import {
   countActiveFilters,
   getStarFilter,
   normalizeFilterAst,
+  setCommentsContainsFilter,
+  setCommentsNotContainsFilter,
+  setDateRangeFilter,
+  setHeightCompareFilter,
   setMetricRangeFilter,
+  setNameContainsFilter,
+  setNameNotContainsFilter,
   setStarFilter,
-  removeClauseAtPath,
-  walkFilterClauses,
+  setStarsNotInFilter,
+  setUrlContainsFilter,
+  setUrlNotContainsFilter,
+  setWidthCompareFilter,
 } from '../features/browse/model/filters'
 import MetricsPanel from '../features/metrics/MetricsPanel'
 import { useSidebars } from './layout/useSidebars'
@@ -24,7 +32,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import ContextMenu, { MenuItem } from './menu/ContextMenu'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 import { useDebounced } from '../shared/hooks/useDebounced'
-import type { FilterAST, FilterClause, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState } from '../lib/types'
+import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState } from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
 import { safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
@@ -58,7 +66,7 @@ export default function AppShell() {
   
   // View state (filters + sort)
   const [viewState, setViewState] = useState<ViewState>(() => ({
-    filters: { all: [] },
+    filters: { and: [] },
     sort: { kind: 'builtin', key: 'added', dir: 'desc' },
     selectedMetric: undefined,
   }))
@@ -131,6 +139,17 @@ export default function AppShell() {
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
 
+  // Compute star counts for the filter UI
+  const starCounts = useMemo(() => {
+    const baseItems = poolItems
+    const counts: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 }
+    for (const it of baseItems) {
+      const star = localStarOverrides[it.path] ?? it.star ?? 0
+      counts[String(star)] = (counts[String(star)] || 0) + 1
+    }
+    return counts
+  }, [poolItems, localStarOverrides])
+
   const metricKeys = useMemo(() => {
     const keys = new Set<string>()
     let scanned = 0
@@ -183,10 +202,14 @@ export default function AppShell() {
     }))
   }, [])
 
+  const handleClearStars = useCallback(() => {
+    updateFilters((filters) => setStarFilter(filters, []))
+  }, [updateFilters])
+
   const handleClearFilters = useCallback(() => {
     setViewState((prev) => ({
       ...prev,
-      filters: { all: [] },
+      filters: { and: [] },
     }))
   }, [])
 
@@ -196,18 +219,125 @@ export default function AppShell() {
 
   const filterChips = useMemo(() => {
     const chips: { id: string; label: string; onRemove: () => void }[] = []
-    walkFilterClauses(viewState.filters, (clause, path) => {
-      const label = formatClauseLabel(clause)
-      if (!label) return
-      const removePath = [...path]
-      chips.push({
-        id: `${path.join('-')}-${label}`,
-        label,
-        onRemove: () => updateFilters((filters) => removeClauseAtPath(filters, removePath)),
-      })
-    })
+    for (const clause of viewState.filters.and) {
+      if ('stars' in clause) {
+        const stars = clause.stars || []
+        if (!stars.length) continue
+        chips.push({
+          id: 'stars',
+          label: `Rating in: ${formatStarValues(stars)}`,
+          onRemove: () => handleClearStars(),
+        })
+      } else if ('starsIn' in clause) {
+        const stars = clause.starsIn.values || []
+        if (!stars.length) continue
+        chips.push({
+          id: 'stars-in',
+          label: `Rating in: ${formatStarValues(stars)}`,
+          onRemove: () => handleClearStars(),
+        })
+      } else if ('starsNotIn' in clause) {
+        const stars = clause.starsNotIn.values || []
+        if (!stars.length) continue
+        chips.push({
+          id: 'stars-not-in',
+          label: `Rating not in: ${formatStarValues(stars)}`,
+          onRemove: () => updateFilters((filters) => setStarsNotInFilter(filters, [])),
+        })
+      } else if ('nameContains' in clause) {
+        const value = clause.nameContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'name-contains',
+          label: `Filename contains: ${value}`,
+          onRemove: () => updateFilters((filters) => setNameContainsFilter(filters, '')),
+        })
+      } else if ('nameNotContains' in clause) {
+        const value = clause.nameNotContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'name-not-contains',
+          label: `Filename not: ${value}`,
+          onRemove: () => updateFilters((filters) => setNameNotContainsFilter(filters, '')),
+        })
+      } else if ('commentsContains' in clause) {
+        const value = clause.commentsContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'comments-contains',
+          label: `Comments contain: ${value}`,
+          onRemove: () => updateFilters((filters) => setCommentsContainsFilter(filters, '')),
+        })
+      } else if ('commentsNotContains' in clause) {
+        const value = clause.commentsNotContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'comments-not-contains',
+          label: `Comments not: ${value}`,
+          onRemove: () => updateFilters((filters) => setCommentsNotContainsFilter(filters, '')),
+        })
+      } else if ('urlContains' in clause) {
+        const value = clause.urlContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'url-contains',
+          label: `URL contains: ${value}`,
+          onRemove: () => updateFilters((filters) => setUrlContainsFilter(filters, '')),
+        })
+      } else if ('urlNotContains' in clause) {
+        const value = clause.urlNotContains.value?.trim()
+        if (!value) continue
+        chips.push({
+          id: 'url-not-contains',
+          label: `URL not: ${value}`,
+          onRemove: () => updateFilters((filters) => setUrlNotContainsFilter(filters, '')),
+        })
+      } else if ('dateRange' in clause) {
+        const { from, to } = clause.dateRange
+        if (!from && !to) continue
+        chips.push({
+          id: 'date-range',
+          label: `Date: ${formatDateRange(from, to)}`,
+          onRemove: () => updateFilters((filters) => setDateRangeFilter(filters, null)),
+        })
+      } else if ('widthCompare' in clause) {
+        const { op, value } = clause.widthCompare
+        chips.push({
+          id: 'width-compare',
+          label: `Width ${op} ${value}`,
+          onRemove: () => updateFilters((filters) => setWidthCompareFilter(filters, null)),
+        })
+      } else if ('heightCompare' in clause) {
+        const { op, value } = clause.heightCompare
+        chips.push({
+          id: 'height-compare',
+          label: `Height ${op} ${value}`,
+          onRemove: () => updateFilters((filters) => setHeightCompareFilter(filters, null)),
+        })
+      } else if ('metricRange' in clause) {
+        const { key, min, max } = clause.metricRange
+        chips.push({
+          id: `metric:${key}`,
+          label: `${key}: ${formatRange(min, max)}`,
+          onRemove: () => handleMetricRange(key, null),
+        })
+      }
+    }
     return chips
-  }, [viewState.filters, updateFilters])
+  }, [viewState.filters, handleClearStars, handleMetricRange, updateFilters])
+
+  const handleToggleStar = useCallback((v: number) => {
+    const next = new Set(starFilters)
+    if (next.has(v)) {
+      next.delete(v)
+    } else {
+      next.add(v)
+    }
+    setViewState((prev) => ({
+      ...prev,
+      filters: setStarFilter(prev.filters, Array.from(next)),
+    }))
+  }, [starFilters])
 
   const openMetricsPanel = useCallback(() => {
     setLeftOpen(true)
@@ -304,7 +434,7 @@ export default function AppShell() {
         return normalizeFilterAst(parsed)
       }
 
-      let filters = parseFilterAst(storedFilterAst) ?? { all: [] }
+      let filters = parseFilterAst(storedFilterAst) ?? { and: [] }
       if (storedStarFilters) {
         const parsed = safeJsonParse<number[]>(storedStarFilters)
         if (Array.isArray(parsed)) {
@@ -635,6 +765,11 @@ export default function AppShell() {
         onSortChange={handleSortChange}
         filterCount={activeFilterCount}
         onOpenFilters={openMetricsPanel}
+        starFilters={starFilters}
+        onToggleStar={handleToggleStar}
+        onClearStars={handleClearStars}
+        onClearFilters={handleClearFilters}
+        starCounts={starCounts}
         viewMode={viewMode}
         onViewMode={setViewMode}
         gridItemSize={gridItemSize}
@@ -701,7 +836,7 @@ export default function AppShell() {
                             className={`text-left px-2 py-1.5 rounded-md text-sm ${active ? 'bg-accent-muted text-accent' : 'hover:bg-hover text-text'}`}
                             onClick={() => {
                               setActiveViewId(view.id)
-                              const safeFilters = normalizeFilterAst(view.view?.filters) ?? { all: [] }
+                              const safeFilters = normalizeFilterAst(view.view?.filters) ?? { and: [] }
                               setViewState({ ...view.view, filters: safeFilters })
                               openFolder(view.pool.path)
                               setLeftTool('metrics')
@@ -736,7 +871,6 @@ export default function AppShell() {
                 filters={viewState.filters}
                 onChangeRange={handleMetricRange}
                 onChangeFilters={handleFiltersChange}
-                onClearFilters={handleClearFilters}
               />
             )}
           </div>
@@ -841,72 +975,6 @@ function slugify(input: string): string {
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-}
-
-function formatClauseLabel(clause: FilterClause): string | null {
-  if ('stars' in clause) {
-    const stars = clause.stars || []
-    if (!stars.length) return null
-    return `Rating in: ${formatStarValues(stars)}`
-  }
-  if ('starsIn' in clause) {
-    const stars = clause.starsIn.values || []
-    if (!stars.length) return null
-    return `Rating in: ${formatStarValues(stars)}`
-  }
-  if ('starsNotIn' in clause) {
-    const stars = clause.starsNotIn.values || []
-    if (!stars.length) return null
-    return `Rating not in: ${formatStarValues(stars)}`
-  }
-  if ('nameContains' in clause) {
-    const value = clause.nameContains.value?.trim()
-    if (!value) return null
-    return `Filename contains: ${value}`
-  }
-  if ('nameNotContains' in clause) {
-    const value = clause.nameNotContains.value?.trim()
-    if (!value) return null
-    return `Filename does not contain: ${value}`
-  }
-  if ('commentsContains' in clause) {
-    const value = clause.commentsContains.value?.trim()
-    if (!value) return null
-    return `Comments contain: ${value}`
-  }
-  if ('commentsNotContains' in clause) {
-    const value = clause.commentsNotContains.value?.trim()
-    if (!value) return null
-    return `Comments do not contain: ${value}`
-  }
-  if ('urlContains' in clause) {
-    const value = clause.urlContains.value?.trim()
-    if (!value) return null
-    return `URL contains: ${value}`
-  }
-  if ('urlNotContains' in clause) {
-    const value = clause.urlNotContains.value?.trim()
-    if (!value) return null
-    return `URL does not contain: ${value}`
-  }
-  if ('dateRange' in clause) {
-    const { from, to } = clause.dateRange
-    if (!from && !to) return null
-    return `Date added: ${formatDateRange(from, to)}`
-  }
-  if ('widthCompare' in clause) {
-    const { op, value } = clause.widthCompare
-    return `Width ${op} ${value}`
-  }
-  if ('heightCompare' in clause) {
-    const { op, value } = clause.heightCompare
-    return `Height ${op} ${value}`
-  }
-  if ('metricRange' in clause) {
-    const { key, min, max } = clause.metricRange
-    return `${key}: ${formatRange(min, max)}`
-  }
-  return null
 }
 
 function formatStarValues(values: number[]): string {

@@ -1,5 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react'
-import { createPortal } from 'react-dom'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 
 export interface DropdownOption {
   value: string
@@ -236,13 +235,6 @@ export function DropdownMenu({
 }: DropdownMenuProps) {
   const [internalOpen, setInternalOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLDivElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
-  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({
-    position: 'fixed',
-    top: 0,
-    left: 0,
-  })
 
   const isControlled = controlledOpen !== undefined
   const open = isControlled ? controlledOpen : internalOpen
@@ -253,10 +245,7 @@ export function DropdownMenu({
     if (!open) return
 
     const onClick = (e: MouseEvent) => {
-      const target = e.target as Node
-      if (containerRef.current?.contains(target)) return
-      if (panelRef.current?.contains(target)) return
-      if (containerRef.current && !containerRef.current.contains(target)) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false)
       }
     }
@@ -276,76 +265,20 @@ export function DropdownMenu({
     }
   }, [open, setOpen])
 
-  const updatePanelPosition = useCallback(() => {
-    const triggerEl = triggerRef.current
-    if (!triggerEl) return
-
-    const rect = triggerEl.getBoundingClientRect()
-    const gap = 6
-    const panelWidth = width ?? panelRef.current?.offsetWidth ?? rect.width
-    const panelHeight = panelRef.current?.offsetHeight ?? 0
-
-    let top = rect.bottom + gap
-    let left: number | undefined
-    let right: number | undefined
-
-    if (align === 'right') {
-      right = Math.max(8, window.innerWidth - rect.right)
-    } else {
-      left = rect.left
-    }
-
-    if (align === 'left') {
-      const maxLeft = Math.max(8, window.innerWidth - panelWidth - 8)
-      left = Math.min(Math.max(8, left ?? 8), maxLeft)
-    } else if (align === 'right') {
-      const maxRight = Math.max(8, window.innerWidth - panelWidth - 8)
-      right = Math.min(Math.max(8, right ?? 8), maxRight)
-    }
-
-    if (panelHeight && top + panelHeight > window.innerHeight - 8) {
-      const above = rect.top - gap - panelHeight
-      if (above >= 8) {
-        top = above
-      } else {
-        top = Math.max(8, window.innerHeight - panelHeight - 8)
-      }
-    }
-
-    setPanelStyle({
-      position: 'fixed',
-      top,
-      ...(left !== undefined ? { left } : {}),
-      ...(right !== undefined ? { right } : {}),
-      ...(width ? { width, minWidth: width } : {}),
-    })
-  }, [align, width])
-
-  useLayoutEffect(() => {
-    if (!open) return
-    updatePanelPosition()
-  }, [open, updatePanelPosition])
-
-  useEffect(() => {
-    if (!open) return
-    const handle = () => updatePanelPosition()
-    window.addEventListener('resize', handle)
-    window.addEventListener('scroll', handle, true)
-    return () => {
-      window.removeEventListener('resize', handle)
-      window.removeEventListener('scroll', handle, true)
-    }
-  }, [open, updatePanelPosition])
+  const panelStyle: React.CSSProperties = {
+    ...(width ? { width, minWidth: width } : {}),
+    ...(align === 'right' ? { right: 0 } : { left: 0 }),
+  }
 
   return (
     <div ref={containerRef} className="relative">
-      <div ref={triggerRef} onClick={() => setOpen(!open)}>{trigger}</div>
-      {open && createPortal(
-        <div ref={panelRef} className={`dropdown-panel ${panelClassName}`} style={panelStyle}>
+      <div onClick={() => setOpen(!open)}>{trigger}</div>
+      {open && (
+        <div className={`dropdown-panel ${panelClassName}`} style={panelStyle}>
           {children}
-        </div>,
-        document.body,
+        </div>
       )}
     </div>
   )
 }
+

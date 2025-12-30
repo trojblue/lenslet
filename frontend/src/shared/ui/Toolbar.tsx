@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react'
-import Dropdown, { DropdownMenu } from './Dropdown'
+import React from 'react'
+import Dropdown from './Dropdown'
 import type { SortSpec, ViewMode } from '../../lib/types'
 
 export interface ToolbarProps {
@@ -13,11 +13,6 @@ export interface ToolbarProps {
   onSortChange?: (spec: SortSpec) => void
   filterCount?: number
   onOpenFilters?: () => void
-  starFilters?: number[] | null
-  onToggleStar?: (v: number) => void
-  onClearStars?: () => void
-  onClearFilters?: () => void
-  starCounts?: { [k: string]: number }
   viewMode?: ViewMode
   onViewMode?: (v: ViewMode) => void
   gridItemSize?: number
@@ -43,11 +38,6 @@ export default function Toolbar({
   onSortChange,
   filterCount,
   onOpenFilters,
-  starFilters,
-  onToggleStar,
-  onClearStars,
-  onClearFilters,
-  starCounts,
   viewMode,
   onViewMode,
   gridItemSize,
@@ -61,21 +51,6 @@ export default function Toolbar({
   canPrevImage,
   canNextImage,
 }: ToolbarProps) {
-  const [filtersOpen, setFiltersOpen] = useState(false)
-  const filtersRef = useRef<HTMLDivElement>(null)
-
-  // Close filters on click outside
-  useEffect(() => {
-    if (!filtersOpen) return
-    const onClick = (e: MouseEvent) => {
-      if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) {
-        setFiltersOpen(false)
-      }
-    }
-    window.addEventListener('click', onClick)
-    return () => window.removeEventListener('click', onClick)
-  }, [filtersOpen])
-
   const effectiveSort: SortSpec = sortSpec ?? { kind: 'builtin', key: 'added', dir: 'desc' }
   const sortDir = effectiveSort.dir
   const isRandom = effectiveSort.kind === 'builtin' && effectiveSort.key === 'random'
@@ -128,11 +103,7 @@ export default function Toolbar({
     }
   }
 
-  // Count active star filters
-  const activeStarCount = (starFilters || []).length
-  const totalFilterCount = typeof filterCount === 'number'
-    ? filterCount
-    : (activeStarCount > 0 ? 1 : 0)
+  const totalFilterCount = typeof filterCount === 'number' ? filterCount : 0
 
   return (
     <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[auto_1fr_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1">
@@ -193,124 +164,22 @@ export default function Toolbar({
 
             <div className="w-px h-5 bg-border" />
 
-            {/* Unified Filters dropdown */}
-            <div ref={filtersRef} className="relative">
-              <button
-                className={`btn ${totalFilterCount > 0 ? 'btn-active' : ''}`}
-                onClick={() => setFiltersOpen((v) => !v)}
-                aria-haspopup="dialog"
-                aria-expanded={filtersOpen}
-                title="Filters"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                </svg>
-                <span>Filters</span>
-                {totalFilterCount > 0 && (
-                  <span className="px-1.5 py-0.5 text-[11px] rounded-full bg-accent-strong text-text">
-                    {totalFilterCount}
-                  </span>
-                )}
-              </button>
-
-              {filtersOpen && (
-                <div
-                  role="dialog"
-                  aria-label="Filters"
-                  className="dropdown-panel w-[240px]"
-                  style={{ top: '38px', left: 0 }}
-                >
-                  {/* Rating section */}
-                  <div className="dropdown-label">Rating</div>
-                  <div className="px-1">
-                    {[5, 4, 3, 2, 1].map((v) => {
-                      const active = (starFilters || []).includes(v)
-                      const count = starCounts?.[String(v)] ?? 0
-                      return (
-                        <button
-                          key={v}
-                          onClick={() => onToggleStar?.(v)}
-                          className={`dropdown-item justify-between ${active ? 'bg-accent-muted' : ''}`}
-                        >
-                          <span className={active ? 'text-star-active' : 'text-text'}>
-                            {'★'.repeat(v)}{'☆'.repeat(5 - v)}
-                          </span>
-                          <span className="text-xs text-muted">{count}</span>
-                        </button>
-                      )
-                    })}
-                    <button
-                      onClick={() => onToggleStar?.(0)}
-                      className={`dropdown-item justify-between ${(starFilters || []).includes(0) ? 'bg-accent-muted' : ''}`}
-                    >
-                      <span className="text-text">Unrated</span>
-                      <span className="text-xs text-muted">{starCounts?.['0'] ?? 0}</span>
-                    </button>
-                  </div>
-
-                  <div className="dropdown-divider" />
-
-                  {/* Metrics section */}
-                  <div className="dropdown-label">Metrics</div>
-                  <button
-                    className="dropdown-item"
-                    onClick={() => {
-                      setFiltersOpen(false)
-                      onOpenFilters?.()
-                    }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M4 19V9" />
-                      <path d="M10 19V5" />
-                      <path d="M16 19v-7" />
-                      <path d="M3 19h18" />
-                    </svg>
-                    <span>Open Metrics Panel</span>
-                    {(filterCount || 0) > 0 && (
-                      <span className="ml-auto text-xs text-muted">{filterCount} active</span>
-                    )}
-                  </button>
-
-                  <div className="dropdown-divider" />
-
-                  {/* Clear all */}
-                  <button
-                    className="dropdown-item text-muted hover:text-text"
-                    onClick={() => {
-                      if (onClearFilters) {
-                        onClearFilters()
-                      } else {
-                        onClearStars?.()
-                      }
-                    }}
-                    disabled={totalFilterCount === 0}
-                  >
-                    Clear all filters
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Active filter chips */}
-            {activeStarCount > 0 && (
-              <div className="filter-chip">
-                <span className="text-star-active">★</span>
-                <span>
-                  {(() => {
-                    const sf = starFilters || []
-                    const stars = sf.filter((v) => v > 0).sort((a, b) => b - a)
-                    return stars.length ? stars.join(',') : sf.includes(0) ? 'None' : ''
-                  })()}
+            <button
+              className={`btn ${totalFilterCount > 0 ? 'btn-active' : ''}`}
+              onClick={() => onOpenFilters?.()}
+              title="Filters"
+              aria-label="Open filters"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              </svg>
+              <span>Filters</span>
+              {totalFilterCount > 0 && (
+                <span className="px-1.5 py-0.5 text-[11px] rounded-full bg-accent-strong text-text">
+                  {totalFilterCount}
                 </span>
-                <button
-                  className="filter-chip-remove"
-                  onClick={onClearStars}
-                  aria-label="Clear rating filter"
-                >
-                  ×
-                </button>
-              </div>
-            )}
+              )}
+            </button>
           </div>
         )}
       </div>

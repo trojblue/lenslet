@@ -1,6 +1,9 @@
 from __future__ import annotations
 import os
 import struct
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
@@ -37,6 +40,7 @@ class MemoryStorage:
     """
 
     IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+    LOCAL_INDEX_WORKERS = 16
 
     def __init__(self, root: str, thumb_size: int = 256, thumb_quality: int = 70):
         self.local = LocalStorage(root)
@@ -116,64 +120,96 @@ class MemoryStorage:
         if not self.exists(path):
             raise FileNotFoundError(path)
 
+    def _build_item(self, path: str, name: str, idx: int) -> tuple[int, CachedItem | None, tuple[int, int] | None]:
+        """Build a CachedItem for a single image file."""
+        try:
+            full = self.join(path, name)
+            abs_path = self._abs_path(full)
+            stat = os.stat(abs_path)
+            size = stat.st_size
+            mtime = stat.st_mtime
+            mime = self._guess_mime(name)
+
+            w, h = self._dimensions.get(full, (0, 0))
+            dims = None
+            if w == 0 or h == 0:
+                try:
+                    dims = self._read_dimensions_fast(abs_path)
+                    if dims:
+                        w, h = dims
+                except Exception:
+                    dims = None
+
+            item = CachedItem(
+                path=full,
+                name=name,
+                mime=mime,
+                width=w,
+                height=h,
+                size=size,
+                mtime=mtime,
+            )
+            return idx, item, dims
+        except Exception:
+            return idx, None, None
+
+    def _progress(self, done: int, total: int, label: str) -> None:
+        if total <= 0:
+            return
+        bar_len = 24
+        filled = int(bar_len * done / total)
+        bar = "#" * filled + "-" * (bar_len - filled)
+        pct = (done / total) * 100
+        label_part = f" ({label})" if label else ""
+        msg = f"[lenslet] Indexing{label_part}: [{bar}] {done}/{total} ({pct:5.1f}%)"
+        end = "\n" if done >= total else "\r"
+        print(msg, end=end, file=sys.stderr, flush=True)
+
+    def _effective_workers(self, total: int) -> int:
+        if total <= 0:
+            return 0
+        cpu = os.cpu_count() or 1
+        return max(1, min(self.LOCAL_INDEX_WORKERS, cpu, total))
+
     def _build_index(self, path: str) -> CachedIndex:
         """Build and cache folder index. Fast - no image reading."""
         norm = self._normalize_path(path)
         files, dirs = self.list_dir(path)
 
-        items: list[CachedItem] = []
         image_files = [f for f in files if self._is_supported_image(f)]
-        
-        # Log progress for large directories
+        items: list[CachedItem | None] = [None] * len(image_files)
+
         total = len(image_files)
-        if total > 1000:
-            print(f"[lenslet] Indexing {total} images in {path or '/'} ...")
+        if total:
+            self._progress(0, total, "local")
 
-        for i, name in enumerate(image_files):
-            full = self.join(path, name)
-            try:
-                abs_path = self._abs_path(full)
-                stat = os.stat(abs_path)
-                size = stat.st_size
-                mtime = stat.st_mtime
-                mime = self._guess_mime(name)
-
-                # Dimensions are loaded lazily (0 = not loaded yet)
-                # Try to get from cache first, but if 0/0, try fast read if small enough or requested?
-                # For now, we keep it 0/0 to be lazy as requested.
-                # The frontend handles 0/0 gracefully or triggers a fetch if needed.
-                w, h = self._dimensions.get(full, (0, 0))
-                
-                # If missing dimensions, try fast header read immediately
-                # This makes "lazy" loading actually eager but lightweight (header only)
-                # which is critical for adaptive layout to work on first load.
-                if w == 0 or h == 0:
-                    try:
-                        dims = self._read_dimensions_fast(abs_path)
+        done = 0
+        workers = self._effective_workers(total)
+        last_print = 0.0
+        if workers:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [
+                    executor.submit(self._build_item, path, name, i)
+                    for i, name in enumerate(image_files)
+                ]
+                for future in as_completed(futures):
+                    idx, item, dims = future.result()
+                    if item is not None:
+                        items[idx] = item
                         if dims:
-                            w, h = dims
-                            self._dimensions[full] = (w, h)
-                    except Exception:
-                        pass  # Keep as 0,0 if failed
-
-                items.append(CachedItem(
-                    path=full, name=name, mime=mime,
-                    width=w, height=h, size=size, mtime=mtime
-                ))
-            except Exception:
-                continue
-            
-            # Progress for large dirs
-            if total > 1000 and (i + 1) % 10000 == 0:
-                print(f"[lenslet] ... {i + 1}/{total}")
-
-        if total > 1000:
-            print(f"[lenslet] Indexed {len(items)} images in {path or '/'}")
+                            self._dimensions[item.path] = dims
+                    done += 1
+                    now = time.monotonic()
+                    if now - last_print > 0.1 or done == total:
+                        self._progress(done, total, "local")
+                        last_print = now
+        else:
+            done = total
 
         index = CachedIndex(
             path=path,
             generated_at=datetime.now(timezone.utc).isoformat(),
-            items=items,
+            items=[it for it in items if it is not None],
             dirs=dirs,
         )
         self._indexes[norm] = index

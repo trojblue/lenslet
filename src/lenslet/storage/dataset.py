@@ -187,20 +187,26 @@ class DatasetStorage:
         filled = int(bar_len * done / total)
         bar = "#" * filled + "-" * (bar_len - filled)
         pct = (done / total) * 100
-        label_part = f" {label}" if label else ""
-        msg = f"[lenslet] Remote headers{label_part}: [{bar}] {done}/{total} ({pct:5.1f}%)"
+        label_part = f" ({label})" if label else ""
+        msg = f"[lenslet] Indexing{label_part}: [{bar}] {done}/{total} ({pct:5.1f}%)"
         end = "\n" if done >= total else "\r"
         print(msg, end=end, file=sys.stderr, flush=True)
+
+    def _effective_remote_workers(self, total: int) -> int:
+        if total <= 0:
+            return 0
+        cpu = os.cpu_count() or 1
+        return max(1, min(self.REMOTE_DIM_WORKERS, cpu, total))
 
     def _probe_remote_dimensions(self, tasks: list[tuple[str, CachedItem, str, str]], label: str) -> None:
         """Fetch remote dimensions in parallel and update cached items."""
         total = len(tasks)
         if total == 0:
             return
-        workers = min(self.REMOTE_DIM_WORKERS, total)
+        workers = self._effective_remote_workers(total)
         done = 0
         last_print = 0.0
-        progress_label = f"({label})" if label else ""
+        progress_label = label
 
         def _work(task: tuple[str, CachedItem, str, str]):
             logical_path, item, url, name = task
@@ -299,7 +305,7 @@ class DatasetStorage:
                 self._source_paths[logical_path] = source_path
             
             if remote_tasks:
-                self._probe_remote_dimensions(remote_tasks, dataset_name)
+                self._probe_remote_dimensions(remote_tasks, f"remote headers: {dataset_name}")
 
             # Create dataset index
             dataset_path = f"/{dataset_name}"

@@ -258,19 +258,19 @@ class DatasetStorage:
             elif self._is_http_url(source_path):
                 url = source_path
             if not url:
-                return logical_path, item, None
-            dims, total = self._get_remote_header_info(url, name)
-            return logical_path, item, dims, total
+                return logical_path, item, None, None
+            dims, total_size = self._get_remote_header_info(url, name)
+            return logical_path, item, dims, total_size
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(_work, task) for task in tasks]
             for future in as_completed(futures):
-                logical_path, item, dims, total = future.result()
+                logical_path, item, dims, total_size = future.result()
                 if dims:
                     self._dimensions[logical_path] = dims
                     item.width, item.height = dims
-                if total:
-                    item.size = total
+                if total_size:
+                    item.size = total_size
                 done += 1
                 now = time.monotonic()
                 if now - last_print > 0.1 or done == total:

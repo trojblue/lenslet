@@ -22,7 +22,7 @@ class CachedItem:
     height: int
     size: int
     mtime: float
-    url: str | None = None  # For S3 images, this is the presigned URL
+    url: str | None = None  # For HTTP/HTTPS sources
 
 
 @dataclass
@@ -68,6 +68,7 @@ class DatasetStorage:
         self._thumbnails: dict[str, bytes] = {}
         self._metadata: dict[str, dict] = {}
         self._dimensions: dict[str, tuple[int, int]] = {}
+        self._source_paths: dict[str, str] = {}
         
         # Build initial index
         self._build_all_indexes()
@@ -209,7 +210,17 @@ class DatasetStorage:
         progress_label = label
 
         def _work(task: tuple[str, CachedItem, str, str]):
-            logical_path, item, url, name = task
+            logical_path, item, source_path, name = task
+            url = None
+            if self._is_s3_uri(source_path):
+                try:
+                    url = self._get_presigned_url(source_path)
+                except Exception:
+                    url = None
+            elif self._is_http_url(source_path):
+                url = source_path
+            if not url:
+                return logical_path, item, None
             dims = self._get_remote_dimensions(url, name)
             return logical_path, item, dims
 
@@ -256,14 +267,8 @@ class DatasetStorage:
                 size = 0
 
                 if is_s3:
-                    # For S3, get presigned URL
-                    try:
-                        url = self._get_presigned_url(source_path)
-                        # We can't easily get size without fetching, use 0 for now
-                        size = 0
-                    except Exception as e:
-                        print(f"[lenslet] Warning: Failed to presign {source_path}: {e}")
-                        continue
+                    # For S3, presign on-demand only
+                    size = 0
                 elif is_http:
                     # Plain HTTP/HTTPS URL — use as-is
                     url = source_path
@@ -296,13 +301,11 @@ class DatasetStorage:
 
                 items.append(item)
                 self._items[logical_path] = item
+                self._source_paths[logical_path] = source_path
                 if url:
                     remote_tasks.append((logical_path, item, url, name))
-
-                # Store source path mapping
-                if not hasattr(self, '_source_paths'):
-                    self._source_paths = {}
-                self._source_paths[logical_path] = source_path
+                elif is_s3:
+                    remote_tasks.append((logical_path, item, source_path, name))
             
             if remote_tasks:
                 self._probe_remote_dimensions(remote_tasks, f"remote headers: {dataset_name}")
@@ -335,8 +338,6 @@ class DatasetStorage:
 
     def get_source_path(self, logical_path: str) -> str:
         """Get original source path/URI for a logical path."""
-        if not hasattr(self, '_source_paths'):
-            raise FileNotFoundError(logical_path)
         if logical_path not in self._source_paths:
             raise FileNotFoundError(logical_path)
         return self._source_paths[logical_path]
@@ -346,13 +347,21 @@ class DatasetStorage:
         source_path = self.get_source_path(path)
         item = self._items[path]
         
-        if item.url:  # S3 image
+        if self._is_s3_uri(source_path):  # S3 image
+            import urllib.request
+            try:
+                url = self._get_presigned_url(source_path)
+                with urllib.request.urlopen(url) as response:
+                    return response.read()
+            except Exception as e:
+                raise RuntimeError(f"Failed to download from S3: {e}")
+        if item.url:  # HTTP/HTTPS image
             import urllib.request
             try:
                 with urllib.request.urlopen(item.url) as response:
                     return response.read()
             except Exception as e:
-                raise RuntimeError(f"Failed to download from S3: {e}")
+                raise RuntimeError(f"Failed to download from URL: {e}")
         else:  # Local file
             with open(source_path, "rb") as f:
                 return f.read()
@@ -416,13 +425,22 @@ class DatasetStorage:
             return self._dimensions[path]
 
         item = self._items.get(path)
-        if item and item.url:
-            dims = self._get_remote_dimensions(item.url, item.name)
-            if dims:
-                self._dimensions[path] = dims
-                self._items[path].width = dims[0]
-                self._items[path].height = dims[1]
-                return dims
+        if item:
+            url = None
+            if self._is_s3_uri(self.get_source_path(path)):
+                try:
+                    url = self._get_presigned_url(self.get_source_path(path))
+                except Exception:
+                    url = None
+            else:
+                url = item.url
+            if url:
+                dims = self._get_remote_dimensions(url, item.name)
+                if dims:
+                    self._dimensions[path] = dims
+                    self._items[path].width = dims[0]
+                    self._items[path].height = dims[1]
+                    return dims
 
         try:
             raw = self.read_bytes(path)

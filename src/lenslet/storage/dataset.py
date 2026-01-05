@@ -2,7 +2,9 @@
 from __future__ import annotations
 import os
 import struct
+import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
@@ -39,6 +41,8 @@ class DatasetStorage:
     """
 
     IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+    REMOTE_HEADER_BYTES = 65536
+    REMOTE_DIM_WORKERS = 16
 
     def __init__(
         self,
@@ -122,6 +126,100 @@ class DatasetStorage:
             return "image/png"
         return "image/jpeg"
 
+    def _read_dimensions_from_bytes(self, data: bytes, ext: str | None) -> tuple[int, int] | None:
+        """Read image dimensions from in-memory bytes."""
+        if not data:
+            return None
+
+        kind = None
+        if ext in ("jpg", "jpeg"):
+            kind = "jpeg"
+        elif ext == "png":
+            kind = "png"
+        elif ext == "webp":
+            kind = "webp"
+        else:
+            if data.startswith(b"\xff\xd8"):
+                kind = "jpeg"
+            elif data.startswith(b"\x89PNG\r\n\x1a\n"):
+                kind = "png"
+            elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+                kind = "webp"
+
+        try:
+            buf = BytesIO(data)
+            if kind == "jpeg":
+                return self._jpeg_dimensions(buf)
+            if kind == "png":
+                return self._png_dimensions(buf)
+            if kind == "webp":
+                return self._webp_dimensions(buf)
+        except Exception:
+            return None
+        return None
+
+    def _get_remote_header_bytes(self, url: str, max_bytes: int | None = None) -> bytes | None:
+        """Fetch the first N bytes of a remote image via Range request."""
+        max_bytes = max_bytes or self.REMOTE_HEADER_BYTES
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                url,
+                headers={"Range": f"bytes=0-{max_bytes - 1}"},
+            )
+            with urllib.request.urlopen(req) as response:
+                return response.read(max_bytes)
+        except Exception:
+            return None
+
+    def _get_remote_dimensions(self, url: str, name: str) -> tuple[int, int] | None:
+        """Try to read dimensions from a ranged remote request."""
+        header = self._get_remote_header_bytes(url)
+        if not header:
+            return None
+        ext = os.path.splitext(name)[1].lower().lstrip(".") or None
+        return self._read_dimensions_from_bytes(header, ext)
+
+    def _progress(self, done: int, total: int, label: str) -> None:
+        if total <= 0:
+            return
+        bar_len = 24
+        filled = int(bar_len * done / total)
+        bar = "#" * filled + "-" * (bar_len - filled)
+        pct = (done / total) * 100
+        label_part = f" {label}" if label else ""
+        msg = f"[lenslet] Remote headers{label_part}: [{bar}] {done}/{total} ({pct:5.1f}%)"
+        end = "\n" if done >= total else "\r"
+        print(msg, end=end, file=sys.stderr, flush=True)
+
+    def _probe_remote_dimensions(self, tasks: list[tuple[str, CachedItem, str, str]], label: str) -> None:
+        """Fetch remote dimensions in parallel and update cached items."""
+        total = len(tasks)
+        if total == 0:
+            return
+        workers = min(self.REMOTE_DIM_WORKERS, total)
+        done = 0
+        last_print = 0.0
+        progress_label = f"({label})" if label else ""
+
+        def _work(task: tuple[str, CachedItem, str, str]):
+            logical_path, item, url, name = task
+            dims = self._get_remote_dimensions(url, name)
+            return logical_path, item, dims
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_work, task) for task in tasks]
+            for future in as_completed(futures):
+                logical_path, item, dims = future.result()
+                if dims:
+                    self._dimensions[logical_path] = dims
+                    item.width, item.height = dims
+                done += 1
+                now = time.monotonic()
+                if now - last_print > 0.1 or done == total:
+                    self._progress(done, total, progress_label)
+                    last_print = now
+
     def _build_all_indexes(self):
         """Build indexes for all datasets."""
         # Root index contains dataset folders
@@ -136,6 +234,7 @@ class DatasetStorage:
         # Build index for each dataset
         for dataset_name, paths in self.datasets.items():
             items = []
+            remote_tasks: list[tuple[str, CachedItem, str, str]] = []
             for source_path in paths:
                 name = self._extract_name(source_path)
                 if not self._is_supported_image(name):
@@ -175,27 +274,33 @@ class DatasetStorage:
                 
                 mime = self._guess_mime(name)
                 mtime = time.time()
-                
+                width, height = 0, 0
+
                 # Create cached item
                 item = CachedItem(
                     path=logical_path,
                     name=name,
                     mime=mime,
-                    width=0,  # Lazy load
-                    height=0,  # Lazy load
+                    width=width,
+                    height=height,
                     size=size,
                     mtime=mtime,
                     url=url,  # For S3 images
                 )
-                
+
                 items.append(item)
                 self._items[logical_path] = item
-                
+                if url:
+                    remote_tasks.append((logical_path, item, url, name))
+
                 # Store source path mapping
                 if not hasattr(self, '_source_paths'):
                     self._source_paths = {}
                 self._source_paths[logical_path] = source_path
             
+            if remote_tasks:
+                self._probe_remote_dimensions(remote_tasks, dataset_name)
+
             # Create dataset index
             dataset_path = f"/{dataset_name}"
             self._indexes[dataset_path] = CachedIndex(
@@ -304,6 +409,15 @@ class DatasetStorage:
         if path in self._dimensions:
             return self._dimensions[path]
 
+        item = self._items.get(path)
+        if item and item.url:
+            dims = self._get_remote_dimensions(item.url, item.name)
+            if dims:
+                self._dimensions[path] = dims
+                self._items[path].width = dims[0]
+                self._items[path].height = dims[1]
+                return dims
+
         try:
             raw = self.read_bytes(path)
             with Image.open(BytesIO(raw)) as im:
@@ -370,6 +484,97 @@ class DatasetStorage:
         
         return results
 
+    def _jpeg_dimensions(self, f) -> tuple[int, int] | None:
+        """Read JPEG dimensions from SOF marker."""
+        f.seek(0)
+        if f.read(2) != b"\xff\xd8":
+            return None
+        while True:
+            marker = f.read(2)
+            if len(marker) < 2 or marker[0] != 0xff:
+                return None
+            if marker[1] == 0xd9:  # EOI
+                return None
+            if 0xc0 <= marker[1] <= 0xcf and marker[1] not in (0xc4, 0xc8, 0xcc):
+                length_bytes = f.read(2)
+                if len(length_bytes) < 2:
+                    return None
+                _ = struct.unpack(">H", length_bytes)[0]
+                f.read(1)  # precision
+                size = f.read(4)
+                if len(size) < 4:
+                    return None
+                h, w = struct.unpack(">HH", size)
+                return w, h
+            length_bytes = f.read(2)
+            if len(length_bytes) < 2:
+                return None
+            length = struct.unpack(">H", length_bytes)[0]
+            if length < 2:
+                return None
+            f.seek(length - 2, 1)
+
+    def _png_dimensions(self, f) -> tuple[int, int] | None:
+        """Read PNG dimensions from IHDR chunk."""
+        f.seek(0)
+        if f.read(8) != b"\x89PNG\r\n\x1a\n":
+            return None
+        if len(f.read(4)) < 4:
+            return None
+        if f.read(4) != b"IHDR":
+            return None
+        data = f.read(8)
+        if len(data) < 8:
+            return None
+        w, h = struct.unpack(">II", data)
+        return w, h
+
+    def _webp_dimensions(self, f) -> tuple[int, int] | None:
+        """Read WebP dimensions from header."""
+        f.seek(0)
+        if f.read(4) != b"RIFF":
+            return None
+        if len(f.read(4)) < 4:
+            return None
+        if f.read(4) != b"WEBP":
+            return None
+        chunk = f.read(4)
+        if chunk == b"VP8 ":
+            if len(f.read(4)) < 4:
+                return None
+            f.read(3)
+            if f.read(3) != b"\x9d\x01\x2a":
+                return None
+            data = f.read(4)
+            if len(data) < 4:
+                return None
+            w = (data[0] | (data[1] << 8)) & 0x3FFF
+            h = (data[2] | (data[3] << 8)) & 0x3FFF
+            return w, h
+        if chunk == b"VP8L":
+            if len(f.read(4)) < 4:
+                return None
+            if f.read(1) != b"\x2f":
+                return None
+            data = f.read(4)
+            if len(data) < 4:
+                return None
+            val = struct.unpack("<I", data)[0]
+            w = (val & 0x3FFF) + 1
+            h = ((val >> 14) & 0x3FFF) + 1
+            return w, h
+        if chunk == b"VP8X":
+            if len(f.read(4)) < 4:
+                return None
+            f.read(4)
+            data = f.read(6)
+            if len(data) < 6:
+                return None
+            w = (data[0] | (data[1] << 8) | (data[2] << 16)) + 1
+            h = (data[3] | (data[4] << 8) | (data[5] << 16)) + 1
+            return w, h
+        return None
+
     def _guess_mime(self, name: str) -> str:
         """Guess MIME type from filename."""
         n = name.lower()
@@ -378,5 +583,3 @@ class DatasetStorage:
         if n.endswith(".png"):
             return "image/png"
         return "image/jpeg"
-
-

@@ -159,7 +159,24 @@ class DatasetStorage:
             return None
         return None
 
-    def _get_remote_header_bytes(self, url: str, max_bytes: int | None = None) -> bytes | None:
+    def _parse_content_range(self, header: str) -> int | None:
+        """Parse Content-Range and return total size if present."""
+        # Expected format: "bytes start-end/total" or "bytes */total"
+        try:
+            if "/" not in header:
+                return None
+            total = header.split("/")[-1].strip()
+            if total == "*":
+                return None
+            return int(total)
+        except Exception:
+            return None
+
+    def _get_remote_header_bytes(
+        self,
+        url: str,
+        max_bytes: int | None = None,
+    ) -> tuple[bytes | None, int | None]:
         """Fetch the first N bytes of a remote image via Range request."""
         max_bytes = max_bytes or self.REMOTE_HEADER_BYTES
         try:
@@ -169,17 +186,38 @@ class DatasetStorage:
                 headers={"Range": f"bytes=0-{max_bytes - 1}"},
             )
             with urllib.request.urlopen(req) as response:
-                return response.read(max_bytes)
+                data = response.read(max_bytes)
+                total = None
+                content_range = response.headers.get("Content-Range")
+                if content_range:
+                    total = self._parse_content_range(content_range)
+                if total is None:
+                    content_length = response.headers.get("Content-Length")
+                    if content_length:
+                        try:
+                            total = int(content_length)
+                        except Exception:
+                            total = None
+                return data, total
         except Exception:
-            return None
+            return None, None
+
+    def _get_remote_header_info(
+        self,
+        url: str,
+        name: str,
+    ) -> tuple[tuple[int, int] | None, int | None]:
+        """Try to read dimensions and size from a ranged remote request."""
+        header, total = self._get_remote_header_bytes(url)
+        if not header:
+            return None, total
+        ext = os.path.splitext(name)[1].lower().lstrip(".") or None
+        return self._read_dimensions_from_bytes(header, ext), total
 
     def _get_remote_dimensions(self, url: str, name: str) -> tuple[int, int] | None:
         """Try to read dimensions from a ranged remote request."""
-        header = self._get_remote_header_bytes(url)
-        if not header:
-            return None
-        ext = os.path.splitext(name)[1].lower().lstrip(".") or None
-        return self._read_dimensions_from_bytes(header, ext)
+        dims, _ = self._get_remote_header_info(url, name)
+        return dims
 
     def _progress(self, done: int, total: int, label: str) -> None:
         if total <= 0:
@@ -221,16 +259,18 @@ class DatasetStorage:
                 url = source_path
             if not url:
                 return logical_path, item, None
-            dims = self._get_remote_dimensions(url, name)
-            return logical_path, item, dims
+            dims, total = self._get_remote_header_info(url, name)
+            return logical_path, item, dims, total
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(_work, task) for task in tasks]
             for future in as_completed(futures):
-                logical_path, item, dims = future.result()
+                logical_path, item, dims, total = future.result()
                 if dims:
                     self._dimensions[logical_path] = dims
                     item.width, item.height = dims
+                if total:
+                    item.size = total
                 done += 1
                 now = time.monotonic()
                 if now - last_print > 0.1 or done == total:
@@ -435,11 +475,14 @@ class DatasetStorage:
             else:
                 url = item.url
             if url:
-                dims = self._get_remote_dimensions(url, item.name)
+                dims, total = self._get_remote_header_info(url, item.name)
                 if dims:
                     self._dimensions[path] = dims
                     self._items[path].width = dims[0]
                     self._items[path].height = dims[1]
+                if total:
+                    self._items[path].size = total
+                if dims:
                     return dims
 
         try:

@@ -13,6 +13,7 @@ def launch(
     host: str = "127.0.0.1",
     thumb_size: int = 256,
     thumb_quality: int = 70,
+    show_source: bool = True,
     verbose: bool = False,
 ) -> None:
     """
@@ -26,6 +27,7 @@ def launch(
         host: Host to bind to (default: 127.0.0.1)
         thumb_size: Thumbnail short edge size in pixels (default: 256)
         thumb_quality: Thumbnail WEBP quality 1-100 (default: 70)
+        show_source: If True (default), show original source paths/URIs in the UI.
         verbose: If True, show all server logs. If False (default), only show errors.
     
     Example:
@@ -47,6 +49,7 @@ def launch(
             host=host,
             thumb_size=thumb_size,
             thumb_quality=thumb_quality,
+            show_source=show_source,
             verbose=verbose,
         )
     else:
@@ -57,6 +60,7 @@ def launch(
             host=host,
             thumb_size=thumb_size,
             thumb_quality=thumb_quality,
+            show_source=show_source,
             verbose=verbose,
         )
 
@@ -67,6 +71,7 @@ def _launch_blocking(
     host: str,
     thumb_size: int,
     thumb_quality: int,
+    show_source: bool,
     verbose: bool,
 ) -> None:
     """Launch in current process (blocking)."""
@@ -93,6 +98,7 @@ def _launch_blocking(
         datasets=datasets,
         thumb_size=thumb_size,
         thumb_quality=thumb_quality,
+        show_source=show_source,
     )
     
     uvicorn.run(
@@ -109,6 +115,7 @@ def _launch_subprocess(
     host: str,
     thumb_size: int,
     thumb_quality: int,
+    show_source: bool,
     verbose: bool,
 ) -> None:
     """Launch in subprocess (non-blocking)."""
@@ -124,6 +131,7 @@ def _launch_subprocess(
             datasets=datasets,
             thumb_size=thumb_size,
             thumb_quality=thumb_quality,
+            show_source=show_source,
         )
         
         uvicorn.run(
@@ -154,4 +162,3 @@ def _launch_subprocess(
 
 Gallery running at: http://{host}:{port}
 """)
-

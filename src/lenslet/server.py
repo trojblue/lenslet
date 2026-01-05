@@ -53,6 +53,7 @@ class Item(BaseModel):
     star: int | None = None
     comments: str | None = None
     url: str | None = None
+    source: str | None = None
     metrics: dict[str, float] | None = None
 
 
@@ -331,6 +332,7 @@ def create_app_from_datasets(
     datasets: dict[str, list[str]],
     thumb_size: int = 256,
     thumb_quality: int = 70,
+    show_source: bool = True,
 ) -> FastAPI:
     """Create FastAPI app with in-memory dataset storage."""
 
@@ -368,6 +370,12 @@ def create_app_from_datasets(
 
     def _to_item(storage: DatasetStorage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
+        source = None
+        if show_source:
+            try:
+                source = storage.get_source_path(cached.path)
+            except Exception:
+                source = None
         return Item(
             path=cached.path,
             name=cached.name,
@@ -381,6 +389,7 @@ def create_app_from_datasets(
             star=meta.get("star"),
             comments=meta.get("notes", ""),
             url=getattr(cached, "url", None),
+            source=source,
             metrics=getattr(cached, "metrics", None),
         )
 

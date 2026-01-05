@@ -85,6 +85,7 @@ interface InspectorItem {
   w: number
   h: number
   type: string
+  source?: string | null
   star?: number | null
   metrics?: Record<string, number | null> | null
 }
@@ -249,6 +250,10 @@ export default function Inspector({
     () => items.find((i) => i.path === path),
     [items, path]
   )
+  const sourceValue = useMemo(() => {
+    if (!path) return ''
+    return currentItem?.source ?? path
+  }, [currentItem, path])
 
   const fetchMetadata = useCallback(async () => {
     if (!path) return
@@ -398,7 +403,7 @@ export default function Inspector({
                 onClick={fetchMetadata}
                 disabled={!path || metaState === 'loading'}
               >
-                {metaState === 'loading' ? 'Loading…' : 'Show meta'}
+                {metaState === 'loading' ? 'Loading…' : 'Load meta'}
               </button>
             </div>
           </div>
@@ -502,7 +507,7 @@ export default function Inspector({
             >
               <span
                 className="text-muted w-20 shrink-0 cursor-pointer"
-                onClick={() => path && copyInfo('source', path)}
+                onClick={() => sourceValue && copyInfo('source', sourceValue)}
               >
                 Source
               </span>
@@ -511,7 +516,7 @@ export default function Inspector({
                 ref={(el) => rememberHeight('source', el)}
                 style={valueHeights.source ? { minHeight: valueHeights.source } : undefined}
               >
-                {copiedField === 'source' ? 'Copied' : path}
+                {copiedField === 'source' ? 'Copied' : sourceValue}
               </span>
             </div>
             {(() => {

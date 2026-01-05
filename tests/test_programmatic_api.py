@@ -113,7 +113,7 @@ def test_blocking_mode():
     sig = inspect.signature(lenslet.launch)
     params = list(sig.parameters.keys())
     
-    expected = ["datasets", "blocking", "port", "host", "thumb_size", "thumb_quality", "verbose"]
+    expected = ["datasets", "blocking", "port", "host", "thumb_size", "thumb_quality", "show_source", "verbose"]
     assert params == expected, f"Expected {expected}, got {params}"
     print(f"✓ Function signature correct: {params}")
     
@@ -121,6 +121,7 @@ def test_blocking_mode():
     assert sig.parameters["blocking"].default == False
     assert sig.parameters["port"].default == 7070
     assert sig.parameters["host"].default == "127.0.0.1"
+    assert sig.parameters["show_source"].default == True
     assert sig.parameters["verbose"].default == False
     print("✓ Default parameters correct")
     
@@ -156,4 +157,3 @@ if __name__ == "__main__":
     else:
         print("\n❌ Some tests failed")
         exit(1)
-

@@ -354,6 +354,7 @@ def create_app_from_datasets(
         datasets=datasets,
         thumb_size=thumb_size,
         thumb_quality=thumb_quality,
+        include_source_in_search=show_source,
     )
     workspace = Workspace.for_dataset(None, can_write=False)
 

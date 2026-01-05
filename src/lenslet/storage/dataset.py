@@ -49,6 +49,7 @@ class DatasetStorage:
         datasets: dict[str, list[str]],
         thumb_size: int = 256,
         thumb_quality: int = 70,
+        include_source_in_search: bool = True,
     ):
         """
         Initialize with datasets.
@@ -61,6 +62,7 @@ class DatasetStorage:
         self.datasets = datasets
         self.thumb_size = thumb_size
         self.thumb_quality = thumb_quality
+        self._include_source_in_search = include_source_in_search
         
         # Build flat path structure: /dataset_name/image_name
         self._items: dict[str, CachedItem] = {}  # path -> item
@@ -538,11 +540,18 @@ class DatasetStorage:
             
             # Search in name and metadata
             meta = self.get_metadata(item.path)
-            haystack = " ".join([
+            parts = [
                 item.name,
                 " ".join(meta.get("tags", [])),
                 meta.get("notes", ""),
-            ]).lower()
+            ]
+            if self._include_source_in_search:
+                source = self._source_paths.get(item.path, "")
+                if source:
+                    parts.append(source)
+                if item.url:
+                    parts.append(item.url)
+            haystack = " ".join(parts).lower()
             
             if q in haystack:
                 results.append(item)

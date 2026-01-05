@@ -66,14 +66,14 @@ function matchesClause(item: Item, clause: FilterClause): boolean {
   if ('urlContains' in clause) {
     const value = clause.urlContains.value?.trim()
     if (!value) return true
-    const url = item.url ?? ''
+    const url = item.source ?? item.url ?? ''
     if (!url) return false
     return url.toLowerCase().includes(value.toLowerCase())
   }
   if ('urlNotContains' in clause) {
     const value = clause.urlNotContains.value?.trim()
     if (!value) return true
-    const url = item.url ?? ''
+    const url = item.source ?? item.url ?? ''
     if (!url) return false
     return !url.toLowerCase().includes(value.toLowerCase())
   }

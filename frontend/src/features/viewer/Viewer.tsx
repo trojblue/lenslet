@@ -96,9 +96,14 @@ export default function Viewer({
       <button
         aria-label="Close"
         onClick={(e)=>{ e.stopPropagation(); closeViewer() }}
-        className="btn absolute top-3 right-3 z-10"
+        className="btn btn-sm absolute top-3 right-3 z-10"
+        title="Close (Esc)"
       >
-        ✕ Close
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="M6 6l12 12" />
+        </svg>
+        Close
       </button>
       {thumbUrl && (
         <img

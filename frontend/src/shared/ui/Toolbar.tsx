@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import Dropdown, { DropdownMenu } from './Dropdown'
+import Dropdown from './Dropdown'
 import type { SortSpec, ViewMode } from '../../lib/types'
 
 export interface ToolbarProps {
@@ -54,7 +54,6 @@ export default function Toolbar({
   onClearStars,
   onClearFilters,
   starCounts,
-  viewMode,
   onViewMode,
   gridItemSize,
   onGridItemSize,
@@ -66,7 +65,7 @@ export default function Toolbar({
   onNextImage,
   canPrevImage,
   canNextImage,
-}: ToolbarProps) {
+}: ToolbarProps): JSX.Element {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const filtersRef = useRef<HTMLDivElement>(null)
 
@@ -86,6 +85,10 @@ export default function Toolbar({
   const sortDir = effectiveSort.dir
   const isRandom = effectiveSort.kind === 'builtin' && effectiveSort.key === 'random'
 
+  const metricOptions = metricKeys?.length
+    ? metricKeys.map((key) => ({ value: `metric:${key}`, label: key }))
+    : []
+
   // Build sort options with groups
   const sortOptions = [
     {
@@ -101,15 +104,12 @@ export default function Toolbar({
         { value: 'builtin:added', label: 'Date added' },
         { value: 'builtin:name', label: 'Filename' },
         { value: 'builtin:random', label: 'Random' },
-        ...(metricKeys && metricKeys.length > 0
-          ? metricKeys.map((key) => ({ value: `metric:${key}`, label: key }))
-          : []),
+        ...metricOptions,
       ],
     },
   ]
 
   // Determine current sort/layout value
-  const currentLayout = viewMode === 'adaptive' ? 'layout:masonry' : 'layout:grid'
   const currentSort = effectiveSort.kind === 'metric'
     ? `metric:${effectiveSort.key}`
     : `builtin:${effectiveSort.key}`
@@ -123,22 +123,9 @@ export default function Toolbar({
     }
   }
 
-  // Get display label for sort dropdown
-  const getSortLabel = () => {
-    if (effectiveSort.kind === 'metric') return effectiveSort.key
-    switch (effectiveSort.key) {
-      case 'added': return 'Date added'
-      case 'name': return 'Filename'
-      case 'random': return 'Random'
-      default: return 'Sort'
-    }
-  }
-
   // Count active star filters
   const activeStarCount = (starFilters || []).length
-  const totalFilterCount = typeof filterCount === 'number'
-    ? filterCount
-    : (activeStarCount > 0 ? 1 : 0)
+  const totalFilterCount = getTotalFilterCount(filterCount, activeStarCount)
   const countLabel = formatCountLabel(itemCount, totalCount)
 
   return (
@@ -420,6 +407,12 @@ function formatCountLabel(current?: number, total?: number): string | null {
   const totalLabel = total.toLocaleString()
   if (total === current) return `${currentLabel} items`
   return `${currentLabel} / ${totalLabel} items`
+}
+
+function getTotalFilterCount(filterCount: number | undefined, activeStarCount: number): number {
+  if (typeof filterCount === 'number') return filterCount
+  if (activeStarCount > 0) return 1
+  return 0
 }
 
 function parseSort(value: string, fallback: SortSpec): SortSpec {

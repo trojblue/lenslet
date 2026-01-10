@@ -1010,7 +1010,7 @@ function formatScopeLabel(path: string): string {
   if (!segments.length) return 'Root'
   if (segments.length <= 2) return `/${segments.join('/')}`
   const tail = segments.slice(-2).join('/')
-  return `…/${tail}`
+  return `.../${tail}`
 }
 
 function formatRange(min: number, max: number): string {

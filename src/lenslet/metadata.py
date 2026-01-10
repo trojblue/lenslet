@@ -130,6 +130,20 @@ def _build_quick_fields(pil_info: Dict[str, Any], exif: Dict[str, Any]) -> Dict[
     return quick_fields
 
 
+def _read_exif_image_info(data: bytes, label: str) -> tuple[Dict[str, Any], Dict[str, Any], Any]:
+    try:
+        img = Image.open(io.BytesIO(data))
+        pil_info = _normalize_pil_info(dict(img.info))
+        exif = _exif_to_dict(img.getexif())
+        xmp_raw = img.info.get("xmp") or img.info.get("XML:com.adobe.xmp")
+        xmp = _decode_bytes(xmp_raw) if isinstance(xmp_raw, (bytes, bytearray)) else xmp_raw
+    except Exception as e:
+        pil_info = {"_error": f"Pillow failed to open {label}: {e}"}
+        exif = {}
+        xmp = None
+    return pil_info, exif, xmp
+
+
 def _parse_png_text_chunks(data: bytes) -> List[Dict[str, Any]]:
     """
     Parse PNG chunks and extract tEXt, zTXt, and iTXt entries.
@@ -257,17 +271,7 @@ def read_png_info(file_obj) -> Dict[str, Any]:
 
 def read_jpeg_info(file_obj) -> Dict[str, Any]:
     data = _read_bytes(file_obj)
-    try:
-        img = Image.open(io.BytesIO(data))
-        pil_info = _normalize_pil_info(dict(img.info))
-        exif = _exif_to_dict(img.getexif())
-        xmp_raw = img.info.get("xmp") or img.info.get("XML:com.adobe.xmp")
-        xmp = _decode_bytes(xmp_raw) if isinstance(xmp_raw, (bytes, bytearray)) else xmp_raw
-    except Exception as e:
-        pil_info = {"_error": f"Pillow failed to open JPEG: {e}"}
-        exif = {}
-        xmp = None
-
+    pil_info, exif, xmp = _read_exif_image_info(data, "JPEG")
     quick_fields = _build_quick_fields(pil_info, exif)
 
     return {
@@ -280,17 +284,7 @@ def read_jpeg_info(file_obj) -> Dict[str, Any]:
 
 def read_webp_info(file_obj) -> Dict[str, Any]:
     data = _read_bytes(file_obj)
-    try:
-        img = Image.open(io.BytesIO(data))
-        pil_info = _normalize_pil_info(dict(img.info))
-        exif = _exif_to_dict(img.getexif())
-        xmp_raw = img.info.get("xmp") or img.info.get("XML:com.adobe.xmp")
-        xmp = _decode_bytes(xmp_raw) if isinstance(xmp_raw, (bytes, bytearray)) else xmp_raw
-    except Exception as e:
-        pil_info = {"_error": f"Pillow failed to open WebP: {e}"}
-        exif = {}
-        xmp = None
-
+    pil_info, exif, xmp = _read_exif_image_info(data, "WebP")
     quick_fields = _build_quick_fields(pil_info, exif)
 
     return {

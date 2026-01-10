@@ -100,6 +100,128 @@ class ViewsPayload(BaseModel):
     views: list[dict] = Field(default_factory=list)
 
 
+def _storage_from_request(request: Request):
+    return request.state.storage  # type: ignore[attr-defined]
+
+
+def _ensure_image(storage, path: str) -> None:
+    try:
+        storage.validate_image_path(path)
+    except FileNotFoundError:
+        raise HTTPException(404, "file not found")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+def _build_sidecar(storage, path: str) -> Sidecar:
+    meta = storage.get_metadata(path)
+    return Sidecar(
+        tags=meta.get("tags", []),
+        notes=meta.get("notes", ""),
+        exif={"width": meta.get("width", 0), "height": meta.get("height", 0)},
+        star=meta.get("star"),
+        updated_at=datetime.now(timezone.utc).isoformat(),
+        updated_by="server",
+    )
+
+
+def _build_image_metadata(storage, path: str) -> ImageMetadataResponse:
+    mime = storage._guess_mime(path)  # type: ignore[attr-defined]
+    if mime not in ("image/png", "image/jpeg", "image/webp"):
+        raise HTTPException(415, "metadata reading supports PNG, JPEG, and WebP images only")
+
+    try:
+        raw = storage.read_bytes(path)
+        if mime == "image/png":
+            meta = read_png_info(io.BytesIO(raw))
+            fmt = "png"
+        elif mime == "image/jpeg":
+            meta = read_jpeg_info(io.BytesIO(raw))
+            fmt = "jpeg"
+        else:
+            meta = read_webp_info(io.BytesIO(raw))
+            fmt = "webp"
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - unexpected parse errors
+        raise HTTPException(500, f"failed to parse metadata: {exc}")
+
+    return ImageMetadataResponse(path=path, format=fmt, meta=meta)
+
+
+def _build_folder_index(storage, path: str, to_item) -> FolderIndex:
+    try:
+        index = storage.get_index(path)
+    except ValueError:
+        raise HTTPException(400, "invalid path")
+    except FileNotFoundError:
+        raise HTTPException(404, "folder not found")
+
+    items = [to_item(storage, it) for it in index.items]
+    dirs = [DirEntry(name=d, kind="branch") for d in index.dirs]
+
+    return FolderIndex(
+        path=path,
+        generatedAt=index.generated_at,
+        items=items,
+        dirs=dirs,
+    )
+
+
+def _update_item(storage, path: str, body: Sidecar) -> Sidecar:
+    meta = storage.get_metadata(path)
+    meta["tags"] = body.tags
+    meta["notes"] = body.notes
+    meta["star"] = body.star
+    storage.set_metadata(path, meta)
+    return body
+
+
+def _thumb_response(storage, path: str) -> Response:
+    thumb = storage.get_thumbnail(path)
+    if thumb is None:
+        raise HTTPException(500, "failed to generate thumbnail")
+    return Response(content=thumb, media_type="image/webp")
+
+
+def _file_response(storage, path: str) -> Response:
+    data = storage.read_bytes(path)
+    return Response(content=data, media_type=storage._guess_mime(path))
+
+
+def _search_results(storage, to_item, q: str, path: str, limit: int) -> SearchResult:
+    hits = storage.search(query=q, path=path, limit=limit)
+    return SearchResult(items=[to_item(storage, it) for it in hits])
+
+
+def _attach_storage(app: FastAPI, storage) -> None:
+    @app.middleware("http")
+    async def attach_storage(request: Request, call_next):
+        request.state.storage = storage
+        response = await call_next(request)
+        return response
+
+
+def _mount_frontend(app: FastAPI) -> None:
+    frontend_dist = Path(__file__).parent / "frontend"
+    if frontend_dist.is_dir():
+        app.mount("/", NoCacheIndexStaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+
+
+def _register_views_routes(app: FastAPI, workspace: Workspace) -> None:
+    @app.get("/views", response_model=ViewsPayload)
+    def get_views():
+        return workspace.load_views()
+
+    @app.put("/views", response_model=ViewsPayload)
+    def put_views(body: ViewsPayload):
+        if not workspace.can_write:
+            raise HTTPException(403, "no-write mode")
+        payload = body.model_dump()
+        workspace.write_views(payload)
+        return body
+
+
 # --- App Factory ---
 
 def create_app(
@@ -164,17 +286,6 @@ def create_app(
                 print(f"[lenslet] Warning: failed to build index: {exc}")
         threading.Thread(target=_warm_index, daemon=True).start()
 
-    def _storage(request: Request):
-        return request.state.storage  # type: ignore[attr-defined]
-
-    def _ensure_image(storage, path: str) -> None:
-        try:
-            storage.validate_image_path(path)
-        except FileNotFoundError:
-            raise HTTPException(404, "file not found")
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-
     def _to_item(storage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
         return Item(
@@ -194,11 +305,7 @@ def create_app(
         )
 
     # Inject storage via middleware
-    @app.middleware("http")
-    async def attach_storage(request: Request, call_next):
-        request.state.storage = storage
-        response = await call_next(request)
-        return response
+    _attach_storage(app, storage)
 
     # --- Routes ---
 
@@ -213,30 +320,15 @@ def create_app(
 
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(path: str = "/", request: Request = None):
-        storage = _storage(request)
-        try:
-            index = storage.get_index(path)
-        except ValueError:
-            raise HTTPException(400, "invalid path")
-        except FileNotFoundError:
-            raise HTTPException(404, "folder not found")
-
-        items = [_to_item(storage, it) for it in index.items]
-        dirs = [DirEntry(name=d, kind="branch") for d in index.dirs]
-
-        return FolderIndex(
-            path=path,
-            generatedAt=index.generated_at,
-            items=items,
-            dirs=dirs,
-        )
+        storage = _storage_from_request(request)
+        return _build_folder_index(storage, path, _to_item)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
         if storage_mode != "memory":
             return {"ok": True, "note": f"{storage_mode} mode is static"}
 
-        storage = _storage(request)
+        storage = _storage_from_request(request)
         try:
             target = storage._abs_path(path)
         except ValueError:
@@ -250,97 +342,43 @@ def create_app(
 
     @app.get("/item")
     def get_item(path: str, request: Request = None):
-        storage = _storage(request)
+        storage = _storage_from_request(request)
         _ensure_image(storage, path)
-
-        meta = storage.get_metadata(path)
-        return Sidecar(
-            tags=meta.get("tags", []),
-            notes=meta.get("notes", ""),
-            exif={"width": meta.get("width", 0), "height": meta.get("height", 0)},
-            star=meta.get("star"),
-            updated_at=datetime.now(timezone.utc).isoformat(),
-            updated_by="server",
-        )
+        return _build_sidecar(storage, path)
 
     @app.get("/metadata", response_model=ImageMetadataResponse)
     def get_metadata(path: str, request: Request = None):
-        storage = _storage(request)
+        storage = _storage_from_request(request)
         _ensure_image(storage, path)
-
-        mime = storage._guess_mime(path)  # type: ignore[attr-defined]
-        if mime not in ("image/png", "image/jpeg", "image/webp"):
-            raise HTTPException(415, "metadata reading supports PNG, JPEG, and WebP images only")
-
-        try:
-            raw = storage.read_bytes(path)
-            if mime == "image/png":
-                meta = read_png_info(io.BytesIO(raw))
-                fmt = "png"
-            elif mime == "image/jpeg":
-                meta = read_jpeg_info(io.BytesIO(raw))
-                fmt = "jpeg"
-            else:
-                meta = read_webp_info(io.BytesIO(raw))
-                fmt = "webp"
-        except HTTPException:
-            raise
-        except Exception as exc:  # pragma: no cover - unexpected parse errors
-            raise HTTPException(500, f"failed to parse metadata: {exc}")
-
-        return ImageMetadataResponse(path=path, format=fmt, meta=meta)
+        return _build_image_metadata(storage, path)
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request = None):
-        storage = _storage(request)
+        storage = _storage_from_request(request)
         _ensure_image(storage, path)
-        # Update in-memory metadata (session-only)
-        meta = storage.get_metadata(path)
-        meta["tags"] = body.tags
-        meta["notes"] = body.notes
-        meta["star"] = body.star
-        storage.set_metadata(path, meta)
-        return body
+        return _update_item(storage, path, body)
 
     @app.get("/thumb")
     def get_thumb(path: str, request: Request = None):
-        storage = _storage(request)
+        storage = _storage_from_request(request)
         _ensure_image(storage, path)
-
-        thumb = storage.get_thumbnail(path)
-        if thumb is None:
-            raise HTTPException(500, "failed to generate thumbnail")
-        return Response(content=thumb, media_type="image/webp")
+        return _thumb_response(storage, path)
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
-        storage = _storage(request)
+        storage = _storage_from_request(request)
         _ensure_image(storage, path)
-        data = storage.read_bytes(path)
-        return Response(content=data, media_type=storage._guess_mime(path))
+        return _file_response(storage, path)
 
     @app.get("/search", response_model=SearchResult)
     def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
-        storage = _storage(request)
-        hits = storage.search(query=q, path=path, limit=limit)
-        return SearchResult(items=[_to_item(storage, it) for it in hits])
+        storage = _storage_from_request(request)
+        return _search_results(storage, _to_item, q, path, limit)
 
-    @app.get("/views", response_model=ViewsPayload)
-    def get_views():
-        return workspace.load_views()
-
-    @app.put("/views", response_model=ViewsPayload)
-    def put_views(body: ViewsPayload):
-        if not workspace.can_write:
-            raise HTTPException(403, "no-write mode")
-        payload = body.model_dump()
-        workspace.write_views(payload)
-        return body
+    _register_views_routes(app, workspace)
 
     # Mount frontend if dist exists
-    frontend_dist = Path(__file__).parent / "frontend"
-    if frontend_dist.is_dir():
-        app.mount("/", NoCacheIndexStaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+    _mount_frontend(app)
 
     return app
 
@@ -375,17 +413,6 @@ def create_app_from_datasets(
     )
     workspace = Workspace.for_dataset(None, can_write=False)
 
-    def _storage(request: Request) -> DatasetStorage:
-        return request.state.storage  # type: ignore[attr-defined]
-
-    def _ensure_image(storage: DatasetStorage, path: str) -> None:
-        try:
-            storage.validate_image_path(path)
-        except FileNotFoundError:
-            raise HTTPException(404, "file not found")
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-
     def _to_item(storage: DatasetStorage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
         source = None
@@ -412,11 +439,7 @@ def create_app_from_datasets(
         )
 
     # Inject storage via middleware
-    @app.middleware("http")
-    async def attach_storage(request: Request, call_next):
-        request.state.storage = storage
-        response = await call_next(request)
-        return response
+    _attach_storage(app, storage)
 
     # --- Routes ---
 
@@ -434,23 +457,8 @@ def create_app_from_datasets(
 
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(path: str = "/", request: Request = None):
-        storage = _storage(request)
-        try:
-            index = storage.get_index(path)
-        except ValueError:
-            raise HTTPException(400, "invalid path")
-        except FileNotFoundError:
-            raise HTTPException(404, "folder not found")
-
-        items = [_to_item(storage, it) for it in index.items]
-        dirs = [DirEntry(name=d, kind="branch") for d in index.dirs]
-
-        return FolderIndex(
-            path=path,
-            generatedAt=index.generated_at,
-            items=items,
-            dirs=dirs,
-        )
+        storage = _storage_from_request(request)
+        return _build_folder_index(storage, path, _to_item)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -460,96 +468,42 @@ def create_app_from_datasets(
 
     @app.get("/item")
     def get_item(path: str, request: Request = None):
-        storage = _storage(request)
+        storage = _storage_from_request(request)
         _ensure_image(storage, path)
-
-        meta = storage.get_metadata(path)
-        return Sidecar(
-            tags=meta.get("tags", []),
-            notes=meta.get("notes", ""),
-            exif={"width": meta.get("width", 0), "height": meta.get("height", 0)},
-            star=meta.get("star"),
-            updated_at=datetime.now(timezone.utc).isoformat(),
-            updated_by="server",
-        )
+        return _build_sidecar(storage, path)
 
     @app.get("/metadata", response_model=ImageMetadataResponse)
     def get_metadata(path: str, request: Request = None):
-        storage = _storage(request)
+        storage = _storage_from_request(request)
         _ensure_image(storage, path)
-
-        mime = storage._guess_mime(path)  # type: ignore[attr-defined]
-        if mime not in ("image/png", "image/jpeg", "image/webp"):
-            raise HTTPException(415, "metadata reading supports PNG, JPEG, and WebP images only")
-
-        try:
-            raw = storage.read_bytes(path)
-            if mime == "image/png":
-                meta = read_png_info(io.BytesIO(raw))
-                fmt = "png"
-            elif mime == "image/jpeg":
-                meta = read_jpeg_info(io.BytesIO(raw))
-                fmt = "jpeg"
-            else:
-                meta = read_webp_info(io.BytesIO(raw))
-                fmt = "webp"
-        except HTTPException:
-            raise
-        except Exception as exc:  # pragma: no cover - unexpected parse errors
-            raise HTTPException(500, f"failed to parse metadata: {exc}")
-
-        return ImageMetadataResponse(path=path, format=fmt, meta=meta)
+        return _build_image_metadata(storage, path)
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request = None):
-        storage = _storage(request)
+        storage = _storage_from_request(request)
         _ensure_image(storage, path)
-        # Update in-memory metadata (session-only)
-        meta = storage.get_metadata(path)
-        meta["tags"] = body.tags
-        meta["notes"] = body.notes
-        meta["star"] = body.star
-        storage.set_metadata(path, meta)
-        return body
+        return _update_item(storage, path, body)
 
     @app.get("/thumb")
     def get_thumb(path: str, request: Request = None):
-        storage = _storage(request)
+        storage = _storage_from_request(request)
         _ensure_image(storage, path)
-
-        thumb = storage.get_thumbnail(path)
-        if thumb is None:
-            raise HTTPException(500, "failed to generate thumbnail")
-        return Response(content=thumb, media_type="image/webp")
+        return _thumb_response(storage, path)
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
-        storage = _storage(request)
+        storage = _storage_from_request(request)
         _ensure_image(storage, path)
-        data = storage.read_bytes(path)
-        return Response(content=data, media_type=storage._guess_mime(path))
+        return _file_response(storage, path)
 
     @app.get("/search", response_model=SearchResult)
     def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
-        storage = _storage(request)
-        hits = storage.search(query=q, path=path, limit=limit)
-        return SearchResult(items=[_to_item(storage, it) for it in hits])
+        storage = _storage_from_request(request)
+        return _search_results(storage, _to_item, q, path, limit)
 
-    @app.get("/views", response_model=ViewsPayload)
-    def get_views():
-        return workspace.load_views()
-
-    @app.put("/views", response_model=ViewsPayload)
-    def put_views(body: ViewsPayload):
-        if not workspace.can_write:
-            raise HTTPException(403, "no-write mode")
-        payload = body.model_dump()
-        workspace.write_views(payload)
-        return body
+    _register_views_routes(app, workspace)
 
     # Mount frontend if dist exists
-    frontend_dist = Path(__file__).parent / "frontend"
-    if frontend_dist.is_dir():
-        app.mount("/", NoCacheIndexStaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+    _mount_frontend(app)
 
     return app

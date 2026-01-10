@@ -137,6 +137,9 @@ export default function AppShell() {
     return applySort(filtered, viewState.sort, randomSeed)
   }, [poolItems, viewState.filters, viewState.sort, randomSeed])
 
+  const totalCount = poolItems.length
+  const filteredCount = items.length
+
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
 
   // Compute star counts for the filter UI
@@ -359,6 +362,8 @@ export default function AppShell() {
     const display = segments.length > 2 ? `.../${tail}` : `/${tail}`
     return `Lenslet | ${display}`
   }, [])
+
+  const scopeLabel = useMemo(() => formatScopeLabel(current), [current])
 
   useEffect(() => {
     document.title = formatTitle(current)
@@ -760,6 +765,9 @@ export default function AppShell() {
         onBack={closeViewer}
         zoomPercent={viewer ? currentZoom : undefined}
         onZoomPercentChange={(p)=> setRequestedZoom(p)}
+        currentLabel={scopeLabel}
+        itemCount={filteredCount}
+        totalCount={totalCount}
         sortSpec={viewState.sort}
         metricKeys={metricKeys}
         onSortChange={handleSortChange}
@@ -882,13 +890,14 @@ export default function AppShell() {
           {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
         </div>
         {filterChips.length > 0 && (
-          <div className="sticky top-0 z-10 px-3 py-2 bg-panel/80 backdrop-blur-sm border-b border-border">
-            <div className="flex flex-wrap gap-2">
+          <div className="sticky top-0 z-10 px-3 py-2 bg-panel border-b border-border">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] uppercase tracking-wide text-muted">Filters</span>
               {filterChips.map((chip) => (
-                <span key={chip.id} className="inline-flex items-center gap-1.5 px-2 py-1 bg-accent/15 border border-border text-text rounded-[10px] text-[12px]">
-                  <span>{chip.label}</span>
+                <span key={chip.id} className="filter-chip">
+                  <span className="truncate max-w-[240px]" title={chip.label}>{chip.label}</span>
                   <button
-                    className="w-[18px] h-[18px] rounded-full border border-border bg-black/25 text-text cursor-pointer inline-flex items-center justify-center leading-none p-0 hover:bg-black/35"
+                    className="filter-chip-remove"
                     aria-label={`Clear filter ${chip.label}`}
                     onClick={chip.onRemove}
                   >
@@ -896,6 +905,9 @@ export default function AppShell() {
                   </button>
                 </span>
               ))}
+              <button className="btn btn-sm btn-ghost text-xs" onClick={handleClearFilters}>
+                Clear all
+              </button>
             </div>
           </div>
         )}
@@ -990,6 +1002,15 @@ function formatDateRange(from?: string, to?: string): string {
   if (from) return `from ${from}`
   if (to) return `to ${to}`
   return ''
+}
+
+function formatScopeLabel(path: string): string {
+  if (path === '/' || path === '') return 'Root'
+  const segments = path.split('/').filter(Boolean)
+  if (!segments.length) return 'Root'
+  if (segments.length <= 2) return `/${segments.join('/')}`
+  const tail = segments.slice(-2).join('/')
+  return `…/${tail}`
 }
 
 function formatRange(min: number, max: number): string {

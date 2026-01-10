@@ -148,7 +148,7 @@ export default function Toolbar({
               </span>
             </div>
             {countLabel && (
-              <span className="text-xs text-muted whitespace-nowrap">{countLabel}</span>
+              <span className="text-xs text-muted whitespace-nowrap tabular-nums">{countLabel}</span>
             )}
           </div>
         )}

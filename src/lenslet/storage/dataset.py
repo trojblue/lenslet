@@ -50,6 +50,7 @@ class DatasetStorage:
         thumb_size: int = 256,
         thumb_quality: int = 70,
         include_source_in_search: bool = True,
+        progress_style: str = "bar",
     ):
         """
         Initialize with datasets.
@@ -63,6 +64,10 @@ class DatasetStorage:
         self.thumb_size = thumb_size
         self.thumb_quality = thumb_quality
         self._include_source_in_search = include_source_in_search
+        self._progress_style = progress_style
+        self._progress_last_pct: float | None = None
+        self._progress_last_label: str | None = None
+        self._progress_last_total: int | None = None
         
         # Build flat path structure: /dataset_name/image_name
         self._items: dict[str, CachedItem] = {}  # path -> item
@@ -230,8 +235,25 @@ class DatasetStorage:
         pct = (done / total) * 100
         label_part = f" ({label})" if label else ""
         msg = f"[lenslet] Indexing{label_part}: [{bar}] {done}/{total} ({pct:5.1f}%)"
-        end = "\n" if done >= total else "\r"
-        print(msg, end=end, file=sys.stderr, flush=True)
+        if self._progress_style == "bar":
+            end = "\n" if done >= total else "\r"
+            print(msg, end=end, file=sys.stderr, flush=True)
+            return
+
+        state_changed = (
+            self._progress_last_label != label
+            or self._progress_last_total != total
+            or done == 0
+        )
+        if state_changed:
+            self._progress_last_pct = None
+            self._progress_last_label = label
+            self._progress_last_total = total
+
+        step = 5.0
+        if done >= total or self._progress_last_pct is None or (pct - self._progress_last_pct) >= step:
+            print(msg, end="\n", file=sys.stderr, flush=True)
+            self._progress_last_pct = pct
 
     def _effective_remote_workers(self, total: int) -> int:
         if total <= 0:

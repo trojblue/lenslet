@@ -107,6 +107,7 @@ def create_app(
     thumb_size: int = 256,
     thumb_quality: int = 70,
     no_write: bool = False,
+    progress_style: str = "bar",
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
@@ -140,6 +141,7 @@ def create_app(
                 root=root_path,
                 thumb_size=thumb_size,
                 thumb_quality=thumb_quality,
+                progress_style=progress_style,
             )
             storage_mode = "memory"
     else:
@@ -147,6 +149,7 @@ def create_app(
             root=root_path,
             thumb_size=thumb_size,
             thumb_quality=thumb_quality,
+            progress_style=progress_style,
         )
 
     workspace = Workspace.for_dataset(root_path, can_write=not no_write)
@@ -350,6 +353,7 @@ def create_app_from_datasets(
     thumb_size: int = 256,
     thumb_quality: int = 70,
     show_source: bool = True,
+    progress_style: str = "bar",
 ) -> FastAPI:
     """Create FastAPI app with in-memory dataset storage."""
 
@@ -372,6 +376,7 @@ def create_app_from_datasets(
         thumb_size=thumb_size,
         thumb_quality=thumb_quality,
         include_source_in_search=show_source,
+        progress_style=progress_style,
     )
     workspace = Workspace.for_dataset(None, can_write=False)
 

@@ -42,11 +42,21 @@ class MemoryStorage:
     IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
     LOCAL_INDEX_WORKERS = 16
 
-    def __init__(self, root: str, thumb_size: int = 256, thumb_quality: int = 70):
+    def __init__(
+        self,
+        root: str,
+        thumb_size: int = 256,
+        thumb_quality: int = 70,
+        progress_style: str = "bar",
+    ):
         self.local = LocalStorage(root)
         self.root = root
         self.thumb_size = thumb_size
         self.thumb_quality = thumb_quality
+        self._progress_style = progress_style
+        self._progress_last_pct: float | None = None
+        self._progress_last_label: str | None = None
+        self._progress_last_total: int | None = None
 
         # In-memory caches
         self._indexes: dict[str, CachedIndex] = {}
@@ -162,8 +172,25 @@ class MemoryStorage:
         pct = (done / total) * 100
         label_part = f" ({label})" if label else ""
         msg = f"[lenslet] Indexing{label_part}: [{bar}] {done}/{total} ({pct:5.1f}%)"
-        end = "\n" if done >= total else "\r"
-        print(msg, end=end, file=sys.stderr, flush=True)
+        if self._progress_style == "bar":
+            end = "\n" if done >= total else "\r"
+            print(msg, end=end, file=sys.stderr, flush=True)
+            return
+
+        state_changed = (
+            self._progress_last_label != label
+            or self._progress_last_total != total
+            or done == 0
+        )
+        if state_changed:
+            self._progress_last_pct = None
+            self._progress_last_label = label
+            self._progress_last_total = total
+
+        step = 5.0
+        if done >= total or self._progress_last_pct is None or (pct - self._progress_last_pct) >= step:
+            print(msg, end="\n", file=sys.stderr, flush=True)
+            self._progress_last_pct = pct
 
     def _effective_workers(self, total: int) -> int:
         if total <= 0:

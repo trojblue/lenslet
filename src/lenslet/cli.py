@@ -234,11 +234,13 @@ def main():
     import uvicorn
     from .server import create_app
 
+    progress_style = "line" if args.share or not sys.stderr.isatty() else "bar"
     app = create_app(
         root_path=str(directory),
         thumb_size=args.thumb_size,
         thumb_quality=args.thumb_quality,
         no_write=args.no_write,
+        progress_style=progress_style,
     )
 
     share_process = None

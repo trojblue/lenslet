@@ -2,7 +2,7 @@ import type { FilterAST, Item, SortSpec } from '../../../lib/types'
 import { applyFilterAst } from './filters'
 import { sortByAdded, sortByMetric, sortByName } from './sorters'
 
-export function applyFilters(items: Item[], filters: FilterAST | null) {
+export function applyFilters(items: Item[], filters: FilterAST | null): Item[] {
   return applyFilterAst(items, filters)
 }
 
@@ -26,15 +26,18 @@ function shuffleWithSeed<T>(items: T[], seed: number): T[] {
   return arr
 }
 
-export function applySort(items: Item[], sort: SortSpec, randomSeed?: number) {
+export function applySort(items: Item[], sort: SortSpec, randomSeed?: number): Item[] {
   if (sort.kind === 'builtin' && sort.key === 'random') {
     const seed = randomSeed ?? Date.now()
     return shuffleWithSeed(items, seed)
   }
 
-  const cmp = sort.kind === 'metric'
-    ? sortByMetric(sort.key)
-    : (sort.key === 'name' ? sortByName : sortByAdded)
+  let cmp = sortByAdded
+  if (sort.kind === 'metric') {
+    cmp = sortByMetric(sort.key)
+  } else if (sort.key === 'name') {
+    cmp = sortByName
+  }
   const arr = [...items].sort(cmp)
   return sort.dir === 'desc' ? arr.reverse() : arr
 }

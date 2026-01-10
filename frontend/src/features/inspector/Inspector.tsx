@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate } from '../../shared/api/items'
 import { fmtBytes } from '../../lib/util'
 import { api } from '../../shared/api/client'
+import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import type { Item, StarRating, Sidecar } from '../../lib/types'
 import { isInputElement } from '../../lib/keyboard'
 
@@ -116,7 +117,6 @@ export default function Inspector({
   // Form state
   const [tags, setTags] = useState('')
   const [notes, setNotes] = useState('')
-  const [thumbUrl, setThumbUrl] = useState<string | null>(null)
   const [metaText, setMetaText] = useState('')
   const [metaError, setMetaError] = useState<string | null>(null)
   const [metaState, setMetaState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
@@ -209,43 +209,7 @@ export default function Inspector({
     return () => window.removeEventListener('keydown', onKey)
   }, [path, multi, selectedPaths, commitSidecar, onStarChanged])
 
-  // Load thumbnail when path changes
-  useEffect(() => {
-    if (!path) {
-      if (thumbUrl) {
-        URL.revokeObjectURL(thumbUrl)
-      }
-      setThumbUrl(null)
-      return
-    }
-    
-    let alive = true
-    api.getThumb(path)
-      .then((blob) => {
-        if (!alive) return
-        const url = URL.createObjectURL(blob)
-        setThumbUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev)
-          return url
-        })
-      })
-      .catch(() => {
-        // Ignore thumbnail load errors
-      })
-    
-    return () => {
-      alive = false
-    }
-  }, [path])
-
-  // Clean up thumbnail URL on unmount
-  useEffect(() => {
-    return () => {
-      if (thumbUrl) {
-        URL.revokeObjectURL(thumbUrl)
-      }
-    }
-  }, [thumbUrl])
+  const thumbUrl = useBlobUrl(path ? () => api.getThumb(path) : null, [path])
 
   const filename = path ? path.split('/').pop() || path : ''
   const ext = useMemo(() => {

@@ -273,6 +273,37 @@ export default function VirtualGrid({
     focusCell(path)
   }
 
+  const handleDragStart = (path: string, e: React.DragEvent<HTMLDivElement>) => {
+    try {
+      const paths = selectedSet.has(path) && selected.length > 0 ? selected : [path]
+      e.dataTransfer?.setData('application/x-lenslet-paths', JSON.stringify(paths))
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove'
+      try { document.body.classList.add('drag-active') } catch {}
+      const host = e.currentTarget as HTMLElement
+      const img = host.querySelector('.cell-content img') as HTMLImageElement | null
+      const ghost = document.createElement('div')
+      ghost.className = 'drag-ghost'
+      const ghostImg = document.createElement('img')
+      ghostImg.draggable = false
+      ghostImg.alt = 'drag'
+      if (img && img.src) ghostImg.src = img.src
+      ghost.appendChild(ghostImg)
+      document.body.appendChild(ghost)
+      const w = ghost.getBoundingClientRect().width || 150
+      e.dataTransfer?.setDragImage(ghost, Math.round(w / 2), 0)
+      const cleanup = () => {
+        try { ghost.remove() } catch {}
+        try { document.body.classList.remove('drag-active') } catch {}
+        window.removeEventListener('dragend', cleanup)
+        window.removeEventListener('pointerup', cleanup)
+        document.removeEventListener('visibilitychange', cleanup)
+      }
+      window.addEventListener('dragend', cleanup)
+      window.addEventListener('pointerup', cleanup)
+      document.addEventListener('visibilitychange', cleanup)
+    } catch {}
+  }
+
   useEffect(() => {
     const el = parentRef.current
     if (!el) return
@@ -417,40 +448,13 @@ export default function VirtualGrid({
                   className={`relative min-w-0 ${isVisuallySelected ? 'outline outline-2 outline-accent outline-offset-2 rounded-[10px]' : ''}`}
                   role="gridcell" 
                   aria-selected={isVisuallySelected} 
-                  tabIndex={focused===it.path?0:-1} 
+                  tabIndex={focused===it.path?0:-1}
                   onFocus={()=> setFocused(it.path)} 
                   draggable 
                   style={wrapperStyle}
-                  onDragStart={(e)=>{
-                  try {
-                    const paths = selectedSet.has(it.path) && selected.length>0 ? selected : [it.path]
-                    e.dataTransfer?.setData('application/x-lenslet-paths', JSON.stringify(paths))
-                    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove'
-                    try { document.body.classList.add('drag-active') } catch {}
-                    const host = e.currentTarget as HTMLElement
-                    const img = host.querySelector('.cell-content img') as HTMLImageElement | null
-                    const ghost = document.createElement('div')
-                    ghost.className = 'drag-ghost'
-                    const ghostImg = document.createElement('img')
-                    ghostImg.draggable = false
-                    ghostImg.alt = 'drag'
-                    if (img && img.src) ghostImg.src = img.src
-                    ghost.appendChild(ghostImg)
-                    document.body.appendChild(ghost)
-                    const w = ghost.getBoundingClientRect().width || 150
-                    e.dataTransfer!.setDragImage(ghost, Math.round(w/2), 0)
-                    const cleanup = () => {
-                      try { ghost.remove() } catch {}
-                      try { document.body.classList.remove('drag-active') } catch {}
-                      window.removeEventListener('dragend', cleanup)
-                      window.removeEventListener('pointerup', cleanup)
-                      document.removeEventListener('visibilitychange', cleanup)
-                    }
-                    window.addEventListener('dragend', cleanup)
-                    window.addEventListener('pointerup', cleanup)
-                    document.addEventListener('visibilitychange', cleanup)
-                  } catch {}
-                }} onDragEnd={()=>{}} onContextMenu={(e)=>{ e.preventDefault(); e.stopPropagation(); if (onContextMenuItem) onContextMenuItem(e, it.path) }}>
+                  onDragStart={(e) => handleDragStart(it.path, e)}
+                  onDragEnd={() => {}}
+                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (onContextMenuItem) onContextMenuItem(e, it.path) }}>
                   <div 
                     className={itemContainerClass}
                     style={imageContainerStyle}

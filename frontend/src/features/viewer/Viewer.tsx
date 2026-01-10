@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useCallback } from 'react'
 import { api } from '../../shared/api/client'
+import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import { useZoomPan } from './hooks/useZoomPan'
 
 interface ViewerProps {
@@ -19,47 +20,28 @@ export default function Viewer({
   requestedZoomPercent,
   onZoomRequestConsumed,
 }: ViewerProps) {
-  const [url, setUrl] = useState<string | null>(null)
-  const [thumbUrl, setThumbUrl] = useState<string | null>(null)
   const { scale, setScale, tx, setTx, ty, setTy, base, setBase, ready, setReady, dragging, visible, setVisible, containerRef, imgRef, fitAndCenter, handleWheel, handleMouseDown } = useZoomPan()
+  const url = useBlobUrl(() => api.getFile(path), [path])
+  const thumbUrl = useBlobUrl(() => api.getThumb(path), [path])
+  const closeViewer = useCallback(() => {
+    setVisible(false)
+    window.setTimeout(onClose, 110)
+  }, [onClose, setVisible])
 
   // Load image and thumbnail when path changes
   useEffect(() => {
-    let alive = true
-    
-    // Load full image
-    api.getFile(path)
-      .then((b) => {
-        if (!alive) return
-        setUrl(URL.createObjectURL(b))
-      })
-      .catch(() => {})
-    
-    // Load thumbnail for low-res preview
-    api.getThumb(path)
-      .then((b) => {
-        if (!alive) return
-        setThumbUrl(URL.createObjectURL(b))
-      })
-      .catch(() => {})
-    
     // Fade in and focus
     requestAnimationFrame(() => {
       setVisible(true)
       containerRef.current?.focus()
     })
-    
-    return () => {
-      alive = false
-    }
   }, [path])
 
   // Keyboard navigation
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setVisible(false)
-        setTimeout(onClose, 110)
+        closeViewer()
       } else if ((e.key === 'ArrowRight' || e.key === 'd') && onNavigate) {
         onNavigate(1)
       } else if ((e.key === 'ArrowLeft' || e.key === 'a') && onNavigate) {
@@ -71,19 +53,6 @@ export default function Viewer({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose, onNavigate])
 
-  // Clean up blob URLs
-  useEffect(() => {
-    return () => {
-      if (url) URL.revokeObjectURL(url)
-    }
-  }, [url])
-  
-  useEffect(() => {
-    return () => {
-      if (thumbUrl) URL.revokeObjectURL(thumbUrl)
-    }
-  }, [thumbUrl])
-  
   // Reset ready state when URL changes
   useEffect(() => {
     setReady(false)
@@ -119,14 +88,14 @@ export default function Viewer({
       tabIndex={-1}
       className={`absolute inset-0 top-12 left-[var(--left)] right-[var(--right)] flex items-start justify-start bg-panel z-viewer overflow-hidden transition-opacity duration-[110ms] ease-out cursor-grab focus:outline-none focus-visible:outline-none ${dragging ? 'cursor-grabbing select-none' : ''} ${visible ? 'opacity-100' : 'opacity-0'}`}
       style={{ outline: 'none' }}
-      onClick={() => { setVisible(false); window.setTimeout(() => onClose(), 110) }}
+      onClick={closeViewer}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
       onKeyDown={(e)=>{ if (e.key === 'Tab') { e.preventDefault() } }}
     >
       <button
         aria-label="Close"
-        onClick={(e)=>{ e.stopPropagation(); setVisible(false); window.setTimeout(() => onClose(), 110) }}
+        onClick={(e)=>{ e.stopPropagation(); closeViewer() }}
         className="btn absolute top-3 right-3 z-10"
       >
         ✕ Close

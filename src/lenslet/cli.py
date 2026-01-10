@@ -117,11 +117,7 @@ def _stop_process(process: subprocess.Popen[str]) -> None:
 
 
 def _print_share_url(url: str) -> None:
-    try:
-        from tqdm import tqdm
-    except Exception:
-        print(f"Share URL: {url}")
-        return
+    from tqdm import tqdm
     tqdm.write(f"Share URL: {url}")
 
 
@@ -243,20 +239,11 @@ def main():
     import uvicorn
     from .server import create_app
 
-    progress_style = "line" if not sys.stderr.isatty() else "bar"
-    if args.share:
-        try:
-            import tqdm as _tqdm  # noqa: F401
-        except Exception:
-            progress_style = "line"
-        else:
-            progress_style = "tqdm" if sys.stderr.isatty() else "line"
     app = create_app(
         root_path=str(directory),
         thumb_size=args.thumb_size,
         thumb_quality=args.thumb_quality,
         no_write=args.no_write,
-        progress_style=progress_style,
     )
 
     share_process = None

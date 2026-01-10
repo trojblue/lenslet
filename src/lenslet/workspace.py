@@ -23,9 +23,7 @@ class Workspace:
 
     @property
     def views_path(self) -> Path | None:
-        if self.root is None:
-            return None
-        return self.root / "views.json"
+        return self.root / "views.json" if self.root else None
 
     def load_views(self) -> dict[str, Any]:
         default = {"version": 1, "views": []}

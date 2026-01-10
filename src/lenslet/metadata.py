@@ -12,6 +12,8 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 _EXIF_TAGS = ExifTags.TAGS
 _EXIF_GPS_TAGS = ExifTags.GPSTAGS
+_QUICK_FIELDS = ("parameters", "Software", "prompt", "Description")
+_QUICK_EXIF_FIELDS = ("Software", "ImageDescription", "UserComment", "XPComment", "Comment")
 
 
 def _read_bytes(file_obj) -> bytes:
@@ -114,10 +116,10 @@ def _exif_to_dict(exif) -> Dict[str, Any]:
 
 def _build_quick_fields(pil_info: Dict[str, Any], exif: Dict[str, Any]) -> Dict[str, Any]:
     quick_fields: Dict[str, Any] = {}
-    for field in ("parameters", "Software", "prompt", "Description"):
+    for field in _QUICK_FIELDS:
         if field in pil_info:
             quick_fields[field] = pil_info[field]
-    for field in ("Software", "ImageDescription", "UserComment", "XPComment", "Comment"):
+    for field in _QUICK_EXIF_FIELDS:
         if field in exif:
             if field == "UserComment" and "parameters" not in quick_fields:
                 quick_fields["parameters"] = exif[field]
@@ -254,12 +256,12 @@ def read_png_info(file_obj) -> Dict[str, Any]:
 
     # Build quick_fields from commonly-used metadata keys
     quick_fields: Dict[str, Any] = {}
-    for field in ("parameters", "Software", "prompt", "Description"):
+    for field in _QUICK_FIELDS:
         if field in pil_info:
             quick_fields[field] = pil_info[field]
     for chunk in found_text_chunks:
         keyword = chunk.get("keyword", "")
-        if keyword in ("parameters", "Software", "prompt", "Description") and keyword not in quick_fields:
+        if keyword in _QUICK_FIELDS and keyword not in quick_fields:
             quick_fields[keyword] = chunk.get("text", "")
 
     return {

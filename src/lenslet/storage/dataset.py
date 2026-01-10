@@ -479,22 +479,22 @@ class DatasetStorage:
         item = self._items.get(path)
         if item:
             url = None
-            if self._is_s3_uri(self.get_source_path(path)):
+            source_path = self.get_source_path(path)
+            if self._is_s3_uri(source_path):
                 try:
-                    url = self._get_presigned_url(self.get_source_path(path))
+                    url = self._get_presigned_url(source_path)
                 except Exception:
                     url = None
             else:
                 url = item.url
             if url:
                 dims, total = self._get_remote_header_info(url, item.name)
+                if total:
+                    self._items[path].size = total
                 if dims:
                     self._dimensions[path] = dims
                     self._items[path].width = dims[0]
                     self._items[path].height = dims[1]
-                if total:
-                    self._items[path].size = total
-                if dims:
                     return dims
 
         try:

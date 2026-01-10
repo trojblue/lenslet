@@ -151,8 +151,16 @@ export default function Toolbar({
               {countLabel && (
                 <span className="text-xs text-muted whitespace-nowrap tabular-nums">{countLabel}</span>
               )}
+              {viewerActive && (
+                <button className="btn btn-sm" onClick={onBack} title="Back to grid">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 18l-6-6 6-6" />
+                  </svg>
+                  Back
+                </button>
+              )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-2 ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
               <Dropdown
                 value={currentSort}
                 onChange={handleSortLayoutChange}
@@ -173,6 +181,7 @@ export default function Toolbar({
                 }}
                 title={isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`}
                 aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
+                aria-disabled={viewerActive}
               >
                 {isRandom ? (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -198,6 +207,7 @@ export default function Toolbar({
                   aria-haspopup="dialog"
                   aria-expanded={filtersOpen}
                   title="Filters"
+                  aria-disabled={viewerActive}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
@@ -332,32 +342,30 @@ export default function Toolbar({
 
       {/* Right section */}
       <div className="flex items-center gap-2 justify-end">
-        {viewerActive && (
-          <div className="flex items-center gap-1 mr-1">
-            <button
-              className={`btn btn-icon ${canPrevImage ? '' : 'opacity-40 cursor-not-allowed'}`}
-              title="Previous image (A / ←)"
-              onClick={() => canPrevImage && onPrevImage?.()}
-              aria-label="Previous image"
-              aria-disabled={!canPrevImage}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-            </button>
-            <button
-              className={`btn btn-icon ${canNextImage ? '' : 'opacity-40 cursor-not-allowed'}`}
-              title="Next image (D / →)"
-              onClick={() => canNextImage && onNextImage?.()}
-              aria-label="Next image"
-              aria-disabled={!canNextImage}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 6l6 6-6 6" />
-              </svg>
-            </button>
-          </div>
-        )}
+        <div className={`flex items-center gap-1 mr-1 ${viewerActive ? '' : 'opacity-0 pointer-events-none'}`} aria-hidden={!viewerActive}>
+          <button
+            className={`btn btn-icon ${canPrevImage ? '' : 'opacity-40 cursor-not-allowed'}`}
+            title="Previous image (A / ←)"
+            onClick={() => canPrevImage && onPrevImage?.()}
+            aria-label="Previous image"
+            aria-disabled={!canPrevImage}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <button
+            className={`btn btn-icon ${canNextImage ? '' : 'opacity-40 cursor-not-allowed'}`}
+            title="Next image (D / →)"
+            onClick={() => canNextImage && onNextImage?.()}
+            aria-label="Next image"
+            aria-disabled={!canNextImage}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+          </button>
+        </div>
 
         {/* Panel toggles */}
         <div className="flex items-center gap-1">
@@ -386,13 +394,15 @@ export default function Toolbar({
             </svg>
           </button>
         </div>
-        {!viewerActive && (
+        {!viewerActive ? (
           <input
             aria-label="Search filename, tags, notes"
             placeholder="Search..."
             onChange={(e) => onSearch(e.target.value)}
             className="h-8 w-[240px] focus:w-[320px] transition-all duration-200 rounded-lg px-3 border border-border bg-surface text-text placeholder:text-muted"
           />
+        ) : (
+          <div className="w-[240px]" aria-hidden="true" />
         )}
       </div>
     </div>

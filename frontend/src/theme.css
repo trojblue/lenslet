@@ -1,29 +1,29 @@
 /* Base theme variables */
 :root {
   /* Core backgrounds */
-  --bg: #0f0f10;
-  --panel: #18181b;
-  --hover: #27272a;
-  --border: #27272a;
+  --bg: #0e0d0b;
+  --panel: #181613;
+  --hover: #23211e;
+  --border: #2b2924;
   --thumb-bg: transparent;
   
   /* Elevated surfaces (buttons, dropdowns, inputs) */
-  --surface: #1b1b1b;
-  --surface-hover: #252525;
-  --surface-active: #2f2f2f;
-  --surface-overlay: #141414;
-  --surface-inset: #121212;
+  --surface: #1c1a17;
+  --surface-hover: #25231f;
+  --surface-active: #2e2b26;
+  --surface-overlay: #131210;
+  --surface-inset: #0f0e0c;
   
   /* Text colors */
-  --text: #e4e4e7;
-  --text-secondary: #cfd1d4;
-  --muted: #71717a;
+  --text: #e9e5df;
+  --text-secondary: #d3cec6;
+  --muted: #918b82;
   
   /* Accent colors */
   --accent: #3b82f6;
-  --accent-hover: #4a8fff;
-  --accent-muted: rgba(59, 130, 246, 0.15);
-  --accent-strong: rgba(59, 130, 246, 0.3);
+  --accent-hover: #5a9bff;
+  --accent-muted: rgba(59, 130, 246, 0.18);
+  --accent-strong: rgba(59, 130, 246, 0.32);
   
   /* Star/rating colors */
   --star-active: #ffd166;
@@ -35,15 +35,20 @@
   --success: #9ad4b5;
   
   /* Border variants */
-  --border-subtle: rgba(255, 255, 255, 0.05);
-  --border-strong: #3a3a3a;
-  --border-hover: #4a4a4a;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-strong: #3a3833;
+  --border-hover: #4a463e;
   
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 10px 26px rgba(0, 0, 0, 0.4);
-  --shadow-xl: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 18px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 30px rgba(0, 0, 0, 0.45);
+  --shadow-xl: 0 18px 40px rgba(0, 0, 0, 0.5);
+
+  /* Subtle warmth without heavy effects */
+  --bg-gradient: radial-gradient(1200px 600px at 10% -10%, rgba(255, 175, 110, 0.05), transparent 60%),
+    radial-gradient(900px 500px at 100% -20%, rgba(59, 130, 246, 0.08), transparent 55%),
+    var(--bg);
 }
 
 * {
@@ -51,16 +56,21 @@
 }
 
 html,
-body,
-#root {
+body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
 }
 
+#root {
+  height: 100%;
+  background: var(--bg-gradient);
+  color: var(--text);
+}
+
 body {
   margin: 0;
-  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font: 13px/1.45 var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }

@@ -103,6 +103,61 @@ interface InspectorProps {
   onStarChanged?: (paths: string[], val: StarRating) => void
 }
 
+type InspectorSectionKey = 'overview' | 'notes' | 'metadata' | 'basics'
+
+interface InspectorSectionProps {
+  title: string
+  open: boolean
+  onToggle: () => void
+  actions?: React.ReactNode
+  children: React.ReactNode
+  contentClassName?: string
+}
+
+function InspectorSection({
+  title,
+  open,
+  onToggle,
+  actions,
+  children,
+  contentClassName,
+}: InspectorSectionProps): JSX.Element {
+  return (
+    <div className="border-b border-border">
+      <div className="flex items-center justify-between px-3 py-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted hover:text-text transition-colors"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`transition-transform ${open ? 'rotate-90' : ''}`}
+            aria-hidden="true"
+          >
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+          <span>{title}</span>
+        </button>
+        {actions}
+      </div>
+      {open && (
+        <div className={contentClassName ?? 'px-3 pb-3'}>
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Inspector({
   path,
   selectedPaths = [],
@@ -113,6 +168,16 @@ export default function Inspector({
   const enabled = !!path
   const { data, isLoading } = useSidecar(path ?? '')
   const mut = useUpdateSidecar(path ?? '')
+
+  const [openSections, setOpenSections] = useState<Record<InspectorSectionKey, boolean>>({
+    overview: true,
+    notes: true,
+    metadata: true,
+    basics: true,
+  })
+  const toggleSection = useCallback((key: InspectorSectionKey) => {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
+  }, [])
   
   // Form state
   const [tags, setTags] = useState('')
@@ -268,6 +333,28 @@ export default function Inspector({
   const metaLoaded = metaState === 'loaded' && !!metaText
   const metaHeightClass = metaLoaded ? 'h-48' : 'h-24'
 
+  const metadataActions = !multi ? (
+    <div className="flex items-center gap-2 text-xs">
+      {metaText && (
+        <button
+          className="text-muted underline underline-offset-2 hover:text-text disabled:opacity-60 min-w-[48px] text-center"
+          onClick={copyMetadata}
+          disabled={!metaText}
+          title="Copy metadata"
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      )}
+      <button
+        className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[78px]"
+        onClick={fetchMetadata}
+        disabled={!path || metaState === 'loading'}
+      >
+        {metaState === 'loading' ? 'Loading…' : 'Load meta'}
+      </button>
+    </div>
+  ) : null
+
   const copyInfo = useCallback((key: string, text: string) => {
     if (!text) return
     navigator.clipboard?.writeText(text).then(() => {
@@ -301,20 +388,27 @@ export default function Inspector({
           </div>
         </div>
       )}
-      <div className="p-3 border-b border-border">
+      <InspectorSection
+        title={multi ? 'Selection' : 'Item'}
+        open={openSections.overview}
+        onToggle={() => toggleSection('overview')}
+      >
         {multi ? (
           <>
-            <div className="text-muted text-xs uppercase tracking-wide mb-1.5">Selection</div>
             <div className="font-mono text-muted break-all">{selectedPaths.length} files selected</div>
             <div className="font-mono text-muted break-all">Total size: {fmtBytes(totalSize)}</div>
           </>
         ) : (
-          <>
-            <div className="font-mono text-text break-all" title={filename}>{filename}</div>
-          </>
+          <div className="font-mono text-text break-all" title={filename}>{filename}</div>
         )}
-      </div>
-      <div className="p-3 border-b border-border space-y-1.5">
+      </InspectorSection>
+
+      <InspectorSection
+        title="Notes & Tags"
+        open={openSections.notes}
+        onToggle={() => toggleSection('notes')}
+        contentClassName="px-3 pb-3 space-y-1.5"
+      >
         <textarea
           className="w-full bg-transparent text-text border border-border/60 rounded-md px-2 py-1 min-h-[32px] resize-y scrollbar-thin placeholder:text-muted focus:border-border"
           placeholder="Add notes"
@@ -338,31 +432,15 @@ export default function Inspector({
             aria-label={multi ? 'Tags for selected items' : 'Tags'}
           />
         </div>
-      </div>
+      </InspectorSection>
+
       {!multi && (
-        <div className="p-3 border-b border-border">
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="text-muted text-xs uppercase tracking-wide">Metadata</div>
-            <div className="flex items-center gap-1 text-xs ml-auto w-fit">
-              {metaText && (
-                <button
-                  className="text-muted underline underline-offset-2 hover:text-text disabled:opacity-60 min-w-[48px] text-center"
-                  onClick={copyMetadata}
-                  disabled={!metaText}
-                  title="Copy metadata"
-                >
-                  {copied ? 'Copied' : 'Copy'}
-                </button>
-              )}
-              <button
-                className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[78px]"
-                onClick={fetchMetadata}
-                disabled={!path || metaState === 'loading'}
-              >
-                {metaState === 'loading' ? 'Loading…' : 'Load meta'}
-              </button>
-            </div>
-          </div>
+        <InspectorSection
+          title="Metadata"
+          open={openSections.metadata}
+          onToggle={() => toggleSection('metadata')}
+          actions={metadataActions}
+        >
           <pre className={`bg-surface-inset text-[11px] font-mono text-muted border border-border rounded-lg p-2 ${metaHeightClass} overflow-auto whitespace-pre-wrap leading-[1.3]`}>
             {metaLoaded ? (
               <code
@@ -372,10 +450,14 @@ export default function Inspector({
             ) : metaContent}
           </pre>
           {metaError && <div className="text-[11px] text-danger mt-1 break-words">{metaError}</div>}
-        </div>
+        </InspectorSection>
       )}
-      <div className="p-3 border-b border-border">
-        <div className="text-muted text-xs uppercase tracking-wide mb-1">Basic info</div>
+
+      <InspectorSection
+        title="Basics"
+        open={openSections.basics}
+        onToggle={() => toggleSection('basics')}
+      >
         <div className="flex items-center gap-2 text-[12px] mb-1" role="radiogroup" aria-label="Star rating">
           <span className="text-muted w-16 shrink-0">{multi ? 'Rating (all)' : 'Rating'}</span>
           <div className="flex items-center gap-1">
@@ -407,9 +489,7 @@ export default function Inspector({
         </div>
         {!multi && currentItem && (
           <div className="text-[12px] space-y-1">
-            <div
-              className="flex justify-between"
-            >
+            <div className="flex justify-between">
               <span
                 className="text-muted w-20 shrink-0 cursor-pointer"
                 onClick={() => copyInfo('dimensions', `${currentItem.w}×${currentItem.h}`)}
@@ -424,9 +504,7 @@ export default function Inspector({
                 {copiedField === 'dimensions' ? 'Copied' : `${currentItem.w}×${currentItem.h}`}
               </span>
             </div>
-            <div
-              className="flex justify-between"
-            >
+            <div className="flex justify-between">
               <span
                 className="text-muted w-20 shrink-0 cursor-pointer"
                 onClick={() => copyInfo('size', fmtBytes(currentItem.size))}
@@ -441,9 +519,7 @@ export default function Inspector({
                 {copiedField === 'size' ? 'Copied' : fmtBytes(currentItem.size)}
               </span>
             </div>
-            <div
-              className="flex justify-between"
-            >
+            <div className="flex justify-between">
               <span
                 className="text-muted w-20 shrink-0 cursor-pointer"
                 onClick={() => copyInfo('type', currentItem.type)}
@@ -458,9 +534,7 @@ export default function Inspector({
                 {copiedField === 'type' ? 'Copied' : currentItem.type}
               </span>
             </div>
-            <div
-              className="flex justify-between"
-            >
+            <div className="flex justify-between">
               <span
                 className="text-muted w-20 shrink-0 cursor-pointer"
                 onClick={() => sourceValue && copyInfo('source', sourceValue)}
@@ -502,7 +576,7 @@ export default function Inspector({
             })()}
           </div>
         )}
-      </div>
+      </InspectorSection>
       <div className="absolute top-12 bottom-0 w-1.5 cursor-col-resize z-10 right-[calc(var(--right)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
     </div>
   )

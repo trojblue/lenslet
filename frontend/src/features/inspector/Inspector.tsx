@@ -105,6 +105,15 @@ interface InspectorProps {
 
 type InspectorSectionKey = 'overview' | 'notes' | 'metadata' | 'basics'
 
+const INSPECTOR_SECTION_KEYS: InspectorSectionKey[] = ['overview', 'notes', 'metadata', 'basics']
+const INSPECTOR_SECTION_STORAGE_KEY = 'lenslet.inspector.sections'
+const DEFAULT_SECTION_STATE: Record<InspectorSectionKey, boolean> = {
+  overview: true,
+  notes: true,
+  metadata: true,
+  basics: true,
+}
+
 interface InspectorSectionProps {
   title: string
   open: boolean
@@ -122,6 +131,23 @@ function InspectorSection({
   children,
   contentClassName,
 }: InspectorSectionProps): JSX.Element {
+  const [renderBody, setRenderBody] = useState(open)
+  const [bodyState, setBodyState] = useState(open ? 'open' : 'closed')
+
+  useEffect(() => {
+    if (open) {
+      setRenderBody(true)
+      const id = window.requestAnimationFrame(() => setBodyState('open'))
+      return () => window.cancelAnimationFrame(id)
+    }
+    setBodyState('closing')
+    const timeoutId = window.setTimeout(() => {
+      setRenderBody(false)
+      setBodyState('closed')
+    }, 140)
+    return () => window.clearTimeout(timeoutId)
+  }, [open])
+
   return (
     <div className="border-b border-border">
       <div className="flex items-center justify-between px-3 py-2">
@@ -149,9 +175,11 @@ function InspectorSection({
         </button>
         {actions}
       </div>
-      {open && (
-        <div className={contentClassName ?? 'px-3 pb-3'}>
-          {children}
+      {renderBody && (
+        <div className="inspector-section-body" data-state={bodyState} aria-hidden={!open}>
+          <div className={contentClassName ?? 'px-3 pb-3'}>
+            {children}
+          </div>
         </div>
       )}
     </div>
@@ -169,12 +197,7 @@ export default function Inspector({
   const { data, isLoading } = useSidecar(path ?? '')
   const mut = useUpdateSidecar(path ?? '')
 
-  const [openSections, setOpenSections] = useState<Record<InspectorSectionKey, boolean>>({
-    overview: true,
-    notes: true,
-    metadata: true,
-    basics: true,
-  })
+  const [openSections, setOpenSections] = useState<Record<InspectorSectionKey, boolean>>(DEFAULT_SECTION_STATE)
   const toggleSection = useCallback((key: InspectorSectionKey) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
   }, [])
@@ -354,6 +377,32 @@ export default function Inspector({
       </button>
     </div>
   ) : null
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(INSPECTOR_SECTION_STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+      if (!parsed || typeof parsed !== 'object') return
+      const restored: Partial<Record<InspectorSectionKey, boolean>> = {}
+      for (const key of INSPECTOR_SECTION_KEYS) {
+        if (typeof parsed[key] === 'boolean') restored[key] = parsed[key] as boolean
+      }
+      if (Object.keys(restored).length > 0) {
+        setOpenSections((prev) => ({ ...prev, ...restored }))
+      }
+    } catch {
+      // Ignore localStorage parsing errors
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(INSPECTOR_SECTION_STORAGE_KEY, JSON.stringify(openSections))
+    } catch {
+      // Ignore localStorage write errors
+    }
+  }, [openSections])
 
   const copyInfo = useCallback((key: string, text: string) => {
     if (!text) return

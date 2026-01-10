@@ -362,6 +362,30 @@
   background: rgba(0, 0, 0, 0.4);
 }
 
+/* =================================================================
+   Inspector Sections
+   ================================================================= */
+
+.inspector-section-body {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(-4px);
+  transition: max-height 140ms ease, opacity 140ms ease, transform 140ms ease;
+}
+
+.inspector-section-body[data-state="open"] {
+  max-height: 9999px;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.inspector-section-body[data-state="closing"] {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 /* Reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
   * { 

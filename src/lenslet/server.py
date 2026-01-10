@@ -27,7 +27,7 @@ class NoCacheIndexStaticFiles(StaticFiles):
             response.headers["Expires"] = "0"
         return response
 
-from .metadata import read_png_info
+from .metadata import read_png_info, read_jpeg_info, read_webp_info
 from .storage.memory import MemoryStorage
 from .storage.dataset import DatasetStorage
 from .storage.parquet import ParquetStorage
@@ -90,7 +90,7 @@ class SearchResult(BaseModel):
 
 class ImageMetadataResponse(BaseModel):
     path: str
-    format: Literal["png"]
+    format: Literal["png", "jpeg", "webp"]
     meta: dict
 
 
@@ -260,18 +260,26 @@ def create_app(
         _ensure_image(storage, path)
 
         mime = storage._guess_mime(path)  # type: ignore[attr-defined]
-        if mime != "image/png":
-            raise HTTPException(415, "metadata reading currently supports PNG images only")
+        if mime not in ("image/png", "image/jpeg", "image/webp"):
+            raise HTTPException(415, "metadata reading supports PNG, JPEG, and WebP images only")
 
         try:
             raw = storage.read_bytes(path)
-            meta = read_png_info(io.BytesIO(raw))
+            if mime == "image/png":
+                meta = read_png_info(io.BytesIO(raw))
+                fmt = "png"
+            elif mime == "image/jpeg":
+                meta = read_jpeg_info(io.BytesIO(raw))
+                fmt = "jpeg"
+            else:
+                meta = read_webp_info(io.BytesIO(raw))
+                fmt = "webp"
         except HTTPException:
             raise
         except Exception as exc:  # pragma: no cover - unexpected parse errors
             raise HTTPException(500, f"failed to parse metadata: {exc}")
 
-        return ImageMetadataResponse(path=path, format="png", meta=meta)
+        return ImageMetadataResponse(path=path, format=fmt, meta=meta)
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request = None):
@@ -462,18 +470,26 @@ def create_app_from_datasets(
         _ensure_image(storage, path)
 
         mime = storage._guess_mime(path)  # type: ignore[attr-defined]
-        if mime != "image/png":
-            raise HTTPException(415, "metadata reading currently supports PNG images only")
+        if mime not in ("image/png", "image/jpeg", "image/webp"):
+            raise HTTPException(415, "metadata reading supports PNG, JPEG, and WebP images only")
 
         try:
             raw = storage.read_bytes(path)
-            meta = read_png_info(io.BytesIO(raw))
+            if mime == "image/png":
+                meta = read_png_info(io.BytesIO(raw))
+                fmt = "png"
+            elif mime == "image/jpeg":
+                meta = read_jpeg_info(io.BytesIO(raw))
+                fmt = "jpeg"
+            else:
+                meta = read_webp_info(io.BytesIO(raw))
+                fmt = "webp"
         except HTTPException:
             raise
         except Exception as exc:  # pragma: no cover - unexpected parse errors
             raise HTTPException(500, f"failed to parse metadata: {exc}")
 
-        return ImageMetadataResponse(path=path, format="png", meta=meta)
+        return ImageMetadataResponse(path=path, format=fmt, meta=meta)
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request = None):

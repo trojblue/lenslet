@@ -7,6 +7,12 @@ import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 import type { AdaptiveRow } from '../model/adaptive'
 
+const GAP = 12
+const CAPTION_H = 44
+const DEFAULT_ASPECT = { w: 4, h: 3 }
+const PREVIEW_DELAY_MS = 350
+const SCROLL_IDLE_MS = 120
+
 interface VirtualGridProps {
   items: Item[]
   selected: string[]
@@ -34,20 +40,23 @@ export default function VirtualGrid({
 }: VirtualGridProps) {
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const [hoverTimer, setHoverTimer] = useState<number | null>(null)
   const [delayPassed, setDelayPassed] = useState<boolean>(false)
   const [active, setActive] = useState<string | null>(null)
   const [focused, setFocused] = useState<string | null>(null)
   const previewUrlRef = useRef<string | null>(null)
+  const previewTimerRef = useRef<number | null>(null)
   const parentRef = useRef<HTMLDivElement | null>(null)
   const anchorRef = useRef<string | null>(null)
 
-  const GAP = 12
   const TARGET_CELL = targetCellSize
-  const ASPECT = { w: 4, h: 3 }
-  const CAPTION_H = 44
 
-  const { width, layout, rowVirtualizer, virtualRows } = useVirtualGrid(parentRef as any, items, { gap: GAP, targetCell: TARGET_CELL, aspect: ASPECT, captionH: CAPTION_H, viewMode })
+  const { width, layout, rowVirtualizer, virtualRows } = useVirtualGrid(parentRef, items, {
+    gap: GAP,
+    targetCell: TARGET_CELL,
+    aspect: DEFAULT_ASPECT,
+    captionH: CAPTION_H,
+    viewMode,
+  })
 
   const pathToIndex = useMemo(() => {
     const map = new Map<string, number>()
@@ -110,11 +119,53 @@ export default function VirtualGrid({
   useEffect(() => {
     const el = parentRef.current
     if (!el) return
-    let t: any = 0
-    const onScroll = () => { setIsScrolling(true); window.clearTimeout(t); t = window.setTimeout(() => setIsScrolling(false), 120) }
+    let timeoutId = 0
+    const onScroll = () => {
+      setIsScrolling(true)
+      window.clearTimeout(timeoutId)
+      timeoutId = window.setTimeout(() => setIsScrolling(false), SCROLL_IDLE_MS)
+    }
     el.addEventListener('scroll', onScroll, { passive: true } as any)
     return () => el.removeEventListener('scroll', onScroll as any)
   }, [])
+
+  const cancelPreviewTimer = () => {
+    if (previewTimerRef.current != null) {
+      window.clearTimeout(previewTimerRef.current)
+      previewTimerRef.current = null
+    }
+  }
+
+  const clearPreview = () => {
+    cancelPreviewTimer()
+    setDelayPassed(false)
+    setPreviewFor(null)
+    if (previewUrlRef.current) {
+      try { URL.revokeObjectURL(previewUrlRef.current) } catch {}
+      previewUrlRef.current = null
+    }
+    setPreviewUrl(null)
+  }
+
+  const schedulePreview = (path: string) => {
+    if (isScrolling) return
+    cancelPreviewTimer()
+    setPreviewFor(path)
+    setDelayPassed(false)
+    previewTimerRef.current = window.setTimeout(async () => {
+      previewTimerRef.current = null
+      try {
+        const blob = await api.getFile(path)
+        const u = URL.createObjectURL(blob)
+        if (previewUrlRef.current) {
+          try { URL.revokeObjectURL(previewUrlRef.current) } catch {}
+        }
+        previewUrlRef.current = u
+        setPreviewUrl(u)
+        setDelayPassed(true)
+      } catch {}
+    }, PREVIEW_DELAY_MS)
+  }
 
   const effectiveColumns = layout.mode === 'grid' ? layout.columns : Math.max(1, Math.floor(width / (TARGET_CELL + GAP)))
 
@@ -169,6 +220,59 @@ export default function VirtualGrid({
     return candidate ?? currentPath
   }
 
+  const focusCell = (path: string) => {
+    try { (document.getElementById(`cell-${encodeURIComponent(path)}`) as HTMLElement | null)?.focus() } catch {}
+  }
+
+  const prefetchItem = (path: string) => {
+    try {
+      api.prefetchFile(path)
+      api.prefetchThumb(path)
+    } catch {}
+  }
+
+  const handleItemClick = (path: string, ev: React.MouseEvent) => {
+    setActive(path)
+    setFocused(path)
+    const isShift = !!ev.shiftKey
+    const isToggle = !!(ev.ctrlKey || ev.metaKey)
+    if (isShift) {
+      const anchorPath = anchorRef.current ?? active ?? (selected[0] ?? path)
+      const aIdx = pathToIndex.get(anchorPath) ?? items.findIndex(i => i.path === anchorPath)
+      const bIdx = pathToIndex.get(path) ?? items.findIndex(i => i.path === path)
+      if (aIdx !== -1 && bIdx !== -1) {
+        const start = Math.min(aIdx, bIdx)
+        const end = Math.max(aIdx, bIdx)
+        const range = items.slice(start, end + 1).map(x => x.path)
+        if (isToggle) {
+          const next = new Set(selected)
+          for (const p of range) next.add(p)
+          onSelectionChange(Array.from(next))
+        } else {
+          onSelectionChange(range)
+        }
+      } else {
+        onSelectionChange([path])
+      }
+    } else if (isToggle) {
+      const next = new Set(selected)
+      if (next.has(path)) {
+        next.delete(path)
+      } else {
+        next.add(path)
+      }
+      onSelectionChange(Array.from(next))
+      anchorRef.current = path
+    } else {
+      onSelectionChange([path])
+      anchorRef.current = path
+    }
+    if (!isScrolling) {
+      prefetchItem(path)
+    }
+    focusCell(path)
+  }
+
   useEffect(() => {
     const el = parentRef.current
     if (!el) return
@@ -201,7 +305,7 @@ export default function VirtualGrid({
       if (rowTop < scrollTop || rowBottom > viewBottom) {
         scrollRowIntoView(el, rowTop)
       }
-      try { (document.getElementById(`cell-${encodeURIComponent(nextItem.path)}`) as HTMLElement | null)?.focus() } catch {}
+      focusCell(nextItem.path)
     }
     el.addEventListener('keydown', onKey)
     return () => { el.removeEventListener('keydown', onKey) }
@@ -237,7 +341,7 @@ export default function VirtualGrid({
     try { el.scrollTop = targetTop } catch {}
   }, [restoreToSelectionToken, layout, adaptiveRowMeta])
 
-  const selectedSet = new Set(selected)
+  const selectedSet = useMemo(() => new Set(selected), [selected])
   const hasPreview = !!(previewFor && previewUrl && delayPassed)
   useEffect(() => { parentRef.current?.focus() }, [])
   useEffect(() => { if (suppressSelectionHighlight) { try { parentRef.current?.blur() } catch {} ; try { setFocused(null) } catch {} } }, [suppressSelectionHighlight])
@@ -352,69 +456,24 @@ export default function VirtualGrid({
                     style={imageContainerStyle}
                     onMouseEnter={()=>{ try { api.prefetchFile(it.path) } catch {} }} 
                     onDoubleClick={()=> onOpenViewer(it.path)} 
-                    onMouseLeave={()=>{
-                    if (hoverTimer) { window.clearTimeout(hoverTimer); setHoverTimer(null) }
-                    setPreviewFor(null)
-                    if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} ; previewUrlRef.current = null }
-                    setPreviewUrl(null)
-                    setDelayPassed(false)
-                  }}>
+                    onMouseLeave={clearPreview}>
                     <div className="cell-content absolute inset-0">
-                      <ThumbCard path={it.path} name={it.name} selected={isVisuallySelected} displayW={displayW} displayH={displayH} ioRoot={parentRef.current} isScrolling={isScrolling} priority={isTopmostVisibleRow} onClick={(ev: React.MouseEvent)=>{
-                        setActive(it.path)
-                        setFocused(it.path)
-                        const isShift = !!ev.shiftKey
-                        const isToggle = !!(ev.ctrlKey || ev.metaKey)
-                        if (isShift) {
-                          const anchorPath = anchorRef.current ?? active ?? (selected[0] ?? it.path)
-                          const aIdx = pathToIndex.get(anchorPath) ?? items.findIndex(i => i.path === anchorPath)
-                          const bIdx = pathToIndex.get(it.path) ?? items.findIndex(i => i.path === it.path)
-                          if (aIdx !== -1 && bIdx !== -1) {
-                            const start = Math.min(aIdx, bIdx)
-                            const end = Math.max(aIdx, bIdx)
-                            const range = items.slice(start, end + 1).map(x => x.path)
-                            if (isToggle) { const next = new Set(selected); for (const p of range) next.add(p); onSelectionChange(Array.from(next)) }
-                            else { onSelectionChange(range) }
-                          } else { onSelectionChange([it.path]) }
-                        } else if (isToggle) {
-                          const next = new Set(selected)
-                          if (next.has(it.path)) next.delete(it.path); else next.add(it.path)
-                          onSelectionChange(Array.from(next))
-                          try { anchorRef.current = it.path } catch {}
-                        } else {
-                          onSelectionChange([it.path])
-                          try { anchorRef.current = it.path } catch {}
-                        }
-                        try { if (!isScrolling) { api.prefetchFile(it.path); api.prefetchThumb(it.path) } } catch {}
-                        try { (document.getElementById(`cell-${encodeURIComponent(it.path)}`) as HTMLElement | null)?.focus() } catch {}
-                      }} />
+                      <ThumbCard
+                        path={it.path}
+                        name={it.name}
+                        selected={isVisuallySelected}
+                        displayW={displayW}
+                        displayH={displayH}
+                        ioRoot={parentRef.current}
+                        isScrolling={isScrolling}
+                        priority={isTopmostVisibleRow}
+                        onClick={(ev: React.MouseEvent) => handleItemClick(it.path, ev)}
+                      />
                     </div>
                     <div 
                       className="absolute right-0 bottom-0 w-7 h-7 cursor-zoom-in"
-                      onMouseEnter={async ()=>{
-                      if (isScrolling) return
-                      if (hoverTimer) window.clearTimeout(hoverTimer)
-                      setPreviewFor(it.path)
-                      setDelayPassed(false)
-                      const t = window.setTimeout(async () => {
-                      try {
-                        const blob = await api.getFile(it.path)
-                        const u = URL.createObjectURL(blob)
-                        if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} }
-                        previewUrlRef.current = u
-                        setPreviewUrl(u)
-                          setDelayPassed(true)
-                      } catch {}
-                      }, 350)
-                      setHoverTimer(t as any)
-                    }} onMouseLeave={()=>{
-                      if (hoverTimer) window.clearTimeout(hoverTimer)
-                      setHoverTimer(null)
-                      setDelayPassed(false)
-                      setPreviewFor(null)
-                      if (previewUrlRef.current) { try { URL.revokeObjectURL(previewUrlRef.current) } catch {} ; previewUrlRef.current = null }
-                      setPreviewUrl(null)
-                    }}>
+                      onMouseEnter={() => schedulePreview(it.path)}
+                      onMouseLeave={clearPreview}>
                       <div
                         className="absolute right-0 bottom-0 h-[18px] w-[18px] flex items-center justify-center text-text select-none opacity-0 group-hover:opacity-50 hover:opacity-100 transition-all duration-[140ms]"
                         style={{

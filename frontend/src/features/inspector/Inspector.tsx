@@ -49,6 +49,10 @@ function formatMetricValue(value: number | null | undefined): string {
   return value.toFixed(3)
 }
 
+function parseTags(value: string): string[] {
+  return value.split(',').map((tag) => tag.trim()).filter(Boolean)
+}
+
 // Lightweight JSON-ish syntax highlighting without extra deps
 function highlightJson(json: string): string {
   const tokenRe = /(\"(\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*\"(?:\s*:)?|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b)/g
@@ -164,6 +168,21 @@ export default function Inspector({
     }
   }, [data])
 
+  const commitSidecar = useCallback((patch: Partial<Omit<Sidecar, 'v' | 'updated_at' | 'updated_by'>>) => {
+    if (multi && selectedPaths.length) {
+      bulkUpdateSidecars(selectedPaths, patch)
+      return
+    }
+    if (!path) return
+    const base = createBaseSidecar()
+    mut.mutate({
+      ...base,
+      ...patch,
+      updated_at: new Date().toISOString(),
+      updated_by: 'web',
+    })
+  }, [multi, selectedPaths, path, createBaseSidecar, mut])
+
   // Keyboard shortcuts for star ratings (0-5)
   useEffect(() => {
     if (!path) return
@@ -178,23 +197,17 @@ export default function Inspector({
       const val: StarRating = k === '0' ? null : (Number(k) as 1 | 2 | 3 | 4 | 5)
       
       if (multi && selectedPaths.length) {
-        bulkUpdateSidecars(selectedPaths, { star: val })
+        commitSidecar({ star: val })
         onStarChanged?.(selectedPaths, val)
-      } else {
-        const base = createBaseSidecar()
-        mut.mutate({
-          ...base,
-          star: val,
-          updated_at: new Date().toISOString(),
-          updated_by: 'web',
-        })
-        onStarChanged?.([path], val)
+        return
       }
+      commitSidecar({ star: val })
+      onStarChanged?.([path], val)
     }
     
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [path, multi, selectedPaths, createBaseSidecar, mut, onStarChanged])
+  }, [path, multi, selectedPaths, commitSidecar, onStarChanged])
 
   // Load thumbnail when path changes
   useEffect(() => {
@@ -344,17 +357,7 @@ export default function Inspector({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           onBlur={() => {
-            if (multi && selectedPaths.length) {
-              bulkUpdateSidecars(selectedPaths, { notes })
-            } else {
-              const base = createBaseSidecar()
-              mut.mutate({
-                ...base,
-                notes,
-                updated_at: new Date().toISOString(),
-                updated_by: 'web',
-              })
-            }
+            commitSidecar({ notes })
           }}
           aria-label={multi ? 'Notes for selected items' : 'Notes'}
         />
@@ -366,18 +369,7 @@ export default function Inspector({
             value={tags}
             onChange={(e) => setTags(e.target.value)}
             onBlur={() => {
-              const parsed = tags.split(',').map((s) => s.trim()).filter(Boolean)
-              if (multi && selectedPaths.length) {
-                bulkUpdateSidecars(selectedPaths, { tags: parsed })
-              } else {
-                const base = createBaseSidecar()
-                mut.mutate({
-                  ...base,
-                  tags: parsed,
-                  updated_at: new Date().toISOString(),
-                  updated_by: 'web',
-                })
-              }
+              commitSidecar({ tags: parseTags(tags) })
             }}
             aria-label={multi ? 'Tags for selected items' : 'Tags'}
           />

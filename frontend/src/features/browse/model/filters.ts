@@ -382,10 +382,14 @@ function normalizeClause(clause: unknown): FilterClause | null {
 function normalizeStarValues(values: unknown): number[] {
   if (!Array.isArray(values)) return []
   const out: number[] = []
+  const seen = new Set<number>()
   for (const raw of values) {
     const num = typeof raw === 'number' ? raw : (typeof raw === 'string' ? Number(raw) : NaN)
     if (!Number.isInteger(num) || !STAR_VALUES.has(num)) continue
-    if (!out.includes(num)) out.push(num)
+    if (!seen.has(num)) {
+      seen.add(num)
+      out.push(num)
+    }
   }
   return out
 }

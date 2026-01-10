@@ -2,7 +2,9 @@ import type { Item } from '../../../lib/types'
 
 export type Comparator<T> = (a: T, b: T) => number
 
-const getAddedMs = (item: Item): number => (item.addedAt ? Date.parse(item.addedAt) : 0)
+function getAddedMs(item: Item): number {
+  return item.addedAt ? Date.parse(item.addedAt) : 0
+}
 
 export function sortByName(a: Item, b: Item): number {
   return a.name.localeCompare(b.name)
@@ -19,12 +21,10 @@ export function sortByMetric(key: string): Comparator<Item> {
   return (a, b) => {
     const va = a.metrics?.[key]
     const vb = b.metrics?.[key]
-    const aMissing = va == null
-    const bMissing = vb == null
-    if (aMissing && bMissing) return sortByName(a, b)
-    if (aMissing) return 1
-    if (bMissing) return -1
+    if (va == null && vb == null) return sortByName(a, b)
+    if (va == null) return 1
+    if (vb == null) return -1
     if (va === vb) return sortByName(a, b)
-    return (va as number) - (vb as number)
+    return va - vb
   }
 }

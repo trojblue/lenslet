@@ -14,6 +14,8 @@ export type AdaptiveRow = {
 
 type RowItem = { item: Item; aspect: number; originalIndex: number }
 
+const DEFAULT_ASPECT = 1.333
+
 export function computeAdaptiveRows({
   items,
   containerWidth,
@@ -30,7 +32,6 @@ export function computeAdaptiveRows({
   if (containerWidth <= 0) return []
 
   const rows: AdaptiveRow[] = []
-  const defaultAspect = 1.333
   let currentRowItems: RowItem[] = []
   let currentAspectSum = 0
 
@@ -50,7 +51,7 @@ export function computeAdaptiveRows({
     const item = items[i]
 
     // Fix: Handle missing dimensions (0x0) by defaulting to 4:3
-    const aspect = item.w > 0 && item.h > 0 ? item.w / item.h : defaultAspect
+    const aspect = item.w > 0 && item.h > 0 ? item.w / item.h : DEFAULT_ASPECT
 
     currentRowItems.push({ item, aspect, originalIndex: i })
     currentAspectSum += aspect

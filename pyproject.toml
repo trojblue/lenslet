@@ -30,6 +30,7 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "pillow>=10.4",
     "pyarrow>=14.0",
+    "tqdm>=4.66",
 ]
 
 [project.optional-dependencies]

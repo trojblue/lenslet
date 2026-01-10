@@ -93,7 +93,7 @@ def _start_share_tunnel(port: int, bind_host: str, verbose: bool) -> tuple[subpr
                 match = url_pattern.search(line)
                 if match:
                     share_url = match.group(0)
-                    print(f"Share URL: {share_url}")
+                    _print_share_url(share_url)
         if share_url is None and process.poll() not in (None, 0):
             print("[lenslet] Share tunnel exited before a URL was created.", file=sys.stderr)
 
@@ -114,6 +114,15 @@ def _stop_process(process: subprocess.Popen[str]) -> None:
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait(timeout=5)
+
+
+def _print_share_url(url: str) -> None:
+    try:
+        from tqdm import tqdm
+    except Exception:
+        print(f"Share URL: {url}")
+        return
+    tqdm.write(f"Share URL: {url}")
 
 
 def main():
@@ -234,7 +243,14 @@ def main():
     import uvicorn
     from .server import create_app
 
-    progress_style = "line" if args.share or not sys.stderr.isatty() else "bar"
+    progress_style = "line" if not sys.stderr.isatty() else "bar"
+    if args.share:
+        try:
+            import tqdm as _tqdm  # noqa: F401
+        except Exception:
+            progress_style = "line"
+        else:
+            progress_style = "tqdm" if sys.stderr.isatty() else "line"
     app = create_app(
         root_path=str(directory),
         thumb_size=args.thumb_size,

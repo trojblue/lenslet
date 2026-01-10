@@ -68,6 +68,8 @@ class DatasetStorage:
         self._progress_last_pct: float | None = None
         self._progress_last_label: str | None = None
         self._progress_last_total: int | None = None
+        self._progress_last_done: int = 0
+        self._progress_bar = None
         
         # Build flat path structure: /dataset_name/image_name
         self._items: dict[str, CachedItem] = {}  # path -> item
@@ -235,6 +237,36 @@ class DatasetStorage:
         pct = (done / total) * 100
         label_part = f" ({label})" if label else ""
         msg = f"[lenslet] Indexing{label_part}: [{bar}] {done}/{total} ({pct:5.1f}%)"
+        if self._progress_style == "tqdm":
+            try:
+                from tqdm import tqdm
+            except Exception:
+                self._progress_style = "bar"
+            else:
+                if (
+                    self._progress_bar is None
+                    or self._progress_last_label != label
+                    or self._progress_last_total != total
+                ):
+                    if self._progress_bar is not None:
+                        self._progress_bar.close()
+                    desc = "[lenslet] Indexing"
+                    if label:
+                        desc = f"[lenslet] Indexing ({label})"
+                    self._progress_bar = tqdm(total=total, desc=desc, unit="img", leave=True)
+                    self._progress_last_done = 0
+                    self._progress_last_label = label
+                    self._progress_last_total = total
+
+                delta = done - self._progress_last_done
+                if delta > 0:
+                    self._progress_bar.update(delta)
+                    self._progress_last_done = done
+
+                if done >= total and self._progress_bar is not None:
+                    self._progress_bar.close()
+                    self._progress_bar = None
+                return
         if self._progress_style == "bar":
             end = "\n" if done >= total else "\r"
             print(msg, end=end, file=sys.stderr, flush=True)

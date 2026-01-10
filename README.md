@@ -31,7 +31,7 @@ pip install lenslet
 lenslet /path/to/images
 ```
 
-Then open http://127.0.0.1:7070 in your browser.
+Then open the URL printed in the terminal (default http://127.0.0.1:7070, or the next available port).
 
 **Options:**
 
@@ -39,11 +39,12 @@ Then open http://127.0.0.1:7070 in your browser.
 lenslet <directory> [options]
 
 Options:
-  -p, --port PORT              Port to listen on (default: 7070)
+  -p, --port PORT              Port to listen on (default: 7070; auto-increment if in use)
   -H, --host HOST              Host to bind to (default: 127.0.0.1)
   --thumb-size SIZE            Thumbnail short edge in pixels (default: 256)
   --thumb-quality QUALITY      Thumbnail WebP quality 1-100 (default: 70)
   --reload                     Enable auto-reload for development
+  --share                      Create a public share URL via cloudflared
   --verbose                    Show detailed server logs
   -v, --version                Show version and exit
 ```
@@ -59,6 +60,9 @@ lenslet ~/Photos --port 8080
 
 # Make accessible on local network
 lenslet ~/Images --host 0.0.0.0 --port 7070
+
+# Create a public share URL (prints a trycloudflare.com link)
+lenslet ~/Images --share
 ```
 
 ### Programmatic API (Python/Jupyter)

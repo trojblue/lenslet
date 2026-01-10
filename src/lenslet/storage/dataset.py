@@ -124,15 +124,6 @@ class DatasetStorage:
             return os.path.basename(parsed.path)
         return os.path.basename(path)
 
-    def _guess_mime(self, name: str) -> str:
-        """Guess MIME type from filename."""
-        n = name.lower()
-        if n.endswith(".webp"):
-            return "image/webp"
-        if n.endswith(".png"):
-            return "image/png"
-        return "image/jpeg"
-
     def _read_dimensions_from_bytes(self, data: bytes, ext: str | None) -> tuple[int, int] | None:
         """Read image dimensions from in-memory bytes."""
         if not data:

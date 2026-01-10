@@ -1,9 +1,6 @@
 """Programmatic API for launching lenslet from Python/notebooks."""
 from __future__ import annotations
-import sys
-import subprocess
 import multiprocessing as mp
-from typing import Any
 
 
 def launch(

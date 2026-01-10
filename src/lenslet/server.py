@@ -149,6 +149,25 @@ def _build_image_metadata(storage, path: str) -> ImageMetadataResponse:
     return ImageMetadataResponse(path=path, format=fmt, meta=meta)
 
 
+def _build_item(cached, meta: dict, source: str | None = None) -> Item:
+    return Item(
+        path=cached.path,
+        name=cached.name,
+        type=cached.mime,
+        w=cached.width,
+        h=cached.height,
+        size=cached.size,
+        hasThumb=True,
+        hasMeta=True,
+        addedAt=datetime.fromtimestamp(cached.mtime, tz=timezone.utc).isoformat(),
+        star=meta.get("star"),
+        comments=meta.get("notes", ""),
+        url=getattr(cached, "url", None),
+        source=source,
+        metrics=getattr(cached, "metrics", None),
+    )
+
+
 def _build_folder_index(storage, path: str, to_item) -> FolderIndex:
     try:
         index = storage.get_index(path)
@@ -288,21 +307,7 @@ def create_app(
 
     def _to_item(storage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
-        return Item(
-            path=cached.path,
-            name=cached.name,
-            type=cached.mime,
-            w=cached.width,
-            h=cached.height,
-            size=cached.size,
-            hasThumb=True,
-            hasMeta=True,
-            addedAt=datetime.fromtimestamp(cached.mtime, tz=timezone.utc).isoformat(),
-            star=meta.get("star"),
-            comments=meta.get("notes", ""),
-            url=getattr(cached, "url", None),
-            metrics=getattr(cached, "metrics", None),
-        )
+        return _build_item(cached, meta)
 
     # Inject storage via middleware
     _attach_storage(app, storage)
@@ -421,22 +426,7 @@ def create_app_from_datasets(
                 source = storage.get_source_path(cached.path)
             except Exception:
                 source = None
-        return Item(
-            path=cached.path,
-            name=cached.name,
-            type=cached.mime,
-            w=cached.width,
-            h=cached.height,
-            size=cached.size,
-            hasThumb=True,
-            hasMeta=True,
-            addedAt=datetime.fromtimestamp(cached.mtime, tz=timezone.utc).isoformat(),
-            star=meta.get("star"),
-            comments=meta.get("notes", ""),
-            url=getattr(cached, "url", None),
-            source=source,
-            metrics=getattr(cached, "metrics", None),
-        )
+        return _build_item(cached, meta, source=source)
 
     # Inject storage via middleware
     _attach_storage(app, storage)

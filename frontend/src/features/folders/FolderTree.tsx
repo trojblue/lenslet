@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState } from 'react'
 import type { FolderIndex } from '../../lib/types'
 import { useFolder } from '../../shared/api/folders'
-import { api } from '../../shared/api/client'
-import { useQueryClient } from '@tanstack/react-query'
 import { middleTruncate } from '../../lib/util'
 import { joinPath } from '../../app/routing/hash'
+import { useFolderTreeDragDrop } from './hooks/useFolderTreeDragDrop'
+import { useFolderTreeKeyboardNav } from './hooks/useFolderTreeKeyboardNav'
 
 interface Root {
   label: string
@@ -87,7 +87,16 @@ function TreeNode({
   const isActive = current === path
   const isLeaf = (idx?.dirs?.length ?? 0) === 0
   const count = isLeaf ? idx?.items?.length ?? 0 : 0
-  const qc = useQueryClient()
+
+  const onKeyDown = useFolderTreeKeyboardNav({
+    path,
+    isLeaf,
+    isExpanded,
+    setExpanded,
+    onOpen,
+  })
+
+  const { onDragOver, onDragEnter, onDragLeave, onDrop } = useFolderTreeDragDrop({ path, isLeaf })
 
   const toggle = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -106,70 +115,11 @@ function TreeNode({
         style={{ paddingLeft: 8 + depth * 14 }}
         onClick={()=> onOpen(path)}
         onContextMenu={(e)=> { e.preventDefault(); e.stopPropagation(); onContextMenu && onContextMenu(e, path) }}
-        onKeyDown={(e)=>{
-          if (e.key === 'Enter') { e.preventDefault(); onOpen(path) }
-          else if (e.key === 'ArrowRight') { if (!isLeaf && !isExpanded) { e.preventDefault(); setExpanded(prev => { const next = new Set(prev); next.add(path); return next }) } }
-          else if (e.key === 'ArrowLeft') { if (!isLeaf && isExpanded) { e.preventDefault(); setExpanded(prev => { const next = new Set(prev); next.delete(path); return next }) } }
-          else if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
-            e.preventDefault()
-            const items = Array.from(document.querySelectorAll('[role="tree"] [role="treeitem"]')) as HTMLElement[]
-            const idx = items.findIndex(el => el === e.currentTarget)
-            if (idx === -1) return
-            let nextIdx = idx
-            if (e.key === 'ArrowDown') nextIdx = Math.min(items.length - 1, idx + 1)
-            else if (e.key === 'ArrowUp') nextIdx = Math.max(0, idx - 1)
-            else if (e.key === 'Home') nextIdx = 0
-            else if (e.key === 'End') nextIdx = items.length - 1
-            items[nextIdx]?.focus()
-          }
-        }}
-        onDragOver={(e)=>{
-          const types = Array.from(e.dataTransfer?.types || [])
-          if (types.includes('application/x-lenslet-paths')) {
-            e.preventDefault()
-            if (isLeaf) {
-              document.querySelectorAll('[role="treeitem"].drop-target').forEach(el => { if (el !== e.currentTarget) el.classList.remove('drop-target') })
-              ;(e.currentTarget as HTMLElement).classList.add('drop-target')
-            }
-          }
-        }}
-        onDragEnter={(e)=>{
-          const types = Array.from(e.dataTransfer?.types || [])
-          if ((types.includes('application/x-lenslet-paths')) && isLeaf) {
-            e.preventDefault()
-            document.querySelectorAll('[role="treeitem"].drop-target').forEach(el => { if (el !== e.currentTarget) el.classList.remove('drop-target') })
-            ;(e.currentTarget as HTMLElement).classList.add('drop-target')
-          }
-        }}
-        onDragLeave={(e)=>{
-          const target = e.currentTarget as HTMLElement
-          const over = document.elementFromPoint(e.clientX, e.clientY)
-          if (over && target.contains(over)) return
-          target.classList.remove('drop-target')
-        }}
-        onDrop={async (e)=>{
-          const dt = e.dataTransfer
-          if (!dt) return
-          e.preventDefault()
-          ;(e.currentTarget as HTMLElement).classList.remove('drop-target')
-          const multi = dt.getData('application/x-lenslet-paths')
-          const paths: string[] = multi ? JSON.parse(multi) : []
-          const filtered = paths.filter(Boolean)
-          if (!filtered.length) return
-          let srcDir = filtered[0].split('/').slice(0,-1).join('/') || '/'
-          if (!srcDir.startsWith('/')) srcDir = `/${srcDir}`
-          let destPath = path
-          if (!destPath.startsWith('/')) destPath = `/${destPath}`
-          try {
-            for (const p of filtered) { await api.moveFile(p, destPath) }
-            qc.invalidateQueries({ queryKey: ['folder', srcDir] })
-            qc.invalidateQueries({ queryKey: ['folder', destPath] })
-            qc.setQueryData<FolderIndex | undefined>(['folder', srcDir], (old) => {
-              if (!old || !Array.isArray(old.items)) return old
-              return { ...old, items: old.items.filter((i) => !filtered.includes(i.path)) }
-            })
-          } catch {}
-        }}
+        onKeyDown={onKeyDown}
+        onDragOver={onDragOver}
+        onDragEnter={onDragEnter}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
       >
         <span className="w-4 text-center opacity-60 hover:opacity-100 text-[10px]" onClick={toggle}>{isExpanded? '▼' : '▶'}</span>
         <span className="flex-1 overflow-hidden truncate text-sm" title={label}>{middleTruncate(label, 28)}</span>

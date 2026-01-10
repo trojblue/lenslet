@@ -28,6 +28,8 @@ import {
 
 type Range = { min: number; max: number }
 
+type CompareOp = '<' | '<=' | '>' | '>='
+
 interface Histogram {
   bins: number[]
   min: number
@@ -46,7 +48,20 @@ interface MetricsPanelProps {
   onChangeFilters: (filters: FilterAST) => void
 }
 
-type CompareOp = '<' | '<=' | '>' | '>='
+interface AttributesPanelProps {
+  filters: FilterAST
+  onChangeFilters: (filters: FilterAST) => void
+}
+
+interface MetricRangePanelProps {
+  items: Item[]
+  filteredItems: Item[]
+  metricKeys: string[]
+  selectedMetric?: string
+  onSelectMetric: (key: string) => void
+  filters: FilterAST
+  onChangeRange: (key: string, range: Range | null) => void
+}
 
 const BIN_COUNT = 40
 const STAR_VALUES = [5, 4, 3, 2, 1]
@@ -62,22 +77,41 @@ export default function MetricsPanel({
   onChangeRange,
   onChangeFilters,
 }: MetricsPanelProps) {
-  const activeMetric = selectedMetric && metricKeys.includes(selectedMetric) ? selectedMetric : metricKeys[0]
-  const population = useMemo(() => (
-    activeMetric ? computeHistogram(items, activeMetric, BIN_COUNT) : null
-  ), [items, activeMetric])
-  const filtered = useMemo(() => (
-    activeMetric && population ? computeHistogram(filteredItems, activeMetric, BIN_COUNT, population) : null
-  ), [filteredItems, activeMetric, population])
+  const attributesPanel = (
+    <AttributesPanel
+      filters={filters}
+      onChangeFilters={onChangeFilters}
+    />
+  )
 
-  const activeRange = activeMetric ? getMetricRangeFilter(filters, activeMetric) : null
-  const [dragRange, setDragRange] = useState<Range | null>(null)
-  const [dragging, setDragging] = useState(false)
-  const svgRef = useRef<SVGSVGElement | null>(null)
+  if (!metricKeys.length) {
+    return (
+      <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
+        {attributesPanel}
+        <div className="p-4 text-sm text-muted">
+          No metrics found in this dataset.
+        </div>
+      </div>
+    )
+  }
 
-  const displayRange = dragRange ?? activeRange
-  const domain = population ? { min: population.min, max: population.max } : null
+  return (
+    <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
+      {attributesPanel}
+      <MetricRangePanel
+        items={items}
+        filteredItems={filteredItems}
+        metricKeys={metricKeys}
+        selectedMetric={selectedMetric}
+        onSelectMetric={onSelectMetric}
+        filters={filters}
+        onChangeRange={onChangeRange}
+      />
+    </div>
+  )
+}
 
+function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
   const starsIn = useMemo(() => getStarsInFilter(filters), [filters])
   const starsNotIn = useMemo(() => getStarsNotInFilter(filters), [filters])
   const nameContains = useMemo(() => getNameContainsFilter(filters) ?? '', [filters])
@@ -103,45 +137,6 @@ export default function MetricsPanel({
     if (heightCompare?.op) setHeightOp(heightCompare.op)
   }, [heightCompare?.op])
 
-  const setRangeFromEvent = (e: React.PointerEvent<SVGSVGElement>, commit: boolean) => {
-    if (!domain || !activeMetric) return
-    const rect = svgRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const t = clamp01((e.clientX - rect.left) / rect.width)
-    const value = domain.min + (domain.max - domain.min) * t
-    setDragRange((prev) => {
-      const start = prev?.min ?? value
-      const end = value
-      const next = normalizeRange(start, end)
-      if (commit) {
-        onChangeRange(activeMetric, next)
-      }
-      return next
-    })
-  }
-
-  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (!domain || !activeMetric) return
-    e.preventDefault()
-    setDragging(true)
-    setDragRange(null)
-    svgRef.current?.setPointerCapture(e.pointerId)
-    setRangeFromEvent(e, false)
-  }
-
-  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (!dragging) return
-    setRangeFromEvent(e, false)
-  }
-
-  const onPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (!dragging) return
-    setDragging(false)
-    svgRef.current?.releasePointerCapture(e.pointerId)
-    setRangeFromEvent(e, true)
-    setTimeout(() => setDragRange(null), 0)
-  }
-
   const toggleStar = (kind: 'include' | 'exclude', value: number) => {
     const includeSet = new Set(starsIn)
     const excludeSet = new Set(starsNotIn)
@@ -165,7 +160,7 @@ export default function MetricsPanel({
     onChangeFilters(next)
   }
 
-  const attributesPanel = (
+  return (
     <div className="rounded-xl border border-border bg-panel p-3">
       <div className="text-[11px] uppercase tracking-wide text-muted mb-3">Attributes</div>
       <div className="space-y-4">
@@ -423,21 +418,74 @@ export default function MetricsPanel({
       </div>
     </div>
   )
+}
 
-  if (!metricKeys.length) {
-    return (
-      <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
-        {attributesPanel}
-        <div className="p-4 text-sm text-muted">
-          No metrics found in this dataset.
-        </div>
-      </div>
-    )
+function MetricRangePanel({
+  items,
+  filteredItems,
+  metricKeys,
+  selectedMetric,
+  onSelectMetric,
+  filters,
+  onChangeRange,
+}: MetricRangePanelProps) {
+  const activeMetric = selectedMetric && metricKeys.includes(selectedMetric) ? selectedMetric : metricKeys[0]
+  const population = useMemo(() => (
+    activeMetric ? computeHistogram(items, activeMetric, BIN_COUNT) : null
+  ), [items, activeMetric])
+  const filtered = useMemo(() => (
+    activeMetric && population ? computeHistogram(filteredItems, activeMetric, BIN_COUNT, population) : null
+  ), [filteredItems, activeMetric, population])
+
+  const activeRange = activeMetric ? getMetricRangeFilter(filters, activeMetric) : null
+  const [dragRange, setDragRange] = useState<Range | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const svgRef = useRef<SVGSVGElement | null>(null)
+
+  const displayRange = dragRange ?? activeRange
+  const domain = population ? { min: population.min, max: population.max } : null
+
+  const setRangeFromEvent = (e: React.PointerEvent<SVGSVGElement>, commit: boolean) => {
+    if (!domain || !activeMetric) return
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const t = clamp01((e.clientX - rect.left) / rect.width)
+    const value = domain.min + (domain.max - domain.min) * t
+    setDragRange((prev) => {
+      const start = prev?.min ?? value
+      const end = value
+      const next = normalizeRange(start, end)
+      if (commit) {
+        onChangeRange(activeMetric, next)
+      }
+      return next
+    })
+  }
+
+  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!domain || !activeMetric) return
+    e.preventDefault()
+    setDragging(true)
+    setDragRange(null)
+    svgRef.current?.setPointerCapture(e.pointerId)
+    setRangeFromEvent(e, false)
+  }
+
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!dragging) return
+    setRangeFromEvent(e, false)
+  }
+
+  const onPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!dragging) return
+    setDragging(false)
+    svgRef.current?.releasePointerCapture(e.pointerId)
+    setRangeFromEvent(e, true)
+    setTimeout(() => setDragRange(null), 0)
   }
 
   return (
-    <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
-      {attributesPanel}
+    <>
       <div>
         <label className="block text-xs uppercase tracking-wide text-muted mb-1">Metric</label>
         <select
@@ -491,7 +539,7 @@ export default function MetricsPanel({
       ) : (
         <div className="text-sm text-muted">No values found for this metric.</div>
       )}
-    </div>
+    </>
   )
 }
 

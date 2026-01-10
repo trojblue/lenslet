@@ -2,6 +2,7 @@
 from __future__ import annotations
 import io
 import os
+import threading
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -154,6 +155,14 @@ def create_app(
     except Exception as exc:
         print(f"[lenslet] Warning: failed to initialize workspace: {exc}")
         workspace.can_write = False
+
+    if hasattr(storage, "get_index"):
+        def _warm_index() -> None:
+            try:
+                storage.get_index("/")  # type: ignore[call-arg]
+            except Exception as exc:
+                print(f"[lenslet] Warning: failed to build index: {exc}")
+        threading.Thread(target=_warm_index, daemon=True).start()
 
     def _storage(request: Request):
         return request.state.storage  # type: ignore[attr-defined]

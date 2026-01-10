@@ -81,7 +81,7 @@ def _start_share_tunnel(port: int, bind_host: str, verbose: bool) -> tuple[subpr
         text=True,
         bufsize=1,
     )
-    url_pattern = re.compile(r"https://[A-Za-z0-9.-]+\\.trycloudflare\\.com")
+    url_pattern = re.compile(r"https://[A-Za-z0-9.-]+\.trycloudflare\.com")
 
     def _reader(lines: Iterable[str]) -> None:
         share_url = None

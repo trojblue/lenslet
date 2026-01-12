@@ -2,7 +2,6 @@
 from __future__ import annotations
 import os
 import struct
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -10,7 +9,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from urllib.parse import urlparse
 from PIL import Image
-from tqdm import tqdm
+from .progress import ProgressBar
 
 
 @dataclass
@@ -64,11 +63,7 @@ class DatasetStorage:
         self.thumb_size = thumb_size
         self.thumb_quality = thumb_quality
         self._include_source_in_search = include_source_in_search
-        self._progress_last_done: int = 0
-        self._progress_bar = None
-        self._progress_last_label: str | None = None
-        self._progress_last_total: int | None = None
-        self._progress_lock = threading.Lock()
+        self._progress_bar = ProgressBar()
         
         # Build flat path structure: /dataset_name/image_name
         self._items: dict[str, CachedItem] = {}  # path -> item
@@ -219,32 +214,7 @@ class DatasetStorage:
         return dims
 
     def _progress(self, done: int, total: int, label: str) -> None:
-        if total <= 0:
-            return
-        with self._progress_lock:
-            if (
-                self._progress_bar is None
-                or self._progress_last_label != label
-                or self._progress_last_total != total
-            ):
-                if self._progress_bar is not None:
-                    self._progress_bar.close()
-                desc = "[lenslet] Indexing"
-                if label:
-                    desc = f"[lenslet] Indexing ({label})"
-                self._progress_bar = tqdm(total=total, desc=desc, unit="img", leave=True)
-                self._progress_last_done = 0
-                self._progress_last_label = label
-                self._progress_last_total = total
-
-            delta = done - self._progress_last_done
-            if delta > 0 and self._progress_bar is not None:
-                self._progress_bar.update(delta)
-                self._progress_last_done = done
-
-            if done >= total and self._progress_bar is not None:
-                self._progress_bar.close()
-                self._progress_bar = None
+        self._progress_bar.update(done, total, label)
 
     def _effective_remote_workers(self, total: int) -> int:
         if total <= 0:

@@ -1,15 +1,14 @@
 from __future__ import annotations
 import os
 import struct
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
 from PIL import Image
-from tqdm import tqdm
 from .local import LocalStorage
+from .progress import LeafBatchTracker, ProgressBar
 
 
 @dataclass
@@ -42,17 +41,22 @@ class MemoryStorage:
 
     IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
     LOCAL_INDEX_WORKERS = 16
+    LEAF_BATCH_THRESHOLD = 10
 
     def __init__(self, root: str, thumb_size: int = 256, thumb_quality: int = 70):
         self.local = LocalStorage(root)
         self.root = root
         self.thumb_size = thumb_size
         self.thumb_quality = thumb_quality
-        self._progress_last_done: int = 0
-        self._progress_bar = None
-        self._progress_last_label: str | None = None
-        self._progress_last_total: int | None = None
-        self._progress_lock = threading.Lock()
+        self._progress_bar = ProgressBar()
+        self._leaf_batch = LeafBatchTracker(
+            threshold=self.LEAF_BATCH_THRESHOLD,
+            list_dir=self.list_dir,
+            join=self.join,
+            normalize_path=self._normalize_path,
+            display_path=self._display_path,
+            index_exists=self._index_exists,
+        )
 
         # In-memory caches
         self._indexes: dict[str, CachedIndex] = {}
@@ -63,6 +67,12 @@ class MemoryStorage:
     def _normalize_path(self, path: str) -> str:
         """Normalize path for consistent cache keys."""
         return path.strip("/") if path else ""
+
+    def _display_path(self, norm: str) -> str:
+        return f"/{norm}" if norm else "/"
+
+    def _index_exists(self, norm: str) -> bool:
+        return norm in self._indexes
 
     def _abs_path(self, path: str) -> str:
         """Fast, safe absolute path resolution via LocalStorage."""
@@ -160,32 +170,7 @@ class MemoryStorage:
             return idx, None, None
 
     def _progress(self, done: int, total: int, label: str) -> None:
-        if total <= 0:
-            return
-        with self._progress_lock:
-            if (
-                self._progress_bar is None
-                or self._progress_last_label != label
-                or self._progress_last_total != total
-            ):
-                if self._progress_bar is not None:
-                    self._progress_bar.close()
-                desc = "[lenslet] Indexing"
-                if label:
-                    desc = f"[lenslet] Indexing ({label})"
-                self._progress_bar = tqdm(total=total, desc=desc, unit="img", leave=True)
-                self._progress_last_done = 0
-                self._progress_last_label = label
-                self._progress_last_total = total
-
-            delta = done - self._progress_last_done
-            if delta > 0 and self._progress_bar is not None:
-                self._progress_bar.update(delta)
-                self._progress_last_done = done
-
-            if done >= total and self._progress_bar is not None:
-                self._progress_bar.close()
-                self._progress_bar = None
+        self._progress_bar.update(done, total, label)
 
     def _effective_workers(self, total: int) -> int:
         if total <= 0:
@@ -197,12 +182,14 @@ class MemoryStorage:
         """Build and cache folder index. Fast - no image reading."""
         norm = self._normalize_path(path)
         files, dirs = self.list_dir(path)
+        self._leaf_batch.maybe_prepare(path, dirs)
+        use_leaf_batch = self._leaf_batch.use_batch(norm, dirs)
 
         image_files = [f for f in files if self._is_supported_image(f)]
         items: list[CachedItem | None] = [None] * len(image_files)
 
         total = len(image_files)
-        if total:
+        if total and not use_leaf_batch:
             self._progress(0, total, "local")
 
         done = 0
@@ -222,7 +209,7 @@ class MemoryStorage:
                             self._dimensions[item.path] = dims
                     done += 1
                     now = time.monotonic()
-                    if now - last_print > 0.1 or done == total:
+                    if not use_leaf_batch and (now - last_print > 0.1 or done == total):
                         self._progress(done, total, "local")
                         last_print = now
         else:
@@ -235,6 +222,8 @@ class MemoryStorage:
             dirs=dirs,
         )
         self._indexes[norm] = index
+        if use_leaf_batch:
+            self._leaf_batch.update(norm)
         return index
 
     def get_dimensions(self, path: str) -> tuple[int, int]:
@@ -439,6 +428,7 @@ class MemoryStorage:
     def invalidate_cache(self, path: str | None = None) -> None:
         """Clear cached data. If path is None, clear everything."""
         if path is None:
+            self._leaf_batch.clear()
             self._indexes.clear()
             self._thumbnails.clear()
             self._metadata.clear()
@@ -453,6 +443,7 @@ class MemoryStorage:
     def invalidate_subtree(self, path: str) -> None:
         """Drop all cached entries for a folder and its descendants."""
         norm = self._normalize_path(path)
+        self._leaf_batch.clear()
 
         # Normalize item path to "/foo" form for prefix matching
         def _canonical_item(p: str) -> str:

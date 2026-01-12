@@ -2,6 +2,7 @@
 from __future__ import annotations
 import os
 import struct
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -67,6 +68,7 @@ class DatasetStorage:
         self._progress_bar = None
         self._progress_last_label: str | None = None
         self._progress_last_total: int | None = None
+        self._progress_lock = threading.Lock()
         
         # Build flat path structure: /dataset_name/image_name
         self._items: dict[str, CachedItem] = {}  # path -> item
@@ -219,29 +221,30 @@ class DatasetStorage:
     def _progress(self, done: int, total: int, label: str) -> None:
         if total <= 0:
             return
-        if (
-            self._progress_bar is None
-            or self._progress_last_label != label
-            or self._progress_last_total != total
-        ):
-            if self._progress_bar is not None:
+        with self._progress_lock:
+            if (
+                self._progress_bar is None
+                or self._progress_last_label != label
+                or self._progress_last_total != total
+            ):
+                if self._progress_bar is not None:
+                    self._progress_bar.close()
+                desc = "[lenslet] Indexing"
+                if label:
+                    desc = f"[lenslet] Indexing ({label})"
+                self._progress_bar = tqdm(total=total, desc=desc, unit="img", leave=True)
+                self._progress_last_done = 0
+                self._progress_last_label = label
+                self._progress_last_total = total
+
+            delta = done - self._progress_last_done
+            if delta > 0 and self._progress_bar is not None:
+                self._progress_bar.update(delta)
+                self._progress_last_done = done
+
+            if done >= total and self._progress_bar is not None:
                 self._progress_bar.close()
-            desc = "[lenslet] Indexing"
-            if label:
-                desc = f"[lenslet] Indexing ({label})"
-            self._progress_bar = tqdm(total=total, desc=desc, unit="img", leave=True)
-            self._progress_last_done = 0
-            self._progress_last_label = label
-            self._progress_last_total = total
-
-        delta = done - self._progress_last_done
-        if delta > 0:
-            self._progress_bar.update(delta)
-            self._progress_last_done = done
-
-        if done >= total and self._progress_bar is not None:
-            self._progress_bar.close()
-            self._progress_bar = None
+                self._progress_bar = None
 
     def _effective_remote_workers(self, total: int) -> int:
         if total <= 0:

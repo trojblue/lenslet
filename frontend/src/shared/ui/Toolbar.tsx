@@ -129,178 +129,166 @@ export default function Toolbar({
   const countLabel = formatCountLabel(itemCount, totalCount)
 
   return (
-    <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1">
+    <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1 select-none">
       {/* Left section */}
-      <div className="flex items-center gap-3 min-w-0">
-        {viewerActive ? (
-          <button className="btn" onClick={onBack}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-            Back
+      <div className="flex items-center gap-4 min-w-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex flex-col min-w-0 leading-tight">
+            <span className="text-[10px] uppercase tracking-widest text-muted">Scope</span>
+            <span className="text-sm font-medium text-text truncate" title={currentLabel || 'Root'}>
+              {currentLabel || 'Root'}
+            </span>
+          </div>
+          {countLabel && (
+            <span className="text-xs text-muted whitespace-nowrap tabular-nums">{countLabel}</span>
+          )}
+          {viewerActive && (
+            <button className="btn btn-sm" onClick={onBack} title="Back to grid">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              Back
+            </button>
+          )}
+        </div>
+        <div className={`flex items-center gap-2 ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
+          <Dropdown
+            value={currentSort}
+            onChange={handleSortLayoutChange}
+            options={sortOptions}
+            title="Sort and layout options"
+            aria-label="Sort and layout"
+            triggerClassName="min-w-[110px]"
+          />
+          <button
+            className="btn btn-icon"
+            onClick={() => {
+              if (!onSortChange) return
+              if (isRandom) {
+                onSortChange(effectiveSort) // Re-shuffle
+              } else {
+                onSortChange({ ...effectiveSort, dir: sortDir === 'desc' ? 'asc' : 'desc' })
+              }
+            }}
+            title={isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`}
+            aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
+            aria-disabled={viewerActive}
+          >
+            {isRandom ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                <path d="M21 3v5h-5" />
+              </svg>
+            ) : sortDir === 'desc' ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14" />
+                <path d="M19 12l-7 7-7-7" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 19V5" />
+                <path d="M5 12l7-7 7 7" />
+              </svg>
+            )}
           </button>
-        ) : (
-          <div className="flex items-center gap-4 min-w-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex flex-col min-w-0 leading-tight">
-                <span className="text-[10px] uppercase tracking-widest text-muted">Scope</span>
-                <span className="text-sm font-medium text-text truncate" title={currentLabel || 'Root'}>
-                  {currentLabel || 'Root'}
+          <div ref={filtersRef} className="relative">
+            <button
+              className={`btn ${totalFilterCount > 0 ? 'btn-active' : ''}`}
+              onClick={() => setFiltersOpen((v) => !v)}
+              aria-haspopup="dialog"
+              aria-expanded={filtersOpen}
+              title="Filters"
+              aria-disabled={viewerActive}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              </svg>
+              <span>Filters</span>
+              {totalFilterCount > 0 && (
+                <span className="px-1.5 py-0.5 text-[11px] rounded-full bg-accent-strong text-text">
+                  {totalFilterCount}
                 </span>
-              </div>
-              {countLabel && (
-                <span className="text-xs text-muted whitespace-nowrap tabular-nums">{countLabel}</span>
               )}
-              {viewerActive && (
-                <button className="btn btn-sm" onClick={onBack} title="Back to grid">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M15 18l-6-6 6-6" />
-                  </svg>
-                  Back
-                </button>
-              )}
-            </div>
-            <div className={`flex items-center gap-2 ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
-              <Dropdown
-                value={currentSort}
-                onChange={handleSortLayoutChange}
-                options={sortOptions}
-                title="Sort and layout options"
-                aria-label="Sort and layout"
-                triggerClassName="min-w-[110px]"
-              />
-              <button
-                className="btn btn-icon"
-                onClick={() => {
-                  if (!onSortChange) return
-                  if (isRandom) {
-                    onSortChange(effectiveSort) // Re-shuffle
-                  } else {
-                    onSortChange({ ...effectiveSort, dir: sortDir === 'desc' ? 'asc' : 'desc' })
-                  }
-                }}
-                title={isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`}
-                aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
-                aria-disabled={viewerActive}
+            </button>
+
+            {filtersOpen && (
+              <div
+                role="dialog"
+                aria-label="Filters"
+                className="dropdown-panel w-[240px]"
+                style={{ top: '38px', left: 0 }}
               >
-                {isRandom ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                    <path d="M21 3v5h-5" />
-                  </svg>
-                ) : sortDir === 'desc' ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 5v14" />
-                    <path d="M19 12l-7 7-7-7" />
-                  </svg>
-                ) : (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 19V5" />
-                    <path d="M5 12l7-7 7 7" />
-                  </svg>
-                )}
-              </button>
-              <div ref={filtersRef} className="relative">
+                {/* Rating section */}
+                <div className="dropdown-label">Rating</div>
+                <div className="px-1">
+                  {[5, 4, 3, 2, 1].map((v) => {
+                    const active = (starFilters || []).includes(v)
+                    const count = starCounts?.[String(v)] ?? 0
+                    return (
+                      <button
+                        key={v}
+                        onClick={() => onToggleStar?.(v)}
+                        className={`dropdown-item justify-between ${active ? 'bg-accent-muted' : ''}`}
+                      >
+                        <span className={active ? 'text-star-active' : 'text-text'}>
+                          {'★'.repeat(v)}{'☆'.repeat(5 - v)}
+                        </span>
+                        <span className="text-xs text-muted">{count}</span>
+                      </button>
+                    )
+                  })}
+                  <button
+                    onClick={() => onToggleStar?.(0)}
+                    className={`dropdown-item justify-between ${(starFilters || []).includes(0) ? 'bg-accent-muted' : ''}`}
+                  >
+                    <span className="text-text">Unrated</span>
+                    <span className="text-xs text-muted">{starCounts?.['0'] ?? 0}</span>
+                  </button>
+                </div>
+
+                <div className="dropdown-divider" />
+
+                {/* Metrics section */}
+                <div className="dropdown-label">Metrics</div>
                 <button
-                  className={`btn ${totalFilterCount > 0 ? 'btn-active' : ''}`}
-                  onClick={() => setFiltersOpen((v) => !v)}
-                  aria-haspopup="dialog"
-                  aria-expanded={filtersOpen}
-                  title="Filters"
-                  aria-disabled={viewerActive}
+                  className="dropdown-item"
+                  onClick={() => {
+                    setFiltersOpen(false)
+                    onOpenFilters?.()
+                  }}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                    <path d="M4 19V9" />
+                    <path d="M10 19V5" />
+                    <path d="M16 19v-7" />
+                    <path d="M3 19h18" />
                   </svg>
-                  <span>Filters</span>
-                  {totalFilterCount > 0 && (
-                    <span className="px-1.5 py-0.5 text-[11px] rounded-full bg-accent-strong text-text">
-                      {totalFilterCount}
-                    </span>
+                  <span>Open Metrics Panel</span>
+                  {(filterCount || 0) > 0 && (
+                    <span className="ml-auto text-xs text-muted">{filterCount} active</span>
                   )}
                 </button>
 
-                {filtersOpen && (
-                  <div
-                    role="dialog"
-                    aria-label="Filters"
-                    className="dropdown-panel w-[240px]"
-                    style={{ top: '38px', left: 0 }}
-                  >
-                    {/* Rating section */}
-                    <div className="dropdown-label">Rating</div>
-                    <div className="px-1">
-                      {[5, 4, 3, 2, 1].map((v) => {
-                        const active = (starFilters || []).includes(v)
-                        const count = starCounts?.[String(v)] ?? 0
-                        return (
-                          <button
-                            key={v}
-                            onClick={() => onToggleStar?.(v)}
-                            className={`dropdown-item justify-between ${active ? 'bg-accent-muted' : ''}`}
-                          >
-                            <span className={active ? 'text-star-active' : 'text-text'}>
-                              {'★'.repeat(v)}{'☆'.repeat(5 - v)}
-                            </span>
-                            <span className="text-xs text-muted">{count}</span>
-                          </button>
-                        )
-                      })}
-                      <button
-                        onClick={() => onToggleStar?.(0)}
-                        className={`dropdown-item justify-between ${(starFilters || []).includes(0) ? 'bg-accent-muted' : ''}`}
-                      >
-                        <span className="text-text">Unrated</span>
-                        <span className="text-xs text-muted">{starCounts?.['0'] ?? 0}</span>
-                      </button>
-                    </div>
+                <div className="dropdown-divider" />
 
-                    <div className="dropdown-divider" />
-
-                    {/* Metrics section */}
-                    <div className="dropdown-label">Metrics</div>
-                    <button
-                      className="dropdown-item"
-                      onClick={() => {
-                        setFiltersOpen(false)
-                        onOpenFilters?.()
-                      }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 19V9" />
-                        <path d="M10 19V5" />
-                        <path d="M16 19v-7" />
-                        <path d="M3 19h18" />
-                      </svg>
-                      <span>Open Metrics Panel</span>
-                      {(filterCount || 0) > 0 && (
-                        <span className="ml-auto text-xs text-muted">{filterCount} active</span>
-                      )}
-                    </button>
-
-                    <div className="dropdown-divider" />
-
-                    {/* Clear all */}
-                    <button
-                      className="dropdown-item text-muted hover:text-text"
-                      onClick={() => {
-                        if (onClearFilters) {
-                          onClearFilters()
-                        } else {
-                          onClearStars?.()
-                        }
-                      }}
-                      disabled={totalFilterCount === 0}
-                    >
-                      Clear all filters
-                    </button>
-                  </div>
-                )}
+                {/* Clear all */}
+                <button
+                  className="dropdown-item text-muted hover:text-text"
+                  onClick={() => {
+                    if (onClearFilters) {
+                      onClearFilters()
+                    } else {
+                      onClearStars?.()
+                    }
+                  }}
+                  disabled={totalFilterCount === 0}
+                >
+                  Clear all filters
+                </button>
               </div>
-            </div>
+            )}
           </div>
-        )}
-
+        </div>
       </div>
 
       {/* Center section - size slider */}
@@ -399,7 +387,7 @@ export default function Toolbar({
             aria-label="Search filename, tags, notes"
             placeholder="Search..."
             onChange={(e) => onSearch(e.target.value)}
-            className="h-8 w-[240px] focus:w-[320px] transition-all duration-200 rounded-lg px-3 border border-border bg-surface text-text placeholder:text-muted"
+            className="h-8 w-[240px] focus:w-[320px] transition-all duration-200 rounded-lg px-3 border border-border bg-surface text-text placeholder:text-muted select-text"
           />
         ) : (
           <div className="w-[240px]" aria-hidden="true" />

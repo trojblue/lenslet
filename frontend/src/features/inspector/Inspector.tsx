@@ -431,9 +431,9 @@ export default function Inspector({
     <div className="col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
       {!multi && (
         <div className="p-3 border-b border-border flex justify-center">
-          <div className="relative rounded-lg overflow-hidden border border-border w-[220px] h-[160px] bg-panel">
+          <div className="relative rounded-lg overflow-hidden border border-border w-[220px] h-[160px] bg-panel select-none">
             {thumbUrl && <img src={thumbUrl} alt="thumb" className="block w-full h-full object-contain" />}
-            {!!ext && <div className="absolute top-1.5 left-1.5 bg-surface border border-border text-text text-xs px-1.5 py-0.5 rounded-md">{ext}</div>}
+            {!!ext && <div className="absolute top-1.5 left-1.5 bg-surface border border-border text-text text-xs px-1.5 py-0.5 rounded-md select-none">{ext}</div>}
           </div>
         </div>
       )}

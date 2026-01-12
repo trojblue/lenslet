@@ -2,6 +2,16 @@
 @import "tailwindcss";
 @import './theme.css' layer(base);
 
+::selection {
+  background: rgba(90, 155, 255, 0.28);
+  color: var(--text);
+}
+
+::-moz-selection {
+  background: rgba(90, 155, 255, 0.28);
+  color: var(--text);
+}
+
 /* Custom design tokens - Tailwind v4 @theme */
 @theme {
   /* Core colors mapped from theme.css variables */

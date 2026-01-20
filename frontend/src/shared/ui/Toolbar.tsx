@@ -56,6 +56,7 @@ export default function Toolbar({
   onClearStars,
   onClearFilters,
   starCounts,
+  viewMode,
   onViewMode,
   gridItemSize,
   onGridItemSize,

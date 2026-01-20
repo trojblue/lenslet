@@ -1,5 +1,6 @@
 """FastAPI server for Lenslet."""
 from __future__ import annotations
+import asyncio
 import io
 import os
 import threading
@@ -32,6 +33,7 @@ from .metadata import read_png_info, read_jpeg_info, read_webp_info
 from .storage.memory import MemoryStorage
 from .storage.dataset import DatasetStorage
 from .storage.table import TableStorage, load_parquet_table
+from .thumbs import ThumbnailScheduler
 from .workspace import Workspace
 
 
@@ -198,8 +200,63 @@ def _update_item(storage, path: str, body: Sidecar) -> Sidecar:
     return body
 
 
-def _thumb_response(storage, path: str) -> Response:
-    thumb = storage.get_thumbnail(path)
+class _ClientDisconnected(Exception):
+    pass
+
+
+def _thumb_worker_count() -> int:
+    cpu = os.cpu_count() or 2
+    return max(1, min(4, cpu))
+
+
+def _get_cached_thumbnail(storage, path: str) -> bytes | None:
+    cache = getattr(storage, "_thumbnails", None)
+    if not isinstance(cache, dict):
+        return None
+    if path in cache:
+        return cache[path]
+    normalizer = getattr(storage, "_normalize_path", None)
+    if callable(normalizer):
+        try:
+            norm = normalizer(path)
+        except Exception:
+            return None
+        return cache.get(norm)
+    return None
+
+
+async def _await_thumbnail(
+    request: Request,
+    future,
+) -> bytes | None:
+    wrapped = asyncio.wrap_future(future)
+    while True:
+        done, _ = await asyncio.wait({wrapped}, timeout=0.05)
+        if done:
+            try:
+                return wrapped.result()
+            except asyncio.CancelledError as exc:
+                raise _ClientDisconnected() from exc
+        if await request.is_disconnected():
+            raise _ClientDisconnected()
+
+
+async def _thumb_response_async(
+    storage,
+    path: str,
+    request: Request,
+    queue: ThumbnailScheduler,
+) -> Response:
+    cached = _get_cached_thumbnail(storage, path)
+    if cached is not None:
+        return Response(content=cached, media_type="image/webp")
+
+    future = queue.submit(path, lambda: storage.get_thumbnail(path))
+    try:
+        thumb = await _await_thumbnail(request, future)
+    except _ClientDisconnected:
+        return Response(status_code=204)
+
     if thumb is None:
         raise HTTPException(500, "failed to generate thumbnail")
     return Response(content=thumb, media_type="image/webp")
@@ -311,6 +368,8 @@ def create_app(
                 print(f"[lenslet] Warning: failed to build index: {exc}")
         threading.Thread(target=_warm_index, daemon=True).start()
 
+    thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
+
     def _to_item(storage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
         return _build_item(cached, meta)
@@ -370,10 +429,10 @@ def create_app(
         return _update_item(storage, path, body)
 
     @app.get("/thumb")
-    def get_thumb(path: str, request: Request = None):
+    async def get_thumb(path: str, request: Request = None):
         storage = _storage_from_request(request)
         _ensure_image(storage, path)
-        return _thumb_response(storage, path)
+        return await _thumb_response_async(storage, path, request, thumb_queue)
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
@@ -423,6 +482,7 @@ def create_app_from_datasets(
         include_source_in_search=show_source,
     )
     workspace = Workspace.for_dataset(None, can_write=False)
+    thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
 
     def _to_item(storage: DatasetStorage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
@@ -481,10 +541,10 @@ def create_app_from_datasets(
         return _update_item(storage, path, body)
 
     @app.get("/thumb")
-    def get_thumb(path: str, request: Request = None):
+    async def get_thumb(path: str, request: Request = None):
         storage = _storage_from_request(request)
         _ensure_image(storage, path)
-        return _thumb_response(storage, path)
+        return await _thumb_response_async(storage, path, request, thumb_queue)
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
@@ -591,10 +651,10 @@ def create_app_from_storage(
         return _update_item(storage, path, body)
 
     @app.get("/thumb")
-    def get_thumb(path: str, request: Request = None):
+    async def get_thumb(path: str, request: Request = None):
         storage = _storage_from_request(request)
         _ensure_image(storage, path)
-        return _thumb_response(storage, path)
+        return await _thumb_response_async(storage, path, request, thumb_queue)
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):

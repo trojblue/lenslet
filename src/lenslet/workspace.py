@@ -72,7 +72,10 @@ class Workspace:
         return payload
 
     def save_views(self, payload: dict[str, Any]) -> None:
-        if not self.can_write or self.root is None:
+        if not self.can_write:
+            self.memory_views = payload
+            return
+        if self.views_path is None:
             self.memory_views = payload
             return
         self.write_views(payload)

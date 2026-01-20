@@ -72,6 +72,7 @@
 
 :root {
   --toolbar-h: var(--spacing-toolbar, 48px);
+  --mobile-drawer-h: 0px;
 }
 
 /* Scrollbar styling - can't be done purely in Tailwind */
@@ -174,6 +175,10 @@
   grid-template-rows: var(--toolbar-h) 1fr;
 }
 
+.grid-shell {
+  padding-bottom: var(--mobile-drawer-h);
+}
+
 /* Drop target highlight for tree nodes */
 .drop-target {
   background: rgba(58, 143, 255, 0.15) !important;
@@ -182,6 +187,10 @@
 
 /* Responsive toolbar + layout tweaks for narrow screens */
 @media (max-width: 900px) {
+  :root {
+    --mobile-drawer-h: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+
   .toolbar-shell {
     position: relative;
     height: auto !important;
@@ -203,7 +212,7 @@
   }
 
   .toolbar-center {
-    justify-content: flex-start;
+    display: none;
   }
 
   .toolbar-right {
@@ -216,6 +225,107 @@
 
   .toolbar-search-input {
     width: 100% !important;
+  }
+
+  .toolbar-count {
+    display: none;
+  }
+
+  .toolbar-sort {
+    width: 100%;
+    order: 2;
+    flex-wrap: wrap;
+  }
+
+  .toolbar-sort-controls {
+    display: none;
+  }
+
+  .toolbar-filters-label {
+    display: none;
+  }
+
+  .toolbar-filters-count {
+    margin-left: 0;
+  }
+
+  .toolbar-nav {
+    display: none;
+  }
+
+  .toolbar-search-row {
+    width: 100%;
+  }
+
+  .toolbar-search-input-mobile {
+    width: 100%;
+  }
+
+  .mobile-drawer {
+    position: fixed;
+    left: var(--left);
+    right: var(--right);
+    bottom: 0;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in oklab, var(--panel) 92%, transparent);
+    border-top: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+    z-index: var(--z-toolbar);
+  }
+
+  .mobile-drawer-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-drawer-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-pill-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .mobile-pill {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  .mobile-pill.is-active {
+    background: var(--accent-muted);
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+
+  .mobile-pill-icon {
+    padding: 0 10px;
+  }
+
+  .mobile-pill-dropdown.dropdown-trigger {
+    min-width: 110px;
+  }
+
+  .mobile-drawer-panel {
+    top: auto;
+    bottom: calc(100% + 8px);
+  }
+
+  .grid-shell {
+    touch-action: pan-y;
   }
 }
 

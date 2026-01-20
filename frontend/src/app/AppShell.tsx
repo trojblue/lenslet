@@ -547,6 +547,51 @@ export default function AppShell() {
     return () => shell.removeEventListener('wheel', onWheel)
   }, [])
 
+  // Pinch to resize thumbnails on touch devices
+  useEffect(() => {
+    if (viewer) return
+    const shell = gridShellRef.current
+    if (!shell) return
+    const clamp = (v: number) => Math.min(500, Math.max(80, v))
+    let pinchStart: { dist: number; size: number } | null = null
+
+    const getDistance = (touches: TouchList) => {
+      if (touches.length < 2) return 0
+      const [a, b] = [touches[0], touches[1]]
+      return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+    }
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return
+      const dist = getDistance(e.touches)
+      if (!dist) return
+      pinchStart = { dist, size: gridItemSize }
+    }
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!pinchStart || e.touches.length !== 2) return
+      const dist = getDistance(e.touches)
+      if (!dist) return
+      e.preventDefault()
+      const next = clamp(pinchStart.size * (dist / pinchStart.dist))
+      setGridItemSize(next)
+    }
+
+    const onTouchEnd = () => { pinchStart = null }
+
+    shell.addEventListener('touchstart', onTouchStart, { passive: true })
+    shell.addEventListener('touchmove', onTouchMove, { passive: false })
+    shell.addEventListener('touchend', onTouchEnd)
+    shell.addEventListener('touchcancel', onTouchEnd)
+
+    return () => {
+      shell.removeEventListener('touchstart', onTouchStart)
+      shell.removeEventListener('touchmove', onTouchMove)
+      shell.removeEventListener('touchend', onTouchEnd)
+      shell.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [viewer, gridItemSize])
+
   // Prefetch neighbors for the open viewer (previous and next)
   useEffect(() => {
     if (!viewer) return
@@ -932,7 +977,7 @@ export default function AppShell() {
           <div className="toolbar-offset absolute bottom-0 right-0 w-1.5 cursor-col-resize z-10 hover:bg-accent/20" onMouseDown={onResizeLeft} />
         </div>
       )}
-      <div className="col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>
+      <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>
         <div aria-live="polite" className="sr-only">
           {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
         </div>

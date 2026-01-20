@@ -69,7 +69,10 @@ export default function Toolbar({
   canNextImage,
 }: ToolbarProps): JSX.Element {
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [isNarrow, setIsNarrow] = useState(false)
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const filtersRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Close filters on click outside
   useEffect(() => {
@@ -82,6 +85,29 @@ export default function Toolbar({
     window.addEventListener('click', onClick)
     return () => window.removeEventListener('click', onClick)
   }, [filtersOpen])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('matchMedia' in window)) return
+    const media = window.matchMedia('(max-width: 900px)')
+    const onChange = (evt: MediaQueryListEvent) => setIsNarrow(evt.matches)
+    setIsNarrow(media.matches)
+    if ('addEventListener' in media) {
+      media.addEventListener('change', onChange)
+      return () => media.removeEventListener('change', onChange)
+    }
+    media.addListener(onChange)
+    return () => media.removeListener(onChange)
+  }, [])
+
+  useEffect(() => {
+    if (!isNarrow || viewerActive) {
+      setMobileSearchOpen(false)
+      return
+    }
+    if (!mobileSearchOpen) return
+    const handle = window.requestAnimationFrame(() => searchInputRef.current?.focus())
+    return () => window.cancelAnimationFrame(handle)
+  }, [isNarrow, mobileSearchOpen, viewerActive])
 
   const effectiveSort: SortSpec = sortSpec ?? { kind: 'builtin', key: 'added', dir: 'desc' }
   const sortDir = effectiveSort.dir
@@ -115,6 +141,20 @@ export default function Toolbar({
   const currentSort = effectiveSort.kind === 'metric'
     ? `metric:${effectiveSort.key}`
     : `builtin:${effectiveSort.key}`
+
+  const sortOnlyOptions = [
+    {
+      label: 'Sort by',
+      options: [
+        { value: 'builtin:added', label: 'Date added' },
+        { value: 'builtin:name', label: 'Filename' },
+        { value: 'builtin:random', label: 'Random' },
+        ...metricOptions,
+      ],
+    },
+  ]
+
+  const showMobileDrawer = isNarrow && !viewerActive
 
   const handleSortLayoutChange = (value: string) => {
     if (value.startsWith('layout:')) {
@@ -153,47 +193,49 @@ export default function Toolbar({
             </button>
           )}
         </div>
-        <div className={`flex items-center gap-2 ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
-          <Dropdown
-            value={currentSort}
-            onChange={handleSortLayoutChange}
-            options={sortOptions}
-            title="Sort and layout options"
-            aria-label="Sort and layout"
-            triggerClassName="min-w-[110px]"
-          />
-          <button
-            className="btn btn-icon"
-            onClick={() => {
-              if (!onSortChange) return
-              if (isRandom) {
-                onSortChange(effectiveSort) // Re-shuffle
-              } else {
-                onSortChange({ ...effectiveSort, dir: sortDir === 'desc' ? 'asc' : 'desc' })
-              }
-            }}
-            title={isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`}
-            aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
-            aria-disabled={viewerActive}
-          >
-            {isRandom ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                <path d="M21 3v5h-5" />
-              </svg>
-            ) : sortDir === 'desc' ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 5v14" />
-                <path d="M19 12l-7 7-7-7" />
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 19V5" />
-                <path d="M5 12l7-7 7 7" />
-              </svg>
-            )}
-          </button>
-          <div ref={filtersRef} className="relative">
+        <div className={`toolbar-sort flex items-center gap-2 ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
+          <div className="toolbar-sort-controls flex items-center gap-2">
+            <Dropdown
+              value={currentSort}
+              onChange={handleSortLayoutChange}
+              options={sortOptions}
+              title="Sort and layout options"
+              aria-label="Sort and layout"
+              triggerClassName="min-w-[110px]"
+            />
+            <button
+              className="toolbar-sort-dir btn btn-icon"
+              onClick={() => {
+                if (!onSortChange) return
+                if (isRandom) {
+                  onSortChange(effectiveSort) // Re-shuffle
+                } else {
+                  onSortChange({ ...effectiveSort, dir: sortDir === 'desc' ? 'asc' : 'desc' })
+                }
+              }}
+              title={isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`}
+              aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
+              aria-disabled={viewerActive}
+            >
+              {isRandom ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+              ) : sortDir === 'desc' ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14" />
+                  <path d="M19 12l-7 7-7-7" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 19V5" />
+                  <path d="M5 12l7-7 7 7" />
+                </svg>
+              )}
+            </button>
+          </div>
+          <div ref={filtersRef} className="toolbar-filter relative">
             <button
               className={`btn ${totalFilterCount > 0 ? 'btn-active' : ''}`}
               onClick={() => setFiltersOpen((v) => !v)}
@@ -205,9 +247,9 @@ export default function Toolbar({
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
               </svg>
-              <span>Filters</span>
+              <span className="toolbar-filters-label">Filters</span>
               {totalFilterCount > 0 && (
-                <span className="px-1.5 py-0.5 text-[11px] rounded-full bg-accent-strong text-text">
+                <span className="toolbar-filters-count px-1.5 py-0.5 text-[11px] rounded-full bg-accent-strong text-text">
                   {totalFilterCount}
                 </span>
               )}
@@ -332,7 +374,7 @@ export default function Toolbar({
 
       {/* Right section */}
       <div className="toolbar-right flex items-center gap-2 justify-end">
-        <div className={`flex items-center gap-1 mr-1 ${viewerActive ? '' : 'opacity-0 pointer-events-none'}`} aria-hidden={!viewerActive}>
+        <div className={`toolbar-nav flex items-center gap-1 mr-1 ${viewerActive ? '' : 'opacity-0 pointer-events-none'}`} aria-hidden={!viewerActive}>
           <button
             className={`btn btn-icon ${canPrevImage ? '' : 'opacity-40 cursor-not-allowed'}`}
             title="Previous image (A / ←)"
@@ -358,7 +400,7 @@ export default function Toolbar({
         </div>
 
         {/* Panel toggles */}
-        <div className="flex items-center gap-1">
+        <div className="toolbar-panels flex items-center gap-1">
           <button
             className={`btn btn-icon ${leftOpen ? '' : 'opacity-50'}`}
             title={leftOpen ? 'Hide left panel (Ctrl+B)' : 'Show left panel (Ctrl+B)'}
@@ -384,19 +426,104 @@ export default function Toolbar({
             </svg>
           </button>
         </div>
-        {!viewerActive ? (
+        {!viewerActive && isNarrow && (
+          <button
+            className={`btn btn-icon ${mobileSearchOpen ? 'btn-active' : ''}`}
+            aria-label={mobileSearchOpen ? 'Close search' : 'Open search'}
+            title={mobileSearchOpen ? 'Close search' : 'Search'}
+            onClick={() => setMobileSearchOpen((prev) => !prev)}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
+          </button>
+        )}
+        {!viewerActive && !isNarrow ? (
           <div className="toolbar-search w-[240px]">
             <input
+              ref={searchInputRef}
               aria-label="Search filename, tags, notes"
               placeholder="Search..."
               onChange={(e) => onSearch(e.target.value)}
               className="toolbar-search-input input h-8 w-full focus:w-full transition-all duration-200 rounded-lg px-3 border border-border bg-surface text-text placeholder:text-muted select-text"
             />
           </div>
-        ) : (
+        ) : viewerActive ? (
           <div className="toolbar-search w-[240px]" aria-hidden="true" />
-        )}
+        ) : null}
       </div>
+      {!viewerActive && isNarrow && mobileSearchOpen && (
+        <div className="toolbar-search-row">
+          <input
+            ref={searchInputRef}
+            aria-label="Search filename, tags, notes"
+            placeholder="Search..."
+            onChange={(e) => onSearch(e.target.value)}
+            className="toolbar-search-input-mobile h-9 w-full rounded-lg px-3 border border-border bg-surface text-text placeholder:text-muted select-text"
+          />
+        </div>
+      )}
+      {showMobileDrawer && (
+        <div className="mobile-drawer">
+          <div className="mobile-drawer-row">
+            <div className="mobile-pill-group">
+              <button
+                className={`mobile-pill ${viewMode === 'grid' ? 'is-active' : ''}`}
+                onClick={() => onViewMode?.('grid')}
+                aria-pressed={viewMode === 'grid'}
+              >
+                Grid
+              </button>
+              <button
+                className={`mobile-pill ${viewMode === 'adaptive' ? 'is-active' : ''}`}
+                onClick={() => onViewMode?.('adaptive')}
+                aria-pressed={viewMode === 'adaptive'}
+              >
+                Masonry
+              </button>
+            </div>
+            <Dropdown
+              value={currentSort}
+              onChange={(value) => onSortChange?.(parseSort(value, effectiveSort))}
+              options={sortOnlyOptions}
+              aria-label="Sort"
+              triggerClassName="mobile-pill mobile-pill-dropdown"
+              panelClassName="mobile-drawer-panel"
+            />
+            <button
+              className="mobile-pill mobile-pill-icon"
+              onClick={() => {
+                if (!onSortChange) return
+                if (isRandom) {
+                  onSortChange(effectiveSort)
+                } else {
+                  onSortChange({ ...effectiveSort, dir: sortDir === 'desc' ? 'asc' : 'desc' })
+                }
+              }}
+              title={isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`}
+              aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
+            >
+              {isRandom ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+              ) : sortDir === 'desc' ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14" />
+                  <path d="M19 12l-7 7-7-7" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 19V5" />
+                  <path d="M5 12l7-7 7 7" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

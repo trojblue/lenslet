@@ -211,6 +211,11 @@
     gap: 8px;
   }
 
+  .toolbar-left {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
   .toolbar-center {
     display: none;
   }
@@ -232,9 +237,9 @@
   }
 
   .toolbar-sort {
-    width: 100%;
-    order: 2;
-    flex-wrap: wrap;
+    width: auto;
+    order: 0;
+    flex-wrap: nowrap;
   }
 
   .toolbar-sort-controls {

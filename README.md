@@ -4,7 +4,8 @@ A lightweight image gallery server that runs entirely in-memory. Point it at a d
 
 ## Introduction
 
-<img width="1511" height="851" alt="image" src="https://github.com/user-attachments/assets/8dc0e7f9-c1bd-4be3-bd06-443fb603e3a5" />
+<img width="2145" height="1277" alt="image" src="https://github.com/user-attachments/assets/efd38faf-b5e8-43e5-9176-d01c06654d16" />
+<img width="2145" height="1277" alt="image" src="https://github.com/user-attachments/assets/82940322-50a2-43e5-bb2d-7c10b3d9b3f2" />
 
 Lenslet is a self-contained image gallery server designed for simplicity and speed. It indexes directories on-the-fly, generates thumbnails in memory, and serves everything through a clean web interface. Perfect for quickly browsing local image collections without modifying the source directory.
 

@@ -3,6 +3,7 @@ import Dropdown from './Dropdown'
 import type { SortSpec, ViewMode } from '../../lib/types'
 
 export interface ToolbarProps {
+  rootRef?: React.RefObject<HTMLDivElement>
   onSearch: (q: string) => void
   viewerActive?: boolean
   onBack?: () => void
@@ -36,6 +37,7 @@ export interface ToolbarProps {
 }
 
 export default function Toolbar({
+  rootRef,
   onSearch,
   viewerActive,
   onBack,
@@ -129,9 +131,9 @@ export default function Toolbar({
   const countLabel = formatCountLabel(itemCount, totalCount)
 
   return (
-    <div className="fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1 select-none">
+    <div ref={rootRef} className="toolbar-shell fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1 select-none">
       {/* Left section */}
-      <div className="flex items-center gap-4 min-w-0">
+      <div className="toolbar-left flex items-center gap-4 min-w-0">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex flex-col min-w-0 leading-tight">
             <span className="text-[10px] uppercase tracking-widest text-muted">Scope</span>
@@ -140,7 +142,7 @@ export default function Toolbar({
             </span>
           </div>
           {countLabel && (
-            <span className="text-xs text-muted whitespace-nowrap tabular-nums">{countLabel}</span>
+            <span className="toolbar-count text-xs text-muted whitespace-nowrap tabular-nums">{countLabel}</span>
           )}
           {viewerActive && (
             <button className="btn btn-sm" onClick={onBack} title="Back to grid">
@@ -292,7 +294,7 @@ export default function Toolbar({
       </div>
 
       {/* Center section - size slider */}
-      <div className="flex items-center gap-3 justify-center min-w-0">
+      <div className="toolbar-center flex items-center gap-3 justify-center min-w-0">
         {viewerActive ? (
           <>
             <input
@@ -329,7 +331,7 @@ export default function Toolbar({
       </div>
 
       {/* Right section */}
-      <div className="flex items-center gap-2 justify-end">
+      <div className="toolbar-right flex items-center gap-2 justify-end">
         <div className={`flex items-center gap-1 mr-1 ${viewerActive ? '' : 'opacity-0 pointer-events-none'}`} aria-hidden={!viewerActive}>
           <button
             className={`btn btn-icon ${canPrevImage ? '' : 'opacity-40 cursor-not-allowed'}`}
@@ -383,14 +385,16 @@ export default function Toolbar({
           </button>
         </div>
         {!viewerActive ? (
-          <input
-            aria-label="Search filename, tags, notes"
-            placeholder="Search..."
-            onChange={(e) => onSearch(e.target.value)}
-            className="h-8 w-[240px] focus:w-[320px] transition-all duration-200 rounded-lg px-3 border border-border bg-surface text-text placeholder:text-muted select-text"
-          />
+          <div className="toolbar-search w-[240px]">
+            <input
+              aria-label="Search filename, tags, notes"
+              placeholder="Search..."
+              onChange={(e) => onSearch(e.target.value)}
+              className="toolbar-search-input input h-8 w-full focus:w-full transition-all duration-200 rounded-lg px-3 border border-border bg-surface text-text placeholder:text-muted select-text"
+            />
+          </div>
         ) : (
-          <div className="w-[240px]" aria-hidden="true" />
+          <div className="toolbar-search w-[240px]" aria-hidden="true" />
         )}
       </div>
     </div>

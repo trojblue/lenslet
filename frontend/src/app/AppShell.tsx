@@ -85,6 +85,7 @@ export default function AppShell() {
   // Refs
   const appRef = useRef<HTMLDivElement>(null)
   const gridShellRef = useRef<HTMLDivElement>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const viewerHistoryPushedRef = useRef(false)
   const lastFocusedPathRef = useRef<string | null>(null)
 
@@ -391,6 +392,25 @@ export default function AppShell() {
     }
   }, [searching])
 
+  // Track toolbar height so overlays align on small screens
+  useEffect(() => {
+    const appEl = appRef.current
+    const toolbarEl = toolbarRef.current
+    if (!appEl || !toolbarEl) return
+    const update = () => {
+      const h = Math.max(48, Math.round(toolbarEl.getBoundingClientRect().height))
+      appEl.style.setProperty('--toolbar-h', `${h}px`)
+    }
+    update()
+    if ('ResizeObserver' in window) {
+      const ro = new ResizeObserver(update)
+      ro.observe(toolbarEl)
+      return () => ro.disconnect()
+    }
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+
   // Load persisted settings on mount
   useEffect(() => {
     try {
@@ -469,6 +489,25 @@ export default function AppShell() {
     } catch {
       // Ignore localStorage errors (private browsing, etc.)
     }
+  }, [])
+
+  // Auto-collapse side panels on narrow screens
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const media = window.matchMedia('(max-width: 900px)')
+    const apply = () => {
+      if (media.matches) {
+        setLeftOpen(false)
+        setRightOpen(false)
+      }
+    }
+    apply()
+    if ('addEventListener' in media) {
+      media.addEventListener('change', apply)
+      return () => media.removeEventListener('change', apply)
+    }
+    media.addListener(apply)
+    return () => media.removeListener(apply)
   }, [])
 
   // Persist settings when they change
@@ -758,8 +797,18 @@ export default function AppShell() {
   }, [itemPaths, viewer, selectedPaths])
 
   return (
-    <div className="grid h-full grid-cols-[var(--left)_1fr_var(--right)] grid-rows-[48px_1fr]" ref={appRef} style={{ ['--left' as any]: leftCol, ['--right' as any]: rightCol }}>
+    <div
+      className="app-shell grid h-full grid-cols-[var(--left)_1fr_var(--right)]"
+      ref={appRef}
+      style={{
+        ['--left' as any]: leftCol,
+        ['--right' as any]: rightCol,
+        ['--toolbar-h' as any]: '48px',
+        gridTemplateRows: 'var(--toolbar-h) 1fr',
+      }}
+    >
       <Toolbar
+        rootRef={toolbarRef}
         onSearch={setQuery}
         viewerActive={!!viewer}
         onBack={closeViewer}
@@ -792,7 +841,7 @@ export default function AppShell() {
         canNextImage={canNextImage}
       />
       {leftOpen && (
-        <div className="col-start-1 row-start-2 relative border-r border-border bg-panel overflow-hidden">
+        <div className="app-left-panel col-start-1 row-start-2 relative border-r border-border bg-panel overflow-hidden">
           <div className="absolute inset-y-0 left-0 w-10 border-r border-border flex flex-col items-center gap-2 py-3 bg-surface-overlay">
             <button
               className={`w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors ${leftTool === 'folders' ? 'bg-accent-muted text-accent' : 'bg-surface text-text hover:bg-surface-hover'}`}
@@ -882,7 +931,7 @@ export default function AppShell() {
               />
             )}
           </div>
-          <div className="absolute top-12 bottom-0 right-0 w-1.5 cursor-col-resize z-10 hover:bg-accent/20" onMouseDown={onResizeLeft} />
+          <div className="toolbar-offset absolute bottom-0 right-0 w-1.5 cursor-col-resize z-10 hover:bg-accent/20" onMouseDown={onResizeLeft} />
         </div>
       )}
       <div className="col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>
@@ -965,7 +1014,11 @@ export default function AppShell() {
         />
       )}
       {isDraggingOver && (
-        <div className="fixed inset-0 top-[48px] left-[var(--left)] right-[var(--right)] bg-accent/10 border-2 border-dashed border-accent text-text flex items-center justify-center text-lg z-overlay pointer-events-none">Drop images to upload</div>
+        <div
+          className="toolbar-offset fixed inset-0 left-[var(--left)] right-[var(--right)] bg-accent/10 border-2 border-dashed border-accent text-text flex items-center justify-center text-lg z-overlay pointer-events-none"
+        >
+          Drop images to upload
+        </div>
       )}
       {ctx && <ContextMenuItems ctx={ctx} current={current} items={items} refetch={refetch} setCtx={setCtx} />}
     </div>

@@ -52,7 +52,7 @@ export default function FolderTree({
         ))}
       </div>
       {showResizeHandle && (
-        <div className="absolute top-12 bottom-0 w-1.5 cursor-col-resize z-10 left-[calc(var(--left)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
+        <div className="toolbar-offset absolute bottom-0 w-1.5 cursor-col-resize z-10 left-[calc(var(--left)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
       )}
     </div>
   )

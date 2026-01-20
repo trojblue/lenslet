@@ -86,7 +86,7 @@ export default function Viewer({
       aria-modal={true}
       aria-label="Image viewer"
       tabIndex={-1}
-      className={`absolute inset-0 top-12 left-[var(--left)] right-[var(--right)] flex items-start justify-start bg-panel z-viewer overflow-hidden transition-opacity duration-[110ms] ease-out cursor-grab focus:outline-none focus-visible:outline-none ${dragging ? 'cursor-grabbing select-none' : ''} ${visible ? 'opacity-100' : 'opacity-0'}`}
+      className={`toolbar-offset absolute inset-0 left-[var(--left)] right-[var(--right)] flex items-start justify-start bg-panel z-viewer overflow-hidden transition-opacity duration-[110ms] ease-out cursor-grab focus:outline-none focus-visible:outline-none ${dragging ? 'cursor-grabbing select-none' : ''} ${visible ? 'opacity-100' : 'opacity-0'}`}
       style={{ outline: 'none' }}
       onClick={closeViewer}
       onWheel={handleWheel}

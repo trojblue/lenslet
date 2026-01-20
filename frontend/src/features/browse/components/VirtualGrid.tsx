@@ -528,7 +528,7 @@ export default function VirtualGrid({
           )
         })}
         {previewFor && previewUrl && delayPassed && createPortal(
-          <div className="fixed inset-0 top-12 z-[999] flex items-center justify-center pointer-events-none bg-black/20 opacity-100">
+          <div className="toolbar-offset fixed inset-0 z-[999] flex items-center justify-center pointer-events-none bg-black/20 opacity-100">
             <img src={previewUrl} alt="preview" className="max-w-[80vw] max-h-[80vh] object-contain opacity-[0.98]" />
           </div>,
           document.body

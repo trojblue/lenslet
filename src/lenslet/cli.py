@@ -188,6 +188,12 @@ def main():
         help="Cache thumbnails on disk when a workspace is available (default: True)",
     )
     parser.add_argument(
+        "--og-preview",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable dataset-based social preview image (default: False)",
+    )
+    parser.add_argument(
         "--reload",
         action="store_true",
         help="Enable auto-reload for development",
@@ -254,6 +260,8 @@ def main():
     if args.no_write and args.thumb_cache:
         print("[lenslet] --no-write disables thumbnail cache; use --no-thumb-cache to silence.")
         args.thumb_cache = False
+    if args.no_write and args.og_preview:
+        print("[lenslet] --no-write disables OG cache; previews will be generated on-demand.")
 
     # Print startup banner
     if is_table_file:
@@ -303,6 +311,7 @@ def main():
             show_source=True,
             workspace=workspace,
             thumb_cache=args.thumb_cache,
+            og_preview=args.og_preview,
         )
     else:
         items_path = target / "items.parquet"
@@ -323,6 +332,7 @@ def main():
             source_column=args.source_column,
             skip_indexing=args.skip_indexing,
             thumb_cache=args.thumb_cache,
+            og_preview=args.og_preview,
         )
 
     share_process = None

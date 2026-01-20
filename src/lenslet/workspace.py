@@ -101,3 +101,16 @@ class Workspace:
         if self.root is None:
             return None
         return self.root / "thumbs"
+
+    def og_cache_dir(self) -> Path | None:
+        if not self.can_write:
+            return None
+        if self.views_override is not None:
+            name = self.views_override.name
+            if name.endswith(".lenslet.json"):
+                name = name[: -len(".lenslet.json")]
+            base = self.views_override.with_name(name)
+            return Path(f"{base}.cache") / "og-cache"
+        if self.root is None:
+            return None
+        return self.root / "og-cache"

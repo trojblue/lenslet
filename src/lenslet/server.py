@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import io
 import os
-import random
 import threading
 import html
 from pathlib import Path
@@ -308,11 +307,23 @@ def _og_cache_key(workspace: Workspace, style: str, signature: str) -> str:
     return f"og:{style}:{signature}"
 
 
-def _dataset_signature(workspace: Workspace) -> str:
+def _dataset_signature(storage, workspace: Workspace) -> str:
     mtime = _dataset_mtime(workspace)
-    if mtime is None:
+    if mtime is not None:
+        return f"parquet:{int(mtime)}"
+    try:
+        index = storage.get_index("/")
+    except Exception:
         return "unknown"
-    return f"{int(mtime)}"
+    items = getattr(index, "items", [])
+    if not items:
+        return "empty"
+    max_mtime = 0.0
+    for item in items:
+        value = getattr(item, "mtime", 0.0) or 0.0
+        if value > max_mtime:
+            max_mtime = value
+    return f"mem:{int(max_mtime)}:{len(items)}"
 
 
 def _dataset_mtime(workspace: Workspace) -> float | None:
@@ -399,13 +410,17 @@ def _sample_paths(storage, count: int) -> list[str]:
     items = getattr(index, "items", [])
     if not items:
         return []
-    paths = [item.path for item in items if getattr(item, "path", None)]
-    if not paths:
+    records: list[tuple[float, str]] = []
+    for item in items:
+        path = getattr(item, "path", None)
+        if not path:
+            continue
+        mtime = getattr(item, "mtime", 0.0) or 0.0
+        records.append((mtime, path))
+    if not records:
         return []
-    if len(paths) <= count:
-        random.shuffle(paths)
-        return paths
-    return random.sample(paths, count)
+    records.sort(key=lambda rec: (-rec[0], rec[1]))
+    return [path for _, path in records[:count]]
 
 
 def _pixel_tile_grid(thumb_bytes: bytes, grid_size: int) -> list[list[tuple[int, int, int]]] | None:
@@ -620,7 +635,7 @@ def _register_og_routes(app: FastAPI, storage, workspace: Workspace, enabled: bo
         if not enabled:
             return Response(content=_fallback_og_image(label), media_type="image/png")
         style_key = style if style == OG_STYLE else OG_STYLE
-        signature = _dataset_signature(workspace)
+        signature = _dataset_signature(storage, workspace)
         cache_key = _og_cache_key(workspace, style_key, signature)
         if og_cache is not None:
             cached = og_cache.get(cache_key)

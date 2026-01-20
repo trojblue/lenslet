@@ -195,25 +195,28 @@
     position: relative;
     height: auto !important;
     padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-auto-rows: auto;
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 8px;
   }
 
   .toolbar-left,
   .toolbar-center,
   .toolbar-right {
-    width: 100%;
     min-width: 0;
-    justify-content: space-between;
-    flex-wrap: wrap;
     gap: 8px;
   }
 
   .toolbar-left {
+    width: auto;
+    justify-content: space-between;
     flex-wrap: nowrap;
     align-items: center;
+    grid-column: 1;
+    grid-row: 1;
   }
 
   .toolbar-center {
@@ -221,7 +224,11 @@
   }
 
   .toolbar-right {
-    justify-content: flex-start;
+    width: auto;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    grid-column: 2;
+    grid-row: 1;
   }
 
   .toolbar-search {
@@ -260,6 +267,7 @@
 
   .toolbar-search-row {
     width: 100%;
+    grid-column: 1 / -1;
   }
 
   .toolbar-search-input-mobile {

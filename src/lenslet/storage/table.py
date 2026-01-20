@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from PIL import Image
 
+from .progress import ProgressBar
 
 @dataclass
 class CachedItem:
@@ -137,6 +138,7 @@ class TableStorage:
         sample_size: int = 50,
         loadable_threshold: float = 0.7,
         include_source_in_search: bool = True,
+        skip_indexing: bool = False,
     ):
         self.root = os.path.abspath(root) if root else None
         self.thumb_size = thumb_size
@@ -144,6 +146,8 @@ class TableStorage:
         self.sample_size = sample_size
         self.loadable_threshold = loadable_threshold
         self._include_source_in_search = include_source_in_search
+        self._skip_indexing = skip_indexing
+        self._progress_bar = ProgressBar()
 
         self._indexes: dict[str, CachedIndex] = {}
         self._items: dict[str, CachedItem] = {}
@@ -151,6 +155,8 @@ class TableStorage:
         self._metadata: dict[str, dict] = {}
         self._dimensions: dict[str, tuple[int, int]] = {}
         self._source_paths: dict[str, str] = {}
+        self._row_dimensions: list[tuple[int, int] | None] = []
+        self._path_to_row: dict[str, int] = {}
 
         columns, data, row_count = self._table_to_columns(table)
         if row_count == 0:
@@ -159,6 +165,8 @@ class TableStorage:
         self._columns = columns
         self._data = data
         self._row_count = row_count
+        self._row_dimensions = [None] * row_count
+        self._s3_prefixes, self._s3_use_bucket = self._compute_s3_prefixes()
 
         self._source_column = self._resolve_source_column(
             columns,
@@ -238,6 +246,53 @@ class TableStorage:
         raise ValueError(
             "No loadable column found. Pass source_column explicitly or provide a base_dir for local paths."
         )
+
+    def _compute_s3_prefixes(self) -> tuple[dict[str, str], bool]:
+        buckets: dict[str, list[list[str]]] = {}
+        values = self._data.get(self._source_column, []) if hasattr(self, "_data") else []
+        for raw in values:
+            if raw is None:
+                continue
+            if isinstance(raw, os.PathLike):
+                raw = os.fspath(raw)
+            if not isinstance(raw, str):
+                continue
+            uri = raw.strip()
+            if not uri.startswith("s3://"):
+                continue
+            parsed = urlparse(uri)
+            bucket = parsed.netloc
+            key = parsed.path.lstrip("/")
+            if not bucket or not key:
+                continue
+            parts = [p for p in key.split("/") if p]
+            if not parts:
+                continue
+            buckets.setdefault(bucket, []).append(parts)
+
+        if not buckets:
+            return {}, False
+
+        prefixes: dict[str, str] = {}
+        for bucket, paths in buckets.items():
+            if not paths:
+                continue
+            common = paths[0]
+            for parts in paths[1:]:
+                max_len = min(len(common), len(parts))
+                i = 0
+                while i < max_len and common[i] == parts[i]:
+                    i += 1
+                common = common[:i]
+                if not common:
+                    break
+            prefix = "/".join(common)
+            if prefix:
+                prefix = prefix.rstrip("/") + "/"
+            prefixes[bucket] = prefix
+
+        use_bucket = len(prefixes) > 1
+        return prefixes, use_bucket
 
     def _resolve_path_column(self, columns: list[str], path_column: str | None) -> str | None:
         if path_column:
@@ -331,6 +386,13 @@ class TableStorage:
             parsed = urlparse(source)
             host = parsed.netloc
             path = parsed.path.lstrip("/")
+            if self._is_s3_uri(source):
+                prefix = self._s3_prefixes.get(host, "") if hasattr(self, "_s3_prefixes") else ""
+                trimmed = path[len(prefix):] if prefix and path.startswith(prefix) else path
+                trimmed = trimmed.lstrip("/")
+                if self._s3_use_bucket and host:
+                    return f"{host}/{trimmed}" if trimmed else host
+                return trimmed or os.path.basename(path)
             if host and path:
                 return f"{host}/{path}"
             return host or path
@@ -387,17 +449,36 @@ class TableStorage:
         dir_children: dict[str, set[str]] = {}
         seen_paths: set[str] = set()
         remote_tasks: list[tuple[str, CachedItem, str, str]] = []
+        total = self._row_count
+        done = 0
+        last_print = 0.0
+        progress_label = f"table:{self._source_column}"
 
         for idx in range(self._row_count):
             source_value = self._data.get(self._source_column, [None] * self._row_count)[idx]
             if source_value is None:
+                done += 1
+                now = time.monotonic()
+                if now - last_print > 0.1 or done == total:
+                    self._progress(done, total, progress_label)
+                    last_print = now
                 continue
             if isinstance(source_value, os.PathLike):
                 source_value = os.fspath(source_value)
             if not isinstance(source_value, str):
+                done += 1
+                now = time.monotonic()
+                if now - last_print > 0.1 or done == total:
+                    self._progress(done, total, progress_label)
+                    last_print = now
                 continue
             source = source_value.strip()
             if not source:
+                done += 1
+                now = time.monotonic()
+                if now - last_print > 0.1 or done == total:
+                    self._progress(done, total, progress_label)
+                    last_print = now
                 continue
 
             name_value = None
@@ -409,14 +490,24 @@ class TableStorage:
                 if self._is_supported_image(fallback_name):
                     name = fallback_name
                 else:
+                    done += 1
+                    now = time.monotonic()
+                    if now - last_print > 0.1 or done == total:
+                        self._progress(done, total, progress_label)
+                        last_print = now
                     continue
 
             logical_value = None
-            if self._path_column:
+            if self._path_column and not self._is_s3_uri(source):
                 logical_value = self._data.get(self._path_column, [None] * self._row_count)[idx]
             logical_path = str(logical_value).strip() if logical_value else self._derive_logical_path(source)
             logical_path = self._normalize_item_path(logical_path)
             if not logical_path:
+                done += 1
+                now = time.monotonic()
+                if now - last_print > 0.1 or done == total:
+                    self._progress(done, total, progress_label)
+                    last_print = now
                 continue
             logical_path = self._dedupe_path(logical_path, seen_paths)
             seen_paths.add(logical_path)
@@ -446,6 +537,11 @@ class TableStorage:
                 resolved = self._resolve_local_source(source)
                 if not os.path.exists(resolved):
                     print(f"[lenslet] Warning: File not found: {resolved}")
+                    done += 1
+                    now = time.monotonic()
+                    if now - last_print > 0.1 or done == total:
+                        self._progress(done, total, progress_label)
+                        last_print = now
                     continue
                 if size is None:
                     try:
@@ -466,7 +562,7 @@ class TableStorage:
 
             w = width or 0
             h = height or 0
-            if (w == 0 or h == 0) and not is_s3 and not is_http:
+            if (w == 0 or h == 0) and not is_s3 and not is_http and not self._skip_indexing:
                 try:
                     abs_path = self._resolve_local_source(source)
                     dims = self._read_dimensions_fast(abs_path)
@@ -498,6 +594,8 @@ class TableStorage:
 
             self._items[logical_path] = item
             self._source_paths[logical_path] = source
+            self._row_dimensions[idx] = (w, h)
+            self._path_to_row[logical_path] = idx
 
             folder = os.path.dirname(logical_path).replace("\\", "/")
             folder_norm = self._normalize_path(folder)
@@ -514,8 +612,13 @@ class TableStorage:
                 child = parts[depth]
                 dir_children.setdefault(parent, set()).add(child)
 
-            if (is_s3 or is_http) and (w == 0 or h == 0):
+            if (is_s3 or is_http) and (w == 0 or h == 0) and not self._skip_indexing:
                 remote_tasks.append((logical_path, item, source, name))
+            done += 1
+            now = time.monotonic()
+            if now - last_print > 0.1 or done == total:
+                self._progress(done, total, progress_label)
+                last_print = now
 
         self._indexes.setdefault("", CachedIndex(path="/", generated_at=generated_at, items=[], dirs=[]))
         for parent, children in dir_children.items():
@@ -529,6 +632,9 @@ class TableStorage:
 
         if remote_tasks:
             self._probe_remote_dimensions(remote_tasks)
+
+        if done < total:
+            self._progress(total, total, progress_label)
 
     def _extract_metrics(self, row_idx: int) -> dict[str, float]:
         metrics: dict[str, float] = {}
@@ -774,6 +880,9 @@ class TableStorage:
             return logical_path, item, dims, total_size
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
+        done = 0
+        last_print = 0.0
+        progress_label = "remote headers"
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(_work, task) for task in tasks]
             for future in as_completed(futures):
@@ -783,6 +892,20 @@ class TableStorage:
                     item.width, item.height = dims
                 if total_size:
                     item.size = total_size
+                row_idx = self._path_to_row.get(logical_path)
+                if row_idx is not None:
+                    self._row_dimensions[row_idx] = (item.width, item.height)
+                done += 1
+                now = time.monotonic()
+                if now - last_print > 0.1 or done == total:
+                    self._progress(done, total, progress_label)
+                    last_print = now
+
+    def _progress(self, done: int, total: int, label: str) -> None:
+        self._progress_bar.update(done, total, label)
+
+    def row_dimensions(self) -> list[tuple[int, int] | None]:
+        return list(self._row_dimensions)
 
     def _effective_remote_workers(self, total: int) -> int:
         if total <= 0:

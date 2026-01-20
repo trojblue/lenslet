@@ -251,6 +251,7 @@ def create_app(
     thumb_quality: int = 70,
     no_write: bool = False,
     source_column: str | None = None,
+    skip_indexing: bool = False,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
@@ -279,6 +280,7 @@ def create_app(
                 thumb_size=thumb_size,
                 thumb_quality=thumb_quality,
                 source_column=source_column,
+                skip_indexing=skip_indexing,
             )
             storage_mode = "table"
         except Exception as exc:
@@ -511,9 +513,26 @@ def create_app_from_table(
     thumb_size: int = 256,
     thumb_quality: int = 70,
     source_column: str | None = None,
+    skip_indexing: bool = False,
     show_source: bool = True,
 ) -> FastAPI:
     """Create FastAPI app with in-memory table storage."""
+    storage = TableStorage(
+        table=table,
+        root=base_dir,
+        thumb_size=thumb_size,
+        thumb_quality=thumb_quality,
+        source_column=source_column,
+        skip_indexing=skip_indexing,
+    )
+    return create_app_from_storage(storage, show_source=show_source)
+
+
+def create_app_from_storage(
+    storage: TableStorage,
+    show_source: bool = True,
+) -> FastAPI:
+    """Create FastAPI app using a pre-built TableStorage."""
 
     app = FastAPI(
         title="Lenslet",
@@ -527,13 +546,6 @@ def create_app_from_table(
         allow_headers=["*"],
     )
 
-    storage = TableStorage(
-        table=table,
-        root=base_dir,
-        thumb_size=thumb_size,
-        thumb_quality=thumb_quality,
-        source_column=source_column,
-    )
     workspace = Workspace.for_dataset(None, can_write=False)
 
     def _to_item(storage: TableStorage, cached) -> Item:

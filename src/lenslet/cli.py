@@ -170,6 +170,18 @@ def main():
         help="Base directory for resolving relative paths in table mode",
     )
     parser.add_argument(
+        "--cache-wh",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Cache width/height back into parquet (default: True)",
+    )
+    parser.add_argument(
+        "--skip-indexing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Skip probing image dimensions during table load (default: True)",
+    )
+    parser.add_argument(
         "--reload",
         action="store_true",
         help="Enable auto-reload for development",
@@ -261,27 +273,35 @@ def main():
 
     # Start server
     import uvicorn
-    from .server import create_app, create_app_from_table
-    from .storage.table import load_parquet_table
-
+    from .server import create_app, create_app_from_storage
     if is_table_file:
-        table = load_parquet_table(str(target))
         base_dir = args.base_dir or str(target.parent)
-        app = create_app_from_table(
-            table=table,
+        storage = _prepare_table_cache(
+            parquet_path=target,
             base_dir=base_dir,
-            thumb_size=args.thumb_size,
-            thumb_quality=args.thumb_quality,
             source_column=args.source_column,
-            show_source=True,
+            cache_wh=args.cache_wh,
+            skip_indexing=args.skip_indexing,
         )
+        app = create_app_from_storage(storage, show_source=True)
     else:
+        items_path = target / "items.parquet"
+        if items_path.is_file() and args.cache_wh:
+            _prepare_table_cache(
+                parquet_path=items_path,
+                base_dir=str(target),
+                source_column=args.source_column,
+                cache_wh=args.cache_wh,
+                skip_indexing=args.skip_indexing,
+                quiet=True,
+            )
         app = create_app(
             root_path=str(target),
             thumb_size=args.thumb_size,
             thumb_quality=args.thumb_quality,
             no_write=args.no_write,
             source_column=args.source_column,
+            skip_indexing=args.skip_indexing,
         )
 
     share_process = None
@@ -302,6 +322,132 @@ def main():
     finally:
         if share_process is not None:
             _stop_process(share_process)
+
+
+def _prepare_table_cache(
+    parquet_path: Path,
+    base_dir: str,
+    source_column: str | None,
+    cache_wh: bool,
+    skip_indexing: bool,
+    quiet: bool = False,
+) -> "TableStorage":
+    from .storage.table import TableStorage, load_parquet_table
+    table = load_parquet_table(str(parquet_path))
+    width_name = _find_column_name(table, "width")
+    height_name = _find_column_name(table, "height")
+    missing = _count_missing_dims(table, width_name, height_name)
+
+    effective_skip = skip_indexing
+    if cache_wh and skip_indexing and missing > 0:
+        effective_skip = False
+        if not quiet:
+            print("[lenslet] cache-wh enabled; missing width/height -> indexing to populate cache.")
+
+    storage = TableStorage(
+        table=table,
+        root=base_dir,
+        source_column=source_column,
+        skip_indexing=effective_skip,
+    )
+
+    if cache_wh:
+        updated = _maybe_write_dimensions(
+            parquet_path=parquet_path,
+            table=table,
+            width_name=width_name,
+            height_name=height_name,
+            row_dims=storage.row_dimensions(),
+        )
+        if updated and not quiet:
+            print(f"[lenslet] Cached width/height into {parquet_path}")
+
+    return storage
+
+
+def _find_column_name(table, target: str) -> str | None:
+    target_lower = target.lower()
+    for name in table.schema.names:
+        if name.lower() == target_lower:
+            return name
+    return None
+
+
+def _count_missing_dims(table, width_name: str | None, height_name: str | None) -> int:
+    if width_name is None or height_name is None:
+        return table.num_rows
+    width = table[width_name].to_pylist()
+    height = table[height_name].to_pylist()
+    missing = 0
+    for w, h in zip(width, height):
+        if not _valid_dim(w) or not _valid_dim(h):
+            missing += 1
+    return missing
+
+
+def _valid_dim(value) -> bool:
+    try:
+        return value is not None and int(value) > 0
+    except Exception:
+        return False
+
+
+def _maybe_write_dimensions(
+    parquet_path: Path,
+    table,
+    width_name: str | None,
+    height_name: str | None,
+    row_dims: list[tuple[int, int] | None],
+) -> bool:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    widths = []
+    heights = []
+    existing_width = table[width_name].to_pylist() if width_name else [None] * table.num_rows
+    existing_height = table[height_name].to_pylist() if height_name else [None] * table.num_rows
+
+    changed = False
+    for idx in range(table.num_rows):
+        w_existing = existing_width[idx] if idx < len(existing_width) else None
+        h_existing = existing_height[idx] if idx < len(existing_height) else None
+        w_final = w_existing
+        h_final = h_existing
+        dims = row_dims[idx] if idx < len(row_dims) else None
+        if not _valid_dim(w_existing):
+            if dims and dims[0] > 0:
+                w_final = dims[0]
+                changed = True
+        if not _valid_dim(h_existing):
+            if dims and dims[1] > 0:
+                h_final = dims[1]
+                changed = True
+        widths.append(w_final)
+        heights.append(h_final)
+
+    if not changed and width_name and height_name:
+        return False
+
+    width_arr = pa.array(widths, type=pa.int64())
+    height_arr = pa.array(heights, type=pa.int64())
+
+    table_out = table
+    if width_name is None:
+        width_name = "width"
+        table_out = table_out.append_column(width_name, width_arr)
+    else:
+        idx = table_out.schema.get_field_index(width_name)
+        table_out = table_out.set_column(idx, width_name, width_arr)
+
+    if height_name is None:
+        height_name = "height"
+        table_out = table_out.append_column(height_name, height_arr)
+    else:
+        idx = table_out.schema.get_field_index(height_name)
+        table_out = table_out.set_column(idx, height_name, height_arr)
+
+    pq.write_table(table_out, str(parquet_path))
+    return True
 
 
 if __name__ == "__main__":

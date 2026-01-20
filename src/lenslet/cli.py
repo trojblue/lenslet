@@ -131,7 +131,7 @@ def main():
         "directory",
         type=str,
         nargs="?",  # Make optional for --version/--help
-        help="Directory containing images to serve",
+        help="Directory containing images or a Parquet table to serve",
     )
     parser.add_argument(
         "-p", "--port",
@@ -161,7 +161,13 @@ def main():
         "--source-column",
         type=str,
         default=None,
-        help="Column to load images from when items.parquet is present",
+        help="Column to load images from in table mode (items.parquet or .parquet file)",
+    )
+    parser.add_argument(
+        "--base-dir",
+        type=str,
+        default=None,
+        help="Base directory for resolving relative paths in table mode",
     )
     parser.add_argument(
         "--reload",
@@ -201,10 +207,17 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    # Resolve and validate directory
-    directory = Path(args.directory).expanduser().resolve()
-    if not directory.is_dir():
-        print(f"Error: '{args.directory}' is not a valid directory", file=sys.stderr)
+    # Resolve and validate target
+    target = Path(args.directory).expanduser().resolve()
+    is_table_file = target.is_file() and target.suffix.lower() == ".parquet"
+    if not target.exists():
+        print(f"Error: '{args.directory}' does not exist", file=sys.stderr)
+        sys.exit(1)
+    if target.is_file() and not is_table_file:
+        print(f"Error: '{args.directory}' is not a .parquet file", file=sys.stderr)
+        sys.exit(1)
+    if target.is_dir() is False and not is_table_file:
+        print(f"Error: '{args.directory}' is not a valid directory or .parquet file", file=sys.stderr)
         sys.exit(1)
 
     port = args.port
@@ -218,15 +231,20 @@ def main():
             print(f"[lenslet] Port 7070 is in use; using {port} instead.")
 
     # Print startup banner
-    has_parquet = (directory / "items.parquet").is_file()
-    mode_label = "Parquet dataset" if has_parquet else "In-memory (no files written)"
+    if is_table_file:
+        mode_label = "Table (parquet)"
+        display_target = str(target)
+    else:
+        has_parquet = (target / "items.parquet").is_file()
+        mode_label = "Table (items.parquet)" if has_parquet else "In-memory (no files written)"
+        display_target = str(target)
 
     banner_lines = [
         "┌─────────────────────────────────────────────────┐",
         "│                   🔍 Lenslet                    │",
         "│         Lightweight Image Gallery Server        │",
         "├─────────────────────────────────────────────────┤",
-        f"│  Directory: {str(directory)[:35]:<35} │",
+        f"│  Target:    {display_target[:35]:<35} │",
         f"│  Server:    http://{args.host}:{port:<24} │",
     ]
     if args.share:
@@ -243,15 +261,28 @@ def main():
 
     # Start server
     import uvicorn
-    from .server import create_app
+    from .server import create_app, create_app_from_table
+    from .storage.table import load_parquet_table
 
-    app = create_app(
-        root_path=str(directory),
-        thumb_size=args.thumb_size,
-        thumb_quality=args.thumb_quality,
-        no_write=args.no_write,
-        source_column=args.source_column,
-    )
+    if is_table_file:
+        table = load_parquet_table(str(target))
+        base_dir = args.base_dir or str(target.parent)
+        app = create_app_from_table(
+            table=table,
+            base_dir=base_dir,
+            thumb_size=args.thumb_size,
+            thumb_quality=args.thumb_quality,
+            source_column=args.source_column,
+            show_source=True,
+        )
+    else:
+        app = create_app(
+            root_path=str(target),
+            thumb_size=args.thumb_size,
+            thumb_quality=args.thumb_quality,
+            no_write=args.no_write,
+            source_column=args.source_column,
+        )
 
     share_process = None
     try:

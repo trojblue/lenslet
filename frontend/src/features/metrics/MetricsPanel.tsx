@@ -440,47 +440,58 @@ function MetricRangePanel({
   const activeRange = activeMetric ? getMetricRangeFilter(filters, activeMetric) : null
   const [dragRange, setDragRange] = useState<Range | null>(null)
   const [dragging, setDragging] = useState(false)
+  const dragStartRef = useRef<number | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
 
   const displayRange = dragRange ?? activeRange
   const domain = population ? { min: population.min, max: population.max } : null
 
-  const setRangeFromEvent = (e: React.PointerEvent<SVGSVGElement>, commit: boolean) => {
-    if (!domain || !activeMetric) return
+  const getValueFromEvent = (e: React.PointerEvent<SVGSVGElement>): number | null => {
+    if (!domain || !activeMetric) return null
     const rect = svgRef.current?.getBoundingClientRect()
-    if (!rect) return
+    if (!rect) return null
     const t = clamp01((e.clientX - rect.left) / rect.width)
-    const value = domain.min + (domain.max - domain.min) * t
-    setDragRange((prev) => {
-      const start = prev?.min ?? value
-      const end = value
-      const next = normalizeRange(start, end)
-      if (commit) {
-        onChangeRange(activeMetric, next)
-      }
-      return next
-    })
+    return domain.min + (domain.max - domain.min) * t
+  }
+
+  const setRangeFromValue = (value: number, commit: boolean) => {
+    if (!domain || !activeMetric) return
+    const start = dragStartRef.current ?? value
+    const next = normalizeRange(start, value)
+    setDragRange(next)
+    if (commit) {
+      onChangeRange(activeMetric, next)
+    }
   }
 
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!domain || !activeMetric) return
     e.preventDefault()
+    const value = getValueFromEvent(e)
+    if (value == null) return
     setDragging(true)
     setDragRange(null)
+    dragStartRef.current = value
     svgRef.current?.setPointerCapture(e.pointerId)
-    setRangeFromEvent(e, false)
+    setRangeFromValue(value, false)
   }
 
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!dragging) return
-    setRangeFromEvent(e, false)
+    const value = getValueFromEvent(e)
+    if (value == null) return
+    setRangeFromValue(value, false)
   }
 
   const onPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!dragging) return
     setDragging(false)
     svgRef.current?.releasePointerCapture(e.pointerId)
-    setRangeFromEvent(e, true)
+    const value = getValueFromEvent(e)
+    if (value != null) {
+      setRangeFromValue(value, true)
+    }
+    dragStartRef.current = null
     setTimeout(() => setDragRange(null), 0)
   }
 

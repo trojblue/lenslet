@@ -236,10 +236,8 @@ def _register_views_routes(app: FastAPI, workspace: Workspace) -> None:
 
     @app.put("/views", response_model=ViewsPayload)
     def put_views(body: ViewsPayload):
-        if not workspace.can_write:
-            raise HTTPException(403, "no-write mode")
         payload = body.model_dump()
-        workspace.write_views(payload)
+        workspace.save_views(payload)
         return body
 
 

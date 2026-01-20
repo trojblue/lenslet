@@ -57,9 +57,13 @@ def test_views_no_write_mode(tmp_path: Path):
     assert get_views.status_code == 200
     assert get_views.json()["views"] == []
 
-    put_views = client.put("/views", json={"version": 1, "views": []})
-    assert put_views.status_code == 403
+    payload = {"version": 1, "views": [{"id": "demo", "name": "Demo", "pool": {"kind": "folder", "path": "/"}, "view": {"filters": {"and": []}, "sort": {"kind": "builtin", "key": "added", "dir": "desc"}}}]}
+    put_views = client.put("/views", json=payload)
+    assert put_views.status_code == 200
     assert not (root / ".lenslet").exists()
+    saved = client.get("/views")
+    assert saved.status_code == 200
+    assert saved.json()["views"] == payload["views"]
 
 
 def test_views_persist(tmp_path: Path):

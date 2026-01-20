@@ -50,7 +50,7 @@ OG_IMAGE_WIDTH = 1200
 OG_IMAGE_HEIGHT = 630
 OG_IMAGES_X = 6
 OG_IMAGES_Y = 3
-OG_PIXELS_PER_IMAGE = 8
+OG_PIXELS_PER_IMAGE = 6
 OG_TILE_GAP = 2
 OG_STYLE = "pixel-grid"
 
@@ -372,14 +372,16 @@ def _inject_meta_tags(html_text: str, tags: str) -> str:
     return html_text[:idx] + tags + html_text[idx:]
 
 
-def _build_meta_tags(title: str, description: str, image_url: str) -> str:
+def _build_meta_tags(title: str, description: str, image_url: str, logo_url: str | None = None) -> str:
     safe_title = html.escape(title, quote=True)
     safe_desc = html.escape(description, quote=True)
     safe_image = html.escape(image_url, quote=True)
+    safe_logo = html.escape(logo_url, quote=True) if logo_url else None
     return "\n".join([
         f'    <meta property="og:title" content="{safe_title}" />',
         f'    <meta property="og:description" content="{safe_desc}" />',
         f'    <meta property="og:image" content="{safe_image}" />',
+        f'    <meta property="og:logo" content="{safe_logo}" />' if safe_logo else '',
         '    <meta property="og:type" content="website" />',
         '    <meta name="twitter:card" content="summary_large_image" />',
         f'    <meta name="twitter:title" content="{safe_title}" />',
@@ -595,7 +597,9 @@ def _register_index_routes(app: FastAPI, storage, workspace: Workspace, og_previ
                 title = f"{title} ({count:,} images)"
             description = f"Browse {label} gallery"
             image_url = str(request.url_for("og_image"))
-            tags = _build_meta_tags(title, description, image_url)
+            base = str(request.base_url)
+            logo_url = f"{base}favicon.ico"
+            tags = _build_meta_tags(title, description, image_url, logo_url)
             html_text = _inject_meta_tags(html_text, tags)
         response = Response(content=html_text, media_type="text/html")
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"

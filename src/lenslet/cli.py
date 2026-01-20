@@ -182,6 +182,12 @@ def main():
         help="Skip probing image dimensions during table load (default: True)",
     )
     parser.add_argument(
+        "--thumb-cache",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Cache thumbnails on disk when a workspace is available (default: True)",
+    )
+    parser.add_argument(
         "--reload",
         action="store_true",
         help="Enable auto-reload for development",
@@ -245,6 +251,9 @@ def main():
     if args.no_write and args.cache_wh:
         print("[lenslet] --no-write disables parquet caching; use --no-cache-wh to silence.")
         args.cache_wh = False
+    if args.no_write and args.thumb_cache:
+        print("[lenslet] --no-write disables thumbnail cache; use --no-thumb-cache to silence.")
+        args.thumb_cache = False
 
     # Print startup banner
     if is_table_file:
@@ -289,7 +298,12 @@ def main():
             skip_indexing=args.skip_indexing,
         )
         workspace = Workspace.for_parquet(target, can_write=not args.no_write)
-        app = create_app_from_storage(storage, show_source=True, workspace=workspace)
+        app = create_app_from_storage(
+            storage,
+            show_source=True,
+            workspace=workspace,
+            thumb_cache=args.thumb_cache,
+        )
     else:
         items_path = target / "items.parquet"
         if items_path.is_file() and args.cache_wh:
@@ -308,6 +322,7 @@ def main():
             no_write=args.no_write,
             source_column=args.source_column,
             skip_indexing=args.skip_indexing,
+            thumb_cache=args.thumb_cache,
         )
 
     share_process = None

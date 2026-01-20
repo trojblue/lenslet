@@ -34,6 +34,7 @@ from .storage.memory import MemoryStorage
 from .storage.dataset import DatasetStorage
 from .storage.table import TableStorage, load_parquet_table
 from .thumbs import ThumbnailScheduler
+from .thumb_cache import ThumbCache
 from .workspace import Workspace
 
 
@@ -241,15 +242,74 @@ async def _await_thumbnail(
             raise _ClientDisconnected()
 
 
+def _thumb_cache_key(storage, path: str) -> str | None:
+    source = _thumb_cache_source(storage, path)
+    if not source:
+        return None
+    size = getattr(storage, "thumb_size", "")
+    quality = getattr(storage, "thumb_quality", "")
+    parts = [source, str(size), str(quality)]
+    if not _is_remote_source(source):
+        try:
+            etag = storage.etag(path)
+        except Exception:
+            etag = None
+        if etag:
+            parts.append(str(etag))
+    return "|".join(parts)
+
+
+def _thumb_cache_source(storage, path: str) -> str | None:
+    source = None
+    getter = getattr(storage, "get_source_path", None)
+    if callable(getter):
+        try:
+            source = getter(path)
+        except Exception:
+            source = None
+    if source is None:
+        mapping = getattr(storage, "_source_paths", None)
+        if isinstance(mapping, dict):
+            source = mapping.get(path)
+            if source is None:
+                normalizer = getattr(storage, "_normalize_path", None)
+                if callable(normalizer):
+                    try:
+                        norm = normalizer(path)
+                        source = mapping.get(norm)
+                    except Exception:
+                        source = None
+    if not source:
+        source = path
+    if not _is_remote_source(source):
+        root = getattr(storage, "root", None)
+        if root and not os.path.isabs(source):
+            source = os.path.join(root, source)
+    return source
+
+
+def _is_remote_source(source: str) -> bool:
+    return source.startswith("s3://") or source.startswith("http://") or source.startswith("https://")
+
+
 async def _thumb_response_async(
     storage,
     path: str,
     request: Request,
     queue: ThumbnailScheduler,
+    thumb_cache: ThumbCache | None = None,
 ) -> Response:
     cached = _get_cached_thumbnail(storage, path)
     if cached is not None:
         return Response(content=cached, media_type="image/webp")
+
+    cache_key = None
+    if thumb_cache is not None:
+        cache_key = _thumb_cache_key(storage, path)
+        if cache_key:
+            cached_disk = thumb_cache.get(cache_key)
+            if cached_disk is not None:
+                return Response(content=cached_disk, media_type="image/webp")
 
     future = queue.submit(path, lambda: storage.get_thumbnail(path))
     try:
@@ -259,6 +319,8 @@ async def _thumb_response_async(
 
     if thumb is None:
         raise HTTPException(500, "failed to generate thumbnail")
+    if thumb_cache is not None and cache_key:
+        thumb_cache.set(cache_key, thumb)
     return Response(content=thumb, media_type="image/webp")
 
 
@@ -307,6 +369,7 @@ def create_app(
     no_write: bool = False,
     source_column: str | None = None,
     skip_indexing: bool = False,
+    thumb_cache: bool = True,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
@@ -369,6 +432,7 @@ def create_app(
         threading.Thread(target=_warm_index, daemon=True).start()
 
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
+    cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
 
     def _to_item(storage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
@@ -432,7 +496,7 @@ def create_app(
     async def get_thumb(path: str, request: Request = None):
         storage = _storage_from_request(request)
         _ensure_image(storage, path)
-        return await _thumb_response_async(storage, path, request, thumb_queue)
+        return await _thumb_response_async(storage, path, request, thumb_queue, cache)
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
@@ -458,6 +522,7 @@ def create_app_from_datasets(
     thumb_size: int = 256,
     thumb_quality: int = 70,
     show_source: bool = True,
+    thumb_cache: bool = True,
 ) -> FastAPI:
     """Create FastAPI app with in-memory dataset storage."""
 
@@ -483,6 +548,7 @@ def create_app_from_datasets(
     )
     workspace = Workspace.for_dataset(None, can_write=False)
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
+    cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
 
     def _to_item(storage: DatasetStorage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
@@ -544,7 +610,7 @@ def create_app_from_datasets(
     async def get_thumb(path: str, request: Request = None):
         storage = _storage_from_request(request)
         _ensure_image(storage, path)
-        return await _thumb_response_async(storage, path, request, thumb_queue)
+        return await _thumb_response_async(storage, path, request, thumb_queue, cache)
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
@@ -574,6 +640,7 @@ def create_app_from_table(
     skip_indexing: bool = False,
     show_source: bool = True,
     workspace: Workspace | None = None,
+    thumb_cache: bool = True,
 ) -> FastAPI:
     """Create FastAPI app with in-memory table storage."""
     storage = TableStorage(
@@ -584,13 +651,19 @@ def create_app_from_table(
         source_column=source_column,
         skip_indexing=skip_indexing,
     )
-    return create_app_from_storage(storage, show_source=show_source, workspace=workspace)
+    return create_app_from_storage(
+        storage,
+        show_source=show_source,
+        workspace=workspace,
+        thumb_cache=thumb_cache,
+    )
 
 
 def create_app_from_storage(
     storage: TableStorage,
     show_source: bool = True,
     workspace: Workspace | None = None,
+    thumb_cache: bool = True,
 ) -> FastAPI:
     """Create FastAPI app using a pre-built TableStorage."""
 
@@ -609,6 +682,7 @@ def create_app_from_storage(
     if workspace is None:
         workspace = Workspace.for_dataset(None, can_write=False)
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
+    cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
 
     def _to_item(storage: TableStorage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
@@ -658,7 +732,7 @@ def create_app_from_storage(
     async def get_thumb(path: str, request: Request = None):
         storage = _storage_from_request(request)
         _ensure_image(storage, path)
-        return await _thumb_response_async(storage, path, request, thumb_queue)
+        return await _thumb_response_async(storage, path, request, thumb_queue, cache)
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
@@ -675,3 +749,12 @@ def create_app_from_storage(
     _mount_frontend(app)
 
     return app
+
+
+def _thumb_cache_from_workspace(workspace: Workspace, enabled: bool) -> ThumbCache | None:
+    if not enabled or not workspace.can_write:
+        return None
+    cache_dir = workspace.thumb_cache_dir()
+    if cache_dir is None:
+        return None
+    return ThumbCache(cache_dir)

@@ -18,7 +18,7 @@ def _write_parquet(path: Path, data: dict) -> None:
     pq.write_table(table, path)
 
 
-def test_parquet_items_and_metrics_join(tmp_path: Path):
+def test_parquet_items_and_metrics_inline(tmp_path: Path):
     root = tmp_path
     img_a = root / "a.jpg"
     img_b = root / "b.jpg"
@@ -26,11 +26,7 @@ def test_parquet_items_and_metrics_join(tmp_path: Path):
     _make_image(img_b)
 
     _write_parquet(root / "items.parquet", {
-        "image_id": [1, 2],
         "path": ["a.jpg", "b.jpg"],
-    })
-    _write_parquet(root / "metrics.parquet", {
-        "image_id": [1, 2],
         "clip_aesthetic": [0.75, 0.12],
     })
 
@@ -39,7 +35,7 @@ def test_parquet_items_and_metrics_join(tmp_path: Path):
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json()["mode"] == "parquet"
+    assert health.json()["mode"] == "table"
 
     resp = client.get("/folders", params={"path": "/"})
     assert resp.status_code == 200

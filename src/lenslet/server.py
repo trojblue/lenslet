@@ -31,7 +31,7 @@ class NoCacheIndexStaticFiles(StaticFiles):
 from .metadata import read_png_info, read_jpeg_info, read_webp_info
 from .storage.memory import MemoryStorage
 from .storage.dataset import DatasetStorage
-from .storage.parquet import ParquetStorage
+from .storage.table import TableStorage, load_parquet_table
 from .workspace import Workspace
 
 
@@ -150,6 +150,8 @@ def _build_image_metadata(storage, path: str) -> ImageMetadataResponse:
 
 
 def _build_item(cached, meta: dict, source: str | None = None) -> Item:
+    if source is None:
+        source = getattr(cached, "source", None)
     return Item(
         path=cached.path,
         name=cached.name,
@@ -248,6 +250,7 @@ def create_app(
     thumb_size: int = 256,
     thumb_quality: int = 70,
     no_write: bool = False,
+    source_column: str | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
@@ -264,19 +267,22 @@ def create_app(
         allow_headers=["*"],
     )
 
-    # Create storage (prefer Parquet dataset if present)
+    # Create storage (prefer table dataset if present)
     items_path = Path(root_path) / "items.parquet"
     storage_mode = "memory"
     if items_path.is_file():
         try:
-            storage = ParquetStorage(
+            table = load_parquet_table(str(items_path))
+            storage = TableStorage(
+                table=table,
                 root=root_path,
                 thumb_size=thumb_size,
                 thumb_quality=thumb_quality,
+                source_column=source_column,
             )
-            storage_mode = "parquet"
+            storage_mode = "table"
         except Exception as exc:
-            print(f"[lenslet] Warning: Failed to load Parquet dataset: {exc}")
+            print(f"[lenslet] Warning: Failed to load table dataset: {exc}")
             storage = MemoryStorage(
                 root=root_path,
                 thumb_size=thumb_size,
@@ -494,6 +500,104 @@ def create_app_from_datasets(
     _register_views_routes(app, workspace)
 
     # Mount frontend if dist exists
+    _mount_frontend(app)
+
+    return app
+
+
+def create_app_from_table(
+    table: object,
+    base_dir: str | None = None,
+    thumb_size: int = 256,
+    thumb_quality: int = 70,
+    source_column: str | None = None,
+    show_source: bool = True,
+) -> FastAPI:
+    """Create FastAPI app with in-memory table storage."""
+
+    app = FastAPI(
+        title="Lenslet",
+        description="Lightweight image gallery server (table mode)",
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    storage = TableStorage(
+        table=table,
+        root=base_dir,
+        thumb_size=thumb_size,
+        thumb_quality=thumb_quality,
+        source_column=source_column,
+    )
+    workspace = Workspace.for_dataset(None, can_write=False)
+
+    def _to_item(storage: TableStorage, cached) -> Item:
+        meta = storage.get_metadata(cached.path)
+        source = cached.source if show_source else None
+        return _build_item(cached, meta, source=source)
+
+    _attach_storage(app, storage)
+
+    @app.get("/health")
+    def health():
+        return {
+            "ok": True,
+            "mode": "table",
+            "total_images": len(storage._items),
+            "can_write": workspace.can_write,
+        }
+
+    @app.get("/folders", response_model=FolderIndex)
+    def get_folder(path: str = "/", request: Request = None):
+        storage = _storage_from_request(request)
+        return _build_folder_index(storage, path, _to_item)
+
+    @app.post("/refresh")
+    def refresh(path: str = "/", request: Request = None):
+        _ = path
+        return {"ok": True, "note": "table mode is static"}
+
+    @app.get("/item")
+    def get_item(path: str, request: Request = None):
+        storage = _storage_from_request(request)
+        _ensure_image(storage, path)
+        return _build_sidecar(storage, path)
+
+    @app.get("/metadata", response_model=ImageMetadataResponse)
+    def get_metadata(path: str, request: Request = None):
+        storage = _storage_from_request(request)
+        _ensure_image(storage, path)
+        return _build_image_metadata(storage, path)
+
+    @app.put("/item")
+    def put_item(path: str, body: Sidecar, request: Request = None):
+        storage = _storage_from_request(request)
+        _ensure_image(storage, path)
+        return _update_item(storage, path, body)
+
+    @app.get("/thumb")
+    def get_thumb(path: str, request: Request = None):
+        storage = _storage_from_request(request)
+        _ensure_image(storage, path)
+        return _thumb_response(storage, path)
+
+    @app.get("/file")
+    def get_file(path: str, request: Request = None):
+        storage = _storage_from_request(request)
+        _ensure_image(storage, path)
+        return _file_response(storage, path)
+
+    @app.get("/search", response_model=SearchResult)
+    def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
+        storage = _storage_from_request(request)
+        return _search_results(storage, _to_item, q, path, limit)
+
+    _register_views_routes(app, workspace)
     _mount_frontend(app)
 
     return app

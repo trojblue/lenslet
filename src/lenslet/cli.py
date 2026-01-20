@@ -158,6 +158,12 @@ def main():
         help="Thumbnail WEBP quality 1-100 (default: 70)",
     )
     parser.add_argument(
+        "--source-column",
+        type=str,
+        default=None,
+        help="Column to load images from when items.parquet is present",
+    )
+    parser.add_argument(
         "--reload",
         action="store_true",
         help="Enable auto-reload for development",
@@ -244,6 +250,7 @@ def main():
         thumb_size=args.thumb_size,
         thumb_quality=args.thumb_quality,
         no_write=args.no_write,
+        source_column=args.source_column,
     )
 
     share_process = None

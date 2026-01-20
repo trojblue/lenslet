@@ -71,7 +71,7 @@
 }
 
 :root {
-  --toolbar-h: 48px;
+  --toolbar-h: var(--spacing-toolbar, 48px);
 }
 
 /* Scrollbar styling - can't be done purely in Tailwind */
@@ -168,6 +168,10 @@
 /* Offset elements that need to sit below the toolbar */
 .toolbar-offset {
   top: var(--toolbar-h);
+}
+
+.app-shell {
+  grid-template-rows: var(--toolbar-h) 1fr;
 }
 
 /* Drop target highlight for tree nodes */

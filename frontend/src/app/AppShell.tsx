@@ -803,8 +803,6 @@ export default function AppShell() {
       style={{
         ['--left' as any]: leftCol,
         ['--right' as any]: rightCol,
-        ['--toolbar-h' as any]: '48px',
-        gridTemplateRows: 'var(--toolbar-h) 1fr',
       }}
     >
       <Toolbar

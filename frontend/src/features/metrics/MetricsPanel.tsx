@@ -442,9 +442,28 @@ function MetricRangePanel({
   const [dragging, setDragging] = useState(false)
   const dragStartRef = useRef<number | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const [minInput, setMinInput] = useState('')
+  const [maxInput, setMaxInput] = useState('')
+  const [editingField, setEditingField] = useState<'min' | 'max' | null>(null)
 
   const displayRange = dragRange ?? activeRange
   const domain = population ? { min: population.min, max: population.max } : null
+
+  useEffect(() => {
+    if (!activeRange || !domain) {
+      if (editingField !== 'min') setMinInput(activeRange ? formatInputValue(activeRange.min) : '')
+      if (editingField !== 'max') setMaxInput(activeRange ? formatInputValue(activeRange.max) : '')
+      return
+    }
+    if (editingField !== 'min') {
+      const nextMin = isApprox(activeRange.min, domain.min) ? '' : formatInputValue(activeRange.min)
+      setMinInput(nextMin)
+    }
+    if (editingField !== 'max') {
+      const nextMax = isApprox(activeRange.max, domain.max) ? '' : formatInputValue(activeRange.max)
+      setMaxInput(nextMax)
+    }
+  }, [activeRange, activeMetric, domain, editingField])
 
   const getValueFromEvent = (e: React.PointerEvent<SVGSVGElement>): number | null => {
     if (!domain || !activeMetric) return null
@@ -495,6 +514,35 @@ function MetricRangePanel({
     setTimeout(() => setDragRange(null), 0)
   }
 
+  const commitInputRange = (nextMinRaw: string, nextMaxRaw: string) => {
+    if (!domain || !activeMetric) return
+    const minParsed = parseNumberInput(nextMinRaw)
+    const maxParsed = parseNumberInput(nextMaxRaw)
+    if (!minParsed.valid || !maxParsed.valid) {
+      if (!minParsed.valid) {
+        setMinInput(activeRange ? formatInputValue(activeRange.min) : '')
+      }
+      if (!maxParsed.valid) {
+        setMaxInput(activeRange ? formatInputValue(activeRange.max) : '')
+      }
+      return
+    }
+    if (minParsed.value == null && maxParsed.value == null) {
+      onChangeRange(activeMetric, null)
+      return
+    }
+    const minValue = minParsed.value ?? domain.min
+    const maxValue = maxParsed.value ?? domain.max
+    const clampedMin = clamp(minValue, domain.min, domain.max)
+    const clampedMax = clamp(maxValue, domain.min, domain.max)
+    const next = normalizeRange(clampedMin, clampedMax)
+    if (isApprox(next.min, domain.min) && isApprox(next.max, domain.max)) {
+      onChangeRange(activeMetric, null)
+      return
+    }
+    onChangeRange(activeMetric, next)
+  }
+
   return (
     <>
       <div>
@@ -532,11 +580,61 @@ function MetricRangePanel({
           <div className="flex items-center justify-between text-[11px] text-muted mt-2">
             <span>{formatNumber(domain?.min)}</span>
             {displayRange ? (
-              <span className="text-text">{formatNumber(displayRange.min)} – {formatNumber(displayRange.max)}</span>
+              <span className="text-text">
+                {domain && isApprox(displayRange.min, domain.min)
+                  ? `≤ ${formatNumber(displayRange.max)}`
+                  : domain && isApprox(displayRange.max, domain.max)
+                    ? `≥ ${formatNumber(displayRange.min)}`
+                    : `${formatNumber(displayRange.min)} – ${formatNumber(displayRange.max)}`}
+              </span>
             ) : (
               <span>Drag to filter</span>
             )}
             <span>{formatNumber(domain?.max)}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <div>
+              <label className="block text-[11px] text-muted mb-1">Min</label>
+              <input
+                type="number"
+                step="any"
+                className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                value={minInput}
+                placeholder={formatInputValue(domain.min)}
+                onFocus={() => setEditingField('min')}
+                onBlur={() => {
+                  setEditingField(null)
+                  commitInputRange(minInput, maxInput)
+                }}
+                onChange={(e) => setMinInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur()
+                  }
+                }}
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-muted mb-1">Max</label>
+              <input
+                type="number"
+                step="any"
+                className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                value={maxInput}
+                placeholder={formatInputValue(domain.max)}
+                onFocus={() => setEditingField('max')}
+                onBlur={() => {
+                  setEditingField(null)
+                  commitInputRange(minInput, maxInput)
+                }}
+                onChange={(e) => setMaxInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur()
+                  }
+                }}
+              />
+            </div>
           </div>
           <div className="flex items-center gap-2 mt-2">
             <button
@@ -627,6 +725,31 @@ function formatNumber(value?: number | null): string {
   if (abs >= 1000) return value.toFixed(0)
   if (abs >= 10) return value.toFixed(2)
   return value.toFixed(3)
+}
+
+function formatInputValue(value: number): string {
+  if (!Number.isFinite(value)) return ''
+  const trimmed = value.toString()
+  return trimmed.includes('e') ? value.toFixed(6) : trimmed
+}
+
+function parseNumberInput(raw: string): { value: number | null; valid: boolean } {
+  const trimmed = raw.trim()
+  if (!trimmed) return { value: null, valid: true }
+  const parsed = Number(trimmed)
+  if (!Number.isFinite(parsed)) return { value: null, valid: false }
+  return { value: parsed, valid: true }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (value < min) return min
+  if (value > max) return max
+  return value
+}
+
+function isApprox(a: number, b: number): boolean {
+  const scale = Math.max(1, Math.abs(a), Math.abs(b))
+  return Math.abs(a - b) <= 1e-6 * scale
 }
 
 function toDateInputValue(value?: string): string {

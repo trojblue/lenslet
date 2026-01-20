@@ -573,6 +573,7 @@ def create_app_from_table(
     source_column: str | None = None,
     skip_indexing: bool = False,
     show_source: bool = True,
+    workspace: Workspace | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory table storage."""
     storage = TableStorage(
@@ -583,12 +584,13 @@ def create_app_from_table(
         source_column=source_column,
         skip_indexing=skip_indexing,
     )
-    return create_app_from_storage(storage, show_source=show_source)
+    return create_app_from_storage(storage, show_source=show_source, workspace=workspace)
 
 
 def create_app_from_storage(
     storage: TableStorage,
     show_source: bool = True,
+    workspace: Workspace | None = None,
 ) -> FastAPI:
     """Create FastAPI app using a pre-built TableStorage."""
 
@@ -604,7 +606,9 @@ def create_app_from_storage(
         allow_headers=["*"],
     )
 
-    workspace = Workspace.for_dataset(None, can_write=False)
+    if workspace is None:
+        workspace = Workspace.for_dataset(None, can_write=False)
+    thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
 
     def _to_item(storage: TableStorage, cached) -> Item:
         meta = storage.get_metadata(cached.path)

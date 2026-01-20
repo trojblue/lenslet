@@ -10,6 +10,7 @@ class Workspace:
     root: Path | None
     can_write: bool
     memory_views: dict[str, Any] | None = None
+    views_override: Path | None = None
 
     @classmethod
     def for_dataset(cls, dataset_root: str | None, can_write: bool) -> "Workspace":
@@ -17,13 +18,25 @@ class Workspace:
             return cls(root=None, can_write=False)
         return cls(root=Path(dataset_root) / ".lenslet", can_write=can_write)
 
+    @classmethod
+    def for_parquet(cls, parquet_path: str | Path | None, can_write: bool) -> "Workspace":
+        if not parquet_path:
+            return cls(root=None, can_write=False)
+        path = Path(parquet_path)
+        sidecar = Path(f"{path}.lenslet.json")
+        return cls(root=None, can_write=can_write, views_override=sidecar)
+
     def ensure(self) -> None:
         if not self.can_write or self.root is None:
+            if self.can_write and self.views_override is not None:
+                self.views_override.parent.mkdir(parents=True, exist_ok=True)
             return
         self.root.mkdir(parents=True, exist_ok=True)
 
     @property
     def views_path(self) -> Path | None:
+        if self.views_override is not None:
+            return self.views_override
         return self.root / "views.json" if self.root else None
 
     def load_views(self) -> dict[str, Any]:
@@ -65,12 +78,10 @@ class Workspace:
         self.write_views(payload)
 
     def write_views(self, payload: dict[str, Any]) -> None:
-        if not self.can_write or self.root is None:
+        path = self.views_path
+        if not self.can_write or path is None:
             raise PermissionError("workspace is read-only")
         self.ensure()
-        path = self.views_path
-        if path is None:
-            raise PermissionError("workspace is unavailable")
         temp = path.with_suffix(".tmp")
         temp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         temp.replace(path)

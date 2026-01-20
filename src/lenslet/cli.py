@@ -242,6 +242,10 @@ def main():
         if port != 7070:
             print(f"[lenslet] Port 7070 is in use; using {port} instead.")
 
+    if args.no_write and args.cache_wh:
+        print("[lenslet] --no-write disables parquet caching; use --no-cache-wh to silence.")
+        args.cache_wh = False
+
     # Print startup banner
     if is_table_file:
         mode_label = "Table (parquet)"
@@ -274,6 +278,7 @@ def main():
     # Start server
     import uvicorn
     from .server import create_app, create_app_from_storage
+    from .workspace import Workspace
     if is_table_file:
         base_dir = args.base_dir or str(target.parent)
         storage = _prepare_table_cache(
@@ -283,7 +288,8 @@ def main():
             cache_wh=args.cache_wh,
             skip_indexing=args.skip_indexing,
         )
-        app = create_app_from_storage(storage, show_source=True)
+        workspace = Workspace.for_parquet(target, can_write=not args.no_write)
+        app = create_app_from_storage(storage, show_source=True, workspace=workspace)
     else:
         items_path = target / "items.parquet"
         if items_path.is_file() and args.cache_wh:

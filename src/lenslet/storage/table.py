@@ -166,13 +166,13 @@ class TableStorage:
         self._data = data
         self._row_count = row_count
         self._row_dimensions = [None] * row_count
-        self._s3_prefixes, self._s3_use_bucket = self._compute_s3_prefixes()
 
         self._source_column = self._resolve_source_column(
             columns,
             data,
             source_column,
         )
+        self._s3_prefixes, self._s3_use_bucket = self._compute_s3_prefixes()
         self._path_column = self._resolve_path_column(columns, path_column)
         self._name_column = self._resolve_named_column(columns, self.NAME_COLUMNS)
         self._mime_column = self._resolve_named_column(columns, self.MIME_COLUMNS)

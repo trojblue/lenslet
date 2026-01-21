@@ -7,7 +7,7 @@ import Inspector from '../features/inspector/Inspector'
 import { useFolder } from '../shared/api/folders'
 import { useSearch } from '../shared/api/search'
 import { api } from '../shared/api/client'
-import { readHash, writeHash, sanitizePath, getParentPath, isTrashPath } from './routing/hash'
+import { readHash, writeHash, sanitizePath, getParentPath, isTrashPath, joinPath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import {
   countActiveFilters,
@@ -78,6 +78,8 @@ export default function AppShell() {
   const [leftTool, setLeftTool] = useState<'folders' | 'metrics'>('folders')
   const [views, setViews] = useState<SavedView[]>([])
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
+  const [scopeTotalCount, setScopeTotalCount] = useState<number | null>(null)
+  const [rootTotalCount, setRootTotalCount] = useState<number | null>(null)
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
@@ -88,6 +90,8 @@ export default function AppShell() {
   const toolbarRef = useRef<HTMLDivElement>(null)
   const viewerHistoryPushedRef = useRef(false)
   const lastFocusedPathRef = useRef<string | null>(null)
+  const countCacheRef = useRef<Map<string, number>>(new Map())
+  const countInflightRef = useRef<Map<string, Promise<number>>>(new Map())
 
   const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef)
 
@@ -143,6 +147,64 @@ export default function AppShell() {
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
 
+  const countFolderImages = useCallback(async (path: string): Promise<number> => {
+    const target = sanitizePath(path || '/')
+    const cached = countCacheRef.current.get(target)
+    if (typeof cached === 'number') return cached
+
+    const inflight = countInflightRef.current.get(target)
+    if (inflight) return inflight
+
+    const promise = (async () => {
+      const stack = [target]
+      const seen = new Set<string>()
+      let count = 0
+
+      while (stack.length) {
+        const next = stack.pop()!
+        if (seen.has(next)) continue
+        seen.add(next)
+        try {
+          const folder = await api.getFolder(next)
+          count += folder.items.length
+          for (const d of folder.dirs) {
+            if (d.kind === 'branch') {
+              stack.push(joinPath(next, d.name))
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed to count folder ${next}:`, err)
+        }
+      }
+
+      countCacheRef.current.set(target, count)
+      countInflightRef.current.delete(target)
+      return count
+    })()
+
+    countInflightRef.current.set(target, promise)
+    return promise
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const target = sanitizePath(current || '/')
+
+    const run = async () => {
+      const rootPromise = countFolderImages('/')
+      const scopePromise = target === '/' ? rootPromise : countFolderImages(target)
+      const [root, scope] = await Promise.all([rootPromise, scopePromise])
+      if (cancelled) return
+      setRootTotalCount(root)
+      setScopeTotalCount(scope)
+    }
+
+    run().catch((err) => console.warn('Failed to compute folder counts:', err))
+    return () => {
+      cancelled = true
+    }
+  }, [current, countFolderImages])
+
   // Compute star counts for the filter UI
   const starCounts = useMemo(() => {
     const baseItems = poolItems
@@ -191,6 +253,13 @@ export default function AppShell() {
   }, [metricKeys, viewState.sort])
 
   const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
+  const scopeTotal = scopeTotalCount ?? totalCount
+  const rootTotal = rootTotalCount ?? scopeTotal
+  const showFilteredCounts = searching || activeFilterCount > 0
+  const displayItemCount = showFilteredCounts ? filteredCount : scopeTotal
+  const displayTotalCount = showFilteredCounts
+    ? scopeTotal
+    : (current === '/' ? scopeTotal : rootTotal)
 
   const updateFilters = useCallback((updater: (filters: FilterAST) => FilterAST) => {
     setViewState((prev) => ({
@@ -858,8 +927,8 @@ export default function AppShell() {
         zoomPercent={viewer ? currentZoom : undefined}
         onZoomPercentChange={(p)=> setRequestedZoom(p)}
         currentLabel={scopeLabel}
-        itemCount={filteredCount}
-        totalCount={totalCount}
+        itemCount={displayItemCount}
+        totalCount={displayTotalCount}
         sortSpec={viewState.sort}
         metricKeys={metricKeys}
         onSortChange={handleSortChange}

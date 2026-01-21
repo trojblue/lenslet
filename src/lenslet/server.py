@@ -5,6 +5,7 @@ import io
 import os
 import threading
 import html
+from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -13,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Literal
-from PIL import Image, ImageDraw, ImageFont
+from . import og
 
 
 class NoCacheIndexStaticFiles(StaticFiles):
@@ -45,13 +46,6 @@ from .workspace import Workspace
 
 Mime = Literal["image/webp", "image/jpeg", "image/png"]
 
-OG_IMAGE_WIDTH = 1200
-OG_IMAGE_HEIGHT = 630
-OG_IMAGES_X = 6
-OG_IMAGES_Y = 3
-OG_PIXELS_PER_IMAGE = 6
-OG_TILE_GAP = 2
-OG_STYLE = "pixel-grid"
 
 
 class Item(BaseModel):
@@ -303,8 +297,9 @@ def _is_remote_source(source: str) -> bool:
     return source.startswith("s3://") or source.startswith("http://") or source.startswith("https://")
 
 
-def _og_cache_key(workspace: Workspace, style: str, signature: str) -> str:
-    return f"og:{style}:{signature}"
+def _og_cache_key(workspace: Workspace, style: str, signature: str, path: str) -> str:
+    safe_path = og.normalize_path(path)
+    return f"og:{style}:{signature}:{safe_path}"
 
 
 def _dataset_signature(storage, workspace: Workspace) -> str:
@@ -324,6 +319,20 @@ def _dataset_signature(storage, workspace: Workspace) -> str:
         if value > max_mtime:
             max_mtime = value
     return f"mem:{int(max_mtime)}:{len(items)}"
+
+
+def _og_path_from_request(path: str | None, request: Request | None) -> str:
+    if path:
+        return og.normalize_path(path)
+    if request is None:
+        return "/"
+    referer = request.headers.get("referer")
+    if not referer:
+        return "/"
+    fragment = urlparse(referer).fragment
+    if not fragment:
+        return "/"
+    return og.normalize_path(fragment)
 
 
 def _dataset_mtime(workspace: Workspace) -> float | None:
@@ -402,135 +411,6 @@ def _build_meta_tags(title: str, description: str, image_url: str, logo_url: str
     ])
 
 
-def _sample_paths(storage, count: int) -> list[str]:
-    try:
-        index = storage.get_index("/")
-    except Exception:
-        return []
-    items = getattr(index, "items", [])
-    if not items:
-        return []
-    records: list[tuple[float, str]] = []
-    for item in items:
-        path = getattr(item, "path", None)
-        if not path:
-            continue
-        mtime = getattr(item, "mtime", 0.0) or 0.0
-        records.append((mtime, path))
-    if not records:
-        return []
-    records.sort(key=lambda rec: (-rec[0], rec[1]))
-    return [path for _, path in records[:count]]
-
-
-def _pixel_tile_grid(thumb_bytes: bytes, grid_size: int) -> list[list[tuple[int, int, int]]] | None:
-    try:
-        with Image.open(io.BytesIO(thumb_bytes)) as im:
-            im = im.convert("RGB").resize((grid_size, grid_size), Image.BOX)
-            pixels = list(im.getdata())
-    except Exception:
-        return None
-    rows: list[list[tuple[int, int, int]]] = []
-    for y in range(grid_size):
-        start = y * grid_size
-        rows.append(pixels[start:start + grid_size])
-    return rows
-
-
-def _avg_color(pixels: list[tuple[int, int, int]]) -> tuple[int, int, int]:
-    if not pixels:
-        return (32, 36, 40)
-    r = sum(p[0] for p in pixels)
-    g = sum(p[1] for p in pixels)
-    b = sum(p[2] for p in pixels)
-    n = len(pixels)
-    return (int(r / n), int(g / n), int(b / n))
-
-
-def _harmonize(color: tuple[int, int, int], tint: tuple[int, int, int], strength: float) -> tuple[int, int, int]:
-    return (
-        int(color[0] * (1 - strength) + tint[0] * strength),
-        int(color[1] * (1 - strength) + tint[1] * strength),
-        int(color[2] * (1 - strength) + tint[2] * strength),
-    )
-
-
-def _render_pixel_mosaic(
-    tiles: list[list[list[tuple[int, int, int]]]],
-    width: int,
-    height: int,
-    images_x: int,
-    images_y: int,
-    pixels_per_image: int,
-    gap: int,
-    harmonize_strength: float = 0.28,
-) -> bytes:
-    grid_cols = images_x * pixels_per_image
-    grid_rows = images_y * pixels_per_image
-    tile_size = min(
-        max(1, (width - (grid_cols - 1) * gap) // grid_cols),
-        max(1, (height - (grid_rows - 1) * gap) // grid_rows),
-    )
-    mosaic_w = grid_cols * tile_size + (grid_cols - 1) * gap
-    mosaic_h = grid_rows * tile_size + (grid_rows - 1) * gap
-    offset_x = max(0, (width - mosaic_w) // 2)
-    offset_y = max(0, (height - mosaic_h) // 2)
-
-    flat_pixels: list[tuple[int, int, int]] = []
-    for tile in tiles:
-        for row in tile:
-            flat_pixels.extend(row)
-    tint = _avg_color(flat_pixels)
-    bg = _harmonize(tint, (18, 22, 26), 0.6)
-
-    canvas = Image.new("RGB", (width, height), bg)
-    draw = ImageDraw.Draw(canvas)
-    radius = max(1, tile_size // 4)
-
-    for tile_idx in range(images_x * images_y):
-        tile = tiles[tile_idx % len(tiles)]
-        base_row = (tile_idx // images_x) * pixels_per_image
-        base_col = (tile_idx % images_x) * pixels_per_image
-        for y in range(pixels_per_image):
-            row = tile[y]
-            for x in range(pixels_per_image):
-                color = _harmonize(row[x], tint, harmonize_strength)
-                gx = base_col + x
-                gy = base_row + y
-                x0 = offset_x + gx * (tile_size + gap)
-                y0 = offset_y + gy * (tile_size + gap)
-                draw.rounded_rectangle(
-                    (x0, y0, x0 + tile_size, y0 + tile_size),
-                    radius=radius,
-                    fill=color,
-                )
-
-    output = io.BytesIO()
-    canvas.save(output, format="PNG")
-    return output.getvalue()
-
-
-def _fallback_og_image(label: str, width: int = 1200, height: int = 630) -> bytes:
-    bg = (24, 28, 32)
-    img = Image.new("RGB", (width, height), bg)
-    draw = ImageDraw.Draw(img)
-    text = f"Lenslet • {label}"
-    try:
-        font = ImageFont.load_default()
-    except Exception:
-        font = None
-    text_w, text_h = draw.textsize(text, font=font)
-    draw.text(
-        ((width - text_w) // 2, (height - text_h) // 2),
-        text,
-        fill=(220, 225, 230),
-        font=font,
-    )
-    output = io.BytesIO()
-    img.save(output, format="PNG")
-    return output.getvalue()
-
-
 def _og_cache_from_workspace(workspace: Workspace, enabled: bool) -> OgImageCache | None:
     if not enabled or not workspace.can_write:
         return None
@@ -606,12 +486,25 @@ def _register_index_routes(app: FastAPI, storage, workspace: Workspace, og_previ
         html_text = index_path.read_text(encoding="utf-8")
         if og_preview:
             label = _dataset_label(workspace)
-            count = _dataset_count(storage)
             title = f"Lenslet: {label}"
-            if count is not None:
-                title = f"{title} ({count:,} images)"
+            scope_path = og.normalize_path(request.query_params.get("path"))
+            scope_count = og.subtree_image_count(storage, scope_path)
+            root_count = og.subtree_image_count(storage, "/")
+            if scope_count is None:
+                scope_count = _dataset_count(storage)
+            if root_count is None:
+                root_count = scope_count
+            if scope_count is not None:
+                if scope_path != "/" and root_count is not None:
+                    title = f"{title} ({scope_count:,}/{root_count:,} images)"
+                else:
+                    title = f"{title} ({scope_count:,} images)"
             description = f"Browse {label} gallery"
-            image_url = str(request.url_for("og_image"))
+            image_url = request.url_for("og_image")
+            path_param = request.query_params.get("path")
+            if path_param:
+                image_url = image_url.include_query_params(path=path_param)
+            image_url = str(image_url)
             base = str(request.base_url)
             logo_url = f"{base}favicon.ico"
             tags = _build_meta_tags(title, description, image_url, logo_url)
@@ -630,44 +523,45 @@ def _register_og_routes(app: FastAPI, storage, workspace: Workspace, enabled: bo
     og_cache = _og_cache_from_workspace(workspace, enabled=enabled)
 
     @app.get("/og-image", include_in_schema=False, name="og_image")
-    def og_image(style: str = OG_STYLE):
+    def og_image(request: Request, style: str = og.OG_STYLE, path: str | None = None):
         label = _dataset_label(workspace)
         if not enabled:
-            return Response(content=_fallback_og_image(label), media_type="image/png")
-        style_key = style if style == OG_STYLE else OG_STYLE
+            return Response(content=og.fallback_og_image(label), media_type="image/png")
+        style_key = style if style == og.OG_STYLE else og.OG_STYLE
+        sample_path = _og_path_from_request(path, request)
         signature = _dataset_signature(storage, workspace)
-        cache_key = _og_cache_key(workspace, style_key, signature)
+        cache_key = _og_cache_key(workspace, style_key, signature, sample_path)
         if og_cache is not None:
             cached = og_cache.get(cache_key)
             if cached is not None:
                 return Response(content=cached, media_type="image/png")
 
-        sample_count = OG_IMAGES_X * OG_IMAGES_Y
+        sample_count = og.OG_IMAGES_X * og.OG_IMAGES_Y
         tiles: list[list[list[tuple[int, int, int]]]] = []
-        for path in _sample_paths(storage, sample_count):
+        for path in og.sample_paths(storage, sample_path, sample_count):
             try:
                 thumb = storage.get_thumbnail(path)
             except Exception:
                 thumb = None
             if not thumb:
                 continue
-            grid = _pixel_tile_grid(thumb, OG_PIXELS_PER_IMAGE)
+            grid = og.pixel_tile_grid(thumb, og.OG_PIXELS_PER_IMAGE)
             if grid is not None:
                 tiles.append(grid)
             if len(tiles) >= sample_count:
                 break
 
         if not tiles:
-            data = _fallback_og_image(label)
+            data = og.fallback_og_image(label)
         else:
-            data = _render_pixel_mosaic(
+            data = og.render_pixel_mosaic(
                 tiles=tiles,
-                width=OG_IMAGE_WIDTH,
-                height=OG_IMAGE_HEIGHT,
-                images_x=OG_IMAGES_X,
-                images_y=OG_IMAGES_Y,
-                pixels_per_image=OG_PIXELS_PER_IMAGE,
-                gap=OG_TILE_GAP,
+                width=og.OG_IMAGE_WIDTH,
+                height=og.OG_IMAGE_HEIGHT,
+                images_x=og.OG_IMAGES_X,
+                images_y=og.OG_IMAGES_Y,
+                pixels_per_image=og.OG_PIXELS_PER_IMAGE,
+                gap=og.OG_TILE_GAP,
             )
 
         if og_cache is not None:

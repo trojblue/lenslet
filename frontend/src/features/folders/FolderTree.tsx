@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { FolderIndex } from '../../lib/types'
 import { useFolder } from '../../shared/api/folders'
+import { api } from '../../shared/api/client'
 import { middleTruncate } from '../../lib/util'
-import { joinPath } from '../../app/routing/hash'
+import { joinPath, sanitizePath } from '../../app/routing/hash'
 import { useFolderTreeDragDrop } from './hooks/useFolderTreeDragDrop'
 import { useFolderTreeKeyboardNav } from './hooks/useFolderTreeKeyboardNav'
 
@@ -33,6 +34,55 @@ export default function FolderTree({
   showResizeHandle = true,
 }: FolderTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['/']))
+  const countCacheRef = useRef<Map<string, number>>(new Map())
+  const inflightRef = useRef<Map<string, Promise<number>>>(new Map())
+
+  const getSubtreeCount = useCallback(async (path: string, initial?: FolderIndex): Promise<number> => {
+    const target = sanitizePath(path || '/')
+    const cached = countCacheRef.current.get(target)
+    if (typeof cached === 'number') return cached
+
+    const inflight = inflightRef.current.get(target)
+    if (inflight) return inflight
+
+    const promise = (async () => {
+      let count = 0
+      const seen = new Set<string>()
+      const stack: Array<{ path: string; index?: FolderIndex }> = [{ path: target, index: initial }]
+
+      while (stack.length) {
+        const entry = stack.pop()
+        if (!entry) break
+        const { path: currentPath, index } = entry
+        if (seen.has(currentPath)) continue
+        seen.add(currentPath)
+
+        let folder = index
+        if (!folder) {
+          try {
+            folder = await api.getFolder(currentPath)
+          } catch (err) {
+            console.warn(`Failed to count folder ${currentPath}:`, err)
+            continue
+          }
+        }
+
+        count += folder.items.length
+        for (const d of folder.dirs) {
+          if (d.kind === 'branch') {
+            stack.push({ path: joinPath(currentPath, d.name) })
+          }
+        }
+      }
+
+      countCacheRef.current.set(target, count)
+      inflightRef.current.delete(target)
+      return count
+    })()
+
+    inflightRef.current.set(target, promise)
+    return promise
+  }, [])
 
   useEffect(() => {
     const parts = current.split('/').filter(Boolean)
@@ -48,7 +98,7 @@ export default function FolderTree({
     <div className={containerClass}>
       <div className="p-1" role="tree" aria-label="Folders">
         {roots.map(r => (
-          <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} onContextMenu={onContextMenu} initial={data} />
+          <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} onContextMenu={onContextMenu} initial={data} getSubtreeCount={getSubtreeCount} />
         ))}
       </div>
       {showResizeHandle && (
@@ -68,6 +118,7 @@ interface TreeNodeProps {
   onOpen: (path: string) => void
   onContextMenu?: (e: React.MouseEvent, path: string) => void
   initial?: FolderIndex
+  getSubtreeCount: (path: string, initial?: FolderIndex) => Promise<number>
 }
 
 function TreeNode({
@@ -80,13 +131,14 @@ function TreeNode({
   onOpen,
   onContextMenu,
   initial,
+  getSubtreeCount,
 }: TreeNodeProps) {
   const isExpanded = expanded.has(path)
   const { data } = useFolder(path)
   const idx = initial && path === initial.path ? initial : data
   const isActive = current === path
   const isLeaf = (idx?.dirs?.length ?? 0) === 0
-  const count = isLeaf ? idx?.items?.length ?? 0 : 0
+  const [subtreeCount, setSubtreeCount] = useState<number | null>(idx ? idx.items.length : null)
 
   const onKeyDown = useFolderTreeKeyboardNav({
     path,
@@ -102,6 +154,25 @@ function TreeNode({
     e.stopPropagation()
     setExpanded(prev => { const next = new Set(prev); if (next.has(path)) next.delete(path); else next.add(path); return next })
   }
+
+  useEffect(() => {
+    let cancelled = false
+    if (!idx) {
+      setSubtreeCount(null)
+      return
+    }
+    setSubtreeCount(idx.items.length)
+    getSubtreeCount(path, idx)
+      .then((count) => {
+        if (!cancelled) setSubtreeCount(count)
+      })
+      .catch((err) => {
+        if (!cancelled) console.warn(`Failed to compute subtree count for ${path}:`, err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [idx, path, getSubtreeCount])
 
   return (
     <div>
@@ -123,7 +194,11 @@ function TreeNode({
       >
         <span className="w-4 text-center opacity-60 hover:opacity-100 text-[10px]" onClick={toggle}>{isExpanded? '▼' : '▶'}</span>
         <span className="flex-1 overflow-hidden truncate text-sm" title={label}>{middleTruncate(label, 28)}</span>
-        {isLeaf && <span className="text-[10px] opacity-50 bg-white/5 border border-white/5 rounded px-1.5 min-w-[24px] text-center">{count}</span>}
+        {subtreeCount !== null && (
+          <span className="text-[10px] opacity-50 bg-white/5 border border-white/5 rounded px-1.5 min-w-[24px] text-center">
+            {subtreeCount}
+          </span>
+        )}
       </div>
       {isExpanded && idx?.dirs?.map(d => (
         <TreeNode
@@ -136,6 +211,7 @@ function TreeNode({
           setExpanded={setExpanded}
           onOpen={onOpen}
           onContextMenu={onContextMenu}
+          getSubtreeCount={getSubtreeCount}
         />
       ))}
     </div>

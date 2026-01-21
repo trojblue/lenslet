@@ -79,5 +79,3 @@ export function getPathName(path: string): string {
 export function isTrashPath(path: string): boolean {
   return path.endsWith('/_trash_')
 }
-
-

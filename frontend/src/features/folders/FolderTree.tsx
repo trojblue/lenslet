@@ -39,11 +39,13 @@ export default function FolderTree({
 
   const getSubtreeCount = useCallback(async (path: string, initial?: FolderIndex): Promise<number> => {
     const target = sanitizePath(path || '/')
-    const cached = countCacheRef.current.get(target)
-    if (typeof cached === 'number') return cached
+    const cache = countCacheRef.current
+    const inflight = inflightRef.current
+    const cached = cache.get(target)
+    if (cached !== undefined) return cached
 
-    const inflight = inflightRef.current.get(target)
-    if (inflight) return inflight
+    const pending = inflight.get(target)
+    if (pending) return pending
 
     const promise = (async () => {
       let count = 0
@@ -51,8 +53,7 @@ export default function FolderTree({
       const stack: Array<{ path: string; index?: FolderIndex }> = [{ path: target, index: initial }]
 
       while (stack.length) {
-        const entry = stack.pop()
-        if (!entry) break
+        const entry = stack.pop()!
         const { path: currentPath, index } = entry
         if (seen.has(currentPath)) continue
         seen.add(currentPath)
@@ -75,12 +76,12 @@ export default function FolderTree({
         }
       }
 
-      countCacheRef.current.set(target, count)
-      inflightRef.current.delete(target)
+      cache.set(target, count)
+      inflight.delete(target)
       return count
     })()
 
-    inflightRef.current.set(target, promise)
+    inflight.set(target, promise)
     return promise
   }, [])
 

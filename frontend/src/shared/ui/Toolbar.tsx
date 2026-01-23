@@ -117,6 +117,12 @@ export default function Toolbar({
   const metricOptions = metricKeys?.length
     ? metricKeys.map((key) => ({ value: `metric:${key}`, label: key }))
     : []
+  const sortByOptions = [
+    { value: 'builtin:added', label: 'Date added' },
+    { value: 'builtin:name', label: 'Filename' },
+    { value: 'builtin:random', label: 'Random' },
+    ...metricOptions,
+  ]
 
   // Build sort options with groups
   const sortOptions = [
@@ -129,12 +135,7 @@ export default function Toolbar({
     },
     {
       label: 'Sort by',
-      options: [
-        { value: 'builtin:added', label: 'Date added' },
-        { value: 'builtin:name', label: 'Filename' },
-        { value: 'builtin:random', label: 'Random' },
-        ...metricOptions,
-      ],
+      options: sortByOptions,
     },
   ]
 
@@ -146,12 +147,7 @@ export default function Toolbar({
   const sortOnlyOptions = [
     {
       label: 'Sort by',
-      options: [
-        { value: 'builtin:added', label: 'Date added' },
-        { value: 'builtin:name', label: 'Filename' },
-        { value: 'builtin:random', label: 'Random' },
-        ...metricOptions,
-      ],
+      options: sortByOptions,
     },
   ]
 
@@ -166,10 +162,21 @@ export default function Toolbar({
     }
   }
 
+  const handleSortDirToggle = () => {
+    if (!onSortChange) return
+    if (isRandom) {
+      onSortChange(effectiveSort) // Re-shuffle
+    } else {
+      onSortChange({ ...effectiveSort, dir: sortDir === 'desc' ? 'asc' : 'desc' })
+    }
+  }
+
   // Count active star filters
-  const activeStarCount = (starFilters || []).length
+  const starFilterList = starFilters ?? []
+  const activeStarCount = starFilterList.length
   const totalFilterCount = getTotalFilterCount(filterCount, activeStarCount)
   const countLabel = formatCountLabel(itemCount, totalCount)
+  const scopeName = currentLabel || 'Root'
 
   return (
     <div ref={rootRef} className="toolbar-shell fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1 select-none">
@@ -178,8 +185,8 @@ export default function Toolbar({
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex flex-col min-w-0 leading-tight">
             <span className="text-[10px] uppercase tracking-widest text-muted">Scope</span>
-            <span className="text-sm font-medium text-text truncate" title={currentLabel || 'Root'}>
-              {currentLabel || 'Root'}
+            <span className="text-sm font-medium text-text truncate" title={scopeName}>
+              {scopeName}
             </span>
           </div>
           {countLabel && (
@@ -206,14 +213,7 @@ export default function Toolbar({
             />
             <button
               className="toolbar-sort-dir btn btn-icon"
-              onClick={() => {
-                if (!onSortChange) return
-                if (isRandom) {
-                  onSortChange(effectiveSort) // Re-shuffle
-                } else {
-                  onSortChange({ ...effectiveSort, dir: sortDir === 'desc' ? 'asc' : 'desc' })
-                }
-              }}
+              onClick={handleSortDirToggle}
               title={isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`}
               aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
               aria-disabled={viewerActive}
@@ -267,7 +267,7 @@ export default function Toolbar({
                 <div className="dropdown-label">Rating</div>
                 <div className="px-1">
                   {[5, 4, 3, 2, 1].map((v) => {
-                    const active = (starFilters || []).includes(v)
+                    const active = starFilterList.includes(v)
                     const count = starCounts?.[String(v)] ?? 0
                     return (
                       <button
@@ -284,7 +284,7 @@ export default function Toolbar({
                   })}
                   <button
                     onClick={() => onToggleStar?.(0)}
-                    className={`dropdown-item justify-between ${(starFilters || []).includes(0) ? 'bg-accent-muted' : ''}`}
+                    className={`dropdown-item justify-between ${starFilterList.includes(0) ? 'bg-accent-muted' : ''}`}
                   >
                     <span className="text-text">Unrated</span>
                     <span className="text-xs text-muted">{starCounts?.['0'] ?? 0}</span>
@@ -494,14 +494,7 @@ export default function Toolbar({
             />
             <button
               className="mobile-pill mobile-pill-icon"
-              onClick={() => {
-                if (!onSortChange) return
-                if (isRandom) {
-                  onSortChange(effectiveSort)
-                } else {
-                  onSortChange({ ...effectiveSort, dir: sortDir === 'desc' ? 'asc' : 'desc' })
-                }
-              }}
+              onClick={handleSortDirToggle}
               title={isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`}
               aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
             >

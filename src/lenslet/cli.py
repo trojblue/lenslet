@@ -237,10 +237,11 @@ def main():
     if not target.exists():
         print(f"Error: '{args.directory}' does not exist", file=sys.stderr)
         sys.exit(1)
-    if target.is_file() and not is_table_file:
-        print(f"Error: '{args.directory}' is not a .parquet file", file=sys.stderr)
-        sys.exit(1)
-    if target.is_dir() is False and not is_table_file:
+    if target.is_file():
+        if not is_table_file:
+            print(f"Error: '{args.directory}' is not a .parquet file", file=sys.stderr)
+            sys.exit(1)
+    elif not target.is_dir():
         print(f"Error: '{args.directory}' is not a valid directory or .parquet file", file=sys.stderr)
         sys.exit(1)
 
@@ -254,14 +255,15 @@ def main():
         if port != 7070:
             print(f"[lenslet] Port 7070 is in use; using {port} instead.")
 
-    if args.no_write and args.cache_wh:
-        print("[lenslet] --no-write disables parquet caching; use --no-cache-wh to silence.")
-        args.cache_wh = False
-    if args.no_write and args.thumb_cache:
-        print("[lenslet] --no-write disables thumbnail cache; use --no-thumb-cache to silence.")
-        args.thumb_cache = False
-    if args.no_write and args.og_preview:
-        print("[lenslet] --no-write disables OG cache; previews will be generated on-demand.")
+    if args.no_write:
+        if args.cache_wh:
+            print("[lenslet] --no-write disables parquet caching; use --no-cache-wh to silence.")
+            args.cache_wh = False
+        if args.thumb_cache:
+            print("[lenslet] --no-write disables thumbnail cache; use --no-thumb-cache to silence.")
+            args.thumb_cache = False
+        if args.og_preview:
+            print("[lenslet] --no-write disables OG cache; previews will be generated on-demand.")
 
     # Print startup banner
     if is_table_file:

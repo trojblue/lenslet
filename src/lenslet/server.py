@@ -324,14 +324,11 @@ def _dataset_signature(storage, workspace: Workspace) -> str:
 def _og_path_from_request(path: str | None, request: Request | None) -> str:
     if path:
         return og.normalize_path(path)
-    if request is None:
-        return "/"
-    referer = request.headers.get("referer")
-    if not referer:
-        return "/"
-    fragment = urlparse(referer).fragment
-    if not fragment:
-        return "/"
+    fragment = None
+    if request is not None:
+        referer = request.headers.get("referer")
+        if referer:
+            fragment = urlparse(referer).fragment or None
     return og.normalize_path(fragment)
 
 

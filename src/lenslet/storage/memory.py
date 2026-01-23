@@ -254,15 +254,18 @@ class MemoryStorage:
     def _read_dimensions_fast(self, filepath: str) -> tuple[int, int] | None:
         """Read image dimensions from header only (fast)."""
         ext = filepath.lower().split(".")[-1]
-        
+        handlers = {
+            "jpg": self._jpeg_dimensions,
+            "jpeg": self._jpeg_dimensions,
+            "png": self._png_dimensions,
+            "webp": self._webp_dimensions,
+        }
+
         try:
             with open(filepath, "rb") as f:
-                if ext in ("jpg", "jpeg"):
-                    return self._jpeg_dimensions(f)
-                elif ext == "png":
-                    return self._png_dimensions(f)
-                elif ext == "webp":
-                    return self._webp_dimensions(f)
+                handler = handlers.get(ext)
+                if handler:
+                    return handler(f)
         except Exception:
             pass
         return None

@@ -42,24 +42,24 @@ class Workspace:
     def load_views(self) -> dict[str, Any]:
         if not self.can_write and self.memory_views is not None:
             return self.memory_views
+
+        def _remember(payload: dict[str, Any]) -> dict[str, Any]:
+            if not self.can_write:
+                self.memory_views = payload
+            return payload
+
         default = {"version": 1, "views": []}
         path = self.views_path
         if path is None or not path.exists():
-            if not self.can_write:
-                self.memory_views = default
-            return default
+            return _remember(default)
         try:
             raw = path.read_text(encoding="utf-8")
             data = json.loads(raw)
         except Exception as exc:
             print(f"[lenslet] Warning: failed to read views.json: {exc}")
-            if not self.can_write:
-                self.memory_views = default
-            return default
+            return _remember(default)
         if not isinstance(data, dict):
-            if not self.can_write:
-                self.memory_views = default
-            return default
+            return _remember(default)
         views = data.get("views")
         if not isinstance(views, list):
             views = []
@@ -67,15 +67,10 @@ class Workspace:
         if not isinstance(version, int):
             version = 1
         payload = {"version": version, "views": views}
-        if not self.can_write:
-            self.memory_views = payload
-        return payload
+        return _remember(payload)
 
     def save_views(self, payload: dict[str, Any]) -> None:
-        if not self.can_write:
-            self.memory_views = payload
-            return
-        if self.views_path is None:
+        if not self.can_write or self.views_path is None:
             self.memory_views = payload
             return
         self.write_views(payload)

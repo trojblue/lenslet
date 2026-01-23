@@ -413,8 +413,11 @@ export default function Inspector({
   useEffect(() => {
     try {
       const raw = localStorage.getItem(INSPECTOR_METRICS_EXPANDED_KEY)
-      if (raw === '1' || raw === 'true') setMetricsExpanded(true)
-      if (raw === '0' || raw === 'false') setMetricsExpanded(false)
+      if (raw === '1' || raw === 'true') {
+        setMetricsExpanded(true)
+      } else if (raw === '0' || raw === 'false') {
+        setMetricsExpanded(false)
+      }
     } catch {
       // Ignore localStorage parsing errors
     }
@@ -632,13 +635,14 @@ export default function Inspector({
               let ordered = sorted
               if (highlightKey) {
                 const idx = sorted.findIndex(([key]) => key === highlightKey)
-                if (idx >= 0) {
+                if (idx > 0) {
                   ordered = [sorted[idx], ...sorted.slice(0, idx), ...sorted.slice(idx + 1)]
                 }
               }
-              const showAll = metricsExpanded || ordered.length <= METRICS_PREVIEW_LIMIT
+              const canToggle = ordered.length > METRICS_PREVIEW_LIMIT
+              const showAll = metricsExpanded || !canToggle
               const show = showAll ? ordered : ordered.slice(0, METRICS_PREVIEW_LIMIT)
-              const remaining = Math.max(0, ordered.length - METRICS_PREVIEW_LIMIT)
+              const remaining = ordered.length - METRICS_PREVIEW_LIMIT
               return (
                 <div className="mt-3">
                   <div className="text-muted text-xs uppercase tracking-wide mb-1">Metrics</div>
@@ -656,24 +660,14 @@ export default function Inspector({
                         </div>
                       )
                     })}
-                    {remaining > 0 && !metricsExpanded && (
+                    {canToggle && (
                       <button
                         type="button"
                         className="text-[11px] text-muted underline underline-offset-2 hover:text-text"
-                        onClick={() => setMetricsExpanded(true)}
-                        aria-expanded={false}
+                        onClick={() => setMetricsExpanded((prev) => !prev)}
+                        aria-expanded={metricsExpanded}
                       >
-                        +{remaining} more
-                      </button>
-                    )}
-                    {metricsExpanded && ordered.length > METRICS_PREVIEW_LIMIT && (
-                      <button
-                        type="button"
-                        className="text-[11px] text-muted underline underline-offset-2 hover:text-text"
-                        onClick={() => setMetricsExpanded(false)}
-                        aria-expanded={true}
-                      >
-                        Show less
+                        {metricsExpanded ? 'Show less' : `+${remaining} more`}
                       </button>
                     )}
                   </div>

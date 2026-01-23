@@ -101,12 +101,13 @@ def render_pixel_mosaic(
 ) -> bytes:
     grid_cols = images_x * pixels_per_image
     grid_rows = images_y * pixels_per_image
-    tile_size = min(
-        (width - gap * (grid_cols - 1)) // grid_cols,
-        (height - gap * (grid_rows - 1)) // grid_rows,
+    tile_size = max(
+        1,
+        min(
+            (width - gap * (grid_cols - 1)) // grid_cols,
+            (height - gap * (grid_rows - 1)) // grid_rows,
+        ),
     )
-    if tile_size <= 0:
-        tile_size = 1
 
     full_grid_w = tile_size * grid_cols + gap * (grid_cols - 1)
     full_grid_h = tile_size * grid_rows + gap * (grid_rows - 1)

@@ -10,7 +10,8 @@ Implement realtime multi‑user label sync for Lenslet without adding a database
 ## Progress
 
 
-- [ ] 2026-01-23: Plan drafted; no implementation work started.
+- [x] 2026-01-23: Plan drafted.
+- [x] 2026-01-23: Sprint 1 backend implementation completed; manual SSE + restart checks passed.
 
 
 ## Surprises & Discoveries
@@ -34,7 +35,7 @@ The current storage backends store metadata in memory but do not canonicalize it
 ## Outcomes & Retrospective
 
 
-No implementation yet. Outcome target is a shippable realtime collaboration layer that preserves labels across restarts when the workspace is writable, without introducing a database dependency.
+Sprint 1 delivered backend realtime primitives and durability. Two SSE clients receive updates, version conflicts return 409, and labels persist across restart when the workspace is writable. See “Sprint 1 Handover Notes” for details and test status.
 
 
 ## Context and Orientation
@@ -151,6 +152,51 @@ Backend interfaces include `PATCH /item?path=...` with `If-Match` and `Idempoten
 
 Frontend dependencies include a native `EventSource` SSE client, React Query cache updates on event arrival, LocalStorage‑persisted `client_id` generation for idempotency keys, and connection state tracking to drive UI (live/reconnecting/offline) and polling fallback.
 
+
+## Sprint 1 Handover Notes (2026-01-23)
+
+**What shipped (backend):**
+- Canonical path helper now normalizes all paths to leading `/` with no trailing slash; server responses always return canonical paths.
+- Sidecar metadata includes `version`, `updated_at`, `updated_by`; version increments on successful updates.
+- `PATCH /item` implemented with patch semantics, requires `Idempotency-Key` and `base_version` (or `If-Match`); conflicts return 409 with the latest sidecar.
+- `GET /events` SSE endpoint implemented with event IDs and in‑memory replay buffer; supports `Last-Event-ID`.
+- Write‑behind durability: `.lenslet/labels.log.jsonl` append log + `.lenslet/labels.snapshot.json` snapshot; startup loads snapshot then replays log.
+- `/health` now surfaces persistence status under `labels`.
+- Single‑worker guardrail: CLI warns if `UVICORN_WORKERS` or `WEB_CONCURRENCY` > 1.
+
+**Files touched (backend):**
+- `src/lenslet/server.py` (canonicalization, PATCH, SSE, persistence wiring)
+- `src/lenslet/workspace.py` (labels log/snapshot helpers)
+- `src/lenslet/storage/*.py` (metadata defaults + canonical keys)
+- `src/lenslet/cli.py` (single‑worker warning)
+- `docs/20260123_collaboration_sync_api.md` (new API contract)
+
+**Frontend type alignment:**
+- Added `frontend/src/lib/types.ts` (Sidecar now includes `version`, `updated_*`).
+- Updated `frontend/src/api/items.ts` and `frontend/src/features/inspector/Inspector.tsx` to include `version` in base sidecar model.
+
+**Manual verification (Sprint 1):**
+- Two SSE clients received `item-updated` events for a `PATCH /item`.
+- Restarting the server preserved labels (verified via `GET /item`).
+- Persistence files created under `.lenslet/`.
+
+**Tests run (2026-01-23):**
+- `pytest -q` after `pip install -e . -e ".[dev]"`.
+- Failures are **unrelated to Sprint 1** changes and pre‑existing behavior expectations:
+  - `test_api_simple.py::test_blocking_mode` and `tests/test_programmatic_api.py::test_blocking_mode` expect a narrower `lenslet.launch` signature (repo currently exposes `show_source`, `source_column`, `base_dir`).
+  - `tests/test_metadata_endpoint.py::test_metadata_endpoint_rejects_non_png` expects `/metadata` to return 415 for JPEG; server currently allows JPEG/WebP/PNG.
+  - Dep warning: `platformio` expects `starlette<0.47`; dev install pulled `starlette 0.50.0` via `fastapi`.
+
+**Sprint 2 implementer checklist (what to know from Sprint 1):**
+- Use `PATCH /item` for partial edits; **must** send `Idempotency-Key` and `base_version` or `If-Match`.
+- Event payloads from SSE are canonical path + `version/tags/notes/star/updated_at/updated_by` (plus `metrics` when present).
+- Canonical paths are enforced across storage and APIs; client should treat responses as source of truth.
+- Persistence only when workspace is writable; check `/health.labels.enabled` for UI banner.
+- SSE replay requires `Last-Event-ID` on reconnect.
+
+
 When revising the plan, add a note at the bottom describing the change and why it was made.
 
 Plan updated on 2026-01-23 to incorporate review_notes.txt feedback (task splitting, persistence banner, compaction, single-worker guardrail, and additional tests).
+
+Plan updated on 2026-01-23 to record Sprint 1 implementation status, test failures (unrelated), and handover notes for Sprint 2.

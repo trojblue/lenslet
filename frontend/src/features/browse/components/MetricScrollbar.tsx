@@ -12,20 +12,22 @@ interface MetricScrollbarProps {
 }
 
 export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }: MetricScrollbarProps) {
-  const orderedValues = useMemo(() => (
-    items.map((it) => {
+  const { orderedValues, numericValues } = useMemo(() => {
+    const ordered: Array<number | null> = []
+    const numeric: number[] = []
+    for (const it of items) {
       const raw = it.metrics?.[metricKey]
-      if (raw == null || Number.isNaN(raw)) return null
-      return raw
-    })
-  ), [items, metricKey])
-  const numericValues = useMemo(() => orderedValues.filter((v): v is number => v != null), [orderedValues])
+      const value = raw == null || Number.isNaN(raw) ? null : raw
+      ordered.push(value)
+      if (value != null) numeric.push(value)
+    }
+    return { orderedValues: ordered, numericValues: numeric }
+  }, [items, metricKey])
   const histogram = useMemo(() => computeHistogram(numericValues, BIN_COUNT), [numericValues])
   const quantiles = useMemo(() => computeQuantiles(numericValues, QUANTILES), [numericValues])
 
   const [scrollProgress, setScrollProgress] = useState(0)
   const [hoverProgress, setHoverProgress] = useState<number | null>(null)
-  const [hoverValue, setHoverValue] = useState<number | null>(null)
   const [scrubbing, setScrubbing] = useState(false)
   const svgRef = useRef<SVGSVGElement | null>(null)
 
@@ -50,7 +52,6 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
 
   useEffect(() => {
     setHoverProgress(null)
-    setHoverValue(null)
   }, [metricKey, items.length])
 
   if (!histogram) return null
@@ -59,21 +60,27 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
   const hoverY = hoverProgress != null ? progressToY(hoverProgress) : null
   const scrollY = progressToY(scrollProgress)
   const isDesc = sortDir === 'desc'
+  const hoverValue = useMemo(() => {
+    if (hoverProgress == null) return null
+    return valueAtProgress(orderedValues, hoverProgress)
+  }, [orderedValues, hoverProgress])
 
-  const updateHover = (progress: number) => {
-    const clamped = clamp01(progress)
-    setHoverProgress(clamped)
-    setHoverValue(valueAtProgress(orderedValues, clamped))
+  function updateHover(progress: number) {
+    setHoverProgress(clamp01(progress))
   }
 
-  const scrollToProgress = (progress: number) => {
+  function clearHover() {
+    setHoverProgress(null)
+  }
+
+  function scrollToProgress(progress: number) {
     const el = scrollRef.current
     if (!el) return
     const max = Math.max(0, el.scrollHeight - el.clientHeight)
     el.scrollTop = clamp01(progress) * max
   }
 
-  const getProgressFromEvent = (e: React.PointerEvent<SVGSVGElement>): number | null => {
+  function getProgressFromEvent(e: React.PointerEvent<SVGSVGElement>): number | null {
     const rect = svgRef.current?.getBoundingClientRect()
     if (!rect) return null
     return clamp01((e.clientY - rect.top) / rect.height)
@@ -98,10 +105,7 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
         onPointerMove={(e) => {
           const progress = getProgressFromEvent(e)
           if (progress == null) {
-            if (!scrubbing) {
-              setHoverProgress(null)
-              setHoverValue(null)
-            }
+            if (!scrubbing) clearHover()
             return
           }
           updateHover(progress)
@@ -112,10 +116,7 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
           svgRef.current?.releasePointerCapture(e.pointerId)
         }}
         onPointerLeave={() => {
-          if (!scrubbing) {
-            setHoverProgress(null)
-            setHoverValue(null)
-          }
+          if (!scrubbing) clearHover()
         }}
       >
         {renderScrollbarBars(histogram.bins, '#2e3a4b', { flip: isDesc })}

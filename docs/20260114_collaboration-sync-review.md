@@ -212,6 +212,70 @@ This is heavier but sets the right foundation for collaboration and multiple pro
 - **Recent activity banner** (subtle, below toolbar):
   - `Someone updated items in the last 30s`
 
+## Error Handling Matrix (Client UX)
+- **200 OK (PUT /item)**: mark item `saved`, update cache with server payload + version.
+- **202 Accepted (optional for async metrics)**: show “Queued” state; await SSE update.
+- **400 Bad Request**: show “Invalid update” toast; keep local edits but mark `error`.
+- **401/403**: show “Permission denied” banner; disable edits.
+- **404 Not Found**: show “Item missing” warning; remove item from selection.
+- **409 Conflict**: show “Newer change detected” badge; fetch latest and offer rebase.
+- **429 Too Many Requests**: show “Sync paused (rate limit)” and retry with backoff.
+- **5xx / network error**: show “Not saved — retry”; keep local changes queued.
+
+## Handoff: Codebase Touchpoints + Plan
+This section is intended as a handoff so another engineer can implement the design quickly.
+
+### Backend Touchpoints
+- `src/lenslet/server.py`
+  - `Sidecar` model (add `version`, ensure `updated_at` is stored, not synthetic).
+  - `GET /item` (`get_item`) and `PUT /item` (`put_item`) to enforce `If-Match` and idempotency.
+  - Add `GET /events` (SSE) and `POST /presence`.
+  - Update `_build_sidecar` to return stored timestamps and version.
+- `src/lenslet/storage/*`
+  - All storage backends keep metadata in memory; add `version` field storage.
+  - Ensure any new fields (metrics) are part of metadata dicts.
+- `src/lenslet/workspace.py`
+  - Optional: add workspace sidecar snapshot folder helpers if write‑behind is desired.
+
+### Frontend Touchpoints
+- `frontend/src/api/items.ts`
+  - Include `If-Match` and `Idempotency-Key` on `PUT /item`.
+  - Handle `409` by surfacing conflict state.
+- `frontend/src/api/client.ts`
+  - Add SSE client for `/events`.
+  - Add `/presence` heartbeat calls.
+- `frontend/src/app/AppShell.tsx`
+  - Global sync indicator + presence indicator.
+  - Recent activity banner (based on last `item-updated` event).
+- `frontend/src/features/inspector/*`
+  - Per‑item conflict UI and retry controls near stars/tags/notes.
+
+### Minimal Server Logic (Pseudo)
+1) On `PUT /item`:
+   - Check `Idempotency-Key` cache; if hit, return cached response.
+   - Compare `If-Match` to in‑memory `version`; return `409` + latest on mismatch.
+   - Apply patch, increment version, set `updated_at`, cache response.
+   - Broadcast `item-updated` SSE event.
+2) On `GET /item`:
+   - Return stored sidecar including `version` and `updated_at`.
+3) On presence heartbeat:
+   - Update `{client_id, status, last_seen}` in memory.
+   - Broadcast `presence` SSE with aggregate counts.
+
+### Open Questions / Defaults (Recommended)
+- **Client identity**: generate a stable `client_id` per browser (localStorage UUID).
+- **Version origin**: start at `1` for new items.
+- **Idempotency TTL**: 10–30 minutes; LRU cap (e.g., 10k keys).
+- **Presence timeout**: consider a user stale if `last_seen > 15s`.
+- **Recent activity window**: 30s for banner display.
+
+### Testing Notes
+- Use two browser tabs to confirm:
+  - Realtime sync via SSE (no refresh).
+  - 409 conflict and UI warning.
+  - Presence count updates.
+  - Idempotency on repeated retries (same key).
+
 ## Current Challenges & Risks for Collaboration
 - **No persistence** of labeling progress; server restart wipes labels.
 - **No real-time propagation** of changes; clients don’t auto-refresh.

@@ -63,6 +63,7 @@ interface ThumbCardProps {
   name: string
   onClick: (e: React.MouseEvent) => void
   selected?: boolean
+  highlighted?: boolean
   displayW?: number
   displayH?: number
   ioRoot?: Element | null
@@ -75,6 +76,7 @@ export default function ThumbCard({
   name,
   onClick,
   selected,
+  highlighted,
   displayW,
   displayH,
   ioRoot,
@@ -159,7 +161,7 @@ export default function ThumbCard({
   return (
     <div 
       ref={hostRef} 
-      className={`absolute inset-0 relative bg-hover border border-border rounded-lg overflow-hidden select-none ${selected ? 'outline-2 outline-accent' : ''} hover:outline hover:outline-1 hover:outline-accent`}
+      className={`absolute inset-0 relative bg-hover border border-border rounded-lg overflow-hidden select-none ${selected ? 'outline-2 outline-accent' : ''} ${highlighted ? 'ring-2 ring-accent/60 animate-pulse' : ''} hover:outline hover:outline-1 hover:outline-accent`}
       onClick={onClick}
     >
       {url ? (

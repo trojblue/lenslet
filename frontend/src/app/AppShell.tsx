@@ -6,7 +6,9 @@ import Viewer from '../features/viewer/Viewer'
 import Inspector from '../features/inspector/Inspector'
 import { useFolder } from '../shared/api/folders'
 import { useSearch } from '../shared/api/search'
-import { api } from '../shared/api/client'
+import { api, connectEvents, disconnectEvents, subscribeEvents, subscribeEventStatus } from '../shared/api/client'
+import type { ConnectionStatus, SyncEvent } from '../shared/api/client'
+import { useSyncStatus, clearConflict, sidecarQueryKey } from '../shared/api/items'
 import { readHash, writeHash, sanitizePath, getParentPath, isTrashPath, joinPath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import {
@@ -32,7 +34,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import ContextMenu, { MenuItem } from './menu/ContextMenu'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 import { useDebounced } from '../shared/hooks/useDebounced'
-import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState } from '../lib/types'
+import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, PresenceEvent } from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
 import { safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
@@ -51,6 +53,12 @@ const STORAGE_KEYS = {
   leftOpen: 'leftOpen',
   rightOpen: 'rightOpen',
 } as const
+
+type RecentActivity = {
+  path: string
+  ts: number
+  kind: 'item-updated' | 'metrics-updated'
+}
 
 export default function AppShell() {
   // Navigation state
@@ -100,6 +108,14 @@ export default function AppShell() {
   
   // Context menu state
   const [ctx, setCtx] = useState<ContextMenuState | null>(null)
+  const queryClient = useQueryClient()
+  const syncStatus = useSyncStatus()
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
+  const [presenceByGallery, setPresenceByGallery] = useState<Record<string, PresenceEvent>>({})
+  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
+  const [highlightedPaths, setHighlightedPaths] = useState<Set<string>>(new Set())
+  const highlightTimersRef = useRef<Map<string, number>>(new Map())
+  const [persistenceEnabled, setPersistenceEnabled] = useState(true)
 
   // Initialize current folder from URL hash and keep in sync
   useEffect(() => {
@@ -119,6 +135,23 @@ export default function AppShell() {
     
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      for (const timeoutId of highlightTimersRef.current.values()) {
+        window.clearTimeout(timeoutId)
+      }
+      highlightTimersRef.current.clear()
+    }
+  }, [])
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const now = Date.now()
+      setRecentActivity((prev) => prev.filter((entry) => now - entry.ts < 30_000))
+    }, 5000)
+    return () => window.clearInterval(id)
   }, [])
 
   const { data, refetch, isLoading, isError } = useFolder(current)
@@ -146,6 +179,82 @@ export default function AppShell() {
   const filteredCount = items.length
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
+
+  const markHighlight = useCallback((path: string) => {
+    setHighlightedPaths((prev) => {
+      if (prev.has(path)) return prev
+      const next = new Set(prev)
+      next.add(path)
+      return next
+    })
+    const timers = highlightTimersRef.current
+    const existing = timers.get(path)
+    if (existing) window.clearTimeout(existing)
+    const timeoutId = window.setTimeout(() => {
+      setHighlightedPaths((prev) => {
+        if (!prev.has(path)) return prev
+        const next = new Set(prev)
+        next.delete(path)
+        return next
+      })
+      timers.delete(path)
+    }, 6000)
+    timers.set(path, timeoutId)
+  }, [])
+
+  const markRecentActivity = useCallback((path: string, kind: RecentActivity['kind']) => {
+    const now = Date.now()
+    setRecentActivity((prev) => {
+      const filtered = prev.filter((entry) => now - entry.ts < 30_000 && entry.path !== path)
+      const next = [{ path, ts: now, kind }, ...filtered]
+      return next.slice(0, 6)
+    })
+    markHighlight(path)
+  }, [markHighlight])
+
+  const updateItemCaches = useCallback((payload: { path: string; star?: StarRating | null; metrics?: Record<string, number | null> }) => {
+    const hasStar = Object.prototype.hasOwnProperty.call(payload, 'star')
+    const hasMetrics = payload.metrics !== undefined
+    if (!hasStar && !hasMetrics) return
+
+    const updateItem = (item: Item): Item => {
+      if (item.path !== payload.path) return item
+      let next = item
+      if (hasStar && item.star !== payload.star) {
+        next = { ...next, star: payload.star ?? null }
+      }
+      if (hasMetrics) {
+        next = { ...next, metrics: payload.metrics ?? null }
+      }
+      return next
+    }
+
+    queryClient.setQueriesData<FolderIndex>({
+      predicate: ({ queryKey }) => Array.isArray(queryKey) && queryKey[0] === 'folder',
+    }, (old) => {
+      if (!old) return old
+      let changed = false
+      const items = old.items.map((it) => {
+        const next = updateItem(it)
+        if (next !== it) changed = true
+        return next
+      })
+      return changed ? { ...old, items } : old
+    })
+
+    queryClient.setQueriesData<SearchResult>({
+      predicate: ({ queryKey }) => Array.isArray(queryKey) && queryKey[0] === 'search',
+    }, (old) => {
+      if (!old) return old
+      let changed = false
+      const items = old.items.map((it) => {
+        const next = updateItem(it)
+        if (next !== it) changed = true
+        return next
+      })
+      return changed ? { ...old, items } : old
+    })
+  }, [queryClient])
 
   const countFolderImages = useCallback(async (path: string): Promise<number> => {
     const target = sanitizePath(path || '/')
@@ -207,6 +316,89 @@ export default function AppShell() {
     }
   }, [current, countFolderImages])
 
+  useEffect(() => {
+    connectEvents()
+    const offEvents = subscribeEvents((evt: SyncEvent) => {
+      if (evt.type === 'presence') {
+        const data = evt.data
+        if (!data?.gallery_id) return
+        setPresenceByGallery((prev) => ({ ...prev, [data.gallery_id]: data }))
+        return
+      }
+
+      const data = evt.data as { path?: string }
+      if (!data?.path) return
+      const path = data.path
+
+      if (evt.type === 'item-updated') {
+        const payload = evt.data
+        queryClient.setQueryData(sidecarQueryKey(path), {
+          v: 1,
+          tags: payload.tags ?? [],
+          notes: payload.notes ?? '',
+          star: payload.star ?? null,
+          version: payload.version ?? 1,
+          updated_at: payload.updated_at ?? '',
+          updated_by: payload.updated_by ?? 'server',
+        })
+        updateItemCaches({ path, star: payload.star ?? null, metrics: payload.metrics })
+        clearConflict(path)
+        markRecentActivity(path, 'item-updated')
+        setLocalStarOverrides((prev) => {
+          if (prev[path] === undefined) return prev
+          const next = { ...prev }
+          delete next[path]
+          return next
+        })
+      } else if (evt.type === 'metrics-updated') {
+        const payload = evt.data
+        updateItemCaches({ path, metrics: payload.metrics })
+        markRecentActivity(path, 'metrics-updated')
+      }
+    })
+    const offStatus = subscribeEventStatus(setConnectionStatus)
+    return () => {
+      offEvents()
+      offStatus()
+      disconnectEvents()
+    }
+  }, [markRecentActivity, queryClient, updateItemCaches])
+
+  useEffect(() => {
+    let cancelled = false
+    const galleryId = sanitizePath(current || '/')
+    const send = async () => {
+      try {
+        const res = await api.postPresence(galleryId)
+        if (!cancelled && res?.gallery_id) {
+          setPresenceByGallery((prev) => ({ ...prev, [res.gallery_id]: res }))
+        }
+      } catch {
+        // Ignore presence errors
+      }
+    }
+    send()
+    const id = window.setInterval(send, 30_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [current])
+
+  useEffect(() => {
+    let cancelled = false
+    api.getHealth()
+      .then((res) => {
+        if (cancelled) return
+        const enabled = res?.labels?.enabled ?? true
+        setPersistenceEnabled(enabled)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Compute star counts for the filter UI
   const starCounts = useMemo(() => {
     const baseItems = poolItems
@@ -258,6 +450,53 @@ export default function AppShell() {
   const scopeTotal = scopeTotalCount ?? totalCount
   const rootTotal = rootTotalCount ?? scopeTotal
   const showFilteredCounts = searching || activeFilterCount > 0
+
+  const presence = presenceByGallery[current]
+  const syncLabel = syncStatus.state === 'syncing'
+    ? 'Syncing…'
+    : syncStatus.state === 'error'
+      ? (syncStatus.message ? `Not saved — ${syncStatus.message}` : 'Not saved — retry')
+      : 'All changes saved'
+  const syncTone = syncStatus.state === 'error'
+    ? 'border-danger/40 text-danger'
+    : syncStatus.state === 'syncing'
+      ? 'border-accent/40 text-accent'
+      : 'border-border text-muted'
+
+  const connectionLabel = connectionStatus === 'live'
+    ? 'Live'
+    : connectionStatus === 'reconnecting'
+      ? 'Reconnecting…'
+      : connectionStatus === 'offline'
+        ? 'Offline'
+        : 'Connecting…'
+  const connectionTone = connectionStatus === 'live'
+    ? 'bg-success'
+    : connectionStatus === 'reconnecting'
+      ? 'bg-accent'
+      : connectionStatus === 'offline'
+        ? 'bg-danger'
+        : 'bg-border'
+
+  const recentSummary = useMemo(() => {
+    if (!recentActivity.length) return null
+    const seen = new Set<string>()
+    const paths: string[] = []
+    for (const entry of recentActivity) {
+      if (seen.has(entry.path)) continue
+      seen.add(entry.path)
+      paths.push(entry.path)
+    }
+    const names = paths.slice(0, 2).map((p) => {
+      const match = items.find((it) => it.path === p)
+      return match?.name ?? p.split('/').pop() ?? p
+    })
+    return {
+      count: paths.length,
+      names,
+      extra: Math.max(0, paths.length - names.length),
+    }
+  }, [recentActivity, items])
   const displayItemCount = showFilteredCounts ? filteredCount : scopeTotal
   const displayTotalCount = showFilteredCounts
     ? scopeTotal
@@ -1052,6 +1291,48 @@ export default function AppShell() {
         <div aria-live="polite" className="sr-only">
           {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
         </div>
+        <div className="border-b border-border bg-panel">
+          <div className="px-3 py-2 flex flex-col gap-2">
+            {!persistenceEnabled && (
+              <div className="rounded-md border border-danger/40 bg-danger/10 text-danger text-xs px-2.5 py-1.5">
+                <span className="font-semibold">Not persisted.</span> Workspace is read-only; edits stay in memory until restart.
+              </div>
+            )}
+            {recentSummary && (
+              <div className="rounded-md border border-accent/30 bg-accent/10 text-text text-xs px-2.5 py-1.5 flex items-center justify-between gap-3">
+                <span>
+                  Recent updates: {recentSummary.count} item{recentSummary.count === 1 ? '' : 's'}
+                  {recentSummary.names.length ? ` (${recentSummary.names.join(', ')}${recentSummary.extra ? ` +${recentSummary.extra}` : ''})` : ''}
+                </span>
+                <button
+                  className="text-muted hover:text-text transition-colors"
+                  onClick={() => setRecentActivity([])}
+                  aria-label="Dismiss recent activity"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border ${syncTone}`}>
+                {syncLabel}
+              </span>
+              <span className="inline-flex items-center gap-2 px-2 py-1 rounded-full border border-border text-muted">
+                <span className={`inline-block w-2 h-2 rounded-full ${connectionTone}`} />
+                {connectionLabel}
+              </span>
+              {presence ? (
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border text-muted">
+                  {presence.viewing} viewing · {presence.editing} editing
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border text-muted">
+                  Presence: —
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
         {filterChips.length > 0 && (
           <div className="sticky top-0 z-10 px-3 py-2 bg-panel border-b border-border">
             <div className="flex flex-wrap items-center gap-2">
@@ -1104,6 +1385,7 @@ export default function AppShell() {
         <div className="flex-1 min-h-0">
           <VirtualGrid items={items} selected={selectedPaths} restoreToSelectionToken={restoreGridToSelectionToken} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
             highlight={searching ? normalizedQ : ''}
+            recentlyUpdated={highlightedPaths}
             suppressSelectionHighlight={!!viewer}
             viewMode={viewMode}
             targetCellSize={gridItemSize}

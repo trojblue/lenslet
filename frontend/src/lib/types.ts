@@ -55,6 +55,40 @@ export type SidecarPatch = {
   remove_tags?: string[]
 }
 
+export type ItemUpdatedEvent = {
+  path: string
+  version: number
+  tags: string[]
+  notes: string
+  star: StarRating | null
+  updated_at: string
+  updated_by: string
+  metrics?: Record<string, number | null>
+}
+
+export type MetricsUpdatedEvent = {
+  path: string
+  version: number
+  metrics: Record<string, number | null>
+  updated_at: string
+  updated_by: string
+}
+
+export type PresenceEvent = {
+  gallery_id: string
+  viewing: number
+  editing: number
+}
+
+export type HealthResponse = {
+  ok: boolean
+  labels?: {
+    enabled: boolean
+    log?: string | null
+    snapshot?: string | null
+  }
+}
+
 export type SearchResult = { items: Item[] }
 
 export type FileOpResponse = {

@@ -107,6 +107,11 @@ class SidecarPatch(BaseModel):
     remove_tags: list[str] = Field(default_factory=list)
 
 
+class PresencePayload(BaseModel):
+    gallery_id: str
+    client_id: str
+
+
 class SearchResult(BaseModel):
     items: list[Item]
 
@@ -134,6 +139,15 @@ def _canonical_path(path: str | None) -> str:
     if p != "/":
         p = p.rstrip("/")
     return p
+
+
+def _gallery_id_from_path(path: str) -> str:
+    path = _canonical_path(path)
+    if path == "/":
+        return "/"
+    if "/" not in path[1:]:
+        return "/"
+    return path.rsplit("/", 1)[0] or "/"
 
 
 def _now_iso() -> str:
@@ -270,6 +284,53 @@ class EventBroker:
             return []
         with self._lock:
             return [item for item in self._buffer if item.get("id", 0) > last_id]
+
+
+class PresenceTracker:
+    def __init__(self, view_ttl: float = 75.0, edit_ttl: float = 60.0) -> None:
+        self._view_ttl = view_ttl
+        self._edit_ttl = edit_ttl
+        self._lock = threading.Lock()
+        self._entries: dict[str, dict[str, dict[str, float]]] = {}
+
+    def _counts_locked(self, gallery_id: str, now: float) -> tuple[int, int]:
+        entries = self._entries.get(gallery_id, {})
+        viewing = 0
+        editing = 0
+        stale: list[str] = []
+        for client_id, record in entries.items():
+            last_view = record.get("view", 0.0)
+            last_edit = record.get("edit", 0.0)
+            if now - last_view <= self._view_ttl:
+                viewing += 1
+            if now - last_edit <= self._edit_ttl:
+                editing += 1
+            if now - last_view > self._view_ttl and now - last_edit > self._edit_ttl:
+                stale.append(client_id)
+        for client_id in stale:
+            entries.pop(client_id, None)
+        if entries:
+            self._entries[gallery_id] = entries
+        else:
+            self._entries.pop(gallery_id, None)
+        return viewing, editing
+
+    def touch_view(self, gallery_id: str, client_id: str) -> tuple[int, int]:
+        now = time.monotonic()
+        with self._lock:
+            entries = self._entries.setdefault(gallery_id, {})
+            record = entries.setdefault(client_id, {})
+            record["view"] = now
+            return self._counts_locked(gallery_id, now)
+
+    def touch_edit(self, gallery_id: str, client_id: str) -> tuple[int, int]:
+        now = time.monotonic()
+        with self._lock:
+            entries = self._entries.setdefault(gallery_id, {})
+            record = entries.setdefault(client_id, {})
+            record["view"] = now
+            record["edit"] = now
+            return self._counts_locked(gallery_id, now)
 
 
 class IdempotencyCache:
@@ -436,6 +497,12 @@ def _updated_by_from_request(request: Request | None) -> str:
         if value:
             return value
     return "server"
+
+
+def _client_id_from_request(request: Request | None) -> str | None:
+    if request is None:
+        return None
+    return request.headers.get("x-client-id")
 
 
 def _apply_patch_to_meta(meta: dict, body: SidecarPatch) -> bool:
@@ -1022,6 +1089,7 @@ def create_app(
 
     broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace)
     sync_state = {"last_event_id": max_event_id}
+    presence = PresenceTracker()
 
     if hasattr(storage, "get_index"):
         def _warm_index() -> None:
@@ -1115,6 +1183,11 @@ def create_app(
         sidecar = _update_item(storage, path, body, updated_by)
         meta = storage.get_metadata(path)
         _record_update(path, meta)
+        client_id = _client_id_from_request(request)
+        if client_id:
+            gallery_id = _gallery_id_from_path(path)
+            viewing, editing = presence.touch_edit(gallery_id, client_id)
+            broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
         return sidecar
 
     @app.patch("/item")
@@ -1175,9 +1248,24 @@ def create_app(
             meta["updated_by"] = _updated_by_from_request(request)
             storage.set_metadata(path, meta)
             _record_update(path, meta)
+            client_id = _client_id_from_request(request)
+            if client_id:
+                gallery_id = _gallery_id_from_path(path)
+                viewing, editing = presence.touch_edit(gallery_id, client_id)
+                broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
         sidecar = _sidecar_from_meta(meta).model_dump()
         idempotency_cache.set(idem_key, 200, sidecar)
         return JSONResponse(status_code=200, content=sidecar)
+
+    @app.post("/presence")
+    def presence_heartbeat(body: PresencePayload):
+        gallery_id = _canonical_path(body.gallery_id)
+        if not body.client_id:
+            raise HTTPException(400, "client_id required")
+        viewing, editing = presence.touch_view(gallery_id, body.client_id)
+        payload = {"gallery_id": gallery_id, "viewing": viewing, "editing": editing}
+        broker.publish("presence", payload)
+        return payload
 
     @app.get("/events")
     async def events(request: Request):
@@ -1273,6 +1361,7 @@ def create_app_from_datasets(
     workspace = Workspace.for_dataset(None, can_write=False)
     broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace)
     sync_state = {"last_event_id": max_event_id}
+    presence = PresenceTracker()
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
 
@@ -1354,6 +1443,11 @@ def create_app_from_datasets(
         sidecar = _update_item(storage, path, body, updated_by)
         meta = storage.get_metadata(path)
         _record_update(path, meta)
+        client_id = _client_id_from_request(request)
+        if client_id:
+            gallery_id = _gallery_id_from_path(path)
+            viewing, editing = presence.touch_edit(gallery_id, client_id)
+            broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
         return sidecar
 
     @app.patch("/item")
@@ -1399,9 +1493,24 @@ def create_app_from_datasets(
             meta["updated_by"] = _updated_by_from_request(request)
             storage.set_metadata(path, meta)
             _record_update(path, meta)
+            client_id = _client_id_from_request(request)
+            if client_id:
+                gallery_id = _gallery_id_from_path(path)
+                viewing, editing = presence.touch_edit(gallery_id, client_id)
+                broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
         sidecar = _sidecar_from_meta(meta).model_dump()
         idempotency_cache.set(idem_key, 200, sidecar)
         return JSONResponse(status_code=200, content=sidecar)
+
+    @app.post("/presence")
+    def presence_heartbeat(body: PresencePayload):
+        gallery_id = _canonical_path(body.gallery_id)
+        if not body.client_id:
+            raise HTTPException(400, "client_id required")
+        viewing, editing = presence.touch_view(gallery_id, body.client_id)
+        payload = {"gallery_id": gallery_id, "viewing": viewing, "editing": editing}
+        broker.publish("presence", payload)
+        return payload
 
     @app.get("/events")
     async def events(request: Request):
@@ -1517,6 +1626,7 @@ def create_app_from_storage(
         workspace = Workspace.for_dataset(None, can_write=False)
     broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace)
     sync_state = {"last_event_id": max_event_id}
+    presence = PresenceTracker()
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
 
@@ -1586,6 +1696,11 @@ def create_app_from_storage(
         sidecar = _update_item(storage, path, body, updated_by)
         meta = storage.get_metadata(path)
         _record_update(path, meta)
+        client_id = _client_id_from_request(request)
+        if client_id:
+            gallery_id = _gallery_id_from_path(path)
+            viewing, editing = presence.touch_edit(gallery_id, client_id)
+            broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
         return sidecar
 
     @app.patch("/item")
@@ -1631,9 +1746,24 @@ def create_app_from_storage(
             meta["updated_by"] = _updated_by_from_request(request)
             storage.set_metadata(path, meta)
             _record_update(path, meta)
+            client_id = _client_id_from_request(request)
+            if client_id:
+                gallery_id = _gallery_id_from_path(path)
+                viewing, editing = presence.touch_edit(gallery_id, client_id)
+                broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
         sidecar = _sidecar_from_meta(meta).model_dump()
         idempotency_cache.set(idem_key, 200, sidecar)
         return JSONResponse(status_code=200, content=sidecar)
+
+    @app.post("/presence")
+    def presence_heartbeat(body: PresencePayload):
+        gallery_id = _canonical_path(body.gallery_id)
+        if not body.client_id:
+            raise HTTPException(400, "client_id required")
+        viewing, editing = presence.touch_view(gallery_id, body.client_id)
+        payload = {"gallery_id": gallery_id, "viewing": viewing, "editing": editing}
+        broker.publish("presence", payload)
+        return payload
 
     @app.get("/events")
     async def events(request: Request):

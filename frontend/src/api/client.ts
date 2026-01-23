@@ -1,10 +1,137 @@
 import { fetchJSON, fetchBlob } from '../lib/fetcher'
 import { fileCache, thumbCache } from '../lib/blobCache'
-import type { FolderIndex, Sidecar, FileOpResponse, RefreshResponse, SearchResult, ImageMetadataResponse, ViewsPayload } from '../lib/types'
+import type {
+  FolderIndex,
+  Sidecar,
+  SidecarPatch,
+  FileOpResponse,
+  RefreshResponse,
+  SearchResult,
+  ImageMetadataResponse,
+  ViewsPayload,
+  HealthResponse,
+  PresenceEvent,
+  ItemUpdatedEvent,
+  MetricsUpdatedEvent,
+} from '../lib/types'
 import { BASE } from './base'
 
 /** Maximum file size to cache in prefetch (40MB) */
 const MAX_PREFETCH_SIZE = 40 * 1024 * 1024
+
+const CLIENT_ID_KEY = 'lenslet.client_id'
+let cachedClientId: string | null = null
+let idempotencyCounter = 0
+
+export function getClientId(): string {
+  if (cachedClientId) return cachedClientId
+  try {
+    const existing = window.localStorage.getItem(CLIENT_ID_KEY)
+    if (existing) {
+      cachedClientId = existing
+      return existing
+    }
+    const next = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `client_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`
+    window.localStorage.setItem(CLIENT_ID_KEY, next)
+    cachedClientId = next
+    return next
+  } catch {
+    const fallback = `client_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`
+    cachedClientId = fallback
+    return fallback
+  }
+}
+
+export function makeIdempotencyKey(prefix = 'lenslet'): string {
+  idempotencyCounter += 1
+  return `${prefix}:${getClientId()}:${Date.now()}:${idempotencyCounter}`
+}
+
+function parseEventData<T>(raw: string): T | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
+
+export type ConnectionStatus = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'offline'
+export type SyncEvent =
+  | { type: 'item-updated'; id: number | null; data: ItemUpdatedEvent }
+  | { type: 'metrics-updated'; id: number | null; data: MetricsUpdatedEvent }
+  | { type: 'presence'; id: number | null; data: PresenceEvent }
+
+let eventSource: EventSource | null = null
+let connectionStatus: ConnectionStatus = 'idle'
+const eventListeners = new Set<(evt: SyncEvent) => void>()
+const statusListeners = new Set<(status: ConnectionStatus) => void>()
+
+function notifyStatus(next: ConnectionStatus) {
+  connectionStatus = next
+  for (const listener of statusListeners) {
+    listener(next)
+  }
+}
+
+export function connectEvents(): void {
+  if (eventSource || typeof window === 'undefined' || typeof EventSource === 'undefined') return
+  notifyStatus('connecting')
+  const es = new EventSource(`${BASE}/events`)
+  eventSource = es
+
+  const handle = (type: SyncEvent['type']) => (evt: MessageEvent) => {
+    const data = parseEventData(evt.data)
+    if (!data) return
+    const rawId = evt.lastEventId ? Number(evt.lastEventId) : null
+    const id = rawId != null && Number.isFinite(rawId) ? rawId : null
+    for (const listener of eventListeners) {
+      listener({ type, id, data } as SyncEvent)
+    }
+  }
+
+  es.addEventListener('item-updated', handle('item-updated'))
+  es.addEventListener('metrics-updated', handle('metrics-updated'))
+  es.addEventListener('presence', handle('presence'))
+
+  es.onopen = () => notifyStatus('live')
+  es.onerror = () => {
+    if (!eventSource) return
+    if (eventSource.readyState === EventSource.CLOSED) {
+      notifyStatus('offline')
+    } else {
+      notifyStatus('reconnecting')
+    }
+  }
+}
+
+export function disconnectEvents(): void {
+  if (!eventSource) return
+  eventSource.close()
+  eventSource = null
+  notifyStatus('offline')
+}
+
+export function subscribeEvents(listener: (evt: SyncEvent) => void): () => void {
+  eventListeners.add(listener)
+  return () => {
+    eventListeners.delete(listener)
+  }
+}
+
+export function subscribeEventStatus(listener: (status: ConnectionStatus) => void): () => void {
+  statusListeners.add(listener)
+  listener(connectionStatus)
+  return () => {
+    statusListeners.delete(listener)
+  }
+}
+
+export function getEventStatus(): ConnectionStatus {
+  return connectionStatus
+}
 
 /**
  * API client for the lenslet backend.
@@ -52,6 +179,28 @@ export const api = {
   },
 
   /**
+   * Patch sidecar metadata with optimistic concurrency + idempotency.
+   */
+  patchSidecar: (
+    path: string,
+    body: SidecarPatch,
+    opts?: { idempotencyKey?: string; ifMatch?: number }
+  ): Promise<Sidecar> => {
+    const idempotencyKey = opts?.idempotencyKey ?? makeIdempotencyKey('patch')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+      'x-client-id': getClientId(),
+    }
+    if (opts?.ifMatch != null) headers['If-Match'] = String(opts.ifMatch)
+    return fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(body),
+    }).promise
+  },
+
+  /**
    * Fetch heavy image metadata (PNG text chunks, etc) on-demand.
    */
   getMetadata: (path: string): Promise<ImageMetadataResponse> => {
@@ -64,8 +213,32 @@ export const api = {
   putSidecar: (path: string, body: Sidecar): Promise<Sidecar> => {
     return fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-client-id': getClientId(),
+      },
       body: JSON.stringify(body),
+    }).promise
+  },
+
+  /**
+   * Fetch backend health and persistence status.
+   */
+  getHealth: (): Promise<HealthResponse> => {
+    return fetchJSON<HealthResponse>(`${BASE}/health`).promise
+  },
+
+  /**
+   * Send presence heartbeat for the current gallery.
+   */
+  postPresence: (galleryId: string, clientId?: string): Promise<PresenceEvent> => {
+    return fetchJSON<PresenceEvent>(`${BASE}/presence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        gallery_id: galleryId,
+        client_id: clientId ?? getClientId(),
+      }),
     }).promise
   },
 

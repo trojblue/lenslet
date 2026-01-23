@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
-import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate } from '../../shared/api/items'
+import { useQueryClient } from '@tanstack/react-query'
+import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict, clearConflict, sidecarQueryKey } from '../../shared/api/items'
 import { fmtBytes } from '../../lib/util'
-import { api } from '../../shared/api/client'
+import { api, makeIdempotencyKey } from '../../shared/api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
-import type { Item, SortSpec, StarRating, Sidecar } from '../../lib/types'
+import type { Item, SortSpec, StarRating } from '../../lib/types'
 import { isInputElement } from '../../lib/keyboard'
 
 // Try to turn JSON-looking strings (common in PNG text chunks) back into objects
@@ -200,6 +201,7 @@ export default function Inspector({
   const enabled = !!path
   const { data, isLoading } = useSidecar(path ?? '')
   const mut = useUpdateSidecar(path ?? '')
+  const qc = useQueryClient()
 
   const [openSections, setOpenSections] = useState<Record<InspectorSectionKey, boolean>>(DEFAULT_SECTION_STATE)
   const toggleSection = useCallback((key: InspectorSectionKey) => {
@@ -228,6 +230,12 @@ export default function Inspector({
   const star = itemStarFromList ?? data?.star ?? null
 
   const multi = selectedPaths.length > 1
+  const conflict = useSidecarConflict(!multi ? path : null)
+  const conflictFields = {
+    tags: !!conflict?.pending.set_tags,
+    notes: conflict?.pending.set_notes !== undefined,
+    star: conflict?.pending.set_star !== undefined,
+  }
   
   const selectedItems = useMemo(() => {
     const set = new Set(selectedPaths)
@@ -251,32 +259,41 @@ export default function Inspector({
     setCopied(false)
   }, [data?.updated_at, path])
 
-  // Create a base sidecar for updates
-  const createBaseSidecar = useCallback((): Sidecar => {
-    return data ?? {
-      v: 1,
-      tags: [],
-      notes: '',
-      version: 1,
-      updated_at: '',
-      updated_by: 'web',
-    }
-  }, [data])
-
-  const commitSidecar = useCallback((patch: Partial<Omit<Sidecar, 'v' | 'version' | 'updated_at' | 'updated_by'>>) => {
+  const commitSidecar = useCallback((patch: { notes?: string; tags?: string[]; star?: StarRating | null }) => {
     if (multi && selectedPaths.length) {
       bulkUpdateSidecars(selectedPaths, patch)
       return
     }
     if (!path) return
-    const base = createBaseSidecar()
-    mut.mutate({
-      ...base,
-      ...patch,
-      updated_at: new Date().toISOString(),
-      updated_by: 'web',
-    })
-  }, [multi, selectedPaths, path, createBaseSidecar, mut])
+    const baseVersion = data?.version ?? 1
+    mut.mutate({ patch, baseVersion, idempotencyKey: makeIdempotencyKey('patch') })
+  }, [multi, selectedPaths, path, data?.version, mut])
+
+  const applyConflict = useCallback(() => {
+    if (!conflict || !path) return
+    const patch: { notes?: string; tags?: string[]; star?: StarRating | null } = {}
+    if (conflict.pending.set_tags !== undefined) {
+      patch.tags = parseTags(tags)
+    }
+    if (conflict.pending.set_notes !== undefined) {
+      patch.notes = notes
+    }
+    if (conflict.pending.set_star !== undefined) {
+      patch.star = star ?? null
+    }
+    const baseVersion = conflict.current.version ?? 1
+    mut.mutate({ patch, baseVersion, idempotencyKey: makeIdempotencyKey('patch') })
+  }, [conflict, path, tags, notes, star, mut])
+
+  const keepTheirs = useCallback(() => {
+    if (!conflict || !path) return
+    const current = conflict.current
+    setTags((current.tags || []).join(', '))
+    setNotes(current.notes || '')
+    qc.setQueryData(sidecarQueryKey(path), current)
+    clearConflict(path)
+    onStarChanged?.([path], current.star ?? null)
+  }, [conflict, path, qc, onStarChanged])
 
   // Keyboard shortcuts for star ratings (0-5)
   useEffect(() => {
@@ -486,6 +503,22 @@ export default function Inspector({
         onToggle={() => toggleSection('notes')}
         contentClassName="px-3 pb-3 space-y-1.5"
       >
+        {!multi && conflict && (conflictFields.tags || conflictFields.notes) && (
+          <div className="rounded-md border border-danger/40 bg-danger/10 text-danger text-xs px-2.5 py-2">
+            <div className="font-semibold">Conflicting edits detected.</div>
+            <div className="text-[11px] text-muted mt-0.5">
+              Your changes were not saved because this item was updated elsewhere.
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <button className="btn btn-sm" onClick={applyConflict}>
+                Apply my changes again
+              </button>
+              <button className="btn btn-sm btn-ghost" onClick={keepTheirs}>
+                Keep theirs
+              </button>
+            </div>
+          </div>
+        )}
         <textarea
           className="w-full bg-transparent text-text border border-border/60 rounded-md px-2 py-1 min-h-[32px] resize-y scrollbar-thin placeholder:text-muted focus:border-border"
           placeholder="Add notes"
@@ -564,6 +597,19 @@ export default function Inspector({
             })}
           </div>
         </div>
+        {!multi && conflict && conflictFields.star && (
+          <div className="mt-2 rounded-md border border-danger/40 bg-danger/10 text-danger text-[11px] px-2 py-1 flex items-center justify-between gap-2">
+            <span>Rating conflict.</span>
+            <div className="flex items-center gap-2">
+              <button className="btn btn-sm" onClick={applyConflict}>
+                Apply again
+              </button>
+              <button className="btn btn-sm btn-ghost" onClick={keepTheirs}>
+                Keep theirs
+              </button>
+            </div>
+          </div>
+        )}
         {!multi && currentItem && (
           <div className="text-[12px] space-y-1">
             <div className="flex justify-between">

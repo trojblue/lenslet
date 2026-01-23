@@ -21,6 +21,7 @@ interface VirtualGridProps {
   onOpenViewer: (path: string) => void
   onContextMenuItem?: (e: React.MouseEvent, path: string) => void
   highlight?: string
+  recentlyUpdated?: Set<string>
   suppressSelectionHighlight?: boolean
   viewMode?: ViewMode
   targetCellSize?: number
@@ -34,6 +35,7 @@ export default function VirtualGrid({
   onOpenViewer,
   onContextMenuItem,
   highlight,
+  recentlyUpdated,
   suppressSelectionHighlight = false,
   viewMode = 'grid',
   targetCellSize = 220,
@@ -434,6 +436,7 @@ export default function VirtualGrid({
             >
               {rowItems.map(({ item: it, displayW, displayH }) => {
                 const isVisuallySelected = !suppressSelectionHighlight && ((active===it.path) || selectedSet.has(it.path))
+                const isRecentlyUpdated = recentlyUpdated?.has(it.path) ?? false
                 const wrapperStyle = layout.mode === 'adaptive' ? { width: displayW } : {}
                 const imageContainerStyle = layout.mode === 'adaptive' ? { height: displayH } : {}
                 
@@ -466,6 +469,7 @@ export default function VirtualGrid({
                         path={it.path}
                         name={it.name}
                         selected={isVisuallySelected}
+                        highlighted={isRecentlyUpdated}
                         displayW={displayW}
                         displayH={displayH}
                         ioRoot={parentRef.current}

@@ -372,6 +372,16 @@ class TableStorage:
             p = p[2:]
         return p.strip("/")
 
+    def _canonical_meta_key(self, path: str) -> str:
+        """Canonical key for metadata maps (leading slash, no trailing)."""
+        p = (path or "").replace("\\", "/").strip()
+        if not p:
+            return "/"
+        p = "/" + p.lstrip("/")
+        if p != "/":
+            p = p.rstrip("/")
+        return p
+
     def _dedupe_path(self, path: str, seen: set[str]) -> str:
         if path not in seen:
             return path
@@ -807,8 +817,9 @@ class TableStorage:
 
     def get_metadata(self, path: str) -> dict:
         norm = self._normalize_item_path(path)
-        if norm in self._metadata:
-            return self._metadata[norm]
+        key = self._canonical_meta_key(norm)
+        if key in self._metadata:
+            return self._metadata[key]
 
         w, h = self._dimensions.get(norm, (0, 0))
         item = self._items.get(norm)
@@ -821,13 +832,17 @@ class TableStorage:
             "tags": [],
             "notes": "",
             "star": None,
+            "version": 1,
+            "updated_at": "",
+            "updated_by": "server",
         }
-        self._metadata[norm] = meta
+        self._metadata[key] = meta
         return meta
 
     def set_metadata(self, path: str, meta: dict) -> None:
         norm = self._normalize_item_path(path)
-        self._metadata[norm] = meta
+        key = self._canonical_meta_key(norm)
+        self._metadata[key] = meta
 
     def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[CachedItem]:
         q = (query or "").lower()

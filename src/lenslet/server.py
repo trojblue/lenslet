@@ -2,18 +2,22 @@
 from __future__ import annotations
 import asyncio
 import io
+import json
 import os
 import threading
 import html
+import time
+from collections import deque
 from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, Any
 from . import og
 
 
@@ -89,8 +93,18 @@ class Sidecar(BaseModel):
     hash: str | None = None
     original_position: str | None = None
     star: int | None = None
+    version: int = 1
     updated_at: str = ""
     updated_by: str = "server"
+
+
+class SidecarPatch(BaseModel):
+    base_version: int | None = None
+    set_star: int | None = None
+    set_notes: str | None = None
+    set_tags: list[str] | None = None
+    add_tags: list[str] = Field(default_factory=list)
+    remove_tags: list[str] = Field(default_factory=list)
 
 
 class SearchResult(BaseModel):
@@ -108,6 +122,370 @@ class ViewsPayload(BaseModel):
     views: list[dict] = Field(default_factory=list)
 
 
+# --- Collaboration helpers ---
+
+def _canonical_path(path: str | None) -> str:
+    p = (path or "").replace("\\", "/").strip()
+    if not p:
+        return "/"
+    while "//" in p:
+        p = p.replace("//", "/")
+    p = "/" + p.lstrip("/")
+    if p != "/":
+        p = p.rstrip("/")
+    return p
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_if_match(value: str | None) -> int | None:
+    if not value:
+        return None
+    cleaned = value.strip()
+    if cleaned.startswith("W/"):
+        cleaned = cleaned[2:]
+    cleaned = cleaned.strip('"')
+    try:
+        return int(cleaned)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_tags(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in values:
+        if not isinstance(raw, str):
+            continue
+        val = raw.strip()
+        if not val or val in seen:
+            continue
+        seen.add(val)
+        out.append(val)
+    return out
+
+
+def _ensure_meta_fields(meta: dict) -> dict:
+    if "tags" not in meta or not isinstance(meta.get("tags"), list):
+        meta["tags"] = []
+    if "notes" not in meta or not isinstance(meta.get("notes"), str):
+        meta["notes"] = ""
+    if "star" not in meta:
+        meta["star"] = None
+    if "version" not in meta or not isinstance(meta.get("version"), int):
+        meta["version"] = 1
+    if "updated_at" not in meta or not isinstance(meta.get("updated_at"), str):
+        meta["updated_at"] = ""
+    if "updated_by" not in meta or not isinstance(meta.get("updated_by"), str):
+        meta["updated_by"] = "server"
+    return meta
+
+
+def _sidecar_from_meta(meta: dict) -> Sidecar:
+    meta = _ensure_meta_fields(meta)
+    return Sidecar(
+        tags=list(meta.get("tags", [])),
+        notes=meta.get("notes", ""),
+        exif={"width": meta.get("width", 0), "height": meta.get("height", 0)},
+        star=meta.get("star"),
+        version=meta.get("version", 1),
+        updated_at=meta.get("updated_at", ""),
+        updated_by=meta.get("updated_by", "server"),
+    )
+
+
+def _sidecar_payload(path: str, meta: dict) -> dict[str, Any]:
+    meta = _ensure_meta_fields(meta)
+    payload: dict[str, Any] = {
+        "path": _canonical_path(path),
+        "version": meta.get("version", 1),
+        "tags": list(meta.get("tags", [])),
+        "notes": meta.get("notes", ""),
+        "star": meta.get("star"),
+        "updated_at": meta.get("updated_at", ""),
+        "updated_by": meta.get("updated_by", "server"),
+    }
+    if "metrics" in meta:
+        payload["metrics"] = meta.get("metrics")
+    return payload
+
+
+def _format_sse(record: dict[str, Any]) -> str:
+    data = json.dumps(record.get("data", {}), separators=(",", ":"))
+    return f"event: {record.get('event','message')}\nid: {record.get('id','')}\ndata: {data}\n\n"
+
+
+class EventBroker:
+    def __init__(self, buffer_size: int = 500) -> None:
+        self._buffer = deque(maxlen=buffer_size)
+        self._next_id = 1
+        self._clients: set[asyncio.Queue] = set()
+        self._lock = threading.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def ensure_loop(self) -> None:
+        if self._loop is not None:
+            return
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+
+    def set_next_id(self, next_id: int) -> None:
+        with self._lock:
+            self._next_id = max(self._next_id, next_id)
+
+    def publish(self, event: str, data: dict[str, Any]) -> int:
+        with self._lock:
+            event_id = self._next_id
+            self._next_id += 1
+            record = {"id": event_id, "event": event, "data": data}
+            self._buffer.append(record)
+            loop = self._loop
+        if loop is not None:
+            loop.call_soon_threadsafe(self._broadcast, record)
+        return event_id
+
+    def _broadcast(self, record: dict[str, Any]) -> None:
+        for queue in list(self._clients):
+            try:
+                queue.put_nowait(record)
+            except asyncio.QueueFull:
+                continue
+
+    def register(self) -> asyncio.Queue:
+        queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+        with self._lock:
+            self._clients.add(queue)
+        return queue
+
+    def unregister(self, queue: asyncio.Queue) -> None:
+        with self._lock:
+            self._clients.discard(queue)
+
+    def replay(self, last_id: int | None) -> list[dict[str, Any]]:
+        if last_id is None:
+            return []
+        with self._lock:
+            return [item for item in self._buffer if item.get("id", 0) > last_id]
+
+
+class IdempotencyCache:
+    def __init__(self, ttl_seconds: int = 600) -> None:
+        self._ttl = ttl_seconds
+        self._store: dict[str, tuple[float, int, dict[str, Any]]] = {}
+        self._lock = threading.Lock()
+
+    def _prune(self, now: float) -> None:
+        for key, (ts, _, _) in list(self._store.items()):
+            if now - ts > self._ttl:
+                self._store.pop(key, None)
+
+    def get(self, key: str) -> tuple[int, dict[str, Any]] | None:
+        now = time.time()
+        with self._lock:
+            self._prune(now)
+            entry = self._store.get(key)
+            if not entry:
+                return None
+            _, status, payload = entry
+            return status, payload
+
+    def set(self, key: str, status: int, payload: dict[str, Any]) -> None:
+        now = time.time()
+        with self._lock:
+            self._prune(now)
+            self._store[key] = (now, status, payload)
+
+
+class SnapshotWriter:
+    def __init__(self, workspace: Workspace, min_interval: float = 5.0, min_updates: int = 20) -> None:
+        self._workspace = workspace
+        self._min_interval = min_interval
+        self._min_updates = min_updates
+        self._last_write = 0.0
+        self._since = 0
+        self._lock = threading.Lock()
+
+    def maybe_write(self, storage, last_event_id: int) -> None:
+        if not self._workspace.can_write:
+            return
+        now = time.monotonic()
+        with self._lock:
+            self._since += 1
+            if self._since < self._min_updates and now - self._last_write < self._min_interval:
+                return
+            self._since = 0
+            self._last_write = now
+        payload = _build_snapshot_payload(storage, last_event_id)
+        try:
+            self._workspace.write_labels_snapshot(payload)
+        except Exception as exc:
+            print(f"[lenslet] Warning: failed to write labels snapshot: {exc}")
+
+
+def _build_snapshot_payload(storage, last_event_id: int) -> dict[str, Any]:
+    meta_map = getattr(storage, "_metadata", None)
+    items: dict[str, Any] = {}
+    if isinstance(meta_map, dict):
+        for path, meta in meta_map.items():
+            if not isinstance(meta, dict):
+                continue
+            meta = _ensure_meta_fields(meta)
+            if not _should_persist_meta(meta):
+                continue
+            key = _canonical_path(path)
+            items[key] = _persistable_meta(meta)
+    return {"version": 1, "last_event_id": last_event_id, "items": items}
+
+
+def _should_persist_meta(meta: dict) -> bool:
+    if meta.get("version", 1) > 1:
+        return True
+    if meta.get("tags"):
+        return True
+    if meta.get("notes"):
+        return True
+    if meta.get("star") is not None:
+        return True
+    if meta.get("metrics"):
+        return True
+    return False
+
+
+def _persistable_meta(meta: dict) -> dict[str, Any]:
+    meta = _ensure_meta_fields(meta)
+    payload: dict[str, Any] = {
+        "tags": list(meta.get("tags", [])),
+        "notes": meta.get("notes", ""),
+        "star": meta.get("star"),
+        "version": meta.get("version", 1),
+        "updated_at": meta.get("updated_at", ""),
+        "updated_by": meta.get("updated_by", "server"),
+    }
+    if "metrics" in meta:
+        payload["metrics"] = meta.get("metrics")
+    return payload
+
+
+def _apply_persisted_record(storage, path: str, record: dict[str, Any]) -> bool:
+    if not isinstance(record, dict):
+        return False
+    meta = storage.get_metadata(path)
+    meta = _ensure_meta_fields(meta)
+    incoming_version = record.get("version", meta.get("version", 1))
+    if not isinstance(incoming_version, int):
+        incoming_version = meta.get("version", 1)
+    if incoming_version <= meta.get("version", 1):
+        return False
+    if "tags" in record:
+        meta["tags"] = list(record.get("tags") or [])
+    if "notes" in record:
+        meta["notes"] = record.get("notes") or ""
+    if "star" in record:
+        meta["star"] = record.get("star")
+    if "metrics" in record:
+        meta["metrics"] = record.get("metrics")
+    meta["version"] = incoming_version
+    if "updated_at" in record:
+        meta["updated_at"] = record.get("updated_at") or ""
+    if "updated_by" in record:
+        meta["updated_by"] = record.get("updated_by") or "server"
+    storage.set_metadata(path, meta)
+    return True
+
+
+def _load_label_state(storage, workspace: Workspace) -> int:
+    if not workspace.can_write:
+        return 0
+    max_event_id = 0
+    last_snapshot_id = 0
+    snapshot = workspace.read_labels_snapshot()
+    if isinstance(snapshot, dict):
+        last_snapshot_id = snapshot.get("last_event_id", 0) or 0
+        items = snapshot.get("items", {})
+        if isinstance(items, dict):
+            for raw_path, record in items.items():
+                path = _canonical_path(raw_path)
+                _apply_persisted_record(storage, path, record if isinstance(record, dict) else {})
+        if isinstance(last_snapshot_id, int):
+            max_event_id = max(max_event_id, last_snapshot_id)
+    for entry in workspace.read_labels_log():
+        if not isinstance(entry, dict):
+            continue
+        event_id = entry.get("id", 0) or 0
+        if isinstance(event_id, int) and event_id <= last_snapshot_id:
+            continue
+        if entry.get("type") not in ("item-updated", "metrics-updated"):
+            if "path" not in entry:
+                continue
+        path = _canonical_path(entry.get("path"))
+        _apply_persisted_record(storage, path, entry)
+        if isinstance(event_id, int):
+            max_event_id = max(max_event_id, event_id)
+    return max_event_id
+
+
+def _updated_by_from_request(request: Request | None) -> str:
+    if request is None:
+        return "server"
+    for key in ("x-updated-by", "x-client-id"):
+        value = request.headers.get(key)
+        if value:
+            return value
+    return "server"
+
+
+def _apply_patch_to_meta(meta: dict, body: SidecarPatch) -> bool:
+    updated = False
+    fields = body.model_fields_set
+
+    tags = list(meta.get("tags", []))
+    if "set_tags" in fields:
+        next_tags = _normalize_tags(body.set_tags or [])
+        if next_tags != tags:
+            updated = True
+        tags = next_tags
+
+    add_tags = _normalize_tags(body.add_tags or [])
+    remove_tags = set(_normalize_tags(body.remove_tags or []))
+    if add_tags or remove_tags:
+        base = [t for t in tags if t not in remove_tags]
+        for tag in add_tags:
+            if tag not in base:
+                base.append(tag)
+        if base != tags:
+            updated = True
+        tags = base
+
+    if "set_star" in fields:
+        if meta.get("star") != body.set_star:
+            updated = True
+        meta["star"] = body.set_star
+
+    if "set_notes" in fields:
+        if meta.get("notes") != (body.set_notes or ""):
+            updated = True
+        meta["notes"] = body.set_notes or ""
+
+    if tags != list(meta.get("tags", [])):
+        meta["tags"] = tags
+
+    return updated
+
+
+def _init_sync_state(storage, workspace: Workspace) -> tuple[EventBroker, IdempotencyCache, SnapshotWriter, int]:
+    broker = EventBroker(buffer_size=500)
+    max_event_id = _load_label_state(storage, workspace)
+    if max_event_id:
+        broker.set_next_id(max_event_id + 1)
+    idempotency = IdempotencyCache(ttl_seconds=600)
+    snapshotter = SnapshotWriter(workspace)
+    return broker, idempotency, snapshotter, max_event_id
+
+
 def _storage_from_request(request: Request):
     return request.state.storage  # type: ignore[attr-defined]
 
@@ -123,14 +501,7 @@ def _ensure_image(storage, path: str) -> None:
 
 def _build_sidecar(storage, path: str) -> Sidecar:
     meta = storage.get_metadata(path)
-    return Sidecar(
-        tags=meta.get("tags", []),
-        notes=meta.get("notes", ""),
-        exif={"width": meta.get("width", 0), "height": meta.get("height", 0)},
-        star=meta.get("star"),
-        updated_at=datetime.now(timezone.utc).isoformat(),
-        updated_by="server",
-    )
+    return _sidecar_from_meta(meta)
 
 
 def _build_image_metadata(storage, path: str) -> ImageMetadataResponse:
@@ -160,8 +531,12 @@ def _build_image_metadata(storage, path: str) -> ImageMetadataResponse:
 def _build_item(cached, meta: dict, source: str | None = None) -> Item:
     if source is None:
         source = getattr(cached, "source", None)
+    canonical = _canonical_path(cached.path)
+    metrics = getattr(cached, "metrics", None)
+    if metrics is None:
+        metrics = meta.get("metrics")
     return Item(
-        path=cached.path,
+        path=canonical,
         name=cached.name,
         type=cached.mime,
         w=cached.width,
@@ -174,7 +549,7 @@ def _build_item(cached, meta: dict, source: str | None = None) -> Item:
         comments=meta.get("notes", ""),
         url=getattr(cached, "url", None),
         source=source,
-        metrics=getattr(cached, "metrics", None),
+        metrics=metrics,
     )
 
 
@@ -190,20 +565,24 @@ def _build_folder_index(storage, path: str, to_item) -> FolderIndex:
     dirs = [DirEntry(name=d, kind="branch") for d in index.dirs]
 
     return FolderIndex(
-        path=path,
+        path=_canonical_path(path),
         generatedAt=index.generated_at,
         items=items,
         dirs=dirs,
     )
 
 
-def _update_item(storage, path: str, body: Sidecar) -> Sidecar:
+def _update_item(storage, path: str, body: Sidecar, updated_by: str) -> Sidecar:
     meta = storage.get_metadata(path)
+    meta = _ensure_meta_fields(meta)
     meta["tags"] = body.tags
     meta["notes"] = body.notes
     meta["star"] = body.star
+    meta["version"] = meta.get("version", 1) + 1
+    meta["updated_at"] = _now_iso()
+    meta["updated_by"] = updated_by
     storage.set_metadata(path, meta)
-    return body
+    return _sidecar_from_meta(meta)
 
 
 class _ClientDisconnected(Exception):
@@ -641,6 +1020,9 @@ def create_app(
         print(f"[lenslet] Warning: failed to initialize workspace: {exc}")
         workspace.can_write = False
 
+    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace)
+    sync_state = {"last_event_id": max_event_id}
+
     if hasattr(storage, "get_index"):
         def _warm_index() -> None:
             try:
@@ -656,6 +1038,18 @@ def create_app(
         meta = storage.get_metadata(cached.path)
         return _build_item(cached, meta)
 
+    def _record_update(path: str, meta: dict, event_type: str = "item-updated") -> None:
+        payload = _sidecar_payload(path, meta)
+        event_id = broker.publish(event_type, payload)
+        sync_state["last_event_id"] = event_id
+        if workspace.can_write:
+            entry = {"id": event_id, "type": event_type, **payload}
+            try:
+                workspace.append_labels_log(entry)
+            except Exception as exc:
+                print(f"[lenslet] Warning: failed to append labels log: {exc}")
+            snapshotter.maybe_write(storage, event_id)
+
     # Inject storage via middleware
     _attach_storage(app, storage)
 
@@ -668,12 +1062,17 @@ def create_app(
             "mode": storage_mode,
             "root": root_path,
             "can_write": workspace.can_write,
+            "labels": {
+                "enabled": workspace.can_write,
+                "log": str(workspace.labels_log_path()) if workspace.can_write else None,
+                "snapshot": str(workspace.labels_snapshot_path()) if workspace.can_write else None,
+            },
         }
 
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(path: str = "/", request: Request = None):
         storage = _storage_from_request(request)
-        return _build_folder_index(storage, path, _to_item)
+        return _build_folder_index(storage, _canonical_path(path), _to_item)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -681,6 +1080,7 @@ def create_app(
             return {"ok": True, "note": f"{storage_mode} mode is static"}
 
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         try:
             target = storage._abs_path(path)
         except ValueError:
@@ -695,37 +1095,140 @@ def create_app(
     @app.get("/item")
     def get_item(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return _build_sidecar(storage, path)
 
     @app.get("/metadata", response_model=ImageMetadataResponse)
     def get_metadata(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return _build_image_metadata(storage, path)
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
-        return _update_item(storage, path, body)
+        updated_by = _updated_by_from_request(request)
+        sidecar = _update_item(storage, path, body, updated_by)
+        meta = storage.get_metadata(path)
+        _record_update(path, meta)
+        return sidecar
+
+    @app.patch("/item")
+    def patch_item(path: str, body: SidecarPatch, request: Request = None):
+        storage = _storage_from_request(request)
+        path = _canonical_path(path)
+        _ensure_image(storage, path)
+        idem_key = request.headers.get("Idempotency-Key") if request else None
+        if not idem_key:
+            raise HTTPException(400, "Idempotency-Key header required")
+        cached = idempotency_cache.get(idem_key)
+        if cached:
+            status, payload = cached
+            return JSONResponse(status_code=status, content=payload)
+
+        meta = storage.get_metadata(path)
+        meta = _ensure_meta_fields(meta)
+
+        if_match = _parse_if_match(request.headers.get("If-Match") if request else None)
+        if request and request.headers.get("If-Match") and if_match is None:
+            payload = {"error": "invalid_if_match", "message": "If-Match must be an integer version"}
+            idempotency_cache.set(idem_key, 400, payload)
+            return JSONResponse(status_code=400, content=payload)
+
+        expected = body.base_version
+        if if_match is not None:
+            if expected is not None and expected != if_match:
+                payload = {"error": "version_mismatch", "message": "If-Match and base_version disagree"}
+                idempotency_cache.set(idem_key, 400, payload)
+                return JSONResponse(status_code=400, content=payload)
+            expected = if_match
+
+        if expected is None:
+            payload = {"error": "missing_base_version", "message": "base_version or If-Match is required"}
+            idempotency_cache.set(idem_key, 400, payload)
+            return JSONResponse(status_code=400, content=payload)
+
+        if expected is None:
+            payload = {"error": "missing_base_version", "message": "base_version or If-Match is required"}
+            idempotency_cache.set(idem_key, 400, payload)
+            return JSONResponse(status_code=400, content=payload)
+
+        if expected is None:
+            payload = {"error": "missing_base_version", "message": "base_version or If-Match is required"}
+            idempotency_cache.set(idem_key, 400, payload)
+            return JSONResponse(status_code=400, content=payload)
+
+        if expected is not None and expected != meta.get("version", 1):
+            current = _sidecar_from_meta(meta).model_dump()
+            payload = {"error": "version_conflict", "current": current}
+            idempotency_cache.set(idem_key, 409, payload)
+            return JSONResponse(status_code=409, content=payload)
+
+        updated = _apply_patch_to_meta(meta, body)
+        if updated:
+            meta["version"] = meta.get("version", 1) + 1
+            meta["updated_at"] = _now_iso()
+            meta["updated_by"] = _updated_by_from_request(request)
+            storage.set_metadata(path, meta)
+            _record_update(path, meta)
+        sidecar = _sidecar_from_meta(meta).model_dump()
+        idempotency_cache.set(idem_key, 200, sidecar)
+        return JSONResponse(status_code=200, content=sidecar)
+
+    @app.get("/events")
+    async def events(request: Request):
+        broker.ensure_loop()
+        queue = broker.register()
+        last_raw = request.headers.get("Last-Event-ID")
+        last_event_id: int | None = None
+        if last_raw:
+            try:
+                last_event_id = int(last_raw)
+            except ValueError:
+                last_event_id = None
+
+        async def event_stream():
+            try:
+                for record in broker.replay(last_event_id):
+                    yield _format_sse(record)
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        record = await asyncio.wait_for(queue.get(), timeout=15)
+                    except asyncio.TimeoutError:
+                        continue
+                    yield _format_sse(record)
+            finally:
+                broker.unregister(queue)
+
+        response = StreamingResponse(event_stream(), media_type="text/event-stream")
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Connection"] = "keep-alive"
+        return response
 
     @app.get("/thumb")
     async def get_thumb(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return await _thumb_response_async(storage, path, request, thumb_queue, cache)
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return _file_response(storage, path)
 
     @app.get("/search", response_model=SearchResult)
     def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
         storage = _storage_from_request(request)
-        return _search_results(storage, _to_item, q, path, limit)
+        return _search_results(storage, _to_item, q, _canonical_path(path), limit)
 
     _register_og_routes(app, storage, workspace, enabled=og_preview)
     _register_index_routes(app, storage, workspace, og_preview=og_preview)
@@ -768,6 +1271,8 @@ def create_app_from_datasets(
         include_source_in_search=show_source,
     )
     workspace = Workspace.for_dataset(None, can_write=False)
+    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace)
+    sync_state = {"last_event_id": max_event_id}
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
 
@@ -780,6 +1285,18 @@ def create_app_from_datasets(
             except Exception:
                 source = None
         return _build_item(cached, meta, source=source)
+
+    def _record_update(path: str, meta: dict, event_type: str = "item-updated") -> None:
+        payload = _sidecar_payload(path, meta)
+        event_id = broker.publish(event_type, payload)
+        sync_state["last_event_id"] = event_id
+        if workspace.can_write:
+            entry = {"id": event_id, "type": event_type, **payload}
+            try:
+                workspace.append_labels_log(entry)
+            except Exception as exc:
+                print(f"[lenslet] Warning: failed to append labels log: {exc}")
+            snapshotter.maybe_write(storage, event_id)
 
     # Inject storage via middleware
     _attach_storage(app, storage)
@@ -796,12 +1313,17 @@ def create_app_from_datasets(
             "datasets": dataset_names,
             "total_images": total_images,
             "can_write": workspace.can_write,
+            "labels": {
+                "enabled": workspace.can_write,
+                "log": str(workspace.labels_log_path()) if workspace.can_write else None,
+                "snapshot": str(workspace.labels_snapshot_path()) if workspace.can_write else None,
+            },
         }
 
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(path: str = "/", request: Request = None):
         storage = _storage_from_request(request)
-        return _build_folder_index(storage, path, _to_item)
+        return _build_folder_index(storage, _canonical_path(path), _to_item)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -812,37 +1334,125 @@ def create_app_from_datasets(
     @app.get("/item")
     def get_item(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return _build_sidecar(storage, path)
 
     @app.get("/metadata", response_model=ImageMetadataResponse)
     def get_metadata(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return _build_image_metadata(storage, path)
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
-        return _update_item(storage, path, body)
+        updated_by = _updated_by_from_request(request)
+        sidecar = _update_item(storage, path, body, updated_by)
+        meta = storage.get_metadata(path)
+        _record_update(path, meta)
+        return sidecar
+
+    @app.patch("/item")
+    def patch_item(path: str, body: SidecarPatch, request: Request = None):
+        storage = _storage_from_request(request)
+        path = _canonical_path(path)
+        _ensure_image(storage, path)
+        idem_key = request.headers.get("Idempotency-Key") if request else None
+        if not idem_key:
+            raise HTTPException(400, "Idempotency-Key header required")
+        cached = idempotency_cache.get(idem_key)
+        if cached:
+            status, payload = cached
+            return JSONResponse(status_code=status, content=payload)
+
+        meta = storage.get_metadata(path)
+        meta = _ensure_meta_fields(meta)
+
+        if_match = _parse_if_match(request.headers.get("If-Match") if request else None)
+        if request and request.headers.get("If-Match") and if_match is None:
+            payload = {"error": "invalid_if_match", "message": "If-Match must be an integer version"}
+            idempotency_cache.set(idem_key, 400, payload)
+            return JSONResponse(status_code=400, content=payload)
+
+        expected = body.base_version
+        if if_match is not None:
+            if expected is not None and expected != if_match:
+                payload = {"error": "version_mismatch", "message": "If-Match and base_version disagree"}
+                idempotency_cache.set(idem_key, 400, payload)
+                return JSONResponse(status_code=400, content=payload)
+            expected = if_match
+
+        if expected is not None and expected != meta.get("version", 1):
+            current = _sidecar_from_meta(meta).model_dump()
+            payload = {"error": "version_conflict", "current": current}
+            idempotency_cache.set(idem_key, 409, payload)
+            return JSONResponse(status_code=409, content=payload)
+
+        updated = _apply_patch_to_meta(meta, body)
+        if updated:
+            meta["version"] = meta.get("version", 1) + 1
+            meta["updated_at"] = _now_iso()
+            meta["updated_by"] = _updated_by_from_request(request)
+            storage.set_metadata(path, meta)
+            _record_update(path, meta)
+        sidecar = _sidecar_from_meta(meta).model_dump()
+        idempotency_cache.set(idem_key, 200, sidecar)
+        return JSONResponse(status_code=200, content=sidecar)
+
+    @app.get("/events")
+    async def events(request: Request):
+        broker.ensure_loop()
+        queue = broker.register()
+        last_raw = request.headers.get("Last-Event-ID")
+        last_event_id: int | None = None
+        if last_raw:
+            try:
+                last_event_id = int(last_raw)
+            except ValueError:
+                last_event_id = None
+
+        async def event_stream():
+            try:
+                for record in broker.replay(last_event_id):
+                    yield _format_sse(record)
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        record = await asyncio.wait_for(queue.get(), timeout=15)
+                    except asyncio.TimeoutError:
+                        continue
+                    yield _format_sse(record)
+            finally:
+                broker.unregister(queue)
+
+        response = StreamingResponse(event_stream(), media_type="text/event-stream")
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Connection"] = "keep-alive"
+        return response
 
     @app.get("/thumb")
     async def get_thumb(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return await _thumb_response_async(storage, path, request, thumb_queue, cache)
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return _file_response(storage, path)
 
     @app.get("/search", response_model=SearchResult)
     def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
         storage = _storage_from_request(request)
-        return _search_results(storage, _to_item, q, path, limit)
+        return _search_results(storage, _to_item, q, _canonical_path(path), limit)
 
     _register_views_routes(app, workspace)
 
@@ -905,6 +1515,8 @@ def create_app_from_storage(
 
     if workspace is None:
         workspace = Workspace.for_dataset(None, can_write=False)
+    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace)
+    sync_state = {"last_event_id": max_event_id}
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
 
@@ -912,6 +1524,18 @@ def create_app_from_storage(
         meta = storage.get_metadata(cached.path)
         source = cached.source if show_source else None
         return _build_item(cached, meta, source=source)
+
+    def _record_update(path: str, meta: dict, event_type: str = "item-updated") -> None:
+        payload = _sidecar_payload(path, meta)
+        event_id = broker.publish(event_type, payload)
+        sync_state["last_event_id"] = event_id
+        if workspace.can_write:
+            entry = {"id": event_id, "type": event_type, **payload}
+            try:
+                workspace.append_labels_log(entry)
+            except Exception as exc:
+                print(f"[lenslet] Warning: failed to append labels log: {exc}")
+            snapshotter.maybe_write(storage, event_id)
 
     _attach_storage(app, storage)
 
@@ -922,12 +1546,17 @@ def create_app_from_storage(
             "mode": "table",
             "total_images": len(storage._items),
             "can_write": workspace.can_write,
+            "labels": {
+                "enabled": workspace.can_write,
+                "log": str(workspace.labels_log_path()) if workspace.can_write else None,
+                "snapshot": str(workspace.labels_snapshot_path()) if workspace.can_write else None,
+            },
         }
 
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(path: str = "/", request: Request = None):
         storage = _storage_from_request(request)
-        return _build_folder_index(storage, path, _to_item)
+        return _build_folder_index(storage, _canonical_path(path), _to_item)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -937,37 +1566,125 @@ def create_app_from_storage(
     @app.get("/item")
     def get_item(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return _build_sidecar(storage, path)
 
     @app.get("/metadata", response_model=ImageMetadataResponse)
     def get_metadata(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return _build_image_metadata(storage, path)
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
-        return _update_item(storage, path, body)
+        updated_by = _updated_by_from_request(request)
+        sidecar = _update_item(storage, path, body, updated_by)
+        meta = storage.get_metadata(path)
+        _record_update(path, meta)
+        return sidecar
+
+    @app.patch("/item")
+    def patch_item(path: str, body: SidecarPatch, request: Request = None):
+        storage = _storage_from_request(request)
+        path = _canonical_path(path)
+        _ensure_image(storage, path)
+        idem_key = request.headers.get("Idempotency-Key") if request else None
+        if not idem_key:
+            raise HTTPException(400, "Idempotency-Key header required")
+        cached = idempotency_cache.get(idem_key)
+        if cached:
+            status, payload = cached
+            return JSONResponse(status_code=status, content=payload)
+
+        meta = storage.get_metadata(path)
+        meta = _ensure_meta_fields(meta)
+
+        if_match = _parse_if_match(request.headers.get("If-Match") if request else None)
+        if request and request.headers.get("If-Match") and if_match is None:
+            payload = {"error": "invalid_if_match", "message": "If-Match must be an integer version"}
+            idempotency_cache.set(idem_key, 400, payload)
+            return JSONResponse(status_code=400, content=payload)
+
+        expected = body.base_version
+        if if_match is not None:
+            if expected is not None and expected != if_match:
+                payload = {"error": "version_mismatch", "message": "If-Match and base_version disagree"}
+                idempotency_cache.set(idem_key, 400, payload)
+                return JSONResponse(status_code=400, content=payload)
+            expected = if_match
+
+        if expected is not None and expected != meta.get("version", 1):
+            current = _sidecar_from_meta(meta).model_dump()
+            payload = {"error": "version_conflict", "current": current}
+            idempotency_cache.set(idem_key, 409, payload)
+            return JSONResponse(status_code=409, content=payload)
+
+        updated = _apply_patch_to_meta(meta, body)
+        if updated:
+            meta["version"] = meta.get("version", 1) + 1
+            meta["updated_at"] = _now_iso()
+            meta["updated_by"] = _updated_by_from_request(request)
+            storage.set_metadata(path, meta)
+            _record_update(path, meta)
+        sidecar = _sidecar_from_meta(meta).model_dump()
+        idempotency_cache.set(idem_key, 200, sidecar)
+        return JSONResponse(status_code=200, content=sidecar)
+
+    @app.get("/events")
+    async def events(request: Request):
+        broker.ensure_loop()
+        queue = broker.register()
+        last_raw = request.headers.get("Last-Event-ID")
+        last_event_id: int | None = None
+        if last_raw:
+            try:
+                last_event_id = int(last_raw)
+            except ValueError:
+                last_event_id = None
+
+        async def event_stream():
+            try:
+                for record in broker.replay(last_event_id):
+                    yield _format_sse(record)
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        record = await asyncio.wait_for(queue.get(), timeout=15)
+                    except asyncio.TimeoutError:
+                        continue
+                    yield _format_sse(record)
+            finally:
+                broker.unregister(queue)
+
+        response = StreamingResponse(event_stream(), media_type="text/event-stream")
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Connection"] = "keep-alive"
+        return response
 
     @app.get("/thumb")
     async def get_thumb(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return await _thumb_response_async(storage, path, request, thumb_queue, cache)
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
         storage = _storage_from_request(request)
+        path = _canonical_path(path)
         _ensure_image(storage, path)
         return _file_response(storage, path)
 
     @app.get("/search", response_model=SearchResult)
     def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
         storage = _storage_from_request(request)
-        return _search_results(storage, _to_item, q, path, limit)
+        return _search_results(storage, _to_item, q, _canonical_path(path), limit)
 
     _register_og_routes(app, storage, workspace, enabled=og_preview)
     _register_index_routes(app, storage, workspace, og_preview=og_preview)

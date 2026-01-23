@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -109,3 +110,81 @@ class Workspace:
         if self.root is None:
             return None
         return self.root / "og-cache"
+
+    def labels_log_path(self) -> Path | None:
+        if not self.can_write:
+            return None
+        if self.views_override is not None:
+            base = self.views_override.stem
+            return self.views_override.with_name(f"{base}.labels.log.jsonl")
+        if self.root is None:
+            return None
+        return self.root / "labels.log.jsonl"
+
+    def labels_snapshot_path(self) -> Path | None:
+        if not self.can_write:
+            return None
+        if self.views_override is not None:
+            base = self.views_override.stem
+            return self.views_override.with_name(f"{base}.labels.snapshot.json")
+        if self.root is None:
+            return None
+        return self.root / "labels.snapshot.json"
+
+    def read_labels_snapshot(self) -> dict[str, Any] | None:
+        path = self.labels_snapshot_path()
+        if path is None or not path.exists():
+            return None
+        try:
+            raw = path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except Exception as exc:
+            print(f"[lenslet] Warning: failed to read labels snapshot: {exc}")
+            return None
+        if not isinstance(data, dict):
+            return None
+        return data
+
+    def write_labels_snapshot(self, payload: dict[str, Any]) -> None:
+        path = self.labels_snapshot_path()
+        if not self.can_write or path is None:
+            raise PermissionError("workspace is read-only")
+        self.ensure()
+        temp = path.with_suffix(".tmp")
+        temp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        temp.replace(path)
+
+    def append_labels_log(self, payload: dict[str, Any]) -> None:
+        path = self.labels_log_path()
+        if not self.can_write or path is None:
+            raise PermissionError("workspace is read-only")
+        self.ensure()
+        line = json.dumps(payload, separators=(",", ":"))
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:
+                pass
+
+    def read_labels_log(self) -> list[dict[str, Any]]:
+        path = self.labels_log_path()
+        if path is None or not path.exists():
+            return []
+        entries: list[dict[str, Any]] = []
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    raw = line.strip()
+                    if not raw:
+                        continue
+                    try:
+                        data = json.loads(raw)
+                    except Exception:
+                        continue
+                    if isinstance(data, dict):
+                        entries.append(data)
+        except Exception as exc:
+            print(f"[lenslet] Warning: failed to read labels log: {exc}")
+        return entries

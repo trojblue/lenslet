@@ -257,12 +257,13 @@ export default function Inspector({
       v: 1,
       tags: [],
       notes: '',
+      version: 1,
       updated_at: '',
       updated_by: 'web',
     }
   }, [data])
 
-  const commitSidecar = useCallback((patch: Partial<Omit<Sidecar, 'v' | 'updated_at' | 'updated_by'>>) => {
+  const commitSidecar = useCallback((patch: Partial<Omit<Sidecar, 'v' | 'version' | 'updated_at' | 'updated_by'>>) => {
     if (multi && selectedPaths.length) {
       bulkUpdateSidecars(selectedPaths, patch)
       return

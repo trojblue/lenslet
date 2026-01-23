@@ -68,6 +68,16 @@ class MemoryStorage:
         """Normalize path for consistent cache keys."""
         return path.strip("/") if path else ""
 
+    def _canonical_meta_key(self, path: str) -> str:
+        """Canonical key for metadata maps (leading slash, no trailing)."""
+        p = (path or "").replace("\\", "/").strip()
+        if not p:
+            return "/"
+        p = "/" + p.lstrip("/")
+        if p != "/":
+            p = p.rstrip("/")
+        return p
+
     def _display_path(self, norm: str) -> str:
         return f"/{norm}" if norm else "/"
 
@@ -410,23 +420,29 @@ class MemoryStorage:
 
     def get_metadata(self, path: str) -> dict:
         """Get metadata for an image (in-memory only)."""
-        if path in self._metadata:
-            return self._metadata[path]
+        key = self._canonical_meta_key(path)
+        if key in self._metadata:
+            return self._metadata[key]
         # Build minimal metadata - dimensions loaded lazily
-        w, h = self._dimensions.get(path, (0, 0))
+        lookup = (path or "").lstrip("/")
+        w, h = self._dimensions.get(lookup, self._dimensions.get(path, (0, 0)))
         meta = {
             "width": w,
             "height": h,
             "tags": [],
             "notes": "",
             "star": None,
+            "version": 1,
+            "updated_at": "",
+            "updated_by": "server",
         }
-        self._metadata[path] = meta
+        self._metadata[key] = meta
         return meta
 
     def set_metadata(self, path: str, meta: dict) -> None:
         """Update in-memory metadata (session-only, lost on restart)."""
-        self._metadata[path] = meta
+        key = self._canonical_meta_key(path)
+        self._metadata[key] = meta
 
     def invalidate_cache(self, path: str | None = None) -> None:
         """Clear cached data. If path is None, clear everything."""
@@ -440,7 +456,7 @@ class MemoryStorage:
             norm = self._normalize_path(path)
             self._indexes.pop(norm, None)
             self._thumbnails.pop(path, None)
-            self._metadata.pop(path, None)
+            self._metadata.pop(self._canonical_meta_key(path), None)
             self._dimensions.pop(path, None)
 
     def invalidate_subtree(self, path: str) -> None:

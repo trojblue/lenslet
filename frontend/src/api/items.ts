@@ -10,6 +10,7 @@ const DEFAULT_SIDECAR: Sidecar = {
   v: 1,
   tags: [],
   notes: '',
+  version: 1,
   updated_at: '',
   updated_by: 'web',
 }
@@ -54,7 +55,7 @@ const BULK_CONCURRENCY = 6
  */
 export async function bulkUpdateSidecars(
   paths: string[],
-  fields: Partial<Omit<Sidecar, 'v' | 'updated_at' | 'updated_by'>>
+  fields: Partial<Omit<Sidecar, 'v' | 'version' | 'updated_at' | 'updated_by'>>
 ): Promise<void> {
   if (!paths.length) return
   
@@ -105,7 +106,7 @@ const inflightByPath = new Map<string, Promise<void>>()
  */
 export async function queueSidecarUpdate(
   path: string,
-  patch: Partial<Omit<Sidecar, 'v' | 'updated_at' | 'updated_by'>>,
+  patch: Partial<Omit<Sidecar, 'v' | 'version' | 'updated_at' | 'updated_by'>>,
   timestamp?: string
 ): Promise<void> {
   const now = timestamp ?? new Date().toISOString()
@@ -139,6 +140,7 @@ export async function queueSidecarUpdate(
           ...base,
           ...toSend,
           v: 1,
+          version: base.version ?? 1,
           updated_at: now,
           updated_by: 'web',
         }

@@ -294,6 +294,22 @@ def main():
     )
     print("\n".join(banner_lines))
 
+    # Guard against multi-worker mode (in-memory sync is single-process only)
+    for env_name in ("UVICORN_WORKERS", "WEB_CONCURRENCY"):
+        raw = os.getenv(env_name)
+        if not raw:
+            continue
+        try:
+            workers = int(raw)
+        except ValueError:
+            continue
+        if workers > 1:
+            print(
+                f"[lenslet] Warning: {env_name}={workers} detected. "
+                "Collaboration sync requires a single worker to avoid divergence."
+            )
+            break
+
     # Start server
     import uvicorn
     from .server import create_app, create_app_from_storage

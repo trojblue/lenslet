@@ -349,6 +349,16 @@ class DatasetStorage:
         p = path.strip("/")
         return "/" + p if p else "/"
 
+    def _canonical_meta_key(self, path: str) -> str:
+        """Canonical key for metadata maps (leading slash, no trailing)."""
+        p = (path or "").replace("\\", "/").strip()
+        if not p:
+            return "/"
+        p = "/" + p.lstrip("/")
+        if p != "/":
+            p = p.rstrip("/")
+        return p
+
     def get_index(self, path: str) -> CachedIndex:
         """Get cached index for a folder."""
         norm = self._normalize_path(path)
@@ -487,14 +497,15 @@ class DatasetStorage:
 
     def get_metadata(self, path: str) -> dict:
         """Get metadata for an image."""
-        if path in self._metadata:
-            return self._metadata[path]
+        key = self._canonical_meta_key(path)
+        if key in self._metadata:
+            return self._metadata[key]
         
         # Get dimensions if available
-        w, h = self._dimensions.get(path, (0, 0))
-        if (w == 0 or h == 0) and path in self._items:
-            w = self._items[path].width
-            h = self._items[path].height
+        w, h = self._dimensions.get(key, (0, 0))
+        if (w == 0 or h == 0) and key in self._items:
+            w = self._items[key].width
+            h = self._items[key].height
         
         meta = {
             "width": w,
@@ -502,13 +513,17 @@ class DatasetStorage:
             "tags": [],
             "notes": "",
             "star": None,
+            "version": 1,
+            "updated_at": "",
+            "updated_by": "server",
         }
-        self._metadata[path] = meta
+        self._metadata[key] = meta
         return meta
 
     def set_metadata(self, path: str, meta: dict) -> None:
         """Update in-memory metadata (session-only)."""
-        self._metadata[path] = meta
+        key = self._canonical_meta_key(path)
+        self._metadata[key] = meta
 
     def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[CachedItem]:
         """Simple in-memory search."""

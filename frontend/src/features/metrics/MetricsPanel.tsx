@@ -41,6 +41,7 @@ interface MetricsPanelProps {
   items: Item[]
   filteredItems: Item[]
   metricKeys: string[]
+  selectedItem?: Item | null
   selectedMetric?: string
   onSelectMetric: (key: string) => void
   filters: FilterAST
@@ -57,6 +58,7 @@ interface MetricRangePanelProps {
   items: Item[]
   filteredItems: Item[]
   metricKeys: string[]
+  selectedItem?: Item | null
   selectedMetric?: string
   onSelectMetric: (key: string) => void
   filters: FilterAST
@@ -71,6 +73,7 @@ export default function MetricsPanel({
   items,
   filteredItems,
   metricKeys,
+  selectedItem,
   selectedMetric,
   onSelectMetric,
   filters,
@@ -102,6 +105,7 @@ export default function MetricsPanel({
         items={items}
         filteredItems={filteredItems}
         metricKeys={metricKeys}
+        selectedItem={selectedItem}
         selectedMetric={selectedMetric}
         onSelectMetric={onSelectMetric}
         filters={filters}
@@ -424,6 +428,7 @@ function MetricRangePanel({
   items,
   filteredItems,
   metricKeys,
+  selectedItem,
   selectedMetric,
   onSelectMetric,
   filters,
@@ -442,12 +447,19 @@ function MetricRangePanel({
   const [dragging, setDragging] = useState(false)
   const dragStartRef = useRef<number | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const [hoverValue, setHoverValue] = useState<number | null>(null)
   const [minInput, setMinInput] = useState('')
   const [maxInput, setMaxInput] = useState('')
   const [editingField, setEditingField] = useState<'min' | 'max' | null>(null)
 
   const displayRange = dragRange ?? activeRange
   const domain = population ? { min: population.min, max: population.max } : null
+  const selectedValue = useMemo(() => {
+    if (!selectedItem || !activeMetric) return null
+    const raw = selectedItem.metrics?.[activeMetric]
+    if (raw == null || Number.isNaN(raw)) return null
+    return raw
+  }, [selectedItem, activeMetric])
 
   useEffect(() => {
     if (!activeRange || !domain) {
@@ -464,6 +476,10 @@ function MetricRangePanel({
       setMaxInput(nextMax)
     }
   }, [activeRange, activeMetric, domain, editingField])
+
+  useEffect(() => {
+    setHoverValue(null)
+  }, [activeMetric, domain?.min, domain?.max])
 
   const getValueFromEvent = (e: React.PointerEvent<SVGSVGElement>): number | null => {
     if (!domain || !activeMetric) return null
@@ -491,15 +507,19 @@ function MetricRangePanel({
     setDragging(true)
     setDragRange(null)
     dragStartRef.current = value
+    setHoverValue(value)
     svgRef.current?.setPointerCapture(e.pointerId)
     setRangeFromValue(value, false)
   }
 
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (!dragging) return
     const value = getValueFromEvent(e)
-    if (value == null) return
-    setRangeFromValue(value, false)
+    if (value == null) {
+      if (!dragging) setHoverValue(null)
+      return
+    }
+    setHoverValue(value)
+    if (dragging) setRangeFromValue(value, false)
   }
 
   const onPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -508,6 +528,7 @@ function MetricRangePanel({
     svgRef.current?.releasePointerCapture(e.pointerId)
     const value = getValueFromEvent(e)
     if (value != null) {
+      setHoverValue(value)
       setRangeFromValue(value, true)
     }
     dragStartRef.current = null
@@ -561,8 +582,13 @@ function MetricRangePanel({
       {population ? (
         <div className="rounded-xl border border-border bg-panel p-3">
           <div className="flex items-center justify-between text-xs text-muted mb-2">
-            <span>Population: {population.count}</span>
-            <span>Filtered: {filtered?.count ?? 0}</span>
+            <div className="flex items-center gap-3">
+              <span>Population: {population.count}</span>
+              <span>Filtered: {filtered?.count ?? 0}</span>
+            </div>
+            {selectedValue != null && (
+              <span className="text-text">Selected: {formatNumber(selectedValue)}</span>
+            )}
           </div>
           <svg
             ref={svgRef}
@@ -572,24 +598,41 @@ function MetricRangePanel({
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
+            onPointerLeave={() => setHoverValue(null)}
           >
             {renderBars(population.bins, '#2e3a4b')}
             {filtered && renderBars(filtered.bins, '#3a8fff')}
             {displayRange && domain && renderRange(displayRange, domain)}
+            {selectedValue != null && domain && renderValueMarker(selectedValue, domain, {
+              color: 'var(--accent)',
+              strokeWidth: 0.7,
+            })}
+            {hoverValue != null && domain && renderValueMarker(hoverValue, domain, {
+              color: 'rgba(255,255,255,0.75)',
+              strokeWidth: 0.5,
+              dashed: true,
+            })}
           </svg>
           <div className="flex items-center justify-between text-[11px] text-muted mt-2">
             <span>{formatNumber(domain?.min)}</span>
-            {displayRange ? (
-              <span className="text-text">
-                {domain && isApprox(displayRange.min, domain.min)
-                  ? `≤ ${formatNumber(displayRange.max)}`
-                  : domain && isApprox(displayRange.max, domain.max)
-                    ? `≥ ${formatNumber(displayRange.min)}`
-                    : `${formatNumber(displayRange.min)} – ${formatNumber(displayRange.max)}`}
-              </span>
-            ) : (
-              <span>Drag to filter</span>
-            )}
+            <div className="flex flex-col items-center text-center leading-tight">
+              {displayRange ? (
+                <span className="text-text">
+                  {domain && isApprox(displayRange.min, domain.min)
+                    ? `≤ ${formatNumber(displayRange.max)}`
+                    : domain && isApprox(displayRange.max, domain.max)
+                      ? `≥ ${formatNumber(displayRange.min)}`
+                      : `${formatNumber(displayRange.min)} – ${formatNumber(displayRange.max)}`}
+                </span>
+              ) : hoverValue != null ? (
+                <span className="text-text">Cursor: {formatNumber(hoverValue)}</span>
+              ) : (
+                <span>Drag to filter</span>
+              )}
+              {displayRange && hoverValue != null && (
+                <span className="text-[10px] text-muted">Cursor: {formatNumber(hoverValue)}</span>
+              )}
+            </div>
             <span>{formatNumber(domain?.max)}</span>
           </div>
           <div className="grid grid-cols-2 gap-2 mt-3">
@@ -705,6 +748,28 @@ function renderRange(range: Range, domain: { min: number; max: number }) {
       fill="rgba(255,255,255,0.08)"
       stroke="rgba(255,255,255,0.4)"
       strokeWidth={0.4}
+    />
+  )
+}
+
+function renderValueMarker(
+  value: number,
+  domain: { min: number; max: number },
+  options: { color: string; strokeWidth?: number; dashed?: boolean }
+) {
+  const t = clamp01((value - domain.min) / (domain.max - domain.min))
+  const x = BIN_COUNT * t
+  return (
+    <line
+      x1={x}
+      y1={0}
+      x2={x}
+      y2={100}
+      stroke={options.color}
+      strokeWidth={options.strokeWidth ?? 0.5}
+      strokeDasharray={options.dashed ? '1.2 1.2' : undefined}
+      opacity={0.95}
+      vectorEffect="non-scaling-stroke"
     />
   )
 }

@@ -179,6 +179,11 @@ export default function AppShell() {
   const filteredCount = items.length
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
+  const selectedItem = useMemo(() => {
+    if (selectedPaths.length !== 1) return null
+    const path = selectedPaths[0]
+    return poolItems.find((it) => it.path === path) ?? items.find((it) => it.path === path) ?? null
+  }, [selectedPaths, poolItems, items])
 
   const markHighlight = useCallback((path: string) => {
     setHighlightedPaths((prev) => {
@@ -1220,6 +1225,7 @@ export default function AppShell() {
           items={poolItems}
           filteredItems={items}
           metricKeys={metricKeys}
+          selectedItems={selectedItems}
           selectedMetric={viewState.selectedMetric}
           onSelectMetric={(key) => setViewState((prev) => ({ ...prev, selectedMetric: key }))}
           filters={viewState.filters}

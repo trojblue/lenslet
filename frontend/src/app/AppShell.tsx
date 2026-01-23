@@ -1111,7 +1111,7 @@ export default function AppShell() {
         {/* Bottom selection bar removed intentionally */}
       </div>
       {rightOpen && (
-        <Inspector path={selectedPaths[0] ?? null} selectedPaths={selectedPaths} items={items} onResize={onResizeRight} onStarChanged={(paths, val)=>{
+        <Inspector path={selectedPaths[0] ?? null} selectedPaths={selectedPaths} items={items} sortSpec={viewState.sort} onResize={onResizeRight} onStarChanged={(paths, val)=>{
           setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })
         }} />
       )}

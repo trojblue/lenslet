@@ -3,7 +3,7 @@ import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate } 
 import { fmtBytes } from '../../lib/util'
 import { api } from '../../shared/api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
-import type { Item, StarRating, Sidecar } from '../../lib/types'
+import type { Item, SortSpec, StarRating, Sidecar } from '../../lib/types'
 import { isInputElement } from '../../lib/keyboard'
 
 // Try to turn JSON-looking strings (common in PNG text chunks) back into objects
@@ -101,12 +101,15 @@ interface InspectorProps {
   items?: InspectorItem[]
   onResize?: (e: React.MouseEvent) => void
   onStarChanged?: (paths: string[], val: StarRating) => void
+  sortSpec?: SortSpec
 }
 
 type InspectorSectionKey = 'overview' | 'notes' | 'metadata' | 'basics'
 
 const INSPECTOR_SECTION_KEYS: InspectorSectionKey[] = ['overview', 'notes', 'metadata', 'basics']
 const INSPECTOR_SECTION_STORAGE_KEY = 'lenslet.inspector.sections'
+const INSPECTOR_METRICS_EXPANDED_KEY = 'lenslet.inspector.metricsExpanded'
+const METRICS_PREVIEW_LIMIT = 12
 const DEFAULT_SECTION_STATE: Record<InspectorSectionKey, boolean> = {
   overview: true,
   notes: true,
@@ -192,6 +195,7 @@ export default function Inspector({
   items = [],
   onResize,
   onStarChanged,
+  sortSpec,
 }: InspectorProps) {
   const enabled = !!path
   const { data, isLoading } = useSidecar(path ?? '')
@@ -202,6 +206,8 @@ export default function Inspector({
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
   }, [])
   
+  const [metricsExpanded, setMetricsExpanded] = useState(false)
+
   // Form state
   const [tags, setTags] = useState('')
   const [notes, setNotes] = useState('')
@@ -404,6 +410,24 @@ export default function Inspector({
     }
   }, [openSections])
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(INSPECTOR_METRICS_EXPANDED_KEY)
+      if (raw === '1' || raw === 'true') setMetricsExpanded(true)
+      if (raw === '0' || raw === 'false') setMetricsExpanded(false)
+    } catch {
+      // Ignore localStorage parsing errors
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(INSPECTOR_METRICS_EXPANDED_KEY, metricsExpanded ? '1' : '0')
+    } catch {
+      // Ignore localStorage write errors
+    }
+  }, [metricsExpanded])
+
   const copyInfo = useCallback((key: string, text: string) => {
     if (!text) return
     navigator.clipboard?.writeText(text).then(() => {
@@ -603,21 +627,54 @@ export default function Inspector({
               if (!metrics) return null
               const entries = Object.entries(metrics).filter(([, v]) => v != null)
               if (!entries.length) return null
-              const sorted = entries.sort(([a], [b]) => a.localeCompare(b))
-              const show = sorted.slice(0, 12)
-              const remaining = sorted.length - show.length
+              const highlightKey = sortSpec?.kind === 'metric' ? sortSpec.key : null
+              const sorted = [...entries].sort(([a], [b]) => a.localeCompare(b))
+              let ordered = sorted
+              if (highlightKey) {
+                const idx = sorted.findIndex(([key]) => key === highlightKey)
+                if (idx >= 0) {
+                  ordered = [sorted[idx], ...sorted.slice(0, idx), ...sorted.slice(idx + 1)]
+                }
+              }
+              const showAll = metricsExpanded || ordered.length <= METRICS_PREVIEW_LIMIT
+              const show = showAll ? ordered : ordered.slice(0, METRICS_PREVIEW_LIMIT)
+              const remaining = Math.max(0, ordered.length - METRICS_PREVIEW_LIMIT)
               return (
                 <div className="mt-3">
                   <div className="text-muted text-xs uppercase tracking-wide mb-1">Metrics</div>
                   <div className="space-y-1">
-                    {show.map(([key, val]) => (
-                      <div key={key} className="flex justify-between">
-                        <span className="text-muted w-24 shrink-0">{key}</span>
-                        <span className="font-mono text-text text-right">{formatMetricValue(val)}</span>
-                      </div>
-                    ))}
-                    {remaining > 0 && (
-                      <div className="text-[11px] text-muted">+{remaining} more</div>
+                    {show.map(([key, val]) => {
+                      const isHighlighted = highlightKey === key
+                      return (
+                        <div key={key} className="flex justify-between">
+                          <span className={`w-24 shrink-0 ${isHighlighted ? 'text-accent font-medium' : 'text-muted'}`}>
+                            {key}
+                          </span>
+                          <span className={`font-mono text-right ${isHighlighted ? 'text-accent font-medium' : 'text-text'}`}>
+                            {formatMetricValue(val)}
+                          </span>
+                        </div>
+                      )
+                    })}
+                    {remaining > 0 && !metricsExpanded && (
+                      <button
+                        type="button"
+                        className="text-[11px] text-muted underline underline-offset-2 hover:text-text"
+                        onClick={() => setMetricsExpanded(true)}
+                        aria-expanded={false}
+                      >
+                        +{remaining} more
+                      </button>
+                    )}
+                    {metricsExpanded && ordered.length > METRICS_PREVIEW_LIMIT && (
+                      <button
+                        type="button"
+                        className="text-[11px] text-muted underline underline-offset-2 hover:text-text"
+                        onClick={() => setMetricsExpanded(false)}
+                        aria-expanded={true}
+                      >
+                        Show less
+                      </button>
                     )}
                   </div>
                 </div>

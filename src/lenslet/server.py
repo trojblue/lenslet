@@ -1225,16 +1225,6 @@ def create_app(
             idempotency_cache.set(idem_key, 400, payload)
             return JSONResponse(status_code=400, content=payload)
 
-        if expected is None:
-            payload = {"error": "missing_base_version", "message": "base_version or If-Match is required"}
-            idempotency_cache.set(idem_key, 400, payload)
-            return JSONResponse(status_code=400, content=payload)
-
-        if expected is None:
-            payload = {"error": "missing_base_version", "message": "base_version or If-Match is required"}
-            idempotency_cache.set(idem_key, 400, payload)
-            return JSONResponse(status_code=400, content=payload)
-
         if expected is not None and expected != meta.get("version", 1):
             current = _sidecar_from_meta(meta).model_dump()
             payload = {"error": "version_conflict", "current": current}

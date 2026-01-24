@@ -12,6 +12,7 @@ Implement realtime multi‑user label sync for Lenslet without adding a database
 
 - [x] 2026-01-23: Plan drafted.
 - [x] 2026-01-23: Sprint 1 backend implementation completed; manual SSE + restart checks passed.
+- [x] 2026-01-24: Sprint 2 frontend sync UX + presence wiring completed; manual verification pending.
 
 
 ## Surprises & Discoveries
@@ -37,6 +38,7 @@ The current storage backends store metadata in memory but do not canonicalize it
 
 Sprint 1 delivered backend realtime primitives and durability. Two SSE clients receive updates, version conflicts return 409, and labels persist across restart when the workspace is writable. See “Sprint 1 Handover Notes” for details and test status.
 
+Sprint 2 delivered frontend UX sync visibility: connection/sync status, presence, conflict UI, recent activity, and persistence warning banner. Presence heartbeats and SSE updates are wired end-to-end, but reconnection/replay and fallback polling remain for Sprint 3.
 
 ## Context and Orientation
 
@@ -195,8 +197,57 @@ Frontend dependencies include a native `EventSource` SSE client, React Query cac
 - SSE replay requires `Last-Event-ID` on reconnect.
 
 
+## Sprint 2 Handover Notes (2026-01-24)
+
+**What shipped (frontend + presence):**
+- Frontend API layer now sends `Idempotency-Key` + `If-Match` on `PATCH /item`, and includes a stable `client_id` in localStorage for idempotency and presence.
+- SSE client wiring in `frontend/src/api/client.ts` with subscription hooks, connection status state, and event parsing for `item-updated`, `metrics-updated`, and `presence`.
+- App shell now surfaces:
+  - global sync status (“Syncing…”, “All changes saved”, “Not saved — …”),
+  - connection status (“Live / Reconnecting / Offline”),
+  - presence pill (viewing/editing counts),
+  - persistence warning banner (from `/health.labels.enabled`),
+  - recent activity banner with short-lived grid highlights.
+- Conflict handling in inspector:
+  - conflict banner for tags/notes/stars with “Apply my changes again” and “Keep theirs” actions,
+  - conflict state tracked centrally in `frontend/src/api/items.ts`.
+- Presence heartbeat: `POST /presence` every 30s, plus presence updates published on edits.
+
+**Backend additions in Sprint 2:**
+- `POST /presence` endpoint and `PresenceTracker` (view TTL ~75s, edit TTL ~60s).
+- Presence updates broadcast on edits via SSE `presence` event.
+
+**Files touched (Sprint 2):**
+- Backend: `src/lenslet/server.py`
+- Frontend: `frontend/src/api/client.ts`, `frontend/src/api/items.ts`, `frontend/src/app/AppShell.tsx`,
+  `frontend/src/features/inspector/Inspector.tsx`, `frontend/src/features/browse/components/VirtualGrid.tsx`,
+  `frontend/src/features/browse/components/ThumbCard.tsx`, `frontend/src/lib/fetcher.ts`, `frontend/src/lib/util.ts`,
+  `frontend/src/lib/types.ts`
+
+**Manual verification (Sprint 2):**
+- Not run yet. Recommend:
+  1. Open two clients; edit tags/stars/notes and confirm live updates.
+  2. Force a conflict by editing the same item; verify conflict UI actions work.
+  3. Run with `--no-write` and confirm persistence banner.
+  4. Confirm presence counts increment and editing count updates on writes.
+
+**Notes for Sprint 3 implementation:**
+- SSE reconnect + replay: client does not send `Last-Event-ID` today, so replay is not used. Consider using `EventSource` polyfill or a fetch-based SSE client that can set headers.
+- Polling fallback not implemented; add a backoff strategy and a periodic refetch for folder/search caches when SSE is down.
+- Client connection state is driven by `EventSource.onerror` only; no heartbeat/keepalive on client. Decide if server should emit heartbeat events or client should reconnect with backoff.
+- Backend snapshot/log compaction and atomicity are still pending; current log can grow unbounded.
+- Backend tests for patch conflicts/idempotency/replay/persistence are still pending; add `httpx.AsyncClient` tests per plan.
+
+**Overall notes / design intent:**
+- Canonical paths are authoritative; clients should treat server responses as source of truth.
+- `PATCH /item` is the preferred path for updates (idempotent + conflict-safe).
+- Presence is best-effort/ephemeral; it is not persisted or replayed.
+
+
 When revising the plan, add a note at the bottom describing the change and why it was made.
 
 Plan updated on 2026-01-23 to incorporate review_notes.txt feedback (task splitting, persistence banner, compaction, single-worker guardrail, and additional tests).
 
 Plan updated on 2026-01-23 to record Sprint 1 implementation status, test failures (unrelated), and handover notes for Sprint 2.
+
+Plan updated on 2026-01-24 to record Sprint 2 implementation status, handover notes, and Sprint 3 guidance for reconnection, polling fallback, compaction, and tests.

@@ -452,31 +452,27 @@ export default function AppShell() {
   const showFilteredCounts = searching || activeFilterCount > 0
 
   const presence = presenceByGallery[current]
-  const syncLabel = syncStatus.state === 'syncing'
-    ? 'Syncing…'
-    : syncStatus.state === 'error'
-      ? (syncStatus.message ? `Not saved — ${syncStatus.message}` : 'Not saved — retry')
-      : 'All changes saved'
-  const syncTone = syncStatus.state === 'error'
-    ? 'border-danger/40 text-danger'
-    : syncStatus.state === 'syncing'
-      ? 'border-accent/40 text-accent'
-      : 'border-border text-muted'
+  const syncLabel = (() => {
+    if (syncStatus.state === 'syncing') return 'Syncing…'
+    if (syncStatus.state === 'error') {
+      return syncStatus.message ? `Not saved — ${syncStatus.message}` : 'Not saved — retry'
+    }
+    return 'All changes saved'
+  })()
+  const syncTone = (() => {
+    if (syncStatus.state === 'error') return 'border-danger/40 text-danger'
+    if (syncStatus.state === 'syncing') return 'border-accent/40 text-accent'
+    return 'border-border text-muted'
+  })()
 
-  const connectionLabel = connectionStatus === 'live'
-    ? 'Live'
-    : connectionStatus === 'reconnecting'
-      ? 'Reconnecting…'
-      : connectionStatus === 'offline'
-        ? 'Offline'
-        : 'Connecting…'
-  const connectionTone = connectionStatus === 'live'
-    ? 'bg-success'
-    : connectionStatus === 'reconnecting'
-      ? 'bg-accent'
-      : connectionStatus === 'offline'
-        ? 'bg-danger'
-        : 'bg-border'
+  const connectionInfo = (() => {
+    if (connectionStatus === 'live') return { label: 'Live', tone: 'bg-success' }
+    if (connectionStatus === 'reconnecting') return { label: 'Reconnecting…', tone: 'bg-accent' }
+    if (connectionStatus === 'offline') return { label: 'Offline', tone: 'bg-danger' }
+    return { label: 'Connecting…', tone: 'bg-border' }
+  })()
+  const connectionLabel = connectionInfo.label
+  const connectionTone = connectionInfo.tone
 
   const recentSummary = useMemo(() => {
     if (!recentActivity.length) return null

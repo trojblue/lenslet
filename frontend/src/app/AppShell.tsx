@@ -319,9 +319,10 @@ export default function AppShell() {
     const now = Date.now()
     const parsed = parseTimestampMs(updatedAt)
     const candidate = parsed ?? now
+    const safeCandidate = candidate > now ? now : candidate
     setLastEditedAt((prev) => {
-      if (prev == null) return candidate
-      return prev > candidate ? prev : candidate
+      if (prev == null) return safeCandidate
+      return prev > safeCandidate ? prev : safeCandidate
     })
     setRecentEditAt(now)
     setLastEditedNow(now)

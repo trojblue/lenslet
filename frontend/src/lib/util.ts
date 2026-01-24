@@ -32,9 +32,17 @@ const ABSOLUTE_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
   minute: '2-digit',
 })
 
+function normalizeTimestamp(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return trimmed
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(trimmed)) return trimmed
+  const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T')
+  return `${normalized}Z`
+}
+
 export function parseTimestampMs(value: string | null | undefined): number | null {
   if (!value) return null
-  const parsed = Date.parse(value)
+  const parsed = Date.parse(normalizeTimestamp(value))
   if (!Number.isFinite(parsed)) return null
   return parsed
 }

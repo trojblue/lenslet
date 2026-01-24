@@ -1,6 +1,6 @@
 [project]
 name = "lenslet"
-version = "0.2.7"
+version = "0.2.8"
 description = "Lightweight image gallery server - no database, no files left behind"
 readme = "README.md"
 requires-python = ">=3.10"

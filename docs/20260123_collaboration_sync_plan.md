@@ -266,6 +266,29 @@ Frontend dependencies include a native `EventSource` SSE client, React Query cac
 - Targeted backend tests for idempotency/conflicts/replay/persistence.
 - Frontend QA checklist and operational docs.
 
+## Sprint 3 Postmortem (2026-01-24)
+
+**What shipped (Sprint 3):**
+- SSE reconnect + replay across reload using `last_event_id` query param and stored last event id on the client.
+- SSE keepalive (`: ping`) to prevent idle disconnects.
+- Polling fallback when SSE cannot reconnect after backoff; polling auto-disables when SSE is live.
+- Log compaction after snapshots (atomic rewrite) and snapshot atomic write safeguards.
+- Targeted backend tests for idempotency/conflicts/replay/persistence using `httpx.AsyncClient`.
+- Operational docs + manual QA checklist for collaboration sync.
+
+**Code organization improvements:**
+- Split `src/lenslet/server.py` into `server_models.py` (models) and `server_sync.py` (sync helpers) to reduce file size and duplication.
+- Extracted `LeftSidebar` and `StatusBar` components from `frontend/src/app/AppShell.tsx` to simplify the app shell.
+
+**Testing & verification:**
+- `pytest` passes (17 tests). Warnings remain about returning values from tests and `fork()` deprecation in multiprocess tests.
+- Manual SSE + polling fallback verified in local flows during implementation; recommend re-running the QA checklist for multi-client demo.
+
+**Known limitations / follow-ups:**
+- SSE replay uses in-memory ring buffer; very long offline windows can still miss events.
+- Presence remains best-effort and non-persistent.
+- Frontend build output (`src/lenslet/frontend/`) was not regenerated after UI refactors.
+
 
 When revising the plan, add a note at the bottom describing the change and why it was made.
 
@@ -276,3 +299,5 @@ Plan updated on 2026-01-23 to record Sprint 1 implementation status, test failur
 Plan updated on 2026-01-24 to record Sprint 2 implementation status, handover notes, and Sprint 3 guidance for reconnection, polling fallback, compaction, and tests.
 
 Plan updated on 2026-01-24 to add Sprint 3 handover notes covering Sprint 1/2 cleanup fixes and updated test expectations before Sprint 3 work begins.
+
+Plan updated on 2026-01-24 to add the Sprint 3 postmortem capturing shipped items, test status, and remaining limitations.

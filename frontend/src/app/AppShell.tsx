@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Toolbar from '../shared/ui/Toolbar'
 import VirtualGrid from '../features/browse/components/VirtualGrid'
+import MetricScrollbar from '../features/browse/components/MetricScrollbar'
 import Viewer from '../features/viewer/Viewer'
 import Inspector from '../features/inspector/Inspector'
 import { useFolder } from '../shared/api/folders'
@@ -95,6 +96,7 @@ export default function AppShell() {
   // Refs
   const appRef = useRef<HTMLDivElement>(null)
   const gridShellRef = useRef<HTMLDivElement>(null)
+  const gridScrollRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const viewerHistoryPushedRef = useRef(false)
   const lastFocusedPathRef = useRef<string | null>(null)
@@ -179,6 +181,22 @@ export default function AppShell() {
   const filteredCount = items.length
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
+  const selectedItems = useMemo(() => {
+    if (!selectedPaths.length) return []
+    const poolByPath = new Map(poolItems.map((it) => [it.path, it]))
+    const itemsByPath = new Map(items.map((it) => [it.path, it]))
+    return selectedPaths
+      .map((path) => poolByPath.get(path) ?? itemsByPath.get(path))
+      .filter((it): it is Item => !!it)
+  }, [selectedPaths, poolItems, items])
+  const metricSortKey = viewState.sort.kind === 'metric' ? viewState.sort.key : null
+  const hasMetricScrollbar = useMemo(() => {
+    if (!metricSortKey) return false
+    return items.some((it) => {
+      const raw = it.metrics?.[metricSortKey]
+      return raw != null && !Number.isNaN(raw)
+    })
+  }, [items, metricSortKey])
 
   const markHighlight = useCallback((path: string) => {
     setHighlightedPaths((prev) => {
@@ -1220,6 +1238,7 @@ export default function AppShell() {
           items={poolItems}
           filteredItems={items}
           metricKeys={metricKeys}
+          selectedItems={selectedItems}
           selectedMetric={viewState.selectedMetric}
           onSelectMetric={(key) => setViewState((prev) => ({ ...prev, selectedMetric: key }))}
           filters={viewState.filters}
@@ -1291,15 +1310,30 @@ export default function AppShell() {
             })()}
           </div>
         )}
-        <div className="flex-1 min-h-0">
-          <VirtualGrid items={items} selected={selectedPaths} restoreToSelectionToken={restoreGridToSelectionToken} onSelectionChange={setSelectedPaths} onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
+        <div className="flex-1 min-h-0 relative">
+          <VirtualGrid
+            items={items}
+            selected={selectedPaths}
+            restoreToSelectionToken={restoreGridToSelectionToken}
+            onSelectionChange={setSelectedPaths}
+            onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
             highlight={searching ? normalizedQ : ''}
             recentlyUpdated={highlightedPaths}
             suppressSelectionHighlight={!!viewer}
             viewMode={viewMode}
             targetCellSize={gridItemSize}
             onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
+            scrollRef={gridScrollRef}
+            hideScrollbar={hasMetricScrollbar}
           />
+          {hasMetricScrollbar && metricSortKey && (
+            <MetricScrollbar
+              items={items}
+              metricKey={metricSortKey}
+              scrollRef={gridScrollRef}
+              sortDir={viewState.sort.dir}
+            />
+          )}
         </div>
         {/* Bottom selection bar removed intentionally */}
       </div>

@@ -90,6 +90,12 @@
 }
 .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 
+.scrollbar-hidden {
+  scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar { height: 0; width: 0; }
+
 /* Zoom slider - complex pseudo-element styling */
 .zoom-slider { 
   width: 140px; 

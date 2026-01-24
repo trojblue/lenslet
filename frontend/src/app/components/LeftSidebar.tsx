@@ -17,6 +17,7 @@ type LeftSidebarProps = {
   items: Item[]
   filteredItems: Item[]
   metricKeys: string[]
+  selectedItems?: Item[]
   selectedMetric?: string
   onSelectMetric: (key: string) => void
   filters: FilterAST
@@ -41,6 +42,7 @@ export default function LeftSidebar({
   items,
   filteredItems,
   metricKeys,
+  selectedItems,
   selectedMetric,
   onSelectMetric,
   filters,
@@ -132,6 +134,7 @@ export default function LeftSidebar({
             items={items}
             filteredItems={filteredItems}
             metricKeys={metricKeys}
+            selectedItems={selectedItems}
             selectedMetric={selectedMetric}
             onSelectMetric={onSelectMetric}
             filters={filters}

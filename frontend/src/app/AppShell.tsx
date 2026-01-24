@@ -8,7 +8,7 @@ import { useFolder } from '../shared/api/folders'
 import { useSearch } from '../shared/api/search'
 import { api, connectEvents, disconnectEvents, subscribeEvents, subscribeEventStatus } from '../shared/api/client'
 import type { ConnectionStatus, SyncEvent } from '../shared/api/client'
-import { useSyncStatus, clearConflict, sidecarQueryKey } from '../shared/api/items'
+import { useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
 import { readHash, writeHash, sanitizePath, getParentPath, isTrashPath, joinPath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import {
@@ -34,7 +34,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import ContextMenu, { MenuItem } from './menu/ContextMenu'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 import { useDebounced } from '../shared/hooks/useDebounced'
-import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, PresenceEvent } from '../lib/types'
+import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, PresenceEvent, Sidecar } from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
 import { safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
@@ -212,10 +212,11 @@ export default function AppShell() {
     markHighlight(path)
   }, [markHighlight])
 
-  const updateItemCaches = useCallback((payload: { path: string; star?: StarRating | null; metrics?: Record<string, number | null> }) => {
+  const updateItemCaches = useCallback((payload: { path: string; star?: StarRating | null; metrics?: Record<string, number | null>; comments?: string | null }) => {
     const hasStar = Object.prototype.hasOwnProperty.call(payload, 'star')
     const hasMetrics = payload.metrics !== undefined
-    if (!hasStar && !hasMetrics) return
+    const hasComments = payload.comments !== undefined
+    if (!hasStar && !hasMetrics && !hasComments) return
 
     const updateItem = (item: Item): Item => {
       if (item.path !== payload.path) return item
@@ -225,6 +226,9 @@ export default function AppShell() {
       }
       if (hasMetrics) {
         next = { ...next, metrics: payload.metrics ?? null }
+      }
+      if (hasComments && item.comments !== payload.comments) {
+        next = { ...next, comments: payload.comments ?? '' }
       }
       return next
     }
@@ -332,7 +336,7 @@ export default function AppShell() {
 
       if (evt.type === 'item-updated') {
         const payload = evt.data
-        queryClient.setQueryData(sidecarQueryKey(path), {
+        const sidecar: Sidecar = {
           v: 1,
           tags: payload.tags ?? [],
           notes: payload.notes ?? '',
@@ -340,9 +344,15 @@ export default function AppShell() {
           version: payload.version ?? 1,
           updated_at: payload.updated_at ?? '',
           updated_by: payload.updated_by ?? 'server',
+        }
+        queryClient.setQueryData(sidecarQueryKey(path), sidecar)
+        updateItemCaches({
+          path,
+          star: payload.star ?? null,
+          metrics: payload.metrics,
+          comments: payload.notes ?? '',
         })
-        updateItemCaches({ path, star: payload.star ?? null, metrics: payload.metrics })
-        clearConflict(path)
+        updateConflictFromServer(path, sidecar)
         markRecentActivity(path, 'item-updated')
         setLocalStarOverrides((prev) => {
           if (prev[path] === undefined) return prev

@@ -362,13 +362,20 @@ class IdempotencyCache:
 
 
 class SnapshotWriter:
-    def __init__(self, workspace: Workspace, min_interval: float = 5.0, min_updates: int = 20) -> None:
+    def __init__(
+        self,
+        workspace: Workspace,
+        min_interval: float = 5.0,
+        min_updates: int = 20,
+        meta_lock: threading.Lock | None = None,
+    ) -> None:
         self._workspace = workspace
         self._min_interval = min_interval
         self._min_updates = min_updates
         self._last_write = 0.0
         self._since = 0
         self._lock = threading.Lock()
+        self._meta_lock = meta_lock
 
     def maybe_write(self, storage, last_event_id: int) -> None:
         if not self._workspace.can_write:
@@ -380,7 +387,11 @@ class SnapshotWriter:
                 return
             self._since = 0
             self._last_write = now
-        payload = _build_snapshot_payload(storage, last_event_id)
+        if self._meta_lock is None:
+            payload = _build_snapshot_payload(storage, last_event_id)
+        else:
+            with self._meta_lock:
+                payload = _build_snapshot_payload(storage, last_event_id)
         try:
             self._workspace.write_labels_snapshot(payload)
         except Exception as exc:
@@ -391,7 +402,7 @@ def _build_snapshot_payload(storage, last_event_id: int) -> dict[str, Any]:
     meta_map = getattr(storage, "_metadata", None)
     items: dict[str, Any] = {}
     if isinstance(meta_map, dict):
-        for path, meta in meta_map.items():
+        for path, meta in list(meta_map.items()):
             if not isinstance(meta, dict):
                 continue
             meta = _ensure_meta_fields(meta)
@@ -543,13 +554,17 @@ def _apply_patch_to_meta(meta: dict, body: SidecarPatch) -> bool:
     return updated
 
 
-def _init_sync_state(storage, workspace: Workspace) -> tuple[EventBroker, IdempotencyCache, SnapshotWriter, int]:
+def _init_sync_state(
+    storage,
+    workspace: Workspace,
+    meta_lock: threading.Lock | None = None,
+) -> tuple[EventBroker, IdempotencyCache, SnapshotWriter, int]:
     broker = EventBroker(buffer_size=500)
     max_event_id = _load_label_state(storage, workspace)
     if max_event_id:
         broker.set_next_id(max_event_id + 1)
     idempotency = IdempotencyCache(ttl_seconds=600)
-    snapshotter = SnapshotWriter(workspace)
+    snapshotter = SnapshotWriter(workspace, meta_lock=meta_lock)
     return broker, idempotency, snapshotter, max_event_id
 
 
@@ -1087,7 +1102,8 @@ def create_app(
         print(f"[lenslet] Warning: failed to initialize workspace: {exc}")
         workspace.can_write = False
 
-    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace)
+    meta_lock = threading.Lock()
+    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock)
     sync_state = {"last_event_id": max_event_id}
     presence = PresenceTracker()
 
@@ -1180,9 +1196,10 @@ def create_app(
         path = _canonical_path(path)
         _ensure_image(storage, path)
         updated_by = _updated_by_from_request(request)
-        sidecar = _update_item(storage, path, body, updated_by)
-        meta = storage.get_metadata(path)
-        _record_update(path, meta)
+        with meta_lock:
+            sidecar = _update_item(storage, path, body, updated_by)
+            meta_snapshot = dict(storage.get_metadata(path))
+        _record_update(path, meta_snapshot)
         client_id = _client_id_from_request(request)
         if client_id:
             gallery_id = _gallery_id_from_path(path)
@@ -1203,9 +1220,6 @@ def create_app(
             status, payload = cached
             return JSONResponse(status_code=status, content=payload)
 
-        meta = storage.get_metadata(path)
-        meta = _ensure_meta_fields(meta)
-
         if_match = _parse_if_match(request.headers.get("If-Match") if request else None)
         if request and request.headers.get("If-Match") and if_match is None:
             payload = {"error": "invalid_if_match", "message": "If-Match must be an integer version"}
@@ -1225,25 +1239,30 @@ def create_app(
             idempotency_cache.set(idem_key, 400, payload)
             return JSONResponse(status_code=400, content=payload)
 
-        if expected is not None and expected != meta.get("version", 1):
-            current = _sidecar_from_meta(meta).model_dump()
-            payload = {"error": "version_conflict", "current": current}
-            idempotency_cache.set(idem_key, 409, payload)
-            return JSONResponse(status_code=409, content=payload)
-
-        updated = _apply_patch_to_meta(meta, body)
+        updated = False
+        with meta_lock:
+            meta = storage.get_metadata(path)
+            meta = _ensure_meta_fields(meta)
+            if expected is not None and expected != meta.get("version", 1):
+                current = _sidecar_from_meta(meta).model_dump()
+                payload = {"error": "version_conflict", "current": current}
+                idempotency_cache.set(idem_key, 409, payload)
+                return JSONResponse(status_code=409, content=payload)
+            updated = _apply_patch_to_meta(meta, body)
+            if updated:
+                meta["version"] = meta.get("version", 1) + 1
+                meta["updated_at"] = _now_iso()
+                meta["updated_by"] = _updated_by_from_request(request)
+                storage.set_metadata(path, meta)
+            meta_snapshot = dict(meta)
         if updated:
-            meta["version"] = meta.get("version", 1) + 1
-            meta["updated_at"] = _now_iso()
-            meta["updated_by"] = _updated_by_from_request(request)
-            storage.set_metadata(path, meta)
-            _record_update(path, meta)
+            _record_update(path, meta_snapshot)
             client_id = _client_id_from_request(request)
             if client_id:
                 gallery_id = _gallery_id_from_path(path)
                 viewing, editing = presence.touch_edit(gallery_id, client_id)
                 broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
-        sidecar = _sidecar_from_meta(meta).model_dump()
+        sidecar = _sidecar_from_meta(meta_snapshot).model_dump()
         idempotency_cache.set(idem_key, 200, sidecar)
         return JSONResponse(status_code=200, content=sidecar)
 
@@ -1349,7 +1368,8 @@ def create_app_from_datasets(
         include_source_in_search=show_source,
     )
     workspace = Workspace.for_dataset(None, can_write=False)
-    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace)
+    meta_lock = threading.Lock()
+    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock)
     sync_state = {"last_event_id": max_event_id}
     presence = PresenceTracker()
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
@@ -1430,9 +1450,10 @@ def create_app_from_datasets(
         path = _canonical_path(path)
         _ensure_image(storage, path)
         updated_by = _updated_by_from_request(request)
-        sidecar = _update_item(storage, path, body, updated_by)
-        meta = storage.get_metadata(path)
-        _record_update(path, meta)
+        with meta_lock:
+            sidecar = _update_item(storage, path, body, updated_by)
+            meta_snapshot = dict(storage.get_metadata(path))
+        _record_update(path, meta_snapshot)
         client_id = _client_id_from_request(request)
         if client_id:
             gallery_id = _gallery_id_from_path(path)
@@ -1453,9 +1474,6 @@ def create_app_from_datasets(
             status, payload = cached
             return JSONResponse(status_code=status, content=payload)
 
-        meta = storage.get_metadata(path)
-        meta = _ensure_meta_fields(meta)
-
         if_match = _parse_if_match(request.headers.get("If-Match") if request else None)
         if request and request.headers.get("If-Match") and if_match is None:
             payload = {"error": "invalid_if_match", "message": "If-Match must be an integer version"}
@@ -1470,25 +1488,36 @@ def create_app_from_datasets(
                 return JSONResponse(status_code=400, content=payload)
             expected = if_match
 
-        if expected is not None and expected != meta.get("version", 1):
-            current = _sidecar_from_meta(meta).model_dump()
-            payload = {"error": "version_conflict", "current": current}
-            idempotency_cache.set(idem_key, 409, payload)
-            return JSONResponse(status_code=409, content=payload)
+        if expected is None:
+            payload = {"error": "missing_base_version", "message": "base_version or If-Match is required"}
+            idempotency_cache.set(idem_key, 400, payload)
+            return JSONResponse(status_code=400, content=payload)
 
-        updated = _apply_patch_to_meta(meta, body)
+        updated = False
+        with meta_lock:
+            meta = storage.get_metadata(path)
+            meta = _ensure_meta_fields(meta)
+            if expected is not None and expected != meta.get("version", 1):
+                current = _sidecar_from_meta(meta).model_dump()
+                payload = {"error": "version_conflict", "current": current}
+                idempotency_cache.set(idem_key, 409, payload)
+                return JSONResponse(status_code=409, content=payload)
+
+            updated = _apply_patch_to_meta(meta, body)
+            if updated:
+                meta["version"] = meta.get("version", 1) + 1
+                meta["updated_at"] = _now_iso()
+                meta["updated_by"] = _updated_by_from_request(request)
+                storage.set_metadata(path, meta)
+            meta_snapshot = dict(meta)
         if updated:
-            meta["version"] = meta.get("version", 1) + 1
-            meta["updated_at"] = _now_iso()
-            meta["updated_by"] = _updated_by_from_request(request)
-            storage.set_metadata(path, meta)
-            _record_update(path, meta)
+            _record_update(path, meta_snapshot)
             client_id = _client_id_from_request(request)
             if client_id:
                 gallery_id = _gallery_id_from_path(path)
                 viewing, editing = presence.touch_edit(gallery_id, client_id)
                 broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
-        sidecar = _sidecar_from_meta(meta).model_dump()
+        sidecar = _sidecar_from_meta(meta_snapshot).model_dump()
         idempotency_cache.set(idem_key, 200, sidecar)
         return JSONResponse(status_code=200, content=sidecar)
 
@@ -1614,7 +1643,8 @@ def create_app_from_storage(
 
     if workspace is None:
         workspace = Workspace.for_dataset(None, can_write=False)
-    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace)
+    meta_lock = threading.Lock()
+    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock)
     sync_state = {"last_event_id": max_event_id}
     presence = PresenceTracker()
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
@@ -1683,9 +1713,10 @@ def create_app_from_storage(
         path = _canonical_path(path)
         _ensure_image(storage, path)
         updated_by = _updated_by_from_request(request)
-        sidecar = _update_item(storage, path, body, updated_by)
-        meta = storage.get_metadata(path)
-        _record_update(path, meta)
+        with meta_lock:
+            sidecar = _update_item(storage, path, body, updated_by)
+            meta_snapshot = dict(storage.get_metadata(path))
+        _record_update(path, meta_snapshot)
         client_id = _client_id_from_request(request)
         if client_id:
             gallery_id = _gallery_id_from_path(path)
@@ -1706,9 +1737,6 @@ def create_app_from_storage(
             status, payload = cached
             return JSONResponse(status_code=status, content=payload)
 
-        meta = storage.get_metadata(path)
-        meta = _ensure_meta_fields(meta)
-
         if_match = _parse_if_match(request.headers.get("If-Match") if request else None)
         if request and request.headers.get("If-Match") and if_match is None:
             payload = {"error": "invalid_if_match", "message": "If-Match must be an integer version"}
@@ -1723,25 +1751,36 @@ def create_app_from_storage(
                 return JSONResponse(status_code=400, content=payload)
             expected = if_match
 
-        if expected is not None and expected != meta.get("version", 1):
-            current = _sidecar_from_meta(meta).model_dump()
-            payload = {"error": "version_conflict", "current": current}
-            idempotency_cache.set(idem_key, 409, payload)
-            return JSONResponse(status_code=409, content=payload)
+        if expected is None:
+            payload = {"error": "missing_base_version", "message": "base_version or If-Match is required"}
+            idempotency_cache.set(idem_key, 400, payload)
+            return JSONResponse(status_code=400, content=payload)
 
-        updated = _apply_patch_to_meta(meta, body)
+        updated = False
+        with meta_lock:
+            meta = storage.get_metadata(path)
+            meta = _ensure_meta_fields(meta)
+            if expected is not None and expected != meta.get("version", 1):
+                current = _sidecar_from_meta(meta).model_dump()
+                payload = {"error": "version_conflict", "current": current}
+                idempotency_cache.set(idem_key, 409, payload)
+                return JSONResponse(status_code=409, content=payload)
+
+            updated = _apply_patch_to_meta(meta, body)
+            if updated:
+                meta["version"] = meta.get("version", 1) + 1
+                meta["updated_at"] = _now_iso()
+                meta["updated_by"] = _updated_by_from_request(request)
+                storage.set_metadata(path, meta)
+            meta_snapshot = dict(meta)
         if updated:
-            meta["version"] = meta.get("version", 1) + 1
-            meta["updated_at"] = _now_iso()
-            meta["updated_by"] = _updated_by_from_request(request)
-            storage.set_metadata(path, meta)
-            _record_update(path, meta)
+            _record_update(path, meta_snapshot)
             client_id = _client_id_from_request(request)
             if client_id:
                 gallery_id = _gallery_id_from_path(path)
                 viewing, editing = presence.touch_edit(gallery_id, client_id)
                 broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
-        sidecar = _sidecar_from_meta(meta).model_dump()
+        sidecar = _sidecar_from_meta(meta_snapshot).model_dump()
         idempotency_cache.set(idem_key, 200, sidecar)
         return JSONResponse(status_code=200, content=sidecar)
 

@@ -46,7 +46,10 @@ export function getClientId(): string {
 
 export function makeIdempotencyKey(prefix = 'lenslet'): string {
   idempotencyCounter += 1
-  return `${prefix}:${getClientId()}:${Date.now()}:${idempotencyCounter}`
+  const nonce = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `nonce_${Math.random().toString(36).slice(2, 10)}_${Date.now()}_${idempotencyCounter}`
+  return `${prefix}:${getClientId()}:${nonce}`
 }
 
 function parseEventData<T>(raw: string): T | null {
@@ -77,7 +80,12 @@ function notifyStatus(next: ConnectionStatus) {
 }
 
 export function connectEvents(): void {
-  if (eventSource || typeof window === 'undefined' || typeof EventSource === 'undefined') return
+  if (typeof window === 'undefined' || typeof EventSource === 'undefined') return
+  if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+    eventSource.close()
+    eventSource = null
+  }
+  if (eventSource) return
   notifyStatus('connecting')
   const es = new EventSource(`${BASE}/events`)
   eventSource = es
@@ -99,11 +107,13 @@ export function connectEvents(): void {
   es.onopen = () => notifyStatus('live')
   es.onerror = () => {
     if (!eventSource) return
-    if (eventSource.readyState === EventSource.CLOSED) {
+    if (es.readyState === EventSource.CLOSED) {
+      es.close()
+      eventSource = null
       notifyStatus('offline')
-    } else {
-      notifyStatus('reconnecting')
+      return
     }
+    notifyStatus('reconnecting')
   }
 }
 
@@ -191,6 +201,7 @@ export const api = {
       'Content-Type': 'application/json',
       'Idempotency-Key': idempotencyKey,
       'x-client-id': getClientId(),
+      'x-updated-by': 'web',
     }
     if (opts?.ifMatch != null) headers['If-Match'] = String(opts.ifMatch)
     return fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`, {
@@ -216,6 +227,7 @@ export const api = {
       headers: {
         'Content-Type': 'application/json',
         'x-client-id': getClientId(),
+        'x-updated-by': 'web',
       },
       body: JSON.stringify(body),
     }).promise

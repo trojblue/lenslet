@@ -181,6 +181,49 @@ function hasPatchFields(patch: SidecarPatch): boolean {
   )
 }
 
+function normalizeTags(values: string[] | null | undefined): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of values ?? []) {
+    if (typeof raw !== 'string') continue
+    const val = raw.trim()
+    if (!val || seen.has(val)) continue
+    seen.add(val)
+    out.push(val)
+  }
+  return out
+}
+
+function tagsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+function isPatchSatisfied(patch: SidecarPatch, current: Sidecar): boolean {
+  if (patch.set_star !== undefined && (current.star ?? null) !== patch.set_star) {
+    return false
+  }
+  if (patch.set_notes !== undefined && (current.notes ?? '') !== (patch.set_notes ?? '')) {
+    return false
+  }
+  if (patch.set_tags !== undefined) {
+    const wanted = normalizeTags(patch.set_tags)
+    const existing = normalizeTags(current.tags)
+    return tagsEqual(wanted, existing)
+  }
+  const existing = normalizeTags(current.tags)
+  for (const tag of normalizeTags(patch.add_tags)) {
+    if (!existing.includes(tag)) return false
+  }
+  for (const tag of normalizeTags(patch.remove_tags)) {
+    if (existing.includes(tag)) return false
+  }
+  return true
+}
+
 function captureConflict(path: string, patch: SidecarPatch, err: unknown): boolean {
   if (err instanceof FetchError && err.status === 409) {
     const body = err.body as { current?: Sidecar } | null
@@ -195,6 +238,18 @@ function captureConflict(path: string, patch: SidecarPatch, err: unknown): boole
     }
   }
   return false
+}
+
+export function updateConflictFromServer(path: string, current: Sidecar): void {
+  const existing = conflictByPath.get(path)
+  if (!existing) return
+  if (isPatchSatisfied(existing.pending, current)) {
+    clearConflict(path)
+    return
+  }
+  conflictByPath.set(path, { ...existing, current })
+  notifyConflict(path)
+  updateSyncState()
 }
 
 /**
@@ -328,12 +383,15 @@ export async function queueSidecarUpdate(
       // Keep flushing while there are pending patches
       while (pendingPatches.has(path)) {
         const toSend = pendingPatches.get(path)
-        pendingPatches.delete(path)
-
         if (!toSend) break
 
         const body = buildPatch(toSend)
-        if (!hasPatchFields(body)) continue
+        if (!hasPatchFields(body)) {
+          if (pendingPatches.get(path) === toSend) {
+            pendingPatches.delete(path)
+          }
+          continue
+        }
 
         let baseVersion = 1
         try {
@@ -351,9 +409,25 @@ export async function queueSidecarUpdate(
             ifMatch: baseVersion,
           })
           clearConflict(path)
+          if (pendingPatches.get(path) === toSend) {
+            pendingPatches.delete(path)
+          }
         } catch (err) {
           const isConflict = captureConflict(path, body, err)
-          if (!isConflict) {
+          if (isConflict) {
+            const latest = pendingPatches.get(path)
+            if (latest && latest !== toSend) {
+              const latestPatch = buildPatch(latest)
+              if (hasPatchFields(latestPatch)) {
+                const entry = conflictByPath.get(path)
+                if (entry) {
+                  conflictByPath.set(path, { ...entry, pending: latestPatch })
+                  notifyConflict(path)
+                }
+              }
+            }
+            pendingPatches.delete(path)
+          } else {
             if (err instanceof FetchError) {
               setSyncError(err.message)
             } else {

@@ -10,6 +10,11 @@ export type SyncIndicatorData = {
   connectionLabel: string
   lastEditedLabel: string
   hasEdits: boolean
+  recentTouches: Array<{
+    path: string
+    label: string
+    timeLabel: string
+  }>
 }
 
 type SyncIndicatorProps = SyncIndicatorData & {
@@ -31,6 +36,7 @@ export default function SyncIndicator({
   connectionLabel,
   lastEditedLabel,
   hasEdits,
+  recentTouches,
   isNarrow,
 }: SyncIndicatorProps): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -84,12 +90,27 @@ export default function SyncIndicator({
         )}
       </button>
       {open && (
-        <div role="dialog" aria-label="Sync status" className="sync-indicator-card">
+        <div role="dialog" aria-label="Sync status" className="sync-indicator-card select-text">
           <div className="sync-indicator-line sync-indicator-primary">{syncLabel}</div>
           <div className="sync-indicator-line">{connectionLabel}</div>
           <div className="sync-indicator-line sync-indicator-muted">{presenceText}</div>
           <div className="sync-indicator-line sync-indicator-muted">
             {hasEdits ? `Last edited: ${lastEditedLabel}` : 'No edits yet.'}
+          </div>
+          <div className="sync-indicator-section">
+            <div className="sync-indicator-section-title">Recently touched files</div>
+            {recentTouches.length > 0 ? (
+              <div className="sync-indicator-list">
+                {recentTouches.map((entry) => (
+                  <div key={entry.path} className="sync-indicator-item">
+                    <span className="sync-indicator-item-name" title={entry.path}>{entry.label}</span>
+                    <span className="sync-indicator-item-time tabular-nums">{entry.timeLabel}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="sync-indicator-empty">No recent touches.</div>
+            )}
           </div>
         </div>
       )}

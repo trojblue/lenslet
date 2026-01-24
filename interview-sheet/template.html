@@ -271,6 +271,7 @@
 
   <script>
     const QUESTIONS = __QUESTIONS__;
+    const SOURCE_NAME = __SOURCE_NAME__;
 
     function escapeHtml(text) {
       return text
@@ -331,6 +332,36 @@
       if (inUl) html += "</ul>";
       if (inOl) html += "</ol>";
       return html;
+    }
+
+    function sanitizeName(name) {
+      return String(name || "interview").replace(/[^A-Za-z0-9._-]+/g, "_");
+    }
+
+    function formatTimestamp(date) {
+      const pad = (value) => String(value).padStart(2, "0");
+      const year = date.getFullYear();
+      const month = pad(date.getMonth() + 1);
+      const day = pad(date.getDate());
+      const hour = pad(date.getHours());
+      const minute = pad(date.getMinutes());
+      const second = pad(date.getSeconds());
+      return `${year}${month}${day}_${hour}${minute}${second}`;
+    }
+
+    function downloadJson(data) {
+      const stamp = formatTimestamp(new Date());
+      const safeName = sanitizeName(SOURCE_NAME);
+      const filename = `${stamp}_${safeName}.answers.json`;
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
     }
 
     const steps = [...(QUESTIONS.questions || [])];
@@ -555,6 +586,8 @@
           body: JSON.stringify(payload),
         });
         if (!resp.ok) throw new Error("Server error");
+        const result = await resp.json();
+        downloadJson(result);
         showSubmitted();
       } catch (err) {
         const fallback = document.createElement("div");

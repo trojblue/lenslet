@@ -8,7 +8,7 @@ Local YAML/JSON-driven interview form that opens in your browser, collects answe
 python interview-sheet/interview_sheet.py --in interview-sheet/sample.questions.yaml
 ```
 
-This opens a local page, saves answers to `sample.questions.answers.json`, and exits after submit.
+This opens a local page, downloads a copy of the answers, saves answers to `sample.questions.answers.json`, and exits after submit.
 
 ## Questions YAML format
 
@@ -103,6 +103,12 @@ The script writes a JSON file like:
   ],
   "final_note": "Optional extra context"
 }
+```
+
+On submit, the browser also downloads a copy named like (using the input file stem):
+
+```
+yyyymmdd_hhmmss_filename.answers.json
 ```
 
 ## CLI options

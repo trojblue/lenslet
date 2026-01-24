@@ -29,8 +29,10 @@ def _json_for_html(data: Dict[str, Any]) -> str:
     return raw.replace("</", "<\\/")
 
 
-def build_html(data: Dict[str, Any]) -> str:
-    return load_template().replace("__QUESTIONS__", _json_for_html(data))
+def build_html(data: Dict[str, Any], source_name: str) -> str:
+    html = load_template().replace("__QUESTIONS__", _json_for_html(data))
+    html = html.replace("__SOURCE_NAME__", json.dumps(source_name, ensure_ascii=True))
+    return html
 
 
 def parse_input(path: Path) -> Dict[str, Any]:
@@ -98,7 +100,7 @@ def run_server(data: Dict[str, Any], host: str, port: int, open_browser: bool, o
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             if self.path in ("/", "/index.html"):
-                html = build_html(data)
+                html = build_html(data, source_path.stem)
                 encoded = html.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -118,8 +120,14 @@ def run_server(data: Dict[str, Any], host: str, port: int, open_browser: bool, o
             payload = self.rfile.read(length)
             try:
                 state["payload"] = json.loads(payload)
+                output = build_output({**data, **state["payload"]}, source_path)
+                state["output"] = output
+                body = json.dumps(output, indent=2, ensure_ascii=False).encode("utf-8")
                 self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
+                self.wfile.write(body)
             except json.JSONDecodeError:
                 self.send_response(400)
                 self.end_headers()
@@ -154,8 +162,7 @@ def run_server(data: Dict[str, Any], host: str, port: int, open_browser: bool, o
     if not payload:
         print("No submission received.")
         return 1
-
-    output = build_output({**data, **payload}, source_path)
+    output = state.get("output") or build_output({**data, **payload}, source_path)
     out_path.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Saved answers to {out_path}")
     return 0

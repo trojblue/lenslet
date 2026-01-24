@@ -123,6 +123,7 @@ export default function AppShell() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
   const [presenceByGallery, setPresenceByGallery] = useState<Record<string, PresenceEvent>>({})
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
+  const [recentTouches, setRecentTouches] = useState<RecentActivity[]>([])
   const [highlightedPaths, setHighlightedPaths] = useState<Set<string>>(new Set())
   const highlightTimersRef = useRef<Map<string, number>>(new Map())
   const [lastEditedAt, setLastEditedAt] = useState<number | null>(null)
@@ -259,6 +260,16 @@ export default function AppShell() {
     })
     setRecentEditAt(now)
     setLastEditedNow(now)
+  }, [])
+
+  const markRecentTouch = useCallback((path: string, kind: RecentActivity['kind'], updatedAt?: string | null) => {
+    const now = Date.now()
+    const ts = parseTimestampMs(updatedAt) ?? now
+    setRecentTouches((prev) => {
+      const filtered = prev.filter((entry) => entry.path !== path)
+      const next = [{ path, ts, kind }, ...filtered]
+      return next.slice(0, 10)
+    })
   }, [])
 
   const markRecentActivity = useCallback((path: string, kind: RecentActivity['kind']) => {
@@ -413,6 +424,7 @@ export default function AppShell() {
         })
         updateConflictFromServer(path, sidecar)
         markRecentActivity(path, 'item-updated')
+        markRecentTouch(path, 'item-updated', payload.updated_at)
         updateLastEdited(payload.updated_at)
         setLocalStarOverrides((prev) => {
           if (prev[path] === undefined) return prev
@@ -424,6 +436,7 @@ export default function AppShell() {
         const payload = evt.data
         updateItemCaches({ path, metrics: payload.metrics })
         markRecentActivity(path, 'metrics-updated')
+        markRecentTouch(path, 'metrics-updated', payload.updated_at)
         updateLastEdited(payload.updated_at)
       }
     })
@@ -433,7 +446,7 @@ export default function AppShell() {
       offStatus()
       disconnectEvents()
     }
-  }, [markRecentActivity, queryClient, updateItemCaches, updateLastEdited])
+  }, [markRecentActivity, markRecentTouch, queryClient, updateItemCaches, updateLastEdited])
 
   useEffect(() => {
     let cancelled = false
@@ -579,6 +592,19 @@ export default function AppShell() {
       extra: Math.max(0, paths.length - names.length),
     }
   }, [recentActivity, items])
+  const recentTouchesDisplay = useMemo(() => {
+    if (!recentTouches.length) return []
+    const now = lastEditedNow ?? Date.now()
+    return recentTouches.map((entry) => {
+      const match = items.find((it) => it.path === entry.path)
+      const label = match?.name ?? entry.path.split('/').pop() ?? entry.path
+      const ageMs = now - entry.ts
+      const timeLabel = ageMs < LAST_EDIT_RELATIVE_MS
+        ? formatRelativeTime(entry.ts, now)
+        : formatAbsoluteTime(entry.ts)
+      return { path: entry.path, label, timeLabel }
+    })
+  }, [items, lastEditedNow, recentTouches])
   const displayItemCount = showFilteredCounts ? filteredCount : scopeTotal
   const displayTotalCount = showFilteredCounts
     ? scopeTotal
@@ -1313,6 +1339,7 @@ export default function AppShell() {
           connectionLabel,
           lastEditedLabel,
           hasEdits,
+          recentTouches: recentTouchesDisplay,
         }}
       />
       {leftOpen && (

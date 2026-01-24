@@ -1,0 +1,67 @@
+{
+  "title": "Status indicator interview",
+  "description": "Short spec clarification round. Use **bold** for emphasis, `code` for inline, ==highlight== for key words, and lists:\n- Be specific\n- Dates preferred when relevant\n",
+  "source": "/home/ubuntu/dev/lenslet/interview-sheet/sample.questions.yaml",
+  "submitted_at": "2026-01-24T22:55:42.223323+00:00",
+  "answers": [
+    {
+      "id": "placement_label",
+      "type": "choice",
+      "label": "Placement + label",
+      "response": {
+        "type": "choice",
+        "selected": [],
+        "none_selected": false,
+        "text": ""
+      }
+    },
+    {
+      "id": "tooltip_ux",
+      "type": "text",
+      "label": "Tooltip UX",
+      "response": {
+        "type": "text",
+        "text": ""
+      }
+    },
+    {
+      "id": "dot_color_precedence",
+      "type": "choice",
+      "label": "Dot color precedence",
+      "response": {
+        "type": "choice",
+        "selected": [],
+        "none_selected": false,
+        "text": ""
+      }
+    },
+    {
+      "id": "recent_edits_logic",
+      "type": "text",
+      "label": "Recent edits logic",
+      "response": {
+        "type": "text",
+        "text": ""
+      }
+    },
+    {
+      "id": "last_edited_source",
+      "type": "text",
+      "label": "Last edited source",
+      "response": {
+        "type": "text",
+        "text": ""
+      }
+    },
+    {
+      "id": "statusbar_removal",
+      "type": "text",
+      "label": "StatusBar removal",
+      "response": {
+        "type": "text",
+        "text": ""
+      }
+    }
+  ],
+  "final_note": ""
+}

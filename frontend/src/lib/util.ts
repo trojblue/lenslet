@@ -23,3 +23,32 @@ export function middleTruncate(value: string, max = 28): string {
   const keep = Math.max(4, Math.floor((max - 1) / 2))
   return `${value.slice(0, keep)}…${value.slice(-keep)}`
 }
+
+const ABSOLUTE_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+})
+
+export function parseTimestampMs(value: string | null | undefined): number | null {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  if (!Number.isFinite(parsed)) return null
+  return parsed
+}
+
+export function formatRelativeTime(timestampMs: number, nowMs = Date.now()): string {
+  const diffMs = Math.max(0, nowMs - timestampMs)
+  const seconds = Math.max(1, Math.floor(diffMs / 1000))
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'} ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`
+  const hours = Math.floor(minutes / 60)
+  return `${hours} hour${hours === 1 ? '' : 's'} ago`
+}
+
+export function formatAbsoluteTime(timestampMs: number): string {
+  return ABSOLUTE_TIME_FORMATTER.format(new Date(timestampMs))
+}

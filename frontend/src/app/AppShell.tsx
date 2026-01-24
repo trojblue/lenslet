@@ -8,7 +8,8 @@ import { useFolder } from '../shared/api/folders'
 import { useSearch } from '../shared/api/search'
 import { api, connectEvents, disconnectEvents, subscribeEvents, subscribeEventStatus } from '../shared/api/client'
 import type { ConnectionStatus, SyncEvent } from '../shared/api/client'
-import { useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
+import { useOldestInflightAgeMs, useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
+import { usePollingEnabled } from '../shared/api/polling'
 import { readHash, writeHash, sanitizePath, getParentPath, isTrashPath, joinPath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import {
@@ -34,12 +35,14 @@ import ContextMenu, { MenuItem } from './menu/ContextMenu'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 import { useDebounced } from '../shared/hooks/useDebounced'
 import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, PresenceEvent, Sidecar } from '../lib/types'
+import type { SyncIndicatorState } from '../shared/ui/SyncIndicator'
 import { isInputElement } from '../lib/keyboard'
-import { safeJsonParse } from '../lib/util'
+import { formatAbsoluteTime, formatRelativeTime, parseTimestampMs, safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
 import { FetchError } from '../lib/fetcher'
 import LeftSidebar from './components/LeftSidebar'
 import StatusBar from './components/StatusBar'
+import { EDITING_HOLD_MS, LAST_EDIT_RELATIVE_MS, LONG_SYNC_THRESHOLD_MS, RECENT_EDIT_FLASH_MS } from '../lib/constants'
 
 /** Local storage keys for persisted settings */
 const STORAGE_KEYS = {
@@ -115,11 +118,17 @@ export default function AppShell() {
   const [ctx, setCtx] = useState<ContextMenuState | null>(null)
   const queryClient = useQueryClient()
   const syncStatus = useSyncStatus()
+  const pollingEnabled = usePollingEnabled()
+  const oldestInflightAgeMs = useOldestInflightAgeMs()
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
   const [presenceByGallery, setPresenceByGallery] = useState<Record<string, PresenceEvent>>({})
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
   const [highlightedPaths, setHighlightedPaths] = useState<Set<string>>(new Set())
   const highlightTimersRef = useRef<Map<string, number>>(new Map())
+  const [lastEditedAt, setLastEditedAt] = useState<number | null>(null)
+  const [recentEditAt, setRecentEditAt] = useState<number | null>(null)
+  const [recentEditActive, setRecentEditActive] = useState(false)
+  const [lastEditedNow, setLastEditedNow] = useState(() => Date.now())
   const [persistenceEnabled, setPersistenceEnabled] = useState(true)
 
   // Initialize current folder from URL hash and keep in sync
@@ -150,6 +159,23 @@ export default function AppShell() {
       highlightTimersRef.current.clear()
     }
   }, [])
+
+  useEffect(() => {
+    if (recentEditAt == null) {
+      setRecentEditActive(false)
+      return
+    }
+    setRecentEditActive(true)
+    const id = window.setTimeout(() => setRecentEditActive(false), RECENT_EDIT_FLASH_MS)
+    return () => window.clearTimeout(id)
+  }, [recentEditAt])
+
+  useEffect(() => {
+    if (lastEditedAt == null) return
+    setLastEditedNow(Date.now())
+    const id = window.setInterval(() => setLastEditedNow(Date.now()), 10_000)
+    return () => window.clearInterval(id)
+  }, [lastEditedAt])
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -219,8 +245,20 @@ export default function AppShell() {
         return next
       })
       timers.delete(path)
-    }, 6000)
+    }, RECENT_EDIT_FLASH_MS)
     timers.set(path, timeoutId)
+  }, [])
+
+  const updateLastEdited = useCallback((updatedAt?: string | null) => {
+    const now = Date.now()
+    const parsed = parseTimestampMs(updatedAt)
+    const candidate = parsed ?? now
+    setLastEditedAt((prev) => {
+      if (prev == null) return candidate
+      return prev > candidate ? prev : candidate
+    })
+    setRecentEditAt(now)
+    setLastEditedNow(now)
   }, [])
 
   const markRecentActivity = useCallback((path: string, kind: RecentActivity['kind']) => {
@@ -375,6 +413,7 @@ export default function AppShell() {
         })
         updateConflictFromServer(path, sidecar)
         markRecentActivity(path, 'item-updated')
+        updateLastEdited(payload.updated_at)
         setLocalStarOverrides((prev) => {
           if (prev[path] === undefined) return prev
           const next = { ...prev }
@@ -385,6 +424,7 @@ export default function AppShell() {
         const payload = evt.data
         updateItemCaches({ path, metrics: payload.metrics })
         markRecentActivity(path, 'metrics-updated')
+        updateLastEdited(payload.updated_at)
       }
     })
     const offStatus = subscribeEventStatus(setConnectionStatus)
@@ -393,7 +433,7 @@ export default function AppShell() {
       offStatus()
       disconnectEvents()
     }
-  }, [markRecentActivity, queryClient, updateItemCaches])
+  }, [markRecentActivity, queryClient, updateItemCaches, updateLastEdited])
 
   useEffect(() => {
     let cancelled = false
@@ -490,20 +530,35 @@ export default function AppShell() {
     }
     return 'All changes saved'
   })()
-  const syncTone = (() => {
-    if (syncStatus.state === 'error') return 'border-danger/40 text-danger'
-    if (syncStatus.state === 'syncing') return 'border-accent/40 text-accent'
-    return 'border-border text-muted'
+  const connectionLabel = (() => {
+    if (connectionStatus === 'live') return 'Live'
+    if (connectionStatus === 'reconnecting') return 'Reconnecting…'
+    if (connectionStatus === 'offline') return 'Offline'
+    return 'Connecting…'
   })()
-
-  const connectionInfo = (() => {
-    if (connectionStatus === 'live') return { label: 'Live', tone: 'bg-success' }
-    if (connectionStatus === 'reconnecting') return { label: 'Reconnecting…', tone: 'bg-accent' }
-    if (connectionStatus === 'offline') return { label: 'Offline', tone: 'bg-danger' }
-    return { label: 'Connecting…', tone: 'bg-border' }
-  })()
-  const connectionLabel = connectionInfo.label
-  const connectionTone = connectionInfo.tone
+  const hasEdits = lastEditedAt != null
+  const lastEditedLabel = useMemo(() => {
+    if (!hasEdits || lastEditedAt == null) return 'No edits yet.'
+    const ageMs = lastEditedNow - lastEditedAt
+    if (ageMs < LAST_EDIT_RELATIVE_MS) {
+      return formatRelativeTime(lastEditedAt, lastEditedNow)
+    }
+    return formatAbsoluteTime(lastEditedAt)
+  }, [hasEdits, lastEditedAt, lastEditedNow])
+  const editHoldMs = lastEditedAt == null ? null : Math.max(0, lastEditedNow - lastEditedAt)
+  const editingActive = (presence?.editing ?? 0) > 0 || (editHoldMs != null && editHoldMs < EDITING_HOLD_MS)
+  const longSync = oldestInflightAgeMs != null && oldestInflightAgeMs > LONG_SYNC_THRESHOLD_MS
+  const isOffline = connectionStatus === 'offline' || connectionStatus === 'connecting' || connectionStatus === 'idle'
+  const isUnstable = connectionStatus === 'reconnecting' || pollingEnabled || syncStatus.state === 'error' || longSync
+  const indicatorState: SyncIndicatorState = isOffline
+    ? 'offline'
+    : isUnstable
+      ? 'unstable'
+      : recentEditActive
+        ? 'recent'
+        : editingActive
+          ? 'editing'
+          : 'live'
 
   const recentSummary = useMemo(() => {
     if (!recentActivity.length) return null
@@ -1251,6 +1306,14 @@ export default function AppShell() {
         onNextImage={() => handleNavigate(1)}
         canPrevImage={canPrevImage}
         canNextImage={canNextImage}
+        syncIndicator={{
+          state: indicatorState,
+          presence,
+          syncLabel,
+          connectionLabel,
+          lastEditedLabel,
+          hasEdits,
+        }}
       />
       {leftOpen && (
         <LeftSidebar
@@ -1290,11 +1353,6 @@ export default function AppShell() {
           persistenceEnabled={persistenceEnabled}
           recentSummary={recentSummary}
           onDismissRecent={() => setRecentActivity([])}
-          syncTone={syncTone}
-          syncLabel={syncLabel}
-          connectionTone={connectionTone}
-          connectionLabel={connectionLabel}
-          presence={presence}
           browserZoomPercent={browserZoomPercent}
         />
         {filterChips.length > 0 && (

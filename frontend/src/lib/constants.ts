@@ -1,0 +1,4 @@
+export const RECENT_EDIT_FLASH_MS = 6000
+export const EDITING_HOLD_MS = 15 * 60_000
+export const LONG_SYNC_THRESHOLD_MS = 10_000
+export const LAST_EDIT_RELATIVE_MS = 24 * 60 * 60_000

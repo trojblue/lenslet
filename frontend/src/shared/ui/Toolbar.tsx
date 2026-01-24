@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import Dropdown from './Dropdown'
+import SyncIndicator, { type SyncIndicatorData } from './SyncIndicator'
 import type { SortSpec, ViewMode } from '../../lib/types'
 
 export interface ToolbarProps {
@@ -34,6 +35,7 @@ export interface ToolbarProps {
   onNextImage?: () => void
   canPrevImage?: boolean
   canNextImage?: boolean
+  syncIndicator?: SyncIndicatorData
 }
 
 export default function Toolbar({
@@ -68,6 +70,7 @@ export default function Toolbar({
   onNextImage,
   canPrevImage,
   canNextImage,
+  syncIndicator,
 }: ToolbarProps): JSX.Element {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [isNarrow, setIsNarrow] = useState(false)
@@ -427,6 +430,12 @@ export default function Toolbar({
             </svg>
           </button>
         </div>
+        {syncIndicator && (
+          <SyncIndicator
+            {...syncIndicator}
+            isNarrow={isNarrow}
+          />
+        )}
         {!viewerActive && isNarrow && (
           <button
             className={`btn btn-icon ${mobileSearchOpen ? 'btn-active' : ''}`}

@@ -186,6 +186,94 @@
   padding-bottom: var(--mobile-drawer-h);
 }
 
+/* Sync indicator */
+.sync-indicator {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.sync-indicator-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  white-space: nowrap;
+}
+
+.sync-indicator-button:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.sync-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px var(--surface);
+}
+
+.sync-indicator-count {
+  min-width: 2ch;
+  text-align: right;
+  color: var(--text-secondary);
+}
+
+.sync-dot-offline {
+  background: var(--border-strong);
+}
+
+.sync-dot-unstable {
+  background: var(--highlight);
+}
+
+.sync-dot-recent {
+  background: var(--sync-recent);
+}
+
+.sync-dot-editing {
+  background: var(--accent);
+}
+
+.sync-dot-live {
+  background: var(--success);
+}
+
+.sync-indicator-card {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
+  max-width: min(260px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-menu);
+  animation: slideDown 0.12s ease-out;
+}
+
+.sync-indicator-line {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sync-indicator-primary {
+  font-weight: 600;
+}
+
+.sync-indicator-muted {
+  color: var(--muted);
+}
+
 /* Drop target highlight for tree nodes */
 .drop-target {
   background: rgba(58, 143, 255, 0.15) !important;

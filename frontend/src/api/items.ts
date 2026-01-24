@@ -38,12 +38,20 @@ const pendingPatches = new Map<string, UpdateFields>()
 /** In-flight flush operations keyed by path. */
 const inflightByPath = new Map<string, Promise<void>>()
 
+/** In-flight start times for queued updates keyed by path. */
+const inflightStartByPath = new Map<string, number>()
+
+/** In-flight start times for direct updates keyed by id. */
+const directInflightStartById = new Map<number, number>()
+let directInflightSeq = 0
+
 const conflictByPath = new Map<string, ConflictEntry>()
 const conflictListeners = new Map<string, Set<(entry: ConflictEntry | null) => void>>()
 
 const FALLBACK_SIDECAR_INTERVAL = 12_000
 
 const syncListeners = new Set<(status: SyncStatus) => void>()
+const inflightAgeListeners = new Set<(oldestStart: number | null) => void>()
 let syncState: SyncStatus = { state: 'idle' }
 let syncError: string | null = null
 let directInflight = 0
@@ -73,6 +81,24 @@ function updateSyncState() {
   notifySync({ state: 'idle' })
 }
 
+function getOldestInflightStart(): number | null {
+  let oldest: number | null = null
+  for (const ts of inflightStartByPath.values()) {
+    oldest = oldest == null ? ts : Math.min(oldest, ts)
+  }
+  for (const ts of directInflightStartById.values()) {
+    oldest = oldest == null ? ts : Math.min(oldest, ts)
+  }
+  return oldest
+}
+
+function notifyInflightAge(): void {
+  const next = getOldestInflightStart()
+  for (const listener of inflightAgeListeners) {
+    listener(next)
+  }
+}
+
 function setSyncError(message: string) {
   syncError = message
   updateSyncState()
@@ -87,6 +113,21 @@ function clearSyncError() {
 function bumpDirectInflight(delta: number) {
   directInflight = Math.max(0, directInflight + delta)
   updateSyncState()
+}
+
+function trackDirectInflightStart(): number {
+  directInflightSeq += 1
+  const id = directInflightSeq
+  directInflightStartById.set(id, Date.now())
+  notifyInflightAge()
+  return id
+}
+
+function trackDirectInflightEnd(id?: number | null): void {
+  if (id == null) return
+  if (directInflightStartById.delete(id)) {
+    notifyInflightAge()
+  }
 }
 
 function notifyConflict(path: string) {
@@ -158,6 +199,39 @@ export function useSyncStatus() {
   }, [])
 
   return status
+}
+
+export function subscribeOldestInflightStart(listener: (oldestStart: number | null) => void): () => void {
+  inflightAgeListeners.add(listener)
+  listener(getOldestInflightStart())
+  return () => {
+    inflightAgeListeners.delete(listener)
+  }
+}
+
+export function useOldestInflightAgeMs(): number | null {
+  const [oldestStart, setOldestStart] = useState<number | null>(() => getOldestInflightStart())
+  const [ageMs, setAgeMs] = useState<number | null>(() => (
+    oldestStart == null ? null : Date.now() - oldestStart
+  ))
+
+  useEffect(() => {
+    return subscribeOldestInflightStart(setOldestStart)
+  }, [])
+
+  useEffect(() => {
+    if (oldestStart == null) {
+      setAgeMs(null)
+      return
+    }
+    setAgeMs(Date.now() - oldestStart)
+    const id = window.setInterval(() => {
+      setAgeMs(Date.now() - oldestStart)
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [oldestStart])
+
+  return ageMs
 }
 
 function buildPatch(fields: UpdateFields): SidecarPatch {
@@ -304,6 +378,8 @@ export function useUpdateSidecar(path: string) {
     onMutate: () => {
       clearSyncError()
       bumpDirectInflight(1)
+      const inflightId = trackDirectInflightStart()
+      return { inflightId }
     },
     onSuccess: (data) => {
       clearConflict(path)
@@ -317,8 +393,9 @@ export function useUpdateSidecar(path: string) {
         setSyncError('Failed to save')
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _err, _vars, context) => {
       bumpDirectInflight(-1)
+      trackDirectInflightEnd(context?.inflightId)
     },
   })
 }
@@ -384,6 +461,9 @@ export async function queueSidecarUpdate(
   const existingFlush = inflightByPath.get(path)
   if (existingFlush) return existingFlush
 
+  inflightStartByPath.set(path, Date.now())
+  notifyInflightAge()
+
   const flush = (async (): Promise<void> => {
     try {
       // Keep flushing while there are pending patches
@@ -445,6 +525,8 @@ export async function queueSidecarUpdate(
       }
     } finally {
       inflightByPath.delete(path)
+      inflightStartByPath.delete(path)
+      notifyInflightAge()
       updateSyncState()
     }
   })()

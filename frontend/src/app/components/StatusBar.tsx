@@ -1,5 +1,3 @@
-import type { PresenceEvent } from '../../lib/types'
-
 export type RecentSummary = {
   count: number
   names: string[]
@@ -10,11 +8,6 @@ type StatusBarProps = {
   persistenceEnabled: boolean
   recentSummary: RecentSummary | null
   onDismissRecent: () => void
-  syncTone: string
-  syncLabel: string
-  connectionTone: string
-  connectionLabel: string
-  presence?: PresenceEvent
   browserZoomPercent?: number | null
 }
 
@@ -22,11 +15,6 @@ export default function StatusBar({
   persistenceEnabled,
   recentSummary,
   onDismissRecent,
-  syncTone,
-  syncLabel,
-  connectionTone,
-  connectionLabel,
-  presence,
   browserZoomPercent,
 }: StatusBarProps): JSX.Element {
   const recentLabel = recentSummary
@@ -35,6 +23,8 @@ export default function StatusBar({
   const hasRecentNames = !!recentSummary?.names.length
   const zoomPercent = typeof browserZoomPercent === 'number' ? browserZoomPercent : null
   const showZoomWarning = zoomPercent !== null && Math.abs(zoomPercent - 100) >= 2
+  const showBanner = !persistenceEnabled || showZoomWarning || !!recentSummary
+  if (!showBanner) return <></>
   return (
     <div className="border-b border-border bg-panel">
       <div className="px-3 py-2 flex flex-col gap-2">
@@ -63,24 +53,6 @@ export default function StatusBar({
             </button>
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border ${syncTone}`}>
-            {syncLabel}
-          </span>
-          <span className="inline-flex items-center gap-2 px-2 py-1 rounded-full border border-border text-muted">
-            <span className={`inline-block w-2 h-2 rounded-full ${connectionTone}`} />
-            {connectionLabel}
-          </span>
-          {presence ? (
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border text-muted">
-              {presence.viewing} viewing · {presence.editing} editing
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border text-muted">
-              Presence: —
-            </span>
-          )}
-        </div>
       </div>
     </div>
   )

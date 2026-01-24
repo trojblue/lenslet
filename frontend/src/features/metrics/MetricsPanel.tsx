@@ -781,7 +781,7 @@ function MetricHistogramCard({
         {selectedHistogram && renderBars(selectedHistogram.bins, '#f59e0b', { opacity: 0.55 })}
         {displayRange && renderRange(displayRange, domain)}
         {selectedValue != null && renderValueMarker(selectedValue, domain, {
-          color: 'var(--accent)',
+          color: 'var(--highlight)',
           strokeWidth: 0.7,
         })}
         {hoverValue != null && renderValueMarker(hoverValue, domain, {

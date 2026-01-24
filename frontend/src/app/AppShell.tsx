@@ -72,6 +72,9 @@ export default function AppShell() {
   // Viewer zoom state
   const [requestedZoom, setRequestedZoom] = useState<number | null>(null)
   const [currentZoom, setCurrentZoom] = useState(100)
+
+  // Browser zoom (best-effort) for UI proportion warning
+  const [browserZoomPercent, setBrowserZoomPercent] = useState<number | null>(null)
   
   // View state (filters + sort)
   const [viewState, setViewState] = useState<ViewState>(() => ({
@@ -844,6 +847,38 @@ export default function AppShell() {
     return () => media.removeListener(apply)
   }, [])
 
+  // Track browser zoom changes (best-effort heuristic)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const baseCandidates = [1, 1.25, 1.5, 1.75, 2, 3, 4]
+    const nearestBase = (dpr: number) => baseCandidates.reduce((closest, candidate) => (
+      Math.abs(candidate - dpr) < Math.abs(closest - dpr) ? candidate : closest
+    ), baseCandidates[0])
+    const update = () => {
+      const dpr = window.devicePixelRatio || 1
+      const base = nearestBase(dpr)
+      const pinchScale = window.visualViewport?.scale ?? 1
+      const zoom = (dpr * pinchScale) / base
+      if (!Number.isFinite(zoom)) {
+        setBrowserZoomPercent(null)
+        return
+      }
+      const percent = Math.round(zoom * 100)
+      const clamped = Math.min(500, Math.max(25, percent))
+      setBrowserZoomPercent(clamped)
+    }
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('orientationchange', update)
+    const viewport = window.visualViewport
+    if (viewport) viewport.addEventListener('resize', update)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('orientationchange', update)
+      if (viewport) viewport.removeEventListener('resize', update)
+    }
+  }, [])
+
   // Persist settings when they change
   useEffect(() => {
     try {
@@ -1260,6 +1295,7 @@ export default function AppShell() {
           connectionTone={connectionTone}
           connectionLabel={connectionLabel}
           presence={presence}
+          browserZoomPercent={browserZoomPercent}
         />
         {filterChips.length > 0 && (
           <div className="sticky top-0 z-10 px-3 py-2 bg-panel border-b border-border">

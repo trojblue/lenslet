@@ -1,43 +1,40 @@
-Review notes for docs/20260123_collaboration_sync_plan.md
+Review notes for docs/20260124_sync_indicator_toolbar_plan.md
 
 Overall
-- Plan is solid but several tasks bundle multiple deliverables, and a few critical assumptions/risks (single-process server, file locking, log growth) are not surfaced.
+- Plan is well-scoped for two sprints, but a few edge cases, a11y needs, and state/test gaps should be made explicit. T2/T6/T7 are a bit bundled.
 
 Missing or under-scoped work
-- Add a ticket to define/update the API contract (request/response schemas, headers, error shapes) in `docs/` and align frontend typing with it.
-- Add a ticket to implement the persistence warning banner when `--no-write` is enabled (mentioned in Idempotence/Recovery but not in T7–T12).
-- Add a ticket for snapshot/log compaction/rotation (log growth risk) and a max size/age policy.
-- Add a ticket for workspace file locking or atomic write strategy to avoid corrupt snapshots/logs on crash (fsync/atomic rename).
-- Add a ticket for multi-process guardrails (document and enforce single worker, or detect and warn) since in-memory authoritative state breaks with >1 worker.
-- Add a ticket for event payload/version schema docs and backward compatibility for older clients.
+- Add a ticket for accessibility + focus management (button semantics, aria-haspopup/expanded/controls, focus return on close, keyboard navigation).
+- Add a ticket for dot color CSS tokens + card z-index/spacing tied to existing theme vars (avoid one-off colors).
+- Add a ticket to define/maintain status copy for the card (sync/connection/error) so removing StatusBar pills doesn’t drop critical info.
+- Add a ticket for timestamp ingestion: store `lastEditedAt` from SSE events, validate/parse server timestamps, and ignore stale replay.
+- Add a ticket for a small pure helper + unit tests for indicator state derivation (precedence, 15‑minute hold, unstable triggers).
 
 Oversized or ambiguous tasks (split suggested)
-- T6 (write-behind) combines log format, append, snapshot, replay, and scheduling. Split into: log append + event IDs, snapshot writer/rotation, startup replay/merge.
-- T8 (SSE client) combines connection management, cache mutation, and metrics handling. Split into: client lifecycle/reconnect; per-event cache updates.
-- T10 (conflict badge/actions) combines UI affordance + conflict rebase logic. Split into UI only vs reapply/resolve logic.
-- T13 (reconnect + polling fallback + offline state) should split into heartbeat/keepalive, reconnect/backoff, polling fallback.
+- T2 bundles render + placement + popover behavior + responsiveness; split into: indicator render/placement, popover behavior (outside click/Escape), and styling/responsive layout.
+- T6 bundles precedence, 15‑minute hold, and unstable conditions; split into a helper (pure logic) and wiring/telemetry.
+- T7 mixes event capture with formatting; split into “capture lastEditedAt from events” and “format/label in card.”
 
-Unclear goals / acceptance details to tighten
-- Define “version conflict” rules precisely for `PUT` vs `PATCH` (does PUT require `If-Match`? when is 409 returned?).
-- Define presence model details: dedupe across tabs, client_id scope, heartbeat interval/TTL, and what counts as “viewing” vs “editing”.
-- Specify event ordering guarantees and ring buffer size/time window so replay/Last-Event-ID expectations are testable.
-- Clarify how `gallery_id` is computed for nested folders and symlinks; document canonicalization rules.
+Unclear goals to tighten
+- Define mapping for `connectionStatus` values like `idle/connecting` and how they interact with polling fallback for yellow.
+- Specify what counts as “last edited” (item-updated only vs metrics-updated) and whether server timestamps or receipt time win.
+- Clarify when to show `—` vs `0` for viewing/editing, and the exact hover/title text when presence is missing.
+- Define long-sync age semantics for coalesced queue updates vs direct patches (start time source).
 
 Validation gaps
-- No explicit tests for snapshot+log replay correctness (including idempotent replays).
-- No validation of SSE `Last-Event-ID` replay behavior under reconnect/packet loss.
-- No tests for partial patch semantics (e.g., removing tag without affecting notes/star).
-- No test for `--no-write` behavior and UI banner (once added).
+- No explicit keyboard-only validation for the popover (tab, Escape, focus return).
+- No check for 24h boundary formatting or invalid timestamps.
+- No validation that long-sync triggers for both queue-based and direct inflight updates.
+- No mobile/viewer-mode layout check (narrow toolbar + search drawer open).
 
 Hidden dependencies and risks
-- Uvicorn reload / multiple workers: in-memory authoritative state may diverge. Document or enforce single worker mode.
-- File system permissions: write-behind assumes `.lenslet/` is writable; add explicit error surfacing and UI state when it isn’t.
-- JSONL log growth and replay time may degrade startup; add compaction policy and metrics.
-- SSE fanout may block if clients are slow; ensure non-blocking send or drop policy with metrics.
+- Toolbar already has click-outside handlers (filters); a new popover listener can conflict unless scoped.
+- `pollingEnabled` and sync error sources live outside the toolbar; if not wired, yellow “unstable” won’t reflect fallback/pending errors.
+- Event replay can surface old updates; if recent-edit flash uses receipt time, the purple state can mislead users.
+- Removing StatusBar pills makes the card the only place for sync/connection info; consider a minimal tooltip or always-available label to avoid hidden state.
 
 Suggested new tickets (concise)
-- T16: API contract doc + frontend types aligned (error shapes, SSE payload schema).
-- T17: No-write warning banner + server flag to surface persistence status.
-- T18: Snapshot/log compaction + atomic writes.
-- T19: Single-worker guardrail (warn on `--workers>1` or runtime check).
-- T20: Replay/Last-Event-ID backend test coverage.
+- Add a11y + focus management for SyncIndicator popover.
+- Add indicator state helper + unit tests (precedence, 15‑minute hold, unstable triggers).
+- Add robust timestamp ingestion (parse/validate/ignore stale replay) for last-edited + recent-edit.
+- Add responsive placement + z-index audit for toolbar popover (mobile + viewer).

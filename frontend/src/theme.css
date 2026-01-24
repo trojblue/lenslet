@@ -24,6 +24,7 @@
   --accent-hover: #5a9bff;
   --accent-muted: rgba(59, 130, 246, 0.18);
   --accent-strong: rgba(59, 130, 246, 0.32);
+  --highlight: #e6a23c;
   
   /* Star/rating colors */
   --star-active: #ffd166;

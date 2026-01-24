@@ -124,6 +124,8 @@ export default function AppShell() {
   const [presenceByGallery, setPresenceByGallery] = useState<Record<string, PresenceEvent>>({})
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
   const [recentTouches, setRecentTouches] = useState<RecentActivity[]>([])
+  const [recentBannerClosedAt, setRecentBannerClosedAt] = useState<number | null>(null)
+  const [dismissRecentForSession, setDismissRecentForSession] = useState(false)
   const [highlightedPaths, setHighlightedPaths] = useState<Set<string>>(new Set())
   const highlightTimersRef = useRef<Map<string, number>>(new Map())
   const [lastEditedAt, setLastEditedAt] = useState<number | null>(null)
@@ -177,14 +179,6 @@ export default function AppShell() {
     const id = window.setInterval(() => setLastEditedNow(Date.now()), 10_000)
     return () => window.clearInterval(id)
   }, [lastEditedAt])
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      const now = Date.now()
-      setRecentActivity((prev) => prev.filter((entry) => now - entry.ts < 30_000))
-    }, 5000)
-    return () => window.clearInterval(id)
-  }, [])
 
   const { data, refetch, isLoading, isError } = useFolder(current)
   const searching = query.trim().length > 0
@@ -275,7 +269,7 @@ export default function AppShell() {
   const markRecentActivity = useCallback((path: string, kind: RecentActivity['kind']) => {
     const now = Date.now()
     setRecentActivity((prev) => {
-      const filtered = prev.filter((entry) => now - entry.ts < 30_000 && entry.path !== path)
+      const filtered = prev.filter((entry) => entry.path !== path)
       const next = [{ path, ts: now, kind }, ...filtered]
       return next.slice(0, 6)
     })
@@ -592,6 +586,13 @@ export default function AppShell() {
       extra: Math.max(0, paths.length - names.length),
     }
   }, [recentActivity, items])
+  const latestRecentActivityTs = useMemo(() => {
+    if (!recentActivity.length) return null
+    return recentActivity.reduce((acc, entry) => Math.max(acc, entry.ts), 0)
+  }, [recentActivity])
+  const hideRecentBanner = dismissRecentForSession
+    || (recentBannerClosedAt != null && latestRecentActivityTs != null && latestRecentActivityTs <= recentBannerClosedAt)
+  const visibleRecentSummary = hideRecentBanner ? null : recentSummary
   const recentTouchesDisplay = useMemo(() => {
     if (!recentTouches.length) return []
     const now = lastEditedNow ?? Date.now()
@@ -1378,8 +1379,9 @@ export default function AppShell() {
         </div>
         <StatusBar
           persistenceEnabled={persistenceEnabled}
-          recentSummary={recentSummary}
-          onDismissRecent={() => setRecentActivity([])}
+          recentSummary={visibleRecentSummary}
+          onDismissRecent={() => setDismissRecentForSession(true)}
+          onCloseRecent={() => setRecentBannerClosedAt(latestRecentActivityTs ?? Date.now())}
           browserZoomPercent={browserZoomPercent}
         />
         {filterChips.length > 0 && (

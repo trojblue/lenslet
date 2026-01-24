@@ -8,6 +8,7 @@ type StatusBarProps = {
   persistenceEnabled: boolean
   recentSummary: RecentSummary | null
   onDismissRecent: () => void
+  onCloseRecent: () => void
   browserZoomPercent?: number | null
 }
 
@@ -15,6 +16,7 @@ export default function StatusBar({
   persistenceEnabled,
   recentSummary,
   onDismissRecent,
+  onCloseRecent,
   browserZoomPercent,
 }: StatusBarProps): JSX.Element {
   const recentLabel = recentSummary
@@ -44,13 +46,22 @@ export default function StatusBar({
               Recent updates: {recentSummary.count} item{recentSummary.count === 1 ? '' : 's'}
               {hasRecentNames ? recentLabel : ''}
             </span>
-            <button
-              className="text-muted hover:text-text transition-colors"
-              onClick={onDismissRecent}
-              aria-label="Dismiss recent activity"
-            >
-              Dismiss
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="text-muted hover:text-text transition-colors"
+                onClick={onDismissRecent}
+                aria-label="Hide recent activity until refresh"
+              >
+                Hide until refresh
+              </button>
+              <button
+                className="text-muted hover:text-text transition-colors text-base leading-none"
+                onClick={onCloseRecent}
+                aria-label="Close recent activity"
+              >
+                ×
+              </button>
+            </div>
           </div>
         )}
       </div>

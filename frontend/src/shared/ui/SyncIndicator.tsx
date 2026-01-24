@@ -40,8 +40,10 @@ export default function SyncIndicator({
   isNarrow,
 }: SyncIndicatorProps): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [copiedPath, setCopiedPath] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const copyTimeoutRef = useRef<number | null>(null)
 
   const presenceText = useMemo(() => {
     if (!presence) return '- viewing · - editing'
@@ -49,6 +51,19 @@ export default function SyncIndicator({
   }, [presence])
 
   const viewingLabel = presence ? String(presence.viewing) : '-'
+
+  const handleCopy = useCallback((path: string, label: string) => {
+    if (!label) return
+    navigator.clipboard?.writeText(label).then(() => {
+      setCopiedPath(path)
+      if (copyTimeoutRef.current) {
+        window.clearTimeout(copyTimeoutRef.current)
+      }
+      copyTimeoutRef.current = window.setTimeout(() => {
+        setCopiedPath((curr) => (curr === path ? null : curr))
+      }, 1000)
+    }).catch(() => {})
+  }, [])
 
   const closeCard = useCallback(() => {
     setOpen(false)
@@ -71,6 +86,14 @@ export default function SyncIndicator({
       window.removeEventListener('keydown', handleKey)
     }
   }, [open, closeCard])
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        window.clearTimeout(copyTimeoutRef.current)
+      }
+    }
+  }, [])
 
   return (
     <div ref={rootRef} className="sync-indicator">
@@ -103,22 +126,17 @@ export default function SyncIndicator({
               <div className="sync-indicator-list">
                 {recentTouches.map((entry) => (
                   <div key={entry.path} className="sync-indicator-item">
-                    <span
+                    <button
+                      type="button"
                       className="sync-indicator-item-name"
                       title={`Copy filename: ${entry.label}`}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => navigator.clipboard?.writeText(entry.label).catch(() => {})}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          navigator.clipboard?.writeText(entry.label).catch(() => {})
-                        }
-                      }}
+                      onClick={() => handleCopy(entry.path, entry.label)}
                     >
                       {entry.label}
+                    </button>
+                    <span className="sync-indicator-item-time tabular-nums">
+                      {copiedPath === entry.path ? 'Copied' : entry.timeLabel}
                     </span>
-                    <span className="sync-indicator-item-time tabular-nums">{entry.timeLabel}</span>
                   </div>
                 ))}
               </div>

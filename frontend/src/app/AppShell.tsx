@@ -64,6 +64,77 @@ type RecentActivity = {
   kind: 'item-updated' | 'metrics-updated'
 }
 
+type RecentTouchDisplay = {
+  path: string
+  label: string
+  timeLabel: string
+}
+
+function getConnectionLabel(status: ConnectionStatus): string {
+  switch (status) {
+    case 'live':
+      return 'Live'
+    case 'reconnecting':
+      return 'Reconnecting…'
+    case 'offline':
+      return 'Offline'
+    case 'connecting':
+    case 'idle':
+    default:
+      return 'Connecting…'
+  }
+}
+
+function getIndicatorState(options: {
+  isOffline: boolean
+  isUnstable: boolean
+  recentEditActive: boolean
+  editingActive: boolean
+}): SyncIndicatorState {
+  if (options.isOffline) return 'offline'
+  if (options.isUnstable) return 'unstable'
+  if (options.recentEditActive) return 'recent'
+  if (options.editingActive) return 'editing'
+  return 'live'
+}
+
+function formatTimestampLabel(timestampMs: number, nowMs: number): string {
+  if (nowMs - timestampMs < LAST_EDIT_RELATIVE_MS) {
+    return formatRelativeTime(timestampMs, nowMs)
+  }
+  return formatAbsoluteTime(timestampMs)
+}
+
+function buildRecentSummary(recentActivity: RecentActivity[], items: Item[]) {
+  if (!recentActivity.length) return null
+  const seen = new Set<string>()
+  const paths: string[] = []
+  for (const entry of recentActivity) {
+    if (seen.has(entry.path)) continue
+    seen.add(entry.path)
+    paths.push(entry.path)
+  }
+  const names = paths.slice(0, 2).map((p) => {
+    const match = items.find((it) => it.path === p)
+    return match?.name ?? p.split('/').pop() ?? p
+  })
+  return {
+    count: paths.length,
+    names,
+    extra: Math.max(0, paths.length - names.length),
+  }
+}
+
+function buildRecentTouchesDisplay(recentTouches: RecentActivity[], items: Item[], nowMs: number): RecentTouchDisplay[] {
+  if (!recentTouches.length) return []
+  return recentTouches.map((entry) => {
+    const match = items.find((it) => it.path === entry.path)
+    const label = match?.name ?? entry.path.split('/').pop() ?? entry.path
+    const timeLabel = formatTimestampLabel(entry.ts, nowMs)
+    return { path: entry.path, label, timeLabel }
+  })
+}
+
 export default function AppShell() {
   // Navigation state
   const [current, setCurrent] = useState<string>('/')
@@ -537,55 +608,28 @@ export default function AppShell() {
     }
     return 'All changes saved'
   })()
-  const connectionLabel = (() => {
-    if (connectionStatus === 'live') return 'Live'
-    if (connectionStatus === 'reconnecting') return 'Reconnecting…'
-    if (connectionStatus === 'offline') return 'Offline'
-    return 'Connecting…'
-  })()
+  const connectionLabel = getConnectionLabel(connectionStatus)
   const hasEdits = lastEditedAt != null
   const lastEditedLabel = useMemo(() => {
     if (!hasEdits || lastEditedAt == null) return 'No edits yet.'
-    const ageMs = lastEditedNow - lastEditedAt
-    if (ageMs < LAST_EDIT_RELATIVE_MS) {
-      return formatRelativeTime(lastEditedAt, lastEditedNow)
-    }
-    return formatAbsoluteTime(lastEditedAt)
+    return formatTimestampLabel(lastEditedAt, lastEditedNow)
   }, [hasEdits, lastEditedAt, lastEditedNow])
   const editHoldMs = lastEditedAt == null ? null : Math.max(0, lastEditedNow - lastEditedAt)
   const editingActive = (presence?.editing ?? 0) > 0 || (editHoldMs != null && editHoldMs < EDITING_HOLD_MS)
   const longSync = oldestInflightAgeMs != null && oldestInflightAgeMs > LONG_SYNC_THRESHOLD_MS
   const isOffline = connectionStatus === 'offline' || connectionStatus === 'connecting' || connectionStatus === 'idle'
   const isUnstable = connectionStatus === 'reconnecting' || pollingEnabled || syncStatus.state === 'error' || longSync
-  const indicatorState: SyncIndicatorState = isOffline
-    ? 'offline'
-    : isUnstable
-      ? 'unstable'
-      : recentEditActive
-        ? 'recent'
-        : editingActive
-          ? 'editing'
-          : 'live'
+  const indicatorState = getIndicatorState({
+    isOffline,
+    isUnstable,
+    recentEditActive,
+    editingActive,
+  })
 
-  const recentSummary = useMemo(() => {
-    if (!recentActivity.length) return null
-    const seen = new Set<string>()
-    const paths: string[] = []
-    for (const entry of recentActivity) {
-      if (seen.has(entry.path)) continue
-      seen.add(entry.path)
-      paths.push(entry.path)
-    }
-    const names = paths.slice(0, 2).map((p) => {
-      const match = items.find((it) => it.path === p)
-      return match?.name ?? p.split('/').pop() ?? p
-    })
-    return {
-      count: paths.length,
-      names,
-      extra: Math.max(0, paths.length - names.length),
-    }
-  }, [recentActivity, items])
+  const recentSummary = useMemo(
+    () => buildRecentSummary(recentActivity, items),
+    [recentActivity, items],
+  )
   const latestRecentActivityTs = useMemo(() => {
     if (!recentActivity.length) return null
     return recentActivity.reduce((acc, entry) => Math.max(acc, entry.ts), 0)
@@ -593,19 +637,10 @@ export default function AppShell() {
   const hideRecentBanner = dismissRecentForSession
     || (recentBannerClosedAt != null && latestRecentActivityTs != null && latestRecentActivityTs <= recentBannerClosedAt)
   const visibleRecentSummary = hideRecentBanner ? null : recentSummary
-  const recentTouchesDisplay = useMemo(() => {
-    if (!recentTouches.length) return []
-    const now = lastEditedNow ?? Date.now()
-    return recentTouches.map((entry) => {
-      const match = items.find((it) => it.path === entry.path)
-      const label = match?.name ?? entry.path.split('/').pop() ?? entry.path
-      const ageMs = now - entry.ts
-      const timeLabel = ageMs < LAST_EDIT_RELATIVE_MS
-        ? formatRelativeTime(entry.ts, now)
-        : formatAbsoluteTime(entry.ts)
-      return { path: entry.path, label, timeLabel }
-    })
-  }, [items, lastEditedNow, recentTouches])
+  const recentTouchesDisplay = useMemo(
+    () => buildRecentTouchesDisplay(recentTouches, items, lastEditedNow),
+    [items, lastEditedNow, recentTouches],
+  )
   const displayItemCount = showFilteredCounts ? filteredCount : scopeTotal
   const displayTotalCount = showFilteredCounts
     ? scopeTotal

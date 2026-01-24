@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { PresenceEvent } from '../../lib/types'
 
 export type SyncIndicatorState = 'offline' | 'unstable' | 'recent' | 'editing' | 'live'
@@ -45,25 +45,26 @@ export default function SyncIndicator({
   const buttonRef = useRef<HTMLButtonElement>(null)
   const copyTimeoutRef = useRef<number | null>(null)
 
-  const presenceText = useMemo(() => {
-    if (!presence) return '- viewing · - editing'
-    return `${presence.viewing} viewing · ${presence.editing} editing`
-  }, [presence])
-
+  const presenceText = presence ? `${presence.viewing} viewing · ${presence.editing} editing` : '- viewing · - editing'
   const viewingLabel = presence ? String(presence.viewing) : '-'
+
+  const clearCopyTimeout = useCallback(() => {
+    if (copyTimeoutRef.current) {
+      window.clearTimeout(copyTimeoutRef.current)
+      copyTimeoutRef.current = null
+    }
+  }, [])
 
   const handleCopy = useCallback((path: string, label: string) => {
     if (!label) return
     navigator.clipboard?.writeText(label).then(() => {
       setCopiedPath(path)
-      if (copyTimeoutRef.current) {
-        window.clearTimeout(copyTimeoutRef.current)
-      }
+      clearCopyTimeout()
       copyTimeoutRef.current = window.setTimeout(() => {
         setCopiedPath((curr) => (curr === path ? null : curr))
       }, 1000)
     }).catch(() => {})
-  }, [])
+  }, [clearCopyTimeout])
 
   const closeCard = useCallback(() => {
     setOpen(false)
@@ -89,11 +90,9 @@ export default function SyncIndicator({
 
   useEffect(() => {
     return () => {
-      if (copyTimeoutRef.current) {
-        window.clearTimeout(copyTimeoutRef.current)
-      }
+      clearCopyTimeout()
     }
-  }, [])
+  }, [clearCopyTimeout])
 
   return (
     <div ref={rootRef} className="sync-indicator">

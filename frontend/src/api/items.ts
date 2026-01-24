@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, makeIdempotencyKey } from './client'
+import { usePollingEnabled } from './polling'
 import { FetchError } from '../lib/fetcher'
 import type { Sidecar, SidecarPatch } from '../lib/types'
 
@@ -39,6 +40,8 @@ const inflightByPath = new Map<string, Promise<void>>()
 
 const conflictByPath = new Map<string, ConflictEntry>()
 const conflictListeners = new Map<string, Set<(entry: ConflictEntry | null) => void>>()
+
+const FALLBACK_SIDECAR_INTERVAL = 12_000
 
 const syncListeners = new Set<(status: SyncStatus) => void>()
 let syncState: SyncStatus = { state: 'idle' }
@@ -256,6 +259,7 @@ export function updateConflictFromServer(path: string, current: Sidecar): void {
  * Hook to fetch sidecar metadata for an item.
  */
 export function useSidecar(path: string) {
+  const pollingEnabled = usePollingEnabled()
   return useQuery({
     queryKey: sidecarQueryKey(path),
     queryFn: () => api.getSidecar(path),
@@ -263,6 +267,8 @@ export function useSidecar(path: string) {
     staleTime: 30_000, // Sidecar data doesn't change often
     gcTime: 5 * 60_000,
     retry: 2,
+    refetchInterval: pollingEnabled ? FALLBACK_SIDECAR_INTERVAL : false,
+    refetchIntervalInBackground: pollingEnabled,
   })
 }
 

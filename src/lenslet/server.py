@@ -167,6 +167,26 @@ def _parse_if_match(value: str | None) -> int | None:
         return None
 
 
+def _parse_event_id(value: str | None) -> int | None:
+    if not value:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _last_event_id_from_request(request: Request) -> int | None:
+    header_id = _parse_event_id(request.headers.get("Last-Event-ID"))
+    query_raw = request.query_params.get("last_event_id") or request.query_params.get("lastEventId")
+    query_id = _parse_event_id(query_raw)
+    if query_id is None:
+        return header_id
+    if header_id is None:
+        return query_id
+    return max(header_id, query_id)
+
+
 def _normalize_tags(values: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -368,6 +388,8 @@ class SnapshotWriter:
         min_interval: float = 5.0,
         min_updates: int = 20,
         meta_lock: threading.Lock | None = None,
+        log_lock: threading.Lock | None = None,
+        compact_threshold_bytes: int = 5_000_000,
     ) -> None:
         self._workspace = workspace
         self._min_interval = min_interval
@@ -376,6 +398,8 @@ class SnapshotWriter:
         self._since = 0
         self._lock = threading.Lock()
         self._meta_lock = meta_lock
+        self._log_lock = log_lock
+        self._compact_threshold = compact_threshold_bytes
 
     def maybe_write(self, storage, last_event_id: int) -> None:
         if not self._workspace.can_write:
@@ -396,6 +420,17 @@ class SnapshotWriter:
             self._workspace.write_labels_snapshot(payload)
         except Exception as exc:
             print(f"[lenslet] Warning: failed to write labels snapshot: {exc}")
+            return
+        if self._compact_threshold <= 0:
+            return
+        try:
+            if self._log_lock is None:
+                self._workspace.compact_labels_log(last_event_id, max_bytes=self._compact_threshold)
+            else:
+                with self._log_lock:
+                    self._workspace.compact_labels_log(last_event_id, max_bytes=self._compact_threshold)
+        except Exception as exc:
+            print(f"[lenslet] Warning: failed to compact labels log: {exc}")
 
 
 def _build_snapshot_payload(storage, last_event_id: int) -> dict[str, Any]:
@@ -558,13 +593,14 @@ def _init_sync_state(
     storage,
     workspace: Workspace,
     meta_lock: threading.Lock | None = None,
+    log_lock: threading.Lock | None = None,
 ) -> tuple[EventBroker, IdempotencyCache, SnapshotWriter, int]:
     broker = EventBroker(buffer_size=500)
     max_event_id = _load_label_state(storage, workspace)
     if max_event_id:
         broker.set_next_id(max_event_id + 1)
     idempotency = IdempotencyCache(ttl_seconds=600)
-    snapshotter = SnapshotWriter(workspace, meta_lock=meta_lock)
+    snapshotter = SnapshotWriter(workspace, meta_lock=meta_lock, log_lock=log_lock)
     return broker, idempotency, snapshotter, max_event_id
 
 
@@ -1103,9 +1139,11 @@ def create_app(
         workspace.can_write = False
 
     meta_lock = threading.Lock()
-    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock)
+    log_lock = threading.Lock()
+    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock, log_lock)
     sync_state = {"last_event_id": max_event_id}
     presence = PresenceTracker()
+    app.state.sync_broker = broker
 
     if hasattr(storage, "get_index"):
         def _warm_index() -> None:
@@ -1129,7 +1167,8 @@ def create_app(
         if workspace.can_write:
             entry = {"id": event_id, "type": event_type, **payload}
             try:
-                workspace.append_labels_log(entry)
+                with log_lock:
+                    workspace.append_labels_log(entry)
             except Exception as exc:
                 print(f"[lenslet] Warning: failed to append labels log: {exc}")
             snapshotter.maybe_write(storage, event_id)
@@ -1280,13 +1319,7 @@ def create_app(
     async def events(request: Request):
         broker.ensure_loop()
         queue = broker.register()
-        last_raw = request.headers.get("Last-Event-ID")
-        last_event_id: int | None = None
-        if last_raw:
-            try:
-                last_event_id = int(last_raw)
-            except ValueError:
-                last_event_id = None
+        last_event_id = _last_event_id_from_request(request)
 
         async def event_stream():
             try:
@@ -1298,6 +1331,7 @@ def create_app(
                     try:
                         record = await asyncio.wait_for(queue.get(), timeout=15)
                     except asyncio.TimeoutError:
+                        yield ": ping\n\n"
                         continue
                     yield _format_sse(record)
             finally:
@@ -1369,9 +1403,11 @@ def create_app_from_datasets(
     )
     workspace = Workspace.for_dataset(None, can_write=False)
     meta_lock = threading.Lock()
-    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock)
+    log_lock = threading.Lock()
+    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock, log_lock)
     sync_state = {"last_event_id": max_event_id}
     presence = PresenceTracker()
+    app.state.sync_broker = broker
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
 
@@ -1392,7 +1428,8 @@ def create_app_from_datasets(
         if workspace.can_write:
             entry = {"id": event_id, "type": event_type, **payload}
             try:
-                workspace.append_labels_log(entry)
+                with log_lock:
+                    workspace.append_labels_log(entry)
             except Exception as exc:
                 print(f"[lenslet] Warning: failed to append labels log: {exc}")
             snapshotter.maybe_write(storage, event_id)
@@ -1535,13 +1572,7 @@ def create_app_from_datasets(
     async def events(request: Request):
         broker.ensure_loop()
         queue = broker.register()
-        last_raw = request.headers.get("Last-Event-ID")
-        last_event_id: int | None = None
-        if last_raw:
-            try:
-                last_event_id = int(last_raw)
-            except ValueError:
-                last_event_id = None
+        last_event_id = _last_event_id_from_request(request)
 
         async def event_stream():
             try:
@@ -1553,6 +1584,7 @@ def create_app_from_datasets(
                     try:
                         record = await asyncio.wait_for(queue.get(), timeout=15)
                     except asyncio.TimeoutError:
+                        yield ": ping\n\n"
                         continue
                     yield _format_sse(record)
             finally:
@@ -1644,9 +1676,11 @@ def create_app_from_storage(
     if workspace is None:
         workspace = Workspace.for_dataset(None, can_write=False)
     meta_lock = threading.Lock()
-    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock)
+    log_lock = threading.Lock()
+    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock, log_lock)
     sync_state = {"last_event_id": max_event_id}
     presence = PresenceTracker()
+    app.state.sync_broker = broker
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
 
@@ -1662,7 +1696,8 @@ def create_app_from_storage(
         if workspace.can_write:
             entry = {"id": event_id, "type": event_type, **payload}
             try:
-                workspace.append_labels_log(entry)
+                with log_lock:
+                    workspace.append_labels_log(entry)
             except Exception as exc:
                 print(f"[lenslet] Warning: failed to append labels log: {exc}")
             snapshotter.maybe_write(storage, event_id)
@@ -1798,13 +1833,7 @@ def create_app_from_storage(
     async def events(request: Request):
         broker.ensure_loop()
         queue = broker.register()
-        last_raw = request.headers.get("Last-Event-ID")
-        last_event_id: int | None = None
-        if last_raw:
-            try:
-                last_event_id = int(last_raw)
-            except ValueError:
-                last_event_id = None
+        last_event_id = _last_event_id_from_request(request)
 
         async def event_stream():
             try:
@@ -1816,6 +1845,7 @@ def create_app_from_storage(
                     try:
                         record = await asyncio.wait_for(queue.get(), timeout=15)
                     except asyncio.TimeoutError:
+                        yield ": ping\n\n"
                         continue
                     yield _format_sse(record)
             finally:

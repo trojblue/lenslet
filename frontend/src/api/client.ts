@@ -20,8 +20,20 @@ import { BASE } from './base'
 const MAX_PREFETCH_SIZE = 40 * 1024 * 1024
 
 const CLIENT_ID_KEY = 'lenslet.client_id'
+const LAST_EVENT_ID_KEY = 'lenslet.last_event_id'
+const RECONNECT_BASE_MS = 1000
+const RECONNECT_MAX_MS = 30_000
+const RECONNECT_MAX_ATTEMPTS = 5
+const FALLBACK_POLLING_ENABLED = true
+
 let cachedClientId: string | null = null
+let cachedLastEventId: number | null = null
 let idempotencyCounter = 0
+
+let reconnectTimer: number | null = null
+let reconnectAttempt = 0
+let reconnectEnabled = true
+let pollingEnabled = false
 
 export function getClientId(): string {
   if (cachedClientId) return cachedClientId
@@ -52,6 +64,43 @@ export function makeIdempotencyKey(prefix = 'lenslet'): string {
   return `${prefix}:${getClientId()}:${nonce}`
 }
 
+function readLastEventId(): number | null {
+  if (cachedLastEventId != null) return cachedLastEventId
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(LAST_EVENT_ID_KEY)
+    if (!raw) return null
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed) || parsed <= 0) return null
+    cachedLastEventId = parsed
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeLastEventId(next: number): void {
+  if (!Number.isFinite(next) || next <= 0) return
+  cachedLastEventId = next
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(LAST_EVENT_ID_KEY, String(next))
+  } catch {
+    // Ignore persistence errors
+  }
+}
+
+function buildEventsUrl(): string {
+  if (typeof window === 'undefined') return `${BASE}/events`
+  const base = `${BASE || ''}/events`
+  const url = new URL(base, window.location.origin)
+  const lastEventId = readLastEventId()
+  if (lastEventId != null && Number.isFinite(lastEventId)) {
+    url.searchParams.set('last_event_id', String(lastEventId))
+  }
+  return url.toString()
+}
+
 function parseEventData<T>(raw: string): T | null {
   if (!raw) return null
   try {
@@ -71,6 +120,7 @@ let eventSource: EventSource | null = null
 let connectionStatus: ConnectionStatus = 'idle'
 const eventListeners = new Set<(evt: SyncEvent) => void>()
 const statusListeners = new Set<(status: ConnectionStatus) => void>()
+const pollingListeners = new Set<(enabled: boolean) => void>()
 
 function notifyStatus(next: ConnectionStatus) {
   connectionStatus = next
@@ -79,15 +129,49 @@ function notifyStatus(next: ConnectionStatus) {
   }
 }
 
-export function connectEvents(): void {
-  if (typeof window === 'undefined' || typeof EventSource === 'undefined') return
+function notifyPolling(next: boolean) {
+  if (pollingEnabled === next) return
+  pollingEnabled = next
+  for (const listener of pollingListeners) {
+    listener(next)
+  }
+}
+
+function resetReconnect() {
+  reconnectAttempt = 0
+  if (reconnectTimer != null) {
+    window.clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+}
+
+function scheduleReconnect(): void {
+  if (!reconnectEnabled || reconnectTimer != null) return
+  reconnectAttempt += 1
+  const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, reconnectAttempt - 1), RECONNECT_MAX_MS)
+  if (reconnectAttempt >= RECONNECT_MAX_ATTEMPTS) {
+    notifyStatus('offline')
+    if (FALLBACK_POLLING_ENABLED) {
+      notifyPolling(true)
+    }
+  } else {
+    notifyStatus('reconnecting')
+  }
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null
+    openEventSource()
+  }, delay)
+}
+
+function openEventSource(): void {
+  if (!reconnectEnabled || typeof window === 'undefined' || typeof EventSource === 'undefined') return
   if (eventSource && eventSource.readyState === EventSource.CLOSED) {
     eventSource.close()
     eventSource = null
   }
   if (eventSource) return
-  notifyStatus('connecting')
-  const es = new EventSource(`${BASE}/events`)
+  notifyStatus(reconnectAttempt > 0 ? 'reconnecting' : 'connecting')
+  const es = new EventSource(buildEventsUrl())
   eventSource = es
 
   const handle = (type: SyncEvent['type']) => (evt: MessageEvent) => {
@@ -95,6 +179,9 @@ export function connectEvents(): void {
     if (!data) return
     const rawId = evt.lastEventId ? Number(evt.lastEventId) : null
     const id = rawId != null && Number.isFinite(rawId) ? rawId : null
+    if (id != null) {
+      writeLastEventId(id)
+    }
     for (const listener of eventListeners) {
       listener({ type, id, data } as SyncEvent)
     }
@@ -104,23 +191,41 @@ export function connectEvents(): void {
   es.addEventListener('metrics-updated', handle('metrics-updated'))
   es.addEventListener('presence', handle('presence'))
 
-  es.onopen = () => notifyStatus('live')
+  es.onopen = () => {
+    resetReconnect()
+    notifyPolling(false)
+    notifyStatus('live')
+  }
   es.onerror = () => {
-    if (!eventSource) return
-    if (es.readyState === EventSource.CLOSED) {
-      es.close()
-      eventSource = null
-      notifyStatus('offline')
-      return
-    }
-    notifyStatus('reconnecting')
+    if (eventSource !== es) return
+    es.close()
+    eventSource = null
+    scheduleReconnect()
   }
 }
 
+export function connectEvents(): void {
+  reconnectEnabled = true
+  if (typeof window === 'undefined' || typeof EventSource === 'undefined') return
+  if (reconnectTimer != null) {
+    window.clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  openEventSource()
+}
+
 export function disconnectEvents(): void {
-  if (!eventSource) return
-  eventSource.close()
-  eventSource = null
+  reconnectEnabled = false
+  if (reconnectTimer != null) {
+    window.clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  reconnectAttempt = 0
+  if (eventSource) {
+    eventSource.close()
+    eventSource = null
+  }
+  notifyPolling(false)
   notifyStatus('offline')
 }
 
@@ -137,6 +242,18 @@ export function subscribeEventStatus(listener: (status: ConnectionStatus) => voi
   return () => {
     statusListeners.delete(listener)
   }
+}
+
+export function subscribePollingStatus(listener: (enabled: boolean) => void): () => void {
+  pollingListeners.add(listener)
+  listener(pollingEnabled)
+  return () => {
+    pollingListeners.delete(listener)
+  }
+}
+
+export function getPollingStatus(): boolean {
+  return pollingEnabled
 }
 
 export function getEventStatus(): ConnectionStatus {

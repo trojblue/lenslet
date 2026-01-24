@@ -243,6 +243,29 @@ Frontend dependencies include a native `EventSource` SSE client, React Query cac
 - `PATCH /item` is the preferred path for updates (idempotent + conflict-safe).
 - Presence is best-effort/ephemeral; it is not persisted or replayed.
 
+## Sprint 3 Handover Notes (2026-01-24)
+
+**Sprint 1/2 cleanup fixes applied after review:**
+- Enforced `PATCH /item` base_version/If-Match requirement in all app modes (memory/dataset/table).
+- Wrapped metadata read/check/apply/write in a shared lock to make optimistic concurrency atomic.
+- Snapshot payload generation now uses a stable metadata copy and the same lock to avoid concurrent mutation errors.
+- SSE reconnect no longer gets stuck after the browser closes the EventSource.
+- Idempotency keys now include a UUID nonce to avoid cross-tab collisions.
+- Frontend conflict lifecycle now persists until explicit resolution; SSE updates refresh `conflict.current` and auto-resolve only if the pending patch is already satisfied.
+- Queued updates retain pending patches on transient errors; latest pending patch is preserved in conflict state.
+- Frontend now sends `x-updated-by: web` and updates item comments from SSE note changes.
+
+**Test updates:**
+- Programmatic API signature tests now reflect the current `lenslet.launch` parameters (`show_source`, `source_column`, `base_dir`).
+- Metadata endpoint tests now accept JPEG responses (format = `jpeg`).
+
+**Remaining Sprint 3 work (unchanged):**
+- SSE replay across reload and reconnection backoff.
+- Polling fallback when SSE is unavailable.
+- Log compaction/rotation and stronger durability guarantees.
+- Targeted backend tests for idempotency/conflicts/replay/persistence.
+- Frontend QA checklist and operational docs.
+
 
 When revising the plan, add a note at the bottom describing the change and why it was made.
 
@@ -251,3 +274,5 @@ Plan updated on 2026-01-23 to incorporate review_notes.txt feedback (task splitt
 Plan updated on 2026-01-23 to record Sprint 1 implementation status, test failures (unrelated), and handover notes for Sprint 2.
 
 Plan updated on 2026-01-24 to record Sprint 2 implementation status, handover notes, and Sprint 3 guidance for reconnection, polling fallback, compaction, and tests.
+
+Plan updated on 2026-01-24 to add Sprint 3 handover notes covering Sprint 1/2 cleanup fixes and updated test expectations before Sprint 3 work begins.

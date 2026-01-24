@@ -34,7 +34,7 @@ def test_metadata_endpoint_reads_png_text_chunks():
         assert any(chunk.get("keyword") == "parameters" for chunk in meta["found_text_chunks"])
 
 
-def test_metadata_endpoint_rejects_non_png():
+def test_metadata_endpoint_accepts_jpeg():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         jpg_path = root / "sample.jpg"
@@ -44,4 +44,6 @@ def test_metadata_endpoint_rejects_non_png():
         client = TestClient(app)
 
         resp = client.get("/metadata", params={"path": f"/{jpg_path.name}"})
-        assert resp.status_code == 415
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["format"] == "jpeg"

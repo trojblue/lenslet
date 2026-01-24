@@ -1,9 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
+import { usePollingEnabled } from './polling'
 import type { FolderIndex } from '../lib/types'
 
 /** Query key for folder data */
 export const folderQueryKey = (path: string) => ['folder', path] as const
+const FALLBACK_REFETCH_INTERVAL = 15_000
 
 /**
  * Hook to fetch and cache folder contents.
@@ -12,6 +14,7 @@ export const folderQueryKey = (path: string) => ['folder', path] as const
  * - Returns previous data while refetching
  */
 export function useFolder(path: string) {
+  const pollingEnabled = usePollingEnabled()
   return useQuery({
     queryKey: folderQueryKey(path),
     queryFn: () => api.getFolder(path),
@@ -20,6 +23,8 @@ export function useFolder(path: string) {
     retry: 2,
     retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 5000),
     refetchOnWindowFocus: false,
+    refetchInterval: pollingEnabled ? FALLBACK_REFETCH_INTERVAL : false,
+    refetchIntervalInBackground: pollingEnabled,
   })
 }
 

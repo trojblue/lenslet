@@ -32,6 +32,7 @@ Clients should treat server responses as canonical, and use those paths for futu
 Notes:
 - `version` is the optimistic concurrency counter (increments on each accepted update).
 - `updated_at` and `updated_by` reflect the last write, not the request time.
+- `updated_by` uses `x-updated-by` when provided, otherwise falls back to `x-client-id`.
 
 ## Endpoints
 
@@ -82,7 +83,8 @@ Conflict response (409):
 ### `GET /events`
 Server-Sent Events stream for realtime updates.
 
-- Reconnect replay uses `Last-Event-ID` header.
+- Reconnect replay uses `Last-Event-ID` header or `last_event_id` query param.
+- Server emits periodic `: ping` keepalive comments to keep idle connections alive.
 - Events are buffered in-memory; only recent IDs can be replayed.
 
 Event examples:
@@ -129,5 +131,6 @@ Periodic snapshots are written to:
 - `.lenslet/labels.snapshot.json`
 
 On startup the server loads the snapshot, then replays log entries.
+Snapshots are written atomically, and the log is compacted after snapshots when it exceeds a size threshold (~5MB).
 
 If `--no-write` is used, the server stays in-memory only and does not write logs or snapshots.

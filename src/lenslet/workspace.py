@@ -150,9 +150,8 @@ class Workspace:
         if not self.can_write or path is None:
             raise PermissionError("workspace is read-only")
         self.ensure()
-        temp = path.with_suffix(".tmp")
-        temp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-        temp.replace(path)
+        serialized = json.dumps(payload, indent=2, sort_keys=True)
+        self._atomic_write_text(path, serialized)
 
     def append_labels_log(self, payload: dict[str, Any]) -> None:
         path = self.labels_log_path()
@@ -167,6 +166,54 @@ class Workspace:
                 os.fsync(handle.fileno())
             except OSError:
                 pass
+
+    def compact_labels_log(self, last_event_id: int, max_bytes: int = 5_000_000) -> bool:
+        path = self.labels_log_path()
+        if not self.can_write or path is None or not path.exists():
+            return False
+        try:
+            if max_bytes > 0 and path.stat().st_size < max_bytes:
+                return False
+        except Exception:
+            return False
+
+        keep: list[str] = []
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    raw = line.strip()
+                    if not raw:
+                        continue
+                    try:
+                        data = json.loads(raw)
+                    except Exception:
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+                    event_id = data.get("id")
+                    if isinstance(event_id, int) and event_id <= last_event_id:
+                        continue
+                    keep.append(json.dumps(data, separators=(",", ":")))
+        except Exception as exc:
+            print(f"[lenslet] Warning: failed to compact labels log: {exc}")
+            return False
+
+        temp = path.with_suffix(".tmp")
+        try:
+            with temp.open("w", encoding="utf-8") as handle:
+                for line in keep:
+                    handle.write(line + "\n")
+                handle.flush()
+                try:
+                    os.fsync(handle.fileno())
+                except OSError:
+                    pass
+            temp.replace(path)
+            self._fsync_dir(path.parent)
+        except Exception as exc:
+            print(f"[lenslet] Warning: failed to write compacted labels log: {exc}")
+            return False
+        return True
 
     def read_labels_log(self) -> list[dict[str, Any]]:
         path = self.labels_log_path()
@@ -188,3 +235,28 @@ class Workspace:
         except Exception as exc:
             print(f"[lenslet] Warning: failed to read labels log: {exc}")
         return entries
+
+    def _atomic_write_text(self, path: Path, payload: str) -> None:
+        temp = path.with_suffix(".tmp")
+        with temp.open("w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:
+                pass
+        temp.replace(path)
+        self._fsync_dir(path.parent)
+
+    def _fsync_dir(self, path: Path) -> None:
+        flags = getattr(os, "O_DIRECTORY", 0)
+        try:
+            fd = os.open(os.fspath(path), os.O_RDONLY | flags)
+        except OSError:
+            return
+        try:
+            os.fsync(fd)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)

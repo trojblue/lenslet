@@ -103,7 +103,21 @@ export default function SyncIndicator({
               <div className="sync-indicator-list">
                 {recentTouches.map((entry) => (
                   <div key={entry.path} className="sync-indicator-item">
-                    <span className="sync-indicator-item-name" title={entry.path}>{entry.label}</span>
+                    <span
+                      className="sync-indicator-item-name"
+                      title={`Copy filename: ${entry.label}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => navigator.clipboard?.writeText(entry.label).catch(() => {})}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          navigator.clipboard?.writeText(entry.label).catch(() => {})
+                        }
+                      }}
+                    >
+                      {entry.label}
+                    </span>
                     <span className="sync-indicator-item-time tabular-nums">{entry.timeLabel}</span>
                   </div>
                 ))}

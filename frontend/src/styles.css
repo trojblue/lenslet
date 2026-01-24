@@ -243,8 +243,8 @@
 
 .sync-dot-editing {
   background: var(--accent);
-  --sync-dot-glow: color-mix(in oklab, var(--accent) 55%, transparent);
-  animation: syncBreathe 2.4s ease-in-out infinite;
+  --sync-dot-glow: color-mix(in oklab, var(--accent) 35%, transparent);
+  animation: syncBreathe 3s ease-in-out infinite;
 }
 
 .sync-dot-live {
@@ -318,6 +318,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
   user-select: text;
+  cursor: pointer;
+}
+
+.sync-indicator-item-name:hover {
+  color: var(--accent);
+}
+
+.sync-indicator-item-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .sync-indicator-item-time {
@@ -505,7 +516,7 @@
 }
 @keyframes syncBreathe {
   0% { box-shadow: 0 0 0 0 var(--sync-dot-glow); }
-  50% { box-shadow: 0 0 0 4px var(--sync-dot-glow); }
+  50% { box-shadow: 0 0 0 2px var(--sync-dot-glow); }
   100% { box-shadow: 0 0 0 0 var(--sync-dot-glow); }
 }
 

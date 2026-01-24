@@ -198,18 +198,11 @@ class Workspace:
             print(f"[lenslet] Warning: failed to compact labels log: {exc}")
             return False
 
-        temp = path.with_suffix(".tmp")
+        payload = "\n".join(keep)
+        if payload:
+            payload += "\n"
         try:
-            with temp.open("w", encoding="utf-8") as handle:
-                for line in keep:
-                    handle.write(line + "\n")
-                handle.flush()
-                try:
-                    os.fsync(handle.fileno())
-                except OSError:
-                    pass
-            temp.replace(path)
-            self._fsync_dir(path.parent)
+            self._atomic_write_text(path, payload)
         except Exception as exc:
             print(f"[lenslet] Warning: failed to write compacted labels log: {exc}")
             return False

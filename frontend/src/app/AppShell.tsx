@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Toolbar from '../shared/ui/Toolbar'
-import FolderTree from '../features/folders/FolderTree'
 import VirtualGrid from '../features/browse/components/VirtualGrid'
 import Viewer from '../features/viewer/Viewer'
 import Inspector from '../features/inspector/Inspector'
@@ -28,7 +27,6 @@ import {
   setUrlNotContainsFilter,
   setWidthCompareFilter,
 } from '../features/browse/model/filters'
-import MetricsPanel from '../features/metrics/MetricsPanel'
 import { useSidebars } from './layout/useSidebars'
 import { useQueryClient } from '@tanstack/react-query'
 import ContextMenu, { MenuItem } from './menu/ContextMenu'
@@ -39,6 +37,8 @@ import { isInputElement } from '../lib/keyboard'
 import { safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
 import { FetchError } from '../lib/fetcher'
+import LeftSidebar from './components/LeftSidebar'
+import StatusBar from './components/StatusBar'
 
 /** Local storage keys for persisted settings */
 const STORAGE_KEYS = {
@@ -1200,145 +1200,48 @@ export default function AppShell() {
         canNextImage={canNextImage}
       />
       {leftOpen && (
-        <div className="app-left-panel col-start-1 row-start-2 relative border-r border-border bg-panel overflow-hidden">
-          <div className="absolute inset-y-0 left-0 w-10 border-r border-border flex flex-col items-center gap-2 py-3 bg-surface-overlay">
-            <button
-              className={`w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors ${leftTool === 'folders' ? 'bg-accent-muted text-accent' : 'bg-surface text-text hover:bg-surface-hover'}`}
-              title="Folders"
-              aria-label="Folders"
-              aria-pressed={leftTool === 'folders'}
-              onClick={() => setLeftTool('folders')}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M3 7.5h6l2-2h10a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z" />
-              </svg>
-            </button>
-            <button
-              className={`w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors ${leftTool === 'metrics' ? 'bg-accent-muted text-accent' : 'bg-surface text-text hover:bg-surface-hover'}`}
-              title="Metrics / Filters"
-              aria-label="Metrics and Filters"
-              aria-pressed={leftTool === 'metrics'}
-              onClick={() => setLeftTool('metrics')}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M4 19V9" />
-                <path d="M10 19V5" />
-                <path d="M16 19v-7" />
-                <path d="M3 19h18" />
-              </svg>
-            </button>
-          </div>
-          <div className="ml-10 h-full">
-            {leftTool === 'folders' ? (
-              <div className="h-full flex flex-col">
-                <div className="px-2 py-2 border-b border-border">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[11px] uppercase tracking-wide text-muted">Smart Folders</div>
-                    <button
-                      className="btn btn-sm btn-ghost text-xs"
-                      onClick={handleSaveView}
-                      title="Save current view as Smart Folder"
-                    >
-                      + New
-                    </button>
-                  </div>
-                  {views.length ? (
-                    <div className="flex flex-col gap-1">
-                      {views.map((view) => {
-                        const active = view.id === activeViewId
-                        return (
-                          <button
-                            key={view.id}
-                            className={`text-left px-2 py-1.5 rounded-md text-sm ${active ? 'bg-accent-muted text-accent' : 'hover:bg-hover text-text'}`}
-                            onClick={() => {
-                              setActiveViewId(view.id)
-                              const safeFilters = normalizeFilterAst(view.view?.filters) ?? { and: [] }
-                              setViewState({ ...view.view, filters: safeFilters })
-                              openFolder(view.pool.path)
-                              setLeftTool('metrics')
-                            }}
-                          >
-                            {view.name}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-xs text-muted px-1 py-1.5">No saved Smart Folders yet.</div>
-                  )}
-                </div>
-                <FolderTree
-                  current={current}
-                  roots={[{ label: 'Root', path: '/' }]}
-                  data={data}
-                  onOpen={(p) => { setActiveViewId(null); openFolder(p) }}
-                  onContextMenu={(e, p)=>{ e.preventDefault(); setCtx({ x:e.clientX, y:e.clientY, kind:'tree', payload:{ path:p } }) }}
-                  className="flex-1 min-h-0 overflow-auto scrollbar-thin"
-                  showResizeHandle={false}
-                />
-              </div>
-            ) : (
-              <MetricsPanel
-                items={poolItems}
-                filteredItems={items}
-                metricKeys={metricKeys}
-                selectedMetric={viewState.selectedMetric}
-                onSelectMetric={(key) => setViewState((prev) => ({ ...prev, selectedMetric: key }))}
-                filters={viewState.filters}
-                onChangeRange={handleMetricRange}
-                onChangeFilters={handleFiltersChange}
-              />
-            )}
-          </div>
-          <div className="toolbar-offset absolute bottom-0 right-0 w-1.5 cursor-col-resize z-10 hover:bg-accent/20" onMouseDown={onResizeLeft} />
-        </div>
+        <LeftSidebar
+          leftTool={leftTool}
+          onToolChange={setLeftTool}
+          views={views}
+          activeViewId={activeViewId}
+          onActivateView={(view) => {
+            setActiveViewId(view.id)
+            const safeFilters = normalizeFilterAst(view.view?.filters) ?? { and: [] }
+            setViewState({ ...view.view, filters: safeFilters })
+            openFolder(view.pool.path)
+            setLeftTool('metrics')
+          }}
+          onSaveView={handleSaveView}
+          current={current}
+          data={data}
+          onOpenFolder={(p) => { setActiveViewId(null); openFolder(p) }}
+          onContextMenu={(e, p) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, kind: 'tree', payload: { path: p } }) }}
+          items={poolItems}
+          filteredItems={items}
+          metricKeys={metricKeys}
+          selectedMetric={viewState.selectedMetric}
+          onSelectMetric={(key) => setViewState((prev) => ({ ...prev, selectedMetric: key }))}
+          filters={viewState.filters}
+          onChangeRange={handleMetricRange}
+          onChangeFilters={handleFiltersChange}
+          onResize={onResizeLeft}
+        />
       )}
       <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>
         <div aria-live="polite" className="sr-only">
           {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
         </div>
-        <div className="border-b border-border bg-panel">
-          <div className="px-3 py-2 flex flex-col gap-2">
-            {!persistenceEnabled && (
-              <div className="rounded-md border border-danger/40 bg-danger/10 text-danger text-xs px-2.5 py-1.5">
-                <span className="font-semibold">Not persisted.</span> Workspace is read-only; edits stay in memory until restart.
-              </div>
-            )}
-            {recentSummary && (
-              <div className="rounded-md border border-accent/30 bg-accent/10 text-text text-xs px-2.5 py-1.5 flex items-center justify-between gap-3">
-                <span>
-                  Recent updates: {recentSummary.count} item{recentSummary.count === 1 ? '' : 's'}
-                  {recentSummary.names.length ? ` (${recentSummary.names.join(', ')}${recentSummary.extra ? ` +${recentSummary.extra}` : ''})` : ''}
-                </span>
-                <button
-                  className="text-muted hover:text-text transition-colors"
-                  onClick={() => setRecentActivity([])}
-                  aria-label="Dismiss recent activity"
-                >
-                  Dismiss
-                </button>
-              </div>
-            )}
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border ${syncTone}`}>
-                {syncLabel}
-              </span>
-              <span className="inline-flex items-center gap-2 px-2 py-1 rounded-full border border-border text-muted">
-                <span className={`inline-block w-2 h-2 rounded-full ${connectionTone}`} />
-                {connectionLabel}
-              </span>
-              {presence ? (
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border text-muted">
-                  {presence.viewing} viewing · {presence.editing} editing
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border text-muted">
-                  Presence: —
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
+        <StatusBar
+          persistenceEnabled={persistenceEnabled}
+          recentSummary={recentSummary}
+          onDismissRecent={() => setRecentActivity([])}
+          syncTone={syncTone}
+          syncLabel={syncLabel}
+          connectionTone={connectionTone}
+          connectionLabel={connectionLabel}
+          presence={presence}
+        />
         {filterChips.length > 0 && (
           <div className="sticky top-0 z-10 px-3 py-2 bg-panel border-b border-border">
             <div className="flex flex-wrap items-center gap-2">

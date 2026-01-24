@@ -35,6 +35,10 @@ let reconnectAttempt = 0
 let reconnectEnabled = true
 let pollingEnabled = false
 
+function canUseEventSource(): boolean {
+  return typeof window !== 'undefined' && typeof EventSource !== 'undefined'
+}
+
 export function getClientId(): string {
   if (cachedClientId) return cachedClientId
   try {
@@ -92,8 +96,7 @@ function writeLastEventId(next: number): void {
 
 function buildEventsUrl(): string {
   if (typeof window === 'undefined') return `${BASE}/events`
-  const base = `${BASE || ''}/events`
-  const url = new URL(base, window.location.origin)
+  const url = new URL(`${BASE}/events`, window.location.origin)
   const lastEventId = readLastEventId()
   if (lastEventId != null && Number.isFinite(lastEventId)) {
     url.searchParams.set('last_event_id', String(lastEventId))
@@ -137,12 +140,15 @@ function notifyPolling(next: boolean) {
   }
 }
 
+function clearReconnectTimer() {
+  if (reconnectTimer == null) return
+  window.clearTimeout(reconnectTimer)
+  reconnectTimer = null
+}
+
 function resetReconnect() {
   reconnectAttempt = 0
-  if (reconnectTimer != null) {
-    window.clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
+  clearReconnectTimer()
 }
 
 function scheduleReconnect(): void {
@@ -164,13 +170,17 @@ function scheduleReconnect(): void {
 }
 
 function openEventSource(): void {
-  if (!reconnectEnabled || typeof window === 'undefined' || typeof EventSource === 'undefined') return
+  if (!reconnectEnabled || !canUseEventSource()) return
   if (eventSource && eventSource.readyState === EventSource.CLOSED) {
     eventSource.close()
     eventSource = null
   }
   if (eventSource) return
-  notifyStatus(reconnectAttempt > 0 ? 'reconnecting' : 'connecting')
+  if (reconnectAttempt > 0) {
+    notifyStatus('reconnecting')
+  } else {
+    notifyStatus('connecting')
+  }
   const es = new EventSource(buildEventsUrl())
   eventSource = es
 
@@ -206,20 +216,14 @@ function openEventSource(): void {
 
 export function connectEvents(): void {
   reconnectEnabled = true
-  if (typeof window === 'undefined' || typeof EventSource === 'undefined') return
-  if (reconnectTimer != null) {
-    window.clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
+  if (!canUseEventSource()) return
+  clearReconnectTimer()
   openEventSource()
 }
 
 export function disconnectEvents(): void {
   reconnectEnabled = false
-  if (reconnectTimer != null) {
-    window.clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
+  clearReconnectTimer()
   reconnectAttempt = 0
   if (eventSource) {
     eventSource.close()

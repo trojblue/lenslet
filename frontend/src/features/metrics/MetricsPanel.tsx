@@ -103,7 +103,7 @@ export default function MetricsPanel({
 
   if (!metricKeys.length) {
     return (
-      <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
+      <div className="h-full flex flex-col gap-2 px-3 py-2 overflow-auto scrollbar-thin">
         {metricsSummary}
         {attributesPanel}
         <div className="p-4 text-sm text-muted">
@@ -114,7 +114,7 @@ export default function MetricsPanel({
   }
 
   return (
-    <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
+    <div className="h-full flex flex-col gap-2 px-3 py-2 overflow-auto scrollbar-thin">
       {metricsSummary}
       <MetricRangePanel
         items={items}
@@ -167,8 +167,8 @@ function SelectedMetricsPanel({ selectedItems, metricKeys }: SelectedMetricsPane
   const isMulti = totalItems > 1
 
   return (
-    <div className="ui-card">
-      <div className="ui-card-header">
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
         <div className="ui-section-title">Selected metrics</div>
         <div className="text-[11px] text-muted">{totalItems} item{totalItems === 1 ? '' : 's'}</div>
       </div>
@@ -245,12 +245,12 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
   }
 
   return (
-    <div className="ui-card">
-      <div className="ui-section-title mb-3">Attributes</div>
-      <div className="space-y-3">
+    <div className="space-y-2">
+      <div className="ui-section-title">Attributes</div>
+      <div className="space-y-2">
         <div>
-          <div className="ui-subsection-title mb-2">Rating</div>
-          <div className="space-y-2">
+          <div className="ui-subsection-title mb-1.5">Rating</div>
+          <div className="space-y-1.5">
             <div>
               <div className="ui-label">Include</div>
               <div className="flex flex-wrap gap-1">
@@ -325,8 +325,8 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
         </div>
 
         <div>
-          <div className="ui-subsection-title mb-2">Filename</div>
-          <div className="grid grid-cols-1 gap-2">
+          <div className="ui-subsection-title mb-1.5">Filename</div>
+          <div className="grid grid-cols-1 gap-1.5">
             <div>
               <label className="ui-label">Contains</label>
               <input
@@ -349,8 +349,8 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
         </div>
 
         <div>
-          <div className="ui-subsection-title mb-2">Comments</div>
-          <div className="grid grid-cols-1 gap-2">
+          <div className="ui-subsection-title mb-1.5">Comments</div>
+          <div className="grid grid-cols-1 gap-1.5">
             <div>
               <label className="ui-label">Contains</label>
               <input
@@ -373,8 +373,8 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
         </div>
 
         <div>
-          <div className="ui-subsection-title mb-2">URL</div>
-          <div className="grid grid-cols-1 gap-2">
+          <div className="ui-subsection-title mb-1.5">URL</div>
+          <div className="grid grid-cols-1 gap-1.5">
             <div>
               <label className="ui-label">Contains</label>
               <input
@@ -397,8 +397,8 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
         </div>
 
         <div>
-          <div className="ui-subsection-title mb-2">Date Added</div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="ui-subsection-title mb-1.5">Date Added</div>
+          <div className="grid grid-cols-2 gap-1.5">
             <div>
               <label className="ui-label">From</label>
               <input
@@ -421,8 +421,8 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
         </div>
 
         <div>
-          <div className="ui-subsection-title mb-2">Dimensions</div>
-          <div className="grid grid-cols-1 gap-2">
+          <div className="ui-subsection-title mb-1.5">Dimensions</div>
+          <div className="grid grid-cols-1 gap-1.5">
             <div>
               <label className="ui-label">Width</label>
               <div className="flex gap-2">
@@ -518,7 +518,8 @@ function MetricRangePanel({
   const activeMetric = selectedMetric && metricKeys.includes(selectedMetric) ? selectedMetric : metricKeys[0]
 
   return (
-    <>
+    <div className="space-y-2">
+      <div className="ui-section-title">Metrics</div>
       <div>
         <div className="flex items-center justify-between gap-2">
           <label className="ui-label">Metric</label>
@@ -576,7 +577,7 @@ function MetricRangePanel({
           <div className="text-sm text-muted">No values found for this metric.</div>
         )
       )}
-    </>
+    </div>
   )
 }
 
@@ -758,9 +759,9 @@ function MetricHistogramCard({
 
   if (!population || !domain) {
     return (
-      <div className="ui-card">
+      <div className="space-y-1">
         {showTitle && (
-          <div className="ui-section-title mb-2">{metricKey}</div>
+          <div className="ui-subsection-title">{metricKey}</div>
         )}
         <div className="text-sm text-muted">No values found for this metric.</div>
       </div>
@@ -769,9 +770,9 @@ function MetricHistogramCard({
 
   const selectedCount = selectedValues.length
   return (
-    <div className="ui-card">
+    <div className="space-y-2">
       {showTitle && (
-        <div className="ui-section-title mb-2">{metricKey}</div>
+        <div className="ui-subsection-title">{metricKey}</div>
       )}
       <div className="flex items-center justify-between text-[11px] text-muted mb-2 tabular-nums">
         <div className="flex items-center gap-3">
@@ -793,16 +794,16 @@ function MetricHistogramCard({
         onPointerUp={onPointerUp}
         onPointerLeave={() => setHoverValue(null)}
       >
-        {renderBars(population.bins, '#2e3a4b')}
-        {filtered && renderBars(filtered.bins, '#3a8fff')}
-        {selectedHistogram && renderBars(selectedHistogram.bins, '#f59e0b', { opacity: 0.55 })}
+        {renderBars(population.bins, 'var(--border-strong)')}
+        {filtered && renderBars(filtered.bins, 'var(--accent)')}
+        {selectedHistogram && renderBars(selectedHistogram.bins, 'var(--highlight)', { opacity: 0.55 })}
         {displayRange && renderRange(displayRange, domain)}
         {selectedValue != null && renderValueMarker(selectedValue, domain, {
           color: 'var(--highlight)',
           strokeWidth: 0.7,
         })}
         {hoverValue != null && renderValueMarker(hoverValue, domain, {
-          color: 'rgba(255,255,255,0.75)',
+          color: 'var(--text-secondary)',
           strokeWidth: 0.5,
           dashed: true,
         })}
@@ -938,8 +939,8 @@ function renderRange(range: Range, domain: { min: number; max: number }) {
       y={0}
       width={Math.max(0.5, w)}
       height={100}
-      fill="rgba(255,255,255,0.08)"
-      stroke="rgba(255,255,255,0.4)"
+      fill="var(--border-subtle)"
+      stroke="var(--text-secondary)"
       strokeWidth={0.4}
     />
   )

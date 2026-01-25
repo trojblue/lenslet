@@ -612,6 +612,8 @@ function MetricHistogramCard({
   const [dragRange, setDragRange] = useState<Range | null>(null)
   const [dragging, setDragging] = useState(false)
   const dragStartRef = useRef<number | null>(null)
+  const dragStartClientXRef = useRef<number | null>(null)
+  const dragMovedRef = useRef(false)
   const svgRef = useRef<SVGSVGElement | null>(null)
   const [hoverValue, setHoverValue] = useState<number | null>(null)
   const [minInput, setMinInput] = useState('')
@@ -682,9 +684,10 @@ function MetricHistogramCard({
     setDragging(true)
     setDragRange(null)
     dragStartRef.current = value
+    dragStartClientXRef.current = e.clientX
+    dragMovedRef.current = false
     setHoverValue(value)
     svgRef.current?.setPointerCapture(e.pointerId)
-    setRangeFromValue(value, false)
   }
 
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -694,7 +697,17 @@ function MetricHistogramCard({
       return
     }
     setHoverValue(value)
-    if (dragging) setRangeFromValue(value, false)
+    if (dragging) {
+      const startX = dragStartClientXRef.current
+      if (!dragMovedRef.current && startX != null) {
+        const delta = Math.abs(e.clientX - startX)
+        if (delta < 4) return
+        dragMovedRef.current = true
+      }
+      if (dragMovedRef.current) {
+        setRangeFromValue(value, false)
+      }
+    }
   }
 
   const onPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -702,11 +715,15 @@ function MetricHistogramCard({
     setDragging(false)
     svgRef.current?.releasePointerCapture(e.pointerId)
     const value = getValueFromHistogramEvent(e)
-    if (value != null) {
+    if (dragMovedRef.current && value != null) {
       setHoverValue(value)
       setRangeFromValue(value, true)
+    } else if (activeRange) {
+      onChangeRange(metricKey, null)
     }
     dragStartRef.current = null
+    dragStartClientXRef.current = null
+    dragMovedRef.current = false
     setTimeout(() => setDragRange(null), 0)
   }
 
@@ -856,7 +873,7 @@ function MetricHistogramCard({
           />
         </div>
         <button
-          className="btn btn-sm btn-ghost h-8"
+          className="btn btn-xs btn-ghost text-muted hover:text-text"
           onClick={() => onChangeRange(metricKey, null)}
         >
           Clear

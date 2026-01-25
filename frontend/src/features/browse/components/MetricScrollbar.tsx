@@ -87,7 +87,7 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
   }
 
   return (
-    <div className="absolute right-3 top-3 bottom-3 w-3 flex items-stretch pointer-events-auto">
+    <div className="absolute right-0 top-3 bottom-3 w-[14px] flex items-stretch pointer-events-auto">
       <svg
         ref={svgRef}
         viewBox="0 0 10 100"
@@ -119,10 +119,10 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
           if (!scrubbing) clearHover()
         }}
       >
-        {renderScrollbarBars(histogram.bins, '#2e3a4b', { flip: isDesc })}
-        {renderQuantileTicks(quantiles, domain, { flip: isDesc })}
-        {renderLine(scrollY, { color: 'var(--accent)', strokeWidth: 0.8 })}
-        {hoverY != null && renderLine(hoverY, { color: 'rgba(255,255,255,0.75)', strokeWidth: 0.6, dashed: true })}
+        {renderScrollbarBars(histogram.bins, 'var(--border-strong)', { flip: isDesc })}
+        {renderQuantileTicks(quantiles, domain, { flip: isDesc, color: 'var(--muted)' })}
+        {renderLine(scrollY, { color: 'var(--highlight)', strokeWidth: 0.8 })}
+        {hoverY != null && renderLine(hoverY, { color: 'var(--text-secondary)', strokeWidth: 0.6, dashed: true })}
       </svg>
       {hoverValue != null && hoverProgress != null && (
         <div
@@ -186,8 +186,13 @@ function renderScrollbarBars(bins: number[], color: string, options?: { flip?: b
   })
 }
 
-function renderQuantileTicks(values: number[], domain: { min: number; max: number }, options?: { flip?: boolean }) {
+function renderQuantileTicks(
+  values: number[],
+  domain: { min: number; max: number },
+  options?: { flip?: boolean; color?: string }
+) {
   const flip = options?.flip ?? false
+  const color = options?.color ?? 'currentColor'
   return values.map((value, idx) => {
     const y = valueToY(value, domain, flip)
     const isMedian = idx === 2
@@ -198,7 +203,7 @@ function renderQuantileTicks(values: number[], domain: { min: number; max: numbe
         y1={y}
         x2={10}
         y2={y}
-        stroke="rgba(255,255,255,0.45)"
+        stroke={color}
         strokeWidth={isMedian ? 0.8 : 0.5}
         opacity={isMedian ? 0.9 : 0.6}
         vectorEffect="non-scaling-stroke"

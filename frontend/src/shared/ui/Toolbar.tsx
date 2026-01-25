@@ -195,17 +195,9 @@ export default function Toolbar({
           {countLabel && (
             <span className="toolbar-count text-xs text-muted whitespace-nowrap tabular-nums">{countLabel}</span>
           )}
-          {viewerActive && (
-            <button className="btn btn-sm" onClick={onBack} title="Back to grid">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-              Back
-            </button>
-          )}
         </div>
-        <div className={`toolbar-sort flex items-center gap-2 ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
-          <div className="toolbar-sort-controls flex items-center gap-2">
+        <div className="toolbar-sort flex items-center gap-2">
+          <div className={`toolbar-sort-controls flex items-center gap-2 ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
             <Dropdown
               value={currentSort}
               onChange={handleSortLayoutChange}
@@ -239,7 +231,7 @@ export default function Toolbar({
               )}
             </button>
           </div>
-          <div ref={filtersRef} className="toolbar-filter relative">
+          <div ref={filtersRef} className={`toolbar-filter relative ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
             <button
               className={`btn ${totalFilterCount > 0 ? 'btn-active' : ''}`}
               onClick={() => setFiltersOpen((v) => !v)}
@@ -336,6 +328,14 @@ export default function Toolbar({
               </div>
             )}
           </div>
+          {viewerActive && (
+            <button className="btn btn-sm" onClick={onBack} title="Back to grid">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              Back
+            </button>
+          )}
         </div>
       </div>
 

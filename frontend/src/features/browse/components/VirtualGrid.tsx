@@ -390,7 +390,7 @@ export default function VirtualGrid({
     <div 
       role="grid" 
       aria-label="Gallery" 
-      className={`relative h-full overflow-auto p-3 outline-none ${hideScrollbar ? 'scrollbar-hidden' : 'scrollbar-thin'} ${hasPreview ? 'cursor-zoom-in' : ''}`}
+      className={`relative h-full overflow-auto p-3 outline-none ${hideScrollbar ? 'scrollbar-hidden pr-4' : 'scrollbar-thin'} ${hasPreview ? 'cursor-zoom-in' : ''}`}
       ref={parentRef} 
       tabIndex={0} 
       aria-activedescendant={activeDescendantId} 

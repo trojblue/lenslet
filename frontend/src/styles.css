@@ -93,6 +93,7 @@
 
 .scrollbar-hidden {
   scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .scrollbar-hidden::-webkit-scrollbar { height: 0; width: 0; }
@@ -760,6 +761,13 @@
   height: 28px;
   padding: 0 8px;
   font-size: 12px;
+}
+
+/* Extra-compact button variant */
+.btn-xs {
+  height: 26px;
+  padding: 0 6px;
+  font-size: 11px;
 }
 
 /* Button with active/pressed state */

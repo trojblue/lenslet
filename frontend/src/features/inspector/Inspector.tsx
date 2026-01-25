@@ -105,17 +105,17 @@ interface InspectorProps {
   sortSpec?: SortSpec
 }
 
-type InspectorSectionKey = 'overview' | 'notes' | 'metadata' | 'basics'
+type InspectorSectionKey = 'overview' | 'basics' | 'metadata' | 'notes'
 
-const INSPECTOR_SECTION_KEYS: InspectorSectionKey[] = ['overview', 'notes', 'metadata', 'basics']
+const INSPECTOR_SECTION_KEYS: InspectorSectionKey[] = ['overview', 'basics', 'metadata', 'notes']
 const INSPECTOR_SECTION_STORAGE_KEY = 'lenslet.inspector.sections'
 const INSPECTOR_METRICS_EXPANDED_KEY = 'lenslet.inspector.metricsExpanded'
 const METRICS_PREVIEW_LIMIT = 12
 const DEFAULT_SECTION_STATE: Record<InspectorSectionKey, boolean> = {
   overview: true,
-  notes: true,
   metadata: true,
   basics: true,
+  notes: true,
 }
 
 interface InspectorSectionProps {
@@ -498,72 +498,6 @@ export default function Inspector({
       </InspectorSection>
 
       <InspectorSection
-        title="Notes & Tags"
-        open={openSections.notes}
-        onToggle={() => toggleSection('notes')}
-        contentClassName="px-3 pb-3 space-y-2"
-      >
-        {!multi && conflict && (conflictFields.tags || conflictFields.notes) && (
-          <div className="ui-banner ui-banner-danger text-xs">
-            <div className="font-semibold">Conflicting edits detected.</div>
-            <div className="text-[11px] text-muted mt-0.5">
-              Your changes were not saved because this item was updated elsewhere.
-            </div>
-            <div className="flex items-center gap-2 mt-2">
-              <button className="btn btn-sm" onClick={applyConflict}>
-                Apply my changes again
-              </button>
-              <button className="btn btn-sm btn-ghost" onClick={keepTheirs}>
-                Keep theirs
-              </button>
-            </div>
-          </div>
-        )}
-        <textarea
-          className="ui-textarea w-full scrollbar-thin"
-          placeholder="Add notes"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          onBlur={() => {
-            commitSidecar({ notes })
-          }}
-          aria-label={multi ? 'Notes for selected items' : 'Notes'}
-        />
-        <div>
-          <div className="ui-label">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
-          <input
-            className="ui-input w-full"
-            placeholder="tag1, tag2"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            onBlur={() => {
-              commitSidecar({ tags: parseTags(tags) })
-            }}
-            aria-label={multi ? 'Tags for selected items' : 'Tags'}
-          />
-        </div>
-      </InspectorSection>
-
-      {!multi && (
-        <InspectorSection
-          title="Metadata"
-          open={openSections.metadata}
-          onToggle={() => toggleSection('metadata')}
-          actions={metadataActions}
-        >
-          <pre className={`ui-code-block ${metaHeightClass} overflow-auto whitespace-pre-wrap`}>
-            {metaLoaded ? (
-              <code
-                className="block whitespace-pre-wrap"
-                dangerouslySetInnerHTML={{ __html: highlightedMeta }}
-              />
-            ) : metaContent}
-          </pre>
-          {metaError && <div className="text-[11px] text-danger mt-1 break-words">{metaError}</div>}
-        </InspectorSection>
-      )}
-
-      <InspectorSection
         title="Basics"
         open={openSections.basics}
         onToggle={() => toggleSection('basics')}
@@ -723,6 +657,72 @@ export default function Inspector({
             })()}
           </div>
         )}
+      </InspectorSection>
+
+      {!multi && (
+        <InspectorSection
+          title="Metadata"
+          open={openSections.metadata}
+          onToggle={() => toggleSection('metadata')}
+          actions={metadataActions}
+        >
+          <pre className={`ui-code-block ${metaHeightClass} overflow-auto whitespace-pre-wrap`}>
+            {metaLoaded ? (
+              <code
+                className="block whitespace-pre-wrap"
+                dangerouslySetInnerHTML={{ __html: highlightedMeta }}
+              />
+            ) : metaContent}
+          </pre>
+          {metaError && <div className="text-[11px] text-danger mt-1 break-words">{metaError}</div>}
+        </InspectorSection>
+      )}
+
+      <InspectorSection
+        title="Notes & Tags"
+        open={openSections.notes}
+        onToggle={() => toggleSection('notes')}
+        contentClassName="px-3 pb-3 space-y-2"
+      >
+        {!multi && conflict && (conflictFields.tags || conflictFields.notes) && (
+          <div className="ui-banner ui-banner-danger text-xs">
+            <div className="font-semibold">Conflicting edits detected.</div>
+            <div className="text-[11px] text-muted mt-0.5">
+              Your changes were not saved because this item was updated elsewhere.
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <button className="btn btn-sm" onClick={applyConflict}>
+                Apply my changes again
+              </button>
+              <button className="btn btn-sm btn-ghost" onClick={keepTheirs}>
+                Keep theirs
+              </button>
+            </div>
+          </div>
+        )}
+        <textarea
+          className="ui-textarea w-full scrollbar-thin"
+          placeholder="Add notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={() => {
+            commitSidecar({ notes })
+          }}
+          aria-label={multi ? 'Notes for selected items' : 'Notes'}
+        />
+        <div>
+          <div className="ui-label">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
+          <input
+            className="ui-input w-full"
+            placeholder="tag1, tag2"
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            onBlur={() => {
+              commitSidecar({ tags: parseTags(tags) })
+            }}
+            aria-label={multi ? 'Tags for selected items' : 'Tags'}
+          />
+        </div>
       </InspectorSection>
       <div className="toolbar-offset absolute bottom-0 w-1.5 cursor-col-resize z-10 right-[calc(var(--right)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
     </div>

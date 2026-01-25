@@ -216,8 +216,8 @@
 
 .ui-subsection-title {
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  text-transform: none;
+  letter-spacing: 0.02em;
   color: var(--text-secondary);
   font-weight: 500;
 }

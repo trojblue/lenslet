@@ -914,6 +914,52 @@
    Inspector Sections
    ================================================================= */
 
+.inspector-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--text-secondary);
+}
+
+.inspector-field {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-inset);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.inspector-field-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.inspector-field-value {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.inspector-value-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.inspector-input {
+  background: var(--surface-inset);
+  border-color: var(--border-subtle);
+}
+
+.inspector-input:focus {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
 .inspector-section-body {
   max-height: 0;
   opacity: 0;

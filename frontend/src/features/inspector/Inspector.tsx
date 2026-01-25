@@ -153,13 +153,13 @@ function InspectorSection({
   }, [open])
 
   return (
-    <div className="border-b border-border">
-      <div className="flex items-center justify-between px-3 py-2">
+    <div className="border-b border-border/60">
+      <div className="flex items-center justify-between px-3 py-2.5">
         <button
           type="button"
           onClick={onToggle}
           aria-expanded={open}
-          className="flex items-center gap-2 ui-section-title hover:text-text transition-colors"
+          className="flex items-center gap-2 inspector-section-title hover:text-text transition-colors"
         >
           <svg
             width="12"
@@ -486,14 +486,24 @@ export default function Inspector({
         title={multi ? 'Selection' : 'Item'}
         open={openSections.overview}
         onToggle={() => toggleSection('overview')}
+        contentClassName="px-3 pb-3 space-y-2"
       >
         {multi ? (
-          <>
-            <div className="font-mono text-muted break-all">{selectedPaths.length} files selected</div>
-            <div className="font-mono text-muted break-all">Total size: {fmtBytes(totalSize)}</div>
-          </>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="inspector-field">
+              <div className="inspector-field-label">Selected</div>
+              <div className="inspector-field-value">{selectedPaths.length} files</div>
+            </div>
+            <div className="inspector-field">
+              <div className="inspector-field-label">Total size</div>
+              <div className="inspector-field-value">{fmtBytes(totalSize)}</div>
+            </div>
+          </div>
         ) : (
-          <div className="font-mono text-text break-all" title={filename}>{filename}</div>
+          <div className="inspector-field">
+            <div className="inspector-field-label">Filename</div>
+            <div className="inspector-field-value break-all" title={filename}>{filename}</div>
+          </div>
         )}
       </InspectorSection>
 
@@ -545,7 +555,7 @@ export default function Inspector({
           </div>
         )}
         {!multi && currentItem && (
-          <div className="text-[12px] space-y-1">
+          <div className="text-[12px] space-y-1.5 leading-relaxed">
             <div className="ui-kv-row">
               <span
                 className="ui-kv-label ui-kv-label-action w-20 shrink-0"
@@ -599,9 +609,10 @@ export default function Inspector({
                 Source
               </span>
               <span
-                className="ui-kv-value break-all text-right max-w-[70%] inline-block min-w-[80px]"
+                className="ui-kv-value inspector-value-clamp break-words text-right max-w-[70%] inline-block min-w-[80px]"
                 ref={(el) => rememberHeight('source', el)}
                 style={valueHeights.source ? { minHeight: valueHeights.source } : undefined}
+                title={sourceValue}
               >
                 {copiedField === 'source' ? 'Copied' : sourceValue}
               </span>
@@ -701,7 +712,7 @@ export default function Inspector({
           </div>
         )}
         <textarea
-          className="ui-textarea w-full scrollbar-thin"
+          className="ui-textarea inspector-input w-full scrollbar-thin"
           placeholder="Add notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
@@ -713,7 +724,7 @@ export default function Inspector({
         <div>
           <div className="ui-label">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
           <input
-            className="ui-input w-full"
+            className="ui-input inspector-input w-full"
             placeholder="tag1, tag2"
             value={tags}
             onChange={(e) => setTags(e.target.value)}

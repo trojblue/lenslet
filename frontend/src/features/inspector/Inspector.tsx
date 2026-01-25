@@ -66,15 +66,15 @@ function highlightJson(json: string): string {
     const token = match[0]
     result += escapeHtml(json.slice(lastIndex, start))
 
-    let color = '#cdd3dd' // fallback muted
+    let color = 'var(--json-fallback)'
     if (token.startsWith('"') && token.trimEnd().endsWith(':')) {
-      color = '#a7c4ff' // keys
+      color = 'var(--json-key)'
     } else if (token.startsWith('"')) {
-      color = '#9ad4b5' // strings
+      color = 'var(--json-string)'
     } else if (/true|false|null/.test(token)) {
-      color = '#c4b4f5' // literals
+      color = 'var(--json-literal)'
     } else {
-      color = '#d7c08c' // numbers
+      color = 'var(--json-number)'
     }
 
     result += `<span style="color:${color}">${escapeHtml(token)}</span>`
@@ -159,7 +159,7 @@ function InspectorSection({
           type="button"
           onClick={onToggle}
           aria-expanded={open}
-          className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted hover:text-text transition-colors"
+          className="flex items-center gap-2 ui-section-title hover:text-text transition-colors"
         >
           <svg
             width="12"
@@ -501,10 +501,10 @@ export default function Inspector({
         title="Notes & Tags"
         open={openSections.notes}
         onToggle={() => toggleSection('notes')}
-        contentClassName="px-3 pb-3 space-y-1.5"
+        contentClassName="px-3 pb-3 space-y-2"
       >
         {!multi && conflict && (conflictFields.tags || conflictFields.notes) && (
-          <div className="rounded-md border border-danger/40 bg-danger/10 text-danger text-xs px-2.5 py-2">
+          <div className="ui-banner ui-banner-danger text-xs">
             <div className="font-semibold">Conflicting edits detected.</div>
             <div className="text-[11px] text-muted mt-0.5">
               Your changes were not saved because this item was updated elsewhere.
@@ -520,7 +520,7 @@ export default function Inspector({
           </div>
         )}
         <textarea
-          className="w-full bg-transparent text-text border border-border/60 rounded-md px-2 py-1 min-h-[32px] resize-y scrollbar-thin placeholder:text-muted focus:border-border"
+          className="ui-textarea w-full scrollbar-thin"
           placeholder="Add notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
@@ -530,9 +530,9 @@ export default function Inspector({
           aria-label={multi ? 'Notes for selected items' : 'Notes'}
         />
         <div>
-          <div className="text-[11px] text-muted mb-1">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
+          <div className="ui-label">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
           <input
-            className="w-full h-9 bg-transparent text-text border border-border/60 rounded-md px-2 placeholder:text-muted focus:border-border"
+            className="ui-input w-full"
             placeholder="tag1, tag2"
             value={tags}
             onChange={(e) => setTags(e.target.value)}
@@ -551,7 +551,7 @@ export default function Inspector({
           onToggle={() => toggleSection('metadata')}
           actions={metadataActions}
         >
-          <pre className={`bg-surface-inset text-[11px] font-mono text-muted border border-border rounded-lg p-2 ${metaHeightClass} overflow-auto whitespace-pre-wrap leading-[1.3]`}>
+          <pre className={`ui-code-block ${metaHeightClass} overflow-auto whitespace-pre-wrap`}>
             {metaLoaded ? (
               <code
                 className="block whitespace-pre-wrap"
@@ -568,15 +568,15 @@ export default function Inspector({
         open={openSections.basics}
         onToggle={() => toggleSection('basics')}
       >
-        <div className="flex items-center gap-2 text-[12px] mb-1" role="radiogroup" aria-label="Star rating">
-          <span className="text-muted w-16 shrink-0">{multi ? 'Rating (all)' : 'Rating'}</span>
+        <div className="flex items-center gap-2 text-xs mb-1" role="radiogroup" aria-label="Star rating">
+          <span className="ui-kv-label w-16 shrink-0">{multi ? 'Rating (all)' : 'Rating'}</span>
           <div className="flex items-center gap-1">
             {[1, 2, 3, 4, 5].map((v) => {
               const filled = (star ?? 0) >= v
               return (
                 <button
                   key={v}
-                  className={`w-6 h-6 flex items-center justify-center rounded border border-border/60 bg-transparent text-[13px] ${filled ? 'text-star-active' : 'text-star-inactive'} hover:border-border hover:text-star-hover transition-colors`}
+                  className={`w-6 h-6 flex items-center justify-center rounded-lg border border-border/60 bg-transparent text-[13px] ${filled ? 'text-star-active' : 'text-star-inactive'} hover:border-border hover:text-star-hover transition-colors`}
                   onClick={() => {
                     const val: StarRating = star === v && !multi ? null : (v as 1 | 2 | 3 | 4 | 5)
                     if (multi && selectedPaths.length) {
@@ -598,7 +598,7 @@ export default function Inspector({
           </div>
         </div>
         {!multi && conflict && conflictFields.star && (
-          <div className="mt-2 rounded-md border border-danger/40 bg-danger/10 text-danger text-[11px] px-2 py-1 flex items-center justify-between gap-2">
+          <div className="ui-banner ui-banner-danger mt-2 text-[11px] flex items-center justify-between gap-2">
             <span>Rating conflict.</span>
             <div className="flex items-center gap-2">
               <button className="btn btn-sm" onClick={applyConflict}>
@@ -612,60 +612,60 @@ export default function Inspector({
         )}
         {!multi && currentItem && (
           <div className="text-[12px] space-y-1">
-            <div className="flex justify-between">
+            <div className="ui-kv-row">
               <span
-                className="text-muted w-20 shrink-0 cursor-pointer"
+                className="ui-kv-label ui-kv-label-action w-20 shrink-0"
                 onClick={() => copyInfo('dimensions', `${currentItem.w}×${currentItem.h}`)}
               >
                 Dimensions
               </span>
               <span
-                className="font-mono text-text inline-block text-right min-w-[80px]"
+                className="ui-kv-value inline-block text-right min-w-[80px]"
                 ref={(el) => rememberHeight('dimensions', el)}
                 style={valueHeights.dimensions ? { minHeight: valueHeights.dimensions } : undefined}
               >
                 {copiedField === 'dimensions' ? 'Copied' : `${currentItem.w}×${currentItem.h}`}
               </span>
             </div>
-            <div className="flex justify-between">
+            <div className="ui-kv-row">
               <span
-                className="text-muted w-20 shrink-0 cursor-pointer"
+                className="ui-kv-label ui-kv-label-action w-20 shrink-0"
                 onClick={() => copyInfo('size', fmtBytes(currentItem.size))}
               >
                 Size
               </span>
               <span
-                className="font-mono text-text inline-block text-right min-w-[80px]"
+                className="ui-kv-value inline-block text-right min-w-[80px]"
                 ref={(el) => rememberHeight('size', el)}
                 style={valueHeights.size ? { minHeight: valueHeights.size } : undefined}
               >
                 {copiedField === 'size' ? 'Copied' : fmtBytes(currentItem.size)}
               </span>
             </div>
-            <div className="flex justify-between">
+            <div className="ui-kv-row">
               <span
-                className="text-muted w-20 shrink-0 cursor-pointer"
+                className="ui-kv-label ui-kv-label-action w-20 shrink-0"
                 onClick={() => copyInfo('type', currentItem.type)}
               >
                 Type
               </span>
               <span
-                className="font-mono text-text break-all text-right inline-block min-w-[80px]"
+                className="ui-kv-value break-all text-right inline-block min-w-[80px]"
                 ref={(el) => rememberHeight('type', el)}
                 style={valueHeights.type ? { minHeight: valueHeights.type } : undefined}
               >
                 {copiedField === 'type' ? 'Copied' : currentItem.type}
               </span>
             </div>
-            <div className="flex justify-between">
+            <div className="ui-kv-row">
               <span
-                className="text-muted w-20 shrink-0 cursor-pointer"
+                className="ui-kv-label ui-kv-label-action w-20 shrink-0"
                 onClick={() => sourceValue && copyInfo('source', sourceValue)}
               >
                 Source
               </span>
               <span
-                className="font-mono text-text break-all text-right max-w-[70%] inline-block min-w-[80px]"
+                className="ui-kv-value break-all text-right max-w-[70%] inline-block min-w-[80px]"
                 ref={(el) => rememberHeight('source', el)}
                 style={valueHeights.source ? { minHeight: valueHeights.source } : undefined}
               >
@@ -692,16 +692,16 @@ export default function Inspector({
               const remaining = ordered.length - METRICS_PREVIEW_LIMIT
               return (
                 <div className="mt-3">
-                  <div className="text-muted text-xs uppercase tracking-wide mb-1">Metrics</div>
+                  <div className="ui-subsection-title mb-1">Metrics</div>
                   <div className="space-y-1">
                     {show.map(([key, val]) => {
                       const isHighlighted = highlightKey === key
                       return (
-                        <div key={key} className="flex justify-between">
-                          <span className={`w-24 shrink-0 ${isHighlighted ? 'text-accent font-medium' : 'text-muted'}`}>
+                        <div key={key} className="ui-kv-row">
+                          <span className={`w-24 shrink-0 ${isHighlighted ? 'text-accent font-medium' : 'ui-kv-label'}`}>
                             {key}
                           </span>
-                          <span className={`font-mono text-right ${isHighlighted ? 'text-accent font-medium' : 'text-text'}`}>
+                          <span className={`ui-kv-value text-right ${isHighlighted ? 'text-accent font-medium' : ''}`}>
                             {formatMetricValue(val)}
                           </span>
                         </div>

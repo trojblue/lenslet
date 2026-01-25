@@ -26,6 +26,13 @@
   --accent-strong: rgba(59, 130, 246, 0.32);
   --highlight: #e6a23c;
   --sync-recent: #b08bff;
+
+  /* JSON highlight tokens */
+  --json-key: var(--accent-hover);
+  --json-string: var(--success);
+  --json-number: var(--highlight);
+  --json-literal: var(--sync-recent);
+  --json-fallback: var(--text-secondary);
   
   /* Star/rating colors */
   --star-active: #ffd166;

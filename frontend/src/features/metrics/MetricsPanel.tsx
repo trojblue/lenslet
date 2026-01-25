@@ -167,19 +167,19 @@ function SelectedMetricsPanel({ selectedItems, metricKeys }: SelectedMetricsPane
   const isMulti = totalItems > 1
 
   return (
-    <div className="rounded-xl border border-border bg-panel p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-[11px] uppercase tracking-wide text-muted">Selected metrics</div>
+    <div className="ui-card">
+      <div className="ui-card-header">
+        <div className="ui-section-title">Selected metrics</div>
         <div className="text-[11px] text-muted">{totalItems} item{totalItems === 1 ? '' : 's'}</div>
       </div>
-      <div className="space-y-1">
+      <div className="space-y-1 text-[12px]">
         {show.map((entry) => (
           <div key={entry.key} className="flex items-center justify-between gap-2">
             <span className="text-muted w-28 shrink-0 truncate" title={entry.key}>{entry.key}</span>
-            <span className="font-mono text-text text-right">
+            <span className="font-mono text-text text-right tabular-nums">
               {isMulti ? `${formatNumber(entry.min)} – ${formatNumber(entry.max)}` : formatNumber(entry.value)}
               {isMulti && (
-                <span className="text-[10px] text-muted ml-2">
+                <span className="text-[11px] text-muted ml-2">
                   avg {formatNumber(entry.avg)}
                   {entry.count !== totalItems ? ` · ${entry.count}/${totalItems}` : ''}
                 </span>
@@ -245,21 +245,21 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-panel p-3">
-      <div className="text-[11px] uppercase tracking-wide text-muted mb-3">Attributes</div>
-      <div className="space-y-4">
+    <div className="ui-card">
+      <div className="ui-section-title mb-3">Attributes</div>
+      <div className="space-y-3">
         <div>
-          <div className="text-xs uppercase tracking-wide text-muted mb-2">Rating</div>
+          <div className="ui-subsection-title mb-2">Rating</div>
           <div className="space-y-2">
             <div>
-              <div className="text-[11px] text-muted mb-1">Include</div>
+              <div className="ui-label">Include</div>
               <div className="flex flex-wrap gap-1">
                 {STAR_VALUES.map((v) => {
                   const active = starsIn.includes(v)
                   return (
                     <button
                       key={`stars-in-${v}`}
-                      className={`h-7 min-w-[32px] px-2 rounded border text-[11px] flex items-center justify-center transition-colors ${
+                      className={`h-7 min-w-[32px] px-2 rounded-lg border text-[11px] flex items-center justify-center transition-colors ${
                         active
                           ? 'bg-accent-muted text-star-active border-border'
                           : 'bg-surface text-text border-border/70 hover:bg-surface-hover'
@@ -273,7 +273,7 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
                   )
                 })}
                 <button
-                  className={`h-7 min-w-[48px] px-2 rounded border text-[11px] flex items-center justify-center transition-colors ${
+                  className={`h-7 min-w-[48px] px-2 rounded-lg border text-[11px] flex items-center justify-center transition-colors ${
                     starsIn.includes(0)
                       ? 'bg-accent-muted text-star-active border-border'
                       : 'bg-surface text-text border-border/70 hover:bg-surface-hover'
@@ -287,14 +287,14 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
               </div>
             </div>
             <div>
-              <div className="text-[11px] text-muted mb-1">Exclude</div>
+              <div className="ui-label">Exclude</div>
               <div className="flex flex-wrap gap-1">
                 {STAR_VALUES.map((v) => {
                   const active = starsNotIn.includes(v)
                   return (
                     <button
                       key={`stars-out-${v}`}
-                      className={`h-7 min-w-[32px] px-2 rounded border text-[11px] flex items-center justify-center transition-colors ${
+                      className={`h-7 min-w-[32px] px-2 rounded-lg border text-[11px] flex items-center justify-center transition-colors ${
                         active
                           ? 'bg-accent-muted text-star-active border-border'
                           : 'bg-surface text-text border-border/70 hover:bg-surface-hover'
@@ -308,7 +308,7 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
                   )
                 })}
                 <button
-                  className={`h-7 min-w-[48px] px-2 rounded border text-[11px] flex items-center justify-center transition-colors ${
+                  className={`h-7 min-w-[48px] px-2 rounded-lg border text-[11px] flex items-center justify-center transition-colors ${
                     starsNotIn.includes(0)
                       ? 'bg-accent-muted text-star-active border-border'
                       : 'bg-surface text-text border-border/70 hover:bg-surface-hover'
@@ -325,21 +325,21 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
         </div>
 
         <div>
-          <div className="text-xs uppercase tracking-wide text-muted mb-2">Filename</div>
+          <div className="ui-subsection-title mb-2">Filename</div>
           <div className="grid grid-cols-1 gap-2">
             <div>
-              <label className="block text-[11px] text-muted mb-1">Contains</label>
+              <label className="ui-label">Contains</label>
               <input
-                className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                className="ui-input w-full"
                 value={nameContains}
                 placeholder="e.g. draft"
                 onChange={(e) => onChangeFilters(setNameContainsFilter(filters, e.target.value))}
               />
             </div>
             <div>
-              <label className="block text-[11px] text-muted mb-1">Does not contain</label>
+              <label className="ui-label">Does not contain</label>
               <input
-                className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                className="ui-input w-full"
                 value={nameNotContains}
                 placeholder="e.g. v1"
                 onChange={(e) => onChangeFilters(setNameNotContainsFilter(filters, e.target.value))}
@@ -349,21 +349,21 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
         </div>
 
         <div>
-          <div className="text-xs uppercase tracking-wide text-muted mb-2">Comments</div>
+          <div className="ui-subsection-title mb-2">Comments</div>
           <div className="grid grid-cols-1 gap-2">
             <div>
-              <label className="block text-[11px] text-muted mb-1">Contains</label>
+              <label className="ui-label">Contains</label>
               <input
-                className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                className="ui-input w-full"
                 value={commentsContains}
                 placeholder="e.g. hero"
                 onChange={(e) => onChangeFilters(setCommentsContainsFilter(filters, e.target.value))}
               />
             </div>
             <div>
-              <label className="block text-[11px] text-muted mb-1">Does not contain</label>
+              <label className="ui-label">Does not contain</label>
               <input
-                className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                className="ui-input w-full"
                 value={commentsNotContains}
                 placeholder="e.g. todo"
                 onChange={(e) => onChangeFilters(setCommentsNotContainsFilter(filters, e.target.value))}
@@ -373,21 +373,21 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
         </div>
 
         <div>
-          <div className="text-xs uppercase tracking-wide text-muted mb-2">URL</div>
+          <div className="ui-subsection-title mb-2">URL</div>
           <div className="grid grid-cols-1 gap-2">
             <div>
-              <label className="block text-[11px] text-muted mb-1">Contains</label>
+              <label className="ui-label">Contains</label>
               <input
-                className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                className="ui-input w-full"
                 value={urlContains}
                 placeholder="e.g. s3://bucket"
                 onChange={(e) => onChangeFilters(setUrlContainsFilter(filters, e.target.value))}
               />
             </div>
             <div>
-              <label className="block text-[11px] text-muted mb-1">Does not contain</label>
+              <label className="ui-label">Does not contain</label>
               <input
-                className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                className="ui-input w-full"
                 value={urlNotContains}
                 placeholder="e.g. http://"
                 onChange={(e) => onChangeFilters(setUrlNotContainsFilter(filters, e.target.value))}
@@ -397,22 +397,22 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
         </div>
 
         <div>
-          <div className="text-xs uppercase tracking-wide text-muted mb-2">Date Added</div>
+          <div className="ui-subsection-title mb-2">Date Added</div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-[11px] text-muted mb-1">From</label>
+              <label className="ui-label">From</label>
               <input
                 type="date"
-                className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                className="ui-input w-full"
                 value={dateFromValue}
                 onChange={(e) => onChangeFilters(setDateRangeFilter(filters, { from: e.target.value || null, to: dateRange.to ?? null }))}
               />
             </div>
             <div>
-              <label className="block text-[11px] text-muted mb-1">To</label>
+              <label className="ui-label">To</label>
               <input
                 type="date"
-                className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                className="ui-input w-full"
                 value={dateToValue}
                 onChange={(e) => onChangeFilters(setDateRangeFilter(filters, { from: dateRange.from ?? null, to: e.target.value || null }))}
               />
@@ -421,13 +421,13 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
         </div>
 
         <div>
-          <div className="text-xs uppercase tracking-wide text-muted mb-2">Dimensions</div>
+          <div className="ui-subsection-title mb-2">Dimensions</div>
           <div className="grid grid-cols-1 gap-2">
             <div>
-              <label className="block text-[11px] text-muted mb-1">Width</label>
+              <label className="ui-label">Width</label>
               <div className="flex gap-2">
                 <select
-                  className="h-8 w-16 rounded-lg px-1 border border-border bg-surface text-text"
+                  className="ui-select ui-select-compact w-16"
                   value={widthOp}
                   onChange={(e) => {
                     const nextOp = e.target.value as CompareOp
@@ -443,7 +443,7 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
                 </select>
                 <input
                   type="number"
-                  className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                  className="ui-input ui-number w-full"
                   value={widthCompare ? String(widthCompare.value) : ''}
                   min={0}
                   placeholder="px"
@@ -461,10 +461,10 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
               </div>
             </div>
             <div>
-              <label className="block text-[11px] text-muted mb-1">Height</label>
+              <label className="ui-label">Height</label>
               <div className="flex gap-2">
                 <select
-                  className="h-8 w-16 rounded-lg px-1 border border-border bg-surface text-text"
+                  className="ui-select ui-select-compact w-16"
                   value={heightOp}
                   onChange={(e) => {
                     const nextOp = e.target.value as CompareOp
@@ -480,7 +480,7 @@ function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
                 </select>
                 <input
                   type="number"
-                  className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+                  className="ui-input ui-number w-full"
                   value={heightCompare ? String(heightCompare.value) : ''}
                   min={0}
                   placeholder="px"
@@ -519,32 +519,32 @@ function MetricRangePanel({
 
   return (
     <>
-      <div className="flex items-end justify-between gap-2">
-        <div className="flex-1">
-          <label className="block text-xs uppercase tracking-wide text-muted mb-1">Metric</label>
-          {showAll ? (
-            <div className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-[12px] text-muted flex items-center">
-              All metrics
-            </div>
-          ) : (
-            <select
-              className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
-              value={activeMetric}
-              onChange={(e) => onSelectMetric(e.target.value)}
-            >
-              {metricKeys.map((key) => (
-                <option key={key} value={key}>{key}</option>
-              ))}
-            </select>
-          )}
+      <div>
+        <div className="flex items-center justify-between gap-2">
+          <label className="ui-label">Metric</label>
+          <button
+            className="btn btn-sm btn-ghost text-[11px]"
+            onClick={() => setShowAll((v) => !v)}
+            aria-pressed={showAll}
+          >
+            {showAll ? 'Show one' : 'Show all'}
+          </button>
         </div>
-        <button
-          className="btn btn-sm btn-ghost text-xs"
-          onClick={() => setShowAll((v) => !v)}
-          aria-pressed={showAll}
-        >
-          {showAll ? 'Show one' : 'Show all'}
-        </button>
+        {showAll ? (
+          <div className="ui-input ui-input-readonly w-full flex items-center text-xs">
+            All metrics
+          </div>
+        ) : (
+          <select
+            className="ui-select w-full"
+            value={activeMetric}
+            onChange={(e) => onSelectMetric(e.target.value)}
+          >
+            {metricKeys.map((key) => (
+              <option key={key} value={key}>{key}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {showAll ? (
@@ -741,9 +741,9 @@ function MetricHistogramCard({
 
   if (!population || !domain) {
     return (
-      <div className="rounded-xl border border-border bg-panel p-3">
+      <div className="ui-card">
         {showTitle && (
-          <div className="text-[11px] uppercase tracking-wide text-muted mb-2">{metricKey}</div>
+          <div className="ui-section-title mb-2">{metricKey}</div>
         )}
         <div className="text-sm text-muted">No values found for this metric.</div>
       </div>
@@ -752,11 +752,11 @@ function MetricHistogramCard({
 
   const selectedCount = selectedValues.length
   return (
-    <div className="rounded-xl border border-border bg-panel p-3">
+    <div className="ui-card">
       {showTitle && (
-        <div className="text-[11px] uppercase tracking-wide text-muted mb-2">{metricKey}</div>
+        <div className="ui-section-title mb-2">{metricKey}</div>
       )}
-      <div className="flex items-center justify-between text-xs text-muted mb-2">
+      <div className="flex items-center justify-between text-[11px] text-muted mb-2 tabular-nums">
         <div className="flex items-center gap-3">
           <span>Population: {population.count}</span>
           <span>Filtered: {filtered?.count ?? 0}</span>
@@ -790,7 +790,7 @@ function MetricHistogramCard({
           dashed: true,
         })}
       </svg>
-      <div className="flex items-center justify-between text-[11px] text-muted mt-2">
+      <div className="flex items-center justify-between text-[11px] text-muted mt-2 tabular-nums">
         <span>{formatNumber(domain?.min)}</span>
         <div className="flex flex-col items-center text-center leading-tight">
           {displayRange ? (
@@ -807,18 +807,18 @@ function MetricHistogramCard({
             <span>Drag to filter</span>
           )}
           {displayRange && hoverValue != null && (
-            <span className="text-[10px] text-muted">Cursor: {formatNumber(hoverValue)}</span>
+            <span className="text-[11px] text-muted">Cursor: {formatNumber(hoverValue)}</span>
           )}
         </div>
         <span>{formatNumber(domain?.max)}</span>
       </div>
-      <div className="grid grid-cols-2 gap-2 mt-3">
+      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mt-3 items-end">
         <div>
-          <label className="block text-[11px] text-muted mb-1">Min</label>
+          <label className="ui-label">Min</label>
           <input
             type="number"
             step="any"
-            className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+            className="ui-input ui-number w-full"
             value={minInput}
             placeholder={formatInputValue(domain.min)}
             onFocus={() => setEditingField('min')}
@@ -835,11 +835,11 @@ function MetricHistogramCard({
           />
         </div>
         <div>
-          <label className="block text-[11px] text-muted mb-1">Max</label>
+          <label className="ui-label">Max</label>
           <input
             type="number"
             step="any"
-            className="h-8 w-full rounded-lg px-2.5 border border-border bg-surface text-text"
+            className="ui-input ui-number w-full"
             value={maxInput}
             placeholder={formatInputValue(domain.max)}
             onFocus={() => setEditingField('max')}
@@ -855,10 +855,8 @@ function MetricHistogramCard({
             }}
           />
         </div>
-      </div>
-      <div className="flex items-center gap-2 mt-2">
         <button
-          className="btn btn-sm"
+          className="btn btn-sm btn-ghost h-8"
           onClick={() => onChangeRange(metricKey, null)}
         >
           Clear

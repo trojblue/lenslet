@@ -31,17 +31,17 @@ export default function StatusBar({
     <div className="border-b border-border bg-panel">
       <div className="px-3 py-2 flex flex-col gap-2">
         {!persistenceEnabled && (
-          <div className="rounded-md border border-danger/40 bg-danger/10 text-danger text-xs px-2.5 py-1.5">
+          <div className="ui-banner ui-banner-danger text-xs">
             <span className="font-semibold">Not persisted.</span> Workspace is read-only; edits stay in memory until restart.
           </div>
         )}
         {showZoomWarning && (
-          <div className="rounded-md border border-accent/30 bg-accent/10 text-text text-xs px-2.5 py-1.5">
+          <div className="ui-banner ui-banner-accent text-xs">
             <span className="font-semibold">Browser zoom {Math.round(zoomPercent)}%.</span> For best results, set it to 100% so UI elements stay in correct proportions.
           </div>
         )}
         {recentSummary && (
-          <div className="rounded-md border border-accent/30 bg-accent/10 text-text text-xs px-2.5 py-1.5 flex items-center justify-between gap-3">
+          <div className="ui-banner ui-banner-accent text-xs flex items-center justify-between gap-3">
             <span>
               Recent updates: {recentSummary.count} item{recentSummary.count === 1 ? '' : 's'}
               {hasRecentNames ? recentLabel : ''}

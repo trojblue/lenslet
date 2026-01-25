@@ -456,7 +456,7 @@ export default function Toolbar({
               aria-label="Search filename, tags, notes"
               placeholder="Search..."
               onChange={(e) => onSearch(e.target.value)}
-              className="toolbar-search-input input h-8 w-full focus:w-full transition-all duration-200 rounded-lg px-3 border border-border bg-surface text-text placeholder:text-muted select-text"
+              className="toolbar-search-input input w-full focus:w-full transition-all duration-200 select-text"
             />
           </div>
         ) : viewerActive ? (
@@ -470,7 +470,7 @@ export default function Toolbar({
             aria-label="Search filename, tags, notes"
             placeholder="Search..."
             onChange={(e) => onSearch(e.target.value)}
-            className="toolbar-search-input-mobile h-9 w-full rounded-lg px-3 border border-border bg-surface text-text placeholder:text-muted select-text"
+            className="toolbar-search-input-mobile input input-lg w-full select-text"
           />
         </div>
       )}

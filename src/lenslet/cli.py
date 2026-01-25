@@ -70,13 +70,34 @@ def _tunnel_target_host(bind_host: str) -> str:
     return bind_host
 
 
+class _ShareTunnel:
+    def __init__(
+        self,
+        thread: threading.Thread,
+        stop_event: threading.Event,
+        process_ref: list[subprocess.Popen[str] | None],
+        lock: threading.Lock,
+    ) -> None:
+        self._thread = thread
+        self._stop_event = stop_event
+        self._process_ref = process_ref
+        self._lock = lock
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        with self._lock:
+            process = self._process_ref[0]
+        if process is not None:
+            _stop_process(process)
+
+
 def _start_share_tunnel(
     port: int,
     bind_host: str,
     verbose: bool,
     max_retries: int = 3,
     reachable_timeout: float = 20.0,
-) -> tuple[subprocess.Popen[str], threading.Thread]:
+) -> _ShareTunnel:
     url_pattern = re.compile(r"https://[A-Za-z0-9.-]+\.trycloudflare\.com")
 
     def _launch() -> subprocess.Popen[str]:
@@ -103,17 +124,21 @@ def _start_share_tunnel(
                 return match.group(0)
         return None
 
-    def _drain_output(lines: Iterable[str]) -> None:
+    def _drain_output(lines: Iterable[str], stop_event: threading.Event) -> None:
         for raw in lines:
+            if stop_event.is_set():
+                break
             if verbose:
                 print(f"[cloudflared] {raw.rstrip()}")
 
-    def _wait_for_reachable(url: str) -> bool:
+    def _wait_for_reachable(url: str, stop_event: threading.Event) -> bool:
         import urllib.error
         import urllib.request
 
         deadline = time.monotonic() + reachable_timeout
         while True:
+            if stop_event.is_set():
+                return False
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
@@ -129,31 +154,47 @@ def _start_share_tunnel(
                     return False
                 time.sleep(0.5)
 
-    last_error = "Share tunnel exited before a URL was created."
-    for attempt in range(1, max_retries + 1):
-        process = _launch()
-        share_url = _read_share_url(process)
-        if share_url is None:
-            if process.poll() not in (None, 0):
-                print("[lenslet] Share tunnel exited before a URL was created.", file=sys.stderr)
-            _stop_process(process)
-            continue
-        if _wait_for_reachable(share_url):
-            _print_share_url(share_url)
-            if process.stdout is None:
-                raise RuntimeError("Failed to start cloudflared: no stdout pipe available.")
-            thread = threading.Thread(target=_drain_output, args=(process.stdout,), daemon=True)
-            thread.start()
-            return process, thread
-        _stop_process(process)
-        last_error = "Share URL not reachable within 20 seconds."
-        if attempt < max_retries:
-            print(
-                f"[lenslet] Share URL not reachable within 20 seconds; retrying ({attempt}/{max_retries}).",
-                file=sys.stderr,
-            )
+    stop_event = threading.Event()
+    process_ref: list[subprocess.Popen[str] | None] = [None]
+    lock = threading.Lock()
 
-    raise RuntimeError(last_error)
+    def _runner() -> None:
+        try:
+            last_error = "Share tunnel exited before a URL was created."
+            for attempt in range(1, max_retries + 1):
+                if stop_event.is_set():
+                    return
+                process = _launch()
+                with lock:
+                    process_ref[0] = process
+                share_url = _read_share_url(process)
+                if share_url is None:
+                    if process.poll() not in (None, 0):
+                        print("[lenslet] Share tunnel exited before a URL was created.", file=sys.stderr)
+                    _stop_process(process)
+                    continue
+                if _wait_for_reachable(share_url, stop_event):
+                    _print_share_url(share_url)
+                    if process.stdout is None:
+                        raise RuntimeError("Failed to start cloudflared: no stdout pipe available.")
+                    _drain_output(process.stdout, stop_event)
+                    return
+                _stop_process(process)
+                last_error = "Share URL not reachable within 20 seconds."
+                if attempt < max_retries:
+                    print(
+                        f"[lenslet] Share URL not reachable within 20 seconds; retrying ({attempt}/{max_retries}).",
+                        file=sys.stderr,
+                    )
+            if not stop_event.is_set():
+                print(f"[lenslet] {last_error}", file=sys.stderr)
+        except Exception as exc:
+            if not stop_event.is_set():
+                print(f"[lenslet] Share tunnel failed: {exc}", file=sys.stderr)
+
+    thread = threading.Thread(target=_runner, daemon=True)
+    thread.start()
+    return _ShareTunnel(thread, stop_event, process_ref, lock)
 
 
 def _stop_process(process: subprocess.Popen[str]) -> None:
@@ -408,14 +449,13 @@ def main():
             og_preview=args.og_preview,
         )
 
-    share_process = None
+    share_tunnel = None
     try:
         if args.share:
             try:
-                share_process, _ = _start_share_tunnel(port, args.host, args.verbose)
+                share_tunnel = _start_share_tunnel(port, args.host, args.verbose)
             except Exception as exc:
                 print(f"[lenslet] Failed to start share tunnel: {exc}", file=sys.stderr)
-                sys.exit(1)
         uvicorn.run(
             app,
             host=args.host,
@@ -424,8 +464,8 @@ def main():
             log_level="info" if args.verbose else "warning",
         )
     finally:
-        if share_process is not None:
-            _stop_process(share_process)
+        if share_tunnel is not None:
+            share_tunnel.stop()
 
 
 def _prepare_table_cache(

@@ -555,69 +555,67 @@ export default function Inspector({
           </div>
         )}
         {!multi && currentItem && (
-          <div className="text-[12px] space-y-2 leading-relaxed">
-            <div className="inspector-info-grid">
-              <div className="inspector-field">
-                <div
-                  className="inspector-field-label ui-kv-label-action"
-                  onClick={() => copyInfo('dimensions', `${currentItem.w}×${currentItem.h}`)}
-                >
-                  Dimensions
-                </div>
-                <div
-                  className="inspector-field-value tabular-nums"
-                  ref={(el) => rememberHeight('dimensions', el)}
-                  style={valueHeights.dimensions ? { minHeight: valueHeights.dimensions } : undefined}
-                >
-                  {copiedField === 'dimensions' ? 'Copied' : `${currentItem.w}×${currentItem.h}`}
-                </div>
-              </div>
-              <div className="inspector-field">
-                <div
-                  className="inspector-field-label ui-kv-label-action"
-                  onClick={() => copyInfo('size', fmtBytes(currentItem.size))}
-                >
-                  Size
-                </div>
-                <div
-                  className="inspector-field-value tabular-nums"
-                  ref={(el) => rememberHeight('size', el)}
-                  style={valueHeights.size ? { minHeight: valueHeights.size } : undefined}
-                >
-                  {copiedField === 'size' ? 'Copied' : fmtBytes(currentItem.size)}
-                </div>
-              </div>
-              <div className="inspector-field">
-                <div
-                  className="inspector-field-label ui-kv-label-action"
-                  onClick={() => copyInfo('type', currentItem.type)}
-                >
-                  Type
-                </div>
-                <div
-                  className="inspector-field-value break-words"
-                  ref={(el) => rememberHeight('type', el)}
-                  style={valueHeights.type ? { minHeight: valueHeights.type } : undefined}
-                >
-                  {copiedField === 'type' ? 'Copied' : currentItem.type}
-                </div>
-              </div>
-              <div className="inspector-field">
-                <div
-                  className="inspector-field-label ui-kv-label-action"
-                  onClick={() => sourceValue && copyInfo('source', sourceValue)}
-                >
-                  Source
-                </div>
-                <div
-                  className="inspector-field-value inspector-value-clamp break-words"
-                  ref={(el) => rememberHeight('source', el)}
-                  style={valueHeights.source ? { minHeight: valueHeights.source } : undefined}
-                  title={sourceValue}
-                >
-                  {copiedField === 'source' ? 'Copied' : sourceValue}
-                </div>
-              </div>
+          <div className="text-[12px] space-y-1.5 leading-relaxed">
+            <div className="ui-kv-row">
+              <span
+                className="ui-kv-label ui-kv-label-action w-20 shrink-0"
+                onClick={() => copyInfo('dimensions', `${currentItem.w}×${currentItem.h}`)}
+              >
+                Dimensions
+              </span>
+              <span
+                className="ui-kv-value inline-block text-right min-w-[80px]"
+                ref={(el) => rememberHeight('dimensions', el)}
+                style={valueHeights.dimensions ? { minHeight: valueHeights.dimensions } : undefined}
+              >
+                {copiedField === 'dimensions' ? 'Copied' : `${currentItem.w}×${currentItem.h}`}
+              </span>
+            </div>
+            <div className="ui-kv-row">
+              <span
+                className="ui-kv-label ui-kv-label-action w-20 shrink-0"
+                onClick={() => copyInfo('size', fmtBytes(currentItem.size))}
+              >
+                Size
+              </span>
+              <span
+                className="ui-kv-value inline-block text-right min-w-[80px]"
+                ref={(el) => rememberHeight('size', el)}
+                style={valueHeights.size ? { minHeight: valueHeights.size } : undefined}
+              >
+                {copiedField === 'size' ? 'Copied' : fmtBytes(currentItem.size)}
+              </span>
+            </div>
+            <div className="ui-kv-row">
+              <span
+                className="ui-kv-label ui-kv-label-action w-20 shrink-0"
+                onClick={() => copyInfo('type', currentItem.type)}
+              >
+                Type
+              </span>
+              <span
+                className="ui-kv-value break-all text-right inline-block min-w-[80px]"
+                ref={(el) => rememberHeight('type', el)}
+                style={valueHeights.type ? { minHeight: valueHeights.type } : undefined}
+              >
+                {copiedField === 'type' ? 'Copied' : currentItem.type}
+              </span>
+            </div>
+            <div className="ui-kv-row">
+              <span
+                className="ui-kv-label ui-kv-label-action w-20 shrink-0"
+                onClick={() => sourceValue && copyInfo('source', sourceValue)}
+              >
+                Source
+              </span>
+              <span
+                className="ui-kv-value inspector-value-clamp break-words text-right max-w-[70%] inline-block min-w-[80px]"
+                ref={(el) => rememberHeight('source', el)}
+                style={valueHeights.source ? { minHeight: valueHeights.source } : undefined}
+                title={sourceValue}
+              >
+                {copiedField === 'source' ? 'Copied' : sourceValue}
+              </span>
             </div>
             {(() => {
               const metrics = currentItem.metrics || null
@@ -713,21 +711,18 @@ export default function Inspector({
             </div>
           </div>
         )}
-        <div className="space-y-1">
-          <div className="inspector-field-label">{multi ? 'Notes (apply to all)' : 'Notes'}</div>
-          <textarea
-            className="ui-textarea inspector-input w-full scrollbar-thin"
-            placeholder="Add notes"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            onBlur={() => {
-              commitSidecar({ notes })
-            }}
-            aria-label={multi ? 'Notes for selected items' : 'Notes'}
-          />
-        </div>
-        <div className="space-y-1">
-          <div className="inspector-field-label">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
+        <textarea
+          className="ui-textarea inspector-input w-full scrollbar-thin"
+          placeholder="Add notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={() => {
+            commitSidecar({ notes })
+          }}
+          aria-label={multi ? 'Notes for selected items' : 'Notes'}
+        />
+        <div>
+          <div className="ui-label">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
           <input
             className="ui-input inspector-input w-full"
             placeholder="tag1, tag2"

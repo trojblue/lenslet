@@ -46,11 +46,10 @@ Options:
   --thumb-quality QUALITY      Thumbnail WebP quality 1-100 (default: 70)
   --source-column NAME         Column to load image paths from in table mode
   --base-dir PATH              Base directory for resolving relative paths in table mode
-  --cache-wh / --no-cache-wh   Cache width/height back into parquet (default: on)
-  --skip-indexing / --no-skip-indexing
-                               Skip probing image dimensions during table load (default: on)
-  --thumb-cache / --no-thumb-cache
-                               Cache thumbnails on disk when a workspace is available (default: on)
+  --no-cache-wh                Disable caching width/height back into parquet
+  --no-skip-indexing           Probe image dimensions during table load
+  --no-thumb-cache             Disable thumbnail cache when a workspace is available
+  --no-og-preview              Disable dataset-based social preview image
   --no-write                   Disable workspace writes (.lenslet/) for one-off sessions
   --reload                     Enable auto-reload for development
   --share                      Create a public share URL via cloudflared

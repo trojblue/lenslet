@@ -21,7 +21,7 @@ Minimum viable collaboration: **different users should see each other’s labeli
   - **Smart Folders** are written under `.lenslet/views.json` for folder datasets, or to `<parquet>.lenslet.json` for parquet mode (`Workspace.views_override`).
   - **Thumbnail cache** can be written on disk under `.lenslet/thumbs` (or `<parquet>.cache/thumbs`).
   - **OG preview cache** can be written on disk under `.lenslet/og-cache` (or `<parquet>.cache/og-cache`).
-  - **Optional parquet width/height caching** can write back to `items.parquet` (via `--cache-wh`, disabled by `--no-write`).
+  - **Optional parquet width/height caching** can write back to `items.parquet` (enabled by default; disable with `--no-cache-wh`, or with `--no-write`).
 
 ### Server API Behavior
 - `PUT /item` updates **only the in-memory metadata** (`src/lenslet/server.py`); it does **not** persist to disk.

@@ -20,6 +20,7 @@ import { BASE } from './base'
 const MAX_PREFETCH_SIZE = 40 * 1024 * 1024
 
 const CLIENT_ID_KEY = 'lenslet.client_id'
+const CLIENT_ID_SESSION_KEY = 'lenslet.client_id.session'
 const LAST_EVENT_ID_KEY = 'lenslet.last_event_id'
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30_000
@@ -39,25 +40,76 @@ function canUseEventSource(): boolean {
   return typeof window !== 'undefined' && typeof EventSource !== 'undefined'
 }
 
+function safeStorageGet(storage: Storage | null, key: string): string | null {
+  if (!storage) return null
+  try {
+    return storage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function safeStorageSet(storage: Storage | null, key: string, value: string): void {
+  if (!storage) return
+  try {
+    storage.setItem(key, value)
+  } catch {
+    // Ignore persistence errors
+  }
+}
+
+function buildFingerprintSeed(): string {
+  if (typeof navigator === 'undefined') return 'server'
+  const ua = navigator.userAgent || ''
+  const lang = navigator.language || ''
+  const platform = navigator.platform || ''
+  const tz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone || '' : ''
+  const screenInfo = typeof screen !== 'undefined'
+    ? `${screen.width}x${screen.height}x${screen.colorDepth}`
+    : ''
+  return [ua, lang, platform, tz, screenInfo].join('|')
+}
+
+function hashFingerprint(seed: string): string {
+  // Simple FNV-1a 32-bit hash for stable, non-crypto IDs.
+  let hash = 0x811c9dc5
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i)
+    hash = (hash * 0x01000193) >>> 0
+  }
+  return hash.toString(16).padStart(8, '0')
+}
+
 export function getClientId(): string {
   if (cachedClientId) return cachedClientId
-  try {
-    const existing = window.localStorage.getItem(CLIENT_ID_KEY)
-    if (existing) {
-      cachedClientId = existing
-      return existing
-    }
-    const next = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `client_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`
-    window.localStorage.setItem(CLIENT_ID_KEY, next)
-    cachedClientId = next
-    return next
-  } catch {
-    const fallback = `client_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`
-    cachedClientId = fallback
-    return fallback
+  const local = typeof window !== 'undefined' ? window.localStorage : null
+  const session = typeof window !== 'undefined' ? window.sessionStorage : null
+
+  const existing = safeStorageGet(local, CLIENT_ID_KEY) || safeStorageGet(session, CLIENT_ID_SESSION_KEY)
+  if (existing) {
+    cachedClientId = existing
+    return existing
   }
+
+  const generated = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `client_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`
+
+  if (local) {
+    safeStorageSet(local, CLIENT_ID_KEY, generated)
+    cachedClientId = generated
+    return generated
+  }
+
+  if (session) {
+    safeStorageSet(session, CLIENT_ID_SESSION_KEY, generated)
+    cachedClientId = generated
+    return generated
+  }
+
+  const fallback = `fp_${hashFingerprint(buildFingerprintSeed())}`
+  cachedClientId = fallback
+  return fallback
 }
 
 export function makeIdempotencyKey(prefix = 'lenslet'): string {

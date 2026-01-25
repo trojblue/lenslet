@@ -173,6 +173,7 @@ class TableStorage:
             source_column,
         )
         self._s3_prefixes, self._s3_use_bucket = self._compute_s3_prefixes()
+        self._local_prefix = self._compute_local_prefix()
         self._path_column = self._resolve_path_column(columns, path_column)
         self._name_column = self._resolve_named_column(columns, self.NAME_COLUMNS)
         self._mime_column = self._resolve_named_column(columns, self.MIME_COLUMNS)
@@ -294,6 +295,44 @@ class TableStorage:
         use_bucket = len(prefixes) > 1
         return prefixes, use_bucket
 
+    def _compute_local_prefix(self) -> str | None:
+        values = self._data.get(self._source_column, []) if hasattr(self, "_data") else []
+        local_paths: list[str] = []
+        for raw in values:
+            if raw is None:
+                continue
+            if isinstance(raw, os.PathLike):
+                raw = os.fspath(raw)
+            if not isinstance(raw, str):
+                continue
+            value = raw.strip()
+            if not value:
+                continue
+            if self._is_s3_uri(value) or self._is_http_url(value):
+                continue
+            if not os.path.isabs(value):
+                continue
+            local_paths.append(os.path.normpath(value))
+
+        if not local_paths:
+            return None
+
+        try:
+            common = os.path.commonpath(local_paths)
+        except ValueError:
+            return None
+
+        if not common or common == os.path.sep:
+            return common if common else None
+
+        # If files sit directly under the common prefix, step up one level
+        # so the prefix folder itself stays visible in the UI.
+        if any(os.path.dirname(path) == common for path in local_paths):
+            parent = os.path.dirname(common)
+            if parent and parent != common:
+                return parent
+        return common
+
     def _resolve_path_column(self, columns: list[str], path_column: str | None) -> str | None:
         if path_column:
             resolved = self._resolve_column(columns, path_column)
@@ -408,6 +447,13 @@ class TableStorage:
             return host or path
 
         if os.path.isabs(source):
+            if self._local_prefix:
+                try:
+                    rel = os.path.relpath(source, self._local_prefix)
+                    if not rel.startswith(".."):
+                        return rel
+                except ValueError:
+                    pass
             if self.root:
                 try:
                     rel = os.path.relpath(source, self.root)
@@ -511,6 +557,13 @@ class TableStorage:
             if self._path_column and not self._is_s3_uri(source):
                 logical_value = self._data.get(self._path_column, [None] * self._row_count)[idx]
             logical_path = str(logical_value).strip() if logical_value else self._derive_logical_path(source)
+            if logical_path and os.path.isabs(logical_path) and self._local_prefix:
+                try:
+                    rel = os.path.relpath(logical_path, self._local_prefix)
+                    if not rel.startswith(".."):
+                        logical_path = rel
+                except ValueError:
+                    pass
             logical_path = self._normalize_item_path(logical_path)
             if not logical_path:
                 done += 1

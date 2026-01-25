@@ -1,5 +1,6 @@
 /** Allowed characters in paths - alphanumeric, slashes, dots, underscores, hyphens, @ */
 export const ALLOWED_PATH = /^[\/@a-zA-Z0-9._\-\/]{1,512}$/
+const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp']
 
 /**
  * Normalize and sanitize a path string.
@@ -41,6 +42,27 @@ export function writeHash(p: string): void {
   if (window.location.hash !== h) {
     window.location.hash = h
   }
+}
+
+/**
+ * Replace the current hash without adding a history entry.
+ */
+export function replaceHash(p: string): void {
+  const normalized = sanitizePath(p)
+  const h = `#${encodeURI(normalized)}`
+  if (window.location.hash !== h) {
+    const url = `${window.location.pathname}${window.location.search}${h}`
+    window.history.replaceState(window.history.state, '', url)
+  }
+}
+
+/**
+ * Heuristic for when a hash path likely points to an image file.
+ */
+export function isLikelyImagePath(path: string): boolean {
+  const normalized = sanitizePath(path)
+  const lower = normalized.toLowerCase()
+  return IMAGE_EXTS.some((ext) => lower.endsWith(ext))
 }
 
 /**

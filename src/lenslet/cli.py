@@ -7,6 +7,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Iterable
 
@@ -69,40 +70,90 @@ def _tunnel_target_host(bind_host: str) -> str:
     return bind_host
 
 
-def _start_share_tunnel(port: int, bind_host: str, verbose: bool) -> tuple[subprocess.Popen[str], threading.Thread]:
-    binary_path = _ensure_cloudflared_binary()
-    target_host = _tunnel_target_host(bind_host)
-    cmd = [str(binary_path), "tunnel", "--url", f"{target_host}:{port}"]
-
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
+def _start_share_tunnel(
+    port: int,
+    bind_host: str,
+    verbose: bool,
+    max_retries: int = 3,
+    reachable_timeout: float = 20.0,
+) -> tuple[subprocess.Popen[str], threading.Thread]:
     url_pattern = re.compile(r"https://[A-Za-z0-9.-]+\.trycloudflare\.com")
 
-    def _reader(lines: Iterable[str]) -> None:
-        share_url = None
-        for raw in lines:
+    def _launch() -> subprocess.Popen[str]:
+        binary_path = _ensure_cloudflared_binary()
+        target_host = _tunnel_target_host(bind_host)
+        cmd = [str(binary_path), "tunnel", "--url", f"{target_host}:{port}"]
+        return subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+
+    def _read_share_url(process: subprocess.Popen[str]) -> str | None:
+        if process.stdout is None:
+            raise RuntimeError("Failed to start cloudflared: no stdout pipe available.")
+        for raw in process.stdout:
             line = raw.rstrip()
             if verbose:
                 print(f"[cloudflared] {line}")
-            if share_url is None:
-                match = url_pattern.search(line)
-                if match:
-                    share_url = match.group(0)
-                    _print_share_url(share_url)
-        if share_url is None and process.poll() not in (None, 0):
-            print("[lenslet] Share tunnel exited before a URL was created.", file=sys.stderr)
+            match = url_pattern.search(line)
+            if match:
+                return match.group(0)
+        return None
 
-    if process.stdout is None:
-        raise RuntimeError("Failed to start cloudflared: no stdout pipe available.")
+    def _drain_output(lines: Iterable[str]) -> None:
+        for raw in lines:
+            if verbose:
+                print(f"[cloudflared] {raw.rstrip()}")
 
-    thread = threading.Thread(target=_reader, args=(process.stdout,), daemon=True)
-    thread.start()
-    return process, thread
+    def _wait_for_reachable(url: str) -> bool:
+        import urllib.error
+        import urllib.request
+
+        deadline = time.monotonic() + reachable_timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            timeout = max(0.5, min(3.0, remaining))
+            try:
+                request = urllib.request.Request(url, method="HEAD")
+                with urllib.request.urlopen(request, timeout=timeout):
+                    return True
+            except urllib.error.HTTPError:
+                return True
+            except Exception:
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(0.5)
+
+    last_error = "Share tunnel exited before a URL was created."
+    for attempt in range(1, max_retries + 1):
+        process = _launch()
+        share_url = _read_share_url(process)
+        if share_url is None:
+            if process.poll() not in (None, 0):
+                print("[lenslet] Share tunnel exited before a URL was created.", file=sys.stderr)
+            _stop_process(process)
+            continue
+        if _wait_for_reachable(share_url):
+            _print_share_url(share_url)
+            if process.stdout is None:
+                raise RuntimeError("Failed to start cloudflared: no stdout pipe available.")
+            thread = threading.Thread(target=_drain_output, args=(process.stdout,), daemon=True)
+            thread.start()
+            return process, thread
+        _stop_process(process)
+        last_error = "Share URL not reachable within 20 seconds."
+        if attempt < max_retries:
+            print(
+                f"[lenslet] Share URL not reachable within 20 seconds; retrying ({attempt}/{max_retries}).",
+                file=sys.stderr,
+            )
+
+    raise RuntimeError(last_error)
 
 
 def _stop_process(process: subprocess.Popen[str]) -> None:
@@ -170,28 +221,32 @@ def main():
         help="Base directory for resolving relative paths in table mode",
     )
     parser.add_argument(
-        "--cache-wh",
-        action=argparse.BooleanOptionalAction,
+        "--no-cache-wh",
+        action="store_false",
+        dest="cache_wh",
         default=True,
-        help="Cache width/height back into parquet (default: True)",
+        help="Disable caching width/height back into parquet",
     )
     parser.add_argument(
-        "--skip-indexing",
-        action=argparse.BooleanOptionalAction,
+        "--no-skip-indexing",
+        action="store_false",
+        dest="skip_indexing",
         default=True,
-        help="Skip probing image dimensions during table load (default: True)",
+        help="Probe image dimensions during table load",
     )
     parser.add_argument(
-        "--thumb-cache",
-        action=argparse.BooleanOptionalAction,
+        "--no-thumb-cache",
+        action="store_false",
+        dest="thumb_cache",
         default=True,
-        help="Cache thumbnails on disk when a workspace is available (default: True)",
+        help="Disable thumbnail cache when a workspace is available",
     )
     parser.add_argument(
-        "--og-preview",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Enable dataset-based social preview image (default: False)",
+        "--no-og-preview",
+        action="store_false",
+        dest="og_preview",
+        default=True,
+        help="Disable dataset-based social preview image",
     )
     parser.add_argument(
         "--reload",

@@ -10,7 +10,7 @@ import { api, connectEvents, disconnectEvents, subscribeEvents, subscribeEventSt
 import type { ConnectionStatus, SyncEvent } from '../shared/api/client'
 import { useOldestInflightAgeMs, useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
 import { usePollingEnabled } from '../shared/api/polling'
-import { readHash, writeHash, sanitizePath, getParentPath, isTrashPath, joinPath } from './routing/hash'
+import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, isTrashPath, joinPath, isLikelyImagePath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import {
   countActiveFilters,
@@ -180,7 +180,7 @@ export default function AppShell() {
   const countCacheRef = useRef<Map<string, number>>(new Map())
   const countInflightRef = useRef<Map<string, Promise<number>>>(new Map())
 
-  const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef)
+  const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool)
 
   // Drag and drop state
   const [isDraggingOver, setDraggingOver] = useState(false)
@@ -207,20 +207,27 @@ export default function AppShell() {
 
   // Initialize current folder from URL hash and keep in sync
   useEffect(() => {
-    const initPath = sanitizePath(readHash())
-    setCurrent(initPath)
-    
-    const onHash = () => {
-      const norm = sanitizePath(readHash())
-      setViewer(null)
+    const applyHash = (raw: string) => {
+      const norm = sanitizePath(raw)
+      const imageTarget = isLikelyImagePath(norm) ? norm : null
+      const folderTarget = imageTarget ? getParentPath(norm) : norm
+      if (imageTarget) {
+        setViewer(imageTarget)
+        setSelectedPaths([imageTarget])
+      } else {
+        setViewer(null)
+        viewerHistoryPushedRef.current = false
+      }
       // Only trigger "restore selection into view" when the folder/tab actually changes
       setCurrent((prev) => {
-        if (prev === norm) return prev
+        if (prev === folderTarget) return prev
         setRestoreGridToSelectionToken((t) => t + 1)
-        return norm
+        return folderTarget
       })
     }
-    
+
+    applyHash(readHash())
+    const onHash = () => applyHash(readHash())
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
@@ -843,9 +850,13 @@ export default function AppShell() {
   useEffect(() => {
     if (searching) {
       setSelectedPaths([])
-      setViewer(null)
+      if (viewer) {
+        setViewer(null)
+        viewerHistoryPushedRef.current = false
+        replaceHash(current)
+      }
     }
-  }, [searching])
+  }, [searching, viewer, current])
 
   // Track toolbar height so overlays align on small screens
   useEffect(() => {
@@ -1113,6 +1124,7 @@ export default function AppShell() {
   // Navigation callbacks
   const openFolder = useCallback((p: string) => {
     setViewer(null)
+    viewerHistoryPushedRef.current = false
     const safe = sanitizePath(p)
     setCurrent(safe)
     writeHash(safe)
@@ -1160,10 +1172,8 @@ export default function AppShell() {
 
   const openViewer = useCallback((p: string) => {
     setViewer(p)
-    if (!viewerHistoryPushedRef.current) {
-      window.history.pushState({ viewer: true }, '', window.location.href)
-      viewerHistoryPushedRef.current = true
-    }
+    viewerHistoryPushedRef.current = true
+    writeHash(p)
   }, [])
 
   const closeViewer = useCallback(() => {
@@ -1171,6 +1181,8 @@ export default function AppShell() {
     if (viewerHistoryPushedRef.current) {
       viewerHistoryPushedRef.current = false
       window.history.back()
+    } else {
+      replaceHash(current)
     }
     // Restore focus to the last focused grid cell
     const p = lastFocusedPathRef.current
@@ -1178,21 +1190,7 @@ export default function AppShell() {
       const el = document.getElementById(`cell-${encodeURIComponent(p)}`)
       el?.focus()
     }
-  }, [])
-
-  // Handle browser back/forward specifically for closing the viewer.
-  // NOTE: We intentionally do NOT touch grid scroll position here – closing
-  // the fullscreen viewer should leave the grid exactly where it was.
-  useEffect(() => {
-    const onPop = () => {
-      if (viewer) {
-        viewerHistoryPushedRef.current = false
-        setViewer(null)
-      }
-    }
-    window.addEventListener('popstate', onPop)
-    return () => window.removeEventListener('popstate', onPop)
-  }, [viewer])
+  }, [current])
 
   // Drag and drop file upload handling
   useEffect(() => {
@@ -1324,7 +1322,10 @@ export default function AppShell() {
     const next = Math.min(itemPaths.length - 1, Math.max(0, idx + delta))
     const nextPath = itemPaths[next]
     if (!nextPath || nextPath === currentPath) return
-    if (viewer) setViewer(nextPath)
+    if (viewer) {
+      setViewer(nextPath)
+      replaceHash(nextPath)
+    }
     setSelectedPaths([nextPath])
   }, [itemPaths, viewer, selectedPaths])
 

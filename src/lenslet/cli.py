@@ -213,8 +213,7 @@ def _stop_process(process: subprocess.Popen[str]) -> None:
 
 
 def _print_share_url(url: str) -> None:
-    from tqdm import tqdm
-    tqdm.write(f"Share URL: {url}")
+    print(f"Share URL: {url}", file=sys.stderr, flush=True)
 
 
 def main():

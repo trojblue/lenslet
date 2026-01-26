@@ -175,19 +175,21 @@ def _start_share_tunnel(
                         print("[lenslet] Share tunnel exited before a URL was created.", file=sys.stderr)
                     _stop_process(process)
                     continue
-                if _wait_for_reachable(share_url, stop_event):
-                    _print_share_url(share_url)
-                    if process.stdout is None:
-                        raise RuntimeError("Failed to start cloudflared: no stdout pipe available.")
-                    _drain_output(process.stdout, stop_event)
-                    return
-                _stop_process(process)
-                last_error = "Share URL not reachable within 20 seconds."
-                if attempt < max_retries:
+                _print_share_url(share_url)
+                if process.stdout is None:
+                    raise RuntimeError("Failed to start cloudflared: no stdout pipe available.")
+                drain_thread = threading.Thread(
+                    target=_drain_output,
+                    args=(process.stdout, stop_event),
+                    daemon=True,
+                )
+                drain_thread.start()
+                if not _wait_for_reachable(share_url, stop_event):
                     print(
-                        f"[lenslet] Share URL not reachable within 20 seconds; retrying ({attempt}/{max_retries}).",
+                        "[lenslet] Share URL not reachable within 20 seconds.",
                         file=sys.stderr,
                     )
+                return
             if not stop_event.is_set():
                 print(f"[lenslet] {last_error}", file=sys.stderr)
         except Exception as exc:

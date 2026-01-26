@@ -317,12 +317,6 @@ export default function AppShell() {
     setCompareIndex((prev) => (prev > compareMaxIndex ? compareMaxIndex : prev))
   }, [compareMaxIndex])
 
-  useEffect(() => {
-    if (!compareOpen) return
-    if (compareEnabled) return
-    closeCompare()
-  }, [compareOpen, compareEnabled, closeCompare])
-
   const markHighlight = useCallback((path: string) => {
     setHighlightedPaths((prev) => {
       if (prev.has(path)) return prev
@@ -1270,6 +1264,12 @@ export default function AppShell() {
       return Math.min(max, Math.max(0, prev + delta))
     })
   }, [compareItems.length])
+
+  useEffect(() => {
+    if (!compareOpen) return
+    if (compareEnabled) return
+    closeCompare()
+  }, [compareOpen, compareEnabled, closeCompare])
 
   // Handle browser back/forward specifically for closing the viewer.
   // NOTE: We intentionally do NOT touch grid scroll position here – closing

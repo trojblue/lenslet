@@ -98,7 +98,8 @@ def _start_share_tunnel(
     max_retries: int = 3,
     reachable_timeout: float = 20.0,
 ) -> _ShareTunnel:
-    url_pattern = re.compile(r"https://[A-Za-z0-9.-]+\.trycloudflare\.com")
+    ansi_escape = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+    trycloudflare_pattern = re.compile(r"https?://[A-Za-z0-9.-]*trycloudflare\.com\S*")
 
     def _launch() -> subprocess.Popen[str]:
         binary_path = _ensure_cloudflared_binary()
@@ -119,9 +120,10 @@ def _start_share_tunnel(
             line = raw.rstrip()
             if verbose:
                 print(f"[cloudflared] {line}")
-            match = url_pattern.search(line)
+            cleaned = ansi_escape.sub("", line)
+            match = trycloudflare_pattern.search(cleaned)
             if match:
-                return match.group(0)
+                return match.group(0).rstrip(").,")
         return None
 
     def _drain_output(lines: Iterable[str], stop_event: threading.Event) -> None:

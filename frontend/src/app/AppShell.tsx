@@ -3,6 +3,7 @@ import Toolbar from '../shared/ui/Toolbar'
 import VirtualGrid from '../features/browse/components/VirtualGrid'
 import MetricScrollbar from '../features/browse/components/MetricScrollbar'
 import Viewer from '../features/viewer/Viewer'
+import CompareViewer from '../features/compare/CompareViewer'
 import Inspector from '../features/inspector/Inspector'
 import { useFolder } from '../shared/api/folders'
 import { useSearch } from '../shared/api/search'
@@ -141,6 +142,8 @@ export default function AppShell() {
   const [query, setQuery] = useState('')
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
   const [viewer, setViewer] = useState<string | null>(null)
+  const [compareOpen, setCompareOpen] = useState(false)
+  const [compareIndex, setCompareIndex] = useState(0)
   const [restoreGridToSelectionToken, setRestoreGridToSelectionToken] = useState(0)
   
   // Viewer zoom state
@@ -176,6 +179,7 @@ export default function AppShell() {
   const gridScrollRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const viewerHistoryPushedRef = useRef(false)
+  const compareHistoryPushedRef = useRef(false)
   const lastFocusedPathRef = useRef<string | null>(null)
   const countCacheRef = useRef<Map<string, number>>(new Map())
   const countInflightRef = useRef<Map<string, Promise<number>>>(new Map())
@@ -283,6 +287,7 @@ export default function AppShell() {
   const filteredCount = items.length
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
+  const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths])
   const selectedItems = useMemo(() => {
     if (!selectedPaths.length) return []
     const poolByPath = new Map(poolItems.map((it) => [it.path, it]))
@@ -291,6 +296,14 @@ export default function AppShell() {
       .map((path) => poolByPath.get(path) ?? itemsByPath.get(path))
       .filter((it): it is Item => !!it)
   }, [selectedPaths, poolItems, items])
+  const compareItems = useMemo(() => items.filter((it) => selectedSet.has(it.path)), [items, selectedSet])
+  const compareMaxIndex = Math.max(0, compareItems.length - 2)
+  const compareIndexClamped = Math.min(compareIndex, compareMaxIndex)
+  const compareA = compareItems[compareIndexClamped] ?? null
+  const compareB = compareItems[compareIndexClamped + 1] ?? null
+  const canComparePrev = compareIndexClamped > 0
+  const canCompareNext = compareIndexClamped < compareItems.length - 2
+  const compareEnabled = compareItems.length >= 2
   const metricSortKey = viewState.sort.kind === 'metric' ? viewState.sort.key : null
   const hasMetricScrollbar = useMemo(() => {
     if (!metricSortKey) return false
@@ -299,6 +312,16 @@ export default function AppShell() {
       return raw != null && !Number.isNaN(raw)
     })
   }, [items, metricSortKey])
+
+  useEffect(() => {
+    setCompareIndex((prev) => (prev > compareMaxIndex ? compareMaxIndex : prev))
+  }, [compareMaxIndex])
+
+  useEffect(() => {
+    if (!compareOpen) return
+    if (compareEnabled) return
+    closeCompare()
+  }, [compareOpen, compareEnabled, closeCompare])
 
   const markHighlight = useCallback((path: string) => {
     setHighlightedPaths((prev) => {
@@ -1038,16 +1061,17 @@ export default function AppShell() {
     const clamp = (v: number) => Math.min(500, Math.max(80, v))
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return
+      if (viewer || compareOpen) return
       e.preventDefault()
       setGridItemSize((prev) => clamp(prev + (e.deltaY < 0 ? 20 : -20)))
     }
     shell.addEventListener('wheel', onWheel, { passive: false })
     return () => shell.removeEventListener('wheel', onWheel)
-  }, [])
+  }, [viewer, compareOpen])
 
   // Pinch to resize thumbnails on touch devices
   useEffect(() => {
-    if (viewer) return
+    if (viewer || compareOpen) return
     const shell = gridShellRef.current
     if (!shell) return
     const clamp = (v: number) => Math.min(500, Math.max(80, v))
@@ -1088,7 +1112,7 @@ export default function AppShell() {
       shell.removeEventListener('touchend', onTouchEnd)
       shell.removeEventListener('touchcancel', onTouchEnd)
     }
-  }, [viewer, gridItemSize])
+  }, [viewer, compareOpen, gridItemSize])
 
   // Prefetch neighbors for the open viewer (previous and next)
   useEffect(() => {
@@ -1110,6 +1134,22 @@ export default function AppShell() {
       api.prefetchThumb(p)
     }
   }, [viewer, itemPaths])
+
+  useEffect(() => {
+    if (!compareOpen || compareItems.length < 2) return
+    const idx = compareIndexClamped
+    const neighborIdx = new Set<number>()
+    for (const offset of [-2, -1, 0, 1, 2, 3]) {
+      const next = idx + offset
+      if (next >= 0 && next < compareItems.length) neighborIdx.add(next)
+    }
+    for (const i of neighborIdx) {
+      const path = compareItems[i]?.path
+      if (!path) continue
+      api.prefetchFile(path)
+      api.prefetchThumb(path)
+    }
+  }, [compareOpen, compareItems, compareIndexClamped])
 
   // On folder load, prefetch fullsize for the first few items
   useEffect(() => {
@@ -1170,6 +1210,12 @@ export default function AppShell() {
     }
   }, [activeViewId, views, current, viewState])
 
+  const focusGridCell = useCallback((path: string | null | undefined) => {
+    if (!path) return
+    const el = document.getElementById(`cell-${encodeURIComponent(path)}`)
+    el?.focus()
+  }, [])
+
   const openViewer = useCallback((p: string) => {
     setViewer(p)
     viewerHistoryPushedRef.current = true
@@ -1185,12 +1231,63 @@ export default function AppShell() {
       replaceHash(current)
     }
     // Restore focus to the last focused grid cell
-    const p = lastFocusedPathRef.current
-    if (p) {
-      const el = document.getElementById(`cell-${encodeURIComponent(p)}`)
-      el?.focus()
+    focusGridCell(lastFocusedPathRef.current)
+  }, [focusGridCell])
+
+  const openCompare = useCallback(() => {
+    if (compareOpen || !compareEnabled) return
+    if (selectedPaths[0]) lastFocusedPathRef.current = selectedPaths[0]
+    setCompareIndex(0)
+    setCompareOpen(true)
+
+    if (viewer) {
+      setViewer(null)
+      if (viewerHistoryPushedRef.current) {
+        viewerHistoryPushedRef.current = false
+      }
+      replaceHash(current)
     }
-  }, [current])
+
+    if (!compareHistoryPushedRef.current) {
+      window.history.pushState({ compare: true }, '', window.location.href)
+      compareHistoryPushedRef.current = true
+    }
+  }, [compareOpen, compareEnabled, selectedPaths, viewer, current])
+
+  const closeCompare = useCallback(() => {
+    setCompareOpen(false)
+    if (compareHistoryPushedRef.current) {
+      compareHistoryPushedRef.current = false
+      window.history.back()
+    }
+    focusGridCell(lastFocusedPathRef.current ?? selectedPaths[0])
+  }, [focusGridCell, selectedPaths])
+
+  const handleCompareNavigate = useCallback((delta: number) => {
+    if (compareItems.length < 2) return
+    setCompareIndex((prev) => {
+      const max = Math.max(0, compareItems.length - 2)
+      return Math.min(max, Math.max(0, prev + delta))
+    })
+  }, [compareItems.length])
+
+  // Handle browser back/forward specifically for closing the viewer.
+  // NOTE: We intentionally do NOT touch grid scroll position here – closing
+  // the fullscreen viewer should leave the grid exactly where it was.
+  useEffect(() => {
+    const onPop = () => {
+      if (viewer) {
+        viewerHistoryPushedRef.current = false
+        setViewer(null)
+      }
+      if (compareOpen) {
+        compareHistoryPushedRef.current = false
+        setCompareOpen(false)
+      }
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [viewer, compareOpen])
 
   // Drag and drop file upload handling
   useEffect(() => {
@@ -1280,8 +1377,8 @@ export default function AppShell() {
         return
       }
 
-      // Ignore if viewer is open (viewer has its own handlers) for other shortcuts
-      if (viewer) return
+      // Ignore if viewer or compare is open (they have their own handlers)
+      if (viewer || compareOpen) return
       
       if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault()
@@ -1303,7 +1400,7 @@ export default function AppShell() {
     
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [current, items, selectedPaths, viewer, openFolder])
+  }, [current, items, selectedPaths, viewer, compareOpen, openFolder])
 
   const leftCol = leftOpen ? `${leftW}px` : '0px'
   const rightCol = rightOpen ? `${rightW}px` : '0px'
@@ -1384,6 +1481,9 @@ export default function AppShell() {
         <LeftSidebar
           leftTool={leftTool}
           onToolChange={setLeftTool}
+          compareEnabled={compareEnabled}
+          compareActive={compareOpen}
+          onOpenCompare={openCompare}
           views={views}
           activeViewId={activeViewId}
           onActivateView={(view) => {
@@ -1479,7 +1579,7 @@ export default function AppShell() {
             onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
             highlight={searching ? normalizedQ : ''}
             recentlyUpdated={highlightedPaths}
-            suppressSelectionHighlight={!!viewer}
+            suppressSelectionHighlight={!!viewer || compareOpen}
             viewMode={viewMode}
             targetCellSize={gridItemSize}
             onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
@@ -1510,6 +1610,18 @@ export default function AppShell() {
           requestedZoomPercent={requestedZoom}
           onZoomRequestConsumed={()=> setRequestedZoom(null)}
           onNavigate={handleNavigate}
+        />
+      )}
+      {compareOpen && (
+        <CompareViewer
+          aItem={compareA}
+          bItem={compareB}
+          index={compareIndexClamped}
+          total={compareItems.length}
+          canPrev={canComparePrev}
+          canNext={canCompareNext}
+          onNavigate={handleCompareNavigate}
+          onClose={closeCompare}
         />
       )}
       {isDraggingOver && (

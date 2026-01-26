@@ -6,6 +6,9 @@ import type { FilterAST, FolderIndex, Item, SavedView } from '../../lib/types'
 type LeftSidebarProps = {
   leftTool: 'folders' | 'metrics'
   onToolChange: (tool: 'folders' | 'metrics') => void
+  compareEnabled: boolean
+  compareActive: boolean
+  onOpenCompare: () => void
   views: SavedView[]
   activeViewId: string | null
   onActivateView: (view: SavedView) => void
@@ -31,6 +34,9 @@ const ROOTS = [{ label: 'Root', path: '/' }]
 export default function LeftSidebar({
   leftTool,
   onToolChange,
+  compareEnabled,
+  compareActive,
+  onOpenCompare,
   views,
   activeViewId,
   onActivateView,
@@ -54,6 +60,9 @@ export default function LeftSidebar({
     ? 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-accent-muted text-accent'
     : 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-surface text-text hover:bg-surface-hover'
   const metricsButtonClass = leftTool === 'metrics'
+    ? 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-accent-muted text-accent'
+    : 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-surface text-text hover:bg-surface-hover'
+  const compareButtonClass = compareActive
     ? 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-accent-muted text-accent'
     : 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-surface text-text hover:bg-surface-hover'
 
@@ -83,6 +92,21 @@ export default function LeftSidebar({
             <path d="M10 19V5" />
             <path d="M16 19v-7" />
             <path d="M3 19h18" />
+          </svg>
+        </button>
+        <div className="w-6 h-px bg-border/70 my-1" />
+        <button
+          className={`${compareButtonClass} ${compareEnabled ? '' : 'opacity-40 cursor-not-allowed'}`}
+          title={compareEnabled ? 'Compare selected images' : 'Compare (select 2+)'}
+          aria-label="Compare selected images"
+          aria-pressed={compareActive}
+          aria-disabled={!compareEnabled}
+          disabled={!compareEnabled}
+          onClick={() => { if (compareEnabled) onOpenCompare() }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="8" height="16" rx="1" />
+            <rect x="13" y="4" width="8" height="16" rx="1" />
           </svg>
         </button>
       </div>

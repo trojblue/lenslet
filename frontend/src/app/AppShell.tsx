@@ -1491,7 +1491,6 @@ export default function AppShell() {
             const safeFilters = normalizeFilterAst(view.view?.filters) ?? { and: [] }
             setViewState({ ...view.view, filters: safeFilters })
             openFolder(view.pool.path)
-            setLeftTool('metrics')
           }}
           onSaveView={handleSaveView}
           current={current}

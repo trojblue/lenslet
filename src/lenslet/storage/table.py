@@ -46,7 +46,8 @@ class TableStorage:
 
     IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
     REMOTE_HEADER_BYTES = 65536
-    REMOTE_DIM_WORKERS = 16
+    REMOTE_DIM_WORKERS = 16  # baseline concurrency for remote header probing
+    REMOTE_DIM_WORKERS_MAX = 128  # avoid unbounded thread creation on huge hosts
 
     LOGICAL_PATH_COLUMNS = (
         "path",
@@ -979,7 +980,10 @@ class TableStorage:
         if total <= 0:
             return 0
         cpu = os.cpu_count() or 1
-        return max(1, min(self.REMOTE_DIM_WORKERS, cpu, total))
+        # Scale with CPU availability but keep the historical 16-thread baseline.
+        cap = max(self.REMOTE_DIM_WORKERS, cpu)
+        cap = min(cap, self.REMOTE_DIM_WORKERS_MAX)
+        return max(1, min(cap, total))
 
     def _get_presigned_url(self, s3_uri: str, expires_in: int = 3600) -> str:
         try:

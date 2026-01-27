@@ -10,12 +10,51 @@ import threading
 import time
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urlparse
 
 
 _CLOUDFLARED_URL = (
     "https://github.com/cloudflare/cloudflared/releases/latest/download/"
     "cloudflared-linux-amd64"
 )
+
+
+def _is_remote_uri(value: str) -> bool:
+    try:
+        parsed = urlparse(value)
+    except Exception:
+        return False
+    return parsed.scheme in {"s3", "http", "https", "hf"}
+
+
+def _looks_like_hf_dataset(value: str) -> bool:
+    if "://" in value:
+        return False
+    if value.startswith(("/", ".", "~")):
+        return False
+    parts = value.split("/")
+    if len(parts) != 2:
+        return False
+    org, repo = parts
+    repo_base = repo.split("@", 1)[0]
+    name_pattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+    return bool(name_pattern.match(org)) and bool(name_pattern.match(repo_base))
+
+
+def _load_remote_table(uri: str):
+    try:
+        import unibox as ub
+    except ImportError as exc:
+        raise RuntimeError(
+            "unibox is required to load remote tables. Install with: pip install unibox"
+        ) from exc
+    table = ub.loads(uri)
+    if hasattr(table, "to_pandas"):
+        try:
+            table = table.to_pandas()
+        except TypeError:
+            table = table.to_pandas()
+    return table
 
 
 def _port_is_available(host: str, port: int) -> bool:
@@ -226,7 +265,7 @@ def main():
         "directory",
         type=str,
         nargs="?",  # Make optional for --version/--help
-        help="Directory containing images or a Parquet table to serve",
+        help="Directory containing images, a Parquet table, or an HF dataset (org/dataset) to serve",
     )
     parser.add_argument(
         "-p", "--port",
@@ -331,17 +370,33 @@ def main():
         sys.exit(1)
 
     # Resolve and validate target
-    target = Path(args.directory).expanduser().resolve()
-    is_table_file = target.is_file() and target.suffix.lower() == ".parquet"
-    if not target.exists():
-        print(f"Error: '{args.directory}' does not exist", file=sys.stderr)
-        sys.exit(1)
-    if target.is_file():
-        if not is_table_file:
-            print(f"Error: '{args.directory}' is not a .parquet file", file=sys.stderr)
+    raw_target = args.directory
+    candidate = Path(raw_target).expanduser()
+    is_local = candidate.exists()
+    is_table_file = False
+    is_remote_table = False
+    remote_kind = None
+    remote_uri = None
+    if is_local:
+        target = candidate.resolve()
+        is_table_file = target.is_file() and target.suffix.lower() == ".parquet"
+        if target.is_file():
+            if not is_table_file:
+                print(f"Error: '{args.directory}' is not a .parquet file", file=sys.stderr)
+                sys.exit(1)
+        elif not target.is_dir():
+            print(f"Error: '{args.directory}' is not a valid directory or .parquet file", file=sys.stderr)
             sys.exit(1)
-    elif not target.is_dir():
-        print(f"Error: '{args.directory}' is not a valid directory or .parquet file", file=sys.stderr)
+    elif _is_remote_uri(raw_target):
+        is_remote_table = True
+        remote_kind = "remote"
+        remote_uri = raw_target
+    elif _looks_like_hf_dataset(raw_target):
+        is_remote_table = True
+        remote_kind = "hf"
+        remote_uri = f"hf://{raw_target}"
+    else:
+        print(f"Error: '{args.directory}' does not exist", file=sys.stderr)
         sys.exit(1)
 
     port = args.port
@@ -354,6 +409,7 @@ def main():
         if port != 7070:
             print(f"[lenslet] Port 7070 is in use; using {port} instead.")
 
+    effective_no_write = args.no_write or is_remote_table
     if args.no_write:
         if args.cache_wh:
             print("[lenslet] --no-write disables parquet caching; use --no-cache-wh to silence.")
@@ -365,7 +421,10 @@ def main():
             print("[lenslet] --no-write disables OG cache; previews will be generated on-demand.")
 
     # Print startup banner
-    if is_table_file:
+    if is_remote_table:
+        mode_label = "Table (hf dataset)" if remote_kind == "hf" else "Table (remote)"
+        display_target = remote_uri or raw_target
+    elif is_table_file:
         mode_label = "Table (parquet)"
         display_target = str(target)
     else:
@@ -386,7 +445,7 @@ def main():
     banner_lines.extend(
         [
             f"│  Mode:      {mode_label:<35} │",
-            f"│  No-write:  {'ON' if args.no_write else 'off':<35} │",
+        f"│  No-write:  {'ON' if effective_no_write else 'off':<35} │",
             "└─────────────────────────────────────────────────┘",
             "",
         ]
@@ -411,9 +470,27 @@ def main():
 
     # Start server
     import uvicorn
-    from .server import create_app, create_app_from_storage
+    from .server import create_app, create_app_from_storage, create_app_from_table
     from .workspace import Workspace
-    if is_table_file:
+    if is_remote_table:
+        try:
+            table = _load_remote_table(remote_uri or raw_target)
+        except Exception as exc:
+            print(f"Error: failed to load remote table '{remote_uri or raw_target}': {exc}", file=sys.stderr)
+            sys.exit(1)
+        workspace = Workspace.for_dataset(None, can_write=False)
+        app = create_app_from_table(
+            table=table,
+            base_dir=args.base_dir,
+            thumb_size=args.thumb_size,
+            thumb_quality=args.thumb_quality,
+            source_column=args.source_column,
+            skip_indexing=args.skip_indexing,
+            og_preview=args.og_preview,
+            workspace=workspace,
+            thumb_cache=args.thumb_cache and not effective_no_write,
+        )
+    elif is_table_file:
         base_dir = args.base_dir or str(target.parent)
         storage = _prepare_table_cache(
             parquet_path=target,

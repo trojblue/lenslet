@@ -37,7 +37,7 @@ Then open the URL printed in the terminal (default http://127.0.0.1:7070, or the
 **Options:**
 
 ```bash
-lenslet <directory|table.parquet> [options]
+lenslet <directory|table.parquet|org/dataset|s3://.../table.parquet> [options]
 
 Options:
   -p, --port PORT              Port to listen on (default: 7070; auto-increment if in use)
@@ -77,6 +77,12 @@ lenslet /data/items.parquet --source-column image_path --base-dir /data
 
 # Start from a folder containing items.parquet
 lenslet /data/dataset --source-column image_path
+
+# Start from a Hugging Face dataset repo (org/dataset)
+lenslet incantor/dit03-twitter-niji7-5k-filtering-metrics --share
+
+# Start from a remote Parquet file
+lenslet s3://my-bucket/items.parquet --source-column image_path
 ```
 
 ### Programmatic API (Python/Jupyter)

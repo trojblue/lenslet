@@ -80,3 +80,39 @@ class ImageMetadataResponse(BaseModel):
 class ViewsPayload(BaseModel):
     version: int = 1
     views: list[dict] = Field(default_factory=list)
+
+
+class EmbeddingSpecPayload(BaseModel):
+    name: str
+    dimension: int
+    dtype: str
+    metric: str
+
+
+class EmbeddingRejectedPayload(BaseModel):
+    name: str
+    reason: str
+
+
+class EmbeddingsResponse(BaseModel):
+    embeddings: list[EmbeddingSpecPayload] = Field(default_factory=list)
+    rejected: list[EmbeddingRejectedPayload] = Field(default_factory=list)
+
+
+class EmbeddingSearchRequest(BaseModel):
+    embedding: str
+    query_path: str | None = None
+    query_vector_b64: str | None = None
+    top_k: int = 50
+    min_score: float | None = None
+
+
+class EmbeddingSearchItem(BaseModel):
+    row_index: int
+    path: str
+    score: float
+
+
+class EmbeddingSearchResponse(BaseModel):
+    embedding: str
+    items: list[EmbeddingSearchItem] = Field(default_factory=list)

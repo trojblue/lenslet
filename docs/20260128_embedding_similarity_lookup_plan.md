@@ -11,7 +11,7 @@ This plan adds embedding-based similarity search to Lenslet without inflating ba
 
 
 - [x] 2026-01-28: Captured requirements and constraints (auto-detect columns, CLI override, vector input, top K/min score, cosine default, CPU-only, optional FAISS, cache allowed).
-- [ ] 2026-01-28: Implement backend embedding detection, loading, search endpoints, and tests.
+- [x] 2026-01-28: Implement backend embedding detection, loading, search endpoints, and tests.
 - [ ] 2026-01-28: Implement frontend similarity UI (selected image + vector input).
 - [ ] 2026-01-28: Add caching, optional FAISS, and documentation.
 
@@ -45,7 +45,33 @@ The table dataset path loads all Parquet columns into Python lists via `pyarrow.
 ## Outcomes & Retrospective
 
 
-No implementation has been completed yet. When the plan is executed, the outcome should be a working embedding similarity workflow in both API and UI, plus documentation and tests; any gaps and lessons learned will be recorded here.
+Sprint 1 is complete. The backend now detects fixed-size list embedding columns, excludes them from base table loads, exposes `GET /embeddings` and `POST /embeddings/search`, and supports cosine similarity over NumPy-loaded float32 matrices with strict validation. Tests for detection, exclusion, and invalid vector handling are in place (`pytest -k embeddings -q`).
+
+Remaining work: Sprint 2 (frontend similarity UX) and Sprint 3 (cache, optional FAISS, documentation, and optional dependency wiring).
+
+
+## Handover Notes
+
+
+- Backend delivered (Sprint 1):
+  - New modules under `src/lenslet/embeddings/`: `config.py`, `detect.py`, `io.py`, `index.py` (+ `__init__.py`).
+  - Table loads exclude fixed-size list columns via schema detection (preventing embedding vectors from being loaded into `TableStorage`).
+  - Server endpoints added: `GET /embeddings` and `POST /embeddings/search`.
+  - CLI flags wired: `--embedding-column` and `--embedding-metric`.
+  - Tests: `tests/test_embeddings_search.py`.
+- API behavior:
+  - Only cosine similarity is supported right now.
+  - `POST /embeddings/search` requires exactly one of `query_path` or `query_vector_b64`, `top_k` is capped at 1000, and `min_score` must be finite.
+  - `query_vector_b64` must be standard base64 of little-endian float32 data with length == embedding dimension.
+  - Results include canonicalized `path`, `row_index`, and `score` in backend ranking order.
+- Known limitations:
+  - Embeddings are only auto-wired when an `items.parquet` path is known (table mode). Programmatic `create_app_from_table` needs `embedding_parquet_path` to enable embedding search.
+  - No caching or FAISS acceleration yet.
+- Quick validation:
+  - `pytest -k embeddings -q` (requires NumPy + PyArrow).
+- Next owners:
+  - Implement Sprint 2 UI tasks (T6–T7b).
+  - Implement Sprint 3 cache/FAISS/docs/optional dependencies (T8–T9).
 
 
 ## Context and Orientation

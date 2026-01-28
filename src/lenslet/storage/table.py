@@ -158,6 +158,7 @@ class TableStorage:
         self._source_paths: dict[str, str] = {}
         self._row_dimensions: list[tuple[int, int] | None] = []
         self._path_to_row: dict[str, int] = {}
+        self._row_to_path: dict[int, str] = {}
 
         columns, data, row_count = self._table_to_columns(table)
         if row_count == 0:
@@ -660,6 +661,7 @@ class TableStorage:
             self._source_paths[logical_path] = source
             self._row_dimensions[idx] = (w, h)
             self._path_to_row[logical_path] = idx
+            self._row_to_path[idx] = logical_path
 
             folder = os.path.dirname(logical_path).replace("\\", "/")
             folder_norm = self._normalize_path(folder)
@@ -976,6 +978,16 @@ class TableStorage:
     def row_dimensions(self) -> list[tuple[int, int] | None]:
         return list(self._row_dimensions)
 
+    def row_index_for_path(self, path: str) -> int | None:
+        norm = self._normalize_item_path(path)
+        return self._path_to_row.get(norm)
+
+    def path_for_row_index(self, index: int) -> str | None:
+        return self._row_to_path.get(index)
+
+    def row_index_map(self) -> dict[int, str]:
+        return dict(self._row_to_path)
+
     def _effective_remote_workers(self, total: int) -> int:
         if total <= 0:
             return 0
@@ -1169,11 +1181,21 @@ class TableStorage:
         return "image/jpeg"
 
 
-def load_parquet_table(path: str):
+def load_parquet_table(path: str, columns: list[str] | None = None):
     try:
         import pyarrow.parquet as pq
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise ImportError(
             "pyarrow is required for Parquet datasets. Install with: pip install pyarrow"
         ) from exc
-    return pq.read_table(path)
+    return pq.read_table(path, columns=columns)
+
+
+def load_parquet_schema(path: str):
+    try:
+        import pyarrow.parquet as pq
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "pyarrow is required for Parquet datasets. Install with: pip install pyarrow"
+        ) from exc
+    return pq.read_schema(path)

@@ -342,6 +342,18 @@ def main():
         help="Disable workspace writes (.lenslet/) for one-off sessions",
     )
     parser.add_argument(
+        "--embedding-column",
+        action="append",
+        default=None,
+        help="Embedding column name (repeatable, comma-separated allowed)",
+    )
+    parser.add_argument(
+        "--embedding-metric",
+        action="append",
+        default=None,
+        help="Embedding metric override in NAME:METRIC form (repeatable)",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Show detailed server logs",
@@ -367,6 +379,16 @@ def main():
     # Directory is required unless --version
     if not args.directory:
         parser.print_help()
+        sys.exit(1)
+
+    from .embeddings.config import EmbeddingConfig, parse_embedding_columns, parse_embedding_metrics
+    try:
+        embedding_config = EmbeddingConfig(
+            explicit_columns=parse_embedding_columns(args.embedding_column),
+            metric_overrides=parse_embedding_metrics(args.embedding_metric),
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
     # Resolve and validate target
@@ -489,6 +511,7 @@ def main():
             og_preview=args.og_preview,
             workspace=workspace,
             thumb_cache=args.thumb_cache and not effective_no_write,
+            embedding_config=embedding_config,
         )
     elif is_table_file:
         base_dir = args.base_dir or str(target.parent)
@@ -498,6 +521,7 @@ def main():
             source_column=args.source_column,
             cache_wh=args.cache_wh,
             skip_indexing=args.skip_indexing,
+            embedding_config=embedding_config,
         )
         workspace = Workspace.for_parquet(target, can_write=not args.no_write)
         app = create_app_from_storage(
@@ -506,6 +530,8 @@ def main():
             workspace=workspace,
             thumb_cache=args.thumb_cache,
             og_preview=args.og_preview,
+            embedding_parquet_path=str(target),
+            embedding_config=embedding_config,
         )
     else:
         items_path = target / "items.parquet"
@@ -517,6 +543,7 @@ def main():
                 cache_wh=args.cache_wh,
                 skip_indexing=args.skip_indexing,
                 quiet=True,
+                embedding_config=embedding_config,
             )
         app = create_app(
             root_path=str(target),
@@ -527,6 +554,7 @@ def main():
             skip_indexing=args.skip_indexing,
             thumb_cache=args.thumb_cache,
             og_preview=args.og_preview,
+            embedding_config=embedding_config,
         )
 
     share_tunnel = None
@@ -555,9 +583,21 @@ def _prepare_table_cache(
     cache_wh: bool,
     skip_indexing: bool,
     quiet: bool = False,
+    embedding_config=None,
 ) -> "TableStorage":
     from .storage.table import TableStorage, load_parquet_table
-    table = load_parquet_table(str(parquet_path))
+    columns = None
+    if embedding_config is not None:
+        try:
+            from .embeddings.detect import columns_without_embeddings, detect_embeddings
+            from .storage.table import load_parquet_schema
+            schema = load_parquet_schema(str(parquet_path))
+            detection = detect_embeddings(schema, embedding_config)
+            columns = columns_without_embeddings(schema, detection)
+        except Exception as exc:
+            if not quiet:
+                print(f"[lenslet] Warning: failed to detect embedding columns: {exc}")
+    table = load_parquet_table(str(parquet_path), columns=columns)
     width_name = _find_column_name(table, "width")
     height_name = _find_column_name(table, "height")
     missing = _count_missing_dims(table, width_name, height_name)

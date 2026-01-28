@@ -5,6 +5,7 @@ import io
 import os
 import threading
 import html
+import math
 from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime, timezone
@@ -32,15 +33,24 @@ class NoCacheIndexStaticFiles(StaticFiles):
         return response
 
 from .metadata import read_png_info, read_jpeg_info, read_webp_info
+from .embeddings.config import EmbeddingConfig
+from .embeddings.detect import columns_without_embeddings, detect_embeddings, EmbeddingDetection
+from .embeddings.index import EmbeddingIndexError, EmbeddingManager
 from .storage.memory import MemoryStorage
 from .storage.dataset import DatasetStorage
-from .storage.table import TableStorage, load_parquet_table
+from .storage.table import TableStorage, load_parquet_schema, load_parquet_table
 from .thumbs import ThumbnailScheduler
 from .thumb_cache import ThumbCache
 from .og_cache import OgImageCache
 from .workspace import Workspace
 from .server_models import (
     DirEntry,
+    EmbeddingRejectedPayload,
+    EmbeddingSearchItem,
+    EmbeddingSearchRequest,
+    EmbeddingSearchResponse,
+    EmbeddingSpecPayload,
+    EmbeddingsResponse,
     FolderIndex,
     ImageMetadataResponse,
     Item,
@@ -538,6 +548,122 @@ def _register_views_routes(app: FastAPI, workspace: Workspace) -> None:
         return body
 
 
+def _resolve_embedding_detection(
+    parquet_path: str,
+    embedding_config: EmbeddingConfig | None,
+) -> EmbeddingDetection:
+    config = embedding_config or EmbeddingConfig()
+    try:
+        schema = load_parquet_schema(parquet_path)
+    except Exception as exc:
+        print(f"[lenslet] Warning: failed to read embedding schema: {exc}")
+        return EmbeddingDetection.empty()
+    try:
+        return detect_embeddings(schema, config)
+    except Exception as exc:
+        print(f"[lenslet] Warning: failed to detect embeddings: {exc}")
+        return EmbeddingDetection.empty()
+
+
+def _build_embedding_manager(
+    parquet_path: str,
+    storage: TableStorage,
+    detection: EmbeddingDetection,
+) -> EmbeddingManager | None:
+    if not parquet_path:
+        return None
+    try:
+        return EmbeddingManager(
+            parquet_path=parquet_path,
+            detection=detection.available,
+            rejected=detection.rejected,
+            row_to_path=storage.row_index_map(),
+        )
+    except Exception as exc:
+        print(f"[lenslet] Warning: failed to initialize embeddings: {exc}")
+        return None
+
+
+def _register_embedding_routes(
+    app: FastAPI,
+    storage,
+    manager: EmbeddingManager | None,
+) -> None:
+    @app.get("/embeddings", response_model=EmbeddingsResponse)
+    def get_embeddings():
+        if manager is None:
+            return EmbeddingsResponse()
+        return EmbeddingsResponse(
+            embeddings=[
+                EmbeddingSpecPayload(
+                    name=spec.name,
+                    dimension=spec.dimension,
+                    dtype=spec.dtype,
+                    metric=spec.metric,
+                )
+                for spec in manager.available
+            ],
+            rejected=[
+                EmbeddingRejectedPayload(name=rej.name, reason=rej.reason)
+                for rej in manager.rejected
+            ],
+        )
+
+    @app.post("/embeddings/search", response_model=EmbeddingSearchResponse)
+    def search_embeddings(body: EmbeddingSearchRequest, request: Request = None):
+        if manager is None:
+            raise HTTPException(404, "embedding search unavailable")
+        if not body.embedding:
+            raise HTTPException(400, "embedding is required")
+        spec = manager.get_spec(body.embedding)
+        if spec is None:
+            raise HTTPException(404, "embedding not found")
+        has_path = body.query_path is not None
+        has_vector = body.query_vector_b64 is not None
+        if has_path == has_vector:
+            raise HTTPException(400, "provide exactly one of query_path or query_vector_b64")
+        top_k = body.top_k
+        if top_k <= 0 or top_k > 1000:
+            raise HTTPException(400, "top_k must be between 1 and 1000")
+        if body.min_score is not None:
+            if not math.isfinite(body.min_score):
+                raise HTTPException(400, "min_score must be a finite number")
+
+        try:
+            if body.query_path is not None:
+                path = _canonical_path(body.query_path)
+                _ensure_image(storage, path)
+                row_index = storage.row_index_for_path(path)
+                if row_index is None:
+                    raise HTTPException(404, "query_path not found")
+                matches = manager.search_by_path(
+                    body.embedding,
+                    row_index=row_index,
+                    top_k=top_k,
+                    min_score=body.min_score,
+                )
+            else:
+                matches = manager.search_by_vector(
+                    body.embedding,
+                    vector_b64=body.query_vector_b64 or "",
+                    top_k=top_k,
+                    min_score=body.min_score,
+                )
+        except EmbeddingIndexError as exc:
+            raise HTTPException(400, str(exc))
+
+        return EmbeddingSearchResponse(
+            embedding=body.embedding,
+            items=[
+                EmbeddingSearchItem(
+                    row_index=match.row_index,
+                    path=_canonical_path(match.path),
+                    score=match.score,
+                )
+                for match in matches
+            ],
+        )
+
 # --- App Factory ---
 
 def create_app(
@@ -549,6 +675,7 @@ def create_app(
     skip_indexing: bool = False,
     thumb_cache: bool = True,
     og_preview: bool = False,
+    embedding_config: EmbeddingConfig | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
@@ -568,9 +695,18 @@ def create_app(
     # Create storage (prefer table dataset if present)
     items_path = Path(root_path) / "items.parquet"
     storage_mode = "memory"
+    embedding_manager: EmbeddingManager | None = None
     if items_path.is_file():
+        detection = EmbeddingDetection.empty()
+        columns = None
         try:
-            table = load_parquet_table(str(items_path))
+            schema = load_parquet_schema(str(items_path))
+            detection = detect_embeddings(schema, embedding_config or EmbeddingConfig())
+            columns = columns_without_embeddings(schema, detection)
+        except Exception as exc:
+            print(f"[lenslet] Warning: Failed to detect embeddings: {exc}")
+        try:
+            table = load_parquet_table(str(items_path), columns=columns)
             storage = TableStorage(
                 table=table,
                 root=root_path,
@@ -580,6 +716,7 @@ def create_app(
                 skip_indexing=skip_indexing,
             )
             storage_mode = "table"
+            embedding_manager = _build_embedding_manager(str(items_path), storage, detection)
         except Exception as exc:
             print(f"[lenslet] Warning: Failed to load table dataset: {exc}")
             storage = MemoryStorage(
@@ -825,6 +962,7 @@ def create_app(
         storage = _storage_from_request(request)
         return _search_results(storage, _to_item, q, _canonical_path(path), limit)
 
+    _register_embedding_routes(app, storage, embedding_manager)
     _register_og_routes(app, storage, workspace, enabled=og_preview)
     _register_index_routes(app, storage, workspace, og_preview=og_preview)
     _register_views_routes(app, workspace)
@@ -874,6 +1012,10 @@ def create_app_from_datasets(
     app.state.sync_broker = broker
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
+    embedding_manager: EmbeddingManager | None = None
+    if embedding_parquet_path:
+        detection = _resolve_embedding_detection(embedding_parquet_path, embedding_config)
+        embedding_manager = _build_embedding_manager(embedding_parquet_path, storage, detection)
 
     def _to_item(storage: DatasetStorage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
@@ -1078,6 +1220,7 @@ def create_app_from_datasets(
         storage = _storage_from_request(request)
         return _search_results(storage, _to_item, q, _canonical_path(path), limit)
 
+    _register_embedding_routes(app, storage, embedding_manager)
     _register_views_routes(app, workspace)
 
     # Mount frontend if dist exists
@@ -1097,6 +1240,8 @@ def create_app_from_table(
     og_preview: bool = False,
     workspace: Workspace | None = None,
     thumb_cache: bool = True,
+    embedding_parquet_path: str | None = None,
+    embedding_config: EmbeddingConfig | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory table storage."""
     storage = TableStorage(
@@ -1113,6 +1258,8 @@ def create_app_from_table(
         og_preview=og_preview,
         workspace=workspace,
         thumb_cache=thumb_cache,
+        embedding_parquet_path=embedding_parquet_path,
+        embedding_config=embedding_config,
     )
 
 
@@ -1122,6 +1269,8 @@ def create_app_from_storage(
     og_preview: bool = False,
     workspace: Workspace | None = None,
     thumb_cache: bool = True,
+    embedding_parquet_path: str | None = None,
+    embedding_config: EmbeddingConfig | None = None,
 ) -> FastAPI:
     """Create FastAPI app using a pre-built TableStorage."""
 

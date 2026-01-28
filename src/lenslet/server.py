@@ -536,6 +536,7 @@ def _register_og_routes(app: FastAPI, storage, workspace: Workspace, enabled: bo
             og_cache.set(cache_key, data)
         return Response(content=data, media_type="image/png")
 
+
 def _register_views_routes(app: FastAPI, workspace: Workspace) -> None:
     @app.get("/views", response_model=ViewsPayload)
     def get_views():
@@ -615,8 +616,7 @@ def _register_embedding_routes(
             raise HTTPException(404, "embedding search unavailable")
         if not body.embedding:
             raise HTTPException(400, "embedding is required")
-        spec = manager.get_spec(body.embedding)
-        if spec is None:
+        if manager.get_spec(body.embedding) is None:
             raise HTTPException(404, "embedding not found")
         has_path = body.query_path is not None
         has_vector = body.query_vector_b64 is not None
@@ -625,9 +625,8 @@ def _register_embedding_routes(
         top_k = body.top_k
         if top_k <= 0 or top_k > 1000:
             raise HTTPException(400, "top_k must be between 1 and 1000")
-        if body.min_score is not None:
-            if not math.isfinite(body.min_score):
-                raise HTTPException(400, "min_score must be a finite number")
+        if body.min_score is not None and not math.isfinite(body.min_score):
+            raise HTTPException(400, "min_score must be a finite number")
 
         try:
             if body.query_path is not None:

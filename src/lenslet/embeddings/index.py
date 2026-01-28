@@ -46,7 +46,8 @@ class EmbeddingIndex:
         valid_rows = _valid_row_indices(norms, row_to_path)
         if not valid_rows:
             raise EmbeddingIndexError("embedding matrix has no valid rows")
-        row_indices = np.array(sorted(valid_rows), dtype=np.int64)
+        row_indices_list = sorted(valid_rows)
+        row_indices = np.array(row_indices_list, dtype=np.int64)
         matrix = matrix[row_indices]
         norms = norms[row_indices]
         matrix = matrix / norms[:, None]
@@ -57,8 +58,8 @@ class EmbeddingIndex:
         self.dtype = dtype
         self._matrix = matrix.astype(np.float32, copy=False)
         self._row_indices = row_indices
-        self._row_index_to_pos = {int(row): idx for idx, row in enumerate(row_indices.tolist())}
-        self._paths = [row_to_path[int(row)] for row in row_indices.tolist()]
+        self._row_index_to_pos = {row: idx for idx, row in enumerate(row_indices_list)}
+        self._paths = [row_to_path[row] for row in row_indices_list]
 
     def search_by_vector(
         self,
@@ -157,7 +158,7 @@ def _valid_row_indices(norms: "np.ndarray", row_to_path: dict[int, str]) -> list
     if np is None:  # pragma: no cover - optional dependency
         return []
     valid: list[int] = []
-    for row_index in row_to_path.keys():
+    for row_index in row_to_path:
         if row_index < 0 or row_index >= norms.shape[0]:
             continue
         norm = norms[row_index]

@@ -15,6 +15,11 @@ class EmbeddingIOError(ValueError):
     pass
 
 
+def _require_numpy() -> None:
+    if np is None:  # pragma: no cover - optional dependency
+        raise EmbeddingIOError("numpy is required for embedding search")
+
+
 def _fixed_size_list_array(column: pa.Array | pa.ChunkedArray) -> pa.Array:
     array = column
     if isinstance(array, pa.ChunkedArray):
@@ -25,8 +30,7 @@ def _fixed_size_list_array(column: pa.Array | pa.ChunkedArray) -> pa.Array:
 
 
 def load_embedding_matrix(parquet_path: str, column: str) -> tuple[np.ndarray, str]:
-    if np is None:  # pragma: no cover - optional dependency
-        raise EmbeddingIOError("numpy is required for embedding search")
+    _require_numpy()
     table = pq.read_table(parquet_path, columns=[column])
     if column not in table.column_names:
         raise EmbeddingIOError(f"embedding column '{column}' not found")
@@ -49,8 +53,7 @@ def load_embedding_matrix(parquet_path: str, column: str) -> tuple[np.ndarray, s
 
 
 def decode_base64_vector(encoded: str, dimension: int) -> np.ndarray:
-    if np is None:  # pragma: no cover - optional dependency
-        raise EmbeddingIOError("numpy is required for embedding search")
+    _require_numpy()
     if not encoded:
         raise EmbeddingIOError("query_vector_b64 is required")
     try:
@@ -75,8 +78,7 @@ def decode_base64_vector(encoded: str, dimension: int) -> np.ndarray:
 
 
 def normalize_vector(vec: np.ndarray) -> np.ndarray:
-    if np is None:  # pragma: no cover - optional dependency
-        raise EmbeddingIOError("numpy is required for embedding search")
+    _require_numpy()
     norm = float(np.linalg.norm(vec))
     if norm == 0.0 or not np.isfinite(norm):
         raise EmbeddingIOError("vector has zero magnitude")

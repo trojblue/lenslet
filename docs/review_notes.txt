@@ -1,0 +1,37 @@
+Review of docs/20260128_embedding_similarity_lookup_plan.md (2026-01-28)
+
+Missing work / tickets to add
+- Add an item to define the “join key” for similarity results (path vs row index) and how duplicates/missing paths are handled; otherwise UI item lookup can be ambiguous.
+- Add a ticket to define the vector encoding contract (endianness, dtype, length, URL-safe base64, padding) and include it in API docs + server validation.
+- Add a ticket for “no embeddings available” UX: hide/disable “Find similar” when list is empty or detection fails.
+- Add a ticket for schema/introspection response to include any rejected columns with a reason (variable-length list, unsupported dtype, bfloat16, etc.) so users can debug.
+- Add a ticket to ensure cache location never writes inside the served image directory; use workspace or a configurable cache root.
+- Add a ticket to update OpenAPI/response models and types for embeddings (server + frontend) to avoid drift.
+
+Oversized or tightly coupled tasks
+- T3 mixes core index logic with optional FAISS support; split into T3a (NumPy index + cosine search) and T3b (FAISS backend + fallback), so Sprint 1 can complete without optional deps.
+- T8 combines cache format, preload, and CLI/Workspace wiring; split into cache format + read/write policy, then preload + startup behavior.
+- T7 includes new modal, new AppShell mode, and toolbar behavior; consider splitting UI mode/state from UI components to reduce scope and unblock API integration.
+
+Unclear goals / acceptance details
+- “Auto-detection” needs an explicit rule: only fixed-size list columns of float32/float16? How to treat list<item: float> vs fixed_size_list, and how to handle mixed/null vectors.
+- Similarity score semantics aren’t fully defined for cosine vs dot/inner product, or how min_score is applied. Add exact formula and whether vectors are normalized.
+- If query_path is not found in the embedding column, specify the error (404 vs 400) and response shape.
+- Clarify how similarity mode interacts with existing filters/search/sort (disabled, applied after similarity, or ignored) to avoid ambiguous UI behavior.
+
+Validation gaps
+- No tests for invalid base64, wrong dtype, NaNs/zero vectors, or variable-length embeddings; add unit tests to cover these error paths.
+- No tests for cache behavior or “--no-write” enforcement; add small fixture tests that verify no files are created.
+- No tests for duplicate paths or missing path values; add a test to confirm deterministic behavior.
+- No test for backend fallback when FAISS is unavailable or fails to load; add a lightweight smoke test.
+
+Hidden dependencies / risks
+- Excluding embedding columns from TableStorage may affect column lists or filtering; ensure any “available columns” endpoint uses Parquet schema rather than loaded columns.
+- “Optional NumPy” is risky because core search will depend on it; either make NumPy a required dependency or add a pure-Python fallback ticket.
+- Caching under dataset root can violate the “server must never write into served image directory” rule if the dataset root is the images dir.
+- Potential memory spikes if embeddings are loaded without streaming or chunking; consider a ticket for chunked reads or explicit memory budgeting.
+
+Suggested small improvements
+- Add a definition of the similarity response payload to include row_index (or item_id) plus score, not just path, to simplify UI mapping.
+- Define max top_k and validate bounds to protect the server.
+- Add a perf note: expected indexing time and memory for typical embedding sizes.

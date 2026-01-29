@@ -33,6 +33,7 @@ class NoCacheIndexStaticFiles(StaticFiles):
         return response
 
 from .metadata import read_png_info, read_jpeg_info, read_webp_info
+from .embeddings.cache import EmbeddingCache
 from .embeddings.config import EmbeddingConfig
 from .embeddings.detect import columns_without_embeddings, detect_embeddings, EmbeddingDetection
 from .embeddings.index import EmbeddingIndexError, EmbeddingManager
@@ -570,16 +571,24 @@ def _build_embedding_manager(
     parquet_path: str,
     storage: TableStorage,
     detection: EmbeddingDetection,
+    cache: EmbeddingCache | None = None,
+    preload: bool = False,
+    prefer_faiss: bool = True,
 ) -> EmbeddingManager | None:
     if not parquet_path:
         return None
     try:
-        return EmbeddingManager(
+        manager = EmbeddingManager(
             parquet_path=parquet_path,
             detection=detection.available,
             rejected=detection.rejected,
             row_to_path=storage.row_index_map(),
+            cache=cache,
+            prefer_faiss=prefer_faiss,
         )
+        if preload:
+            manager.preload()
+        return manager
     except Exception as exc:
         print(f"[lenslet] Warning: failed to initialize embeddings: {exc}")
         return None
@@ -675,6 +684,9 @@ def create_app(
     thumb_cache: bool = True,
     og_preview: bool = False,
     embedding_config: EmbeddingConfig | None = None,
+    embedding_cache: bool = True,
+    embedding_cache_dir: str | None = None,
+    embedding_preload: bool = False,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
@@ -694,14 +706,13 @@ def create_app(
     # Create storage (prefer table dataset if present)
     items_path = Path(root_path) / "items.parquet"
     storage_mode = "memory"
-    embedding_manager: EmbeddingManager | None = None
+    embedding_detection = EmbeddingDetection.empty()
     if items_path.is_file():
-        detection = EmbeddingDetection.empty()
         columns = None
         try:
             schema = load_parquet_schema(str(items_path))
-            detection = detect_embeddings(schema, embedding_config or EmbeddingConfig())
-            columns = columns_without_embeddings(schema, detection)
+            embedding_detection = detect_embeddings(schema, embedding_config or EmbeddingConfig())
+            columns = columns_without_embeddings(schema, embedding_detection)
         except Exception as exc:
             print(f"[lenslet] Warning: Failed to detect embeddings: {exc}")
         try:
@@ -715,7 +726,6 @@ def create_app(
                 skip_indexing=skip_indexing,
             )
             storage_mode = "table"
-            embedding_manager = _build_embedding_manager(str(items_path), storage, detection)
         except Exception as exc:
             print(f"[lenslet] Warning: Failed to load table dataset: {exc}")
             storage = MemoryStorage(
@@ -744,6 +754,21 @@ def create_app(
     sync_state = {"last_event_id": max_event_id}
     presence = PresenceTracker()
     app.state.sync_broker = broker
+
+    embedding_manager: EmbeddingManager | None = None
+    if storage_mode == "table" and items_path.is_file() and isinstance(storage, TableStorage):
+        cache = _embedding_cache_from_workspace(
+            workspace,
+            enabled=embedding_cache,
+            cache_dir=embedding_cache_dir,
+        )
+        embedding_manager = _build_embedding_manager(
+            str(items_path),
+            storage,
+            embedding_detection,
+            cache=cache,
+            preload=embedding_preload,
+        )
 
     if hasattr(storage, "get_index"):
         def _warm_index() -> None:
@@ -979,6 +1004,11 @@ def create_app_from_datasets(
     show_source: bool = True,
     thumb_cache: bool = True,
     og_preview: bool = False,
+    embedding_parquet_path: str | None = None,
+    embedding_config: EmbeddingConfig | None = None,
+    embedding_cache: bool = True,
+    embedding_cache_dir: str | None = None,
+    embedding_preload: bool = False,
 ) -> FastAPI:
     """Create FastAPI app with in-memory dataset storage."""
 
@@ -1012,9 +1042,20 @@ def create_app_from_datasets(
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
     embedding_manager: EmbeddingManager | None = None
-    if embedding_parquet_path:
+    if embedding_parquet_path and isinstance(storage, TableStorage):
         detection = _resolve_embedding_detection(embedding_parquet_path, embedding_config)
-        embedding_manager = _build_embedding_manager(embedding_parquet_path, storage, detection)
+        embed_cache = _embedding_cache_from_workspace(
+            workspace,
+            enabled=embedding_cache,
+            cache_dir=embedding_cache_dir,
+        )
+        embedding_manager = _build_embedding_manager(
+            embedding_parquet_path,
+            storage,
+            detection,
+            cache=embed_cache,
+            preload=embedding_preload,
+        )
 
     def _to_item(storage: DatasetStorage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
@@ -1241,6 +1282,9 @@ def create_app_from_table(
     thumb_cache: bool = True,
     embedding_parquet_path: str | None = None,
     embedding_config: EmbeddingConfig | None = None,
+    embedding_cache: bool = True,
+    embedding_cache_dir: str | None = None,
+    embedding_preload: bool = False,
 ) -> FastAPI:
     """Create FastAPI app with in-memory table storage."""
     storage = TableStorage(
@@ -1259,6 +1303,9 @@ def create_app_from_table(
         thumb_cache=thumb_cache,
         embedding_parquet_path=embedding_parquet_path,
         embedding_config=embedding_config,
+        embedding_cache=embedding_cache,
+        embedding_cache_dir=embedding_cache_dir,
+        embedding_preload=embedding_preload,
     )
 
 
@@ -1270,6 +1317,9 @@ def create_app_from_storage(
     thumb_cache: bool = True,
     embedding_parquet_path: str | None = None,
     embedding_config: EmbeddingConfig | None = None,
+    embedding_cache: bool = True,
+    embedding_cache_dir: str | None = None,
+    embedding_preload: bool = False,
 ) -> FastAPI:
     """Create FastAPI app using a pre-built TableStorage."""
 
@@ -1295,6 +1345,21 @@ def create_app_from_storage(
     app.state.sync_broker = broker
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
+    embedding_manager: EmbeddingManager | None = None
+    if embedding_parquet_path:
+        detection = _resolve_embedding_detection(embedding_parquet_path, embedding_config)
+        embed_cache = _embedding_cache_from_workspace(
+            workspace,
+            enabled=embedding_cache,
+            cache_dir=embedding_cache_dir,
+        )
+        embedding_manager = _build_embedding_manager(
+            embedding_parquet_path,
+            storage,
+            detection,
+            cache=embed_cache,
+            preload=embedding_preload,
+        )
 
     def _to_item(storage: TableStorage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
@@ -1487,6 +1552,7 @@ def create_app_from_storage(
         storage = _storage_from_request(request)
         return _search_results(storage, _to_item, q, _canonical_path(path), limit)
 
+    _register_embedding_routes(app, storage, embedding_manager)
     _register_og_routes(app, storage, workspace, enabled=og_preview)
     _register_index_routes(app, storage, workspace, og_preview=og_preview)
     _register_views_routes(app, workspace)
@@ -1502,3 +1568,21 @@ def _thumb_cache_from_workspace(workspace: Workspace, enabled: bool) -> ThumbCac
     if cache_dir is None:
         return None
     return ThumbCache(cache_dir)
+
+
+def _embedding_cache_from_workspace(
+    workspace: Workspace,
+    enabled: bool,
+    cache_dir: str | None,
+) -> EmbeddingCache | None:
+    if not enabled or not workspace.can_write:
+        return None
+    if cache_dir:
+        root = Path(cache_dir).expanduser()
+        if root.name != "embeddings_cache":
+            root = root / "embeddings_cache"
+        return EmbeddingCache(root, allow_write=workspace.can_write)
+    root = workspace.embedding_cache_dir()
+    if root is None:
+        return None
+    return EmbeddingCache(root, allow_write=workspace.can_write)

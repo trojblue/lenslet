@@ -13,7 +13,7 @@ This plan adds embedding-based similarity search to Lenslet without inflating ba
 - [x] 2026-01-28: Captured requirements and constraints (auto-detect columns, CLI override, vector input, top K/min score, cosine default, CPU-only, optional FAISS, cache allowed).
 - [x] 2026-01-28: Implement backend embedding detection, loading, search endpoints, and tests.
 - [x] 2026-01-29: Implement frontend similarity UI (selected image + vector input).
-- [ ] 2026-01-28: Add caching, optional FAISS, and documentation.
+- [x] 2026-01-29: Add caching, optional FAISS, documentation, and cache tests.
 
 
 ## Surprises & Discoveries
@@ -49,7 +49,7 @@ Sprint 1 is complete. The backend now detects fixed-size list embedding columns,
 
 Sprint 2 is complete. The frontend now exposes a “Find similar” action in the Inspector, shows a modal for embedding selection and vector/path input, and renders similarity results in a dedicated mode that preserves backend ranking while disabling sort/search controls. A similarity banner provides context and exit controls.
 
-Remaining work: Sprint 3 (cache, optional FAISS, documentation, and optional dependency wiring).
+Sprint 3 is complete. Embedding caches are persisted under workspace cache paths, optional FAISS acceleration is enabled when installed, preload is supported, and documentation/examples were added (README + docs).
 
 
 ## Handover Notes
@@ -66,6 +66,12 @@ Remaining work: Sprint 3 (cache, optional FAISS, documentation, and optional dep
   - Modal UI: `frontend/src/features/embeddings/SimilarityModal.tsx`.
   - Inspector action: `frontend/src/features/inspector/Inspector.tsx`.
   - Similarity mode/state: `frontend/src/app/AppShell.tsx` plus toolbar disablement in `frontend/src/shared/ui/Toolbar.tsx`.
+- Cache/FAISS/docs delivered (Sprint 3):
+  - Cache: `src/lenslet/embeddings/cache.py` plus `Workspace.embedding_cache_dir` and server wiring.
+  - CLI flags: `--embedding-preload`, `--embedding-cache/--no-embedding-cache`, `--embedding-cache-dir`.
+  - Optional deps: `embeddings` and `embeddings-faiss` extras in `pyproject.toml`.
+  - Docs: README updates + `docs/20260129_embedding_similarity_search.md`.
+  - Tests: `tests/test_embeddings_cache.py`.
 - API behavior:
   - Only cosine similarity is supported right now.
   - `POST /embeddings/search` requires exactly one of `query_path` or `query_vector_b64`, `top_k` is capped at 1000, and `min_score` must be finite.
@@ -73,13 +79,14 @@ Remaining work: Sprint 3 (cache, optional FAISS, documentation, and optional dep
   - Results include canonicalized `path`, `row_index`, and `score` in backend ranking order.
 - Known limitations:
   - Embeddings are only auto-wired when an `items.parquet` path is known (table mode). Programmatic `create_app_from_table` needs `embedding_parquet_path` to enable embedding search.
-  - No caching or FAISS acceleration yet.
+  - Dataset mode (`create_app_from_datasets`) does not support embeddings because it lacks a backing Parquet path.
   - Frontend bundle has not been rebuilt into `src/lenslet/frontend/` (run `cd frontend && npm run build && cp -r dist/* ../src/lenslet/frontend/` when ready).
 - Quick validation:
   - `pytest -k embeddings -q` (requires NumPy + PyArrow).
   - `cd frontend && npm run build` (verifies TypeScript + UI build).
 - Next owners:
-  - Implement Sprint 3 cache/FAISS/docs/optional dependencies (T8–T9).
+  - Rebuild frontend bundle into `src/lenslet/frontend/` before release.
+  - (Optional) Add a CLI switch to force FAISS vs NumPy if desired.
 
 
 ## Context and Orientation
@@ -198,7 +205,6 @@ CLI flags should include:
 - `--embedding-preload` (build on startup).
 - `--embedding-cache/--no-embedding-cache` (enable/disable cache; auto-disabled by `--no-write`).
 - `--embedding-cache-dir <path>` (override cache location).
-- `--embedding-backend {auto,numpy,faiss}`.
 
 Dependencies should include:
 
@@ -209,4 +215,4 @@ Dependencies should include:
 If a bfloat16 column is encountered and the local PyArrow build lacks bfloat16 support, the server should report the column as rejected with a clear reason.
 
 
-Change note: Updated after subagent review to clarify join key, vector encoding, detection rules, split tasks, add validation gaps, and refine cache invalidation.
+Change note: Updated on 2026-01-29 to reflect Sprint 3 completion (cache + optional FAISS + docs/tests) and to prep handover notes.

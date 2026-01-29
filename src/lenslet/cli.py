@@ -354,6 +354,30 @@ def main():
         help="Embedding metric override in NAME:METRIC form (repeatable)",
     )
     parser.add_argument(
+        "--embedding-preload",
+        action="store_true",
+        help="Preload embedding indexes on startup",
+    )
+    parser.add_argument(
+        "--embedding-cache",
+        action="store_true",
+        dest="embedding_cache",
+        default=True,
+        help="Enable embedding cache (default)",
+    )
+    parser.add_argument(
+        "--no-embedding-cache",
+        action="store_false",
+        dest="embedding_cache",
+        help="Disable embedding cache",
+    )
+    parser.add_argument(
+        "--embedding-cache-dir",
+        type=str,
+        default=None,
+        help="Override embedding cache directory",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Show detailed server logs",
@@ -441,6 +465,9 @@ def main():
             args.thumb_cache = False
         if args.og_preview:
             print("[lenslet] --no-write disables OG cache; previews will be generated on-demand.")
+        if args.embedding_cache:
+            print("[lenslet] --no-write disables embedding cache; use --no-embedding-cache to silence.")
+            args.embedding_cache = False
 
     # Print startup banner
     if is_remote_table:
@@ -512,6 +539,9 @@ def main():
             workspace=workspace,
             thumb_cache=args.thumb_cache and not effective_no_write,
             embedding_config=embedding_config,
+            embedding_cache=args.embedding_cache and not effective_no_write,
+            embedding_cache_dir=args.embedding_cache_dir,
+            embedding_preload=args.embedding_preload,
         )
     elif is_table_file:
         base_dir = args.base_dir or str(target.parent)
@@ -532,6 +562,9 @@ def main():
             og_preview=args.og_preview,
             embedding_parquet_path=str(target),
             embedding_config=embedding_config,
+            embedding_cache=args.embedding_cache and not effective_no_write,
+            embedding_cache_dir=args.embedding_cache_dir,
+            embedding_preload=args.embedding_preload,
         )
     else:
         items_path = target / "items.parquet"
@@ -555,6 +588,9 @@ def main():
             thumb_cache=args.thumb_cache,
             og_preview=args.og_preview,
             embedding_config=embedding_config,
+            embedding_cache=args.embedding_cache and not effective_no_write,
+            embedding_cache_dir=args.embedding_cache_dir,
+            embedding_preload=args.embedding_preload,
         )
 
     share_tunnel = None

@@ -15,6 +15,7 @@ Lenslet is a self-contained image gallery server designed for simplicity and spe
 - **Read-only sources**: Never writes into your image directories or S3 buckets
 - **Local + S3 + HTTP**: Mix local files, `s3://` URIs, and URLs with smart source parsing
 - **Metrics & filtering**: Sort/filter by numeric metrics from Parquet (histograms + range brushing)
+- **Embedding similarity**: Find similar images from fixed-size list embeddings (cosine; optional FAISS acceleration)
 - **Labels & export**: Tag, rate, and annotate items, then export metadata as JSON or CSV
 - **Single command**: Just point to a directory or Parquet file and go
 
@@ -22,6 +23,16 @@ Lenslet is a self-contained image gallery server designed for simplicity and spe
 
 ```bash
 pip install lenslet
+```
+
+Optional extras for embedding search:
+
+```bash
+# NumPy-only similarity search
+pip install "lenslet[embeddings]"
+
+# FAISS-accelerated similarity search (CPU)
+pip install "lenslet[embeddings-faiss]"
 ```
 
 ## Usage
@@ -51,6 +62,13 @@ Options:
   --no-thumb-cache             Disable thumbnail cache when a workspace is available
   --no-og-preview              Disable dataset-based social preview image
   --no-write                   Disable workspace writes (.lenslet/) for one-off sessions
+  --embedding-column NAME      Embedding column name (repeatable, comma-separated allowed)
+  --embedding-metric NAME:METRIC
+                               Embedding metric override (repeatable)
+  --embedding-preload          Preload embedding indexes on startup
+  --embedding-cache            Enable embedding cache (default)
+  --no-embedding-cache         Disable embedding cache
+  --embedding-cache-dir PATH   Override embedding cache directory
   --reload                     Enable auto-reload for development
   --share                      Create a public share URL via cloudflared
   --verbose                    Show detailed server logs
@@ -85,6 +103,28 @@ lenslet incantor/dit03-twitter-niji7-5k-filtering-metrics --share
 lenslet s3://my-bucket/items.parquet --source-column image_path
 ```
 
+### Embedding Similarity Search
+
+Lenslet auto-detects fixed-size list embedding columns in `items.parquet` (or you can force them with `--embedding-column`). The UI exposes a "Find similar" action, and the API supports path-based or base64 vector queries.
+
+```bash
+# Search by selected image path
+curl -X POST http://127.0.0.1:7070/embeddings/search \
+  -H "Content-Type: application/json" \
+  -d '{"embedding":"clip","query_path":"/images/cat.jpg","top_k":50,"min_score":0.2}'
+```
+
+```python
+# Encode a float32 vector (little-endian) for query_vector_b64
+import base64
+import numpy as np
+
+vec = np.asarray([0.1, 0.2, 0.3], dtype="<f4")
+payload = base64.b64encode(vec.tobytes()).decode("ascii")
+```
+
+Embedding caches live under `.lenslet/embeddings_cache/` (or `<parquet>.cache/embeddings_cache/`) unless you override with `--embedding-cache-dir`.
+
 ### Programmatic API (Python/Jupyter)
 
 Launch lenslet directly from Python code or notebooks:
@@ -116,6 +156,7 @@ See [Programmatic API Documentation](docs/PROGRAMMATIC_API.md) for details and e
 
 - **Workspace files**: `.lenslet/views.json` stores Smart Folders; optional thumbnail cache lives under `.lenslet/thumbs/`
   - For Parquet, views live at `<table>.lenslet.json` and thumbs at `<table>.cache/thumbs/`
+- **Embedding cache**: `.lenslet/embeddings_cache/` (or `<table>.cache/embeddings_cache/`) stores cached embedding indexes
 - **Read-only sources**: The server never writes into your image directories or S3 buckets
 - **Labels**: Tags/notes/ratings are editable in the UI (session-only) and exportable as JSON/CSV
 - **No-write mode**: Pass `--no-write` to keep the session fully ephemeral (no `.lenslet/` or `.lenslet.json`)

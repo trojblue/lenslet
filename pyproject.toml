@@ -41,6 +41,13 @@ dev = [
 s3 = [
     "boto3>=1.34",
 ]
+embeddings = [
+    "numpy>=1.26",
+]
+embeddings-faiss = [
+    "numpy>=1.26",
+    "faiss-cpu>=1.7.4",
+]
 
 [project.scripts]
 lenslet = "lenslet.cli:main"

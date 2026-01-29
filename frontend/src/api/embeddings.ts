@@ -7,7 +7,7 @@ export const embeddingsQueryKey = () => ['embeddings'] as const
 export function useEmbeddings() {
   return useQuery<EmbeddingsResponse>({
     queryKey: embeddingsQueryKey(),
-    queryFn: () => api.getEmbeddings(),
+    queryFn: api.getEmbeddings,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
     retry: 1,

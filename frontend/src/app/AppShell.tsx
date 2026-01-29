@@ -148,6 +148,36 @@ function buildRecentTouchesDisplay(recentTouches: RecentActivity[], items: Item[
   })
 }
 
+function getEmbeddingsError(isError: boolean, error: unknown): string | null {
+  if (!isError) return null
+  if (error instanceof FetchError) return error.message
+  if (error instanceof Error) return error.message
+  return 'Failed to load embeddings.'
+}
+
+function getDisplayItemCount(
+  similarityActive: boolean,
+  showFilteredCounts: boolean,
+  filteredCount: number,
+  scopeTotal: number
+): number {
+  if (similarityActive) return filteredCount
+  return showFilteredCounts ? filteredCount : scopeTotal
+}
+
+function getDisplayTotalCount(
+  similarityActive: boolean,
+  showFilteredCounts: boolean,
+  totalCount: number,
+  scopeTotal: number,
+  rootTotal: number,
+  current: string
+): number {
+  if (similarityActive) return totalCount
+  if (showFilteredCounts) return scopeTotal
+  return current === '/' ? scopeTotal : rootTotal
+}
+
 export default function AppShell() {
   // Navigation state
   const [current, setCurrent] = useState<string>('/')
@@ -287,13 +317,7 @@ export default function AppShell() {
   const embeddings = embeddingsQuery.data?.embeddings ?? []
   const embeddingsRejected = embeddingsQuery.data?.rejected ?? []
   const embeddingsAvailable = embeddings.length > 0
-  const embeddingsError = embeddingsQuery.isError
-    ? (embeddingsQuery.error instanceof FetchError
-      ? embeddingsQuery.error.message
-      : embeddingsQuery.error instanceof Error
-        ? embeddingsQuery.error.message
-        : 'Failed to load embeddings.')
-    : null
+  const embeddingsError = getEmbeddingsError(embeddingsQuery.isError, embeddingsQuery.error)
   const starFilters = useMemo(() => getStarFilter(viewState.filters), [viewState.filters])
 
   // Pool items (current scope) + derived view (filters/sort)
@@ -448,9 +472,7 @@ export default function AppShell() {
       return next
     }
 
-    queryClient.setQueriesData<FolderIndex>({
-      predicate: ({ queryKey }) => Array.isArray(queryKey) && queryKey[0] === 'folder',
-    }, (old) => {
+    const updateList = <T extends { items: Item[] }>(old: T | undefined): T | undefined => {
       if (!old) return old
       let changed = false
       const items = old.items.map((it) => {
@@ -459,20 +481,15 @@ export default function AppShell() {
         return next
       })
       return changed ? { ...old, items } : old
-    })
+    }
+
+    queryClient.setQueriesData<FolderIndex>({
+      predicate: ({ queryKey }) => Array.isArray(queryKey) && queryKey[0] === 'folder',
+    }, updateList)
 
     queryClient.setQueriesData<SearchResult>({
       predicate: ({ queryKey }) => Array.isArray(queryKey) && queryKey[0] === 'search',
-    }, (old) => {
-      if (!old) return old
-      let changed = false
-      const items = old.items.map((it) => {
-        const next = updateItem(it)
-        if (next !== it) changed = true
-        return next
-      })
-      return changed ? { ...old, items } : old
-    })
+    }, updateList)
   }, [queryClient])
 
   const countFolderImages = useCallback(async (path: string): Promise<number> => {
@@ -724,14 +741,20 @@ export default function AppShell() {
     () => buildRecentTouchesDisplay(recentTouches, items, lastEditedNow),
     [items, lastEditedNow, recentTouches],
   )
-  const displayItemCount = similarityActive
-    ? filteredCount
-    : (showFilteredCounts ? filteredCount : scopeTotal)
-  const displayTotalCount = similarityActive
-    ? totalCount
-    : (showFilteredCounts
-      ? scopeTotal
-      : (current === '/' ? scopeTotal : rootTotal))
+  const displayItemCount = getDisplayItemCount(
+    similarityActive,
+    showFilteredCounts,
+    filteredCount,
+    scopeTotal
+  )
+  const displayTotalCount = getDisplayTotalCount(
+    similarityActive,
+    showFilteredCounts,
+    totalCount,
+    scopeTotal,
+    rootTotal,
+    current
+  )
 
   const similarityQueryLabel = useMemo(() => {
     if (!similarityState) return null
@@ -2016,6 +2039,23 @@ function ContextMenuItems({
     : (() => {
         const sel = ctx.payload.paths ?? []
         const arr: MenuItem[] = []
+        const exportSelection = (format: 'csv' | 'json') => async () => {
+          setExporting(format)
+          try {
+            const selSet = new Set(sel)
+            const subset = items.filter((i) => selSet.has(i.path))
+            const ratings = mapItemsToRatings(subset)
+            const content = format === 'csv' ? toRatingsCsv(ratings) : toRatingsJson(ratings)
+            const mime = format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8'
+            downloadBlob(
+              new Blob([content], { type: mime }),
+              `metadata_selection_${timestamp()}.${format}`
+            )
+          } finally {
+            setExporting(null)
+            setCtx(null)
+          }
+        }
         
         // Move to trash
         arr.push({
@@ -2080,43 +2120,13 @@ function ContextMenuItems({
           arr.push({
             label: exporting === 'csv' ? 'Exporting CSV…' : 'Export metadata (CSV)',
             disabled: !!exporting,
-            onClick: async () => {
-              setExporting('csv')
-              try {
-                const selSet = new Set(sel)
-                const subset = items.filter((i) => selSet.has(i.path))
-                const ratings = mapItemsToRatings(subset)
-                const csv = toRatingsCsv(ratings)
-                downloadBlob(
-                  new Blob([csv], { type: 'text/csv;charset=utf-8' }),
-                  `metadata_selection_${timestamp()}.csv`
-                )
-              } finally {
-                setExporting(null)
-                setCtx(null)
-              }
-            },
+            onClick: exportSelection('csv'),
           })
           
           arr.push({
             label: exporting === 'json' ? 'Exporting JSON…' : 'Export metadata (JSON)',
             disabled: !!exporting,
-            onClick: async () => {
-              setExporting('json')
-              try {
-                const selSet = new Set(sel)
-                const subset = items.filter((i) => selSet.has(i.path))
-                const ratings = mapItemsToRatings(subset)
-                const json = toRatingsJson(ratings)
-                downloadBlob(
-                  new Blob([json], { type: 'application/json;charset=utf-8' }),
-                  `metadata_selection_${timestamp()}.json`
-                )
-              } finally {
-                setExporting(null)
-                setCtx(null)
-              }
-            },
+            onClick: exportSelection('json'),
           })
         }
         

@@ -17,6 +17,6 @@ export function useEmbeddings() {
 
 export function useEmbeddingSearch() {
   return useMutation<EmbeddingSearchResponse, Error, EmbeddingSearchRequest>({
-    mutationFn: (body) => api.searchEmbeddings(body),
+    mutationFn: api.searchEmbeddings,
   })
 }

@@ -12,7 +12,7 @@ This plan adds embedding-based similarity search to Lenslet without inflating ba
 
 - [x] 2026-01-28: Captured requirements and constraints (auto-detect columns, CLI override, vector input, top K/min score, cosine default, CPU-only, optional FAISS, cache allowed).
 - [x] 2026-01-28: Implement backend embedding detection, loading, search endpoints, and tests.
-- [ ] 2026-01-28: Implement frontend similarity UI (selected image + vector input).
+- [x] 2026-01-29: Implement frontend similarity UI (selected image + vector input).
 - [ ] 2026-01-28: Add caching, optional FAISS, and documentation.
 
 
@@ -47,7 +47,9 @@ The table dataset path loads all Parquet columns into Python lists via `pyarrow.
 
 Sprint 1 is complete. The backend now detects fixed-size list embedding columns, excludes them from base table loads, exposes `GET /embeddings` and `POST /embeddings/search`, and supports cosine similarity over NumPy-loaded float32 matrices with strict validation. Tests for detection, exclusion, and invalid vector handling are in place (`pytest -k embeddings -q`).
 
-Remaining work: Sprint 2 (frontend similarity UX) and Sprint 3 (cache, optional FAISS, documentation, and optional dependency wiring).
+Sprint 2 is complete. The frontend now exposes a “Find similar” action in the Inspector, shows a modal for embedding selection and vector/path input, and renders similarity results in a dedicated mode that preserves backend ranking while disabling sort/search controls. A similarity banner provides context and exit controls.
+
+Remaining work: Sprint 3 (cache, optional FAISS, documentation, and optional dependency wiring).
 
 
 ## Handover Notes
@@ -59,6 +61,11 @@ Remaining work: Sprint 2 (frontend similarity UX) and Sprint 3 (cache, optional 
   - Server endpoints added: `GET /embeddings` and `POST /embeddings/search`.
   - CLI flags wired: `--embedding-column` and `--embedding-metric`.
   - Tests: `tests/test_embeddings_search.py`.
+- Frontend delivered (Sprint 2):
+  - API wiring: `frontend/src/api/embeddings.ts`, `frontend/src/shared/api/embeddings.ts`, embedding types in `frontend/src/lib/types.ts`, and client methods in `frontend/src/api/client.ts`.
+  - Modal UI: `frontend/src/features/embeddings/SimilarityModal.tsx`.
+  - Inspector action: `frontend/src/features/inspector/Inspector.tsx`.
+  - Similarity mode/state: `frontend/src/app/AppShell.tsx` plus toolbar disablement in `frontend/src/shared/ui/Toolbar.tsx`.
 - API behavior:
   - Only cosine similarity is supported right now.
   - `POST /embeddings/search` requires exactly one of `query_path` or `query_vector_b64`, `top_k` is capped at 1000, and `min_score` must be finite.
@@ -67,10 +74,11 @@ Remaining work: Sprint 2 (frontend similarity UX) and Sprint 3 (cache, optional 
 - Known limitations:
   - Embeddings are only auto-wired when an `items.parquet` path is known (table mode). Programmatic `create_app_from_table` needs `embedding_parquet_path` to enable embedding search.
   - No caching or FAISS acceleration yet.
+  - Frontend bundle has not been rebuilt into `src/lenslet/frontend/` (run `cd frontend && npm run build && cp -r dist/* ../src/lenslet/frontend/` when ready).
 - Quick validation:
   - `pytest -k embeddings -q` (requires NumPy + PyArrow).
+  - `cd frontend && npm run build` (verifies TypeScript + UI build).
 - Next owners:
-  - Implement Sprint 2 UI tasks (T6–T7b).
   - Implement Sprint 3 cache/FAISS/docs/optional dependencies (T8–T9).
 
 

@@ -16,6 +16,7 @@ export interface ToolbarProps {
   sortSpec?: SortSpec
   metricKeys?: string[]
   onSortChange?: (spec: SortSpec) => void
+  sortDisabled?: boolean
   filterCount?: number
   onOpenFilters?: () => void
   starFilters?: number[] | null
@@ -35,6 +36,8 @@ export interface ToolbarProps {
   onNextImage?: () => void
   canPrevImage?: boolean
   canNextImage?: boolean
+  searchDisabled?: boolean
+  searchPlaceholder?: string
   syncIndicator?: SyncIndicatorData
 }
 
@@ -51,6 +54,7 @@ export default function Toolbar({
   sortSpec,
   metricKeys,
   onSortChange,
+  sortDisabled = false,
   filterCount,
   onOpenFilters,
   starFilters,
@@ -70,6 +74,8 @@ export default function Toolbar({
   onNextImage,
   canPrevImage,
   canNextImage,
+  searchDisabled = false,
+  searchPlaceholder,
   syncIndicator,
 }: ToolbarProps): JSX.Element {
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -104,6 +110,10 @@ export default function Toolbar({
   }, [])
 
   useEffect(() => {
+    if (searchDisabled) {
+      setMobileSearchOpen(false)
+      return
+    }
     if (!isNarrow || viewerActive) {
       setMobileSearchOpen(false)
       return
@@ -111,19 +121,20 @@ export default function Toolbar({
     if (!mobileSearchOpen) return
     const handle = window.requestAnimationFrame(() => searchInputRef.current?.focus())
     return () => window.cancelAnimationFrame(handle)
-  }, [isNarrow, mobileSearchOpen, viewerActive])
+  }, [isNarrow, mobileSearchOpen, viewerActive, searchDisabled])
 
   const effectiveSort: SortSpec = sortSpec ?? { kind: 'builtin', key: 'added', dir: 'desc' }
   const sortDir = effectiveSort.dir
   const isRandom = effectiveSort.kind === 'builtin' && effectiveSort.key === 'random'
+  const sortControlsDisabled = viewerActive || sortDisabled
 
   const metricOptions = metricKeys?.length
-    ? metricKeys.map((key) => ({ value: `metric:${key}`, label: key }))
+    ? metricKeys.map((key) => ({ value: `metric:${key}`, label: key, disabled: sortDisabled }))
     : []
   const sortByOptions = [
-    { value: 'builtin:added', label: 'Date added' },
-    { value: 'builtin:name', label: 'Filename' },
-    { value: 'builtin:random', label: 'Random' },
+    { value: 'builtin:added', label: 'Date added', disabled: sortDisabled },
+    { value: 'builtin:name', label: 'Filename', disabled: sortDisabled },
+    { value: 'builtin:random', label: 'Random', disabled: sortDisabled },
     ...metricOptions,
   ]
 
@@ -161,12 +172,13 @@ export default function Toolbar({
       const mode = value === 'layout:masonry' ? 'adaptive' : 'grid'
       onViewMode?.(mode)
     } else {
+      if (sortDisabled) return
       onSortChange?.(parseSort(value, effectiveSort))
     }
   }
 
   const handleSortDirToggle = () => {
-    if (!onSortChange) return
+    if (!onSortChange || sortDisabled) return
     if (isRandom) {
       onSortChange(effectiveSort) // Re-shuffle
     } else {
@@ -209,9 +221,10 @@ export default function Toolbar({
             <button
               className="toolbar-sort-dir btn btn-icon"
               onClick={handleSortDirToggle}
-              title={isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`}
+              title={sortDisabled ? 'Sorting disabled' : (isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`)}
               aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
-              aria-disabled={viewerActive}
+              aria-disabled={sortControlsDisabled}
+              disabled={sortControlsDisabled}
             >
               {isRandom ? (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -391,11 +404,11 @@ export default function Toolbar({
             </svg>
           </button>
           <button
-            className={`btn btn-icon ${canNextImage ? '' : 'opacity-40 cursor-not-allowed'}`}
-            title="Next image (D / →)"
-            onClick={() => canNextImage && onNextImage?.()}
-            aria-label="Next image"
-            aria-disabled={!canNextImage}
+              className={`btn btn-icon ${canNextImage ? '' : 'opacity-40 cursor-not-allowed'}`}
+              title="Next image (D / →)"
+              onClick={() => canNextImage && onNextImage?.()}
+              aria-label="Next image"
+              aria-disabled={!canNextImage}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 6l6 6-6 6" />
@@ -438,10 +451,11 @@ export default function Toolbar({
         )}
         {!viewerActive && isNarrow && (
           <button
-            className={`btn btn-icon ${mobileSearchOpen ? 'btn-active' : ''}`}
+            className={`btn btn-icon ${mobileSearchOpen ? 'btn-active' : ''} ${searchDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             aria-label={mobileSearchOpen ? 'Close search' : 'Open search'}
-            title={mobileSearchOpen ? 'Close search' : 'Search'}
-            onClick={() => setMobileSearchOpen((prev) => !prev)}
+            title={searchDisabled ? 'Search disabled' : (mobileSearchOpen ? 'Close search' : 'Search')}
+            onClick={() => !searchDisabled && setMobileSearchOpen((prev) => !prev)}
+            disabled={searchDisabled}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="11" cy="11" r="7" />
@@ -454,21 +468,22 @@ export default function Toolbar({
             <input
               ref={searchInputRef}
               aria-label="Search filename, tags, notes"
-              placeholder="Search..."
+              placeholder={searchDisabled ? (searchPlaceholder ?? 'Search disabled') : 'Search...'}
               onChange={(e) => onSearch(e.target.value)}
               className="toolbar-search-input input w-full focus:w-full transition-all duration-200 select-text"
+              disabled={searchDisabled}
             />
           </div>
         ) : viewerActive ? (
           <div className="toolbar-search w-[240px]" aria-hidden="true" />
         ) : null}
       </div>
-      {!viewerActive && isNarrow && mobileSearchOpen && (
+      {!viewerActive && isNarrow && mobileSearchOpen && !searchDisabled && (
         <div className="toolbar-search-row">
           <input
             ref={searchInputRef}
             aria-label="Search filename, tags, notes"
-            placeholder="Search..."
+            placeholder={searchPlaceholder ?? 'Search...'}
             onChange={(e) => onSearch(e.target.value)}
             className="toolbar-search-input-mobile input input-lg w-full select-text"
           />
@@ -500,12 +515,15 @@ export default function Toolbar({
               aria-label="Sort"
               triggerClassName="mobile-pill mobile-pill-dropdown"
               panelClassName="mobile-drawer-panel"
+              disabled={sortDisabled}
             />
             <button
-              className="mobile-pill mobile-pill-icon"
+              className={`mobile-pill mobile-pill-icon ${sortControlsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               onClick={handleSortDirToggle}
-              title={isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`}
+              title={sortDisabled ? 'Sorting disabled' : (isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`)}
               aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
+              aria-disabled={sortControlsDisabled}
+              disabled={sortControlsDisabled}
             >
               {isRandom ? (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

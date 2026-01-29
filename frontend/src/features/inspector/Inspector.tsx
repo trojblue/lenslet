@@ -103,6 +103,9 @@ interface InspectorProps {
   onResize?: (e: React.MouseEvent) => void
   onStarChanged?: (paths: string[], val: StarRating) => void
   sortSpec?: SortSpec
+  onFindSimilar?: () => void
+  embeddingsAvailable?: boolean
+  embeddingsLoading?: boolean
 }
 
 type InspectorSectionKey = 'overview' | 'basics' | 'metadata' | 'notes'
@@ -197,6 +200,9 @@ export default function Inspector({
   onResize,
   onStarChanged,
   sortSpec,
+  onFindSimilar,
+  embeddingsAvailable = false,
+  embeddingsLoading = false,
 }: InspectorProps) {
   const enabled = !!path
   const { data, isLoading } = useSidecar(path ?? '')
@@ -209,6 +215,15 @@ export default function Inspector({
   }, [])
   
   const [metricsExpanded, setMetricsExpanded] = useState(false)
+  const multi = selectedPaths.length > 1
+
+  const canFindSimilar = !!onFindSimilar && embeddingsAvailable && !multi
+  const findSimilarDisabledReason = (() => {
+    if (!onFindSimilar) return null
+    if (!embeddingsAvailable) return embeddingsLoading ? 'Loading embeddings...' : 'No embeddings detected.'
+    if (multi) return 'Select a single image to search.'
+    return null
+  })()
 
   // Form state
   const [tags, setTags] = useState('')
@@ -228,8 +243,6 @@ export default function Inspector({
   }, [items, path])
   
   const star = itemStarFromList ?? data?.star ?? null
-
-  const multi = selectedPaths.length > 1
   const conflict = useSidecarConflict(!multi ? path : null)
   const conflictFields = {
     tags: !!conflict?.pending.set_tags,
@@ -487,6 +500,17 @@ export default function Inspector({
         open={openSections.overview}
         onToggle={() => toggleSection('overview')}
         contentClassName="px-3 pb-3 space-y-2"
+        actions={onFindSimilar && (
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={onFindSimilar}
+            disabled={!canFindSimilar}
+            title={findSimilarDisabledReason ?? 'Find similar'}
+          >
+            Find similar
+          </button>
+        )}
       >
         {multi ? (
           <div className="grid grid-cols-2 gap-2">
@@ -504,6 +528,9 @@ export default function Inspector({
             <div className="inspector-field-label">Filename</div>
             <div className="inspector-field-value break-all" title={filename}>{filename}</div>
           </div>
+        )}
+        {findSimilarDisabledReason && (
+          <div className="text-[11px] text-muted">{findSimilarDisabledReason}</div>
         )}
       </InspectorSection>
 

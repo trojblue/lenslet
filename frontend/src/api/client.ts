@@ -10,6 +10,9 @@ import type {
   ImageMetadataResponse,
   ViewsPayload,
   HealthResponse,
+  EmbeddingsResponse,
+  EmbeddingSearchRequest,
+  EmbeddingSearchResponse,
   PresenceEvent,
   ItemUpdatedEvent,
   MetricsUpdatedEvent,
@@ -342,6 +345,24 @@ export const api = {
     if (q) params.set('q', q)
     if (path) params.set('path', path)
     return fetchJSON<SearchResult>(`${BASE}/search?${params}`).promise
+  },
+
+  /**
+   * List available embeddings and any rejected columns.
+   */
+  getEmbeddings: (): Promise<EmbeddingsResponse> => {
+    return fetchJSON<EmbeddingsResponse>(`${BASE}/embeddings`).promise
+  },
+
+  /**
+   * Run a similarity search for an embedding.
+   */
+  searchEmbeddings: (body: EmbeddingSearchRequest): Promise<EmbeddingSearchResponse> => {
+    return fetchJSON<EmbeddingSearchResponse>(`${BASE}/embeddings/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).promise
   },
 
   /**

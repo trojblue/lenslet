@@ -91,6 +91,42 @@ export type HealthResponse = {
 
 export type SearchResult = { items: Item[] }
 
+export type EmbeddingSpec = {
+  name: string
+  dimension: number
+  dtype: string
+  metric: string
+}
+
+export type EmbeddingRejected = {
+  name: string
+  reason: string
+}
+
+export type EmbeddingsResponse = {
+  embeddings: EmbeddingSpec[]
+  rejected: EmbeddingRejected[]
+}
+
+export type EmbeddingSearchRequest = {
+  embedding: string
+  query_path?: string | null
+  query_vector_b64?: string | null
+  top_k?: number
+  min_score?: number | null
+}
+
+export type EmbeddingSearchItem = {
+  row_index: number
+  path: string
+  score: number
+}
+
+export type EmbeddingSearchResponse = {
+  embedding: string
+  items: EmbeddingSearchItem[]
+}
+
 export type FileOpResponse = {
   ok: boolean
   error?: string

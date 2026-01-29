@@ -5,8 +5,10 @@ import MetricScrollbar from '../features/browse/components/MetricScrollbar'
 import Viewer from '../features/viewer/Viewer'
 import CompareViewer from '../features/compare/CompareViewer'
 import Inspector from '../features/inspector/Inspector'
+import SimilarityModal from '../features/embeddings/SimilarityModal'
 import { useFolder } from '../shared/api/folders'
 import { useSearch } from '../shared/api/search'
+import { useEmbeddings } from '../shared/api/embeddings'
 import { api, connectEvents, disconnectEvents, subscribeEvents, subscribeEventStatus } from '../shared/api/client'
 import type { ConnectionStatus, SyncEvent } from '../shared/api/client'
 import { useOldestInflightAgeMs, useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
@@ -35,7 +37,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import ContextMenu, { MenuItem } from './menu/ContextMenu'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 import { useDebounced } from '../shared/hooks/useDebounced'
-import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, PresenceEvent, Sidecar } from '../lib/types'
+import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, PresenceEvent, Sidecar, EmbeddingSearchItem, EmbeddingSearchRequest } from '../lib/types'
 import type { SyncIndicatorState } from '../shared/ui/SyncIndicator'
 import { isInputElement } from '../lib/keyboard'
 import { formatAbsoluteTime, formatRelativeTime, parseTimestampMs, safeJsonParse } from '../lib/util'
@@ -69,6 +71,16 @@ type RecentTouchDisplay = {
   path: string
   label: string
   timeLabel: string
+}
+
+type SimilarityState = {
+  embedding: string
+  queryPath: string | null
+  queryVector: string | null
+  topK: number
+  minScore: number | null
+  items: EmbeddingSearchItem[]
+  createdAt: number
 }
 
 function getConnectionLabel(status: ConnectionStatus): string {
@@ -141,6 +153,8 @@ export default function AppShell() {
   const [current, setCurrent] = useState<string>('/')
   const [query, setQuery] = useState('')
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
+  const [similarityOpen, setSimilarityOpen] = useState(false)
+  const [similarityState, setSimilarityState] = useState<SimilarityState | null>(null)
   const [viewer, setViewer] = useState<string | null>(null)
   const [compareOpen, setCompareOpen] = useState(false)
   const [compareIndex, setCompareIndex] = useState(0)
@@ -183,6 +197,7 @@ export default function AppShell() {
   const lastFocusedPathRef = useRef<string | null>(null)
   const countCacheRef = useRef<Map<string, number>>(new Map())
   const countInflightRef = useRef<Map<string, Promise<number>>>(new Map())
+  const similarityPrevSelectionRef = useRef<string[] | null>(null)
 
   const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool)
 
@@ -263,10 +278,22 @@ export default function AppShell() {
   }, [lastEditedAt])
 
   const { data, refetch, isLoading, isError } = useFolder(current)
-  const searching = query.trim().length > 0
+  const similarityActive = similarityState !== null
+  const searching = !similarityActive && query.trim().length > 0
   const debouncedQ = useDebounced(query, 250)
   const normalizedQ = useMemo(() => debouncedQ.trim().replace(/\s+/g, ' '), [debouncedQ])
   const search = useSearch(searching ? normalizedQ : '', current)
+  const embeddingsQuery = useEmbeddings()
+  const embeddings = embeddingsQuery.data?.embeddings ?? []
+  const embeddingsRejected = embeddingsQuery.data?.rejected ?? []
+  const embeddingsAvailable = embeddings.length > 0
+  const embeddingsError = embeddingsQuery.isError
+    ? (embeddingsQuery.error instanceof FetchError
+      ? embeddingsQuery.error.message
+      : embeddingsQuery.error instanceof Error
+        ? embeddingsQuery.error.message
+        : 'Failed to load embeddings.')
+    : null
   const starFilters = useMemo(() => getStarFilter(viewState.filters), [viewState.filters])
 
   // Pool items (current scope) + derived view (filters/sort)
@@ -278,24 +305,51 @@ export default function AppShell() {
     }))
   }, [searching, search.data, data, localStarOverrides])
 
+  const poolItemsByPath = useMemo(() => {
+    const map = new Map<string, Item>()
+    for (const it of poolItems) {
+      map.set(it.path, it)
+    }
+    const extras = search.data?.items ?? []
+    for (const it of extras) {
+      if (map.has(it.path)) continue
+      const star = localStarOverrides[it.path] !== undefined ? localStarOverrides[it.path] : it.star
+      map.set(it.path, { ...it, star })
+    }
+    return map
+  }, [poolItems, search.data, localStarOverrides])
+
+  const similarityItems = useMemo((): Item[] => {
+    if (!similarityState) return []
+    return similarityState.items.map((entry) => {
+      const existing = poolItemsByPath.get(entry.path)
+      if (existing) return existing
+      return buildFallbackItem(entry.path, localStarOverrides[entry.path])
+    })
+  }, [similarityState, poolItemsByPath, localStarOverrides])
+
   const items = useMemo((): Item[] => {
+    if (similarityState) {
+      return applyFilters(similarityItems, viewState.filters)
+    }
     const filtered = applyFilters(poolItems, viewState.filters)
     return applySort(filtered, viewState.sort, randomSeed)
-  }, [poolItems, viewState.filters, viewState.sort, randomSeed])
+  }, [similarityState, similarityItems, poolItems, viewState.filters, viewState.sort, randomSeed])
 
-  const totalCount = poolItems.length
+  const totalCount = similarityState ? similarityItems.length : poolItems.length
   const filteredCount = items.length
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
   const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths])
   const selectedItems = useMemo(() => {
     if (!selectedPaths.length) return []
-    const poolByPath = new Map(poolItems.map((it) => [it.path, it]))
+    const selectionPool = similarityState ? similarityItems : poolItems
+    const poolByPath = new Map(selectionPool.map((it) => [it.path, it]))
     const itemsByPath = new Map(items.map((it) => [it.path, it]))
     return selectedPaths
       .map((path) => poolByPath.get(path) ?? itemsByPath.get(path))
       .filter((it): it is Item => !!it)
-  }, [selectedPaths, poolItems, items])
+  }, [selectedPaths, similarityState, similarityItems, poolItems, items])
   const compareItems = useMemo(() => items.filter((it) => selectedSet.has(it.path)), [items, selectedSet])
   const compareMaxIndex = Math.max(0, compareItems.length - 2)
   const compareIndexClamped = Math.min(compareIndex, compareMaxIndex)
@@ -304,7 +358,8 @@ export default function AppShell() {
   const canComparePrev = compareIndexClamped > 0
   const canCompareNext = compareIndexClamped < compareItems.length - 2
   const compareEnabled = compareItems.length >= 2
-  const metricSortKey = viewState.sort.kind === 'metric' ? viewState.sort.key : null
+  const metricsBaseItems = similarityState ? similarityItems : poolItems
+  const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
   const hasMetricScrollbar = useMemo(() => {
     if (!metricSortKey) return false
     return items.some((it) => {
@@ -575,19 +630,20 @@ export default function AppShell() {
 
   // Compute star counts for the filter UI
   const starCounts = useMemo(() => {
-    const baseItems = poolItems
+    const baseItems = similarityState ? similarityItems : poolItems
     const counts: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 }
     for (const it of baseItems) {
       const star = localStarOverrides[it.path] ?? it.star ?? 0
       counts[String(star)] = (counts[String(star)] || 0) + 1
     }
     return counts
-  }, [poolItems, localStarOverrides])
+  }, [similarityState, similarityItems, poolItems, localStarOverrides])
 
   const metricKeys = useMemo(() => {
     const keys = new Set<string>()
     let scanned = 0
-    for (const it of poolItems) {
+    const baseItems = similarityState ? similarityItems : poolItems
+    for (const it of baseItems) {
       const metrics = it.metrics
       if (metrics) {
         for (const key of Object.keys(metrics)) {
@@ -598,9 +654,10 @@ export default function AppShell() {
       if (scanned >= 250 && keys.size > 0) break
     }
     return Array.from(keys).sort()
-  }, [poolItems])
+  }, [similarityState, similarityItems, poolItems])
 
   useEffect(() => {
+    if (similarityActive) return
     if (!metricKeys.length) return
     setViewState((prev) => {
       const nextKey = prev.selectedMetric && metricKeys.includes(prev.selectedMetric)
@@ -609,21 +666,22 @@ export default function AppShell() {
       if (nextKey === prev.selectedMetric) return prev
       return { ...prev, selectedMetric: nextKey }
     })
-  }, [metricKeys])
+  }, [metricKeys, similarityActive])
 
   useEffect(() => {
+    if (similarityActive) return
     if (viewState.sort.kind !== 'metric') return
     if (metricKeys.includes(viewState.sort.key)) return
     setViewState((prev) => ({
       ...prev,
       sort: { kind: 'builtin', key: 'added', dir: prev.sort.dir },
     }))
-  }, [metricKeys, viewState.sort])
+  }, [metricKeys, viewState.sort, similarityActive])
 
   const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
   const scopeTotal = scopeTotalCount ?? totalCount
   const rootTotal = rootTotalCount ?? scopeTotal
-  const showFilteredCounts = searching || activeFilterCount > 0
+  const showFilteredCounts = similarityActive || searching || activeFilterCount > 0
 
   const presence = presenceByGallery[current]
   const syncLabel = (() => {
@@ -666,10 +724,30 @@ export default function AppShell() {
     () => buildRecentTouchesDisplay(recentTouches, items, lastEditedNow),
     [items, lastEditedNow, recentTouches],
   )
-  const displayItemCount = showFilteredCounts ? filteredCount : scopeTotal
-  const displayTotalCount = showFilteredCounts
-    ? scopeTotal
-    : (current === '/' ? scopeTotal : rootTotal)
+  const displayItemCount = similarityActive
+    ? filteredCount
+    : (showFilteredCounts ? filteredCount : scopeTotal)
+  const displayTotalCount = similarityActive
+    ? totalCount
+    : (showFilteredCounts
+      ? scopeTotal
+      : (current === '/' ? scopeTotal : rootTotal))
+
+  const similarityQueryLabel = useMemo(() => {
+    if (!similarityState) return null
+    if (similarityState.queryPath) {
+      const parts = similarityState.queryPath.split('/').filter(Boolean)
+      return parts.length ? parts[parts.length - 1] : similarityState.queryPath
+    }
+    if (similarityState.queryVector) return 'Vector query'
+    return null
+  }, [similarityState])
+
+  const similarityCountLabel = useMemo(() => {
+    if (!similarityState) return null
+    if (activeFilterCount > 0) return `${filteredCount} of ${totalCount}`
+    return `${totalCount}`
+  }, [similarityState, activeFilterCount, filteredCount, totalCount])
 
   const updateFilters = useCallback((updater: (filters: FilterAST) => FilterAST) => {
     setViewState((prev) => ({
@@ -695,6 +773,43 @@ export default function AppShell() {
       filters: { and: [] },
     }))
   }, [])
+
+  const clearSimilarity = useCallback(() => {
+    setSimilarityState(null)
+    const prevSelection = similarityPrevSelectionRef.current
+    similarityPrevSelectionRef.current = null
+    if (prevSelection && prevSelection.length) {
+      setSelectedPaths(prevSelection)
+      setRestoreGridToSelectionToken((token) => token + 1)
+    } else {
+      setSelectedPaths([])
+    }
+  }, [])
+
+  const handleSimilaritySearch = useCallback(async (payload: EmbeddingSearchRequest) => {
+    if (!similarityState && similarityPrevSelectionRef.current === null) {
+      similarityPrevSelectionRef.current = selectedPaths
+    }
+    const res = await api.searchEmbeddings(payload)
+    setSimilarityState({
+      embedding: res.embedding,
+      queryPath: payload.query_path ?? null,
+      queryVector: payload.query_vector_b64 ?? null,
+      topK: payload.top_k ?? 50,
+      minScore: payload.min_score ?? null,
+      items: res.items,
+      createdAt: Date.now(),
+    })
+    if (res.items.length) {
+      const preferred = payload.query_path && res.items.some((item) => item.path === payload.query_path)
+        ? payload.query_path
+        : res.items[0].path
+      setSelectedPaths([preferred])
+      setRestoreGridToSelectionToken((token) => token + 1)
+    } else {
+      setSelectedPaths([])
+    }
+  }, [similarityState, selectedPaths])
 
   const handleMetricRange = useCallback((key: string, range: { min: number; max: number } | null) => {
     updateFilters((filters) => setMetricRangeFilter(filters, key, range))
@@ -1448,6 +1563,7 @@ export default function AppShell() {
         sortSpec={viewState.sort}
         metricKeys={metricKeys}
         onSortChange={handleSortChange}
+        sortDisabled={similarityActive}
         filterCount={activeFilterCount}
         onOpenFilters={openMetricsPanel}
         starFilters={starFilters}
@@ -1467,6 +1583,8 @@ export default function AppShell() {
         onNextImage={() => handleNavigate(1)}
         canPrevImage={canPrevImage}
         canNextImage={canNextImage}
+        searchDisabled={similarityActive}
+        searchPlaceholder={similarityActive ? 'Exit similarity to search' : undefined}
         syncIndicator={{
           state: indicatorState,
           presence,
@@ -1497,7 +1615,7 @@ export default function AppShell() {
           data={data}
           onOpenFolder={(p) => { setActiveViewId(null); openFolder(p) }}
           onContextMenu={(e, p) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, kind: 'tree', payload: { path: p } }) }}
-          items={poolItems}
+          items={metricsBaseItems}
           filteredItems={items}
           metricKeys={metricKeys}
           selectedItems={selectedItems}
@@ -1520,6 +1638,29 @@ export default function AppShell() {
           onCloseRecent={() => setRecentBannerClosedAt(latestRecentActivityTs ?? Date.now())}
           browserZoomPercent={browserZoomPercent}
         />
+        {similarityState && (
+          <div className="border-b border-border bg-panel">
+            <div className="px-3 py-2 flex flex-wrap items-center gap-2">
+              <div className="ui-banner ui-banner-accent text-xs flex flex-wrap items-center gap-2">
+                <span className="font-semibold">Similarity mode</span>
+                <span className="text-muted">Embedding: {similarityState.embedding}</span>
+                {similarityQueryLabel && (
+                  <span className="text-muted">Query: {similarityQueryLabel}</span>
+                )}
+                {similarityCountLabel && (
+                  <span className="text-muted">Results: {similarityCountLabel}</span>
+                )}
+                <span className="text-muted">Top K: {similarityState.topK}</span>
+                {similarityState.minScore != null && (
+                  <span className="text-muted">Min score: {similarityState.minScore}</span>
+                )}
+              </div>
+              <button className="btn btn-sm" onClick={clearSimilarity}>
+                Exit similarity
+              </button>
+            </div>
+          </div>
+        )}
         {filterChips.length > 0 && (
           <div className="sticky top-0 z-10 px-3 py-2 bg-panel border-b border-border">
             <div className="flex flex-wrap items-center gap-2">
@@ -1597,10 +1738,30 @@ export default function AppShell() {
         {/* Bottom selection bar removed intentionally */}
       </div>
       {rightOpen && (
-        <Inspector path={selectedPaths[0] ?? null} selectedPaths={selectedPaths} items={items} sortSpec={viewState.sort} onResize={onResizeRight} onStarChanged={(paths, val)=>{
-          setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })
-        }} />
+        <Inspector
+          path={selectedPaths[0] ?? null}
+          selectedPaths={selectedPaths}
+          items={items}
+          sortSpec={viewState.sort}
+          onResize={onResizeRight}
+          onStarChanged={(paths, val)=>{
+            setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })
+          }}
+          onFindSimilar={() => setSimilarityOpen(true)}
+          embeddingsAvailable={embeddingsAvailable}
+          embeddingsLoading={embeddingsQuery.isLoading}
+        />
       )}
+      <SimilarityModal
+        open={similarityOpen}
+        embeddings={embeddings}
+        rejected={embeddingsRejected}
+        selectedPath={selectedPaths[0] ?? null}
+        embeddingsLoading={embeddingsQuery.isLoading}
+        embeddingsError={embeddingsError}
+        onClose={() => setSimilarityOpen(false)}
+        onSearch={handleSimilaritySearch}
+      />
       {viewer && (
         <Viewer
           path={viewer}
@@ -1685,6 +1846,28 @@ function formatNumber(value: number): string {
   if (abs >= 1000) return value.toFixed(0)
   if (abs >= 10) return value.toFixed(2)
   return value.toFixed(3)
+}
+
+function guessMimeFromPath(path: string): Item['type'] {
+  const lower = path.toLowerCase()
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.webp')) return 'image/webp'
+  return 'image/jpeg'
+}
+
+function buildFallbackItem(path: string, starOverride?: StarRating): Item {
+  const name = path.split('/').pop() ?? path
+  return {
+    path,
+    name,
+    type: guessMimeFromPath(path),
+    w: 0,
+    h: 0,
+    size: 0,
+    hasThumb: true,
+    hasMeta: false,
+    star: starOverride ?? null,
+  }
 }
 
 /**

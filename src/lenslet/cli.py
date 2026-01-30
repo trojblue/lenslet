@@ -623,6 +623,7 @@ def main():
             embedding_cache=args.embedding_cache and not effective_no_write,
             embedding_cache_dir=args.embedding_cache_dir,
             embedding_preload=args.embedding_preload,
+            allow_local=False,
         )
     elif is_table_file:
         base_dir = args.base_dir or str(target.parent)

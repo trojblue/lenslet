@@ -140,8 +140,11 @@ class TableStorage:
         loadable_threshold: float = 0.7,
         include_source_in_search: bool = True,
         skip_indexing: bool = False,
+        allow_local: bool = True,
     ):
         self.root = os.path.abspath(root) if root else None
+        self._root_real = os.path.realpath(self.root) if self.root else None
+        self._allow_local = allow_local
         self.thumb_size = thumb_size
         self.thumb_quality = thumb_quality
         self.sample_size = sample_size
@@ -246,6 +249,10 @@ class TableStorage:
             if matches / total >= self.loadable_threshold:
                 return col
 
+        if not self._allow_local:
+            raise ValueError(
+                "No loadable column found. Local file sources are disabled; provide an S3/HTTP column."
+            )
         raise ValueError(
             "No loadable column found. Pass source_column explicitly or provide a base_dir for local paths."
         )
@@ -298,6 +305,8 @@ class TableStorage:
         return prefixes, use_bucket
 
     def _compute_local_prefix(self) -> str | None:
+        if not self._allow_local:
+            return None
         values = self._data.get(self._source_column, []) if hasattr(self, "_data") else []
         local_paths: list[str] = []
         for raw in values:
@@ -383,10 +392,16 @@ class TableStorage:
     def _is_loadable_value(self, value: str) -> bool:
         if self._is_s3_uri(value) or self._is_http_url(value):
             return True
+        if not self._allow_local:
+            return False
         if os.path.isabs(value):
             return os.path.exists(value)
         if self.root:
-            return os.path.exists(os.path.join(self.root, value))
+            try:
+                resolved = self._resolve_local_source(value)
+            except ValueError:
+                return False
+            return os.path.exists(resolved)
         return False
 
     def _is_s3_uri(self, path: str) -> bool:
@@ -507,6 +522,7 @@ class TableStorage:
         dir_children: dict[str, set[str]] = {}
         seen_paths: set[str] = set()
         remote_tasks: list[tuple[str, CachedItem, str, str]] = []
+        skipped_local = 0
         total = self._row_count
         done = 0
         last_print = 0.0
@@ -599,7 +615,24 @@ class TableStorage:
             is_http = self._is_http_url(source)
 
             if not is_s3 and not is_http:
-                resolved = self._resolve_local_source(source)
+                if not self._allow_local:
+                    skipped_local += 1
+                    done += 1
+                    now = time.monotonic()
+                    if now - last_print > 0.1 or done == total:
+                        self._progress(done, total, progress_label)
+                        last_print = now
+                    continue
+                try:
+                    resolved = self._resolve_local_source(source)
+                except ValueError:
+                    skipped_local += 1
+                    done += 1
+                    now = time.monotonic()
+                    if now - last_print > 0.1 or done == total:
+                        self._progress(done, total, progress_label)
+                        last_print = now
+                    continue
                 if not os.path.exists(resolved):
                     print(f"[lenslet] Warning: File not found: {resolved}")
                     done += 1
@@ -701,6 +734,8 @@ class TableStorage:
 
         if done < total:
             self._progress(total, total, progress_label)
+        if skipped_local:
+            print(f"[lenslet] Skipped {skipped_local} local path(s) (local sources disabled or invalid).")
 
     def _extract_metrics(self, row_idx: int) -> dict[str, float]:
         metrics: dict[str, float] = {}
@@ -741,9 +776,20 @@ class TableStorage:
         return result
 
     def _resolve_local_source(self, source: str) -> str:
+        if not self._allow_local:
+            raise ValueError("local sources are disabled")
         if os.path.isabs(source) or not self.root:
             return source
-        return os.path.join(self.root, source)
+        candidate = os.path.abspath(os.path.join(self.root, source))
+        real = os.path.realpath(candidate)
+        root_real = self._root_real or os.path.realpath(self.root)
+        try:
+            common = os.path.commonpath([root_real, real])
+        except Exception:
+            raise ValueError("invalid path")
+        if common != root_real:
+            raise ValueError("path escapes base_dir")
+        return real
 
     def get_index(self, path: str) -> CachedIndex:
         norm = self._normalize_path(path)
@@ -780,7 +826,11 @@ class TableStorage:
             except Exception as exc:
                 raise RuntimeError(f"Failed to download from URL: {exc}")
 
-        with open(self._resolve_local_source(source), "rb") as handle:
+        try:
+            resolved = self._resolve_local_source(source)
+        except ValueError as exc:
+            raise FileNotFoundError(path) from exc
+        with open(resolved, "rb") as handle:
             return handle.read()
 
     def exists(self, path: str) -> bool:

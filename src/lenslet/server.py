@@ -1277,6 +1277,7 @@ def create_app_from_table(
     source_column: str | None = None,
     skip_indexing: bool = False,
     show_source: bool = True,
+    allow_local: bool = True,
     og_preview: bool = False,
     workspace: Workspace | None = None,
     thumb_cache: bool = True,
@@ -1294,6 +1295,7 @@ def create_app_from_table(
         thumb_quality=thumb_quality,
         source_column=source_column,
         skip_indexing=skip_indexing,
+        allow_local=allow_local,
     )
     return create_app_from_storage(
         storage,

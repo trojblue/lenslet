@@ -69,6 +69,10 @@ Options:
   --embedding-cache            Enable embedding cache (default)
   --no-embedding-cache         Disable embedding cache
   --embedding-cache-dir PATH   Override embedding cache directory
+  --embed                      Run CPU embedding inference on a parquet file before launch
+  --batch-size SIZE            Embedding inference batch size (used with --embed)
+  --parquet-batch-size SIZE    Rows per parquet batch (used with --embed)
+  --num-workers N              Parallel image loading workers (used with --embed)
   --reload                     Enable auto-reload for development
   --share                      Create a public share URL via cloudflared
   --verbose                    Show detailed server logs
@@ -101,6 +105,9 @@ lenslet incantor/dit03-twitter-niji7-5k-filtering-metrics --share
 
 # Start from a remote Parquet file
 lenslet s3://my-bucket/items.parquet --source-column image_path
+
+# Add embeddings to a local Parquet file before launching
+lenslet /data/items.parquet --source-column image_path --embed
 ```
 
 ### Embedding Similarity Search
@@ -124,6 +131,12 @@ payload = base64.b64encode(vec.tobytes()).decode("ascii")
 ```
 
 Embedding caches live under `.lenslet/embeddings_cache/` (or `<parquet>.cache/embeddings_cache/`) unless you override with `--embedding-cache-dir`.
+
+For a one-shot embedding write without launching Lenslet, run:
+
+```bash
+python scripts/embed_parquet_embeddings.py /data/items.parquet --image-column image_path
+```
 
 ### Programmatic API (Python/Jupyter)
 

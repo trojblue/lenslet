@@ -1,6 +1,7 @@
 """CLI entry point for Lenslet."""
 from __future__ import annotations
 import argparse
+import math
 import os
 import re
 import socket
@@ -354,6 +355,29 @@ def main():
         help="Embedding metric override in NAME:METRIC form (repeatable)",
     )
     parser.add_argument(
+        "--embed",
+        action="store_true",
+        help="Run CPU embedding inference on a parquet file before launch",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=32,
+        help="Embedding inference batch size (used with --embed)",
+    )
+    parser.add_argument(
+        "--parquet-batch-size",
+        type=int,
+        default=256,
+        help="Rows per parquet batch when embedding (used with --embed)",
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=8,
+        help="Parallel image loading workers (used with --embed)",
+    )
+    parser.add_argument(
         "--embedding-preload",
         action="store_true",
         help="Preload embedding indexes on startup",
@@ -444,6 +468,63 @@ def main():
     else:
         print(f"Error: '{args.directory}' does not exist", file=sys.stderr)
         sys.exit(1)
+
+    if args.embed and is_remote_table:
+        print("Error: --embed requires a local parquet file", file=sys.stderr)
+        sys.exit(1)
+
+    embed_output_path = None
+    if args.embed and is_table_file:
+        try:
+            from .embeddings.embedder import EmbedConfig, embed_parquet
+            from .storage.table import load_parquet_schema
+        except Exception as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        base_dir = args.base_dir or str(candidate.parent)
+        image_column = args.source_column
+        if image_column is None:
+            try:
+                image_column = _detect_source_column(str(candidate), base_dir)
+            except Exception as exc:
+                print(f"Error: failed to detect image column: {exc}", file=sys.stderr)
+                sys.exit(1)
+        if image_column is None:
+            print("Error: --embed requires --source-column (or a detectable image column)", file=sys.stderr)
+            sys.exit(1)
+
+        embed_columns = parse_embedding_columns(args.embedding_column)
+        embed_column = embed_columns[0] if embed_columns else "embedding_mobilenet_v3_small"
+        if embed_columns and len(embed_columns) > 1:
+            print("[lenslet] Warning: --embed uses the first --embedding-column value only.")
+
+        try:
+            schema = load_parquet_schema(str(candidate))
+            if embed_column in schema.names:
+                print(f"[lenslet] Embedding column '{embed_column}' already exists; skipping --embed.")
+            else:
+                config = EmbedConfig(
+                    embedding_column=embed_column,
+                    batch_size=args.batch_size,
+                    parquet_batch_size=args.parquet_batch_size,
+                    num_workers=args.num_workers,
+                    base_dir=base_dir,
+                )
+                embed_output_path = embed_parquet(
+                    parquet_path=candidate,
+                    image_column=image_column,
+                    config=config,
+                )
+                print(f"[lenslet] Wrote embeddings to {embed_output_path}")
+        except Exception as exc:
+            print(f"Error: embedding failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    if embed_output_path is not None:
+        candidate = embed_output_path
+        is_table_file = True
+        target = candidate.resolve()
 
     port = args.port
     if port is None:
@@ -748,6 +829,76 @@ def _maybe_write_dimensions(
 
     pq.write_table(table_out, str(parquet_path))
     return True
+
+
+def _detect_source_column(parquet_path: str, base_dir: str | None, sample_size: int = 50) -> str | None:
+    try:
+        import pyarrow.parquet as pq
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "pyarrow is required for Parquet datasets. Install with: pip install pyarrow"
+        ) from exc
+
+    pf = pq.ParquetFile(parquet_path)
+    if pf.metadata is not None and pf.metadata.num_rows == 0:
+        return None
+
+    columns = pf.schema.names
+    if not columns:
+        return None
+
+    batch = None
+    for candidate in pf.iter_batches(batch_size=sample_size):
+        batch = candidate
+        break
+    if batch is None or batch.num_rows == 0:
+        return None
+
+    best_score = 0.0
+    best_total = 0
+    best_name = None
+    for col in columns:
+        values = batch.column(col).to_pylist()
+        total = 0
+        matches = 0
+        for value in values:
+            if value is None:
+                continue
+            if isinstance(value, float) and math.isnan(value):
+                continue
+            if isinstance(value, os.PathLike):
+                value = os.fspath(value)
+            if not isinstance(value, str):
+                continue
+            value = value.strip()
+            if not value:
+                continue
+            total += 1
+            if _is_loadable_value(value, base_dir):
+                matches += 1
+        if total == 0:
+            continue
+        score = matches / total
+        if score < 0.7:
+            continue
+        if score > best_score or (score == best_score and total > best_total):
+            best_score = score
+            best_total = total
+            best_name = col
+
+    return best_name
+
+
+def _is_loadable_value(value: str, base_dir: str | None) -> bool:
+    if value.startswith("s3://"):
+        return True
+    if value.startswith("http://") or value.startswith("https://"):
+        return True
+    if os.path.isabs(value):
+        return os.path.exists(value)
+    if base_dir:
+        return os.path.exists(os.path.join(base_dir, value))
+    return False
 
 
 if __name__ == "__main__":

@@ -6,11 +6,11 @@ import Viewer from '../features/viewer/Viewer'
 import CompareViewer from '../features/compare/CompareViewer'
 import Inspector from '../features/inspector/Inspector'
 import SimilarityModal from '../features/embeddings/SimilarityModal'
-import { useFolder } from '../shared/api/folders'
+import { DEFAULT_RECURSIVE_PAGE_SIZE, shouldRemoveRecursiveFolderQuery, useFolder } from '../shared/api/folders'
 import { useSearch } from '../shared/api/search'
 import { useEmbeddings } from '../shared/api/embeddings'
 import { api, connectEvents, disconnectEvents, dispatchPresenceLeave, getClientId, subscribeEvents, subscribeEventStatus } from '../shared/api/client'
-import type { ConnectionStatus, SyncEvent } from '../shared/api/client'
+import type { ConnectionStatus, FullFilePrefetchContext, SyncEvent } from '../shared/api/client'
 import { useOldestInflightAgeMs, useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
 import { usePollingEnabled } from '../shared/api/polling'
 import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, isTrashPath, isLikelyImagePath } from './routing/hash'
@@ -53,6 +53,8 @@ import {
   PRESENCE_MOVE_COALESCE_MS,
   RECENT_EDIT_FLASH_MS,
 } from '../lib/constants'
+import { hydrateFolderPages } from '../features/browse/model/pagedFolder'
+import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
 
 /** Local storage keys for persisted settings */
 const STORAGE_KEYS = {
@@ -99,6 +101,13 @@ function getPresenceErrorCode(error: unknown): string | null {
   if (!body || typeof body !== 'object') return null
   const code = (body as Record<string, unknown>).error
   return typeof code === 'string' ? code : null
+}
+
+function prefetchFilesAndThumbs(paths: readonly string[], context: FullFilePrefetchContext): void {
+  for (const path of paths) {
+    api.prefetchFile(path, context)
+    api.prefetchThumb(path)
+  }
 }
 
 function formatTimestampLabel(timestampMs: number, nowMs: number): string {
@@ -257,8 +266,51 @@ export default function AppShell() {
     return () => window.clearInterval(id)
   }, [lastEditedAt])
 
-  const { data, refetch, isLoading, isError } = useFolder(current, true)
-  const { data: cachedRootRecursive } = useFolder('/', true, { enabled: false })
+  const {
+    data: recursiveFirstPage,
+    refetch: refetchFirstPage,
+    isLoading,
+    isError,
+  } = useFolder(current, true, { page: 1, pageSize: DEFAULT_RECURSIVE_PAGE_SIZE })
+  const [data, setData] = useState<FolderIndex | undefined>()
+  const recursiveLoadTokenRef = useRef(0)
+  const refetch = useCallback(() => refetchFirstPage(), [refetchFirstPage])
+  const { data: cachedRootRecursive } = useFolder('/', true, {
+    enabled: false,
+    page: 1,
+    pageSize: DEFAULT_RECURSIVE_PAGE_SIZE,
+  })
+
+  useEffect(() => {
+    queryClient.removeQueries({
+      predicate: ({ queryKey }) => shouldRemoveRecursiveFolderQuery(queryKey, current, true),
+    })
+  }, [current, queryClient])
+
+  useEffect(() => {
+    recursiveLoadTokenRef.current += 1
+    setData(undefined)
+  }, [current])
+
+  useEffect(() => {
+    if (!recursiveFirstPage) return
+    const requestId = ++recursiveLoadTokenRef.current
+    let cancelled = false
+    void hydrateFolderPages(recursiveFirstPage, {
+      defaultPageSize: DEFAULT_RECURSIVE_PAGE_SIZE,
+      fetchPage: (page, pageSize) => api.getFolder(recursiveFirstPage.path, {
+        recursive: true,
+        page,
+        pageSize,
+      }),
+      onUpdate: setData,
+      shouldContinue: () => !cancelled && recursiveLoadTokenRef.current === requestId,
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [recursiveFirstPage])
+
   const similarityActive = similarityState !== null
   const searching = !similarityActive && query.trim().length > 0
   const debouncedQ = useDebounced(query, 250)
@@ -336,6 +388,7 @@ export default function AppShell() {
       .filter((it): it is Item => !!it)
   }, [selectedPaths, similarityState, similarityItems, poolItems, items])
   const compareItems = useMemo(() => items.filter((it) => selectedSet.has(it.path)), [items, selectedSet])
+  const comparePaths = useMemo(() => compareItems.map((it) => it.path), [compareItems])
   const compareMaxIndex = Math.max(0, compareItems.length - 2)
   const compareIndexClamped = Math.min(compareIndex, compareMaxIndex)
   const compareA = compareItems[compareIndexClamped] ?? null
@@ -739,10 +792,10 @@ export default function AppShell() {
   }, [metricKeys, viewState.sort, similarityActive])
 
   const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
-  const scopeTotal = data?.items.length ?? totalCount
+  const scopeTotal = data?.totalItems ?? data?.items.length ?? totalCount
   const rootTotal = current === '/'
     ? scopeTotal
-    : (cachedRootRecursive?.items.length ?? scopeTotal)
+    : (cachedRootRecursive?.totalItems ?? cachedRootRecursive?.items.length ?? scopeTotal)
   const showFilteredCounts = similarityActive || searching || activeFilterCount > 0
 
   const presence = presenceByGallery[current]
@@ -1293,50 +1346,13 @@ export default function AppShell() {
 
   // Prefetch neighbors for the open viewer (previous and next)
   useEffect(() => {
-    if (!viewer) return
-
-    const idx = itemPaths.indexOf(viewer)
-    if (idx === -1) return
-
-    // Prefetch 2 items in each direction
-    const neighbors = [
-      itemPaths[idx - 2],
-      itemPaths[idx - 1],
-      itemPaths[idx + 1],
-      itemPaths[idx + 2],
-    ].filter((p): p is string => Boolean(p))
-
-    for (const p of neighbors) {
-      api.prefetchFile(p)
-      api.prefetchThumb(p)
-    }
+    prefetchFilesAndThumbs(getViewerFilePrefetchPaths(itemPaths, viewer), 'viewer')
   }, [viewer, itemPaths])
 
   useEffect(() => {
-    if (!compareOpen || compareItems.length < 2) return
-    const idx = compareIndexClamped
-    const neighborIdx = new Set<number>()
-    for (const offset of [-2, -1, 0, 1, 2, 3]) {
-      const next = idx + offset
-      if (next >= 0 && next < compareItems.length) neighborIdx.add(next)
-    }
-    for (const i of neighborIdx) {
-      const path = compareItems[i]?.path
-      if (!path) continue
-      api.prefetchFile(path)
-      api.prefetchThumb(path)
-    }
-  }, [compareOpen, compareItems, compareIndexClamped])
-
-  // On folder load, prefetch fullsize for the first few items
-  useEffect(() => {
-    if (!data?.items?.length) return
-    
-    const toPreload = data.items.slice(0, 5)
-    for (const it of toPreload) {
-      api.prefetchFile(it.path)
-    }
-  }, [data?.path, data?.items])
+    if (!compareOpen) return
+    prefetchFilesAndThumbs(getCompareFilePrefetchPaths(comparePaths, compareIndexClamped), 'compare')
+  }, [compareOpen, comparePaths, compareIndexClamped])
 
   // Navigation callbacks
   const openFolder = useCallback((p: string) => {
@@ -2029,7 +2045,7 @@ function ContextMenuItems({
     setExporting(format)
     const folderPath = ctx.payload.path || current
     try {
-      const folder = await api.getFolder(folderPath, undefined, true)
+      const folder = await api.getFolder(folderPath, { recursive: true, legacyRecursive: true })
       const folderItems = folder.items
       const ratings = mapItemsToRatings(folderItems)
       const content = format === 'csv' ? toRatingsCsv(ratings) : toRatingsJson(ratings)

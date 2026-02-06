@@ -21,6 +21,19 @@ import { BASE } from './base'
 
 /** Maximum file size to cache in prefetch (40MB) */
 const MAX_PREFETCH_SIZE = 40 * 1024 * 1024
+export type FullFilePrefetchContext = 'viewer' | 'compare'
+
+function isFullFilePrefetchContext(value: unknown): value is FullFilePrefetchContext {
+  return value === 'viewer' || value === 'compare'
+}
+
+function thumbUrl(path: string): string {
+  return `${BASE}/thumb?path=${encodeURIComponent(path)}`
+}
+
+function fileUrl(path: string): string {
+  return `${BASE}/file?path=${encodeURIComponent(path)}`
+}
 
 const CLIENT_ID_KEY = 'lenslet.client_id'
 const CLIENT_ID_SESSION_KEY = 'lenslet.client_id.session'
@@ -425,6 +438,22 @@ function postPresenceJSON<TResponse>(path: string, payload: unknown): Promise<TR
   }).promise
 }
 
+export type GetFolderOptions = {
+  recursive?: boolean
+  page?: number
+  pageSize?: number
+  legacyRecursive?: boolean
+}
+
+export function buildFolderQuery(path: string, options?: GetFolderOptions): string {
+  const params = new URLSearchParams({ path })
+  if (options?.page != null) params.set('page', String(options.page))
+  if (options?.pageSize != null) params.set('page_size', String(options.pageSize))
+  if (options?.recursive) params.set('recursive', '1')
+  if (options?.legacyRecursive) params.set('legacy_recursive', '1')
+  return params.toString()
+}
+
 /**
  * API client for the lenslet backend.
  * All methods return promises and handle caching where appropriate.
@@ -433,14 +462,10 @@ export const api = {
   /**
    * Fetch folder contents by path.
    * @param path - Folder path
-   * @param page - Optional page number for pagination
-   * @param recursive - Include descendant folders when true
+   * @param options - Recursive/pagination options
    */
-  getFolder: (path: string, page?: number, recursive?: boolean): Promise<FolderIndex> => {
-    const params = new URLSearchParams({ path })
-    if (page != null) params.set('page', String(page))
-    if (recursive) params.set('recursive', '1')
-    return fetchJSON<FolderIndex>(`${BASE}/folders?${params}`).promise
+  getFolder: (path: string, options?: GetFolderOptions): Promise<FolderIndex> => {
+    return fetchJSON<FolderIndex>(`${BASE}/folders?${buildFolderQuery(path, options)}`).promise
   },
 
   /**
@@ -597,7 +622,7 @@ export const api = {
    */
   getThumb: (path: string): Promise<Blob> => {
     return thumbCache.getOrFetch(path, () =>
-      fetchBlob(`${BASE}/thumb?path=${encodeURIComponent(path)}`)
+      fetchBlob(thumbUrl(path))
     )
   },
 
@@ -606,7 +631,7 @@ export const api = {
    */
   prefetchThumb: (path: string): void => {
     thumbCache.prefetch(path, () =>
-      fetchBlob(`${BASE}/thumb?path=${encodeURIComponent(path)}`)
+      fetchBlob(thumbUrl(path))
     )
   },
 
@@ -615,20 +640,23 @@ export const api = {
    */
   getFile: (path: string): Promise<Blob> => {
     return fileCache.getOrFetch(path, () =>
-      fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`)
+      fetchBlob(fileUrl(path))
     )
   },
 
   /**
    * Prefetch a full-size file in the background.
-   * Respects the 40MB size cap to avoid caching huge files.
+   * Restricted to explicit viewer/compare contexts and capped at 40MB.
    */
-  prefetchFile: async (path: string): Promise<void> => {
+  prefetchFile: async (path: string, context: FullFilePrefetchContext): Promise<void> => {
+    if (!isFullFilePrefetchContext(context)) return
     // Skip if already cached or in-flight
     if (fileCache.has(path) || fileCache.isInflight(path)) return
-    
+
     try {
-      const blob = await fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`).promise
+      const blob = await fetchBlob(fileUrl(path), {
+        headers: { 'x-lenslet-prefetch': context },
+      }).promise
       if (blob.size <= MAX_PREFETCH_SIZE) {
         fileCache.set(path, blob)
       }

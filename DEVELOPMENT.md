@@ -109,12 +109,18 @@ python -m lenslet.cli /path/to/images --reload
 
 **API Endpoints:**
 - `GET /folders?path=<path>` - List folder contents
+  - Recursive mode supports paging via `recursive=1&page=<n>&page_size=<n>` (defaults: `page=1`, `page_size=200`, max `page_size=500`)
+  - Use `legacy_recursive=1` to return full recursive payloads for backward compatibility
 - `GET /item?path=<path>` - Get item metadata
 - `PUT /item?path=<path>` - Update item metadata
 - `GET /thumb?path=<path>` - Get/generate thumbnail
 - `GET /file?path=<path>` - Get original file
+  - Local-backed sources are served via streaming responses
+  - Non-local sources use byte-response fallback behavior
+  - Prefetch callers must use `x-lenslet-prefetch: viewer|compare`
 - `GET /search?q=<query>` - Search items
 - `GET /health` - Health check
+  - Includes hotpath counters/timers under `hotpath.counters` and `hotpath.timers_ms`
 
 ### Frontend
 
@@ -169,10 +175,26 @@ npm run build
 rm -rf ../src/lenslet/frontend/*
 cp -r dist/* ../src/lenslet/frontend/
 
+# Smoke-check packaged shell response
+curl -fsS http://127.0.0.1:7070/index.html > /dev/null
+
 # Rebuild Python package
 cd ..
 python -m build
 ```
+
+## Hotpath Rollout Notes
+
+- Export flows that require legacy full recursive payloads should call:
+  - `api.getFolder(path, { recursive: true, legacyRecursive: true })`
+- Keep recursive folder cache keys page-aware (`page`, `pageSize`) to avoid stale page mixing.
+- Keep full-file prefetch scoped to viewer/compare navigation only.
+
+### Deferred Backlog (Out of Sprint Scope)
+
+- Indexed search for large datasets (replace O(N) scan paths).
+- Folder tree virtualization for very large hierarchies.
+- Configurable/batched label persistence writes.
 
 
 ## Development Philosophy

@@ -19,10 +19,27 @@ No `PLANS.md` file is present in this repository. This document is the canonical
 - [x] 2026-02-06 11:37:07Z Drafted sprint and atomic ticket breakdown with validations.
 - [x] 2026-02-06 11:47:53Z Ran pseudo-subagent review pass and wrote output to `docs/20260206_hotpath_performance_execution_plan_review.txt`.
 - [x] 2026-02-06 11:47:53Z Incorporated review feedback: measurable gates, API contract hardening, compatibility/abuse safeguards, task splits, observability, and packaging checks.
-- [ ] Execute Sprint S1 (recursive folder payload contract + incremental loading foundations).
-- [ ] Execute Sprint S2 (OG shell path + `/file` delivery/prefetch policy).
-- [ ] Execute Sprint S3 (render purity, S3 reuse, cancellation, observability).
-- [ ] Execute Sprint S4 (regression tests, packaging verification, docs).
+- [x] 2026-02-06 12:00:16Z Execute Sprint S1 (recursive folder payload contract + incremental loading foundations).
+- [x] 2026-02-06 12:00:16Z Added backend/frontend contract + merge tests and validated with `pytest -q`, `cd frontend && npm run test`, and `cd frontend && npm run build`.
+- [x] 2026-02-06 12:02:39Z Completed Sprint S1 tasks T1-T8 in code: recursive `/folders` contract + guards + compatibility mode + frontend paged fetch/merge + cache key updates.
+- [x] 2026-02-06 12:02:39Z Added/updated Sprint S1 regression coverage: `tests/test_folder_pagination.py`, `frontend/src/api/__tests__/folders.test.ts`, `frontend/src/features/browse/model/__tests__/pagedFolder.test.ts`.
+- [x] 2026-02-06 12:02:39Z Re-ran validations after S1 landing: `pytest -q` (31 passed), `cd frontend && npm run test` (15 passed), `cd frontend && npm run build` (pass).
+- [x] 2026-02-06 12:20:48Z Execute Sprint S2 (OG shell path + `/file` delivery/prefetch policy).
+- [x] 2026-02-06 12:20:48Z Completed Sprint S2 tasks T9-T14 in code: OG shell path no longer calls subtree traversal, `/file` now streams local files with non-local fallback, and full-file prefetch is restricted to viewer/compare contexts.
+- [x] 2026-02-06 12:20:48Z Added/updated Sprint S2 regression coverage: `tests/test_hotpath_sprint_s2.py`, `frontend/src/features/browse/model/prefetchPolicy.ts`, and `frontend/src/features/browse/model/__tests__/prefetchPolicy.test.ts`.
+- [x] 2026-02-06 12:20:48Z Re-ran validations after S2 landing: `pytest -q` (35 passed), `cd frontend && npm run test` (21 passed), `cd frontend && npm run build` (pass).
+- [x] 2026-02-06 12:22:37Z Updated execution-plan handover notes for Sprint S3 start with completed Sprint S2 implementation/test coverage details.
+- [x] 2026-02-06 12:59:36Z Execute Sprint S3 (render purity, S3 reuse, cancellation, observability).
+- [x] 2026-02-06 12:59:36Z Completed Sprint S3 tasks T15-T19 in code: VirtualGrid render-purity effect scheduling, recursive folder query retention policy, per-instance S3 client/session reuse, disconnect cancellation for queued/in-flight thumbnail futures, and hotpath telemetry counters/timers surfaced in `/health`.
+- [x] 2026-02-06 12:59:36Z Added/updated Sprint S3 regression coverage: `tests/test_hotpath_sprint_s3.py`, `frontend/src/features/browse/model/virtualGridPrefetch.ts`, and `frontend/src/features/browse/model/__tests__/virtualGridPrefetch.test.ts`.
+- [x] 2026-02-06 12:59:36Z Re-ran validations after S3 landing: `pytest -q` (40 passed), `cd frontend && npm run test` (24 passed), `cd frontend && npm run build` (pass).
+- [x] 2026-02-06 13:03:15Z Refreshed plan progress + handover section for Sprint S4 handoff, including concrete validation snapshot and next-operator execution notes.
+- [x] 2026-02-06 13:13:42Z Completed post-S3 code-simplifier maintainability pass (shared S3 helper extraction, server hotpath helper consolidation, recursive query-eviction helper cleanup, and thumb scheduler readability polish) with full validation rerun.
+- [x] 2026-02-06 13:24:12Z Execute Sprint S4 (regression tests, packaging verification, docs).
+- [x] 2026-02-06 13:24:12Z Completed Sprint S4 tasks T20-T22 in code/docs: added cross-mode backend hotpath regressions (`tests/test_hotpath_sprint_s4.py`), added frontend prefetch API regressions (`frontend/src/api/__tests__/client.prefetch.test.ts`), updated rollout/deferred documentation (`README.md`, `DEVELOPMENT.md`), and refreshed packaged frontend assets in `src/lenslet/frontend/`.
+- [x] 2026-02-06 13:24:12Z Re-ran Sprint S4 validation matrix: `pytest -q tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py` (19 passed), `pytest -q` (50 passed), `cd frontend && npm run test` (28 passed), `cd frontend && npm run build` (pass), frontend bundle copy, and packaged-shell smoke check (`packaged-frontend-smoke-ok`).
+- [x] 2026-02-06 13:27:05Z Refreshed execution-plan progress and added explicit post-S4 handover checklist for next operators.
+- [x] 2026-02-06 13:37:56Z Completed a post-S4 code-simplifier maintainability pass: deduplicated shared API route wiring across app factories, simplified Sprint S4 hotpath regression assertions, cleaned frontend prefetch context/test helpers, and re-ran full backend/frontend validation suites.
 
 
 ## Surprises & Discoveries
@@ -40,7 +57,7 @@ Thumbnail scheduler cancellation exists but is not wired on client disconnect, s
 
 S3 presign calls create a boto3 client repeatedly per call path, which adds avoidable overhead under bursty thumb/file traffic. Evidence: `src/lenslet/storage/table.py:1050` and `src/lenslet/storage/dataset.py:87`.
 
-Route stacks are duplicated across three app factory paths in `src/lenslet/server.py`, so interface changes must be applied consistently in all three to avoid mode-specific behavior drift.
+Route stacks were duplicated across three app factory paths in `src/lenslet/server.py`; this is now consolidated through shared route-registration helpers to reduce mode-specific drift risk.
 
 
 ## Decision Log
@@ -66,9 +83,123 @@ Route stacks are duplicated across three app factory paths in `src/lenslet/serve
 ## Outcomes & Retrospective
 
 
-No code has been changed yet in this turn, so this section records intended outcomes by milestone. Sprint 1 should make recursive browsing payload delivery incremental and contract-safe. Sprint 2 should remove OG-related shell stalls and reduce memory/network spikes from full-file transfers. Sprint 3 should eliminate render-time request side effects and tighten backend efficiency for remote and canceled thumbnail paths. Sprint 4 should make regressions unlikely through tests, packaging checks, and docs.
+Sprint S1 through Sprint S4 are implemented. Recursive folder responses are contract-defined and paged by default with compatibility mode for legacy full-recursive callers, AppShell performs incremental multi-page loading with stable merge/dedupe semantics, OG shell rendering avoids recursive subtree counting, `/file` prefers local streaming with non-local fallback, full-file prefetch stays restricted to viewer/compare contexts, VirtualGrid prefetch side effects moved out of render, S3 presign paths reuse one client/session per storage instance, disconnect now cancels queued/in-flight thumb futures, runtime hotpath counters/timers are visible via `/health`, and Sprint S4 regression/docs/packaging checks are now locked with explicit backend/frontend suites and packaged shell validation.
 
 The key lesson from this inspection is that latency is produced by interaction between multiple “small defaults” across backend and frontend, not by a single hotspot.
+
+
+## Handover Notes
+
+
+This handover captures the repository state after Sprint S4 completion.
+
+### Completed in Sprint S1
+
+
+1. Backend recursive pagination contract (T1-T5).
+Implemented in `src/lenslet/server.py`, `src/lenslet/server_models.py`, and validated in `tests/test_folder_pagination.py`.
+
+2. Frontend recursive paging foundations (T6-T8).
+Implemented in `frontend/src/api/client.ts`, `frontend/src/api/folders.ts`, `frontend/src/app/AppShell.tsx`, `frontend/src/features/browse/model/pagedFolder.ts`, `frontend/src/features/folders/FolderTree.tsx`, and `frontend/src/lib/types.ts`.
+
+3. Frontend unit coverage for URL/key contract and page merge semantics.
+Added in `frontend/src/api/__tests__/folders.test.ts` and `frontend/src/features/browse/model/__tests__/pagedFolder.test.ts`.
+
+### Completed in Sprint S2
+
+
+1. OG shell route hot path no longer calls recursive subtree counting.
+Implemented in `src/lenslet/server.py` (`_register_index_routes`) by removing `og.subtree_image_count(...)` calls and using lightweight count/title construction.
+
+2. `/file` local streaming path with non-local fallback.
+Implemented in `src/lenslet/server.py` (`_resolve_local_file_path`, `_file_response`) using `FileResponse` for local sources and preserving `read_bytes` fallback for non-local sources.
+
+3. Full-file prefetch policy restricted to explicit viewer/compare contexts.
+Implemented in `frontend/src/api/client.ts` (`prefetchFile(path, context)`), `frontend/src/app/AppShell.tsx` (bounded viewer/compare prefetch only), and `frontend/src/features/browse/components/VirtualGrid.tsx` (removed full-file hover/click prefetch triggers outside viewer/compare flows).
+
+4. Bounded prefetch helper model and regression tests.
+Added in `frontend/src/features/browse/model/prefetchPolicy.ts` and `frontend/src/features/browse/model/__tests__/prefetchPolicy.test.ts`.
+
+5. Backend Sprint S2 regression suite for OG shell and `/file` behavior.
+Added in `tests/test_hotpath_sprint_s2.py`.
+
+### Completed in Sprint S3
+
+
+1. VirtualGrid render-purity and thumbnail prefetch scheduling moved to effect lifecycle.
+Implemented in `frontend/src/features/browse/components/VirtualGrid.tsx` with helper extraction in `frontend/src/features/browse/model/virtualGridPrefetch.ts`.
+
+2. Frontend recursive folder cache retention policy for paged recursive query keys.
+Implemented in `frontend/src/api/folders.ts` (`shouldRetainRecursiveFolderQuery`, recursive `gcTime` policy) and applied in `frontend/src/app/AppShell.tsx` via `queryClient.removeQueries(...)`.
+
+3. Per-storage-instance S3 client/session reuse for presign calls.
+Implemented in `src/lenslet/storage/table.py` and `src/lenslet/storage/dataset.py` (`_get_s3_client`, `s3_client_creations`).
+
+4. Disconnect cancellation wiring for queued and in-flight thumbnail futures.
+Implemented in `src/lenslet/server.py` (`_thumb_response_async`) and `src/lenslet/thumbs.py` (`cancel` state handling + canceled-future worker guards).
+
+5. Hotpath observability counters/timers and health visibility.
+Implemented in `src/lenslet/server.py` (`HotpathTelemetry`) with counters for recursive traversal, `/file` response mode/prefetch context, thumb disconnect cancellation, and S3 client creation count surfacing.
+
+### Post-S3 Maintainability Simplifier Pass
+
+
+1. Consolidated S3 client/session creation into a shared helper.
+Implemented in `src/lenslet/storage/s3.py` and adopted by `src/lenslet/storage/dataset.py` and `src/lenslet/storage/table.py` so S3 dependency and client-construction logic is defined once.
+
+2. Consolidated repeated hotpath app wiring across all app factories.
+Implemented in `src/lenslet/server.py` (`_create_hotpath_metrics`, `_labels_health_payload`) to reduce repeated setup/health payload blocks and keep mode parity easier to maintain.
+
+3. Simplified recursive folder query eviction wiring for readability.
+Implemented in `frontend/src/api/folders.ts` (`parseRecursiveFolderQueryKey`, `shouldRemoveRecursiveFolderQuery`) and consumed in `frontend/src/app/AppShell.tsx`.
+
+4. Clarified thumbnail scheduler cancellation internals without behavior changes.
+Implemented in `src/lenslet/thumbs.py` via internal helpers for queue/inflight bookkeeping; test teardown safety tightened in `tests/test_hotpath_sprint_s3.py`.
+
+### Completed in Sprint S4
+
+
+1. Added backend cross-mode hotpath regression coverage.
+Added in `tests/test_hotpath_sprint_s4.py` to lock recursive pagination and `/file` behavior across memory/table/dataset app factories, plus table OG shell guard and cancellation-metric success-path assertions.
+
+2. Added frontend prefetch API regression coverage.
+Added in `frontend/src/api/__tests__/client.prefetch.test.ts` to lock prefetch context gating, prefetch-header wiring, and cache short-circuit behavior.
+
+3. Updated rollout/deferred backlog documentation.
+Updated in `README.md` and `DEVELOPMENT.md` with explicit recursive compatibility mode, `/file` delivery behavior, prefetch-context contract, health telemetry references, and deferred-scope notes.
+
+4. Refreshed packaged frontend bundle and verified serving path.
+Ran `cd frontend && npm run build`, copied artifacts into `src/lenslet/frontend/`, and validated shell + asset serving with a packaged smoke check.
+
+### Post-S4 Maintainability Simplifier Pass
+
+
+1. Consolidated duplicated API route wiring across app factories.
+Implemented in `src/lenslet/server.py` using `_build_record_update` and `_register_common_api_routes`, so `/item`, `/metadata`, sync routes, `/thumb`, `/file`, `/search`, and `/folders` behavior is defined once and reused by memory/dataset/table app factories.
+
+2. Clarified hotpath regression test readability.
+Updated `tests/test_hotpath_sprint_s4.py` with focused helper assertions for recursive pagination payload shape and local file-stream responses to keep intent explicit while preserving coverage.
+
+3. Simplified frontend prefetch context/test structure.
+Updated `frontend/src/api/client.ts` to use an explicit prefetch-context guard helper and `frontend/src/api/__tests__/client.prefetch.test.ts` with shared setup/teardown state reset helper.
+
+### Validation Snapshot
+
+
+1. `pytest -q tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py` passed (`19 passed`).
+2. `pytest -q` passed (`50 passed`).
+3. `cd frontend && npm run test` passed (`28 passed`).
+4. `cd frontend && npm run build` passed.
+5. Frontend bundle copy completed into `src/lenslet/frontend/` and packaged shell smoke check passed (`packaged-frontend-smoke-ok`).
+
+### Post-S4 Operator Handover Checklist
+
+
+1. Sprint S4 is complete; reopen only if regression appears in the validated suites above.
+2. Full-suite `pytest -q` currently reports 6 non-blocking warnings (pre-existing programmatic API test warnings around return values and multiprocessing fork deprecation).
+3. Packaged frontend currently serves `src/lenslet/frontend/assets/index-ra-Ao44p.js`; rebuild and copy frontend assets again after any UI change.
+4. Export flow compatibility still depends on full-recursive mode (`api.getFolder(..., { recursive: true, legacyRecursive: true })`).
+5. Deferred backlog remains unchanged: indexed search path, folder-tree virtualization, and configurable/batched label persistence writes.
 
 
 ## Context and Orientation

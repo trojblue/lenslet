@@ -4,6 +4,7 @@ import math
 import os
 import struct
 import time
+from threading import Lock
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
@@ -13,6 +14,8 @@ from urllib.parse import urlparse
 from PIL import Image
 
 from .progress import ProgressBar
+from .s3 import S3_DEPENDENCY_ERROR, create_s3_client
+
 
 @dataclass
 class CachedItem:
@@ -162,6 +165,10 @@ class TableStorage:
         self._row_dimensions: list[tuple[int, int] | None] = []
         self._path_to_row: dict[str, int] = {}
         self._row_to_path: dict[int, str] = {}
+        self._s3_client_lock = Lock()
+        self._s3_session: Any | None = None
+        self._s3_client: Any | None = None
+        self._s3_client_creations = 0
 
         columns, data, row_count = self._table_to_columns(table)
         if row_count == 0:
@@ -1047,14 +1054,22 @@ class TableStorage:
         cap = min(cap, self.REMOTE_DIM_WORKERS_MAX)
         return max(1, min(cap, total))
 
+    def _get_s3_client(self):
+        with self._s3_client_lock:
+            if self._s3_client is not None:
+                return self._s3_client
+            self._s3_session, self._s3_client = create_s3_client()
+            self._s3_client_creations += 1
+            return self._s3_client
+
+    def s3_client_creations(self) -> int:
+        return self._s3_client_creations
+
     def _get_presigned_url(self, s3_uri: str, expires_in: int = 3600) -> str:
         try:
-            import boto3
             from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
         except ImportError as exc:  # pragma: no cover - optional dependency
-            raise ImportError(
-                "boto3 package required for S3 support. Install with: pip install lenslet[s3]"
-            ) from exc
+            raise ImportError(S3_DEPENDENCY_ERROR) from exc
 
         parsed = urlparse(s3_uri)
         bucket = parsed.netloc
@@ -1063,7 +1078,7 @@ class TableStorage:
             raise ValueError(f"Invalid S3 URI: {s3_uri}")
 
         try:
-            s3_client = boto3.client("s3")
+            s3_client = self._get_s3_client()
             return s3_client.generate_presigned_url(
                 "get_object",
                 Params={"Bucket": bucket, "Key": key},

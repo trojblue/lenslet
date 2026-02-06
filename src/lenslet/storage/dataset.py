@@ -7,9 +7,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
+from threading import Lock
 from urllib.parse import urlparse
 from PIL import Image
 from .progress import ProgressBar
+from .s3 import S3_DEPENDENCY_ERROR, create_s3_client
 
 
 @dataclass
@@ -72,6 +74,10 @@ class DatasetStorage:
         self._metadata: dict[str, dict] = {}
         self._dimensions: dict[str, tuple[int, int]] = {}
         self._source_paths: dict[str, str] = {}
+        self._s3_client_lock = Lock()
+        self._s3_session = None
+        self._s3_client = None
+        self._s3_client_creations = 0
         
         # Build initial index
         self._build_all_indexes()
@@ -84,15 +90,23 @@ class DatasetStorage:
         """Check if path is an HTTP/HTTPS URL."""
         return path.startswith("http://") or path.startswith("https://")
 
+    def _get_s3_client(self):
+        with self._s3_client_lock:
+            if self._s3_client is not None:
+                return self._s3_client
+            self._s3_session, self._s3_client = create_s3_client()
+            self._s3_client_creations += 1
+            return self._s3_client
+
+    def s3_client_creations(self) -> int:
+        return self._s3_client_creations
+
     def _get_presigned_url(self, s3_uri: str, expires_in: int = 3600) -> str:
         """Convert S3 URI to a presigned HTTPS URL using boto3."""
         try:
-            import boto3
             from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
         except ImportError as exc:  # pragma: no cover - optional dependency
-            raise ImportError(
-                "boto3 package required for S3 support. Install with: pip install lenslet[s3]"
-            ) from exc
+            raise ImportError(S3_DEPENDENCY_ERROR) from exc
 
         parsed = urlparse(s3_uri)
         bucket = parsed.netloc
@@ -101,7 +115,7 @@ class DatasetStorage:
             raise ValueError(f"Invalid S3 URI: {s3_uri}")
 
         try:
-            s3_client = boto3.client("s3")
+            s3_client = self._get_s3_client()
             return s3_client.generate_presigned_url(
                 "get_object",
                 Params={"Bucket": bucket, "Key": key},

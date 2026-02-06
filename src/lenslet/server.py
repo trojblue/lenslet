@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import os
+import time
 import threading
 import html
 import math
@@ -11,10 +12,10 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from . import og
@@ -169,6 +170,76 @@ class _RecursivePaginationWindow:
     end: int
 
 
+class HotpathTelemetry:
+    """Lightweight in-process counters/timers for hot-path visibility."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._counters: dict[str, int] = {}
+        self._timers: dict[str, tuple[int, float]] = {}
+
+    def increment(self, key: str, amount: int = 1) -> None:
+        if amount == 0:
+            return
+        with self._lock:
+            self._counters[key] = self._counters.get(key, 0) + amount
+
+    def observe_ms(self, key: str, duration_ms: float) -> None:
+        if duration_ms < 0:
+            duration_ms = 0
+        with self._lock:
+            count, total = self._timers.get(key, (0, 0.0))
+            self._timers[key] = (count + 1, total + duration_ms)
+
+    def snapshot(self, storage=None) -> dict[str, Any]:
+        with self._lock:
+            counters = dict(self._counters)
+            timers = {
+                key: {
+                    "count": count,
+                    "total_ms": round(total_ms, 3),
+                    "avg_ms": round(total_ms / count, 3) if count else 0.0,
+                }
+                for key, (count, total_ms) in self._timers.items()
+            }
+        s3_creations = _storage_s3_client_creations(storage)
+        if s3_creations is not None:
+            counters["s3_client_create_total"] = s3_creations
+        return {
+            "counters": counters,
+            "timers_ms": timers,
+        }
+
+
+def _create_hotpath_metrics(app: FastAPI) -> HotpathTelemetry:
+    metrics = HotpathTelemetry()
+    app.state.hotpath_metrics = metrics
+    return metrics
+
+
+def _labels_health_payload(workspace: Workspace) -> dict[str, Any]:
+    if not workspace.can_write:
+        return {"enabled": False, "log": None, "snapshot": None}
+    return {
+        "enabled": True,
+        "log": str(workspace.labels_log_path()),
+        "snapshot": str(workspace.labels_snapshot_path()),
+    }
+
+
+def _storage_s3_client_creations(storage) -> int | None:
+    getter = getattr(storage, "s3_client_creations", None)
+    if callable(getter):
+        try:
+            return int(getter())
+        except Exception:
+            return None
+    raw = getattr(storage, "_s3_client_creations", None)
+    if isinstance(raw, int):
+        return raw
+    return None
+
+
 def _parse_recursive_pagination_value(name: str, raw: str | None, default: int) -> int:
     if raw is None or raw == "":
         return default
@@ -268,6 +339,7 @@ def _build_folder_index(
     page: str | None = None,
     page_size: str | None = None,
     legacy_recursive: bool = False,
+    hotpath_metrics: HotpathTelemetry | None = None,
 ) -> FolderIndex:
     try:
         index = storage.get_index(path)
@@ -278,7 +350,16 @@ def _build_folder_index(
 
     page_window: _RecursivePaginationWindow | None = None
     if recursive:
+        if hotpath_metrics is not None:
+            hotpath_metrics.increment("folders_recursive_requests_total")
+        traversal_started = time.perf_counter()
         cached_items = _collect_recursive_cached_items(storage, _canonical_path(path), index)
+        if hotpath_metrics is not None:
+            hotpath_metrics.observe_ms(
+                "folders_recursive_traversal_ms",
+                (time.perf_counter() - traversal_started) * 1000.0,
+            )
+            hotpath_metrics.increment("folders_recursive_items_total", len(cached_items))
         items, page_window = _build_recursive_items(
             storage,
             to_item,
@@ -304,7 +385,11 @@ def _build_folder_index(
     )
 
 
-def _register_folder_route(app: FastAPI, to_item) -> None:
+def _register_folder_route(
+    app: FastAPI,
+    to_item,
+    hotpath_metrics: HotpathTelemetry | None = None,
+) -> None:
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(
         path: str = "/",
@@ -323,6 +408,7 @@ def _register_folder_route(app: FastAPI, to_item) -> None:
             page=page,
             page_size=page_size,
             legacy_recursive=legacy_recursive,
+            hotpath_metrics=hotpath_metrics,
         )
 
 
@@ -428,6 +514,36 @@ def _thumb_cache_source(storage, path: str) -> str | None:
 
 def _is_remote_source(source: str) -> bool:
     return source.startswith("s3://") or source.startswith("http://") or source.startswith("https://")
+
+
+def _existing_local_file(source: str) -> str | None:
+    source_path = os.path.abspath(os.path.expanduser(source))
+    if not os.path.isfile(source_path):
+        return None
+    return source_path
+
+
+def _resolve_local_file_path(storage, path: str) -> str | None:
+    source = _thumb_cache_source(storage, path)
+    if not source or _is_remote_source(source):
+        return None
+
+    resolver = getattr(storage, "_resolve_local_source", None)
+    if callable(resolver):
+        try:
+            source = resolver(source)
+        except Exception:
+            return None
+
+    local = getattr(storage, "local", None)
+    local_resolver = getattr(local, "resolve_path", None)
+    if callable(local_resolver):
+        try:
+            source = local_resolver(path)
+        except Exception:
+            pass
+
+    return _existing_local_file(source)
 
 
 def _og_cache_key(workspace: Workspace, style: str, signature: str, path: str) -> str:
@@ -556,6 +672,7 @@ async def _thumb_response_async(
     request: Request,
     queue: ThumbnailScheduler,
     thumb_cache: ThumbCache | None = None,
+    hotpath_metrics: HotpathTelemetry | None = None,
 ) -> Response:
     cached = _get_cached_thumbnail(storage, path)
     if cached is not None:
@@ -573,6 +690,11 @@ async def _thumb_response_async(
     try:
         thumb = await _await_thumbnail(request, future)
     except _ClientDisconnected:
+        cancel_state = queue.cancel(path, future)
+        if hotpath_metrics is not None:
+            hotpath_metrics.increment("thumb_disconnect_cancel_total")
+            if cancel_state in ("queued", "inflight"):
+                hotpath_metrics.increment(f"thumb_disconnect_cancel_{cancel_state}_total")
         return Response(status_code=204)
 
     if thumb is None:
@@ -582,9 +704,40 @@ async def _thumb_response_async(
     return Response(content=thumb, media_type="image/webp")
 
 
-def _file_response(storage, path: str) -> Response:
+FilePrefetchContext = Literal["viewer", "compare"]
+
+
+def _file_prefetch_context(request: Request | None) -> FilePrefetchContext | None:
+    if request is None:
+        return None
+    raw = (request.headers.get("x-lenslet-prefetch") or "").strip().lower()
+    if raw == "viewer":
+        return "viewer"
+    if raw == "compare":
+        return "compare"
+    return None
+
+
+def _file_response(
+    storage,
+    path: str,
+    request: Request | None = None,
+    hotpath_metrics: HotpathTelemetry | None = None,
+) -> Response:
+    prefetch_context = _file_prefetch_context(request)
+    if prefetch_context is not None and hotpath_metrics is not None:
+        hotpath_metrics.increment(f"file_prefetch_{prefetch_context}_total")
+
+    media_type = storage._guess_mime(path)
+    local_path = _resolve_local_file_path(storage, path)
+    if local_path is not None:
+        if hotpath_metrics is not None:
+            hotpath_metrics.increment("file_response_local_stream_total")
+        return FileResponse(path=local_path, media_type=media_type)
+    if hotpath_metrics is not None:
+        hotpath_metrics.increment("file_response_fallback_bytes_total")
     data = storage.read_bytes(path)
-    return Response(content=data, media_type=storage._guess_mime(path))
+    return Response(content=data, media_type=media_type)
 
 
 def _search_results(storage, to_item, q: str, path: str, limit: int) -> SearchResult:
@@ -606,6 +759,19 @@ def _mount_frontend(app: FastAPI) -> None:
         app.mount("/", NoCacheIndexStaticFiles(directory=str(frontend_dist), html=True), name="frontend")
 
 
+def _build_index_title(label: str, total_count: int | None) -> str:
+    title = f"Lenslet: {label}"
+    if total_count is None:
+        return title
+    return f"{title} ({total_count:,} images)"
+
+
+def _build_index_description(label: str, scope_path: str) -> str:
+    if scope_path == "/":
+        return f"Browse {label} gallery"
+    return f"Browse {label} gallery in {scope_path}"
+
+
 def _register_index_routes(app: FastAPI, storage, workspace: Workspace, og_preview: bool) -> None:
     frontend_dist = Path(__file__).parent / "frontend"
     index_path = frontend_dist / "index.html"
@@ -616,20 +782,9 @@ def _register_index_routes(app: FastAPI, storage, workspace: Workspace, og_previ
         html_text = index_path.read_text(encoding="utf-8")
         if og_preview:
             label = _dataset_label(workspace)
-            title = f"Lenslet: {label}"
             scope_path = og.normalize_path(request.query_params.get("path"))
-            scope_count = og.subtree_image_count(storage, scope_path)
-            root_count = og.subtree_image_count(storage, "/")
-            if scope_count is None:
-                scope_count = _dataset_count(storage)
-            if root_count is None:
-                root_count = scope_count
-            if scope_count is not None:
-                if scope_path != "/" and root_count is not None:
-                    title = f"{title} ({scope_count:,}/{root_count:,} images)"
-                else:
-                    title = f"{title} ({scope_count:,} images)"
-            description = f"Browse {label} gallery"
+            title = _build_index_title(label, _dataset_count(storage))
+            description = _build_index_description(label, scope_path)
             image_url = request.url_for("og_image")
             path_param = request.query_params.get("path")
             if path_param:
@@ -941,6 +1096,7 @@ def create_app(
 
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
+    hotpath_metrics = _create_hotpath_metrics(app)
 
     def _to_item(storage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
@@ -971,14 +1127,11 @@ def create_app(
             "mode": storage_mode,
             "root": root_path,
             "can_write": workspace.can_write,
-            "labels": {
-                "enabled": workspace.can_write,
-                "log": str(workspace.labels_log_path()) if workspace.can_write else None,
-                "snapshot": str(workspace.labels_snapshot_path()) if workspace.can_write else None,
-            },
+            "labels": _labels_health_payload(workspace),
+            "hotpath": hotpath_metrics.snapshot(storage),
         }
 
-    _register_folder_route(app, _to_item)
+    _register_folder_route(app, _to_item, hotpath_metrics=hotpath_metrics)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -1130,14 +1283,21 @@ def create_app(
         storage = _storage_from_request(request)
         path = _canonical_path(path)
         _ensure_image(storage, path)
-        return await _thumb_response_async(storage, path, request, thumb_queue, cache)
+        return await _thumb_response_async(
+            storage,
+            path,
+            request,
+            thumb_queue,
+            cache,
+            hotpath_metrics=hotpath_metrics,
+        )
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
         storage = _storage_from_request(request)
         path = _canonical_path(path)
         _ensure_image(storage, path)
-        return _file_response(storage, path)
+        return _file_response(storage, path, request=request, hotpath_metrics=hotpath_metrics)
 
     @app.get("/search", response_model=SearchResult)
     def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
@@ -1199,6 +1359,7 @@ def create_app_from_datasets(
     app.state.sync_broker = broker
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
+    hotpath_metrics = _create_hotpath_metrics(app)
     embedding_manager: EmbeddingManager | None = None
     if embedding_parquet_path and isinstance(storage, TableStorage):
         detection = _resolve_embedding_detection(embedding_parquet_path, embedding_config)
@@ -1253,14 +1414,11 @@ def create_app_from_datasets(
             "datasets": dataset_names,
             "total_images": total_images,
             "can_write": workspace.can_write,
-            "labels": {
-                "enabled": workspace.can_write,
-                "log": str(workspace.labels_log_path()) if workspace.can_write else None,
-                "snapshot": str(workspace.labels_snapshot_path()) if workspace.can_write else None,
-            },
+            "labels": _labels_health_payload(workspace),
+            "hotpath": hotpath_metrics.snapshot(storage),
         }
 
-    _register_folder_route(app, _to_item)
+    _register_folder_route(app, _to_item, hotpath_metrics=hotpath_metrics)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -1401,14 +1559,21 @@ def create_app_from_datasets(
         storage = _storage_from_request(request)
         path = _canonical_path(path)
         _ensure_image(storage, path)
-        return await _thumb_response_async(storage, path, request, thumb_queue, cache)
+        return await _thumb_response_async(
+            storage,
+            path,
+            request,
+            thumb_queue,
+            cache,
+            hotpath_metrics=hotpath_metrics,
+        )
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
         storage = _storage_from_request(request)
         path = _canonical_path(path)
         _ensure_image(storage, path)
-        return _file_response(storage, path)
+        return _file_response(storage, path, request=request, hotpath_metrics=hotpath_metrics)
 
     @app.get("/search", response_model=SearchResult)
     def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
@@ -1502,6 +1667,7 @@ def create_app_from_storage(
     app.state.sync_broker = broker
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
+    hotpath_metrics = _create_hotpath_metrics(app)
     embedding_manager: EmbeddingManager | None = None
     if embedding_parquet_path:
         detection = _resolve_embedding_detection(embedding_parquet_path, embedding_config)
@@ -1545,14 +1711,11 @@ def create_app_from_storage(
             "mode": "table",
             "total_images": len(storage._items),
             "can_write": workspace.can_write,
-            "labels": {
-                "enabled": workspace.can_write,
-                "log": str(workspace.labels_log_path()) if workspace.can_write else None,
-                "snapshot": str(workspace.labels_snapshot_path()) if workspace.can_write else None,
-            },
+            "labels": _labels_health_payload(workspace),
+            "hotpath": hotpath_metrics.snapshot(storage),
         }
 
-    _register_folder_route(app, _to_item)
+    _register_folder_route(app, _to_item, hotpath_metrics=hotpath_metrics)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -1692,14 +1855,21 @@ def create_app_from_storage(
         storage = _storage_from_request(request)
         path = _canonical_path(path)
         _ensure_image(storage, path)
-        return await _thumb_response_async(storage, path, request, thumb_queue, cache)
+        return await _thumb_response_async(
+            storage,
+            path,
+            request,
+            thumb_queue,
+            cache,
+            hotpath_metrics=hotpath_metrics,
+        )
 
     @app.get("/file")
     def get_file(path: str, request: Request = None):
         storage = _storage_from_request(request)
         path = _canonical_path(path)
         _ensure_image(storage, path)
-        return _file_response(storage, path)
+        return _file_response(storage, path, request=request, hotpath_metrics=hotpath_metrics)
 
     @app.get("/search", response_model=SearchResult)
     def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):

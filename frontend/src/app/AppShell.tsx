@@ -6,11 +6,11 @@ import Viewer from '../features/viewer/Viewer'
 import CompareViewer from '../features/compare/CompareViewer'
 import Inspector from '../features/inspector/Inspector'
 import SimilarityModal from '../features/embeddings/SimilarityModal'
-import { DEFAULT_RECURSIVE_PAGE_SIZE, useFolder } from '../shared/api/folders'
+import { DEFAULT_RECURSIVE_PAGE_SIZE, shouldRemoveRecursiveFolderQuery, useFolder } from '../shared/api/folders'
 import { useSearch } from '../shared/api/search'
 import { useEmbeddings } from '../shared/api/embeddings'
 import { api, connectEvents, disconnectEvents, subscribeEvents, subscribeEventStatus } from '../shared/api/client'
-import type { ConnectionStatus, SyncEvent } from '../shared/api/client'
+import type { ConnectionStatus, FullFilePrefetchContext, SyncEvent } from '../shared/api/client'
 import { useOldestInflightAgeMs, useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
 import { usePollingEnabled } from '../shared/api/polling'
 import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, isTrashPath, isLikelyImagePath } from './routing/hash'
@@ -47,6 +47,7 @@ import LeftSidebar from './components/LeftSidebar'
 import StatusBar from './components/StatusBar'
 import { EDITING_HOLD_MS, LAST_EDIT_RELATIVE_MS, LONG_SYNC_THRESHOLD_MS, RECENT_EDIT_FLASH_MS } from '../lib/constants'
 import { hydrateFolderPages } from '../features/browse/model/pagedFolder'
+import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
 
 /** Local storage keys for persisted settings */
 const STORAGE_KEYS = {
@@ -110,6 +111,13 @@ function getIndicatorState(options: {
   if (options.recentEditActive) return 'recent'
   if (options.editingActive) return 'editing'
   return 'live'
+}
+
+function prefetchFilesAndThumbs(paths: readonly string[], context: FullFilePrefetchContext): void {
+  for (const path of paths) {
+    api.prefetchFile(path, context)
+    api.prefetchThumb(path)
+  }
 }
 
 function formatTimestampLabel(timestampMs: number, nowMs: number): string {
@@ -321,6 +329,12 @@ export default function AppShell() {
   })
 
   useEffect(() => {
+    queryClient.removeQueries({
+      predicate: ({ queryKey }) => shouldRemoveRecursiveFolderQuery(queryKey, current, true),
+    })
+  }, [current, queryClient])
+
+  useEffect(() => {
     recursiveLoadTokenRef.current += 1
     setData(undefined)
   }, [current])
@@ -411,6 +425,7 @@ export default function AppShell() {
       .filter((it): it is Item => !!it)
   }, [selectedPaths, similarityState, similarityItems, poolItems, items])
   const compareItems = useMemo(() => items.filter((it) => selectedSet.has(it.path)), [items, selectedSet])
+  const comparePaths = useMemo(() => compareItems.map((it) => it.path), [compareItems])
   const compareMaxIndex = Math.max(0, compareItems.length - 2)
   const compareIndexClamped = Math.min(compareIndex, compareMaxIndex)
   const compareA = compareItems[compareIndexClamped] ?? null
@@ -1230,50 +1245,13 @@ export default function AppShell() {
 
   // Prefetch neighbors for the open viewer (previous and next)
   useEffect(() => {
-    if (!viewer) return
-
-    const idx = itemPaths.indexOf(viewer)
-    if (idx === -1) return
-
-    // Prefetch 2 items in each direction
-    const neighbors = [
-      itemPaths[idx - 2],
-      itemPaths[idx - 1],
-      itemPaths[idx + 1],
-      itemPaths[idx + 2],
-    ].filter((p): p is string => Boolean(p))
-
-    for (const p of neighbors) {
-      api.prefetchFile(p)
-      api.prefetchThumb(p)
-    }
+    prefetchFilesAndThumbs(getViewerFilePrefetchPaths(itemPaths, viewer), 'viewer')
   }, [viewer, itemPaths])
 
   useEffect(() => {
-    if (!compareOpen || compareItems.length < 2) return
-    const idx = compareIndexClamped
-    const neighborIdx = new Set<number>()
-    for (const offset of [-2, -1, 0, 1, 2, 3]) {
-      const next = idx + offset
-      if (next >= 0 && next < compareItems.length) neighborIdx.add(next)
-    }
-    for (const i of neighborIdx) {
-      const path = compareItems[i]?.path
-      if (!path) continue
-      api.prefetchFile(path)
-      api.prefetchThumb(path)
-    }
-  }, [compareOpen, compareItems, compareIndexClamped])
-
-  // On folder load, prefetch fullsize for the first few items
-  useEffect(() => {
-    if (!data?.items?.length) return
-    
-    const toPreload = data.items.slice(0, 5)
-    for (const it of toPreload) {
-      api.prefetchFile(it.path)
-    }
-  }, [data?.path, data?.items])
+    if (!compareOpen) return
+    prefetchFilesAndThumbs(getCompareFilePrefetchPaths(comparePaths, compareIndexClamped), 'compare')
+  }, [compareOpen, comparePaths, compareIndexClamped])
 
   // Navigation callbacks
   const openFolder = useCallback((p: string) => {

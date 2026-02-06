@@ -21,6 +21,15 @@ import { BASE } from './base'
 
 /** Maximum file size to cache in prefetch (40MB) */
 const MAX_PREFETCH_SIZE = 40 * 1024 * 1024
+export type FullFilePrefetchContext = 'viewer' | 'compare'
+
+function thumbUrl(path: string): string {
+  return `${BASE}/thumb?path=${encodeURIComponent(path)}`
+}
+
+function fileUrl(path: string): string {
+  return `${BASE}/file?path=${encodeURIComponent(path)}`
+}
 
 const CLIENT_ID_KEY = 'lenslet.client_id'
 const CLIENT_ID_SESSION_KEY = 'lenslet.client_id.session'
@@ -467,7 +476,7 @@ export const api = {
    */
   getThumb: (path: string): Promise<Blob> => {
     return thumbCache.getOrFetch(path, () =>
-      fetchBlob(`${BASE}/thumb?path=${encodeURIComponent(path)}`)
+      fetchBlob(thumbUrl(path))
     )
   },
 
@@ -476,7 +485,7 @@ export const api = {
    */
   prefetchThumb: (path: string): void => {
     thumbCache.prefetch(path, () =>
-      fetchBlob(`${BASE}/thumb?path=${encodeURIComponent(path)}`)
+      fetchBlob(thumbUrl(path))
     )
   },
 
@@ -485,20 +494,23 @@ export const api = {
    */
   getFile: (path: string): Promise<Blob> => {
     return fileCache.getOrFetch(path, () =>
-      fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`)
+      fetchBlob(fileUrl(path))
     )
   },
 
   /**
    * Prefetch a full-size file in the background.
-   * Respects the 40MB size cap to avoid caching huge files.
+   * Restricted to explicit viewer/compare contexts and capped at 40MB.
    */
-  prefetchFile: async (path: string): Promise<void> => {
+  prefetchFile: async (path: string, context: FullFilePrefetchContext): Promise<void> => {
+    if (context !== 'viewer' && context !== 'compare') return
     // Skip if already cached or in-flight
     if (fileCache.has(path) || fileCache.isInflight(path)) return
     
     try {
-      const blob = await fetchBlob(`${BASE}/file?path=${encodeURIComponent(path)}`).promise
+      const blob = await fetchBlob(fileUrl(path), {
+        headers: { 'x-lenslet-prefetch': context },
+      }).promise
       if (blob.size <= MAX_PREFETCH_SIZE) {
         fileCache.set(path, blob)
       }

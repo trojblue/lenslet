@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useLayoutEffect, useMemo } from 'react'
+import React, { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { Item, ViewMode } from '../../../lib/types'
 import ThumbCard from './ThumbCard'
@@ -6,6 +6,7 @@ import { api } from '../../../shared/api/client'
 import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 import type { AdaptiveRow } from '../model/adaptive'
+import { getVisibleThumbPrefetchPaths } from '../model/virtualGridPrefetch'
 
 const GAP = 12
 const CAPTION_H = 44
@@ -231,12 +232,11 @@ export default function VirtualGrid({
     try { (document.getElementById(`cell-${encodeURIComponent(path)}`) as HTMLElement | null)?.focus() } catch {}
   }
 
-  const prefetchItem = (path: string) => {
+  const prefetchThumbSafely = useCallback((path: string) => {
     try {
-      api.prefetchFile(path)
       api.prefetchThumb(path)
     } catch {}
-  }
+  }, [])
 
   const handleItemClick = (path: string, ev: React.MouseEvent) => {
     setActive(path)
@@ -274,9 +274,7 @@ export default function VirtualGrid({
       onSelectionChange([path])
       anchorRef.current = path
     }
-    if (!isScrolling) {
-      prefetchItem(path)
-    }
+    if (!isScrolling) prefetchThumbSafely(path)
     focusCell(path)
   }
 
@@ -381,6 +379,18 @@ export default function VirtualGrid({
 
   const selectedSet = useMemo(() => new Set(selected), [selected])
   const hasPreview = !!(previewFor && previewUrl && delayPassed)
+  const visibleThumbPrefetchPaths = useMemo(
+    () => getVisibleThumbPrefetchPaths(virtualRows, layout, items),
+    [items, layout, virtualRows],
+  )
+
+  useEffect(() => {
+    if (isScrolling || visibleThumbPrefetchPaths.length === 0) return
+    for (const path of visibleThumbPrefetchPaths) {
+      prefetchThumbSafely(path)
+    }
+  }, [isScrolling, visibleThumbPrefetchPaths, prefetchThumbSafely])
+
   useEffect(() => { parentRef.current?.focus() }, [])
   useEffect(() => { if (suppressSelectionHighlight) { try { parentRef.current?.blur() } catch {} ; try { setFocused(null) } catch {} } }, [suppressSelectionHighlight])
 
@@ -428,9 +438,7 @@ export default function VirtualGrid({
              rowClass = "absolute top-0 left-0 right-0 w-full grid will-change-transform"
           }
           
-          // Prefetch logic
           const isTopmostVisibleRow = row.index === virtualRows[0]?.index
-          try { if (!isScrolling) { for (const { item: it } of rowItems) { try { api.prefetchThumb(it.path) } catch {} } } } catch {}
           
           return (
             <div 
@@ -466,7 +474,6 @@ export default function VirtualGrid({
                   <div 
                     className={itemContainerClass}
                     style={imageContainerStyle}
-                    onMouseEnter={()=>{ try { api.prefetchFile(it.path) } catch {} }} 
                     onDoubleClick={()=> onOpenViewer(it.path)} 
                     onMouseLeave={clearPreview}>
                     <div className="cell-content absolute inset-0">

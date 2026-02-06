@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { buildFolderQuery } from '../client'
-import { folderQueryKey } from '../folders'
+import {
+  folderQueryKey,
+  shouldRemoveRecursiveFolderQuery,
+  shouldRetainRecursiveFolderQuery,
+} from '../folders'
 
 describe('folder api query helpers', () => {
   it('builds recursive query params with pagination', () => {
@@ -25,5 +29,21 @@ describe('folder api query helpers', () => {
     expect(folderQueryKey('/shots', { recursive: true, page: 1, pageSize: 200 })).toEqual(['folder', '/shots', 'recursive', 1, 200])
     expect(folderQueryKey('/shots', { recursive: true, page: 2, pageSize: 200 })).toEqual(['folder', '/shots', 'recursive', 2, 200])
     expect(folderQueryKey('/shots', { recursive: true, page: 1, pageSize: 300 })).toEqual(['folder', '/shots', 'recursive', 1, 300])
+  })
+
+  it('retains only current/root first-page recursive queries', () => {
+    expect(shouldRetainRecursiveFolderQuery(['folder', '/shots', 'recursive', 1, 200], '/shots')).toBe(true)
+    expect(shouldRetainRecursiveFolderQuery(['folder', '/', 'recursive', 1, 200], '/shots')).toBe(true)
+    expect(shouldRetainRecursiveFolderQuery(['folder', '/other', 'recursive', 1, 200], '/shots')).toBe(false)
+    expect(shouldRetainRecursiveFolderQuery(['folder', '/shots', 'recursive', 2, 200], '/shots')).toBe(false)
+    expect(shouldRetainRecursiveFolderQuery(['folder', '/', 'recursive', 1, 200], '/shots', false)).toBe(false)
+  })
+
+  it('removes only stale recursive folder queries', () => {
+    expect(shouldRemoveRecursiveFolderQuery(['folder', '/shots', 'recursive', 1, 200], '/shots')).toBe(false)
+    expect(shouldRemoveRecursiveFolderQuery(['folder', '/other', 'recursive', 1, 200], '/shots')).toBe(true)
+    expect(shouldRemoveRecursiveFolderQuery(['folder', '/shots'], '/shots')).toBe(false)
+    expect(shouldRemoveRecursiveFolderQuery(['search', '/shots'], '/shots')).toBe(false)
+    expect(shouldRemoveRecursiveFolderQuery('folder', '/shots')).toBe(false)
   })
 })

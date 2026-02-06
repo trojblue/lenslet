@@ -19,7 +19,11 @@ No `PLANS.md` file is present in this repository. This document is the canonical
 - [x] 2026-02-06 11:37:07Z Drafted sprint and atomic ticket breakdown with validations.
 - [x] 2026-02-06 11:47:53Z Ran pseudo-subagent review pass and wrote output to `docs/20260206_hotpath_performance_execution_plan_review.txt`.
 - [x] 2026-02-06 11:47:53Z Incorporated review feedback: measurable gates, API contract hardening, compatibility/abuse safeguards, task splits, observability, and packaging checks.
-- [ ] Execute Sprint S1 (recursive folder payload contract + incremental loading foundations).
+- [x] 2026-02-06 12:00:16Z Execute Sprint S1 (recursive folder payload contract + incremental loading foundations).
+- [x] 2026-02-06 12:00:16Z Added backend/frontend contract + merge tests and validated with `pytest -q`, `cd frontend && npm run test`, and `cd frontend && npm run build`.
+- [x] 2026-02-06 12:02:39Z Completed Sprint S1 tasks T1-T8 in code: recursive `/folders` contract + guards + compatibility mode + frontend paged fetch/merge + cache key updates.
+- [x] 2026-02-06 12:02:39Z Added/updated Sprint S1 regression coverage: `tests/test_folder_pagination.py`, `frontend/src/api/__tests__/folders.test.ts`, `frontend/src/features/browse/model/__tests__/pagedFolder.test.ts`.
+- [x] 2026-02-06 12:02:39Z Re-ran validations after S1 landing: `pytest -q` (31 passed), `cd frontend && npm run test` (15 passed), `cd frontend && npm run build` (pass).
 - [ ] Execute Sprint S2 (OG shell path + `/file` delivery/prefetch policy).
 - [ ] Execute Sprint S3 (render purity, S3 reuse, cancellation, observability).
 - [ ] Execute Sprint S4 (regression tests, packaging verification, docs).
@@ -66,9 +70,45 @@ Route stacks are duplicated across three app factory paths in `src/lenslet/serve
 ## Outcomes & Retrospective
 
 
-No code has been changed yet in this turn, so this section records intended outcomes by milestone. Sprint 1 should make recursive browsing payload delivery incremental and contract-safe. Sprint 2 should remove OG-related shell stalls and reduce memory/network spikes from full-file transfers. Sprint 3 should eliminate render-time request side effects and tighten backend efficiency for remote and canceled thumbnail paths. Sprint 4 should make regressions unlikely through tests, packaging checks, and docs.
+Sprint S1 is now implemented: recursive folder responses are contract-defined and paged by default with compatibility mode for legacy full-recursive callers, and AppShell now performs incremental multi-page loading with stable merge/dedupe semantics. Sprint 2 should remove OG-related shell stalls and reduce memory/network spikes from full-file transfers. Sprint 3 should eliminate render-time request side effects and tighten backend efficiency for remote and canceled thumbnail paths. Sprint 4 should make regressions unlikely through tests, packaging checks, and docs.
 
 The key lesson from this inspection is that latency is produced by interaction between multiple “small defaults” across backend and frontend, not by a single hotspot.
+
+
+## Handover Notes
+
+
+This handover captures the repository state after Sprint S1 completion.
+
+### Completed in Sprint S1
+
+
+1. Backend recursive pagination contract (T1-T5).
+Implemented in `src/lenslet/server.py`, `src/lenslet/server_models.py`, and validated in `tests/test_folder_pagination.py`.
+
+2. Frontend recursive paging foundations (T6-T8).
+Implemented in `frontend/src/api/client.ts`, `frontend/src/api/folders.ts`, `frontend/src/app/AppShell.tsx`, `frontend/src/features/browse/model/pagedFolder.ts`, `frontend/src/features/folders/FolderTree.tsx`, and `frontend/src/lib/types.ts`.
+
+3. Frontend unit coverage for URL/key contract and page merge semantics.
+Added in `frontend/src/api/__tests__/folders.test.ts` and `frontend/src/features/browse/model/__tests__/pagedFolder.test.ts`.
+
+### Validation Snapshot
+
+
+1. `pytest -q` passed (`31 passed`).
+2. `cd frontend && npm run test` passed (`15 passed`).
+3. `cd frontend && npm run build` passed.
+
+### Next Operator Notes (Sprint S2 Start)
+
+
+1. Sprint S2 scope is T9-T14 (OG shell path + `/file` + prefetch policy).
+2. Primary backend entry points for S2 are `src/lenslet/server.py` functions `_register_index_routes` and `_file_response`.
+3. Primary frontend entry point for S2 prefetch tightening is `frontend/src/app/AppShell.tsx`.
+4. Export flow currently relies on compatibility mode for full recursive pulls and should remain intact unless export logic is refactored:
+   `api.getFolder(..., { recursive: true, legacyRecursive: true })`.
+5. Frontend bundle copy into served package path has not been performed yet in this sprint:
+   `cd frontend && npm run build && cp -r dist/* ../src/lenslet/frontend/` (planned under Sprint S4/T22 unless needed earlier).
 
 
 ## Context and Orientation

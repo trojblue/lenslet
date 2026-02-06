@@ -109,6 +109,8 @@ python -m lenslet.cli /path/to/images --reload
 
 **API Endpoints:**
 - `GET /folders?path=<path>` - List folder contents
+  - Recursive mode supports paging via `recursive=1&page=<n>&page_size=<n>` (defaults: `page=1`, `page_size=200`, max `page_size=500`)
+  - Use `legacy_recursive=1` to return full recursive payloads for backward compatibility
 - `GET /item?path=<path>` - Get item metadata
 - `PUT /item?path=<path>` - Update item metadata
 - `GET /thumb?path=<path>` - Get/generate thumbnail

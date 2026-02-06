@@ -37,7 +37,9 @@ class FolderIndex(BaseModel):
     items: list[Item] = Field(default_factory=list)
     dirs: list[DirEntry] = Field(default_factory=list)
     page: int | None = None
+    pageSize: int | None = None
     pageCount: int | None = None
+    totalItems: int | None = None
 
 
 class Sidecar(BaseModel):

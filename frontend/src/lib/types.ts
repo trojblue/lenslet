@@ -30,7 +30,9 @@ export type FolderIndex = {
   items: Item[]
   dirs: DirEntry[]
   page?: number
+  pageSize?: number
   pageCount?: number
+  totalItems?: number
 }
 
 export type Sidecar = {

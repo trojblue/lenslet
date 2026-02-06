@@ -319,6 +319,22 @@ export function getEventStatus(): ConnectionStatus {
   return connectionStatus
 }
 
+export type GetFolderOptions = {
+  recursive?: boolean
+  page?: number
+  pageSize?: number
+  legacyRecursive?: boolean
+}
+
+export function buildFolderQuery(path: string, options?: GetFolderOptions): string {
+  const params = new URLSearchParams({ path })
+  if (options?.page != null) params.set('page', String(options.page))
+  if (options?.pageSize != null) params.set('page_size', String(options.pageSize))
+  if (options?.recursive) params.set('recursive', '1')
+  if (options?.legacyRecursive) params.set('legacy_recursive', '1')
+  return params.toString()
+}
+
 /**
  * API client for the lenslet backend.
  * All methods return promises and handle caching where appropriate.
@@ -327,14 +343,10 @@ export const api = {
   /**
    * Fetch folder contents by path.
    * @param path - Folder path
-   * @param page - Optional page number for pagination
-   * @param recursive - Include descendant folders when true
+   * @param options - Recursive/pagination options
    */
-  getFolder: (path: string, page?: number, recursive?: boolean): Promise<FolderIndex> => {
-    const params = new URLSearchParams({ path })
-    if (page != null) params.set('page', String(page))
-    if (recursive) params.set('recursive', '1')
-    return fetchJSON<FolderIndex>(`${BASE}/folders?${params}`).promise
+  getFolder: (path: string, options?: GetFolderOptions): Promise<FolderIndex> => {
+    return fetchJSON<FolderIndex>(`${BASE}/folders?${buildFolderQuery(path, options)}`).promise
   },
 
   /**

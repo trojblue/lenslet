@@ -46,6 +46,7 @@ import { FetchError } from '../lib/fetcher'
 import LeftSidebar from './components/LeftSidebar'
 import StatusBar from './components/StatusBar'
 import { EDITING_HOLD_MS, LAST_EDIT_RELATIVE_MS, LONG_SYNC_THRESHOLD_MS, RECENT_EDIT_FLASH_MS } from '../lib/constants'
+import { mergeFolderPages, normalizeFolderPage } from '../features/browse/model/pagedFolder'
 
 /** Local storage keys for persisted settings */
 const STORAGE_KEYS = {
@@ -60,6 +61,8 @@ const STORAGE_KEYS = {
   leftOpen: 'leftOpen',
   rightOpen: 'rightOpen',
 } as const
+
+const RECURSIVE_PAGE_SIZE = 200
 
 type RecentActivity = {
   path: string
@@ -304,8 +307,65 @@ export default function AppShell() {
     return () => window.clearInterval(id)
   }, [lastEditedAt])
 
-  const { data, refetch, isLoading, isError } = useFolder(current, true)
-  const { data: cachedRootRecursive } = useFolder('/', true, { enabled: false })
+  const {
+    data: recursiveFirstPage,
+    refetch: refetchFirstPage,
+    isLoading,
+    isError,
+  } = useFolder(current, true, { page: 1, pageSize: RECURSIVE_PAGE_SIZE })
+  const [data, setData] = useState<FolderIndex | undefined>()
+  const recursiveLoadTokenRef = useRef(0)
+  const refetch = useCallback(() => refetchFirstPage(), [refetchFirstPage])
+  const { data: cachedRootRecursive } = useFolder('/', true, {
+    enabled: false,
+    page: 1,
+    pageSize: RECURSIVE_PAGE_SIZE,
+  })
+
+  useEffect(() => {
+    recursiveLoadTokenRef.current += 1
+    setData(undefined)
+  }, [current])
+
+  useEffect(() => {
+    if (!recursiveFirstPage) return
+    const requestId = ++recursiveLoadTokenRef.current
+    let cancelled = false
+    let merged = normalizeFolderPage(recursiveFirstPage)
+    setData(merged)
+
+    const pageCount = recursiveFirstPage.pageCount ?? 1
+    const pageSize = recursiveFirstPage.pageSize ?? RECURSIVE_PAGE_SIZE
+    const startPage = (recursiveFirstPage.page ?? 1) + 1
+    if (pageCount <= 1 || startPage > pageCount) {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const loadRemainingPages = async () => {
+      for (let page = startPage; page <= pageCount; page += 1) {
+        try {
+          const nextPage = await api.getFolder(recursiveFirstPage.path, {
+            recursive: true,
+            page,
+            pageSize,
+          })
+          if (cancelled || recursiveLoadTokenRef.current !== requestId) return
+          merged = mergeFolderPages(merged, nextPage)
+          setData(merged)
+        } catch {
+          return
+        }
+      }
+    }
+
+    loadRemainingPages()
+    return () => {
+      cancelled = true
+    }
+  }, [recursiveFirstPage])
+
   const similarityActive = similarityState !== null
   const searching = !similarityActive && query.trim().length > 0
   const debouncedQ = useDebounced(query, 250)
@@ -638,10 +698,10 @@ export default function AppShell() {
   }, [metricKeys, viewState.sort, similarityActive])
 
   const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
-  const scopeTotal = data?.items.length ?? totalCount
+  const scopeTotal = data?.totalItems ?? data?.items.length ?? totalCount
   const rootTotal = current === '/'
     ? scopeTotal
-    : (cachedRootRecursive?.items.length ?? scopeTotal)
+    : (cachedRootRecursive?.totalItems ?? cachedRootRecursive?.items.length ?? scopeTotal)
   const showFilteredCounts = similarityActive || searching || activeFilterCount > 0
 
   const presence = presenceByGallery[current]
@@ -1924,7 +1984,7 @@ function ContextMenuItems({
     setExporting(format)
     const folderPath = ctx.payload.path || current
     try {
-      const folder = await api.getFolder(folderPath, undefined, true)
+      const folder = await api.getFolder(folderPath, { recursive: true, legacyRecursive: true })
       const folderItems = folder.items
       const ratings = mapItemsToRatings(folderItems)
       const content = format === 'csv' ? toRatingsCsv(ratings) : toRatingsJson(ratings)

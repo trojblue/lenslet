@@ -1,0 +1,35 @@
+1. **[P0] Add measurable performance gates before Sprint S1.**  
+Edit `Validation and Acceptance` to include numeric targets (example: `/folders` p95 TTFB, `/index.html` p95, `/file` peak RSS delta, prefetch request count/session) and require baseline + post-change comparison.
+
+2. **[P0] Tighten the `/folders` pagination contract in T1/T2.**  
+Explicitly define sort order, default `page/page_size`, max `page_size` clamp, invalid-param behavior, and mutation behavior (snapshot/cursor token or documented consistency limits). Add a dedicated API contract test ticket.
+
+3. **[P0] Add a backward-compatibility ticket for existing `/folders` clients.**  
+Plan a compatibility mode/flag for legacy recursive response behavior, deprecation timeline, and tests for old-call patterns.
+
+4. **[P0] Add server-side abuse guards for recursive paging.**  
+New ticket: enforce hard limits for recursion depth/result window and request rate-sensitive params; test oversized request clamping/rejection.
+
+5. **[P1] Split oversized T4 into two tickets.**  
+One ticket for data fetching/cache key/infinite paging mechanics; one for UI merge/dedupe/reset behavior on folder change. Add tests for no duplicates/gaps across pages.
+
+6. **[P1] Split oversized T7 into local streaming vs non-local behavior.**  
+Separate local `FileResponse` streaming from remote/fallback path. Validate `Range`/`HEAD` semantics and media type behavior explicitly.
+
+7. **[P1] Add an observability ticket (currently missing).**  
+Instrument counters/timers for subtree traversal calls, `/file` response mode, prefetch counts, thumb cancellations, and S3 client creations; require these in sprint demos.
+
+8. **[P1] Add frontend cache/memory control ticket for paged recursive data.**  
+Define React Query retention/eviction policy for many pages to avoid client memory growth during long scroll sessions; include a regression test.
+
+9. **[P2] Clarify T12 validation to cover two cancellation states.**  
+Test queued cancellation and in-flight cancellation separately; replace brittle “no response body generated” with assertions on scheduler cleanup and worker release.
+
+10. **[P2] Add packaging verification to Sprint S4.**  
+After frontend build, include the bundle copy step into `src/lenslet/frontend/` and a smoke check that backend serves updated assets.
+
+11. **[P2] Convert “pseudo-subagent review pass” into a real ticket or remove it.**  
+If kept, define owner, artifact path, acceptance criteria, and when it must complete.
+
+12. **[P2] Add hidden dependency callout for schema/client impacts.**  
+Explicitly track OpenAPI/model updates and any downstream client assumptions when adding pagination metadata fields.

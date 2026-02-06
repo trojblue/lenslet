@@ -9,6 +9,10 @@ export const folderQueryKey = (path: string, recursive = false) => (
 )
 const FALLBACK_REFETCH_INTERVAL = 15_000
 
+function fetchFolder(path: string, recursive = false): Promise<FolderIndex> {
+  return api.getFolder(path, undefined, recursive)
+}
+
 /**
  * Hook to fetch and cache folder contents.
  * - Caches for 10 seconds before considered stale
@@ -19,7 +23,7 @@ export function useFolder(path: string, recursive = false) {
   const pollingEnabled = usePollingEnabled()
   return useQuery({
     queryKey: folderQueryKey(path, recursive),
-    queryFn: () => api.getFolder(path, undefined, recursive),
+    queryFn: () => fetchFolder(path, recursive),
     staleTime: 10_000, // 10 seconds before refetch
     gcTime: 5 * 60_000, // Keep in cache for 5 minutes
     retry: 2,
@@ -40,7 +44,7 @@ export function usePrefetchFolder() {
   return (path: string, recursive = false) => {
     queryClient.prefetchQuery({
       queryKey: folderQueryKey(path, recursive),
-      queryFn: () => api.getFolder(path, undefined, recursive),
+      queryFn: () => fetchFolder(path, recursive),
       staleTime: 10_000,
     })
   }

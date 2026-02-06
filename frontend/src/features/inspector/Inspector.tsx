@@ -231,7 +231,7 @@ export default function Inspector({
   const [metaText, setMetaText] = useState('')
   const [metaError, setMetaError] = useState<string | null>(null)
   const [metaState, setMetaState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
-  const [copied, setCopied] = useState(false)
+  const [metaCopied, setMetaCopied] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [valueHeights, setValueHeights] = useState<Record<string, number>>({})
   
@@ -269,7 +269,7 @@ export default function Inspector({
     setMetaText('')
     setMetaError(null)
     setMetaState('idle')
-    setCopied(false)
+    setMetaCopied(false)
   }, [data?.updated_at, path])
 
   const commitSidecar = useCallback((patch: { notes?: string; tags?: string[]; star?: StarRating | null }) => {
@@ -364,7 +364,7 @@ export default function Inspector({
     try {
       const res = await api.getMetadata(path)
       const normalized = normalizeMetadata(res.meta)
-      const pretty = JSON.stringify(normalized, null, 2)
+      const pretty = JSON.stringify(normalized, null, 1)
       setMetaText(pretty)
       setMetaState('loaded')
     } catch (err) {
@@ -378,8 +378,8 @@ export default function Inspector({
   const copyMetadata = useCallback(() => {
     if (!metaText) return
     navigator.clipboard?.writeText(metaText).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1200)
+      setMetaCopied(true)
+      setTimeout(() => setMetaCopied(false), 1200)
     }).catch((err) => {
       const msg = err instanceof Error ? err.message : 'Copy failed'
       setMetaError(msg)
@@ -390,27 +390,24 @@ export default function Inspector({
   const metaContent = metaState === 'loading'
     ? 'Loading metadata…'
     : (metaText || 'PNG metadata not loaded yet.')
+  const metadataLoading = metaState === 'loading'
   const metaLoaded = metaState === 'loaded' && !!metaText
   const metaHeightClass = metaLoaded ? 'h-48' : 'h-24'
+  const metadataActionLabel = metadataLoading
+    ? 'Loading…'
+    : metaLoaded
+      ? (metaCopied ? 'Copied' : 'Copy')
+      : 'Load meta'
+  const handleMetadataAction = metaLoaded ? copyMetadata : fetchMetadata
 
   const metadataActions = !multi ? (
     <div className="flex items-center gap-2 text-xs">
-      {metaText && (
-        <button
-          className="text-muted underline underline-offset-2 hover:text-text disabled:opacity-60 min-w-[48px] text-center"
-          onClick={copyMetadata}
-          disabled={!metaText}
-          title="Copy metadata"
-        >
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-      )}
       <button
         className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[78px]"
-        onClick={fetchMetadata}
-        disabled={!path || metaState === 'loading'}
+        onClick={handleMetadataAction}
+        disabled={!path || metadataLoading}
       >
-        {metaState === 'loading' ? 'Loading…' : 'Load meta'}
+        {metadataActionLabel}
       </button>
     </div>
   ) : null
@@ -479,9 +476,11 @@ export default function Inspector({
     }
   }, [valueHeights])
 
+  const resizeHandleClass = 'toolbar-offset absolute bottom-0 left-0 w-1.5 cursor-col-resize z-10 hover:bg-accent/20'
+
   if (!enabled) return (
     <div className="app-right-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
-      <div className="toolbar-offset absolute bottom-0 w-1.5 cursor-col-resize z-10 right-[calc(var(--right)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
+      <div className={resizeHandleClass} onMouseDown={onResize} />
     </div>
   )
 
@@ -762,7 +761,7 @@ export default function Inspector({
           />
         </div>
       </InspectorSection>
-      <div className="toolbar-offset absolute bottom-0 w-1.5 cursor-col-resize z-10 right-[calc(var(--right)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
+      <div className={resizeHandleClass} onMouseDown={onResize} />
     </div>
   )
 }

@@ -150,9 +150,40 @@ def _build_item(cached, meta: dict, source: str | None = None) -> Item:
 
 def _child_folder_path(parent: str, child: str) -> str:
     parent_path = _canonical_path(parent)
-    if parent_path == "/":
-        return _canonical_path(f"/{child}")
-    return _canonical_path(f"{parent_path}/{child}")
+    return _canonical_path(f"{parent_path.rstrip('/')}/{child}")
+
+
+def _collect_recursive_items(storage, root_path: str, root_index: Any, to_item) -> list[Item]:
+    queue: deque[tuple[str, Any]] = deque([(root_path, root_index)])
+    seen_folders: set[str] = set()
+    seen_items: set[str] = set()
+    items: list[Item] = []
+
+    while queue:
+        folder_path, folder_index = queue.popleft()
+        if folder_path in seen_folders:
+            continue
+        seen_folders.add(folder_path)
+
+        for cached in folder_index.items:
+            item = to_item(storage, cached)
+            item_path = _canonical_path(item.path)
+            if item_path in seen_items:
+                continue
+            seen_items.add(item_path)
+            items.append(item)
+
+        for child_name in folder_index.dirs:
+            child_path = _child_folder_path(folder_path, child_name)
+            if child_path in seen_folders:
+                continue
+            try:
+                child_index = storage.get_index(child_path)
+            except (FileNotFoundError, ValueError):
+                continue
+            queue.append((child_path, child_index))
+
+    return items
 
 
 def _build_folder_index(storage, path: str, to_item, recursive: bool = False) -> FolderIndex:
@@ -163,38 +194,10 @@ def _build_folder_index(storage, path: str, to_item, recursive: bool = False) ->
     except FileNotFoundError:
         raise HTTPException(404, "folder not found")
 
-    if not recursive:
-        items = [to_item(storage, it) for it in index.items]
+    if recursive:
+        items = _collect_recursive_items(storage, _canonical_path(path), index, to_item)
     else:
-        root = _canonical_path(path)
-        queue: deque[tuple[str, Any]] = deque([(root, index)])
-        seen_folders: set[str] = set()
-        seen_items: set[str] = set()
-        items = []
-
-        while queue:
-            folder_path, folder_index = queue.popleft()
-            if folder_path in seen_folders:
-                continue
-            seen_folders.add(folder_path)
-
-            for cached in folder_index.items:
-                item = to_item(storage, cached)
-                item_path = _canonical_path(item.path)
-                if item_path in seen_items:
-                    continue
-                seen_items.add(item_path)
-                items.append(item)
-
-            for child_name in folder_index.dirs:
-                child_path = _child_folder_path(folder_path, child_name)
-                if child_path in seen_folders:
-                    continue
-                try:
-                    child_index = storage.get_index(child_path)
-                except (FileNotFoundError, ValueError):
-                    continue
-                queue.append((child_path, child_index))
+        items = [to_item(storage, it) for it in index.items]
 
     dirs = [DirEntry(name=d, kind="branch") for d in index.dirs]
 

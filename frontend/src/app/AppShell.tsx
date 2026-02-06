@@ -503,15 +503,15 @@ export default function AppShell() {
     if (pending) return pending
 
     const promise = (async () => {
-      const folder = await api.getFolder(target, undefined, true)
-      const count = folder.items.length
-      cache.set(target, count)
-      inflight.delete(target)
-      return count
-    })().catch((err) => {
-      inflight.delete(target)
-      throw err
-    })
+      try {
+        const folder = await api.getFolder(target, undefined, true)
+        const count = folder.items.length
+        cache.set(target, count)
+        return count
+      } finally {
+        inflight.delete(target)
+      }
+    })()
 
     inflight.set(target, promise)
     return promise

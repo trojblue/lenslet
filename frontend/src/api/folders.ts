@@ -2,38 +2,34 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { usePollingEnabled } from './polling'
 import type { FolderIndex } from '../lib/types'
+import type { GetFolderOptions } from './client'
 
-const DEFAULT_RECURSIVE_PAGE = 1
-const DEFAULT_RECURSIVE_PAGE_SIZE = 200
+export const DEFAULT_RECURSIVE_PAGE = 1
+export const DEFAULT_RECURSIVE_PAGE_SIZE = 200
 
 /** Query key for folder data */
 export const folderQueryKey = (
   path: string,
-  recursive = false,
-  page?: number,
-  pageSize?: number,
+  options?: Pick<GetFolderOptions, 'recursive' | 'page' | 'pageSize'>,
 ) => (
-  recursive
-    ? ['folder', path, 'recursive', page ?? DEFAULT_RECURSIVE_PAGE, pageSize ?? DEFAULT_RECURSIVE_PAGE_SIZE] as const
+  options?.recursive
+    ? [
+      'folder',
+      path,
+      'recursive',
+      options.page ?? DEFAULT_RECURSIVE_PAGE,
+      options.pageSize ?? DEFAULT_RECURSIVE_PAGE_SIZE,
+    ] as const
     : ['folder', path] as const
 )
 const FALLBACK_REFETCH_INTERVAL = 15_000
 
-function fetchFolder(
-  path: string,
-  recursive = false,
-  page?: number,
-  pageSize?: number,
-  legacyRecursive = false,
-): Promise<FolderIndex> {
-  return api.getFolder(path, { recursive, page, pageSize, legacyRecursive })
+function fetchFolder(path: string, options?: GetFolderOptions): Promise<FolderIndex> {
+  return api.getFolder(path, options)
 }
 
-type UseFolderOptions = {
+type UseFolderOptions = GetFolderOptions & {
   enabled?: boolean
-  page?: number
-  pageSize?: number
-  legacyRecursive?: boolean
 }
 
 /**
@@ -44,9 +40,15 @@ type UseFolderOptions = {
  */
 export function useFolder(path: string, recursive = false, options?: UseFolderOptions) {
   const pollingEnabled = usePollingEnabled()
+  const folderOptions: GetFolderOptions = {
+    recursive,
+    page: options?.page,
+    pageSize: options?.pageSize,
+    legacyRecursive: options?.legacyRecursive,
+  }
   return useQuery({
-    queryKey: folderQueryKey(path, recursive, options?.page, options?.pageSize),
-    queryFn: () => fetchFolder(path, recursive, options?.page, options?.pageSize, options?.legacyRecursive),
+    queryKey: folderQueryKey(path, folderOptions),
+    queryFn: () => fetchFolder(path, folderOptions),
     enabled: options?.enabled ?? true,
     staleTime: 10_000, // 10 seconds before refetch
     gcTime: 5 * 60_000, // Keep in cache for 5 minutes
@@ -66,9 +68,10 @@ export function usePrefetchFolder() {
   const queryClient = useQueryClient()
   
   return (path: string, recursive = false, page?: number, pageSize?: number) => {
+    const folderOptions: GetFolderOptions = { recursive, page, pageSize }
     queryClient.prefetchQuery({
-      queryKey: folderQueryKey(path, recursive, page, pageSize),
-      queryFn: () => fetchFolder(path, recursive, page, pageSize),
+      queryKey: folderQueryKey(path, folderOptions),
+      queryFn: () => fetchFolder(path, folderOptions),
       staleTime: 10_000,
     })
   }
@@ -82,7 +85,7 @@ export function useInvalidateFolder() {
   const queryClient = useQueryClient()
   
   return (path: string, recursive = false) => {
-    queryClient.invalidateQueries({ queryKey: folderQueryKey(path, recursive) })
+    queryClient.invalidateQueries({ queryKey: folderQueryKey(path, { recursive }) })
   }
 }
 
@@ -98,7 +101,7 @@ export function useOptimisticFolderUpdate() {
     updater: (old: FolderIndex | undefined) => FolderIndex | undefined,
     recursive = false
   ) => {
-    const key = folderQueryKey(path, recursive)
+    const key = folderQueryKey(path, { recursive })
     const previous = queryClient.getQueryData<FolderIndex>(key)
     queryClient.setQueryData<FolderIndex | undefined>(key, updater)
     return () => queryClient.setQueryData(key, previous)

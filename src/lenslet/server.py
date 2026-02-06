@@ -7,6 +7,7 @@ import threading
 import html
 import math
 from collections import deque
+from dataclasses import dataclass
 from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime, timezone
@@ -158,6 +159,16 @@ RECURSIVE_PAGE_SIZE_DEFAULT = 200
 RECURSIVE_PAGE_SIZE_MAX = 500
 
 
+@dataclass(frozen=True)
+class _RecursivePaginationWindow:
+    page: int
+    page_size: int
+    page_count: int
+    total_items: int
+    start: int
+    end: int
+
+
 def _parse_recursive_pagination_value(name: str, raw: str | None, default: int) -> int:
     if raw is None or raw == "":
         return default
@@ -180,6 +191,21 @@ def _resolve_recursive_pagination(page: str | None, page_size: str | None) -> tu
     if resolved_page_size > RECURSIVE_PAGE_SIZE_MAX:
         resolved_page_size = RECURSIVE_PAGE_SIZE_MAX
     return resolved_page, resolved_page_size
+
+
+def _resolve_recursive_window(total_items: int, page: str | None, page_size: str | None) -> _RecursivePaginationWindow:
+    resolved_page, resolved_page_size = _resolve_recursive_pagination(page, page_size)
+    page_count = max(1, math.ceil(total_items / resolved_page_size))
+    start = (resolved_page - 1) * resolved_page_size
+    end = start + resolved_page_size
+    return _RecursivePaginationWindow(
+        page=resolved_page,
+        page_size=resolved_page_size,
+        page_count=page_count,
+        total_items=total_items,
+        start=start,
+        end=end,
+    )
 
 
 def _collect_recursive_cached_items(storage, root_path: str, root_index: Any) -> list[Any]:
@@ -218,6 +244,22 @@ def _collect_recursive_cached_items(storage, root_path: str, root_index: Any) ->
     return [cached for _, cached in items]
 
 
+def _build_recursive_items(
+    storage,
+    to_item,
+    cached_items: list[Any],
+    page: str | None,
+    page_size: str | None,
+    legacy_recursive: bool,
+) -> tuple[list[Item], _RecursivePaginationWindow | None]:
+    if legacy_recursive:
+        return [to_item(storage, it) for it in cached_items], None
+
+    window = _resolve_recursive_window(len(cached_items), page, page_size)
+    page_items = cached_items[window.start:window.end]
+    return [to_item(storage, it) for it in page_items], window
+
+
 def _build_folder_index(
     storage,
     path: str,
@@ -234,22 +276,17 @@ def _build_folder_index(
     except FileNotFoundError:
         raise HTTPException(404, "folder not found")
 
-    page_value: int | None = None
-    page_size_value: int | None = None
-    page_count: int | None = None
-    total_items: int | None = None
-
+    page_window: _RecursivePaginationWindow | None = None
     if recursive:
         cached_items = _collect_recursive_cached_items(storage, _canonical_path(path), index)
-        if legacy_recursive:
-            items = [to_item(storage, it) for it in cached_items]
-        else:
-            page_value, page_size_value = _resolve_recursive_pagination(page, page_size)
-            total_items = len(cached_items)
-            page_count = max(1, math.ceil(total_items / page_size_value))
-            start = (page_value - 1) * page_size_value
-            end = start + page_size_value
-            items = [to_item(storage, it) for it in cached_items[start:end]]
+        items, page_window = _build_recursive_items(
+            storage,
+            to_item,
+            cached_items,
+            page=page,
+            page_size=page_size,
+            legacy_recursive=legacy_recursive,
+        )
     else:
         items = [to_item(storage, it) for it in index.items]
 
@@ -260,11 +297,33 @@ def _build_folder_index(
         generatedAt=index.generated_at,
         items=items,
         dirs=dirs,
-        page=page_value,
-        pageSize=page_size_value,
-        pageCount=page_count,
-        totalItems=total_items,
+        page=page_window.page if page_window else None,
+        pageSize=page_window.page_size if page_window else None,
+        pageCount=page_window.page_count if page_window else None,
+        totalItems=page_window.total_items if page_window else None,
     )
+
+
+def _register_folder_route(app: FastAPI, to_item) -> None:
+    @app.get("/folders", response_model=FolderIndex)
+    def get_folder(
+        path: str = "/",
+        recursive: bool = False,
+        page: str | None = None,
+        page_size: str | None = None,
+        legacy_recursive: bool = False,
+        request: Request = None,
+    ):
+        storage = _storage_from_request(request)
+        return _build_folder_index(
+            storage,
+            _canonical_path(path),
+            to_item,
+            recursive=recursive,
+            page=page,
+            page_size=page_size,
+            legacy_recursive=legacy_recursive,
+        )
 
 
 def _update_item(storage, path: str, body: Sidecar, updated_by: str) -> Sidecar:
@@ -919,25 +978,7 @@ def create_app(
             },
         }
 
-    @app.get("/folders", response_model=FolderIndex)
-    def get_folder(
-        path: str = "/",
-        recursive: bool = False,
-        page: str | None = None,
-        page_size: str | None = None,
-        legacy_recursive: bool = False,
-        request: Request = None,
-    ):
-        storage = _storage_from_request(request)
-        return _build_folder_index(
-            storage,
-            _canonical_path(path),
-            _to_item,
-            recursive=recursive,
-            page=page,
-            page_size=page_size,
-            legacy_recursive=legacy_recursive,
-        )
+    _register_folder_route(app, _to_item)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -1219,25 +1260,7 @@ def create_app_from_datasets(
             },
         }
 
-    @app.get("/folders", response_model=FolderIndex)
-    def get_folder(
-        path: str = "/",
-        recursive: bool = False,
-        page: str | None = None,
-        page_size: str | None = None,
-        legacy_recursive: bool = False,
-        request: Request = None,
-    ):
-        storage = _storage_from_request(request)
-        return _build_folder_index(
-            storage,
-            _canonical_path(path),
-            _to_item,
-            recursive=recursive,
-            page=page,
-            page_size=page_size,
-            legacy_recursive=legacy_recursive,
-        )
+    _register_folder_route(app, _to_item)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -1529,25 +1552,7 @@ def create_app_from_storage(
             },
         }
 
-    @app.get("/folders", response_model=FolderIndex)
-    def get_folder(
-        path: str = "/",
-        recursive: bool = False,
-        page: str | None = None,
-        page_size: str | None = None,
-        legacy_recursive: bool = False,
-        request: Request = None,
-    ):
-        storage = _storage_from_request(request)
-        return _build_folder_index(
-            storage,
-            _canonical_path(path),
-            _to_item,
-            recursive=recursive,
-            page=page,
-            page_size=page_size,
-            legacy_recursive=legacy_recursive,
-        )
+    _register_folder_route(app, _to_item)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):

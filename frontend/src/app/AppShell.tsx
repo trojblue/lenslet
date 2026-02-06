@@ -6,7 +6,7 @@ import Viewer from '../features/viewer/Viewer'
 import CompareViewer from '../features/compare/CompareViewer'
 import Inspector from '../features/inspector/Inspector'
 import SimilarityModal from '../features/embeddings/SimilarityModal'
-import { useFolder } from '../shared/api/folders'
+import { DEFAULT_RECURSIVE_PAGE_SIZE, useFolder } from '../shared/api/folders'
 import { useSearch } from '../shared/api/search'
 import { useEmbeddings } from '../shared/api/embeddings'
 import { api, connectEvents, disconnectEvents, subscribeEvents, subscribeEventStatus } from '../shared/api/client'
@@ -46,7 +46,7 @@ import { FetchError } from '../lib/fetcher'
 import LeftSidebar from './components/LeftSidebar'
 import StatusBar from './components/StatusBar'
 import { EDITING_HOLD_MS, LAST_EDIT_RELATIVE_MS, LONG_SYNC_THRESHOLD_MS, RECENT_EDIT_FLASH_MS } from '../lib/constants'
-import { mergeFolderPages, normalizeFolderPage } from '../features/browse/model/pagedFolder'
+import { hydrateFolderPages } from '../features/browse/model/pagedFolder'
 
 /** Local storage keys for persisted settings */
 const STORAGE_KEYS = {
@@ -61,8 +61,6 @@ const STORAGE_KEYS = {
   leftOpen: 'leftOpen',
   rightOpen: 'rightOpen',
 } as const
-
-const RECURSIVE_PAGE_SIZE = 200
 
 type RecentActivity = {
   path: string
@@ -312,14 +310,14 @@ export default function AppShell() {
     refetch: refetchFirstPage,
     isLoading,
     isError,
-  } = useFolder(current, true, { page: 1, pageSize: RECURSIVE_PAGE_SIZE })
+  } = useFolder(current, true, { page: 1, pageSize: DEFAULT_RECURSIVE_PAGE_SIZE })
   const [data, setData] = useState<FolderIndex | undefined>()
   const recursiveLoadTokenRef = useRef(0)
   const refetch = useCallback(() => refetchFirstPage(), [refetchFirstPage])
   const { data: cachedRootRecursive } = useFolder('/', true, {
     enabled: false,
     page: 1,
-    pageSize: RECURSIVE_PAGE_SIZE,
+    pageSize: DEFAULT_RECURSIVE_PAGE_SIZE,
   })
 
   useEffect(() => {
@@ -331,36 +329,16 @@ export default function AppShell() {
     if (!recursiveFirstPage) return
     const requestId = ++recursiveLoadTokenRef.current
     let cancelled = false
-    let merged = normalizeFolderPage(recursiveFirstPage)
-    setData(merged)
-
-    const pageCount = recursiveFirstPage.pageCount ?? 1
-    const pageSize = recursiveFirstPage.pageSize ?? RECURSIVE_PAGE_SIZE
-    const startPage = (recursiveFirstPage.page ?? 1) + 1
-    if (pageCount <= 1 || startPage > pageCount) {
-      return () => {
-        cancelled = true
-      }
-    }
-
-    const loadRemainingPages = async () => {
-      for (let page = startPage; page <= pageCount; page += 1) {
-        try {
-          const nextPage = await api.getFolder(recursiveFirstPage.path, {
-            recursive: true,
-            page,
-            pageSize,
-          })
-          if (cancelled || recursiveLoadTokenRef.current !== requestId) return
-          merged = mergeFolderPages(merged, nextPage)
-          setData(merged)
-        } catch {
-          return
-        }
-      }
-    }
-
-    loadRemainingPages()
+    void hydrateFolderPages(recursiveFirstPage, {
+      defaultPageSize: DEFAULT_RECURSIVE_PAGE_SIZE,
+      fetchPage: (page, pageSize) => api.getFolder(recursiveFirstPage.path, {
+        recursive: true,
+        page,
+        pageSize,
+      }),
+      onUpdate: setData,
+      shouldContinue: () => !cancelled && recursiveLoadTokenRef.current === requestId,
+    })
     return () => {
       cancelled = true
     }

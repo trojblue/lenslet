@@ -22,8 +22,8 @@ describe('folder api query helpers', () => {
   })
 
   it('separates recursive cache keys by page and page size', () => {
-    expect(folderQueryKey('/shots', true, 1, 200)).toEqual(['folder', '/shots', 'recursive', 1, 200])
-    expect(folderQueryKey('/shots', true, 2, 200)).toEqual(['folder', '/shots', 'recursive', 2, 200])
-    expect(folderQueryKey('/shots', true, 1, 300)).toEqual(['folder', '/shots', 'recursive', 1, 300])
+    expect(folderQueryKey('/shots', { recursive: true, page: 1, pageSize: 200 })).toEqual(['folder', '/shots', 'recursive', 1, 200])
+    expect(folderQueryKey('/shots', { recursive: true, page: 2, pageSize: 200 })).toEqual(['folder', '/shots', 'recursive', 2, 200])
+    expect(folderQueryKey('/shots', { recursive: true, page: 1, pageSize: 300 })).toEqual(['folder', '/shots', 'recursive', 1, 300])
   })
 })

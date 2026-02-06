@@ -48,7 +48,7 @@ export default function FolderTree({
     const cached = cache.get(target)
     if (cached !== undefined) return cached
 
-    const cachedRecursive = queryClient.getQueryData<FolderIndex>(folderQueryKey(target, true))
+    const cachedRecursive = queryClient.getQueryData<FolderIndex>(folderQueryKey(target, { recursive: true }))
     if (cachedRecursive) {
       const count = cachedRecursive.totalItems ?? cachedRecursive.items.length
       cache.set(target, count)

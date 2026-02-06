@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { FolderIndex, Item } from '../../../../lib/types'
-import { mergeFolderPages, normalizeFolderPage } from '../pagedFolder'
+import { getRemainingPagesPlan, hydrateFolderPages, mergeFolderPages, normalizeFolderPage } from '../pagedFolder'
 
 function makeItem(path: string): Item {
   const name = path.split('/').pop() || path
@@ -67,5 +67,50 @@ describe('paged folder merge', () => {
     const merged = mergeFolderPages(first, second)
     expect(merged.path).toBe('/set-b')
     expect(merged.items.map((item) => item.path)).toEqual(['/set-b/b.jpg'])
+  })
+
+  it('computes remaining pages from first page metadata', () => {
+    const first = makeFolder('/set', ['/set/a.jpg'], {
+      page: 1,
+      pageSize: 2,
+      pageCount: 3,
+      totalItems: 5,
+    })
+    expect(getRemainingPagesPlan(first, 200)).toEqual({
+      startPage: 2,
+      endPage: 3,
+      pageSize: 2,
+    })
+  })
+
+  it('hydrates and merges paged folder responses', async () => {
+    const first = makeFolder('/set', ['/set/a.jpg', '/set/b.jpg'], {
+      page: 1,
+      pageSize: 2,
+      pageCount: 2,
+      totalItems: 3,
+    })
+    const second = makeFolder('/set', ['/set/b.jpg', '/set/c.jpg'], {
+      page: 2,
+      pageSize: 2,
+      pageCount: 2,
+      totalItems: 3,
+    })
+
+    const snapshots: FolderIndex[] = []
+    await hydrateFolderPages(first, {
+      defaultPageSize: 200,
+      fetchPage: async (page) => {
+        if (page === 2) return second
+        throw new Error(`unexpected page: ${page}`)
+      },
+      onUpdate: (value) => {
+        snapshots.push(value)
+      },
+    })
+
+    expect(snapshots).toHaveLength(2)
+    expect(snapshots[0].items.map((item) => item.path)).toEqual(['/set/a.jpg', '/set/b.jpg'])
+    expect(snapshots[1].items.map((item) => item.path)).toEqual(['/set/a.jpg', '/set/b.jpg', '/set/c.jpg'])
   })
 })

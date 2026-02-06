@@ -87,6 +87,14 @@ export type HealthResponse = {
     log?: string | null
     snapshot?: string | null
   }
+  presence?: {
+    lifecycle_v2_enabled?: boolean
+    active_clients?: number
+    active_scopes?: number
+    stale_pruned_total?: number
+    invalid_lease_total?: number
+    replay_miss_total?: number
+  }
 }
 
 export type SearchResult = { items: Item[] }

@@ -145,6 +145,7 @@ class EventBroker:
         self._clients: set[asyncio.Queue] = set()
         self._lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._replay_miss_total = 0
 
     def ensure_loop(self) -> None:
         if self._loop is not None:
@@ -190,7 +191,24 @@ class EventBroker:
         if last_id is None:
             return []
         with self._lock:
+            if self._buffer:
+                oldest_id = int(self._buffer[0].get("id", 0))
+                if last_id < oldest_id - 1:
+                    self._replay_miss_total += 1
             return [item for item in self._buffer if item.get("id", 0) > last_id]
+
+    def diagnostics(self) -> dict[str, Any]:
+        with self._lock:
+            oldest = int(self._buffer[0].get("id", 0)) if self._buffer else None
+            newest = int(self._buffer[-1].get("id", 0)) if self._buffer else None
+            return {
+                "replay_miss_total": self._replay_miss_total,
+                "buffer_size": len(self._buffer),
+                "buffer_capacity": int(self._buffer.maxlen or 0),
+                "oldest_event_id": oldest,
+                "newest_event_id": newest,
+                "connected_sse_clients": len(self._clients),
+            }
 
 
 @dataclass(frozen=True)
@@ -226,6 +244,15 @@ class PresenceTracker:
         self._lock = threading.Lock()
         self._sessions: dict[str, _PresenceSession] = {}
         self._clients_by_scope: dict[str, set[str]] = {}
+        self._stale_pruned_total = 0
+
+    @property
+    def view_ttl_seconds(self) -> float:
+        return self._view_ttl
+
+    @property
+    def edit_ttl_seconds(self) -> float:
+        return self._edit_ttl
 
     def _new_lease(self) -> str:
         return uuid4().hex
@@ -264,6 +291,7 @@ class PresenceTracker:
                 continue
             removed_scope = self._remove_client_locked(client_id)
             if removed_scope is not None:
+                self._stale_pruned_total += 1
                 affected.add(removed_scope)
         return affected
 
@@ -458,7 +486,19 @@ class PresenceTracker:
                 for client_id, session in self._sessions.items()
             }
             scopes = {gallery_id: sorted(members) for gallery_id, members in self._clients_by_scope.items()}
-            return {"clients": clients, "scopes": scopes}
+            return {
+                "clients": clients,
+                "scopes": scopes,
+                "stale_pruned_total": self._stale_pruned_total,
+            }
+
+    def diagnostics(self) -> dict[str, int]:
+        with self._lock:
+            return {
+                "active_clients": len(self._sessions),
+                "active_scopes": len(self._clients_by_scope),
+                "stale_pruned_total": self._stale_pruned_total,
+            }
 
 
 class IdempotencyCache:

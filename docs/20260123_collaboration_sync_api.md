@@ -111,6 +111,7 @@ data: {"gallery_id":"/animals","viewing":2,"editing":1}
 
 Presence is tracked as **one active scope per client session**.
 The server issues a `lease_id` at join time; `move` and `leave` must provide that lease.
+The mode can be rolled back at startup with `--no-presence-lifecycle-v2`.
 
 SSE `presence` event payload shape:
 
@@ -205,6 +206,14 @@ Request:
 
 Response uses the same normalized presence payload shape and always includes server `lease_id`.
 
+### Lifecycle Gate Behavior
+
+When lifecycle-v2 is disabled (`--no-presence-lifecycle-v2`):
+
+- `POST /presence/join` uses heartbeat semantics (`touch_view`) to keep clients online.
+- `POST /presence/move` degrades to destination heartbeat semantics (best-effort from/to scope counts).
+- `POST /presence/leave` returns `removed: false` with `mode: "legacy_heartbeat"` (TTL/prune convergence path).
+
 ### Presence Errors
 
 - `409 {"error":"invalid_lease", ...}` for stale/forged leases
@@ -216,15 +225,52 @@ Response uses the same normalized presence payload shape and always includes ser
 - defaults: `view_ttl=75s`, `edit_ttl=60s`, prune interval `5s`
 - each prune publishes corrected `presence` events for affected scopes
 
-### `GET /health`
-Includes persistence status for sync durability:
+Convergence bounds:
+- explicit `move/leave` convergence target: `<= 5s` from request completion to corrected presence payloads
+- crash/no-leave convergence target: `<= (view_ttl + prune_interval + 5s)` at configured defaults
+
+### `GET /presence/diagnostics`
+
+Debug-safe runtime counters:
 
 ```json
 {
+  "lifecycle_v2_enabled": true,
+  "view_ttl_seconds": 75.0,
+  "edit_ttl_seconds": 60.0,
+  "prune_interval_seconds": 5.0,
+  "active_clients": 2,
+  "active_scopes": 2,
+  "stale_pruned_total": 14,
+  "invalid_lease_total": 3,
+  "replay_miss_total": 1,
+  "replay_buffer_size": 500,
+  "replay_buffer_capacity": 500,
+  "replay_oldest_event_id": 221,
+  "replay_newest_event_id": 720,
+  "connected_sse_clients": 2
+}
+```
+
+### `GET /health`
+Includes persistence status and presence diagnostics:
+
+```json
+{
+  "ok": true,
+  "mode": "memory",
   "labels": {
     "enabled": true,
     "log": "/path/to/.lenslet/labels.log.jsonl",
     "snapshot": "/path/to/.lenslet/labels.snapshot.json"
+  },
+  "presence": {
+    "lifecycle_v2_enabled": true,
+    "active_clients": 2,
+    "active_scopes": 2,
+    "stale_pruned_total": 14,
+    "invalid_lease_total": 3,
+    "replay_miss_total": 1
   }
 }
 ```

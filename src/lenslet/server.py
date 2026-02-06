@@ -403,6 +403,49 @@ def _dataset_count(storage) -> int | None:
     return None
 
 
+class _PresenceMetrics:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._invalid_lease_total = 0
+
+    def record_invalid_lease(self) -> None:
+        with self._lock:
+            self._invalid_lease_total += 1
+
+    def snapshot(self) -> dict[str, int]:
+        with self._lock:
+            return {"invalid_lease_total": self._invalid_lease_total}
+
+
+def _presence_runtime_payload(
+    *,
+    presence: PresenceTracker,
+    broker,
+    metrics: _PresenceMetrics,
+    lifecycle_v2_enabled: bool,
+    prune_interval_seconds: float,
+) -> dict[str, Any]:
+    presence_diag = presence.diagnostics()
+    broker_diag = broker.diagnostics()
+    metric_diag = metrics.snapshot()
+    return {
+        "lifecycle_v2_enabled": lifecycle_v2_enabled,
+        "view_ttl_seconds": presence.view_ttl_seconds,
+        "edit_ttl_seconds": presence.edit_ttl_seconds,
+        "prune_interval_seconds": prune_interval_seconds,
+        "active_clients": presence_diag["active_clients"],
+        "active_scopes": presence_diag["active_scopes"],
+        "stale_pruned_total": presence_diag["stale_pruned_total"],
+        "invalid_lease_total": metric_diag["invalid_lease_total"],
+        "replay_miss_total": broker_diag["replay_miss_total"],
+        "replay_buffer_size": broker_diag["buffer_size"],
+        "replay_buffer_capacity": broker_diag["buffer_capacity"],
+        "replay_oldest_event_id": broker_diag["oldest_event_id"],
+        "replay_newest_event_id": broker_diag["newest_event_id"],
+        "connected_sse_clients": broker_diag["connected_sse_clients"],
+    }
+
+
 def _presence_count_payload(count: PresenceCount) -> dict[str, int | str]:
     return {
         "gallery_id": count.gallery_id,
@@ -523,14 +566,39 @@ def _require_presence_client_id(client_id: str) -> str:
     return client_id
 
 
-def _register_presence_routes(app: FastAPI, presence: PresenceTracker, broker) -> None:
+def _register_presence_routes(
+    app: FastAPI,
+    presence: PresenceTracker,
+    broker,
+    *,
+    lifecycle_v2_enabled: bool,
+    metrics: _PresenceMetrics,
+) -> None:
+    def _presence_diag() -> dict[str, Any]:
+        prune_interval = float(getattr(app.state, "presence_prune_interval", 5.0))
+        return _presence_runtime_payload(
+            presence=presence,
+            broker=broker,
+            metrics=metrics,
+            lifecycle_v2_enabled=lifecycle_v2_enabled,
+            prune_interval_seconds=prune_interval,
+        )
+
+    @app.get("/presence/diagnostics")
+    def presence_diagnostics():
+        return _presence_diag()
+
     @app.post("/presence/join")
     def presence_join(body: PresencePayload):
         gallery_id = _canonical_path(body.gallery_id)
         client_id = _require_presence_client_id(body.client_id)
         try:
-            lease_id, counts = presence.join(gallery_id, client_id, lease_id=body.lease_id)
+            if lifecycle_v2_enabled:
+                lease_id, counts = presence.join(gallery_id, client_id, lease_id=body.lease_id)
+            else:
+                lease_id, counts = presence.touch_view(gallery_id, client_id, lease_id=body.lease_id)
         except PresenceLeaseError:
+            metrics.record_invalid_lease()
             payload = _presence_invalid_lease_payload(gallery_id=gallery_id, client_id=client_id)
             return JSONResponse(status_code=409, content=payload)
         _publish_presence_counts(broker, counts)
@@ -543,13 +611,22 @@ def _register_presence_routes(app: FastAPI, presence: PresenceTracker, broker) -
         to_gallery_id = _canonical_path(body.to_gallery_id)
         client_id = _require_presence_client_id(body.client_id)
         try:
-            counts = presence.move(
-                from_gallery_id=from_gallery_id,
-                to_gallery_id=to_gallery_id,
-                client_id=client_id,
-                lease_id=body.lease_id,
-            )
+            if lifecycle_v2_enabled:
+                response_lease_id = body.lease_id
+                counts = presence.move(
+                    from_gallery_id=from_gallery_id,
+                    to_gallery_id=to_gallery_id,
+                    client_id=client_id,
+                    lease_id=body.lease_id,
+                )
+            else:
+                response_lease_id, counts = presence.touch_view(
+                    to_gallery_id,
+                    client_id,
+                    lease_id=body.lease_id,
+                )
         except PresenceLeaseError:
+            metrics.record_invalid_lease()
             payload = _presence_invalid_lease_payload(gallery_id=from_gallery_id, client_id=client_id)
             return JSONResponse(status_code=409, content=payload)
         except PresenceScopeError as exc:
@@ -560,7 +637,7 @@ def _register_presence_routes(app: FastAPI, presence: PresenceTracker, broker) -
         to_scope = _presence_count_for_gallery(counts, to_gallery_id)
         return {
             "client_id": client_id,
-            "lease_id": body.lease_id,
+            "lease_id": response_lease_id,
             "from_scope": _presence_count_payload(from_scope),
             "to_scope": _presence_count_payload(to_scope),
         }
@@ -569,9 +646,16 @@ def _register_presence_routes(app: FastAPI, presence: PresenceTracker, broker) -
     def presence_leave(body: PresenceLeavePayload):
         gallery_id = _canonical_path(body.gallery_id)
         client_id = _require_presence_client_id(body.client_id)
+        if not lifecycle_v2_enabled:
+            current = presence.snapshot_counts().get(gallery_id, PresenceCount(gallery_id=gallery_id, viewing=0, editing=0))
+            payload = _presence_payload_for_client(current, client_id, body.lease_id)
+            payload["removed"] = False
+            payload["mode"] = "legacy_heartbeat"
+            return payload
         try:
             removed, counts = presence.leave(gallery_id=gallery_id, client_id=client_id, lease_id=body.lease_id)
         except PresenceLeaseError:
+            metrics.record_invalid_lease()
             payload = _presence_invalid_lease_payload(gallery_id=gallery_id, client_id=client_id)
             return JSONResponse(status_code=409, content=payload)
         except PresenceScopeError as exc:
@@ -590,6 +674,7 @@ def _register_presence_routes(app: FastAPI, presence: PresenceTracker, broker) -
         try:
             lease_id, counts = presence.touch_view(gallery_id, client_id, lease_id=body.lease_id)
         except PresenceLeaseError:
+            metrics.record_invalid_lease()
             payload = _presence_invalid_lease_payload(gallery_id=gallery_id, client_id=client_id)
             return JSONResponse(status_code=409, content=payload)
         _publish_presence_counts(broker, counts)
@@ -934,6 +1019,7 @@ def create_app(
     presence_view_ttl: float = 75.0,
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
+    presence_lifecycle_v2: bool = True,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
@@ -1000,7 +1086,9 @@ def create_app(
     broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock, log_lock)
     sync_state = {"last_event_id": max_event_id}
     presence = PresenceTracker(view_ttl=presence_view_ttl, edit_ttl=presence_edit_ttl)
+    presence_metrics = _PresenceMetrics()
     app.state.sync_broker = broker
+    app.state.presence_lifecycle_v2_enabled = presence_lifecycle_v2
     _install_presence_prune_loop(app, presence, broker, interval_seconds=presence_prune_interval)
 
     embedding_manager: EmbeddingManager | None = None
@@ -1063,6 +1151,13 @@ def create_app(
                 "log": str(workspace.labels_log_path()) if workspace.can_write else None,
                 "snapshot": str(workspace.labels_snapshot_path()) if workspace.can_write else None,
             },
+            "presence": _presence_runtime_payload(
+                presence=presence,
+                broker=broker,
+                metrics=presence_metrics,
+                lifecycle_v2_enabled=presence_lifecycle_v2,
+                prune_interval_seconds=float(getattr(app.state, "presence_prune_interval", presence_prune_interval)),
+            ),
         }
 
     @app.get("/folders", response_model=FolderIndex)
@@ -1176,7 +1271,13 @@ def create_app(
         idempotency_cache.set(idem_key, 200, sidecar)
         return JSONResponse(status_code=200, content=sidecar)
 
-    _register_presence_routes(app, presence, broker)
+    _register_presence_routes(
+        app,
+        presence,
+        broker,
+        lifecycle_v2_enabled=presence_lifecycle_v2,
+        metrics=presence_metrics,
+    )
 
     @app.get("/events")
     async def events(request: Request):
@@ -1250,6 +1351,7 @@ def create_app_from_datasets(
     presence_view_ttl: float = 75.0,
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
+    presence_lifecycle_v2: bool = True,
 ) -> FastAPI:
     """Create FastAPI app with in-memory dataset storage."""
 
@@ -1279,7 +1381,9 @@ def create_app_from_datasets(
     broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock, log_lock)
     sync_state = {"last_event_id": max_event_id}
     presence = PresenceTracker(view_ttl=presence_view_ttl, edit_ttl=presence_edit_ttl)
+    presence_metrics = _PresenceMetrics()
     app.state.sync_broker = broker
+    app.state.presence_lifecycle_v2_enabled = presence_lifecycle_v2
     _install_presence_prune_loop(app, presence, broker, interval_seconds=presence_prune_interval)
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
@@ -1342,6 +1446,13 @@ def create_app_from_datasets(
                 "log": str(workspace.labels_log_path()) if workspace.can_write else None,
                 "snapshot": str(workspace.labels_snapshot_path()) if workspace.can_write else None,
             },
+            "presence": _presence_runtime_payload(
+                presence=presence,
+                broker=broker,
+                metrics=presence_metrics,
+                lifecycle_v2_enabled=presence_lifecycle_v2,
+                prune_interval_seconds=float(getattr(app.state, "presence_prune_interval", presence_prune_interval)),
+            ),
         }
 
     @app.get("/folders", response_model=FolderIndex)
@@ -1444,7 +1555,13 @@ def create_app_from_datasets(
         idempotency_cache.set(idem_key, 200, sidecar)
         return JSONResponse(status_code=200, content=sidecar)
 
-    _register_presence_routes(app, presence, broker)
+    _register_presence_routes(
+        app,
+        presence,
+        broker,
+        lifecycle_v2_enabled=presence_lifecycle_v2,
+        metrics=presence_metrics,
+    )
 
     @app.get("/events")
     async def events(request: Request):
@@ -1521,6 +1638,7 @@ def create_app_from_table(
     presence_view_ttl: float = 75.0,
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
+    presence_lifecycle_v2: bool = True,
 ) -> FastAPI:
     """Create FastAPI app with in-memory table storage."""
     storage = TableStorage(
@@ -1546,6 +1664,7 @@ def create_app_from_table(
         presence_view_ttl=presence_view_ttl,
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
+        presence_lifecycle_v2=presence_lifecycle_v2,
     )
 
 
@@ -1563,6 +1682,7 @@ def create_app_from_storage(
     presence_view_ttl: float = 75.0,
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
+    presence_lifecycle_v2: bool = True,
 ) -> FastAPI:
     """Create FastAPI app using a pre-built TableStorage."""
 
@@ -1585,7 +1705,9 @@ def create_app_from_storage(
     broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock, log_lock)
     sync_state = {"last_event_id": max_event_id}
     presence = PresenceTracker(view_ttl=presence_view_ttl, edit_ttl=presence_edit_ttl)
+    presence_metrics = _PresenceMetrics()
     app.state.sync_broker = broker
+    app.state.presence_lifecycle_v2_enabled = presence_lifecycle_v2
     _install_presence_prune_loop(app, presence, broker, interval_seconds=presence_prune_interval)
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
     cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
@@ -1637,6 +1759,13 @@ def create_app_from_storage(
                 "log": str(workspace.labels_log_path()) if workspace.can_write else None,
                 "snapshot": str(workspace.labels_snapshot_path()) if workspace.can_write else None,
             },
+            "presence": _presence_runtime_payload(
+                presence=presence,
+                broker=broker,
+                metrics=presence_metrics,
+                lifecycle_v2_enabled=presence_lifecycle_v2,
+                prune_interval_seconds=float(getattr(app.state, "presence_prune_interval", presence_prune_interval)),
+            ),
         }
 
     @app.get("/folders", response_model=FolderIndex)
@@ -1738,7 +1867,13 @@ def create_app_from_storage(
         idempotency_cache.set(idem_key, 200, sidecar)
         return JSONResponse(status_code=200, content=sidecar)
 
-    _register_presence_routes(app, presence, broker)
+    _register_presence_routes(
+        app,
+        presence,
+        broker,
+        lifecycle_v2_enabled=presence_lifecycle_v2,
+        metrics=presence_metrics,
+    )
 
     @app.get("/events")
     async def events(request: Request):

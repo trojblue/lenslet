@@ -13,7 +13,7 @@ import { api, connectEvents, disconnectEvents, subscribeEvents, subscribeEventSt
 import type { ConnectionStatus, SyncEvent } from '../shared/api/client'
 import { useOldestInflightAgeMs, useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
 import { usePollingEnabled } from '../shared/api/polling'
-import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, isTrashPath, joinPath, isLikelyImagePath } from './routing/hash'
+import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, isTrashPath, isLikelyImagePath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import {
   countActiveFilters,
@@ -307,7 +307,7 @@ export default function AppShell() {
     return () => window.clearInterval(id)
   }, [lastEditedAt])
 
-  const { data, refetch, isLoading, isError } = useFolder(current)
+  const { data, refetch, isLoading, isError } = useFolder(current, true)
   const similarityActive = similarityState !== null
   const searching = !similarityActive && query.trim().length > 0
   const debouncedQ = useDebounced(query, 250)
@@ -503,31 +503,15 @@ export default function AppShell() {
     if (pending) return pending
 
     const promise = (async () => {
-      const stack = [target]
-      const seen = new Set<string>()
-      let count = 0
-
-      while (stack.length) {
-        const next = stack.pop()!
-        if (seen.has(next)) continue
-        seen.add(next)
-        try {
-          const folder = await api.getFolder(next)
-          count += folder.items.length
-          for (const d of folder.dirs) {
-            if (d.kind === 'branch') {
-              stack.push(joinPath(next, d.name))
-            }
-          }
-        } catch (err) {
-          console.warn(`Failed to count folder ${next}:`, err)
-        }
-      }
-
+      const folder = await api.getFolder(target, undefined, true)
+      const count = folder.items.length
       cache.set(target, count)
       inflight.delete(target)
       return count
-    })()
+    })().catch((err) => {
+      inflight.delete(target)
+      throw err
+    })
 
     inflight.set(target, promise)
     return promise
@@ -1924,7 +1908,6 @@ function ContextMenuItems({
   setCtx: (ctx: ContextMenuState | null) => void
 }) {
   const inTrash = isTrashPath(current)
-  const joinChild = (parent: string, name: string) => (parent === '/' ? `/${name}` : `${parent}/${name}`)
   const queryClient = useQueryClient()
   const [refreshing, setRefreshing] = React.useState(false)
   const [exporting, setExporting] = React.useState<'csv' | 'json' | null>(null)
@@ -1973,37 +1956,12 @@ function ContextMenuItems({
     }
   }
 
-  // Recursively collect items for a folder (including subfolders)
-  const collectFolderItems = async (root: string): Promise<Item[]> => {
-    const stack = [root]
-    const seen = new Set<string>()
-    const all: Item[] = []
-
-    while (stack.length) {
-      const p = stack.pop()!
-      if (seen.has(p)) continue
-      seen.add(p)
-      try {
-        const folder = await api.getFolder(p)
-        all.push(...folder.items)
-        for (const d of folder.dirs) {
-          if (d.kind === 'branch') {
-            stack.push(joinChild(p, d.name))
-          }
-        }
-      } catch (err) {
-        console.error(`Failed to fetch folder ${p}:`, err)
-      }
-    }
-
-    return all
-  }
-
   const exportFolder = (format: 'csv' | 'json') => async () => {
     setExporting(format)
     const folderPath = ctx.payload.path || current
     try {
-      const folderItems = await collectFolderItems(folderPath)
+      const folder = await api.getFolder(folderPath, undefined, true)
+      const folderItems = folder.items
       const ratings = mapItemsToRatings(folderItems)
       const content = format === 'csv' ? toRatingsCsv(ratings) : toRatingsJson(ratings)
       const mime = format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8'

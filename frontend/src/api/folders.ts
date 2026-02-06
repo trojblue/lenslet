@@ -4,7 +4,9 @@ import { usePollingEnabled } from './polling'
 import type { FolderIndex } from '../lib/types'
 
 /** Query key for folder data */
-export const folderQueryKey = (path: string) => ['folder', path] as const
+export const folderQueryKey = (path: string, recursive = false) => (
+  recursive ? ['folder', path, 'recursive'] as const : ['folder', path] as const
+)
 const FALLBACK_REFETCH_INTERVAL = 15_000
 
 /**
@@ -13,11 +15,11 @@ const FALLBACK_REFETCH_INTERVAL = 15_000
  * - Retries failed requests up to 2 times
  * - Returns previous data while refetching
  */
-export function useFolder(path: string) {
+export function useFolder(path: string, recursive = false) {
   const pollingEnabled = usePollingEnabled()
   return useQuery({
-    queryKey: folderQueryKey(path),
-    queryFn: () => api.getFolder(path),
+    queryKey: folderQueryKey(path, recursive),
+    queryFn: () => api.getFolder(path, undefined, recursive),
     staleTime: 10_000, // 10 seconds before refetch
     gcTime: 5 * 60_000, // Keep in cache for 5 minutes
     retry: 2,
@@ -35,10 +37,10 @@ export function useFolder(path: string) {
 export function usePrefetchFolder() {
   const queryClient = useQueryClient()
   
-  return (path: string) => {
+  return (path: string, recursive = false) => {
     queryClient.prefetchQuery({
-      queryKey: folderQueryKey(path),
-      queryFn: () => api.getFolder(path),
+      queryKey: folderQueryKey(path, recursive),
+      queryFn: () => api.getFolder(path, undefined, recursive),
       staleTime: 10_000,
     })
   }
@@ -51,8 +53,8 @@ export function usePrefetchFolder() {
 export function useInvalidateFolder() {
   const queryClient = useQueryClient()
   
-  return (path: string) => {
-    queryClient.invalidateQueries({ queryKey: folderQueryKey(path) })
+  return (path: string, recursive = false) => {
+    queryClient.invalidateQueries({ queryKey: folderQueryKey(path, recursive) })
   }
 }
 
@@ -63,9 +65,14 @@ export function useInvalidateFolder() {
 export function useOptimisticFolderUpdate() {
   const queryClient = useQueryClient()
   
-  return (path: string, updater: (old: FolderIndex | undefined) => FolderIndex | undefined) => {
-    const previous = queryClient.getQueryData<FolderIndex>(folderQueryKey(path))
-    queryClient.setQueryData<FolderIndex | undefined>(folderQueryKey(path), updater)
-    return () => queryClient.setQueryData(folderQueryKey(path), previous)
+  return (
+    path: string,
+    updater: (old: FolderIndex | undefined) => FolderIndex | undefined,
+    recursive = false
+  ) => {
+    const key = folderQueryKey(path, recursive)
+    const previous = queryClient.getQueryData<FolderIndex>(key)
+    queryClient.setQueryData<FolderIndex | undefined>(key, updater)
+    return () => queryClient.setQueryData(key, previous)
   }
 }

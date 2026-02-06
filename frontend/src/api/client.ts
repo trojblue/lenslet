@@ -328,10 +328,12 @@ export const api = {
    * Fetch folder contents by path.
    * @param path - Folder path
    * @param page - Optional page number for pagination
+   * @param recursive - Include descendant folders when true
    */
-  getFolder: (path: string, page?: number): Promise<FolderIndex> => {
+  getFolder: (path: string, page?: number, recursive?: boolean): Promise<FolderIndex> => {
     const params = new URLSearchParams({ path })
     if (page != null) params.set('page', String(page))
+    if (recursive) params.set('recursive', '1')
     return fetchJSON<FolderIndex>(`${BASE}/folders?${params}`).promise
   },
 

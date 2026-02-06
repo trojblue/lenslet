@@ -90,3 +90,31 @@ def test_refresh_endpoint_dataset_mode_is_noop():
     payload = resp.json()
     assert payload["ok"] is True
     assert "static" in payload.get("note", "")
+
+
+def test_folders_recursive_includes_descendants(tmp_path: Path):
+    root = tmp_path
+    parent = root / "parent"
+    _make_image(parent / "top.jpg")
+    _make_image(parent / "child" / "nested.jpg")
+    _make_image(parent / "child" / "grand" / "deep.jpg")
+
+    app = create_app(str(root))
+    client = TestClient(app)
+
+    direct = client.get("/folders", params={"path": "/parent"})
+    assert direct.status_code == 200
+    direct_payload = direct.json()
+    assert len(direct_payload["items"]) == 1
+    assert {entry["name"] for entry in direct_payload["dirs"]} == {"child"}
+
+    recursive = client.get("/folders", params={"path": "/parent", "recursive": "1"})
+    assert recursive.status_code == 200
+    recursive_payload = recursive.json()
+    assert len(recursive_payload["items"]) == 3
+    assert {item["path"] for item in recursive_payload["items"]} == {
+        "/parent/top.jpg",
+        "/parent/child/nested.jpg",
+        "/parent/child/grand/deep.jpg",
+    }
+    assert {entry["name"] for entry in recursive_payload["dirs"]} == {"child"}

@@ -6,9 +6,11 @@ import os
 import threading
 import html
 import math
+from collections import deque
 from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -146,7 +148,14 @@ def _build_item(cached, meta: dict, source: str | None = None) -> Item:
     )
 
 
-def _build_folder_index(storage, path: str, to_item) -> FolderIndex:
+def _child_folder_path(parent: str, child: str) -> str:
+    parent_path = _canonical_path(parent)
+    if parent_path == "/":
+        return _canonical_path(f"/{child}")
+    return _canonical_path(f"{parent_path}/{child}")
+
+
+def _build_folder_index(storage, path: str, to_item, recursive: bool = False) -> FolderIndex:
     try:
         index = storage.get_index(path)
     except ValueError:
@@ -154,7 +163,39 @@ def _build_folder_index(storage, path: str, to_item) -> FolderIndex:
     except FileNotFoundError:
         raise HTTPException(404, "folder not found")
 
-    items = [to_item(storage, it) for it in index.items]
+    if not recursive:
+        items = [to_item(storage, it) for it in index.items]
+    else:
+        root = _canonical_path(path)
+        queue: deque[tuple[str, Any]] = deque([(root, index)])
+        seen_folders: set[str] = set()
+        seen_items: set[str] = set()
+        items = []
+
+        while queue:
+            folder_path, folder_index = queue.popleft()
+            if folder_path in seen_folders:
+                continue
+            seen_folders.add(folder_path)
+
+            for cached in folder_index.items:
+                item = to_item(storage, cached)
+                item_path = _canonical_path(item.path)
+                if item_path in seen_items:
+                    continue
+                seen_items.add(item_path)
+                items.append(item)
+
+            for child_name in folder_index.dirs:
+                child_path = _child_folder_path(folder_path, child_name)
+                if child_path in seen_folders:
+                    continue
+                try:
+                    child_index = storage.get_index(child_path)
+                except (FileNotFoundError, ValueError):
+                    continue
+                queue.append((child_path, child_index))
+
     dirs = [DirEntry(name=d, kind="branch") for d in index.dirs]
 
     return FolderIndex(
@@ -818,9 +859,9 @@ def create_app(
         }
 
     @app.get("/folders", response_model=FolderIndex)
-    def get_folder(path: str = "/", request: Request = None):
+    def get_folder(path: str = "/", recursive: bool = False, request: Request = None):
         storage = _storage_from_request(request)
-        return _build_folder_index(storage, _canonical_path(path), _to_item)
+        return _build_folder_index(storage, _canonical_path(path), _to_item, recursive=recursive)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -1103,9 +1144,9 @@ def create_app_from_datasets(
         }
 
     @app.get("/folders", response_model=FolderIndex)
-    def get_folder(path: str = "/", request: Request = None):
+    def get_folder(path: str = "/", recursive: bool = False, request: Request = None):
         storage = _storage_from_request(request)
-        return _build_folder_index(storage, _canonical_path(path), _to_item)
+        return _build_folder_index(storage, _canonical_path(path), _to_item, recursive=recursive)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -1398,9 +1439,9 @@ def create_app_from_storage(
         }
 
     @app.get("/folders", response_model=FolderIndex)
-    def get_folder(path: str = "/", request: Request = None):
+    def get_folder(path: str = "/", recursive: bool = False, request: Request = None):
         storage = _storage_from_request(request)
-        return _build_folder_index(storage, _canonical_path(path), _to_item)
+        return _build_folder_index(storage, _canonical_path(path), _to_item, recursive=recursive)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):

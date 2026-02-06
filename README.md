@@ -165,6 +165,22 @@ lenslet.launch(datasets, blocking=False, port=7070)
 
 See [Programmatic API Documentation](docs/PROGRAMMATIC_API.md) for details and examples.
 
+## Hotpath API Notes (2026-02)
+
+- `GET /folders` recursive mode is paged by default with `recursive=1&page=<n>&page_size=<n>`.
+  Defaults: `page=1`, `page_size=200`; `page_size` is clamped to `500`.
+- Use `legacy_recursive=1` with `recursive=1` to return the full legacy recursive payload shape while rolling out paged callers.
+- `GET /file` now streams local file-backed sources and falls back to byte responses for non-local/remote sources.
+- Full-file prefetch is restricted to viewer/compare contexts and sends `x-lenslet-prefetch: viewer|compare`.
+- `GET /health` exposes hotpath runtime counters/timers under `hotpath.counters` and `hotpath.timers_ms`.
+
+### Deferred Performance Backlog
+
+The following items are intentionally deferred from the hotpath sprint:
+- Indexed search path to replace O(N) in-memory scans.
+- Folder tree virtualization/flattening for very large trees.
+- Configurable or batched label persistence writes.
+
 ## Notes
 
 - **Workspace files**: `.lenslet/views.json` stores Smart Folders; optional thumbnail cache lives under `.lenslet/thumbs/`

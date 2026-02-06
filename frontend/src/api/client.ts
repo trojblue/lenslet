@@ -23,6 +23,10 @@ import { BASE } from './base'
 const MAX_PREFETCH_SIZE = 40 * 1024 * 1024
 export type FullFilePrefetchContext = 'viewer' | 'compare'
 
+function isFullFilePrefetchContext(value: unknown): value is FullFilePrefetchContext {
+  return value === 'viewer' || value === 'compare'
+}
+
 function thumbUrl(path: string): string {
   return `${BASE}/thumb?path=${encodeURIComponent(path)}`
 }
@@ -503,10 +507,10 @@ export const api = {
    * Restricted to explicit viewer/compare contexts and capped at 40MB.
    */
   prefetchFile: async (path: string, context: FullFilePrefetchContext): Promise<void> => {
-    if (context !== 'viewer' && context !== 'compare') return
+    if (!isFullFilePrefetchContext(context)) return
     // Skip if already cached or in-flight
     if (fileCache.has(path) || fileCache.isInflight(path)) return
-    
+
     try {
       const blob = await fetchBlob(fileUrl(path), {
         headers: { 'x-lenslet-prefetch': context },

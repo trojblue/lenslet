@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
@@ -988,6 +988,204 @@ def _register_embedding_routes(
             ],
         )
 
+
+RecordUpdateFn = Callable[[str, dict, str], None]
+
+
+def _build_record_update(
+    storage,
+    *,
+    broker,
+    workspace: Workspace,
+    log_lock: threading.Lock,
+    snapshotter,
+    sync_state: dict[str, int],
+) -> RecordUpdateFn:
+    def _record_update(path: str, meta: dict, event_type: str = "item-updated") -> None:
+        payload = _sidecar_payload(path, meta)
+        event_id = broker.publish(event_type, payload)
+        sync_state["last_event_id"] = event_id
+        if workspace.can_write:
+            entry = {"id": event_id, "type": event_type, **payload}
+            try:
+                with log_lock:
+                    workspace.append_labels_log(entry)
+            except Exception as exc:
+                print(f"[lenslet] Warning: failed to append labels log: {exc}")
+            snapshotter.maybe_write(storage, event_id)
+
+    return _record_update
+
+
+def _register_common_api_routes(
+    app: FastAPI,
+    to_item,
+    *,
+    meta_lock: threading.Lock,
+    presence: PresenceTracker,
+    broker,
+    idempotency_cache,
+    record_update: RecordUpdateFn,
+    thumb_queue: ThumbnailScheduler,
+    thumb_cache: ThumbCache | None,
+    hotpath_metrics: HotpathTelemetry | None,
+) -> None:
+    _register_folder_route(app, to_item, hotpath_metrics=hotpath_metrics)
+
+    @app.get("/item")
+    def get_item(path: str, request: Request = None):
+        storage = _storage_from_request(request)
+        path = _canonical_path(path)
+        _ensure_image(storage, path)
+        return _build_sidecar(storage, path)
+
+    @app.get("/metadata", response_model=ImageMetadataResponse)
+    def get_metadata(path: str, request: Request = None):
+        storage = _storage_from_request(request)
+        path = _canonical_path(path)
+        _ensure_image(storage, path)
+        return _build_image_metadata(storage, path)
+
+    @app.put("/item")
+    def put_item(path: str, body: Sidecar, request: Request = None):
+        storage = _storage_from_request(request)
+        path = _canonical_path(path)
+        _ensure_image(storage, path)
+        updated_by = _updated_by_from_request(request)
+        with meta_lock:
+            sidecar = _update_item(storage, path, body, updated_by)
+            meta_snapshot = dict(storage.get_metadata(path))
+        record_update(path, meta_snapshot)
+        client_id = _client_id_from_request(request)
+        if client_id:
+            gallery_id = _gallery_id_from_path(path)
+            viewing, editing = presence.touch_edit(gallery_id, client_id)
+            broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
+        return sidecar
+
+    @app.patch("/item")
+    def patch_item(path: str, body: SidecarPatch, request: Request = None):
+        storage = _storage_from_request(request)
+        path = _canonical_path(path)
+        _ensure_image(storage, path)
+        idem_key = request.headers.get("Idempotency-Key") if request else None
+        if not idem_key:
+            raise HTTPException(400, "Idempotency-Key header required")
+        cached = idempotency_cache.get(idem_key)
+        if cached:
+            status, payload = cached
+            return JSONResponse(status_code=status, content=payload)
+
+        if_match = _parse_if_match(request.headers.get("If-Match") if request else None)
+        if request and request.headers.get("If-Match") and if_match is None:
+            payload = {"error": "invalid_if_match", "message": "If-Match must be an integer version"}
+            idempotency_cache.set(idem_key, 400, payload)
+            return JSONResponse(status_code=400, content=payload)
+
+        expected = body.base_version
+        if if_match is not None:
+            if expected is not None and expected != if_match:
+                payload = {"error": "version_mismatch", "message": "If-Match and base_version disagree"}
+                idempotency_cache.set(idem_key, 400, payload)
+                return JSONResponse(status_code=400, content=payload)
+            expected = if_match
+
+        if expected is None:
+            payload = {"error": "missing_base_version", "message": "base_version or If-Match is required"}
+            idempotency_cache.set(idem_key, 400, payload)
+            return JSONResponse(status_code=400, content=payload)
+
+        updated = False
+        with meta_lock:
+            meta = storage.get_metadata(path)
+            meta = _ensure_meta_fields(meta)
+            if expected is not None and expected != meta.get("version", 1):
+                current = _sidecar_from_meta(meta).model_dump()
+                payload = {"error": "version_conflict", "current": current}
+                idempotency_cache.set(idem_key, 409, payload)
+                return JSONResponse(status_code=409, content=payload)
+
+            updated = _apply_patch_to_meta(meta, body)
+            if updated:
+                meta["version"] = meta.get("version", 1) + 1
+                meta["updated_at"] = _now_iso()
+                meta["updated_by"] = _updated_by_from_request(request)
+                storage.set_metadata(path, meta)
+            meta_snapshot = dict(meta)
+        if updated:
+            record_update(path, meta_snapshot)
+            client_id = _client_id_from_request(request)
+            if client_id:
+                gallery_id = _gallery_id_from_path(path)
+                viewing, editing = presence.touch_edit(gallery_id, client_id)
+                broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
+        sidecar = _sidecar_from_meta(meta_snapshot).model_dump()
+        idempotency_cache.set(idem_key, 200, sidecar)
+        return JSONResponse(status_code=200, content=sidecar)
+
+    @app.post("/presence")
+    def presence_heartbeat(body: PresencePayload):
+        gallery_id = _canonical_path(body.gallery_id)
+        if not body.client_id:
+            raise HTTPException(400, "client_id required")
+        viewing, editing = presence.touch_view(gallery_id, body.client_id)
+        payload = {"gallery_id": gallery_id, "viewing": viewing, "editing": editing}
+        broker.publish("presence", payload)
+        return payload
+
+    @app.get("/events")
+    async def events(request: Request):
+        broker.ensure_loop()
+        queue = broker.register()
+        last_event_id = _last_event_id_from_request(request)
+
+        async def event_stream():
+            try:
+                for record in broker.replay(last_event_id):
+                    yield _format_sse(record)
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        record = await asyncio.wait_for(queue.get(), timeout=15)
+                    except asyncio.TimeoutError:
+                        yield ": ping\n\n"
+                        continue
+                    yield _format_sse(record)
+            finally:
+                broker.unregister(queue)
+
+        response = StreamingResponse(event_stream(), media_type="text/event-stream")
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Connection"] = "keep-alive"
+        return response
+
+    @app.get("/thumb")
+    async def get_thumb(path: str, request: Request = None):
+        storage = _storage_from_request(request)
+        path = _canonical_path(path)
+        _ensure_image(storage, path)
+        return await _thumb_response_async(
+            storage,
+            path,
+            request,
+            thumb_queue,
+            thumb_cache,
+            hotpath_metrics=hotpath_metrics,
+        )
+
+    @app.get("/file")
+    def get_file(path: str, request: Request = None):
+        storage = _storage_from_request(request)
+        path = _canonical_path(path)
+        _ensure_image(storage, path)
+        return _file_response(storage, path, request=request, hotpath_metrics=hotpath_metrics)
+
+    @app.get("/search", response_model=SearchResult)
+    def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
+        storage = _storage_from_request(request)
+        return _search_results(storage, to_item, q, _canonical_path(path), limit)
+
 # --- App Factory ---
 
 def create_app(
@@ -1073,7 +1271,7 @@ def create_app(
 
     embedding_manager: EmbeddingManager | None = None
     if storage_mode == "table" and items_path.is_file() and isinstance(storage, TableStorage):
-        cache = _embedding_cache_from_workspace(
+        embedding_cache_store = _embedding_cache_from_workspace(
             workspace,
             enabled=embedding_cache,
             cache_dir=embedding_cache_dir,
@@ -1082,7 +1280,7 @@ def create_app(
             str(items_path),
             storage,
             embedding_detection,
-            cache=cache,
+            cache=embedding_cache_store,
             preload=embedding_preload,
         )
 
@@ -1095,25 +1293,21 @@ def create_app(
         threading.Thread(target=_warm_index, daemon=True).start()
 
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
-    cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
+    thumb_cache_store = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
     hotpath_metrics = _create_hotpath_metrics(app)
 
     def _to_item(storage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
         return _build_item(cached, meta)
 
-    def _record_update(path: str, meta: dict, event_type: str = "item-updated") -> None:
-        payload = _sidecar_payload(path, meta)
-        event_id = broker.publish(event_type, payload)
-        sync_state["last_event_id"] = event_id
-        if workspace.can_write:
-            entry = {"id": event_id, "type": event_type, **payload}
-            try:
-                with log_lock:
-                    workspace.append_labels_log(entry)
-            except Exception as exc:
-                print(f"[lenslet] Warning: failed to append labels log: {exc}")
-            snapshotter.maybe_write(storage, event_id)
+    record_update = _build_record_update(
+        storage,
+        broker=broker,
+        workspace=workspace,
+        log_lock=log_lock,
+        snapshotter=snapshotter,
+        sync_state=sync_state,
+    )
 
     # Inject storage via middleware
     _attach_storage(app, storage)
@@ -1130,8 +1324,6 @@ def create_app(
             "labels": _labels_health_payload(workspace),
             "hotpath": hotpath_metrics.snapshot(storage),
         }
-
-    _register_folder_route(app, _to_item, hotpath_metrics=hotpath_metrics)
 
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
@@ -1151,158 +1343,18 @@ def create_app(
         storage.invalidate_subtree(path)
         return {"ok": True}
 
-    @app.get("/item")
-    def get_item(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return _build_sidecar(storage, path)
-
-    @app.get("/metadata", response_model=ImageMetadataResponse)
-    def get_metadata(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return _build_image_metadata(storage, path)
-
-    @app.put("/item")
-    def put_item(path: str, body: Sidecar, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        updated_by = _updated_by_from_request(request)
-        with meta_lock:
-            sidecar = _update_item(storage, path, body, updated_by)
-            meta_snapshot = dict(storage.get_metadata(path))
-        _record_update(path, meta_snapshot)
-        client_id = _client_id_from_request(request)
-        if client_id:
-            gallery_id = _gallery_id_from_path(path)
-            viewing, editing = presence.touch_edit(gallery_id, client_id)
-            broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
-        return sidecar
-
-    @app.patch("/item")
-    def patch_item(path: str, body: SidecarPatch, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        idem_key = request.headers.get("Idempotency-Key") if request else None
-        if not idem_key:
-            raise HTTPException(400, "Idempotency-Key header required")
-        cached = idempotency_cache.get(idem_key)
-        if cached:
-            status, payload = cached
-            return JSONResponse(status_code=status, content=payload)
-
-        if_match = _parse_if_match(request.headers.get("If-Match") if request else None)
-        if request and request.headers.get("If-Match") and if_match is None:
-            payload = {"error": "invalid_if_match", "message": "If-Match must be an integer version"}
-            idempotency_cache.set(idem_key, 400, payload)
-            return JSONResponse(status_code=400, content=payload)
-
-        expected = body.base_version
-        if if_match is not None:
-            if expected is not None and expected != if_match:
-                payload = {"error": "version_mismatch", "message": "If-Match and base_version disagree"}
-                idempotency_cache.set(idem_key, 400, payload)
-                return JSONResponse(status_code=400, content=payload)
-            expected = if_match
-
-        if expected is None:
-            payload = {"error": "missing_base_version", "message": "base_version or If-Match is required"}
-            idempotency_cache.set(idem_key, 400, payload)
-            return JSONResponse(status_code=400, content=payload)
-
-        updated = False
-        with meta_lock:
-            meta = storage.get_metadata(path)
-            meta = _ensure_meta_fields(meta)
-            if expected is not None and expected != meta.get("version", 1):
-                current = _sidecar_from_meta(meta).model_dump()
-                payload = {"error": "version_conflict", "current": current}
-                idempotency_cache.set(idem_key, 409, payload)
-                return JSONResponse(status_code=409, content=payload)
-            updated = _apply_patch_to_meta(meta, body)
-            if updated:
-                meta["version"] = meta.get("version", 1) + 1
-                meta["updated_at"] = _now_iso()
-                meta["updated_by"] = _updated_by_from_request(request)
-                storage.set_metadata(path, meta)
-            meta_snapshot = dict(meta)
-        if updated:
-            _record_update(path, meta_snapshot)
-            client_id = _client_id_from_request(request)
-            if client_id:
-                gallery_id = _gallery_id_from_path(path)
-                viewing, editing = presence.touch_edit(gallery_id, client_id)
-                broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
-        sidecar = _sidecar_from_meta(meta_snapshot).model_dump()
-        idempotency_cache.set(idem_key, 200, sidecar)
-        return JSONResponse(status_code=200, content=sidecar)
-
-    @app.post("/presence")
-    def presence_heartbeat(body: PresencePayload):
-        gallery_id = _canonical_path(body.gallery_id)
-        if not body.client_id:
-            raise HTTPException(400, "client_id required")
-        viewing, editing = presence.touch_view(gallery_id, body.client_id)
-        payload = {"gallery_id": gallery_id, "viewing": viewing, "editing": editing}
-        broker.publish("presence", payload)
-        return payload
-
-    @app.get("/events")
-    async def events(request: Request):
-        broker.ensure_loop()
-        queue = broker.register()
-        last_event_id = _last_event_id_from_request(request)
-
-        async def event_stream():
-            try:
-                for record in broker.replay(last_event_id):
-                    yield _format_sse(record)
-                while True:
-                    if await request.is_disconnected():
-                        break
-                    try:
-                        record = await asyncio.wait_for(queue.get(), timeout=15)
-                    except asyncio.TimeoutError:
-                        yield ": ping\n\n"
-                        continue
-                    yield _format_sse(record)
-            finally:
-                broker.unregister(queue)
-
-        response = StreamingResponse(event_stream(), media_type="text/event-stream")
-        response.headers["Cache-Control"] = "no-cache"
-        response.headers["Connection"] = "keep-alive"
-        return response
-
-    @app.get("/thumb")
-    async def get_thumb(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return await _thumb_response_async(
-            storage,
-            path,
-            request,
-            thumb_queue,
-            cache,
-            hotpath_metrics=hotpath_metrics,
-        )
-
-    @app.get("/file")
-    def get_file(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return _file_response(storage, path, request=request, hotpath_metrics=hotpath_metrics)
-
-    @app.get("/search", response_model=SearchResult)
-    def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
-        storage = _storage_from_request(request)
-        return _search_results(storage, _to_item, q, _canonical_path(path), limit)
+    _register_common_api_routes(
+        app,
+        _to_item,
+        meta_lock=meta_lock,
+        presence=presence,
+        broker=broker,
+        idempotency_cache=idempotency_cache,
+        record_update=record_update,
+        thumb_queue=thumb_queue,
+        thumb_cache=thumb_cache_store,
+        hotpath_metrics=hotpath_metrics,
+    )
 
     _register_embedding_routes(app, storage, embedding_manager)
     _register_og_routes(app, storage, workspace, enabled=og_preview)
@@ -1358,7 +1410,7 @@ def create_app_from_datasets(
     presence = PresenceTracker()
     app.state.sync_broker = broker
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
-    cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
+    thumb_cache_store = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
     hotpath_metrics = _create_hotpath_metrics(app)
     embedding_manager: EmbeddingManager | None = None
     if embedding_parquet_path and isinstance(storage, TableStorage):
@@ -1386,18 +1438,14 @@ def create_app_from_datasets(
                 source = None
         return _build_item(cached, meta, source=source)
 
-    def _record_update(path: str, meta: dict, event_type: str = "item-updated") -> None:
-        payload = _sidecar_payload(path, meta)
-        event_id = broker.publish(event_type, payload)
-        sync_state["last_event_id"] = event_id
-        if workspace.can_write:
-            entry = {"id": event_id, "type": event_type, **payload}
-            try:
-                with log_lock:
-                    workspace.append_labels_log(entry)
-            except Exception as exc:
-                print(f"[lenslet] Warning: failed to append labels log: {exc}")
-            snapshotter.maybe_write(storage, event_id)
+    record_update = _build_record_update(
+        storage,
+        broker=broker,
+        workspace=workspace,
+        log_lock=log_lock,
+        snapshotter=snapshotter,
+        sync_state=sync_state,
+    )
 
     # Inject storage via middleware
     _attach_storage(app, storage)
@@ -1418,167 +1466,24 @@ def create_app_from_datasets(
             "hotpath": hotpath_metrics.snapshot(storage),
         }
 
-    _register_folder_route(app, _to_item, hotpath_metrics=hotpath_metrics)
-
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
         # Dataset mode is static for now, but keep API parity with memory mode
         _ = path
         return {"ok": True, "note": "dataset mode is static"}
 
-    @app.get("/item")
-    def get_item(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return _build_sidecar(storage, path)
-
-    @app.get("/metadata", response_model=ImageMetadataResponse)
-    def get_metadata(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return _build_image_metadata(storage, path)
-
-    @app.put("/item")
-    def put_item(path: str, body: Sidecar, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        updated_by = _updated_by_from_request(request)
-        with meta_lock:
-            sidecar = _update_item(storage, path, body, updated_by)
-            meta_snapshot = dict(storage.get_metadata(path))
-        _record_update(path, meta_snapshot)
-        client_id = _client_id_from_request(request)
-        if client_id:
-            gallery_id = _gallery_id_from_path(path)
-            viewing, editing = presence.touch_edit(gallery_id, client_id)
-            broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
-        return sidecar
-
-    @app.patch("/item")
-    def patch_item(path: str, body: SidecarPatch, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        idem_key = request.headers.get("Idempotency-Key") if request else None
-        if not idem_key:
-            raise HTTPException(400, "Idempotency-Key header required")
-        cached = idempotency_cache.get(idem_key)
-        if cached:
-            status, payload = cached
-            return JSONResponse(status_code=status, content=payload)
-
-        if_match = _parse_if_match(request.headers.get("If-Match") if request else None)
-        if request and request.headers.get("If-Match") and if_match is None:
-            payload = {"error": "invalid_if_match", "message": "If-Match must be an integer version"}
-            idempotency_cache.set(idem_key, 400, payload)
-            return JSONResponse(status_code=400, content=payload)
-
-        expected = body.base_version
-        if if_match is not None:
-            if expected is not None and expected != if_match:
-                payload = {"error": "version_mismatch", "message": "If-Match and base_version disagree"}
-                idempotency_cache.set(idem_key, 400, payload)
-                return JSONResponse(status_code=400, content=payload)
-            expected = if_match
-
-        if expected is None:
-            payload = {"error": "missing_base_version", "message": "base_version or If-Match is required"}
-            idempotency_cache.set(idem_key, 400, payload)
-            return JSONResponse(status_code=400, content=payload)
-
-        updated = False
-        with meta_lock:
-            meta = storage.get_metadata(path)
-            meta = _ensure_meta_fields(meta)
-            if expected is not None and expected != meta.get("version", 1):
-                current = _sidecar_from_meta(meta).model_dump()
-                payload = {"error": "version_conflict", "current": current}
-                idempotency_cache.set(idem_key, 409, payload)
-                return JSONResponse(status_code=409, content=payload)
-
-            updated = _apply_patch_to_meta(meta, body)
-            if updated:
-                meta["version"] = meta.get("version", 1) + 1
-                meta["updated_at"] = _now_iso()
-                meta["updated_by"] = _updated_by_from_request(request)
-                storage.set_metadata(path, meta)
-            meta_snapshot = dict(meta)
-        if updated:
-            _record_update(path, meta_snapshot)
-            client_id = _client_id_from_request(request)
-            if client_id:
-                gallery_id = _gallery_id_from_path(path)
-                viewing, editing = presence.touch_edit(gallery_id, client_id)
-                broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
-        sidecar = _sidecar_from_meta(meta_snapshot).model_dump()
-        idempotency_cache.set(idem_key, 200, sidecar)
-        return JSONResponse(status_code=200, content=sidecar)
-
-    @app.post("/presence")
-    def presence_heartbeat(body: PresencePayload):
-        gallery_id = _canonical_path(body.gallery_id)
-        if not body.client_id:
-            raise HTTPException(400, "client_id required")
-        viewing, editing = presence.touch_view(gallery_id, body.client_id)
-        payload = {"gallery_id": gallery_id, "viewing": viewing, "editing": editing}
-        broker.publish("presence", payload)
-        return payload
-
-    @app.get("/events")
-    async def events(request: Request):
-        broker.ensure_loop()
-        queue = broker.register()
-        last_event_id = _last_event_id_from_request(request)
-
-        async def event_stream():
-            try:
-                for record in broker.replay(last_event_id):
-                    yield _format_sse(record)
-                while True:
-                    if await request.is_disconnected():
-                        break
-                    try:
-                        record = await asyncio.wait_for(queue.get(), timeout=15)
-                    except asyncio.TimeoutError:
-                        yield ": ping\n\n"
-                        continue
-                    yield _format_sse(record)
-            finally:
-                broker.unregister(queue)
-
-        response = StreamingResponse(event_stream(), media_type="text/event-stream")
-        response.headers["Cache-Control"] = "no-cache"
-        response.headers["Connection"] = "keep-alive"
-        return response
-
-    @app.get("/thumb")
-    async def get_thumb(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return await _thumb_response_async(
-            storage,
-            path,
-            request,
-            thumb_queue,
-            cache,
-            hotpath_metrics=hotpath_metrics,
-        )
-
-    @app.get("/file")
-    def get_file(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return _file_response(storage, path, request=request, hotpath_metrics=hotpath_metrics)
-
-    @app.get("/search", response_model=SearchResult)
-    def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
-        storage = _storage_from_request(request)
-        return _search_results(storage, _to_item, q, _canonical_path(path), limit)
+    _register_common_api_routes(
+        app,
+        _to_item,
+        meta_lock=meta_lock,
+        presence=presence,
+        broker=broker,
+        idempotency_cache=idempotency_cache,
+        record_update=record_update,
+        thumb_queue=thumb_queue,
+        thumb_cache=thumb_cache_store,
+        hotpath_metrics=hotpath_metrics,
+    )
 
     _register_embedding_routes(app, storage, embedding_manager)
     _register_views_routes(app, workspace)
@@ -1666,7 +1571,7 @@ def create_app_from_storage(
     presence = PresenceTracker()
     app.state.sync_broker = broker
     thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
-    cache = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
+    thumb_cache_store = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
     hotpath_metrics = _create_hotpath_metrics(app)
     embedding_manager: EmbeddingManager | None = None
     if embedding_parquet_path:
@@ -1689,18 +1594,14 @@ def create_app_from_storage(
         source = cached.source if show_source else None
         return _build_item(cached, meta, source=source)
 
-    def _record_update(path: str, meta: dict, event_type: str = "item-updated") -> None:
-        payload = _sidecar_payload(path, meta)
-        event_id = broker.publish(event_type, payload)
-        sync_state["last_event_id"] = event_id
-        if workspace.can_write:
-            entry = {"id": event_id, "type": event_type, **payload}
-            try:
-                with log_lock:
-                    workspace.append_labels_log(entry)
-            except Exception as exc:
-                print(f"[lenslet] Warning: failed to append labels log: {exc}")
-            snapshotter.maybe_write(storage, event_id)
+    record_update = _build_record_update(
+        storage,
+        broker=broker,
+        workspace=workspace,
+        log_lock=log_lock,
+        snapshotter=snapshotter,
+        sync_state=sync_state,
+    )
 
     _attach_storage(app, storage)
 
@@ -1715,166 +1616,23 @@ def create_app_from_storage(
             "hotpath": hotpath_metrics.snapshot(storage),
         }
 
-    _register_folder_route(app, _to_item, hotpath_metrics=hotpath_metrics)
-
     @app.post("/refresh")
     def refresh(path: str = "/", request: Request = None):
         _ = path
         return {"ok": True, "note": "table mode is static"}
 
-    @app.get("/item")
-    def get_item(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return _build_sidecar(storage, path)
-
-    @app.get("/metadata", response_model=ImageMetadataResponse)
-    def get_metadata(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return _build_image_metadata(storage, path)
-
-    @app.put("/item")
-    def put_item(path: str, body: Sidecar, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        updated_by = _updated_by_from_request(request)
-        with meta_lock:
-            sidecar = _update_item(storage, path, body, updated_by)
-            meta_snapshot = dict(storage.get_metadata(path))
-        _record_update(path, meta_snapshot)
-        client_id = _client_id_from_request(request)
-        if client_id:
-            gallery_id = _gallery_id_from_path(path)
-            viewing, editing = presence.touch_edit(gallery_id, client_id)
-            broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
-        return sidecar
-
-    @app.patch("/item")
-    def patch_item(path: str, body: SidecarPatch, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        idem_key = request.headers.get("Idempotency-Key") if request else None
-        if not idem_key:
-            raise HTTPException(400, "Idempotency-Key header required")
-        cached = idempotency_cache.get(idem_key)
-        if cached:
-            status, payload = cached
-            return JSONResponse(status_code=status, content=payload)
-
-        if_match = _parse_if_match(request.headers.get("If-Match") if request else None)
-        if request and request.headers.get("If-Match") and if_match is None:
-            payload = {"error": "invalid_if_match", "message": "If-Match must be an integer version"}
-            idempotency_cache.set(idem_key, 400, payload)
-            return JSONResponse(status_code=400, content=payload)
-
-        expected = body.base_version
-        if if_match is not None:
-            if expected is not None and expected != if_match:
-                payload = {"error": "version_mismatch", "message": "If-Match and base_version disagree"}
-                idempotency_cache.set(idem_key, 400, payload)
-                return JSONResponse(status_code=400, content=payload)
-            expected = if_match
-
-        if expected is None:
-            payload = {"error": "missing_base_version", "message": "base_version or If-Match is required"}
-            idempotency_cache.set(idem_key, 400, payload)
-            return JSONResponse(status_code=400, content=payload)
-
-        updated = False
-        with meta_lock:
-            meta = storage.get_metadata(path)
-            meta = _ensure_meta_fields(meta)
-            if expected is not None and expected != meta.get("version", 1):
-                current = _sidecar_from_meta(meta).model_dump()
-                payload = {"error": "version_conflict", "current": current}
-                idempotency_cache.set(idem_key, 409, payload)
-                return JSONResponse(status_code=409, content=payload)
-
-            updated = _apply_patch_to_meta(meta, body)
-            if updated:
-                meta["version"] = meta.get("version", 1) + 1
-                meta["updated_at"] = _now_iso()
-                meta["updated_by"] = _updated_by_from_request(request)
-                storage.set_metadata(path, meta)
-            meta_snapshot = dict(meta)
-        if updated:
-            _record_update(path, meta_snapshot)
-            client_id = _client_id_from_request(request)
-            if client_id:
-                gallery_id = _gallery_id_from_path(path)
-                viewing, editing = presence.touch_edit(gallery_id, client_id)
-                broker.publish("presence", {"gallery_id": gallery_id, "viewing": viewing, "editing": editing})
-        sidecar = _sidecar_from_meta(meta_snapshot).model_dump()
-        idempotency_cache.set(idem_key, 200, sidecar)
-        return JSONResponse(status_code=200, content=sidecar)
-
-    @app.post("/presence")
-    def presence_heartbeat(body: PresencePayload):
-        gallery_id = _canonical_path(body.gallery_id)
-        if not body.client_id:
-            raise HTTPException(400, "client_id required")
-        viewing, editing = presence.touch_view(gallery_id, body.client_id)
-        payload = {"gallery_id": gallery_id, "viewing": viewing, "editing": editing}
-        broker.publish("presence", payload)
-        return payload
-
-    @app.get("/events")
-    async def events(request: Request):
-        broker.ensure_loop()
-        queue = broker.register()
-        last_event_id = _last_event_id_from_request(request)
-
-        async def event_stream():
-            try:
-                for record in broker.replay(last_event_id):
-                    yield _format_sse(record)
-                while True:
-                    if await request.is_disconnected():
-                        break
-                    try:
-                        record = await asyncio.wait_for(queue.get(), timeout=15)
-                    except asyncio.TimeoutError:
-                        yield ": ping\n\n"
-                        continue
-                    yield _format_sse(record)
-            finally:
-                broker.unregister(queue)
-
-        response = StreamingResponse(event_stream(), media_type="text/event-stream")
-        response.headers["Cache-Control"] = "no-cache"
-        response.headers["Connection"] = "keep-alive"
-        return response
-
-    @app.get("/thumb")
-    async def get_thumb(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return await _thumb_response_async(
-            storage,
-            path,
-            request,
-            thumb_queue,
-            cache,
-            hotpath_metrics=hotpath_metrics,
-        )
-
-    @app.get("/file")
-    def get_file(path: str, request: Request = None):
-        storage = _storage_from_request(request)
-        path = _canonical_path(path)
-        _ensure_image(storage, path)
-        return _file_response(storage, path, request=request, hotpath_metrics=hotpath_metrics)
-
-    @app.get("/search", response_model=SearchResult)
-    def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
-        storage = _storage_from_request(request)
-        return _search_results(storage, _to_item, q, _canonical_path(path), limit)
+    _register_common_api_routes(
+        app,
+        _to_item,
+        meta_lock=meta_lock,
+        presence=presence,
+        broker=broker,
+        idempotency_cache=idempotency_cache,
+        record_update=record_update,
+        thumb_queue=thumb_queue,
+        thumb_cache=thumb_cache_store,
+        hotpath_metrics=hotpath_metrics,
+    )
 
     _register_embedding_routes(app, storage, embedding_manager)
     _register_og_routes(app, storage, workspace, enabled=og_preview)

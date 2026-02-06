@@ -67,6 +67,7 @@ export default function LeftSidebar({
   const compareButtonClass = compareActive
     ? 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-accent-muted text-accent'
     : 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-surface text-text hover:bg-surface-hover'
+  const githubButtonClass = 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-surface text-text hover:bg-surface-hover cursor-pointer'
 
   return (
     <div className="app-left-panel col-start-1 row-start-2 relative border-r border-border bg-panel overflow-hidden">
@@ -111,6 +112,19 @@ export default function LeftSidebar({
             <rect x="13" y="4" width="8" height="16" rx="1" />
           </svg>
         </button>
+        <div className="flex-1" />
+        <a
+          className={githubButtonClass}
+          href="https://github.com/trojblue/lenslet"
+          title="Lenslet on GitHub"
+          aria-label="Lenslet on GitHub"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 .5C5.73.5.5 5.74.5 12.02c0 5.1 3.29 9.42 7.86 10.95.58.11.79-.25.79-.56v-2.17c-3.2.7-3.88-1.55-3.88-1.55-.53-1.35-1.29-1.71-1.29-1.71-1.05-.72.08-.71.08-.71 1.16.08 1.78 1.2 1.78 1.2 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.29-5.23-5.74 0-1.27.45-2.31 1.19-3.13-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.19.92-.26 1.91-.39 2.89-.39.98 0 1.97.13 2.89.39 2.2-1.5 3.18-1.19 3.18-1.19.63 1.59.23 2.76.11 3.05.74.82 1.19 1.86 1.19 3.13 0 4.46-2.69 5.45-5.25 5.73.41.36.78 1.07.78 2.16v3.2c0 .31.21.67.8.56 4.56-1.53 7.85-5.85 7.85-10.95C23.5 5.74 18.27.5 12 .5z" />
+          </svg>
+        </a>
       </div>
       <div className="ml-10 h-full">
         {leftTool === 'folders' ? (

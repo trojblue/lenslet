@@ -67,6 +67,20 @@ class SidecarPatch(BaseModel):
 class PresencePayload(BaseModel):
     gallery_id: str
     client_id: str
+    lease_id: str | None = None
+
+
+class PresenceMovePayload(BaseModel):
+    from_gallery_id: str
+    to_gallery_id: str
+    client_id: str
+    lease_id: str
+
+
+class PresenceLeavePayload(BaseModel):
+    gallery_id: str
+    client_id: str
+    lease_id: str
 
 
 class SearchResult(BaseModel):

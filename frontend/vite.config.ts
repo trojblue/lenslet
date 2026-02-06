@@ -1,5 +1,26 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+
+const BACKEND_URL = 'http://127.0.0.1:7070'
+const PROXY_PATHS = [
+  '/folders',
+  '/item',
+  '/thumb',
+  '/file',
+  '/move',
+  '/delete',
+  '/export-intent',
+  '/views',
+  '/search',
+  '/health',
+  '/events',
+  '/presence',
+] as const
+
+const PROXY_CONFIG: Record<string, string> = Object.fromEntries(
+  PROXY_PATHS.map((path) => [path, BACKEND_URL])
+)
+
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -7,18 +28,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/folders': 'http://127.0.0.1:7070',
-      '/item': 'http://127.0.0.1:7070',
-      '/thumb': 'http://127.0.0.1:7070',
-      '/file': 'http://127.0.0.1:7070',
-      '/move': 'http://127.0.0.1:7070',
-      '/delete': 'http://127.0.0.1:7070',
-      '/export-intent': 'http://127.0.0.1:7070',
-      '/views': 'http://127.0.0.1:7070',
       // allow POST /file for uploads
-      '/search': 'http://127.0.0.1:7070',
-      '/health': 'http://127.0.0.1:7070'
-    }
+      ...PROXY_CONFIG,
+    },
   },
   build: {
     outDir: 'dist',

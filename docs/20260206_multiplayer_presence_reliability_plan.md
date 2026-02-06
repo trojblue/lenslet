@@ -16,10 +16,28 @@ The finished behavior is observable by running two or more clients against one s
 - [x] 2026-02-06 05:22:36Z Identified concrete failure modes with file-level evidence and line references.
 - [x] 2026-02-06 05:22:36Z Drafted a sprinted implementation plan with atomic tasks and validation per task.
 - [x] 2026-02-06 05:45:00Z Reviewed task sizing, hidden dependencies, and validation gaps; split oversized work and tightened acceptance bounds.
-- [ ] Execute Sprint 1 server-side presence model hardening.
-- [ ] Execute Sprint 2 client lifecycle and session identity hardening.
-- [ ] Execute Sprint 3 UI signal coherence and scope-aware remote-update visibility.
-- [ ] Execute Sprint 4 reliability tests, ops instrumentation, and docs updates.
+- [x] 2026-02-06 12:06:30Z Completed Sprint 1 server-side presence model hardening (T1-T6), including lifecycle routes (`join/move/leave`), lease validation, periodic stale-prune loop, legacy `/presence` compatibility wiring, API docs update, and passing backend tests.
+- [x] 2026-02-06 12:10:09Z Completed T1-T6 implementation in code: `src/lenslet/server_sync.py`, `src/lenslet/server.py`, `src/lenslet/server_models.py`, and `docs/20260123_collaboration_sync_api.md`.
+- [x] 2026-02-06 12:10:09Z Added Sprint 1 backend lifecycle coverage in `tests/test_presence_lifecycle.py` (join/move/leave/invariants/invalid-lease/stale-prune/legacy heartbeat compatibility).
+- [x] 2026-02-06 12:10:09Z Validation pass completed in `/home/ubuntu/dev/lenslet-2`: `PYTHONPATH=src pytest -q` => `30 passed`.
+- [x] 2026-02-06 12:31:15Z Completed Sprint 2 client lifecycle and identity hardening implementation (T7-T11): tab-scoped refresh-stable `client_id`, `join/move/leave` lifecycle wiring with lease handling, unload-safe leave via beacon/keepalive, reconnect-triggered presence resync, and coalesced rapid scope transitions in `frontend/src/api/client.ts`, `frontend/src/app/AppShell.tsx`, `frontend/src/lib/constants.ts`, and `frontend/vite.config.ts`.
+- [x] 2026-02-06 12:31:15Z Added Sprint 2 frontend lifecycle tests in `frontend/src/api/__tests__/client.presence.test.ts` covering tab identity behavior and unload leave transport fallback.
+- [x] 2026-02-06 12:31:15Z Validation pass completed in `/home/ubuntu/dev/lenslet-2`: `cd frontend && npm test` => `12 passed`, `cd frontend && npm run build` => success, `PYTHONPATH=src pytest -q` => `30 passed`.
+- [x] 2026-02-06 12:46:59Z Updated handover notes for Sprint 3 continuation with implemented Sprint 2 artifacts, current behavioral assumptions, and remaining reliability test gaps.
+- [x] 2026-02-06 12:58:04Z Completed a code-simplifier maintainability pass on touched Sprint 2 frontend files (`frontend/src/api/client.ts`, `frontend/src/app/AppShell.tsx`, `frontend/vite.config.ts`, `frontend/src/api/__tests__/client.presence.test.ts`) with behavior-preserving helper extraction and reduced duplication; validated with `cd frontend && npm test` => `12 passed` and `cd frontend && npm run build` => success.
+- [x] 2026-02-06 13:13:21Z Completed Sprint 3 UI coherence and update visibility (T12-T15): deterministic indicator precedence helper + unit tests, local typing cue separate from server editing counts, off-view update summary/reveal/clear behavior, and event-id keyed minimum-window grid highlights in `frontend/src/app/AppShell.tsx`, `frontend/src/app/presenceUi.ts`, `frontend/src/app/__tests__/presenceUi.test.ts`, `frontend/src/shared/ui/SyncIndicator.tsx`, `frontend/src/features/inspector/Inspector.tsx`, `frontend/src/app/components/StatusBar.tsx`, `frontend/src/features/browse/components/VirtualGrid.tsx`, `frontend/src/features/browse/components/ThumbCard.tsx`, `frontend/src/styles.css`, and `frontend/src/lib/constants.ts`.
+- [x] 2026-02-06 13:13:21Z Validation pass completed in `/home/ubuntu/dev/lenslet-2`: `cd frontend && npm test` => `17 passed`, `cd frontend && npm run build` => success, `PYTHONPATH=src pytest -q` => `30 passed`.
+- [x] 2026-02-06 13:18:03Z Updated handover notes for Sprint 4 continuation with Sprint 3 implementation artifacts, current interface/state assumptions, and recommended T16-T22 execution order.
+- [x] 2026-02-06 13:27:01Z Completed a code-simplifier maintainability pass on Sprint 3 frontend artifacts with behavior-preserving refactors: extracted presence activity tracking/highlight logic into `frontend/src/app/presenceActivity.ts`, simplified `frontend/src/app/AppShell.tsx` orchestration, deduplicated viewport visibility notifications in `frontend/src/features/browse/components/VirtualGrid.tsx`, consolidated local typing handlers in `frontend/src/features/inspector/Inspector.tsx`, and shared off-view summary typing in `frontend/src/app/components/StatusBar.tsx`.
+- [x] 2026-02-06 13:27:01Z Validation pass completed in `/home/ubuntu/dev/lenslet-2`: `cd frontend && npm test` => `17 passed`, `cd frontend && npm run build` => success, `PYTHONPATH=src pytest -q` => `30 passed`.
+- [x] 2026-02-06 13:28:37Z Added helper-level frontend coverage for extracted Sprint 3 activity module in `frontend/src/app/__tests__/presenceActivity.test.ts`; validation rerun: `cd frontend && npm test` => `20 passed`, `cd frontend && npm run build` => success.
+- [x] 2026-02-06 13:43:12Z Completed Sprint 4 backend reliability hardening (T17/T19/T20/T22 backend portions): added thread-safety race coverage, multi-client convergence integration test, runtime diagnostics counters (`active_clients`, `active_scopes`, `stale_pruned_total`, `invalid_lease_total`, `replay_miss_total`), `/presence/diagnostics` endpoint, health payload presence diagnostics, and lifecycle-v2 rollout gate (`presence_lifecycle_v2`) with legacy heartbeat fallback behavior.
+- [x] 2026-02-06 13:43:12Z Completed Sprint 4 frontend reliability tests (T18): added EventSource reconnect/backoff/polling-fallback and replay-last-event-id coverage in `frontend/src/api/__tests__/client.events.test.ts`.
+- [x] 2026-02-06 13:43:12Z Completed Sprint 4 docs/runbook updates (T21/T22 docs): refreshed `docs/20260123_collaboration_sync_api.md` and `docs/20260124_collaboration_sync_ops.md` with diagnostics payloads, convergence bounds, lifecycle-v2 gate semantics, and rollback smoke checklist.
+- [x] 2026-02-06 13:43:12Z Sprint 4 validation pass completed in `/home/ubuntu/dev/lenslet-2`: `PYTHONPATH=src pytest -q tests/test_presence_lifecycle.py` => `8 passed`, `PYTHONPATH=src pytest -q tests/test_collaboration_sync.py` => `4 passed`, `cd frontend && npm test` => `23 passed`, `cd frontend && npm run build` => success, `PYTHONPATH=src pytest -q` => `34 passed`.
+- [x] 2026-02-06 13:52:08Z Updated this plan document with post-Sprint-4 progress state and final handover notes for rollout/operations follow-through.
+- [x] Execute Sprint 3 UI signal coherence and scope-aware remote-update visibility.
+- [x] Execute Sprint 4 reliability tests, ops instrumentation, and docs updates.
 
 
 ## Surprises & Discoveries
@@ -65,7 +83,7 @@ Presence state and SSE replay are process-local (`PresenceTracker()` and `EventB
 ## Outcomes & Retrospective
 
 
-No implementation has been performed yet, so this section records expected milestone outcomes. Sprint 1 should produce stable server-side presence accounting and bounded staleness. Sprint 2 should eliminate refresh inflation and duplicate-session drift by strengthening client lifecycle and identity behavior. Sprint 3 should resolve user-facing coherence gaps in indicator state and update visibility under filters. Sprint 4 should convert behavior into durable quality through tests and operational visibility.
+Sprint 1 through Sprint 4 are implemented and validated in this branch. Backend presence accounting now includes explicit lifecycle transitions with lease validation, periodic stale cleanup, diagnostics counters, replay-window visibility, and an operator gate to roll back lifecycle-v2 semantics safely. Frontend now includes tab-scoped identity, explicit lifecycle wiring, deterministic indicator precedence, local-typing signaling, off-view update summaries, event-id keyed highlight behavior, and reconnect/backoff reliability tests. Ops/API docs now reflect actual payloads, convergence bounds, and rollback procedures.
 
 The main lesson from investigation is that most observed “half-baked” behavior is not a single bug but interaction between scope modeling, lifecycle timing, and UI state precedence.
 
@@ -283,6 +301,82 @@ Proposed lifecycle payload examples.
     POST /presence/leave
     {"gallery_id":"/animals/cats","client_id":"<tab-id>","lease_id":"<lease-id>"}
 
+Sprint 1 implementation artifacts.
+
+    Updated files:
+    src/lenslet/server_sync.py
+    src/lenslet/server.py
+    src/lenslet/server_models.py
+    tests/test_presence_lifecycle.py
+    docs/20260123_collaboration_sync_api.md
+
+    Verification commands:
+    PYTHONPATH=src pytest -q tests/test_presence_lifecycle.py tests/test_collaboration_sync.py
+    PYTHONPATH=src pytest -q
+
+### Handover Notes
+
+
+Sprint S4 is complete and validated. The next handoff target is rollout hardening and operational adoption, not core implementation.
+
+Final implementation artifacts relevant to operations:
+
+    Backend runtime diagnostics + lifecycle gate:
+    src/lenslet/server_sync.py
+    src/lenslet/server.py
+    src/lenslet/cli.py
+    - diagnostics counters available via `GET /presence/diagnostics` and `GET /health` -> `presence`.
+    - lifecycle-v2 rollout gate is configurable via CLI:
+      `--presence-lifecycle-v2` (default) / `--no-presence-lifecycle-v2`.
+
+    Frontend reliability coverage:
+    frontend/src/api/__tests__/client.events.test.ts
+    frontend/src/api/__tests__/client.presence.test.ts
+    - reconnect backoff, offline polling fallback, replay-last-event-id URL behavior.
+    - tab-scoped identity + unload-safe leave transport.
+
+    Backend reliability + convergence coverage:
+    tests/test_presence_lifecycle.py
+    - race stress for concurrent move/leave/touch paths.
+    - multi-client refresh/move/reconnect/crash-no-leave convergence scenario.
+    - diagnostics counters assertions + lifecycle-v2 rollback smoke checks.
+
+    Documentation updates:
+    docs/20260123_collaboration_sync_api.md
+    docs/20260124_collaboration_sync_ops.md
+    README.md
+
+Recommended handoff checklist for next owner:
+
+    1) Run lifecycle-v2 mode smoke:
+       `lenslet /path/to/images --presence-lifecycle-v2`
+       Verify `GET /presence/diagnostics` reports `lifecycle_v2_enabled: true`.
+
+    2) Run rollback mode smoke:
+       `lenslet /path/to/images --no-presence-lifecycle-v2`
+       Verify `GET /presence/diagnostics` reports `lifecycle_v2_enabled: false`.
+       Verify `/presence/leave` payload includes `mode: "legacy_heartbeat"` and `removed: false`.
+
+    3) Enforce single-worker deployment:
+       `UVICORN_WORKERS=1`, `WEB_CONCURRENCY=1`.
+
+Known constraints still in effect:
+
+    Presence and replay remain process-local/in-memory in this iteration.
+    SSE presence payloads remain aggregate-only (`gallery_id`, `viewing`, `editing`).
+
+Current test coverage snapshot:
+
+    Backend:
+    tests/test_presence_lifecycle.py
+    tests/test_collaboration_sync.py
+
+    Frontend:
+    frontend/src/api/__tests__/client.events.test.ts
+    frontend/src/api/__tests__/client.presence.test.ts
+    frontend/src/app/__tests__/presenceUi.test.ts
+    frontend/src/app/__tests__/presenceActivity.test.ts
+
 
 ## Interfaces and Dependencies
 
@@ -301,3 +395,12 @@ Operational dependency: presence and replay state are in-memory per process. The
 
 
 Plan change note: Revised on 2026-02-06 after automated review pass to split oversized tickets, add lifecycle security and compatibility tasks (`lease_id` and legacy heartbeat coexistence), and add explicit convergence bounds for validation.
+Plan change note: Revised on 2026-02-06 12:10:09Z to record Sprint 1 implementation/test progress and add explicit handover notes for Sprint 2 continuation.
+Plan change note: Revised on 2026-02-06 12:46:59Z to record Sprint 2 completion and replace handover guidance with Sprint 3-focused continuation notes.
+Plan change note: Revised on 2026-02-06 12:58:04Z to record a behavior-preserving code simplifier round on Sprint 2 frontend artifacts and refreshed handover notes.
+Plan change note: Revised on 2026-02-06 13:13:21Z to record Sprint 3 implementation completion and validation results.
+Plan change note: Revised on 2026-02-06 13:18:03Z to refresh handover notes for Sprint 4 execution (T16-T22) with current artifacts and test gaps.
+Plan change note: Revised on 2026-02-06 13:27:01Z to record a behavior-preserving code simplifier round on Sprint 3 frontend artifacts, updated validation run, and maintainability-focused handover additions.
+Plan change note: Revised on 2026-02-06 13:28:37Z to record additional helper-level tests for `presenceActivity` and updated frontend validation totals.
+Plan change note: Revised on 2026-02-06 13:43:12Z to record Sprint 4 completion: backend race/integration coverage, frontend reconnect coverage, observability counters + diagnostics endpoint, lifecycle-v2 rollout gate, and refreshed API/ops docs.
+Plan change note: Revised on 2026-02-06 13:52:08Z to replace the stale pre-S4 handover block with post-S4 rollout-focused handover notes and operator checklist.

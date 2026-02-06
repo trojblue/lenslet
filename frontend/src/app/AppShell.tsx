@@ -9,7 +9,7 @@ import SimilarityModal from '../features/embeddings/SimilarityModal'
 import { DEFAULT_RECURSIVE_PAGE_SIZE, shouldRemoveRecursiveFolderQuery, useFolder } from '../shared/api/folders'
 import { useSearch } from '../shared/api/search'
 import { useEmbeddings } from '../shared/api/embeddings'
-import { api, connectEvents, disconnectEvents, subscribeEvents, subscribeEventStatus } from '../shared/api/client'
+import { api, connectEvents, disconnectEvents, dispatchPresenceLeave, getClientId, subscribeEvents, subscribeEventStatus } from '../shared/api/client'
 import type { ConnectionStatus, FullFilePrefetchContext, SyncEvent } from '../shared/api/client'
 import { useOldestInflightAgeMs, useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
 import { usePollingEnabled } from '../shared/api/polling'
@@ -38,14 +38,21 @@ import ContextMenu, { MenuItem } from './menu/ContextMenu'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 import { useDebounced } from '../shared/hooks/useDebounced'
 import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, PresenceEvent, Sidecar, EmbeddingSearchItem, EmbeddingSearchRequest } from '../lib/types'
-import type { SyncIndicatorState } from '../shared/ui/SyncIndicator'
 import { isInputElement } from '../lib/keyboard'
 import { formatAbsoluteTime, formatRelativeTime, parseTimestampMs, safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
 import { FetchError } from '../lib/fetcher'
 import LeftSidebar from './components/LeftSidebar'
 import StatusBar from './components/StatusBar'
-import { EDITING_HOLD_MS, LAST_EDIT_RELATIVE_MS, LONG_SYNC_THRESHOLD_MS, RECENT_EDIT_FLASH_MS } from '../lib/constants'
+import { buildRecentSummary, buildRecentTouchesDisplay, usePresenceActivity } from './presenceActivity'
+import { deriveIndicatorState } from './presenceUi'
+import {
+  LAST_EDIT_RELATIVE_MS,
+  LONG_SYNC_THRESHOLD_MS,
+  PRESENCE_HEARTBEAT_MS,
+  PRESENCE_MOVE_COALESCE_MS,
+  RECENT_EDIT_FLASH_MS,
+} from '../lib/constants'
 import { hydrateFolderPages } from '../features/browse/model/pagedFolder'
 import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
 
@@ -62,18 +69,6 @@ const STORAGE_KEYS = {
   leftOpen: 'leftOpen',
   rightOpen: 'rightOpen',
 } as const
-
-type RecentActivity = {
-  path: string
-  ts: number
-  kind: 'item-updated' | 'metrics-updated'
-}
-
-type RecentTouchDisplay = {
-  path: string
-  label: string
-  timeLabel: string
-}
 
 type SimilarityState = {
   embedding: string
@@ -100,17 +95,12 @@ function getConnectionLabel(status: ConnectionStatus): string {
   }
 }
 
-function getIndicatorState(options: {
-  isOffline: boolean
-  isUnstable: boolean
-  recentEditActive: boolean
-  editingActive: boolean
-}): SyncIndicatorState {
-  if (options.isOffline) return 'offline'
-  if (options.isUnstable) return 'unstable'
-  if (options.recentEditActive) return 'recent'
-  if (options.editingActive) return 'editing'
-  return 'live'
+function getPresenceErrorCode(error: unknown): string | null {
+  if (!(error instanceof FetchError)) return null
+  const body = error.body
+  if (!body || typeof body !== 'object') return null
+  const code = (body as Record<string, unknown>).error
+  return typeof code === 'string' ? code : null
 }
 
 function prefetchFilesAndThumbs(paths: readonly string[], context: FullFilePrefetchContext): void {
@@ -125,36 +115,6 @@ function formatTimestampLabel(timestampMs: number, nowMs: number): string {
     return formatRelativeTime(timestampMs, nowMs)
   }
   return formatAbsoluteTime(timestampMs)
-}
-
-function buildRecentSummary(recentActivity: RecentActivity[], items: Item[]) {
-  if (!recentActivity.length) return null
-  const seen = new Set<string>()
-  const paths: string[] = []
-  for (const entry of recentActivity) {
-    if (seen.has(entry.path)) continue
-    seen.add(entry.path)
-    paths.push(entry.path)
-  }
-  const names = paths.slice(0, 2).map((p) => {
-    const match = items.find((it) => it.path === p)
-    return match?.name ?? p.split('/').pop() ?? p
-  })
-  return {
-    count: paths.length,
-    names,
-    extra: Math.max(0, paths.length - names.length),
-  }
-}
-
-function buildRecentTouchesDisplay(recentTouches: RecentActivity[], items: Item[], nowMs: number): RecentTouchDisplay[] {
-  if (!recentTouches.length) return []
-  return recentTouches.map((entry) => {
-    const match = items.find((it) => it.path === entry.path)
-    const label = match?.name ?? entry.path.split('/').pop() ?? entry.path
-    const timeLabel = formatTimestampLabel(entry.ts, nowMs)
-    return { path: entry.path, label, timeLabel }
-  })
 }
 
 function getEmbeddingsError(isError: boolean, error: unknown): string | null {
@@ -234,6 +194,13 @@ export default function AppShell() {
   const compareHistoryPushedRef = useRef(false)
   const lastFocusedPathRef = useRef<string | null>(null)
   const similarityPrevSelectionRef = useRef<string[] | null>(null)
+  const presenceClientIdRef = useRef<string>(getClientId())
+  const presenceLeaseIdRef = useRef<string | null>(null)
+  const activePresenceGalleryRef = useRef<string | null>(null)
+  const pendingPresenceGalleryRef = useRef<string | null>(null)
+  const presenceTransitionInFlightRef = useRef(false)
+  const presenceMoveTimerRef = useRef<number | null>(null)
+  const prevConnectionStatusRef = useRef<ConnectionStatus>('idle')
 
   const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool)
 
@@ -248,17 +215,12 @@ export default function AppShell() {
   const oldestInflightAgeMs = useOldestInflightAgeMs()
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
   const [presenceByGallery, setPresenceByGallery] = useState<Record<string, PresenceEvent>>({})
-  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
-  const [recentTouches, setRecentTouches] = useState<RecentActivity[]>([])
-  const [recentBannerClosedAt, setRecentBannerClosedAt] = useState<number | null>(null)
-  const [dismissRecentForSession, setDismissRecentForSession] = useState(false)
-  const [highlightedPaths, setHighlightedPaths] = useState<Set<string>>(new Set())
-  const highlightTimersRef = useRef<Map<string, number>>(new Map())
   const [lastEditedAt, setLastEditedAt] = useState<number | null>(null)
   const [recentEditAt, setRecentEditAt] = useState<number | null>(null)
   const [recentEditActive, setRecentEditActive] = useState(false)
   const [lastEditedNow, setLastEditedNow] = useState(() => Date.now())
   const [persistenceEnabled, setPersistenceEnabled] = useState(true)
+  const [localTypingActive, setLocalTypingActive] = useState(false)
 
   // Initialize current folder from URL hash and keep in sync
   useEffect(() => {
@@ -285,15 +247,6 @@ export default function AppShell() {
     const onHash = () => applyHash(readHash())
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      for (const timeoutId of highlightTimersRef.current.values()) {
-        window.clearTimeout(timeoutId)
-      }
-      highlightTimersRef.current.clear()
-    }
   }, [])
 
   useEffect(() => {
@@ -368,6 +321,7 @@ export default function AppShell() {
   const embeddingsRejected = embeddingsQuery.data?.rejected ?? []
   const embeddingsAvailable = embeddings.length > 0
   const embeddingsError = getEmbeddingsError(embeddingsQuery.isError, embeddingsQuery.error)
+  const currentGalleryId = useMemo(() => sanitizePath(current || '/'), [current])
   const starFilters = useMemo(() => getStarFilter(viewState.filters), [viewState.filters])
 
   // Pool items (current scope) + derived view (filters/sort)
@@ -414,6 +368,15 @@ export default function AppShell() {
   const filteredCount = items.length
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
+  const {
+    offViewActivity,
+    recentTouches,
+    highlightedPaths,
+    onVisiblePathsChange: handleVisiblePathsChange,
+    markRecentActivity,
+    markRecentTouch,
+    clearOffViewActivity,
+  } = usePresenceActivity(itemPaths)
   const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths])
   const selectedItems = useMemo(() => {
     if (!selectedPaths.length) return []
@@ -447,28 +410,6 @@ export default function AppShell() {
     setCompareIndex((prev) => (prev > compareMaxIndex ? compareMaxIndex : prev))
   }, [compareMaxIndex])
 
-  const markHighlight = useCallback((path: string) => {
-    setHighlightedPaths((prev) => {
-      if (prev.has(path)) return prev
-      const next = new Set(prev)
-      next.add(path)
-      return next
-    })
-    const timers = highlightTimersRef.current
-    const existing = timers.get(path)
-    if (existing) window.clearTimeout(existing)
-    const timeoutId = window.setTimeout(() => {
-      setHighlightedPaths((prev) => {
-        if (!prev.has(path)) return prev
-        const next = new Set(prev)
-        next.delete(path)
-        return next
-      })
-      timers.delete(path)
-    }, RECENT_EDIT_FLASH_MS)
-    timers.set(path, timeoutId)
-  }, [])
-
   const updateLastEdited = useCallback((updatedAt?: string | null) => {
     const now = Date.now()
     const parsed = parseTimestampMs(updatedAt)
@@ -481,26 +422,6 @@ export default function AppShell() {
     setRecentEditAt(now)
     setLastEditedNow(now)
   }, [])
-
-  const markRecentTouch = useCallback((path: string, kind: RecentActivity['kind'], updatedAt?: string | null) => {
-    const now = Date.now()
-    const ts = parseTimestampMs(updatedAt) ?? now
-    setRecentTouches((prev) => {
-      const filtered = prev.filter((entry) => entry.path !== path)
-      const next = [{ path, ts, kind }, ...filtered]
-      return next.slice(0, 10)
-    })
-  }, [])
-
-  const markRecentActivity = useCallback((path: string, kind: RecentActivity['kind']) => {
-    const now = Date.now()
-    setRecentActivity((prev) => {
-      const filtered = prev.filter((entry) => entry.path !== path)
-      const next = [{ path, ts: now, kind }, ...filtered]
-      return next.slice(0, 6)
-    })
-    markHighlight(path)
-  }, [markHighlight])
 
   const updateItemCaches = useCallback((payload: { path: string; star?: StarRating | null; metrics?: Record<string, number | null>; comments?: string | null }) => {
     const hasStar = Object.prototype.hasOwnProperty.call(payload, 'star')
@@ -547,13 +468,168 @@ export default function AppShell() {
     setFolderCountsVersion((prev) => prev + 1)
   }, [])
 
+  const applyPresenceCounts = useCallback((counts: PresenceEvent[]) => {
+    if (!counts.length) return
+    setPresenceByGallery((prev) => {
+      let changed = false
+      const next = { ...prev }
+      for (const count of counts) {
+        const existing = prev[count.gallery_id]
+        if (existing && existing.viewing === count.viewing && existing.editing === count.editing) {
+          continue
+        }
+        next[count.gallery_id] = count
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
+  const clearPresenceMoveTimer = useCallback(() => {
+    if (presenceMoveTimerRef.current == null) return
+    window.clearTimeout(presenceMoveTimerRef.current)
+    presenceMoveTimerRef.current = null
+  }, [])
+
+  const clearPresenceScope = useCallback((galleryId: string | null) => {
+    if (!galleryId) return
+    setPresenceByGallery((prev) => {
+      if (!(galleryId in prev)) return prev
+      const next = { ...prev }
+      delete next[galleryId]
+      return next
+    })
+  }, [])
+
+  const applyJoinedPresence = useCallback((response: PresenceEvent & { lease_id: string }) => {
+    presenceLeaseIdRef.current = response.lease_id
+    activePresenceGalleryRef.current = response.gallery_id
+    applyPresenceCounts([response])
+  }, [applyPresenceCounts])
+
+  const joinPresenceScope = useCallback(async (galleryId: string, forceNewLease = false) => {
+    const clientId = presenceClientIdRef.current
+    const preferredLease = forceNewLease ? undefined : (presenceLeaseIdRef.current ?? undefined)
+    const join = (leaseId?: string) => api.joinPresence(galleryId, leaseId, clientId)
+    try {
+      applyJoinedPresence(await join(preferredLease))
+      return
+    } catch (error) {
+      if (!forceNewLease && getPresenceErrorCode(error) === 'invalid_lease') {
+        applyJoinedPresence(await join(undefined))
+        return
+      }
+      throw error
+    }
+  }, [applyJoinedPresence])
+
+  const movePresenceScope = useCallback(async (fromGalleryId: string, toGalleryId: string) => {
+    if (fromGalleryId === toGalleryId) {
+      await joinPresenceScope(toGalleryId)
+      return
+    }
+
+    const leaseId = presenceLeaseIdRef.current
+    if (!leaseId) {
+      await joinPresenceScope(toGalleryId, true)
+      return
+    }
+
+    try {
+      const response = await api.movePresence(
+        fromGalleryId,
+        toGalleryId,
+        leaseId,
+        presenceClientIdRef.current,
+      )
+      activePresenceGalleryRef.current = response.to_scope.gallery_id
+      applyPresenceCounts([response.from_scope, response.to_scope])
+      return
+    } catch (error) {
+      const code = getPresenceErrorCode(error)
+      if (code === 'invalid_lease') {
+        await joinPresenceScope(toGalleryId, true)
+        return
+      }
+      if (code === 'scope_mismatch') {
+        await joinPresenceScope(toGalleryId)
+        return
+      }
+      throw error
+    }
+  }, [applyPresenceCounts, joinPresenceScope])
+
+  const syncPresenceScope = useCallback(async (targetGalleryId: string) => {
+    const activeGalleryId = activePresenceGalleryRef.current
+    if (!activeGalleryId) {
+      await joinPresenceScope(targetGalleryId, true)
+      return
+    }
+    if (activeGalleryId === targetGalleryId) {
+      await joinPresenceScope(targetGalleryId)
+      return
+    }
+    await movePresenceScope(activeGalleryId, targetGalleryId)
+  }, [joinPresenceScope, movePresenceScope])
+
+  const flushPendingPresenceTransition = useCallback(async () => {
+    if (presenceTransitionInFlightRef.current) return
+    const targetGalleryId = pendingPresenceGalleryRef.current
+    if (!targetGalleryId) return
+    pendingPresenceGalleryRef.current = null
+    presenceTransitionInFlightRef.current = true
+
+    try {
+      await syncPresenceScope(targetGalleryId)
+    } catch {
+      // Presence lifecycle calls are best-effort; keep UI responsive on failures.
+    } finally {
+      presenceTransitionInFlightRef.current = false
+      const pending = pendingPresenceGalleryRef.current
+      if (pending && pending !== activePresenceGalleryRef.current) {
+        void flushPendingPresenceTransition()
+      }
+    }
+  }, [syncPresenceScope])
+
+  const schedulePresenceTransition = useCallback((targetGalleryId: string, immediate = false) => {
+    pendingPresenceGalleryRef.current = targetGalleryId
+    clearPresenceMoveTimer()
+    if (immediate || activePresenceGalleryRef.current == null) {
+      void flushPendingPresenceTransition()
+      return
+    }
+    presenceMoveTimerRef.current = window.setTimeout(() => {
+      presenceMoveTimerRef.current = null
+      void flushPendingPresenceTransition()
+    }, PRESENCE_MOVE_COALESCE_MS)
+  }, [clearPresenceMoveTimer, flushPendingPresenceTransition])
+
+  const clearPresenceSessionRefs = useCallback(() => {
+    activePresenceGalleryRef.current = null
+    presenceLeaseIdRef.current = null
+    pendingPresenceGalleryRef.current = null
+    clearPresenceMoveTimer()
+  }, [clearPresenceMoveTimer])
+
+  const signalPresenceLeave = useCallback((clearLocal: boolean) => {
+    const galleryId = activePresenceGalleryRef.current
+    const leaseId = presenceLeaseIdRef.current
+    if (!galleryId || !leaseId) return
+    dispatchPresenceLeave(galleryId, leaseId, presenceClientIdRef.current)
+    if (clearLocal) {
+      clearPresenceScope(galleryId)
+    }
+    clearPresenceSessionRefs()
+  }, [clearPresenceScope, clearPresenceSessionRefs])
+
   useEffect(() => {
     connectEvents()
     const offEvents = subscribeEvents((evt: SyncEvent) => {
       if (evt.type === 'presence') {
         const data = evt.data
         if (!data?.gallery_id) return
-        setPresenceByGallery((prev) => ({ ...prev, [data.gallery_id]: data }))
+        applyPresenceCounts([data])
         return
       }
 
@@ -580,7 +656,7 @@ export default function AppShell() {
           comments: payload.notes ?? '',
         })
         updateConflictFromServer(path, sidecar)
-        markRecentActivity(path, 'item-updated')
+        markRecentActivity(path, 'item-updated', evt.id)
         markRecentTouch(path, 'item-updated', payload.updated_at)
         updateLastEdited(payload.updated_at)
         setLocalStarOverrides((prev) => {
@@ -592,7 +668,7 @@ export default function AppShell() {
       } else if (evt.type === 'metrics-updated') {
         const payload = evt.data
         updateItemCaches({ path, metrics: payload.metrics })
-        markRecentActivity(path, 'metrics-updated')
+        markRecentActivity(path, 'metrics-updated', evt.id)
         markRecentTouch(path, 'metrics-updated', payload.updated_at)
         updateLastEdited(payload.updated_at)
       }
@@ -603,28 +679,53 @@ export default function AppShell() {
       offStatus()
       disconnectEvents()
     }
-  }, [markRecentActivity, markRecentTouch, queryClient, updateItemCaches, updateLastEdited])
+  }, [applyPresenceCounts, markRecentActivity, markRecentTouch, queryClient, updateItemCaches, updateLastEdited])
 
   useEffect(() => {
-    let cancelled = false
-    const galleryId = sanitizePath(current || '/')
-    const send = async () => {
-      try {
-        const res = await api.postPresence(galleryId)
-        if (!cancelled && res?.gallery_id) {
-          setPresenceByGallery((prev) => ({ ...prev, [res.gallery_id]: res }))
-        }
-      } catch {
-        // Ignore presence errors
-      }
-    }
-    send()
-    const id = window.setInterval(send, 30_000)
+    const activeGalleryId = activePresenceGalleryRef.current
+    if (activeGalleryId === currentGalleryId) return
+    schedulePresenceTransition(currentGalleryId, activeGalleryId == null)
+  }, [currentGalleryId, schedulePresenceTransition])
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const activeGalleryId = activePresenceGalleryRef.current
+      if (!activeGalleryId) return
+      void joinPresenceScope(activeGalleryId)
+    }, PRESENCE_HEARTBEAT_MS)
     return () => {
-      cancelled = true
       window.clearInterval(id)
     }
-  }, [current])
+  }, [joinPresenceScope])
+
+  useEffect(() => {
+    const previous = prevConnectionStatusRef.current
+    prevConnectionStatusRef.current = connectionStatus
+    if (connectionStatus === 'live' && previous !== 'live') {
+      schedulePresenceTransition(currentGalleryId, true)
+      return
+    }
+    if (connectionStatus === 'reconnecting' || connectionStatus === 'offline') {
+      clearPresenceScope(activePresenceGalleryRef.current)
+    }
+  }, [clearPresenceScope, connectionStatus, currentGalleryId, schedulePresenceTransition])
+
+  useEffect(() => {
+    const onPageHide = () => signalPresenceLeave(true)
+    const onBeforeUnload = () => signalPresenceLeave(true)
+    const onPageShow = () => {
+      schedulePresenceTransition(currentGalleryId, true)
+    }
+    window.addEventListener('pagehide', onPageHide)
+    window.addEventListener('beforeunload', onBeforeUnload)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      window.removeEventListener('pageshow', onPageShow)
+      signalPresenceLeave(false)
+    }
+  }, [currentGalleryId, schedulePresenceTransition, signalPresenceLeave])
 
   useEffect(() => {
     let cancelled = false
@@ -711,31 +812,23 @@ export default function AppShell() {
     if (!hasEdits || lastEditedAt == null) return 'No edits yet.'
     return formatTimestampLabel(lastEditedAt, lastEditedNow)
   }, [hasEdits, lastEditedAt, lastEditedNow])
-  const editHoldMs = lastEditedAt == null ? null : Math.max(0, lastEditedNow - lastEditedAt)
-  const editingActive = (presence?.editing ?? 0) > 0 || (editHoldMs != null && editHoldMs < EDITING_HOLD_MS)
+  const editingCount = presence?.editing ?? 0
   const longSync = oldestInflightAgeMs != null && oldestInflightAgeMs > LONG_SYNC_THRESHOLD_MS
   const isOffline = connectionStatus === 'offline' || connectionStatus === 'connecting' || connectionStatus === 'idle'
   const isUnstable = connectionStatus === 'reconnecting' || pollingEnabled || syncStatus.state === 'error' || longSync
-  const indicatorState = getIndicatorState({
+  const indicatorState = deriveIndicatorState({
     isOffline,
     isUnstable,
     recentEditActive,
-    editingActive,
+    editingCount,
   })
 
-  const recentSummary = useMemo(
-    () => buildRecentSummary(recentActivity, items),
-    [recentActivity, items],
+  const offViewSummary = useMemo(
+    () => buildRecentSummary(offViewActivity, items),
+    [offViewActivity, items],
   )
-  const latestRecentActivityTs = useMemo(() => {
-    if (!recentActivity.length) return null
-    return recentActivity.reduce((acc, entry) => Math.max(acc, entry.ts), 0)
-  }, [recentActivity])
-  const hideRecentBanner = dismissRecentForSession
-    || (recentBannerClosedAt != null && latestRecentActivityTs != null && latestRecentActivityTs <= recentBannerClosedAt)
-  const visibleRecentSummary = hideRecentBanner ? null : recentSummary
   const recentTouchesDisplay = useMemo(
-    () => buildRecentTouchesDisplay(recentTouches, items, lastEditedNow),
+    () => buildRecentTouchesDisplay(recentTouches, items, lastEditedNow, formatTimestampLabel),
     [items, lastEditedNow, recentTouches],
   )
   const displayItemCount = getDisplayItemCount(
@@ -805,6 +898,14 @@ export default function AppShell() {
       setSelectedPaths([])
     }
   }, [])
+
+  const handleRevealOffView = useCallback(() => {
+    if (similarityState) {
+      clearSimilarity()
+    }
+    setQuery('')
+    setViewState((prev) => ({ ...prev, filters: { and: [] } }))
+  }, [clearSimilarity, similarityState])
 
   const handleSimilaritySearch = useCallback(async (payload: EmbeddingSearchRequest) => {
     if (!similarityState && similarityPrevSelectionRef.current === null) {
@@ -1575,6 +1676,7 @@ export default function AppShell() {
           connectionLabel,
           lastEditedLabel,
           hasEdits,
+          localTypingActive,
           recentTouches: recentTouchesDisplay,
         }}
       />
@@ -1617,9 +1719,10 @@ export default function AppShell() {
         </div>
         <StatusBar
           persistenceEnabled={persistenceEnabled}
-          recentSummary={visibleRecentSummary}
-          onDismissRecent={() => setDismissRecentForSession(true)}
-          onCloseRecent={() => setRecentBannerClosedAt(latestRecentActivityTs ?? Date.now())}
+          offViewSummary={offViewSummary}
+          canRevealOffView={showFilteredCounts}
+          onRevealOffView={handleRevealOffView}
+          onClearOffView={clearOffViewActivity}
           browserZoomPercent={browserZoomPercent}
         />
         {similarityState && (
@@ -1703,6 +1806,7 @@ export default function AppShell() {
             onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
             highlight={searching ? normalizedQ : ''}
             recentlyUpdated={highlightedPaths}
+            onVisiblePathsChange={handleVisiblePathsChange}
             suppressSelectionHighlight={!!viewer || compareOpen}
             viewMode={viewMode}
             targetCellSize={gridItemSize}
@@ -1734,6 +1838,7 @@ export default function AppShell() {
           onFindSimilar={() => setSimilarityOpen(true)}
           embeddingsAvailable={embeddingsAvailable}
           embeddingsLoading={embeddingsQuery.isLoading}
+          onLocalTypingChange={setLocalTypingActive}
         />
       )}
       <SimilarityModal

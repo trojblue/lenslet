@@ -74,6 +74,15 @@ function safeStorageSet(storage: Storage | null, key: string, value: string): vo
   }
 }
 
+function safeStorageRemove(storage: Storage | null, key: string): void {
+  if (!storage) return
+  try {
+    storage.removeItem(key)
+  } catch {
+    // Ignore persistence errors
+  }
+}
+
 function buildFingerprintSeed(): string {
   if (typeof navigator === 'undefined') return 'server'
   const ua = navigator.userAgent || ''
@@ -96,36 +105,52 @@ function hashFingerprint(seed: string): string {
   return hash.toString(16).padStart(8, '0')
 }
 
+function generateClientId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+  return `client_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`
+}
+
+function cacheClientId(clientId: string): string {
+  cachedClientId = clientId
+  return clientId
+}
+
 export function getClientId(): string {
   if (cachedClientId) return cachedClientId
   const local = typeof window !== 'undefined' ? window.localStorage : null
   const session = typeof window !== 'undefined' ? window.sessionStorage : null
 
-  const existing = safeStorageGet(local, CLIENT_ID_KEY) || safeStorageGet(session, CLIENT_ID_SESSION_KEY)
-  if (existing) {
-    cachedClientId = existing
-    return existing
+  const sessionClientId = safeStorageGet(session, CLIENT_ID_SESSION_KEY)
+  if (sessionClientId) {
+    return cacheClientId(sessionClientId)
   }
 
-  const generated = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `client_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`
+  const legacyClientId = safeStorageGet(local, CLIENT_ID_KEY)
+  if (session) {
+    // v2 identity is tab-scoped. If a legacy localStorage id exists, migrate by
+    // generating a fresh session id and clearing the shared key.
+    const nextSessionClientId = generateClientId()
+    safeStorageSet(session, CLIENT_ID_SESSION_KEY, nextSessionClientId)
+    if (legacyClientId) {
+      safeStorageRemove(local, CLIENT_ID_KEY)
+    }
+    return cacheClientId(nextSessionClientId)
+  }
+
+  if (legacyClientId) {
+    return cacheClientId(legacyClientId)
+  }
 
   if (local) {
+    const generated = generateClientId()
     safeStorageSet(local, CLIENT_ID_KEY, generated)
-    cachedClientId = generated
-    return generated
+    return cacheClientId(generated)
   }
 
-  if (session) {
-    safeStorageSet(session, CLIENT_ID_SESSION_KEY, generated)
-    cachedClientId = generated
-    return generated
-  }
-
-  const fallback = `fp_${hashFingerprint(buildFingerprintSeed())}`
-  cachedClientId = fallback
-  return fallback
+  const fallback = `fp_${hashFingerprint(buildFingerprintSeed())}_${Math.random().toString(36).slice(2, 8)}`
+  return cacheClientId(fallback)
 }
 
 export function makeIdempotencyKey(prefix = 'lenslet'): string {
@@ -186,6 +211,22 @@ export type SyncEvent =
   | { type: 'item-updated'; id: number | null; data: ItemUpdatedEvent }
   | { type: 'metrics-updated'; id: number | null; data: MetricsUpdatedEvent }
   | { type: 'presence'; id: number | null; data: PresenceEvent }
+
+export type PresenceSessionResponse = PresenceEvent & {
+  client_id: string
+  lease_id: string
+}
+
+export type PresenceMoveResponse = {
+  client_id: string
+  lease_id: string
+  from_scope: PresenceEvent
+  to_scope: PresenceEvent
+}
+
+export type PresenceLeaveResponse = PresenceSessionResponse & {
+  removed: boolean
+}
 
 let eventSource: EventSource | null = null
 let connectionStatus: ConnectionStatus = 'idle'
@@ -332,6 +373,71 @@ export function getEventStatus(): ConnectionStatus {
   return connectionStatus
 }
 
+export function __resetClientStateForTests(): void {
+  cachedClientId = null
+  cachedLastEventId = null
+  idempotencyCounter = 0
+  clearReconnectTimer()
+  reconnectAttempt = 0
+  reconnectEnabled = true
+  notifyPolling(false)
+  eventListeners.clear()
+  statusListeners.clear()
+  pollingListeners.clear()
+  if (eventSource) {
+    eventSource.close()
+    eventSource = null
+  }
+  connectionStatus = 'idle'
+}
+
+function postPresenceKeepalive(path: string, payload: unknown): boolean {
+  const body = JSON.stringify(payload)
+  const url = `${BASE}${path}`
+
+  if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+    try {
+      const queued = navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }))
+      if (queued) return true
+    } catch {
+      // Ignore beacon failures and try keepalive fetch fallback.
+    }
+  }
+
+  if (typeof fetch !== 'function') return false
+  try {
+    void fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function dispatchPresenceLeave(galleryId: string, leaseId: string, clientId?: string): boolean {
+  return postPresenceKeepalive('/presence/leave', {
+    gallery_id: galleryId,
+    lease_id: leaseId,
+    client_id: clientId ?? getClientId(),
+  })
+}
+
+function resolvePresenceClientId(clientId?: string): string {
+  return clientId ?? getClientId()
+}
+
+function postPresenceJSON<TResponse>(path: string, payload: unknown): Promise<TResponse> {
+  return fetchJSON<TResponse>(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).promise
+}
+
 export type GetFolderOptions = {
   recursive?: boolean
   page?: number
@@ -462,17 +568,53 @@ export const api = {
   },
 
   /**
-   * Send presence heartbeat for the current gallery.
+   * Join presence for a gallery scope and get a server lease.
    */
-  postPresence: (galleryId: string, clientId?: string): Promise<PresenceEvent> => {
-    return fetchJSON<PresenceEvent>(`${BASE}/presence`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        gallery_id: galleryId,
-        client_id: clientId ?? getClientId(),
-      }),
-    }).promise
+  joinPresence: (galleryId: string, leaseId?: string, clientId?: string): Promise<PresenceSessionResponse> => {
+    return postPresenceJSON<PresenceSessionResponse>('/presence/join', {
+      gallery_id: galleryId,
+      client_id: resolvePresenceClientId(clientId),
+      lease_id: leaseId,
+    })
+  },
+
+  /**
+   * Move an active presence session from one gallery scope to another.
+   */
+  movePresence: (
+    fromGalleryId: string,
+    toGalleryId: string,
+    leaseId: string,
+    clientId?: string
+  ): Promise<PresenceMoveResponse> => {
+    return postPresenceJSON<PresenceMoveResponse>('/presence/move', {
+      from_gallery_id: fromGalleryId,
+      to_gallery_id: toGalleryId,
+      client_id: resolvePresenceClientId(clientId),
+      lease_id: leaseId,
+    })
+  },
+
+  /**
+   * Leave the current presence scope using the active lease.
+   */
+  leavePresence: (galleryId: string, leaseId: string, clientId?: string): Promise<PresenceLeaveResponse> => {
+    return postPresenceJSON<PresenceLeaveResponse>('/presence/leave', {
+      gallery_id: galleryId,
+      client_id: resolvePresenceClientId(clientId),
+      lease_id: leaseId,
+    })
+  },
+
+  /**
+   * Legacy heartbeat route kept for compatibility.
+   */
+  postPresence: (galleryId: string, leaseId?: string, clientId?: string): Promise<PresenceSessionResponse> => {
+    return postPresenceJSON<PresenceSessionResponse>('/presence', {
+      gallery_id: galleryId,
+      client_id: resolvePresenceClientId(clientId),
+      lease_id: leaseId,
+    })
   },
 
   /**

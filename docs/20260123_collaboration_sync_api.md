@@ -107,15 +107,170 @@ id: 130
 data: {"gallery_id":"/animals","viewing":2,"editing":1}
 ```
 
-### `GET /health`
-Includes persistence status for sync durability:
+## Presence Lifecycle (v2)
+
+Presence is tracked as **one active scope per client session**.
+The server issues a `lease_id` at join time; `move` and `leave` must provide that lease.
+The mode can be rolled back at startup with `--no-presence-lifecycle-v2`.
+
+SSE `presence` event payload shape:
 
 ```json
 {
+  "gallery_id": "/animals",
+  "viewing": 2,
+  "editing": 1
+}
+```
+
+HTTP lifecycle response payload shape (`join` and legacy heartbeat):
+
+```json
+{
+  "gallery_id": "/animals",
+  "client_id": "tab-abc",
+  "lease_id": "8f2f6d7f3f0a4eb09f0d39c74ce39f3a",
+  "viewing": 2,
+  "editing": 1
+}
+```
+
+### `POST /presence/join`
+
+Request:
+
+```json
+{
+  "gallery_id": "/animals",
+  "client_id": "tab-abc",
+  "lease_id": "optional-existing-lease"
+}
+```
+
+Behavior:
+- creates or refreshes a session in `gallery_id`
+- returns canonical counts + active `lease_id`
+- when `lease_id` matches current lease, the call is idempotent
+
+### `POST /presence/move`
+
+Request:
+
+```json
+{
+  "from_gallery_id": "/animals",
+  "to_gallery_id": "/animals/cats",
+  "client_id": "tab-abc",
+  "lease_id": "8f2f6d7f3f0a4eb09f0d39c74ce39f3a"
+}
+```
+
+Response:
+
+```json
+{
+  "client_id": "tab-abc",
+  "lease_id": "8f2f6d7f3f0a4eb09f0d39c74ce39f3a",
+  "from_scope": {"gallery_id": "/animals", "viewing": 1, "editing": 0},
+  "to_scope": {"gallery_id": "/animals/cats", "viewing": 2, "editing": 0}
+}
+```
+
+### `POST /presence/leave`
+
+Request:
+
+```json
+{
+  "gallery_id": "/animals/cats",
+  "client_id": "tab-abc",
+  "lease_id": "8f2f6d7f3f0a4eb09f0d39c74ce39f3a"
+}
+```
+
+Response includes `removed` (`true` on first leave, `false` on idempotent replay).
+
+### Legacy `POST /presence` (compatibility)
+
+Legacy heartbeat remains supported and now routes through the lifecycle model.
+
+Request:
+
+```json
+{
+  "gallery_id": "/animals",
+  "client_id": "tab-abc",
+  "lease_id": "optional"
+}
+```
+
+Response uses the same normalized presence payload shape and always includes server `lease_id`.
+
+### Lifecycle Gate Behavior
+
+When lifecycle-v2 is disabled (`--no-presence-lifecycle-v2`):
+
+- `POST /presence/join` uses heartbeat semantics (`touch_view`) to keep clients online.
+- `POST /presence/move` degrades to destination heartbeat semantics (best-effort from/to scope counts).
+- `POST /presence/leave` returns `removed: false` with `mode: "legacy_heartbeat"` (TTL/prune convergence path).
+
+### Presence Errors
+
+- `409 {"error":"invalid_lease", ...}` for stale/forged leases
+- `409 {"error":"scope_mismatch", ...}` when `move/leave` scope disagrees with active scope
+
+### Stale Cleanup
+
+- stale sessions are pruned periodically even when a scope is idle
+- defaults: `view_ttl=75s`, `edit_ttl=60s`, prune interval `5s`
+- each prune publishes corrected `presence` events for affected scopes
+
+Convergence bounds:
+- explicit `move/leave` convergence target: `<= 5s` from request completion to corrected presence payloads
+- crash/no-leave convergence target: `<= (view_ttl + prune_interval + 5s)` at configured defaults
+
+### `GET /presence/diagnostics`
+
+Debug-safe runtime counters:
+
+```json
+{
+  "lifecycle_v2_enabled": true,
+  "view_ttl_seconds": 75.0,
+  "edit_ttl_seconds": 60.0,
+  "prune_interval_seconds": 5.0,
+  "active_clients": 2,
+  "active_scopes": 2,
+  "stale_pruned_total": 14,
+  "invalid_lease_total": 3,
+  "replay_miss_total": 1,
+  "replay_buffer_size": 500,
+  "replay_buffer_capacity": 500,
+  "replay_oldest_event_id": 221,
+  "replay_newest_event_id": 720,
+  "connected_sse_clients": 2
+}
+```
+
+### `GET /health`
+Includes persistence status and presence diagnostics:
+
+```json
+{
+  "ok": true,
+  "mode": "memory",
   "labels": {
     "enabled": true,
     "log": "/path/to/.lenslet/labels.log.jsonl",
     "snapshot": "/path/to/.lenslet/labels.snapshot.json"
+  },
+  "presence": {
+    "lifecycle_v2_enabled": true,
+    "active_clients": 2,
+    "active_scopes": 2,
+    "stale_pruned_total": 14,
+    "invalid_lease_total": 3,
+    "replay_miss_total": 1
   }
 }
 ```

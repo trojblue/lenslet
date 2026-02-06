@@ -211,8 +211,6 @@ export default function AppShell() {
   const [leftTool, setLeftTool] = useState<'folders' | 'metrics'>('folders')
   const [views, setViews] = useState<SavedView[]>([])
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
-  const [scopeTotalCount, setScopeTotalCount] = useState<number | null>(null)
-  const [rootTotalCount, setRootTotalCount] = useState<number | null>(null)
   const [folderCountsVersion, setFolderCountsVersion] = useState(0)
   
   // Local optimistic updates for star ratings
@@ -226,8 +224,6 @@ export default function AppShell() {
   const viewerHistoryPushedRef = useRef(false)
   const compareHistoryPushedRef = useRef(false)
   const lastFocusedPathRef = useRef<string | null>(null)
-  const countCacheRef = useRef<Map<string, number>>(new Map())
-  const countInflightRef = useRef<Map<string, Promise<number>>>(new Map())
   const similarityPrevSelectionRef = useRef<string[] | null>(null)
 
   const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool)
@@ -309,6 +305,7 @@ export default function AppShell() {
   }, [lastEditedAt])
 
   const { data, refetch, isLoading, isError } = useFolder(current, true)
+  const { data: cachedRootRecursive } = useFolder('/', true, { enabled: false })
   const similarityActive = similarityState !== null
   const searching = !similarityActive && query.trim().length > 0
   const debouncedQ = useDebounced(query, 250)
@@ -493,57 +490,9 @@ export default function AppShell() {
     }, updateList)
   }, [queryClient])
 
-  const countFolderImages = useCallback(async (path: string): Promise<number> => {
-    const target = sanitizePath(path || '/')
-    const cache = countCacheRef.current
-    const inflight = countInflightRef.current
-    const cached = cache.get(target)
-    if (cached !== undefined) return cached
-
-    const pending = inflight.get(target)
-    if (pending) return pending
-
-    const promise = (async () => {
-      try {
-        const folder = await api.getFolder(target, undefined, true)
-        const count = folder.items.length
-        cache.set(target, count)
-        return count
-      } finally {
-        inflight.delete(target)
-      }
-    })()
-
-    inflight.set(target, promise)
-    return promise
-  }, [])
-
   const invalidateDerivedCounts = useCallback(() => {
-    countCacheRef.current.clear()
-    countInflightRef.current.clear()
-    setScopeTotalCount(null)
-    setRootTotalCount(null)
     setFolderCountsVersion((prev) => prev + 1)
   }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    const target = sanitizePath(current || '/')
-
-    const run = async () => {
-      const rootPromise = countFolderImages('/')
-      const scopePromise = target === '/' ? rootPromise : countFolderImages(target)
-      const [root, scope] = await Promise.all([rootPromise, scopePromise])
-      if (cancelled) return
-      setRootTotalCount(root)
-      setScopeTotalCount(scope)
-    }
-
-    run().catch((err) => console.warn('Failed to compute folder counts:', err))
-    return () => {
-      cancelled = true
-    }
-  }, [current, countFolderImages, folderCountsVersion])
 
   useEffect(() => {
     connectEvents()
@@ -689,8 +638,10 @@ export default function AppShell() {
   }, [metricKeys, viewState.sort, similarityActive])
 
   const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
-  const scopeTotal = scopeTotalCount ?? totalCount
-  const rootTotal = rootTotalCount ?? scopeTotal
+  const scopeTotal = data?.items.length ?? totalCount
+  const rootTotal = current === '/'
+    ? scopeTotal
+    : (cachedRootRecursive?.items.length ?? scopeTotal)
   const showFilteredCounts = similarityActive || searching || activeFilterCount > 0
 
   const presence = presenceByGallery[current]

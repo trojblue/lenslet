@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import type { FolderIndex } from '../../lib/types'
-import { useFolder } from '../../shared/api/folders'
+import { folderQueryKey, useFolder } from '../../shared/api/folders'
 import { api } from '../../shared/api/client'
 import { middleTruncate } from '../../lib/util'
 import { joinPath, sanitizePath } from '../../app/routing/hash'
@@ -38,54 +39,39 @@ export default function FolderTree({
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['/']))
   const countCacheRef = useRef<Map<string, number>>(new Map())
   const inflightRef = useRef<Map<string, Promise<number>>>(new Map())
+  const queryClient = useQueryClient()
 
-  const getSubtreeCount = useCallback(async (path: string, initial?: FolderIndex): Promise<number> => {
+  const getSubtreeCount = useCallback(async (path: string): Promise<number> => {
     const target = sanitizePath(path || '/')
     const cache = countCacheRef.current
     const inflight = inflightRef.current
     const cached = cache.get(target)
     if (cached !== undefined) return cached
 
+    const cachedRecursive = queryClient.getQueryData<FolderIndex>(folderQueryKey(target, true))
+    if (cachedRecursive) {
+      const count = cachedRecursive.items.length
+      cache.set(target, count)
+      return count
+    }
+
     const pending = inflight.get(target)
     if (pending) return pending
 
     const promise = (async () => {
-      let count = 0
-      const seen = new Set<string>()
-      const stack: Array<{ path: string; index?: FolderIndex }> = [{ path: target, index: initial }]
-
-      while (stack.length) {
-        const entry = stack.pop()!
-        const { path: currentPath, index } = entry
-        if (seen.has(currentPath)) continue
-        seen.add(currentPath)
-
-        let folder = index
-        if (!folder) {
-          try {
-            folder = await api.getFolder(currentPath)
-          } catch (err) {
-            console.warn(`Failed to count folder ${currentPath}:`, err)
-            continue
-          }
-        }
-
-        count += folder.items.length
-        for (const d of folder.dirs) {
-          if (d.kind === 'branch') {
-            stack.push({ path: joinPath(currentPath, d.name) })
-          }
-        }
+      try {
+        const folder = await api.getFolder(target, undefined, true)
+        const count = folder.items.length
+        cache.set(target, count)
+        return count
+      } finally {
+        inflight.delete(target)
       }
-
-      cache.set(target, count)
-      inflight.delete(target)
-      return count
     })()
 
     inflight.set(target, promise)
     return promise
-  }, [])
+  }, [queryClient])
 
   useEffect(() => {
     countCacheRef.current.clear()
@@ -126,7 +112,7 @@ interface TreeNodeProps {
   onOpen: (path: string) => void
   onContextMenu?: (e: React.MouseEvent, path: string) => void
   initial?: FolderIndex
-  getSubtreeCount: (path: string, initial?: FolderIndex) => Promise<number>
+  getSubtreeCount: (path: string) => Promise<number>
   countVersion?: number
 }
 
@@ -144,10 +130,12 @@ function TreeNode({
   countVersion,
 }: TreeNodeProps) {
   const isExpanded = expanded.has(path)
-  const { data } = useFolder(path)
-  const idx = initial && path === initial.path ? initial : data
   const isActive = current === path
-  const isLeaf = (idx?.dirs?.length ?? 0) === 0
+  const shouldFetchFolder = path === '/' || isExpanded || isActive
+  const { data } = useFolder(path, false, { enabled: shouldFetchFolder })
+  const idx = initial && path === initial.path ? initial : data
+  const hasIndex = !!idx
+  const isLeaf = hasIndex ? idx.dirs.length === 0 : false
   const [subtreeCount, setSubtreeCount] = useState<number | null>(idx ? idx.items.length : null)
 
   const onKeyDown = useFolderTreeKeyboardNav({
@@ -172,7 +160,11 @@ function TreeNode({
       return
     }
     setSubtreeCount(idx.items.length)
-    getSubtreeCount(path, idx)
+    const shouldResolveRecursiveCount = isExpanded && (depth > 0 || isActive)
+    if (!shouldResolveRecursiveCount) {
+      return
+    }
+    getSubtreeCount(path)
       .then((count) => {
         if (!cancelled) setSubtreeCount(count)
       })
@@ -182,7 +174,7 @@ function TreeNode({
     return () => {
       cancelled = true
     }
-  }, [idx, path, getSubtreeCount, countVersion])
+  }, [idx, path, getSubtreeCount, countVersion, isExpanded, depth, isActive])
 
   return (
     <div>

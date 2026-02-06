@@ -1,0 +1,10 @@
+Review pass source: `codex exec` run on 2026-02-06 against `docs/20260206_multiplayer_presence_reliability_plan.md`.
+
+Concise actionable feedback captured from the run:
+- Add browser unload caveat explicitly: `pagehide`/`visibilitychange`/`unload` do not guarantee async fetch completion; include beacon/keepalive strategy.
+- Treat presence/replay as process-local operational dependency and document single-worker constraint explicitly.
+- Split oversized tickets into atomic lifecycle route tasks (`join`, `move`, `leave`) and compatibility task for legacy `/presence` heartbeat.
+- Add lease-based session guard (`lease_id`) to prevent client-id-only eviction races and stale leave hazards.
+- Tighten acceptance criteria with measurable bounds for explicit move/leave and crash/no-leave prune convergence.
+- Expand test plan to include lifecycle invariants, concurrent race checks, reconnect reconciliation, and browser lifecycle dispatch paths.
+- Add rollout/rollback gate so lifecycle-v2 can be staged and reverted safely.

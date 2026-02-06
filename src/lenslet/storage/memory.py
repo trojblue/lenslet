@@ -41,6 +41,9 @@ class MemoryStorage:
 
     IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
     LOCAL_INDEX_WORKERS = 16
+    LOCAL_INDEX_PARALLEL_MIN_IMAGES = 24
+    LOCAL_PROGRESS_MIN_IMAGES = 64
+    LEAF_BATCH_MAX_DIRS = 128
     LEAF_BATCH_THRESHOLD = 10
 
     def __init__(self, root: str, thumb_size: int = 256, thumb_quality: int = 70):
@@ -192,18 +195,24 @@ class MemoryStorage:
         """Build and cache folder index. Fast - no image reading."""
         norm = self._normalize_path(path)
         files, dirs = self.list_dir(path)
-        self._leaf_batch.maybe_prepare(path, dirs)
+        # Avoid expensive eager probing when a folder has very high fanout.
+        # The probe only drives progress-bar grouping and should not block indexing.
+        if len(dirs) <= self.LEAF_BATCH_MAX_DIRS:
+            self._leaf_batch.maybe_prepare(path, dirs)
         use_leaf_batch = self._leaf_batch.use_batch(norm, dirs)
 
         image_files = [f for f in files if self._is_supported_image(f)]
         items: list[CachedItem | None] = [None] * len(image_files)
 
         total = len(image_files)
-        if total and not use_leaf_batch:
+        show_progress = total >= self.LOCAL_PROGRESS_MIN_IMAGES and not use_leaf_batch
+        if show_progress:
             self._progress(0, total, "local")
 
         done = 0
-        workers = self._effective_workers(total)
+        workers = 0
+        if total >= self.LOCAL_INDEX_PARALLEL_MIN_IMAGES:
+            workers = self._effective_workers(total)
         last_print = 0.0
         if workers:
             with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -219,9 +228,21 @@ class MemoryStorage:
                             self._dimensions[item.path] = dims
                     done += 1
                     now = time.monotonic()
-                    if not use_leaf_batch and (now - last_print > 0.1 or done == total):
+                    if show_progress and (now - last_print > 0.1 or done == total):
                         self._progress(done, total, "local")
                         last_print = now
+        elif total:
+            for i, name in enumerate(image_files):
+                idx, item, dims = self._build_item(path, name, i)
+                if item is not None:
+                    items[idx] = item
+                    if dims:
+                        self._dimensions[item.path] = dims
+                done += 1
+                now = time.monotonic()
+                if show_progress and (now - last_print > 0.1 or done == total):
+                    self._progress(done, total, "local")
+                    last_print = now
         else:
             done = total
 

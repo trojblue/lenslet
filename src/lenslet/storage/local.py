@@ -30,15 +30,16 @@ class LocalStorage(Storage):
     def list_dir(self, path: str) -> tuple[list[str], list[str]]:
         p = self.resolve_path(path)
         files, dirs = [], []
-        for name in os.listdir(p):
-            # Skip hidden files and our own metadata files
-            if name.startswith("."):
-                continue
-            full = os.path.join(p, name)
-            if os.path.isdir(full):
-                dirs.append(name)
-            else:
-                files.append(name)
+        with os.scandir(p) as entries:
+            for entry in entries:
+                name = entry.name
+                # Skip hidden files and our own metadata files
+                if name.startswith("."):
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    dirs.append(name)
+                else:
+                    files.append(name)
         return files, dirs
 
     def read_bytes(self, path: str) -> bytes:

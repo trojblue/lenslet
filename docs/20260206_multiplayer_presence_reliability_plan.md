@@ -16,7 +16,10 @@ The finished behavior is observable by running two or more clients against one s
 - [x] 2026-02-06 05:22:36Z Identified concrete failure modes with file-level evidence and line references.
 - [x] 2026-02-06 05:22:36Z Drafted a sprinted implementation plan with atomic tasks and validation per task.
 - [x] 2026-02-06 05:45:00Z Reviewed task sizing, hidden dependencies, and validation gaps; split oversized work and tightened acceptance bounds.
-- [ ] Execute Sprint 1 server-side presence model hardening.
+- [x] 2026-02-06 12:06:30Z Completed Sprint 1 server-side presence model hardening (T1-T6), including lifecycle routes (`join/move/leave`), lease validation, periodic stale-prune loop, legacy `/presence` compatibility wiring, API docs update, and passing backend tests.
+- [x] 2026-02-06 12:10:09Z Completed T1-T6 implementation in code: `src/lenslet/server_sync.py`, `src/lenslet/server.py`, `src/lenslet/server_models.py`, and `docs/20260123_collaboration_sync_api.md`.
+- [x] 2026-02-06 12:10:09Z Added Sprint 1 backend lifecycle coverage in `tests/test_presence_lifecycle.py` (join/move/leave/invariants/invalid-lease/stale-prune/legacy heartbeat compatibility).
+- [x] 2026-02-06 12:10:09Z Validation pass completed in `/home/ubuntu/dev/lenslet-2`: `PYTHONPATH=src pytest -q` => `30 passed`.
 - [ ] Execute Sprint 2 client lifecycle and session identity hardening.
 - [ ] Execute Sprint 3 UI signal coherence and scope-aware remote-update visibility.
 - [ ] Execute Sprint 4 reliability tests, ops instrumentation, and docs updates.
@@ -65,7 +68,7 @@ Presence state and SSE replay are process-local (`PresenceTracker()` and `EventB
 ## Outcomes & Retrospective
 
 
-No implementation has been performed yet, so this section records expected milestone outcomes. Sprint 1 should produce stable server-side presence accounting and bounded staleness. Sprint 2 should eliminate refresh inflation and duplicate-session drift by strengthening client lifecycle and identity behavior. Sprint 3 should resolve user-facing coherence gaps in indicator state and update visibility under filters. Sprint 4 should convert behavior into durable quality through tests and operational visibility.
+Sprint 1 is now implemented in backend code and validated with new lifecycle tests plus full `pytest` pass. Server-side presence accounting now uses explicit session lifecycle transitions with lease validation and periodic stale cleanup, and legacy heartbeat remains compatible. Sprint 2 should eliminate refresh inflation and duplicate-session drift by strengthening client lifecycle and identity behavior. Sprint 3 should resolve user-facing coherence gaps in indicator state and update visibility under filters. Sprint 4 should convert behavior into durable quality through tests and operational visibility.
 
 The main lesson from investigation is that most observed “half-baked” behavior is not a single bug but interaction between scope modeling, lifecycle timing, and UI state precedence.
 
@@ -283,6 +286,34 @@ Proposed lifecycle payload examples.
     POST /presence/leave
     {"gallery_id":"/animals/cats","client_id":"<tab-id>","lease_id":"<lease-id>"}
 
+Sprint 1 implementation artifacts.
+
+    Updated files:
+    src/lenslet/server_sync.py
+    src/lenslet/server.py
+    src/lenslet/server_models.py
+    tests/test_presence_lifecycle.py
+    docs/20260123_collaboration_sync_api.md
+
+    Verification commands:
+    PYTHONPATH=src pytest -q tests/test_presence_lifecycle.py tests/test_collaboration_sync.py
+    PYTHONPATH=src pytest -q
+
+### Handover Notes
+
+
+Sprint 1 backend goals (T1-T6) are complete and validated. The immediate handoff target is Sprint 2 (T7-T11) in frontend lifecycle/identity wiring.
+
+Server contract to consume in Sprint 2 is now stable for this phase: `POST /presence/join`, `POST /presence/move`, and `POST /presence/leave` are available, lease-gated, and return canonical counts. Legacy `POST /presence` remains supported and returns a `lease_id` so existing clients continue working during rollout.
+
+SSE `presence` events intentionally publish only aggregate scope counts (`gallery_id`, `viewing`, `editing`). Lease and client identity are HTTP lifecycle concerns and are not included in SSE payloads. Frontend work should not assume `lease_id` appears in event-stream presence records.
+
+Periodic stale cleanup is now driven by server lifecycle hooks and runs without extra traffic. Defaults are `view_ttl=75s`, `edit_ttl=60s`, and prune interval `5s`, with corrected counts published after prune.
+
+Operational scope remains single-process in-memory presence/replay. Continue to assume `UVICORN_WORKERS=1` / `WEB_CONCURRENCY=1` for correctness in this iteration.
+
+Recommended Sprint 2 start order is to implement tab-scoped `client_id` and lease persistence in `frontend/src/api/client.ts`, wire join/move/leave + unload-safe leave in `frontend/src/app/AppShell.tsx`, then add frontend lifecycle tests for reconnect and unload behavior.
+
 
 ## Interfaces and Dependencies
 
@@ -301,3 +332,4 @@ Operational dependency: presence and replay state are in-memory per process. The
 
 
 Plan change note: Revised on 2026-02-06 after automated review pass to split oversized tickets, add lifecycle security and compatibility tasks (`lease_id` and legacy heartbeat coexistence), and add explicit convergence bounds for validation.
+Plan change note: Revised on 2026-02-06 12:10:09Z to record Sprint 1 implementation/test progress and add explicit handover notes for Sprint 2 continuation.

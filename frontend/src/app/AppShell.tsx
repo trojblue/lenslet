@@ -213,6 +213,7 @@ export default function AppShell() {
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
   const [scopeTotalCount, setScopeTotalCount] = useState<number | null>(null)
   const [rootTotalCount, setRootTotalCount] = useState<number | null>(null)
+  const [folderCountsVersion, setFolderCountsVersion] = useState(0)
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
@@ -517,6 +518,14 @@ export default function AppShell() {
     return promise
   }, [])
 
+  const invalidateDerivedCounts = useCallback(() => {
+    countCacheRef.current.clear()
+    countInflightRef.current.clear()
+    setScopeTotalCount(null)
+    setRootTotalCount(null)
+    setFolderCountsVersion((prev) => prev + 1)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     const target = sanitizePath(current || '/')
@@ -534,7 +543,7 @@ export default function AppShell() {
     return () => {
       cancelled = true
     }
-  }, [current, countFolderImages])
+  }, [current, countFolderImages, folderCountsVersion])
 
   useEffect(() => {
     connectEvents()
@@ -1622,6 +1631,7 @@ export default function AppShell() {
           data={data}
           onOpenFolder={(p) => { setActiveViewId(null); openFolder(p) }}
           onContextMenu={(e, p) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, kind: 'tree', payload: { path: p } }) }}
+          countVersion={folderCountsVersion}
           items={metricsBaseItems}
           filteredItems={items}
           metricKeys={metricKeys}
@@ -1798,7 +1808,7 @@ export default function AppShell() {
           Drop images to upload
         </div>
       )}
-      {ctx && <ContextMenuItems ctx={ctx} current={current} items={items} refetch={refetch} setCtx={setCtx} />}
+      {ctx && <ContextMenuItems ctx={ctx} current={current} items={items} refetch={refetch} setCtx={setCtx} onInvalidateCounts={invalidateDerivedCounts} />}
     </div>
   )
 }
@@ -1900,12 +1910,14 @@ function ContextMenuItems({
   items,
   refetch,
   setCtx,
+  onInvalidateCounts,
 }: {
   ctx: ContextMenuState
   current: string
   items: Item[]
   refetch: () => void
   setCtx: (ctx: ContextMenuState | null) => void
+  onInvalidateCounts: () => void
 }) {
   const inTrash = isTrashPath(current)
   const queryClient = useQueryClient()
@@ -1941,6 +1953,7 @@ function ContextMenuItems({
     try {
       await api.refreshFolder(target)
       invalidateFolderSubtree(target)
+      onInvalidateCounts()
 
       if (current === target || current.startsWith(target === '/' ? '/' : `${target}/`)) {
         await refetch()

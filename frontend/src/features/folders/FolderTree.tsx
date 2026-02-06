@@ -19,6 +19,7 @@ interface FolderTreeProps {
   onOpen: (path: string) => void
   onResize?: (e: React.MouseEvent) => void
   onContextMenu?: (e: React.MouseEvent, path: string) => void
+  countVersion?: number
   className?: string
   showResizeHandle?: boolean
 }
@@ -30,6 +31,7 @@ export default function FolderTree({
   onOpen,
   onResize,
   onContextMenu,
+  countVersion,
   className,
   showResizeHandle = true,
 }: FolderTreeProps) {
@@ -86,6 +88,11 @@ export default function FolderTree({
   }, [])
 
   useEffect(() => {
+    countCacheRef.current.clear()
+    inflightRef.current.clear()
+  }, [countVersion])
+
+  useEffect(() => {
     const parts = current.split('/').filter(Boolean)
     const acc = ['/']
     let p = ''
@@ -99,7 +106,7 @@ export default function FolderTree({
     <div className={containerClass}>
       <div className="p-1" role="tree" aria-label="Folders">
         {roots.map(r => (
-          <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} onContextMenu={onContextMenu} initial={data} getSubtreeCount={getSubtreeCount} />
+          <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} onContextMenu={onContextMenu} initial={data} getSubtreeCount={getSubtreeCount} countVersion={countVersion} />
         ))}
       </div>
       {showResizeHandle && (
@@ -120,6 +127,7 @@ interface TreeNodeProps {
   onContextMenu?: (e: React.MouseEvent, path: string) => void
   initial?: FolderIndex
   getSubtreeCount: (path: string, initial?: FolderIndex) => Promise<number>
+  countVersion?: number
 }
 
 function TreeNode({
@@ -133,6 +141,7 @@ function TreeNode({
   onContextMenu,
   initial,
   getSubtreeCount,
+  countVersion,
 }: TreeNodeProps) {
   const isExpanded = expanded.has(path)
   const { data } = useFolder(path)
@@ -173,7 +182,7 @@ function TreeNode({
     return () => {
       cancelled = true
     }
-  }, [idx, path, getSubtreeCount])
+  }, [idx, path, getSubtreeCount, countVersion])
 
   return (
     <div>
@@ -213,6 +222,7 @@ function TreeNode({
           onOpen={onOpen}
           onContextMenu={onContextMenu}
           getSubtreeCount={getSubtreeCount}
+          countVersion={countVersion}
         />
       ))}
     </div>

@@ -17,6 +17,7 @@ type LeftSidebarProps = {
   data?: FolderIndex
   onOpenFolder: (path: string) => void
   onContextMenu: (event: MouseEvent, path: string) => void
+  countVersion: number
   items: Item[]
   filteredItems: Item[]
   metricKeys: string[]
@@ -45,6 +46,7 @@ export default function LeftSidebar({
   data,
   onOpenFolder,
   onContextMenu,
+  countVersion,
   items,
   filteredItems,
   metricKeys,
@@ -149,6 +151,7 @@ export default function LeftSidebar({
               data={data}
               onOpen={onOpenFolder}
               onContextMenu={onContextMenu}
+              countVersion={countVersion}
               className="flex-1 min-h-0 overflow-auto scrollbar-thin"
               showResizeHandle={false}
             />

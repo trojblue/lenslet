@@ -20,7 +20,11 @@ The finished behavior is observable by running two or more clients against one s
 - [x] 2026-02-06 12:10:09Z Completed T1-T6 implementation in code: `src/lenslet/server_sync.py`, `src/lenslet/server.py`, `src/lenslet/server_models.py`, and `docs/20260123_collaboration_sync_api.md`.
 - [x] 2026-02-06 12:10:09Z Added Sprint 1 backend lifecycle coverage in `tests/test_presence_lifecycle.py` (join/move/leave/invariants/invalid-lease/stale-prune/legacy heartbeat compatibility).
 - [x] 2026-02-06 12:10:09Z Validation pass completed in `/home/ubuntu/dev/lenslet-2`: `PYTHONPATH=src pytest -q` => `30 passed`.
-- [ ] Execute Sprint 2 client lifecycle and session identity hardening.
+- [x] 2026-02-06 12:31:15Z Completed Sprint 2 client lifecycle and identity hardening implementation (T7-T11): tab-scoped refresh-stable `client_id`, `join/move/leave` lifecycle wiring with lease handling, unload-safe leave via beacon/keepalive, reconnect-triggered presence resync, and coalesced rapid scope transitions in `frontend/src/api/client.ts`, `frontend/src/app/AppShell.tsx`, `frontend/src/lib/constants.ts`, and `frontend/vite.config.ts`.
+- [x] 2026-02-06 12:31:15Z Added Sprint 2 frontend lifecycle tests in `frontend/src/api/__tests__/client.presence.test.ts` covering tab identity behavior and unload leave transport fallback.
+- [x] 2026-02-06 12:31:15Z Validation pass completed in `/home/ubuntu/dev/lenslet-2`: `cd frontend && npm test` => `12 passed`, `cd frontend && npm run build` => success, `PYTHONPATH=src pytest -q` => `30 passed`.
+- [x] 2026-02-06 12:46:59Z Updated handover notes for Sprint 3 continuation with implemented Sprint 2 artifacts, current behavioral assumptions, and remaining reliability test gaps.
+- [x] 2026-02-06 12:58:04Z Completed a code-simplifier maintainability pass on touched Sprint 2 frontend files (`frontend/src/api/client.ts`, `frontend/src/app/AppShell.tsx`, `frontend/vite.config.ts`, `frontend/src/api/__tests__/client.presence.test.ts`) with behavior-preserving helper extraction and reduced duplication; validated with `cd frontend && npm test` => `12 passed` and `cd frontend && npm run build` => success.
 - [ ] Execute Sprint 3 UI signal coherence and scope-aware remote-update visibility.
 - [ ] Execute Sprint 4 reliability tests, ops instrumentation, and docs updates.
 
@@ -68,7 +72,7 @@ Presence state and SSE replay are process-local (`PresenceTracker()` and `EventB
 ## Outcomes & Retrospective
 
 
-Sprint 1 is now implemented in backend code and validated with new lifecycle tests plus full `pytest` pass. Server-side presence accounting now uses explicit session lifecycle transitions with lease validation and periodic stale cleanup, and legacy heartbeat remains compatible. Sprint 2 should eliminate refresh inflation and duplicate-session drift by strengthening client lifecycle and identity behavior. Sprint 3 should resolve user-facing coherence gaps in indicator state and update visibility under filters. Sprint 4 should convert behavior into durable quality through tests and operational visibility.
+Sprint 1 and Sprint 2 are now implemented and validated in this branch. Backend presence accounting uses explicit lifecycle transitions with lease validation and periodic stale cleanup, and frontend now uses tab-scoped identity plus explicit join/move/leave wiring with unload-safe leave and reconnect-triggered resync. Sprint 3 remains focused on UI coherence (indicator precedence, local-vs-remote editing cues, and off-view update visibility), and Sprint 4 remains focused on reliability tests, observability counters, and ops/docs hardening.
 
 The main lesson from investigation is that most observed “half-baked” behavior is not a single bug but interaction between scope modeling, lifecycle timing, and UI state precedence.
 
@@ -302,17 +306,66 @@ Sprint 1 implementation artifacts.
 ### Handover Notes
 
 
-Sprint 1 backend goals (T1-T6) are complete and validated. The immediate handoff target is Sprint 2 (T7-T11) in frontend lifecycle/identity wiring.
+Sprint 1 and Sprint 2 goals are complete and validated. The immediate handoff target is Sprint 3 (T12-T15) for UI coherence and remote-update visibility behavior.
 
-Server contract to consume in Sprint 2 is now stable for this phase: `POST /presence/join`, `POST /presence/move`, and `POST /presence/leave` are available, lease-gated, and return canonical counts. Legacy `POST /presence` remains supported and returns a `lease_id` so existing clients continue working during rollout.
+Sprint 2 implementation artifacts to build on:
 
-SSE `presence` events intentionally publish only aggregate scope counts (`gallery_id`, `viewing`, `editing`). Lease and client identity are HTTP lifecycle concerns and are not included in SSE payloads. Frontend work should not assume `lease_id` appears in event-stream presence records.
+    Tab-scoped identity and legacy migration:
+    frontend/src/api/client.ts
+    - session key: lenslet.client_id.session
+    - legacy local key: lenslet.client_id is removed on migration when sessionStorage exists
 
-Periodic stale cleanup is now driven by server lifecycle hooks and runs without extra traffic. Defaults are `view_ttl=75s`, `edit_ttl=60s`, and prune interval `5s`, with corrected counts published after prune.
+    Presence lifecycle client API:
+    frontend/src/api/client.ts
+    - api.joinPresence(...)
+    - api.movePresence(...)
+    - api.leavePresence(...)
+    - dispatchPresenceLeave(...) uses beacon first, keepalive fetch fallback
 
-Operational scope remains single-process in-memory presence/replay. Continue to assume `UVICORN_WORKERS=1` / `WEB_CONCURRENCY=1` for correctness in this iteration.
+    App lifecycle wiring and move coalescing:
+    frontend/src/app/AppShell.tsx
+    - join/move transition orchestration refs/callbacks
+    - pagehide + beforeunload leave dispatch
+    - pageshow immediate rejoin for bfcache restore path
+    - reconnect-to-live immediate presence resync
+    - local cache clear on reconnecting/offline
+    - transition coalescing via PRESENCE_MOVE_COALESCE_MS
 
-Recommended Sprint 2 start order is to implement tab-scoped `client_id` and lease persistence in `frontend/src/api/client.ts`, wire join/move/leave + unload-safe leave in `frontend/src/app/AppShell.tsx`, then add frontend lifecycle tests for reconnect and unload behavior.
+    Lifecycle timing constants:
+    frontend/src/lib/constants.ts
+    - PRESENCE_HEARTBEAT_MS
+    - PRESENCE_MOVE_COALESCE_MS
+
+    Maintainability refinements applied after Sprint 2:
+    - `frontend/src/api/client.ts`: extracted reusable presence POST helper and client-id caching helper to reduce repeated request boilerplate.
+    - `frontend/src/app/AppShell.tsx`: extracted presence transition helpers (`applyJoinedPresence`, `syncPresenceScope`, timer/session reset helpers) and centralized current gallery id derivation.
+    - `frontend/vite.config.ts`: centralized proxy target/path mapping to remove repetitive per-route literals.
+    - `frontend/src/api/__tests__/client.presence.test.ts`: consolidated repeated global mock setup helpers.
+
+Known constraints and assumptions that remain in effect:
+
+    SSE presence payloads still contain aggregate counts only (`gallery_id`, `viewing`, `editing`); lease metadata remains HTTP-route only.
+
+    Presence/replay correctness is still single-process/in-memory scoped (`UVICORN_WORKERS=1`, `WEB_CONCURRENCY=1`).
+
+Current test coverage status after Sprint 2:
+
+    Added:
+    frontend/src/api/__tests__/client.presence.test.ts
+    - tab identity behavior
+    - unload leave transport path selection
+
+    Still pending (planned in later tickets):
+    - app-level lifecycle sequencing tests (join/move/leave order under rapid scope changes)
+    - reconnect convergence tests with simulated status transitions
+    - multi-client end-to-end convergence test from Python side
+
+Recommended Sprint 3 start order:
+
+    1) Extract and test deterministic indicator precedence logic (T12) before UI changes.
+    2) Introduce explicit local-typing cue separate from server collaborator editing count (T13).
+    3) Add off-view remote update summary and clear semantics (T14).
+    4) Stabilize virtualization highlight pulse by event identity and minimum window (T15).
 
 
 ## Interfaces and Dependencies
@@ -333,3 +386,5 @@ Operational dependency: presence and replay state are in-memory per process. The
 
 Plan change note: Revised on 2026-02-06 after automated review pass to split oversized tickets, add lifecycle security and compatibility tasks (`lease_id` and legacy heartbeat coexistence), and add explicit convergence bounds for validation.
 Plan change note: Revised on 2026-02-06 12:10:09Z to record Sprint 1 implementation/test progress and add explicit handover notes for Sprint 2 continuation.
+Plan change note: Revised on 2026-02-06 12:46:59Z to record Sprint 2 completion and replace handover guidance with Sprint 3-focused continuation notes.
+Plan change note: Revised on 2026-02-06 12:58:04Z to record a behavior-preserving code simplifier round on Sprint 2 frontend artifacts and refreshed handover notes.

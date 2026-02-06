@@ -13,6 +13,15 @@ const DEFAULT_ASPECT = { w: 4, h: 3 }
 const PREVIEW_DELAY_MS = 350
 const SCROLL_IDLE_MS = 120
 
+function arePathSetsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a === b) return true
+  if (a.size !== b.size) return false
+  for (const value of a) {
+    if (!b.has(value)) return false
+  }
+  return true
+}
+
 interface VirtualGridProps {
   items: Item[]
   selected: string[]
@@ -21,7 +30,8 @@ interface VirtualGridProps {
   onOpenViewer: (path: string) => void
   onContextMenuItem?: (e: React.MouseEvent, path: string) => void
   highlight?: string
-  recentlyUpdated?: Set<string>
+  recentlyUpdated?: Map<string, string>
+  onVisiblePathsChange?: (paths: Set<string>) => void
   suppressSelectionHighlight?: boolean
   viewMode?: ViewMode
   targetCellSize?: number
@@ -38,6 +48,7 @@ export default function VirtualGrid({
   onContextMenuItem,
   highlight,
   recentlyUpdated,
+  onVisiblePathsChange,
   suppressSelectionHighlight = false,
   viewMode = 'grid',
   targetCellSize = 220,
@@ -54,6 +65,7 @@ export default function VirtualGrid({
   const internalRef = useRef<HTMLDivElement | null>(null)
   const parentRef = scrollRef ?? internalRef
   const anchorRef = useRef<string | null>(null)
+  const lastVisiblePathsRef = useRef<Set<string>>(new Set())
 
   const TARGET_CELL = targetCellSize
 
@@ -384,6 +396,34 @@ export default function VirtualGrid({
   useEffect(() => { parentRef.current?.focus() }, [])
   useEffect(() => { if (suppressSelectionHighlight) { try { parentRef.current?.blur() } catch {} ; try { setFocused(null) } catch {} } }, [suppressSelectionHighlight])
 
+  const visiblePaths = useMemo(() => {
+    const next = new Set<string>()
+    for (const row of virtualRows) {
+      if (layout.mode === 'adaptive') {
+        const rowData = layout.rows[row.index]
+        if (!rowData) continue
+        for (const rowItem of rowData.items) {
+          next.add(rowItem.item.path)
+        }
+        continue
+      }
+      const start = row.index * layout.columns
+      const end = Math.min(items.length, start + layout.columns)
+      for (let index = start; index < end; index += 1) {
+        const item = items[index]
+        if (item) next.add(item.path)
+      }
+    }
+    return next
+  }, [items, layout, virtualRows])
+
+  useEffect(() => {
+    if (!onVisiblePathsChange) return
+    if (arePathSetsEqual(lastVisiblePathsRef.current, visiblePaths)) return
+    lastVisiblePathsRef.current = visiblePaths
+    onVisiblePathsChange(visiblePaths)
+  }, [onVisiblePathsChange, visiblePaths])
+
   const activeDescendantId = focused ? `cell-${encodeURIComponent(focused)}` : undefined
 
   return (
@@ -441,7 +481,8 @@ export default function VirtualGrid({
             >
               {rowItems.map(({ item: it, displayW, displayH }) => {
                 const isVisuallySelected = !suppressSelectionHighlight && ((active===it.path) || selectedSet.has(it.path))
-                const isRecentlyUpdated = recentlyUpdated?.has(it.path) ?? false
+                const recentUpdateKey = recentlyUpdated?.get(it.path) ?? null
+                const isRecentlyUpdated = recentUpdateKey != null
                 const wrapperStyle = layout.mode === 'adaptive' ? { width: displayW } : {}
                 const imageContainerStyle = layout.mode === 'adaptive' ? { height: displayH } : {}
                 
@@ -475,6 +516,7 @@ export default function VirtualGrid({
                         name={it.name}
                         selected={isVisuallySelected}
                         highlighted={isRecentlyUpdated}
+                        highlightKey={recentUpdateKey}
                         displayW={displayW}
                         displayH={displayH}
                         ioRoot={parentRef.current}

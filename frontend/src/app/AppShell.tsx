@@ -38,15 +38,15 @@ import ContextMenu, { MenuItem } from './menu/ContextMenu'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 import { useDebounced } from '../shared/hooks/useDebounced'
 import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, PresenceEvent, Sidecar, EmbeddingSearchItem, EmbeddingSearchRequest } from '../lib/types'
-import type { SyncIndicatorState } from '../shared/ui/SyncIndicator'
 import { isInputElement } from '../lib/keyboard'
 import { formatAbsoluteTime, formatRelativeTime, parseTimestampMs, safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
 import { FetchError } from '../lib/fetcher'
 import LeftSidebar from './components/LeftSidebar'
 import StatusBar from './components/StatusBar'
+import { buildRecentSummary, buildRecentTouchesDisplay, usePresenceActivity } from './presenceActivity'
+import { deriveIndicatorState } from './presenceUi'
 import {
-  EDITING_HOLD_MS,
   LAST_EDIT_RELATIVE_MS,
   LONG_SYNC_THRESHOLD_MS,
   PRESENCE_HEARTBEAT_MS,
@@ -67,18 +67,6 @@ const STORAGE_KEYS = {
   leftOpen: 'leftOpen',
   rightOpen: 'rightOpen',
 } as const
-
-type RecentActivity = {
-  path: string
-  ts: number
-  kind: 'item-updated' | 'metrics-updated'
-}
-
-type RecentTouchDisplay = {
-  path: string
-  label: string
-  timeLabel: string
-}
 
 type SimilarityState = {
   embedding: string
@@ -105,19 +93,6 @@ function getConnectionLabel(status: ConnectionStatus): string {
   }
 }
 
-function getIndicatorState(options: {
-  isOffline: boolean
-  isUnstable: boolean
-  recentEditActive: boolean
-  editingActive: boolean
-}): SyncIndicatorState {
-  if (options.isOffline) return 'offline'
-  if (options.isUnstable) return 'unstable'
-  if (options.recentEditActive) return 'recent'
-  if (options.editingActive) return 'editing'
-  return 'live'
-}
-
 function getPresenceErrorCode(error: unknown): string | null {
   if (!(error instanceof FetchError)) return null
   const body = error.body
@@ -131,36 +106,6 @@ function formatTimestampLabel(timestampMs: number, nowMs: number): string {
     return formatRelativeTime(timestampMs, nowMs)
   }
   return formatAbsoluteTime(timestampMs)
-}
-
-function buildRecentSummary(recentActivity: RecentActivity[], items: Item[]) {
-  if (!recentActivity.length) return null
-  const seen = new Set<string>()
-  const paths: string[] = []
-  for (const entry of recentActivity) {
-    if (seen.has(entry.path)) continue
-    seen.add(entry.path)
-    paths.push(entry.path)
-  }
-  const names = paths.slice(0, 2).map((p) => {
-    const match = items.find((it) => it.path === p)
-    return match?.name ?? p.split('/').pop() ?? p
-  })
-  return {
-    count: paths.length,
-    names,
-    extra: Math.max(0, paths.length - names.length),
-  }
-}
-
-function buildRecentTouchesDisplay(recentTouches: RecentActivity[], items: Item[], nowMs: number): RecentTouchDisplay[] {
-  if (!recentTouches.length) return []
-  return recentTouches.map((entry) => {
-    const match = items.find((it) => it.path === entry.path)
-    const label = match?.name ?? entry.path.split('/').pop() ?? entry.path
-    const timeLabel = formatTimestampLabel(entry.ts, nowMs)
-    return { path: entry.path, label, timeLabel }
-  })
 }
 
 function getEmbeddingsError(isError: boolean, error: unknown): string | null {
@@ -261,17 +206,12 @@ export default function AppShell() {
   const oldestInflightAgeMs = useOldestInflightAgeMs()
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
   const [presenceByGallery, setPresenceByGallery] = useState<Record<string, PresenceEvent>>({})
-  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
-  const [recentTouches, setRecentTouches] = useState<RecentActivity[]>([])
-  const [recentBannerClosedAt, setRecentBannerClosedAt] = useState<number | null>(null)
-  const [dismissRecentForSession, setDismissRecentForSession] = useState(false)
-  const [highlightedPaths, setHighlightedPaths] = useState<Set<string>>(new Set())
-  const highlightTimersRef = useRef<Map<string, number>>(new Map())
   const [lastEditedAt, setLastEditedAt] = useState<number | null>(null)
   const [recentEditAt, setRecentEditAt] = useState<number | null>(null)
   const [recentEditActive, setRecentEditActive] = useState(false)
   const [lastEditedNow, setLastEditedNow] = useState(() => Date.now())
   const [persistenceEnabled, setPersistenceEnabled] = useState(true)
+  const [localTypingActive, setLocalTypingActive] = useState(false)
 
   // Initialize current folder from URL hash and keep in sync
   useEffect(() => {
@@ -298,15 +238,6 @@ export default function AppShell() {
     const onHash = () => applyHash(readHash())
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      for (const timeoutId of highlightTimersRef.current.values()) {
-        window.clearTimeout(timeoutId)
-      }
-      highlightTimersRef.current.clear()
-    }
   }, [])
 
   useEffect(() => {
@@ -385,6 +316,15 @@ export default function AppShell() {
   const filteredCount = items.length
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
+  const {
+    offViewActivity,
+    recentTouches,
+    highlightedPaths,
+    onVisiblePathsChange: handleVisiblePathsChange,
+    markRecentActivity,
+    markRecentTouch,
+    clearOffViewActivity,
+  } = usePresenceActivity(itemPaths)
   const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths])
   const selectedItems = useMemo(() => {
     if (!selectedPaths.length) return []
@@ -417,28 +357,6 @@ export default function AppShell() {
     setCompareIndex((prev) => (prev > compareMaxIndex ? compareMaxIndex : prev))
   }, [compareMaxIndex])
 
-  const markHighlight = useCallback((path: string) => {
-    setHighlightedPaths((prev) => {
-      if (prev.has(path)) return prev
-      const next = new Set(prev)
-      next.add(path)
-      return next
-    })
-    const timers = highlightTimersRef.current
-    const existing = timers.get(path)
-    if (existing) window.clearTimeout(existing)
-    const timeoutId = window.setTimeout(() => {
-      setHighlightedPaths((prev) => {
-        if (!prev.has(path)) return prev
-        const next = new Set(prev)
-        next.delete(path)
-        return next
-      })
-      timers.delete(path)
-    }, RECENT_EDIT_FLASH_MS)
-    timers.set(path, timeoutId)
-  }, [])
-
   const updateLastEdited = useCallback((updatedAt?: string | null) => {
     const now = Date.now()
     const parsed = parseTimestampMs(updatedAt)
@@ -451,26 +369,6 @@ export default function AppShell() {
     setRecentEditAt(now)
     setLastEditedNow(now)
   }, [])
-
-  const markRecentTouch = useCallback((path: string, kind: RecentActivity['kind'], updatedAt?: string | null) => {
-    const now = Date.now()
-    const ts = parseTimestampMs(updatedAt) ?? now
-    setRecentTouches((prev) => {
-      const filtered = prev.filter((entry) => entry.path !== path)
-      const next = [{ path, ts, kind }, ...filtered]
-      return next.slice(0, 10)
-    })
-  }, [])
-
-  const markRecentActivity = useCallback((path: string, kind: RecentActivity['kind']) => {
-    const now = Date.now()
-    setRecentActivity((prev) => {
-      const filtered = prev.filter((entry) => entry.path !== path)
-      const next = [{ path, ts: now, kind }, ...filtered]
-      return next.slice(0, 6)
-    })
-    markHighlight(path)
-  }, [markHighlight])
 
   const updateItemCaches = useCallback((payload: { path: string; star?: StarRating | null; metrics?: Record<string, number | null>; comments?: string | null }) => {
     const hasStar = Object.prototype.hasOwnProperty.call(payload, 'star')
@@ -705,7 +603,7 @@ export default function AppShell() {
           comments: payload.notes ?? '',
         })
         updateConflictFromServer(path, sidecar)
-        markRecentActivity(path, 'item-updated')
+        markRecentActivity(path, 'item-updated', evt.id)
         markRecentTouch(path, 'item-updated', payload.updated_at)
         updateLastEdited(payload.updated_at)
         setLocalStarOverrides((prev) => {
@@ -717,7 +615,7 @@ export default function AppShell() {
       } else if (evt.type === 'metrics-updated') {
         const payload = evt.data
         updateItemCaches({ path, metrics: payload.metrics })
-        markRecentActivity(path, 'metrics-updated')
+        markRecentActivity(path, 'metrics-updated', evt.id)
         markRecentTouch(path, 'metrics-updated', payload.updated_at)
         updateLastEdited(payload.updated_at)
       }
@@ -861,31 +759,23 @@ export default function AppShell() {
     if (!hasEdits || lastEditedAt == null) return 'No edits yet.'
     return formatTimestampLabel(lastEditedAt, lastEditedNow)
   }, [hasEdits, lastEditedAt, lastEditedNow])
-  const editHoldMs = lastEditedAt == null ? null : Math.max(0, lastEditedNow - lastEditedAt)
-  const editingActive = (presence?.editing ?? 0) > 0 || (editHoldMs != null && editHoldMs < EDITING_HOLD_MS)
+  const editingCount = presence?.editing ?? 0
   const longSync = oldestInflightAgeMs != null && oldestInflightAgeMs > LONG_SYNC_THRESHOLD_MS
   const isOffline = connectionStatus === 'offline' || connectionStatus === 'connecting' || connectionStatus === 'idle'
   const isUnstable = connectionStatus === 'reconnecting' || pollingEnabled || syncStatus.state === 'error' || longSync
-  const indicatorState = getIndicatorState({
+  const indicatorState = deriveIndicatorState({
     isOffline,
     isUnstable,
     recentEditActive,
-    editingActive,
+    editingCount,
   })
 
-  const recentSummary = useMemo(
-    () => buildRecentSummary(recentActivity, items),
-    [recentActivity, items],
+  const offViewSummary = useMemo(
+    () => buildRecentSummary(offViewActivity, items),
+    [offViewActivity, items],
   )
-  const latestRecentActivityTs = useMemo(() => {
-    if (!recentActivity.length) return null
-    return recentActivity.reduce((acc, entry) => Math.max(acc, entry.ts), 0)
-  }, [recentActivity])
-  const hideRecentBanner = dismissRecentForSession
-    || (recentBannerClosedAt != null && latestRecentActivityTs != null && latestRecentActivityTs <= recentBannerClosedAt)
-  const visibleRecentSummary = hideRecentBanner ? null : recentSummary
   const recentTouchesDisplay = useMemo(
-    () => buildRecentTouchesDisplay(recentTouches, items, lastEditedNow),
+    () => buildRecentTouchesDisplay(recentTouches, items, lastEditedNow, formatTimestampLabel),
     [items, lastEditedNow, recentTouches],
   )
   const displayItemCount = getDisplayItemCount(
@@ -955,6 +845,14 @@ export default function AppShell() {
       setSelectedPaths([])
     }
   }, [])
+
+  const handleRevealOffView = useCallback(() => {
+    if (similarityState) {
+      clearSimilarity()
+    }
+    setQuery('')
+    setViewState((prev) => ({ ...prev, filters: { and: [] } }))
+  }, [clearSimilarity, similarityState])
 
   const handleSimilaritySearch = useCallback(async (payload: EmbeddingSearchRequest) => {
     if (!similarityState && similarityPrevSelectionRef.current === null) {
@@ -1762,6 +1660,7 @@ export default function AppShell() {
           connectionLabel,
           lastEditedLabel,
           hasEdits,
+          localTypingActive,
           recentTouches: recentTouchesDisplay,
         }}
       />
@@ -1804,9 +1703,10 @@ export default function AppShell() {
         </div>
         <StatusBar
           persistenceEnabled={persistenceEnabled}
-          recentSummary={visibleRecentSummary}
-          onDismissRecent={() => setDismissRecentForSession(true)}
-          onCloseRecent={() => setRecentBannerClosedAt(latestRecentActivityTs ?? Date.now())}
+          offViewSummary={offViewSummary}
+          canRevealOffView={showFilteredCounts}
+          onRevealOffView={handleRevealOffView}
+          onClearOffView={clearOffViewActivity}
           browserZoomPercent={browserZoomPercent}
         />
         {similarityState && (
@@ -1890,6 +1790,7 @@ export default function AppShell() {
             onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
             highlight={searching ? normalizedQ : ''}
             recentlyUpdated={highlightedPaths}
+            onVisiblePathsChange={handleVisiblePathsChange}
             suppressSelectionHighlight={!!viewer || compareOpen}
             viewMode={viewMode}
             targetCellSize={gridItemSize}
@@ -1921,6 +1822,7 @@ export default function AppShell() {
           onFindSimilar={() => setSimilarityOpen(true)}
           embeddingsAvailable={embeddingsAvailable}
           embeddingsLoading={embeddingsQuery.isLoading}
+          onLocalTypingChange={setLocalTypingActive}
         />
       )}
       <SimilarityModal

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react'
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict, clearConflict, sidecarQueryKey } from '../../shared/api/items'
 import { fmtBytes } from '../../lib/util'
@@ -106,6 +106,7 @@ interface InspectorProps {
   onFindSimilar?: () => void
   embeddingsAvailable?: boolean
   embeddingsLoading?: boolean
+  onLocalTypingChange?: (active: boolean) => void
 }
 
 type InspectorSectionKey = 'overview' | 'basics' | 'metadata' | 'notes'
@@ -203,6 +204,7 @@ export default function Inspector({
   onFindSimilar,
   embeddingsAvailable = false,
   embeddingsLoading = false,
+  onLocalTypingChange,
 }: InspectorProps) {
   const enabled = !!path
   const { data, isLoading } = useSidecar(path ?? '')
@@ -234,6 +236,13 @@ export default function Inspector({
   const [metaCopied, setMetaCopied] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [valueHeights, setValueHeights] = useState<Record<string, number>>({})
+  const localTypingActiveRef = useRef(false)
+
+  const notifyLocalTyping = useCallback((active: boolean) => {
+    if (localTypingActiveRef.current === active) return
+    localTypingActiveRef.current = active
+    onLocalTypingChange?.(active)
+  }, [onLocalTypingChange])
   
   // Get star from item list (optimistic local value) or sidecar
   const itemStarFromList = useMemo((): number | null => {
@@ -270,7 +279,14 @@ export default function Inspector({
     setMetaError(null)
     setMetaState('idle')
     setMetaCopied(false)
-  }, [data?.updated_at, path])
+    notifyLocalTyping(false)
+  }, [data?.updated_at, notifyLocalTyping, path])
+
+  useEffect(() => {
+    return () => {
+      notifyLocalTyping(false)
+    }
+  }, [notifyLocalTyping])
 
   const commitSidecar = useCallback((patch: { notes?: string; tags?: string[]; star?: StarRating | null }) => {
     if (multi && selectedPaths.length) {
@@ -281,6 +297,26 @@ export default function Inspector({
     const baseVersion = data?.version ?? 1
     mut.mutate({ patch, baseVersion, idempotencyKey: makeIdempotencyKey('patch') })
   }, [multi, selectedPaths, path, data?.version, mut])
+
+  const handleNotesChange = useCallback((value: string) => {
+    setNotes(value)
+    notifyLocalTyping(true)
+  }, [notifyLocalTyping])
+
+  const handleNotesBlur = useCallback(() => {
+    commitSidecar({ notes })
+    notifyLocalTyping(false)
+  }, [commitSidecar, notes, notifyLocalTyping])
+
+  const handleTagsChange = useCallback((value: string) => {
+    setTags(value)
+    notifyLocalTyping(true)
+  }, [notifyLocalTyping])
+
+  const handleTagsBlur = useCallback(() => {
+    commitSidecar({ tags: parseTags(tags) })
+    notifyLocalTyping(false)
+  }, [commitSidecar, notifyLocalTyping, tags])
 
   const applyConflict = useCallback(() => {
     if (!conflict || !path) return
@@ -741,10 +777,8 @@ export default function Inspector({
           className="ui-textarea inspector-input w-full scrollbar-thin"
           placeholder="Add notes"
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          onBlur={() => {
-            commitSidecar({ notes })
-          }}
+          onChange={(e) => handleNotesChange(e.target.value)}
+          onBlur={handleNotesBlur}
           aria-label={multi ? 'Notes for selected items' : 'Notes'}
         />
         <div>
@@ -753,10 +787,8 @@ export default function Inspector({
             className="ui-input inspector-input w-full"
             placeholder="tag1, tag2"
             value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            onBlur={() => {
-              commitSidecar({ tags: parseTags(tags) })
-            }}
+            onChange={(e) => handleTagsChange(e.target.value)}
+            onBlur={handleTagsBlur}
             aria-label={multi ? 'Tags for selected items' : 'Tags'}
           />
         </div>

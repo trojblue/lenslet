@@ -10,6 +10,7 @@ export type SyncIndicatorData = {
   connectionLabel: string
   lastEditedLabel: string
   hasEdits: boolean
+  localTypingActive: boolean
   recentTouches: Array<{
     path: string
     label: string
@@ -36,6 +37,7 @@ export default function SyncIndicator({
   connectionLabel,
   lastEditedLabel,
   hasEdits,
+  localTypingActive,
   recentTouches,
   isNarrow,
 }: SyncIndicatorProps): JSX.Element {
@@ -110,6 +112,9 @@ export default function SyncIndicator({
         {!isNarrow && (
           <span className="sync-indicator-count tabular-nums">{viewingLabel}</span>
         )}
+        {!isNarrow && localTypingActive && (
+          <span className="sync-indicator-local">typing…</span>
+        )}
       </button>
       {open && (
         <div role="dialog" aria-label="Sync status" className="sync-indicator-card select-text">
@@ -119,6 +124,11 @@ export default function SyncIndicator({
           <div className="sync-indicator-line sync-indicator-muted">
             {hasEdits ? `Last edited: ${lastEditedLabel}` : 'No edits yet.'}
           </div>
+          {localTypingActive && (
+            <div className="sync-indicator-line sync-indicator-muted">
+              Local typing in progress (saved on blur).
+            </div>
+          )}
           <div className="sync-indicator-section">
             <div className="sync-indicator-section-title">Recently touched files</div>
             {recentTouches.length > 0 ? (

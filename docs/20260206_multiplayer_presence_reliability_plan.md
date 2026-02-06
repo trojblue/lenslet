@@ -25,7 +25,13 @@ The finished behavior is observable by running two or more clients against one s
 - [x] 2026-02-06 12:31:15Z Validation pass completed in `/home/ubuntu/dev/lenslet-2`: `cd frontend && npm test` => `12 passed`, `cd frontend && npm run build` => success, `PYTHONPATH=src pytest -q` => `30 passed`.
 - [x] 2026-02-06 12:46:59Z Updated handover notes for Sprint 3 continuation with implemented Sprint 2 artifacts, current behavioral assumptions, and remaining reliability test gaps.
 - [x] 2026-02-06 12:58:04Z Completed a code-simplifier maintainability pass on touched Sprint 2 frontend files (`frontend/src/api/client.ts`, `frontend/src/app/AppShell.tsx`, `frontend/vite.config.ts`, `frontend/src/api/__tests__/client.presence.test.ts`) with behavior-preserving helper extraction and reduced duplication; validated with `cd frontend && npm test` => `12 passed` and `cd frontend && npm run build` => success.
-- [ ] Execute Sprint 3 UI signal coherence and scope-aware remote-update visibility.
+- [x] 2026-02-06 13:13:21Z Completed Sprint 3 UI coherence and update visibility (T12-T15): deterministic indicator precedence helper + unit tests, local typing cue separate from server editing counts, off-view update summary/reveal/clear behavior, and event-id keyed minimum-window grid highlights in `frontend/src/app/AppShell.tsx`, `frontend/src/app/presenceUi.ts`, `frontend/src/app/__tests__/presenceUi.test.ts`, `frontend/src/shared/ui/SyncIndicator.tsx`, `frontend/src/features/inspector/Inspector.tsx`, `frontend/src/app/components/StatusBar.tsx`, `frontend/src/features/browse/components/VirtualGrid.tsx`, `frontend/src/features/browse/components/ThumbCard.tsx`, `frontend/src/styles.css`, and `frontend/src/lib/constants.ts`.
+- [x] 2026-02-06 13:13:21Z Validation pass completed in `/home/ubuntu/dev/lenslet-2`: `cd frontend && npm test` => `17 passed`, `cd frontend && npm run build` => success, `PYTHONPATH=src pytest -q` => `30 passed`.
+- [x] 2026-02-06 13:18:03Z Updated handover notes for Sprint 4 continuation with Sprint 3 implementation artifacts, current interface/state assumptions, and recommended T16-T22 execution order.
+- [x] 2026-02-06 13:27:01Z Completed a code-simplifier maintainability pass on Sprint 3 frontend artifacts with behavior-preserving refactors: extracted presence activity tracking/highlight logic into `frontend/src/app/presenceActivity.ts`, simplified `frontend/src/app/AppShell.tsx` orchestration, deduplicated viewport visibility notifications in `frontend/src/features/browse/components/VirtualGrid.tsx`, consolidated local typing handlers in `frontend/src/features/inspector/Inspector.tsx`, and shared off-view summary typing in `frontend/src/app/components/StatusBar.tsx`.
+- [x] 2026-02-06 13:27:01Z Validation pass completed in `/home/ubuntu/dev/lenslet-2`: `cd frontend && npm test` => `17 passed`, `cd frontend && npm run build` => success, `PYTHONPATH=src pytest -q` => `30 passed`.
+- [x] 2026-02-06 13:28:37Z Added helper-level frontend coverage for extracted Sprint 3 activity module in `frontend/src/app/__tests__/presenceActivity.test.ts`; validation rerun: `cd frontend && npm test` => `20 passed`, `cd frontend && npm run build` => success.
+- [x] Execute Sprint 3 UI signal coherence and scope-aware remote-update visibility.
 - [ ] Execute Sprint 4 reliability tests, ops instrumentation, and docs updates.
 
 
@@ -72,7 +78,7 @@ Presence state and SSE replay are process-local (`PresenceTracker()` and `EventB
 ## Outcomes & Retrospective
 
 
-Sprint 1 and Sprint 2 are now implemented and validated in this branch. Backend presence accounting uses explicit lifecycle transitions with lease validation and periodic stale cleanup, and frontend now uses tab-scoped identity plus explicit join/move/leave wiring with unload-safe leave and reconnect-triggered resync. Sprint 3 remains focused on UI coherence (indicator precedence, local-vs-remote editing cues, and off-view update visibility), and Sprint 4 remains focused on reliability tests, observability counters, and ops/docs hardening.
+Sprint 1, Sprint 2, and Sprint 3 are now implemented and validated in this branch. Backend presence accounting uses explicit lifecycle transitions with lease validation and periodic stale cleanup, and frontend now includes tab-scoped identity, explicit join/move/leave wiring, deterministic indicator precedence, local-typing signaling, off-view update summaries, and event-id keyed highlight behavior. A follow-up code-simplifier pass extracted Sprint 3 activity/highlight state into dedicated frontend modules for easier maintenance without behavior changes. Sprint 4 remains focused on reliability tests, observability counters, and ops/docs hardening.
 
 The main lesson from investigation is that most observed “half-baked” behavior is not a single bug but interaction between scope modeling, lifecycle timing, and UI state precedence.
 
@@ -306,66 +312,99 @@ Sprint 1 implementation artifacts.
 ### Handover Notes
 
 
-Sprint 1 and Sprint 2 goals are complete and validated. The immediate handoff target is Sprint 3 (T12-T15) for UI coherence and remote-update visibility behavior.
+Sprint 1 through Sprint 3 goals are complete and validated. The immediate handoff target is Sprint 4 (T16-T22) for reliability tests, observability, rollout safety, and docs hardening.
 
-Sprint 2 implementation artifacts to build on:
+Sprint 3 implementation artifacts now in place:
 
-    Tab-scoped identity and legacy migration:
-    frontend/src/api/client.ts
-    - session key: lenslet.client_id.session
-    - legacy local key: lenslet.client_id is removed on migration when sessionStorage exists
+    Indicator precedence and tests:
+    frontend/src/app/presenceUi.ts
+    frontend/src/app/__tests__/presenceUi.test.ts
+    - `deriveIndicatorState(...)` is now the single precedence matrix source.
+    - precedence tests cover offline/unstable/recent/editing/live branch ordering.
 
-    Presence lifecycle client API:
-    frontend/src/api/client.ts
-    - api.joinPresence(...)
-    - api.movePresence(...)
-    - api.leavePresence(...)
-    - dispatchPresenceLeave(...) uses beacon first, keepalive fetch fallback
-
-    App lifecycle wiring and move coalescing:
+    AppShell state wiring for UI coherence:
     frontend/src/app/AppShell.tsx
-    - join/move transition orchestration refs/callbacks
-    - pagehide + beforeunload leave dispatch
-    - pageshow immediate rejoin for bfcache restore path
-    - reconnect-to-live immediate presence resync
-    - local cache clear on reconnecting/offline
-    - transition coalescing via PRESENCE_MOVE_COALESCE_MS
+    - indicator now uses server-reported `presence.editing` (local hold removed).
+    - local typing signal tracked independently (`localTypingActive`).
+    - off-view activity summary tracked in `offViewActivity`.
+    - visible viewport paths are received from grid and used to clear off-view entries only after visibility.
+    - highlight keys are event-id based (`event:<id>`) with dedupe and minimum visible window.
 
-    Lifecycle timing constants:
+    Local typing cue split from remote collaborator editing count:
+    frontend/src/features/inspector/Inspector.tsx
+    frontend/src/shared/ui/SyncIndicator.tsx
+    - inspector emits `onLocalTypingChange(...)` from notes/tags input events.
+    - sync indicator displays a local typing cue without changing `presence.editing`.
+
+    Off-view summary surface:
+    frontend/src/app/components/StatusBar.tsx
+    - new `offViewSummary` banner copy and explicit clear button.
+    - contextual reveal action is wired when filters/search/similarity are active.
+
+    Virtualization highlight stabilization:
+    frontend/src/features/browse/components/VirtualGrid.tsx
+    frontend/src/features/browse/components/ThumbCard.tsx
+    frontend/src/styles.css
     frontend/src/lib/constants.ts
-    - PRESENCE_HEARTBEAT_MS
-    - PRESENCE_MOVE_COALESCE_MS
+    - `recentlyUpdated` moved from `Set<string>` to `Map<string, string>` to carry stable event keys.
+    - thumb highlight uses `thumb-updated-ring` style (non-pulsing, stable ring).
+    - minimum visible highlight window constant: `ITEM_HIGHLIGHT_MIN_VISIBLE_MS`.
 
-    Maintainability refinements applied after Sprint 2:
-    - `frontend/src/api/client.ts`: extracted reusable presence POST helper and client-id caching helper to reduce repeated request boilerplate.
-    - `frontend/src/app/AppShell.tsx`: extracted presence transition helpers (`applyJoinedPresence`, `syncPresenceScope`, timer/session reset helpers) and centralized current gallery id derivation.
-    - `frontend/vite.config.ts`: centralized proxy target/path mapping to remove repetitive per-route literals.
-    - `frontend/src/api/__tests__/client.presence.test.ts`: consolidated repeated global mock setup helpers.
+Post-S3 maintainability refactor (2026-02-06 13:27:01Z):
 
-Known constraints and assumptions that remain in effect:
+    Refactored presence activity state into:
+    frontend/src/app/presenceActivity.ts
+    - centralizes off-view activity tracking, recent touch tracking, and event-id keyed highlight lifecycle.
+    - exports shared pure helpers for summary/touch display mapping.
+    - preserves previous limits, dedupe semantics, and timeout behavior.
 
-    SSE presence payloads still contain aggregate counts only (`gallery_id`, `viewing`, `editing`); lease metadata remains HTTP-route only.
+    Simplified orchestrator wiring:
+    frontend/src/app/AppShell.tsx
+    - replaced inline activity/highlight bookkeeping refs and callbacks with `usePresenceActivity(...)`.
+    - extracted off-view reveal behavior into a dedicated callback for clearer intent.
 
-    Presence/replay correctness is still single-process/in-memory scoped (`UVICORN_WORKERS=1`, `WEB_CONCURRENCY=1`).
+    Virtualization callback dedupe:
+    frontend/src/features/browse/components/VirtualGrid.tsx
+    - visible-path callback now emits only on set change, avoiding redundant no-op updates.
 
-Current test coverage status after Sprint 2:
+    Inspector input handler cleanup:
+    frontend/src/features/inspector/Inspector.tsx
+    - notes/tags typing and blur handlers consolidated into named callbacks with identical commit semantics.
 
-    Added:
+    Shared status-bar summary typing:
+    frontend/src/app/components/StatusBar.tsx
+    - now imports shared `RecentSummary` type from presence activity module.
+
+Known constraints and assumptions still in effect:
+
+    SSE presence payloads still carry aggregate counts only (`gallery_id`, `viewing`, `editing`); lease data remains HTTP-route only.
+
+    Presence and replay state are still single-process/in-memory scoped (`UVICORN_WORKERS=1`, `WEB_CONCURRENCY=1`).
+
+Current test coverage status after Sprint 3:
+
+    Added/covered:
     frontend/src/api/__tests__/client.presence.test.ts
+    frontend/src/app/__tests__/presenceUi.test.ts
+    frontend/src/app/__tests__/presenceActivity.test.ts
     - tab identity behavior
-    - unload leave transport path selection
+    - unload leave transport selection
+    - indicator precedence matrix branches
+    - off-view summary and recent-touch helper mapping paths
 
-    Still pending (planned in later tickets):
-    - app-level lifecycle sequencing tests (join/move/leave order under rapid scope changes)
-    - reconnect convergence tests with simulated status transitions
-    - multi-client end-to-end convergence test from Python side
+    Still pending (Sprint 4 scope):
+    - backend concurrency/race stress tests for move/leave/touch edges (T17)
+    - frontend app-level lifecycle/reconnect sequencing tests with timers/mocks (T18)
+    - Python multi-client convergence integration scenario (T19)
+    - observability counter assertions and replay diagnostics (T20)
 
-Recommended Sprint 3 start order:
+Recommended Sprint 4 start order:
 
-    1) Extract and test deterministic indicator precedence logic (T12) before UI changes.
-    2) Introduce explicit local-typing cue separate from server collaborator editing count (T13).
-    3) Add off-view remote update summary and clear semantics (T14).
-    4) Stabilize virtualization highlight pulse by event identity and minimum window (T15).
+    1) Test gap pass first: finalize T16/T17 backend invariants + concurrency coverage while current behavior is fresh.
+    2) Add frontend lifecycle/reconnect suites for T18 around AppShell transitions and reconnect recovery.
+    3) Implement T19 multi-client integration scenario in Python with explicit convergence bound assertions.
+    4) Add T20 counters in server runtime and wire deterministic counter assertions.
+    5) Finish docs/ops and lifecycle-v2 rollout gate tasks (T21/T22), then run full validation and smoke checks in both flag states.
 
 
 ## Interfaces and Dependencies
@@ -388,3 +427,7 @@ Plan change note: Revised on 2026-02-06 after automated review pass to split ove
 Plan change note: Revised on 2026-02-06 12:10:09Z to record Sprint 1 implementation/test progress and add explicit handover notes for Sprint 2 continuation.
 Plan change note: Revised on 2026-02-06 12:46:59Z to record Sprint 2 completion and replace handover guidance with Sprint 3-focused continuation notes.
 Plan change note: Revised on 2026-02-06 12:58:04Z to record a behavior-preserving code simplifier round on Sprint 2 frontend artifacts and refreshed handover notes.
+Plan change note: Revised on 2026-02-06 13:13:21Z to record Sprint 3 implementation completion and validation results.
+Plan change note: Revised on 2026-02-06 13:18:03Z to refresh handover notes for Sprint 4 execution (T16-T22) with current artifacts and test gaps.
+Plan change note: Revised on 2026-02-06 13:27:01Z to record a behavior-preserving code simplifier round on Sprint 3 frontend artifacts, updated validation run, and maintainability-focused handover additions.
+Plan change note: Revised on 2026-02-06 13:28:37Z to record additional helper-level tests for `presenceActivity` and updated frontend validation totals.

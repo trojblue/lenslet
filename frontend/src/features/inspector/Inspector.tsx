@@ -127,6 +127,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+function isPilInfoPath(path: string): boolean {
+  return path === 'pil_info' || path.startsWith('pil_info.') || path.startsWith('pil_info[')
+}
+
 function appendPath(base: string, key: string | number): string {
   if (typeof key === 'number') {
     return base ? `${base}[${key}]` : `[${key}]`
@@ -143,24 +147,22 @@ function flattenMeta(
   depth: number,
   opts: { maxDepth: number; maxArray: number; skipPilInfo: boolean }
 ): void {
-  if (opts.skipPilInfo) {
-    if (basePath === 'pil_info') return
-    if (basePath.startsWith('pil_info.')) return
-    if (basePath.startsWith('pil_info[')) return
-  }
+  if (opts.skipPilInfo && isPilInfoPath(basePath)) return
+
+  const rootKey = basePath || '(root)'
 
   if (depth >= opts.maxDepth) {
-    out.set(basePath || '(root)', value)
+    out.set(rootKey, value)
     return
   }
 
   if (Array.isArray(value)) {
     if (!value.length) {
-      out.set(basePath || '(root)', [])
+      out.set(rootKey, [])
       return
     }
     if (value.length > opts.maxArray) {
-      out.set(basePath || '(root)', value)
+      out.set(rootKey, value)
       return
     }
     value.forEach((item, idx) => flattenMeta(item, appendPath(basePath, idx), out, depth + 1, opts))
@@ -180,7 +182,7 @@ function flattenMeta(
     return
   }
 
-  out.set(basePath || '(root)', value)
+  out.set(rootKey, value)
 }
 
 interface InspectorItem {
@@ -643,19 +645,21 @@ export default function Inspector({
   }, [copyMetadataKey])
 
   const highlightedMeta = useMemo(() => (metaDisplayText ? highlightJson(metaDisplayText) : ''), [metaDisplayText])
-  const metaContent = metaState === 'loading'
-    ? 'Loading metadata…'
-    : metaState === 'error' && metaError
-      ? metaError
-      : (metaDisplayText || 'PNG metadata not loaded yet.')
+  let metaContent = metaDisplayText || 'PNG metadata not loaded yet.'
+  if (metaState === 'loading') {
+    metaContent = 'Loading metadata…'
+  } else if (metaState === 'error' && metaError) {
+    metaContent = metaError
+  }
   const metadataLoading = metaState === 'loading'
   const metaLoaded = metaState === 'loaded' && !!metaRawText
   const metaHeightClass = metaLoaded ? 'h-48' : 'h-24'
-  const metadataActionLabel = metadataLoading
-    ? 'Loading…'
-    : metaLoaded
-      ? (metaCopied ? 'Copied' : 'Copy')
-      : 'Load meta'
+  let metadataActionLabel = 'Load meta'
+  if (metadataLoading) {
+    metadataActionLabel = 'Loading…'
+  } else if (metaLoaded) {
+    metadataActionLabel = metaCopied ? 'Copied' : 'Copy'
+  }
   const handleMetadataAction = metaLoaded ? copyMetadata : fetchMetadata
 
   const hasPilInfo = !!metaRaw && typeof metaRaw === 'object' && !Array.isArray(metaRaw) && 'pil_info' in metaRaw
@@ -692,7 +696,11 @@ export default function Inspector({
     const normalizedB = normalizeMetadata(compareMetaB)
     const mapA = new Map<string, unknown>()
     const mapB = new Map<string, unknown>()
-    const opts = { maxDepth: COMPARE_DIFF_MAX_DEPTH, maxArray: COMPARE_DIFF_MAX_ARRAY, skipPilInfo: !compareIncludePilInfo }
+    const opts = {
+      maxDepth: COMPARE_DIFF_MAX_DEPTH,
+      maxArray: COMPARE_DIFF_MAX_ARRAY,
+      skipPilInfo: !compareIncludePilInfo,
+    }
     flattenMeta(normalizedA, '', mapA, 0, opts)
     flattenMeta(normalizedB, '', mapB, 0, opts)
     const keys = new Set([...mapA.keys(), ...mapB.keys()])
@@ -701,10 +709,9 @@ export default function Inspector({
     let onlyB = 0
     let different = 0
     const sortedKeys = Array.from(keys).sort((a, b) => a.localeCompare(b))
+    const skipPilInfo = !compareIncludePilInfo
     for (const key of sortedKeys) {
-      if (!compareIncludePilInfo && (key === 'pil_info' || key.startsWith('pil_info.') || key.startsWith('pil_info['))) {
-        continue
-      }
+      if (skipPilInfo && isPilInfoPath(key)) continue
       const hasA = mapA.has(key)
       const hasB = mapB.has(key)
       if (!hasA && hasB) {
@@ -726,13 +733,14 @@ export default function Inspector({
         entries.push({ key, kind: 'different', aText: formatMetaValue(aVal), bText: formatMetaValue(bVal) })
       }
     }
-    const truncated = entries.length > COMPARE_DIFF_LIMIT
+    const truncatedCount = Math.max(0, entries.length - COMPARE_DIFF_LIMIT)
+    const entriesVisible = truncatedCount ? entries.slice(0, COMPARE_DIFF_LIMIT) : entries
     return {
-      entries: truncated ? entries.slice(0, COMPARE_DIFF_LIMIT) : entries,
+      entries: entriesVisible,
       onlyA,
       onlyB,
       different,
-      truncatedCount: truncated ? entries.length - COMPARE_DIFF_LIMIT : 0,
+      truncatedCount,
     }
   }, [compareMetaA, compareMetaB, compareIncludePilInfo])
 

@@ -117,10 +117,19 @@ function cacheClientId(clientId: string): string {
   return clientId
 }
 
+function getWindowStorage(kind: 'local' | 'session'): Storage | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return kind === 'local' ? window.localStorage : window.sessionStorage
+  } catch {
+    return null
+  }
+}
+
 export function getClientId(): string {
   if (cachedClientId) return cachedClientId
-  const local = typeof window !== 'undefined' ? window.localStorage : null
-  const session = typeof window !== 'undefined' ? window.sessionStorage : null
+  const local = getWindowStorage('local')
+  const session = getWindowStorage('session')
 
   const sessionClientId = safeStorageGet(session, CLIENT_ID_SESSION_KEY)
   if (sessionClientId) {
@@ -164,8 +173,10 @@ export function makeIdempotencyKey(prefix = 'lenslet'): string {
 function readLastEventId(): number | null {
   if (cachedLastEventId != null) return cachedLastEventId
   if (typeof window === 'undefined') return null
+  const local = getWindowStorage('local')
+  if (!local) return null
   try {
-    const raw = window.localStorage.getItem(LAST_EVENT_ID_KEY)
+    const raw = local.getItem(LAST_EVENT_ID_KEY)
     if (!raw) return null
     const parsed = Number(raw)
     if (!Number.isFinite(parsed) || parsed <= 0) return null
@@ -180,8 +191,10 @@ function writeLastEventId(next: number): void {
   if (!Number.isFinite(next) || next <= 0) return
   cachedLastEventId = next
   if (typeof window === 'undefined') return
+  const local = getWindowStorage('local')
+  if (!local) return
   try {
-    window.localStorage.setItem(LAST_EVENT_ID_KEY, String(next))
+    local.setItem(LAST_EVENT_ID_KEY, String(next))
   } catch {
     // Ignore persistence errors
   }

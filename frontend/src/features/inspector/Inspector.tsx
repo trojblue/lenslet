@@ -96,6 +96,93 @@ function highlightJson(json: string): string {
   return result
 }
 
+function toComparableString(value: unknown): string {
+  if (value == null) return String(value)
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) {
+    return `[${value.map(toComparableString).join(',')}]`
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, val]) => `${key}:${toComparableString(val)}`)
+    return `{${entries.join(',')}}`
+  }
+  return String(value)
+}
+
+function formatMetaValue(value: unknown): string {
+  if (value == null) return '—'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value, null, 1)
+  } catch {
+    return String(value)
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function appendPath(base: string, key: string | number): string {
+  if (typeof key === 'number') {
+    return base ? `${base}[${key}]` : `[${key}]`
+  }
+  const safe = /^[A-Za-z0-9_$-]+$/.test(key)
+  if (!base) return safe ? key : `["${key}"]`
+  return safe ? `${base}.${key}` : `${base}["${key}"]`
+}
+
+function flattenMeta(
+  value: unknown,
+  basePath: string,
+  out: Map<string, unknown>,
+  depth: number,
+  opts: { maxDepth: number; maxArray: number; skipPilInfo: boolean }
+): void {
+  if (opts.skipPilInfo) {
+    if (basePath === 'pil_info') return
+    if (basePath.startsWith('pil_info.')) return
+    if (basePath.startsWith('pil_info[')) return
+  }
+
+  if (depth >= opts.maxDepth) {
+    out.set(basePath || '(root)', value)
+    return
+  }
+
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      out.set(basePath || '(root)', [])
+      return
+    }
+    if (value.length > opts.maxArray) {
+      out.set(basePath || '(root)', value)
+      return
+    }
+    value.forEach((item, idx) => flattenMeta(item, appendPath(basePath, idx), out, depth + 1, opts))
+    return
+  }
+
+  if (isPlainObject(value)) {
+    const keys = Object.keys(value).sort((a, b) => a.localeCompare(b))
+    if (!keys.length) {
+      out.set(basePath || '(root)', {})
+      return
+    }
+    for (const key of keys) {
+      if (opts.skipPilInfo && !basePath && key === 'pil_info') continue
+      flattenMeta(value[key], appendPath(basePath, key), out, depth + 1, opts)
+    }
+    return
+  }
+
+  out.set(basePath || '(root)', value)
+}
+
 interface InspectorItem {
   path: string
   size: number
@@ -111,6 +198,9 @@ interface InspectorProps {
   path: string | null
   selectedPaths?: string[]
   items?: InspectorItem[]
+  compareActive?: boolean
+  compareA?: Item | null
+  compareB?: Item | null
   onResize?: (e: React.MouseEvent) => void
   onStarChanged?: (paths: string[], val: StarRating) => void
   sortSpec?: SortSpec
@@ -120,14 +210,18 @@ interface InspectorProps {
   onLocalTypingChange?: (active: boolean) => void
 }
 
-type InspectorSectionKey = 'overview' | 'basics' | 'metadata' | 'notes'
+type InspectorSectionKey = 'overview' | 'compare' | 'basics' | 'metadata' | 'notes'
 
-const INSPECTOR_SECTION_KEYS: InspectorSectionKey[] = ['overview', 'basics', 'metadata', 'notes']
+const INSPECTOR_SECTION_KEYS: InspectorSectionKey[] = ['overview', 'compare', 'basics', 'metadata', 'notes']
 const INSPECTOR_SECTION_STORAGE_KEY = 'lenslet.inspector.sections'
 const INSPECTOR_METRICS_EXPANDED_KEY = 'lenslet.inspector.metricsExpanded'
 const METRICS_PREVIEW_LIMIT = 12
+const COMPARE_DIFF_LIMIT = 120
+const COMPARE_DIFF_MAX_DEPTH = 8
+const COMPARE_DIFF_MAX_ARRAY = 80
 const DEFAULT_SECTION_STATE: Record<InspectorSectionKey, boolean> = {
   overview: true,
+  compare: true,
   metadata: true,
   basics: true,
   notes: true,
@@ -209,6 +303,9 @@ export default function Inspector({
   path,
   selectedPaths = [],
   items = [],
+  compareActive = false,
+  compareA = null,
+  compareB = null,
   onResize,
   onStarChanged,
   sortSpec,
@@ -248,6 +345,12 @@ export default function Inspector({
   const [metaKeyCopied, setMetaKeyCopied] = useState<string | null>(null)
   const metaKeyCopyTimeoutRef = useRef<number | null>(null)
   const [showPilInfo, setShowPilInfo] = useState(false)
+  const [compareMetaState, setCompareMetaState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
+  const [compareMetaError, setCompareMetaError] = useState<string | null>(null)
+  const [compareMetaA, setCompareMetaA] = useState<Record<string, unknown> | null>(null)
+  const [compareMetaB, setCompareMetaB] = useState<Record<string, unknown> | null>(null)
+  const [compareIncludePilInfo, setCompareIncludePilInfo] = useState(false)
+  const compareMetaRequestIdRef = useRef(0)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [valueHeights, setValueHeights] = useState<Record<string, number>>({})
   const localTypingActiveRef = useRef(false)
@@ -417,6 +520,12 @@ export default function Inspector({
     return currentItem?.source ?? path
   }, [currentItem, path])
 
+  const comparePathA = compareA?.path ?? null
+  const comparePathB = compareB?.path ?? null
+  const compareReady = compareActive && !!comparePathA && !!comparePathB
+  const compareLabelA = compareA?.name ?? comparePathA ?? 'A'
+  const compareLabelB = compareB?.name ?? comparePathB ?? 'B'
+
   const fetchMetadata = useCallback(async () => {
     if (!path) return
     setMetaState('loading')
@@ -432,6 +541,40 @@ export default function Inspector({
       setMetaState('error')
     }
   }, [path])
+
+  const fetchCompareMetadata = useCallback(async (aPath: string, bPath: string) => {
+    const requestId = compareMetaRequestIdRef.current + 1
+    compareMetaRequestIdRef.current = requestId
+    setCompareMetaState('loading')
+    setCompareMetaError(null)
+    try {
+      const [aRes, bRes] = await Promise.all([api.getMetadata(aPath), api.getMetadata(bPath)])
+      if (compareMetaRequestIdRef.current !== requestId) return
+      setCompareMetaA(aRes.meta)
+      setCompareMetaB(bRes.meta)
+      setCompareMetaState('loaded')
+    } catch (err) {
+      if (compareMetaRequestIdRef.current !== requestId) return
+      const msg = err instanceof Error ? err.message : 'Failed to load metadata'
+      setCompareMetaA(null)
+      setCompareMetaB(null)
+      setCompareMetaError(msg)
+      setCompareMetaState('error')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!compareReady || !comparePathA || !comparePathB) {
+      compareMetaRequestIdRef.current += 1
+      setCompareMetaState('idle')
+      setCompareMetaError(null)
+      setCompareMetaA(null)
+      setCompareMetaB(null)
+      return
+    }
+    setCompareIncludePilInfo(false)
+    fetchCompareMetadata(comparePathA, comparePathB)
+  }, [compareReady, comparePathA, comparePathB, fetchCompareMetadata])
 
   const metaRawText = useMemo(() => {
     if (!metaRaw) return ''
@@ -537,6 +680,61 @@ export default function Inspector({
       </button>
     </div>
   ) : null
+
+  const handleCompareReload = useCallback(() => {
+    if (!comparePathA || !comparePathB) return
+    fetchCompareMetadata(comparePathA, comparePathB)
+  }, [comparePathA, comparePathB, fetchCompareMetadata])
+
+  const compareDiff = useMemo(() => {
+    if (!compareMetaA || !compareMetaB) return null
+    const normalizedA = normalizeMetadata(compareMetaA)
+    const normalizedB = normalizeMetadata(compareMetaB)
+    const mapA = new Map<string, unknown>()
+    const mapB = new Map<string, unknown>()
+    const opts = { maxDepth: COMPARE_DIFF_MAX_DEPTH, maxArray: COMPARE_DIFF_MAX_ARRAY, skipPilInfo: !compareIncludePilInfo }
+    flattenMeta(normalizedA, '', mapA, 0, opts)
+    flattenMeta(normalizedB, '', mapB, 0, opts)
+    const keys = new Set([...mapA.keys(), ...mapB.keys()])
+    const entries: Array<{ key: string; kind: 'different' | 'onlyA' | 'onlyB'; aText: string; bText: string }> = []
+    let onlyA = 0
+    let onlyB = 0
+    let different = 0
+    const sortedKeys = Array.from(keys).sort((a, b) => a.localeCompare(b))
+    for (const key of sortedKeys) {
+      if (!compareIncludePilInfo && (key === 'pil_info' || key.startsWith('pil_info.') || key.startsWith('pil_info['))) {
+        continue
+      }
+      const hasA = mapA.has(key)
+      const hasB = mapB.has(key)
+      if (!hasA && hasB) {
+        onlyB += 1
+        entries.push({ key, kind: 'onlyB', aText: '—', bText: formatMetaValue(mapB.get(key)) })
+        continue
+      }
+      if (hasA && !hasB) {
+        onlyA += 1
+        entries.push({ key, kind: 'onlyA', aText: formatMetaValue(mapA.get(key)), bText: '—' })
+        continue
+      }
+      const aVal = mapA.get(key)
+      const bVal = mapB.get(key)
+      const aCmp = toComparableString(aVal)
+      const bCmp = toComparableString(bVal)
+      if (aCmp !== bCmp) {
+        different += 1
+        entries.push({ key, kind: 'different', aText: formatMetaValue(aVal), bText: formatMetaValue(bVal) })
+      }
+    }
+    const truncated = entries.length > COMPARE_DIFF_LIMIT
+    return {
+      entries: truncated ? entries.slice(0, COMPARE_DIFF_LIMIT) : entries,
+      onlyA,
+      onlyB,
+      different,
+      truncatedCount: truncated ? entries.length - COMPARE_DIFF_LIMIT : 0,
+    }
+  }, [compareMetaA, compareMetaB, compareIncludePilInfo])
 
   useEffect(() => {
     try {
@@ -658,6 +856,91 @@ export default function Inspector({
           <div className="text-[11px] text-muted">{findSimilarDisabledReason}</div>
         )}
       </InspectorSection>
+
+      {compareActive && compareReady && (
+        <InspectorSection
+          title="Compare Metadata"
+          open={openSections.compare}
+          onToggle={() => toggleSection('compare')}
+          actions={(
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
+                onClick={handleCompareReload}
+                disabled={compareMetaState === 'loading'}
+              >
+                {compareMetaState === 'loading' ? 'Loading…' : 'Reload'}
+              </button>
+              <button
+                className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
+                onClick={() => setCompareIncludePilInfo((prev) => !prev)}
+                disabled={compareMetaState !== 'loaded'}
+              >
+                {compareIncludePilInfo ? 'Hide PIL info' : 'Include PIL info'}
+              </button>
+            </div>
+          )}
+        >
+          <div className="space-y-2 text-[11px]">
+            <div className="grid grid-cols-2 gap-2 text-[11px] text-muted">
+              <div>
+                <div className="uppercase tracking-wide text-[10px]">A</div>
+                <div className="text-text break-all" title={compareLabelA}>{compareLabelA}</div>
+              </div>
+              <div>
+                <div className="uppercase tracking-wide text-[10px]">B</div>
+                <div className="text-text break-all" title={compareLabelB}>{compareLabelB}</div>
+              </div>
+            </div>
+
+            {compareMetaState === 'loading' && (
+              <div className="text-muted">Loading metadata…</div>
+            )}
+            {compareMetaState === 'error' && compareMetaError && (
+              <div className="text-danger break-words">{compareMetaError}</div>
+            )}
+
+            {compareMetaState === 'loaded' && compareDiff && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-muted">
+                  <span>{compareDiff.different} different · {compareDiff.onlyA} only A · {compareDiff.onlyB} only B</span>
+                  <span className="text-[10px] uppercase tracking-wide">Deep paths</span>
+                </div>
+                {compareDiff.entries.length === 0 ? (
+                  <div className="text-muted">No differences found.</div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-[minmax(80px,_1fr)_minmax(0,_1fr)_minmax(0,_1fr)] gap-2 text-[10px] uppercase tracking-wide text-muted">
+                      <div>Path</div>
+                      <div>A</div>
+                      <div>B</div>
+                    </div>
+                    {compareDiff.entries.map((entry) => (
+                      <div
+                        key={entry.key}
+                        className="grid grid-cols-[minmax(80px,_1fr)_minmax(0,_1fr)_minmax(0,_1fr)] gap-2"
+                      >
+                        <div className="text-[11px] text-muted font-mono break-all">{entry.key}</div>
+                        <div className="text-[11px] font-mono bg-surface-inset border border-border/60 rounded px-2 py-1 whitespace-pre-wrap break-words max-h-32 overflow-auto">
+                          {entry.aText}
+                        </div>
+                        <div className="text-[11px] font-mono bg-surface-inset border border-border/60 rounded px-2 py-1 whitespace-pre-wrap break-words max-h-32 overflow-auto">
+                          {entry.bText}
+                        </div>
+                      </div>
+                    ))}
+                    {compareDiff.truncatedCount > 0 && (
+                      <div className="text-muted text-[11px]">
+                        +{compareDiff.truncatedCount} more differences not shown.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </InspectorSection>
+      )}
 
       <InspectorSection
         title="Basics"

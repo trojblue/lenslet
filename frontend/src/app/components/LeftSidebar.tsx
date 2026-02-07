@@ -16,6 +16,7 @@ type LeftSidebarProps = {
   current: string
   data?: FolderIndex
   onOpenFolder: (path: string) => void
+  onPullRefreshFolders: () => Promise<void>
   onContextMenu: (event: MouseEvent, path: string) => void
   countVersion: number
   items: Item[]
@@ -45,6 +46,7 @@ export default function LeftSidebar({
   current,
   data,
   onOpenFolder,
+  onPullRefreshFolders,
   onContextMenu,
   countVersion,
   items,
@@ -164,6 +166,7 @@ export default function LeftSidebar({
               roots={ROOTS}
               data={data}
               onOpen={onOpenFolder}
+              onPullRefresh={onPullRefreshFolders}
               onContextMenu={onContextMenu}
               countVersion={countVersion}
               className="flex-1 min-h-0 overflow-auto scrollbar-thin"

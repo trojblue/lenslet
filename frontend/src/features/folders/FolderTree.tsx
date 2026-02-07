@@ -18,6 +18,7 @@ interface FolderTreeProps {
   roots: Root[]
   data?: FolderIndex
   onOpen: (path: string) => void
+  onPullRefresh?: () => Promise<void> | void
   onResize?: (e: React.MouseEvent) => void
   onContextMenu?: (e: React.MouseEvent, path: string) => void
   countVersion?: number
@@ -25,11 +26,15 @@ interface FolderTreeProps {
   showResizeHandle?: boolean
 }
 
+const PULL_REFRESH_THRESHOLD = 64
+const MAX_PULL_DISTANCE = 120
+
 export default function FolderTree({
   current,
   roots,
   data,
   onOpen,
+  onPullRefresh,
   onResize,
   onContextMenu,
   countVersion,
@@ -39,6 +44,10 @@ export default function FolderTree({
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['/']))
   const countCacheRef = useRef<Map<string, number>>(new Map())
   const inflightRef = useRef<Map<string, Promise<number>>>(new Map())
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false)
+  const [pullDistance, setPullDistance] = useState(0)
+  const pullStartYRef = useRef<number | null>(null)
+  const isPullingRef = useRef(false)
   const queryClient = useQueryClient()
 
   const getSubtreeCount = useCallback(async (path: string): Promise<number> => {
@@ -86,10 +95,89 @@ export default function FolderTree({
     setExpanded(prev => { const next = new Set(prev); for (const a of acc) next.add(a); return next })
   }, [current])
 
+  const handlePullRefresh = useCallback(async () => {
+    if (!onPullRefresh || isPullRefreshing) return
+    setIsPullRefreshing(true)
+    try {
+      await onPullRefresh()
+    } catch (err) {
+      console.error('Failed to refresh folders:', err)
+    } finally {
+      setIsPullRefreshing(false)
+      setPullDistance(0)
+    }
+  }, [onPullRefresh, isPullRefreshing])
+
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (!onPullRefresh || isPullRefreshing) return
+    if (e.touches.length !== 1) return
+    if (e.currentTarget.scrollTop > 0) return
+    pullStartYRef.current = e.touches[0]?.clientY ?? null
+    isPullingRef.current = false
+  }, [onPullRefresh, isPullRefreshing])
+
+  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (!onPullRefresh || isPullRefreshing) return
+    if (e.touches.length !== 1) return
+    const startY = pullStartYRef.current
+    if (startY == null) return
+    if (e.currentTarget.scrollTop > 0) {
+      setPullDistance(0)
+      pullStartYRef.current = null
+      isPullingRef.current = false
+      return
+    }
+    const delta = e.touches[0].clientY - startY
+    if (delta <= 0) {
+      if (isPullingRef.current) setPullDistance(0)
+      return
+    }
+    if (!isPullingRef.current && delta < 8) return
+    isPullingRef.current = true
+    e.preventDefault()
+    setPullDistance(Math.min(MAX_PULL_DISTANCE, delta * 0.55))
+  }, [onPullRefresh, isPullRefreshing])
+
+  const handleTouchEnd = useCallback(() => {
+    if (!onPullRefresh || isPullRefreshing) {
+      setPullDistance(0)
+      pullStartYRef.current = null
+      isPullingRef.current = false
+      return
+    }
+    const shouldRefresh = isPullingRef.current && pullDistance >= PULL_REFRESH_THRESHOLD
+    pullStartYRef.current = null
+    isPullingRef.current = false
+    if (shouldRefresh) {
+      void handlePullRefresh()
+      return
+    }
+    setPullDistance(0)
+  }, [handlePullRefresh, isPullRefreshing, onPullRefresh, pullDistance])
+
   const containerClass = className ?? 'h-full overflow-auto bg-panel scrollbar-thin'
+  const treeContainerClass = onPullRefresh ? `${containerClass} overscroll-y-contain` : containerClass
+  const showPullIndicator = !!onPullRefresh && (isPullRefreshing || pullDistance > 0)
+  const pullReady = pullDistance >= PULL_REFRESH_THRESHOLD
+  const pullIndicatorHeight = isPullRefreshing ? 28 : Math.min(44, pullDistance)
 
   return (
-    <div className={containerClass}>
+    <div
+      className={treeContainerClass}
+      onTouchStart={onPullRefresh ? handleTouchStart : undefined}
+      onTouchMove={onPullRefresh ? handleTouchMove : undefined}
+      onTouchEnd={onPullRefresh ? handleTouchEnd : undefined}
+      onTouchCancel={onPullRefresh ? handleTouchEnd : undefined}
+    >
+      {showPullIndicator && (
+        <div
+          className="flex items-end justify-center text-[11px] text-muted select-none transition-[height,opacity] duration-150"
+          style={{ height: pullIndicatorHeight, opacity: isPullRefreshing || pullDistance > 8 ? 1 : 0.65 }}
+          aria-live="polite"
+        >
+          {isPullRefreshing ? 'Refreshing…' : (pullReady ? 'Release to refresh' : 'Pull to refresh')}
+        </div>
+      )}
       <div className="p-1" role="tree" aria-label="Folders">
         {roots.map(r => (
           <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} onContextMenu={onContextMenu} initial={data} getSubtreeCount={getSubtreeCount} countVersion={countVersion} />

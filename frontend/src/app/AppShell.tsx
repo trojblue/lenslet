@@ -468,6 +468,49 @@ export default function AppShell() {
     setFolderCountsVersion((prev) => prev + 1)
   }, [])
 
+  const normalizeRefreshPath = useCallback((path: string): string => {
+    const safe = sanitizePath(path || '/')
+    return safe === '' ? '/' : safe
+  }, [])
+
+  const invalidateFolderSubtree = useCallback((target: string) => {
+    const matches = (candidate: string) => {
+      if (target === '/') return true
+      return candidate === target || candidate.startsWith(`${target}/`)
+    }
+
+    queryClient.invalidateQueries({
+      predicate: ({ queryKey }) => {
+        if (!Array.isArray(queryKey)) return false
+        if (queryKey[0] !== 'folder') return false
+        const keyPath = typeof queryKey[1] === 'string' ? queryKey[1] : ''
+        return matches(keyPath)
+      },
+    })
+  }, [queryClient])
+
+  const refreshFolderPath = useCallback(async (path: string) => {
+    const target = normalizeRefreshPath(path)
+    await api.refreshFolder(target)
+    invalidateFolderSubtree(target)
+    invalidateDerivedCounts()
+
+    if (current === target || current.startsWith(target === '/' ? '/' : `${target}/`)) {
+      await refetch()
+    }
+
+    thumbCache.evictPrefix(target)
+    fileCache.evictPrefix(target)
+  }, [current, invalidateDerivedCounts, invalidateFolderSubtree, normalizeRefreshPath, refetch])
+
+  const handlePullRefreshFolders = useCallback(async () => {
+    try {
+      await refreshFolderPath(current)
+    } catch (err) {
+      console.error('Failed to refresh folder:', err)
+    }
+  }, [current, refreshFolderPath])
+
   const applyPresenceCounts = useCallback((counts: PresenceEvent[]) => {
     if (!counts.length) return
     setPresenceByGallery((prev) => {
@@ -1699,6 +1742,7 @@ export default function AppShell() {
           current={current}
           data={data}
           onOpenFolder={(p) => { setActiveViewId(null); openFolder(p) }}
+          onPullRefreshFolders={handlePullRefreshFolders}
           onContextMenu={(e, p) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, kind: 'tree', payload: { path: p } }) }}
           countVersion={folderCountsVersion}
           items={metricsBaseItems}
@@ -1883,7 +1927,15 @@ export default function AppShell() {
           Drop images to upload
         </div>
       )}
-      {ctx && <ContextMenuItems ctx={ctx} current={current} items={items} refetch={refetch} setCtx={setCtx} onInvalidateCounts={invalidateDerivedCounts} />}
+      {ctx && (
+        <ContextMenuItems
+          ctx={ctx}
+          current={current}
+          items={items}
+          setCtx={setCtx}
+          onRefreshFolder={refreshFolderPath}
+        />
+      )}
     </div>
   )
 }
@@ -1983,59 +2035,26 @@ function ContextMenuItems({
   ctx,
   current,
   items,
-  refetch,
   setCtx,
-  onInvalidateCounts,
+  onRefreshFolder,
 }: {
   ctx: ContextMenuState
   current: string
   items: Item[]
-  refetch: () => void
   setCtx: (ctx: ContextMenuState | null) => void
-  onInvalidateCounts: () => void
+  onRefreshFolder: (path: string) => Promise<void>
 }) {
   const inTrash = isTrashPath(current)
-  const queryClient = useQueryClient()
   const [refreshing, setRefreshing] = React.useState(false)
   const [exporting, setExporting] = React.useState<'csv' | 'json' | null>(null)
 
   const timestamp = () => new Date().toISOString().replace(/[:.]/g, '-')
 
-  const invalidateFolderSubtree = (target: string) => {
-    const matches = (candidate: string) => {
-      if (target === '/') return true
-      return candidate === target || candidate.startsWith(`${target}/`)
-    }
-
-    queryClient.invalidateQueries({
-      predicate: ({ queryKey }) => {
-        if (!Array.isArray(queryKey)) return false
-        if (queryKey[0] !== 'folder') return false
-        const keyPath = typeof queryKey[1] === 'string' ? queryKey[1] : ''
-        return matches(keyPath)
-      },
-    })
-  }
-
-  const normalizePath = (p: string | undefined): string => {
-    const safe = sanitizePath(p || '/')
-    return safe === '' ? '/' : safe
-  }
-
   const handleRefresh = async () => {
-    const target = normalizePath(ctx.payload.path || '/')
+    const target = ctx.payload.path || '/'
     setRefreshing(true)
     try {
-      await api.refreshFolder(target)
-      invalidateFolderSubtree(target)
-      onInvalidateCounts()
-
-      if (current === target || current.startsWith(target === '/' ? '/' : `${target}/`)) {
-        await refetch()
-      }
-
-      thumbCache.evictPrefix(target)
-      fileCache.evictPrefix(target)
+      await onRefreshFolder(target)
     } catch (err) {
       console.error('Failed to refresh folder:', err)
     } finally {

@@ -13,7 +13,7 @@ import { api, connectEvents, disconnectEvents, dispatchPresenceLeave, getClientI
 import type { ConnectionStatus, FullFilePrefetchContext, SyncEvent } from '../shared/api/client'
 import { useOldestInflightAgeMs, useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
 import { usePollingEnabled } from '../shared/api/polling'
-import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, getPathName, isTrashPath, isLikelyImagePath } from './routing/hash'
+import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, getPathName, isTrashPath, isLikelyImagePath, joinPath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import {
   countActiveFilters,
@@ -70,6 +70,8 @@ const STORAGE_KEYS = {
   rightOpen: 'rightOpen',
 } as const
 
+const MOVE_FOLDER_SCAN_LIMIT = 600
+
 type SimilarityState = {
   embedding: string
   queryPath: string | null
@@ -78,6 +80,10 @@ type SimilarityState = {
   minScore: number | null
   items: EmbeddingSearchItem[]
   createdAt: number
+}
+
+type MoveDialogState = {
+  paths: string[]
 }
 
 function getConnectionLabel(status: ConnectionStatus): string {
@@ -147,6 +153,32 @@ function getDisplayTotalCount(
   return current === '/' ? scopeTotal : rootTotal
 }
 
+function isReadOnlyError(error: unknown): boolean {
+  if (!(error instanceof FetchError)) return false
+  if (error.status === 403 || error.status === 405) return true
+  const message = String(error.message || '').toLowerCase()
+  return message.includes('read-only') || message.includes('no-write') || message.includes('write')
+}
+
+function formatMutationError(error: unknown, fallback: string): string {
+  if (isReadOnlyError(error)) {
+    return 'This workspace is read-only. Upload and move actions are disabled.'
+  }
+  if (error instanceof FetchError) return error.message
+  if (error instanceof Error && error.message) return error.message
+  return fallback
+}
+
+function dedupePaths(paths: string[]): string[] {
+  return Array.from(new Set(paths.filter(Boolean)))
+}
+
+function summarizeFailures(label: string, failures: string[]): string {
+  if (!failures.length) return ''
+  if (failures.length === 1) return failures[0]
+  return `${label} failed for ${failures.length} item(s). ${failures[0]}`
+}
+
 export default function AppShell() {
   // Navigation state
   const [current, setCurrent] = useState<string>('/')
@@ -190,6 +222,7 @@ export default function AppShell() {
   const gridShellRef = useRef<HTMLDivElement>(null)
   const gridScrollRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
+  const uploadInputRef = useRef<HTMLInputElement>(null)
   const viewerHistoryPushedRef = useRef(false)
   const compareHistoryPushedRef = useRef(false)
   const lastFocusedPathRef = useRef<string | null>(null)
@@ -206,6 +239,11 @@ export default function AppShell() {
 
   // Drag and drop state
   const [isDraggingOver, setDraggingOver] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [moveDialog, setMoveDialog] = useState<MoveDialogState | null>(null)
+  const [moveFolders, setMoveFolders] = useState<string[]>(['/'])
+  const [moveFoldersLoading, setMoveFoldersLoading] = useState(false)
   
   // Context menu state
   const [ctx, setCtx] = useState<ContextMenuState | null>(null)
@@ -290,6 +328,7 @@ export default function AppShell() {
   useEffect(() => {
     recursiveLoadTokenRef.current += 1
     setData(undefined)
+    setActionError(null)
   }, [current])
 
   useEffect(() => {
@@ -1406,6 +1445,168 @@ export default function AppShell() {
     writeHash(safe)
   }, [])
 
+  const resolveGridActionPaths = useCallback((targetPath: string): string[] => {
+    const currentSelection = dedupePaths(selectedPaths)
+    if (currentSelection.includes(targetPath)) return currentSelection
+    return [targetPath]
+  }, [selectedPaths])
+
+  const openGridActions = useCallback((targetPath: string, anchor: { x: number; y: number }) => {
+    const paths = resolveGridActionPaths(targetPath)
+    setSelectedPaths(paths)
+    setCtx({ x: anchor.x, y: anchor.y, kind: 'grid', payload: { paths } })
+  }, [resolveGridActionPaths])
+
+  const openFolderActions = useCallback((path: string, anchor: { x: number; y: number }) => {
+    setCtx({ x: anchor.x, y: anchor.y, kind: 'tree', payload: { path } })
+  }, [])
+
+  const collectMoveFolders = useCallback(async (): Promise<string[]> => {
+    const queue: string[] = ['/']
+    const visited = new Set<string>()
+    const found = new Set<string>(['/'])
+
+    while (queue.length > 0 && visited.size < MOVE_FOLDER_SCAN_LIMIT) {
+      const path = queue.shift() ?? '/'
+      const safePath = sanitizePath(path)
+      if (visited.has(safePath)) continue
+      visited.add(safePath)
+      let folder: FolderIndex | null = null
+      try {
+        folder = await api.getFolder(safePath)
+      } catch {
+        folder = null
+      }
+      if (!folder) continue
+      for (const dir of folder.dirs ?? []) {
+        const child = sanitizePath(joinPath(safePath, dir.name))
+        if (found.has(child)) continue
+        found.add(child)
+        queue.push(child)
+      }
+    }
+
+    return Array.from(found).sort((a, b) => {
+      if (a === '/') return -1
+      if (b === '/') return 1
+      return a.localeCompare(b)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!moveDialog) return
+    let cancelled = false
+    setMoveFoldersLoading(true)
+    void collectMoveFolders()
+      .then((paths) => {
+        if (!cancelled) setMoveFolders(paths)
+      })
+      .catch((err) => {
+        if (!cancelled) setActionError(formatMutationError(err, 'Failed to load destination folders.'))
+      })
+      .finally(() => {
+        if (!cancelled) setMoveFoldersLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [collectMoveFolders, moveDialog])
+
+  const moveSelectedToFolder = useCallback(async (paths: string[], destination: string): Promise<boolean> => {
+    const selected = dedupePaths(paths)
+    if (!selected.length) return false
+    const targetDir = sanitizePath(destination || '/')
+    setActionError(null)
+
+    const failures: string[] = []
+    const failedPaths: string[] = []
+    for (const path of selected) {
+      try {
+        await api.moveFile(path, targetDir)
+      } catch (err) {
+        failures.push(`${getPathName(path) || path}: ${formatMutationError(err, 'Move failed.')}`)
+        failedPaths.push(path)
+      }
+    }
+    try {
+      await queryClient.invalidateQueries({
+        predicate: ({ queryKey }) => Array.isArray(queryKey) && queryKey[0] === 'folder',
+      })
+      invalidateDerivedCounts()
+      await refetch()
+    } catch (err) {
+      failures.push(formatMutationError(err, 'Move completed, but refresh failed.'))
+    }
+
+    if (failures.length) {
+      setActionError(summarizeFailures('Move', failures))
+      setSelectedPaths(failedPaths)
+      return false
+    }
+
+    setMoveDialog(null)
+    setCtx(null)
+    const moved = new Set(selected)
+    setSelectedPaths((prev) => prev.filter((path) => !moved.has(path)))
+    return true
+  }, [invalidateDerivedCounts, queryClient, refetch])
+
+  const openMoveDialogForPaths = useCallback((paths: string[]) => {
+    const selected = dedupePaths(paths)
+    if (!selected.length) return
+    setActionError(null)
+    setMoveDialog({ paths: selected })
+    setCtx(null)
+  }, [])
+
+  const uploadFiles = useCallback(async (files: File[]): Promise<void> => {
+    if (!files.length) return
+    const isLeaf = (data?.dirs?.length ?? 0) === 0
+    if (!isLeaf) {
+      setActionError('Uploads are only allowed into folders without subdirectories.')
+      return
+    }
+
+    setUploading(true)
+    setActionError(null)
+    const failures: string[] = []
+
+    try {
+      for (const file of files) {
+        try {
+          await api.uploadFile(current, file)
+        } catch (err) {
+          failures.push(`${file.name}: ${formatMutationError(err, 'Upload failed.')}`)
+        }
+      }
+      try {
+        await refetch()
+      } catch (err) {
+        failures.push(formatMutationError(err, 'Upload completed, but refresh failed.'))
+      }
+    } finally {
+      setUploading(false)
+    }
+
+    if (failures.length) {
+      setActionError(summarizeFailures('Upload', failures))
+      return
+    }
+    setActionError(null)
+  }, [current, data?.dirs?.length, refetch])
+
+  const openUploadPicker = useCallback(() => {
+    if (uploading) return
+    uploadInputRef.current?.click()
+  }, [uploading])
+
+  const handleUploadInputChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (!files.length) return
+    await uploadFiles(files)
+  }, [uploadFiles])
+
   const handleSaveView = useCallback(async () => {
     const name = window.prompt('Save Smart Folder as:', 'New Smart Folder')
     if (!name) return
@@ -1557,25 +1758,7 @@ export default function AppShell() {
       
       const files = Array.from(e.dataTransfer?.files ?? [])
       if (!files.length) return
-      
-      // Only allow uploads to leaf folders (no subdirectories)
-      const isLeaf = (data?.dirs?.length ?? 0) === 0
-      if (!isLeaf) {
-        alert('Uploads are only allowed into folders without subdirectories.')
-        return
-      }
-      
-      // Upload files sequentially
-      for (const f of files) {
-        try {
-          await api.uploadFile(current, f)
-        } catch (err) {
-          console.error(`Failed to upload ${f.name}:`, err)
-        }
-      }
-      
-      // Refresh folder contents
-      refetch()
+      await uploadFiles(files)
     }
 
     el.addEventListener('dragover', onDragOver)
@@ -1587,7 +1770,7 @@ export default function AppShell() {
       el.removeEventListener('dragleave', onDragLeave)
       el.removeEventListener('drop', onDrop)
     }
-  }, [current, data?.dirs?.length, refetch])
+  }, [uploadFiles])
 
   // Close context menu on click or escape
   useEffect(() => {
@@ -1712,6 +1895,9 @@ export default function AppShell() {
         canNextImage={canNextImage}
         searchDisabled={similarityActive}
         searchPlaceholder={similarityActive ? 'Exit similarity to search' : undefined}
+        onUploadClick={openUploadPicker}
+        uploadBusy={uploading}
+        uploadDisabled={compareOpen}
         syncIndicator={{
           state: indicatorState,
           presence,
@@ -1722,6 +1908,14 @@ export default function AppShell() {
           localTypingActive,
           recentTouches: recentTouchesDisplay,
         }}
+      />
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        accept="image/*"
+        className="sr-only"
+        onChange={handleUploadInputChange}
       />
       {leftOpen && (
         <LeftSidebar
@@ -1742,6 +1936,7 @@ export default function AppShell() {
           current={current}
           data={data}
           onOpenFolder={(p) => { setActiveViewId(null); openFolder(p) }}
+          onOpenFolderActions={openFolderActions}
           onPullRefreshFolders={handlePullRefreshFolders}
           onContextMenu={(e, p) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, kind: 'tree', payload: { path: p } }) }}
           countVersion={folderCountsVersion}
@@ -1769,6 +1964,11 @@ export default function AppShell() {
           onClearOffView={clearOffViewActivity}
           browserZoomPercent={browserZoomPercent}
         />
+        {actionError && (
+          <div className="border-b border-border bg-panel px-3 py-2">
+            <div className="ui-banner ui-banner-danger text-xs">{actionError}</div>
+          </div>
+        )}
         {similarityState && (
           <div className="border-b border-border bg-panel">
             <div className="px-3 py-2 flex flex-wrap items-center gap-2">
@@ -1854,7 +2054,13 @@ export default function AppShell() {
             suppressSelectionHighlight={!!viewer || compareOpen}
             viewMode={viewMode}
             targetCellSize={gridItemSize}
-            onContextMenuItem={(e, path)=>{ e.preventDefault(); const paths = selectedPaths.length ? selectedPaths : [path]; setCtx({ x:e.clientX, y:e.clientY, kind:'grid', payload:{ paths } }) }}
+            onContextMenuItem={(e, path) => {
+              e.preventDefault()
+              const paths = resolveGridActionPaths(path)
+              setSelectedPaths(paths)
+              setCtx({ x: e.clientX, y: e.clientY, kind: 'grid', payload: { paths } })
+            }}
+            onOpenItemActions={openGridActions}
             scrollRef={gridScrollRef}
             hideScrollbar={hasMetricScrollbar}
           />
@@ -1920,6 +2126,16 @@ export default function AppShell() {
           onClose={closeCompare}
         />
       )}
+      {moveDialog && (
+        <MoveToDialog
+          paths={moveDialog.paths}
+          defaultDestination={current}
+          destinations={moveFolders}
+          loadingDestinations={moveFoldersLoading}
+          onClose={() => setMoveDialog(null)}
+          onSubmit={moveSelectedToFolder}
+        />
+      )}
       {isDraggingOver && (
         <div
           className="toolbar-offset fixed inset-0 left-[var(--left)] right-[var(--right)] bg-accent/10 border-2 border-dashed border-accent text-text flex items-center justify-center text-lg z-overlay pointer-events-none"
@@ -1933,9 +2149,127 @@ export default function AppShell() {
           current={current}
           items={items}
           setCtx={setCtx}
+          onRefetch={refetch}
+          onOpenMoveDialog={openMoveDialogForPaths}
           onRefreshFolder={refreshFolderPath}
         />
       )}
+    </div>
+  )
+}
+
+function MoveToDialog({
+  paths,
+  defaultDestination,
+  destinations,
+  loadingDestinations,
+  onClose,
+  onSubmit,
+}: {
+  paths: string[]
+  defaultDestination: string
+  destinations: string[]
+  loadingDestinations: boolean
+  onClose: () => void
+  onSubmit: (paths: string[], destination: string) => Promise<boolean>
+}) {
+  const [destination, setDestination] = useState(() => sanitizePath(defaultDestination || '/'))
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    setDestination(sanitizePath(defaultDestination || '/'))
+  }, [defaultDestination, paths])
+
+  const normalizedDestination = sanitizePath(destination || '/')
+  const canSubmit = paths.length > 0 && !submitting
+  const previewNames = paths.slice(0, 3).map((path) => getPathName(path) || path)
+  const remainingCount = Math.max(0, paths.length - previewNames.length)
+  const quickDestinations = destinations
+    .filter((path) => path !== normalizedDestination)
+    .slice(0, 8)
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!canSubmit) return
+    setSubmitting(true)
+    try {
+      await onSubmit(paths, normalizedDestination)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="toolbar-offset fixed inset-0 z-overlay bg-black/45 backdrop-blur-[1px] flex items-center justify-center p-3">
+      <div className="w-full max-w-[560px] rounded-xl border border-border bg-panel shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-text">Move to folder</div>
+            <div className="text-xs text-muted">{paths.length} item(s) selected</div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-icon"
+            onClick={onClose}
+            aria-label="Close move dialog"
+            disabled={submitting}
+          >
+            ×
+          </button>
+        </div>
+
+        <form className="px-4 py-3 flex flex-col gap-3" onSubmit={handleSubmit}>
+          <div className="text-xs text-muted">
+            {previewNames.join(', ')}
+            {remainingCount > 0 ? ` and ${remainingCount} more` : ''}
+          </div>
+
+          <label className="text-xs text-muted flex flex-col gap-1.5">
+            Destination folder
+            <input
+              value={destination}
+              onChange={(event) => setDestination(event.target.value)}
+              className="input w-full"
+              list="move-destination-list"
+              placeholder="/"
+              autoFocus
+              disabled={submitting}
+            />
+          </label>
+          <datalist id="move-destination-list">
+            {destinations.map((path) => (
+              <option key={path} value={path} />
+            ))}
+          </datalist>
+
+          <div className="text-[11px] text-muted">
+            {loadingDestinations ? 'Loading folder list…' : `${destinations.length.toLocaleString()} destination(s) loaded`}
+          </div>
+
+          {quickDestinations.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {quickDestinations.map((path) => (
+                <button
+                  key={path}
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setDestination(path)}
+                  disabled={submitting}
+                >
+                  {path}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+            <button type="button" className="btn" onClick={onClose} disabled={submitting}>Cancel</button>
+            <button type="submit" className="btn btn-active" disabled={!canSubmit}>
+              {submitting ? 'Moving…' : 'Move'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
@@ -2036,12 +2370,16 @@ function ContextMenuItems({
   current,
   items,
   setCtx,
+  onRefetch,
+  onOpenMoveDialog,
   onRefreshFolder,
 }: {
   ctx: ContextMenuState
   current: string
   items: Item[]
   setCtx: (ctx: ContextMenuState | null) => void
+  onRefetch: () => Promise<unknown>
+  onOpenMoveDialog: (paths: string[]) => void
   onRefreshFolder: (path: string) => Promise<void>
 }) {
   const inTrash = isTrashPath(current)
@@ -2143,6 +2481,17 @@ function ContextMenuItems({
             onClick: downloadSelection,
           })
         }
+
+        if (sel.length) {
+          arr.push({
+            label: 'Move to…',
+            disabled: inTrash,
+            onClick: () => {
+              if (inTrash) return
+              onOpenMoveDialog(sel)
+            },
+          })
+        }
         
         // Move to trash
         arr.push({
@@ -2157,7 +2506,7 @@ function ContextMenuItems({
                 console.error(`Failed to trash ${p}:`, err)
               }
             }
-            refetch()
+            void onRefetch()
             setCtx(null)
           },
         })
@@ -2176,7 +2525,7 @@ function ContextMenuItems({
               } catch (err) {
                 console.error('Failed to delete files:', err)
               }
-              refetch()
+              void onRefetch()
               setCtx(null)
             },
           })
@@ -2196,7 +2545,7 @@ function ContextMenuItems({
                   console.error(`Failed to recover ${p}:`, err)
                 }
               }
-              refetch()
+              void onRefetch()
               setCtx(null)
             },
           })

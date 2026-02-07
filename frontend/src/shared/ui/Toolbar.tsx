@@ -38,6 +38,9 @@ export interface ToolbarProps {
   canNextImage?: boolean
   searchDisabled?: boolean
   searchPlaceholder?: string
+  onUploadClick?: () => void
+  uploadBusy?: boolean
+  uploadDisabled?: boolean
   syncIndicator?: SyncIndicatorData
 }
 
@@ -76,6 +79,9 @@ export default function Toolbar({
   canNextImage,
   searchDisabled = false,
   searchPlaceholder,
+  onUploadClick,
+  uploadBusy = false,
+  uploadDisabled = false,
   syncIndicator,
 }: ToolbarProps): JSX.Element {
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -443,6 +449,23 @@ export default function Toolbar({
             </svg>
           </button>
         </div>
+        {!viewerActive && onUploadClick && (
+          <button
+            className={`btn ${uploadDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+            onClick={() => !uploadDisabled && onUploadClick()}
+            aria-label="Upload images"
+            title={uploadBusy ? 'Uploading…' : 'Upload images'}
+            aria-disabled={uploadDisabled || uploadBusy}
+            disabled={uploadDisabled || uploadBusy}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 16V5" />
+              <path d="M7 10l5-5 5 5" />
+              <path d="M4 19h16" />
+            </svg>
+            <span>{uploadBusy ? 'Uploading…' : 'Upload'}</span>
+          </button>
+        )}
         {syncIndicator && (
           <SyncIndicator
             {...syncIndicator}
@@ -542,6 +565,15 @@ export default function Toolbar({
                 </svg>
               )}
             </button>
+            {onUploadClick && (
+              <button
+                className={`mobile-pill ${uploadDisabled || uploadBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
+                onClick={() => !uploadDisabled && !uploadBusy && onUploadClick()}
+                disabled={uploadDisabled || uploadBusy}
+              >
+                {uploadBusy ? 'Uploading…' : 'Upload'}
+              </button>
+            )}
           </div>
         </div>
       )}

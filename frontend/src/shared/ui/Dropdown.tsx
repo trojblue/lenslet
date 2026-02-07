@@ -1,4 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { getDropdownPanelPosition, getViewportSize } from '../../lib/menuPosition'
 
 export interface DropdownOption {
   value: string
@@ -45,6 +47,18 @@ function isGrouped(options: DropdownOption[] | DropdownGroup[]): options is Drop
   return options.length > 0 && 'options' in options[0]
 }
 
+interface FloatingPanelPosition {
+  x: number
+  y: number
+  ready: boolean
+}
+
+const NOOP_ON_OPEN_CHANGE = (_open: boolean) => {}
+
+function getInitialPosition(): FloatingPanelPosition {
+  return { x: 0, y: 0, ready: false }
+}
+
 export default function Dropdown({
   value,
   onChange,
@@ -63,8 +77,9 @@ export default function Dropdown({
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [panelPosition, setPanelPosition] = useState<FloatingPanelPosition>(getInitialPosition)
 
-  // Find selected option label
   const findLabel = useCallback((): string => {
     const search = (opts: DropdownOption[]): string | null => {
       const found = opts.find((o) => o.value === value)
@@ -85,14 +100,55 @@ export default function Dropdown({
 
   const selectedLabel = findLabel()
 
-  // Close on click outside
+  const triggerWidth = containerRef.current?.getBoundingClientRect().width
+    ?? triggerRef.current?.offsetWidth
+    ?? 0
+  const forcedPanelWidth = width === 'trigger'
+    ? triggerWidth
+    : width === 'auto'
+      ? undefined
+      : width
+
+  const updatePanelPosition = useCallback(() => {
+    if (!open) return
+    const anchor = containerRef.current
+    const panel = panelRef.current
+    if (!anchor || !panel) return
+
+    const anchorRect = anchor.getBoundingClientRect()
+    const panelRect = panel.getBoundingClientRect()
+    const panelWidth = forcedPanelWidth ?? panelRect.width ?? 180
+    const panelHeight = panelRect.height || panel.scrollHeight || 1
+    const next = getDropdownPanelPosition({
+      anchorRect,
+      menuSize: { width: panelWidth, height: panelHeight },
+      viewport: getViewportSize(),
+      align,
+    })
+
+    setPanelPosition((prev) => (
+      prev.x === next.x && prev.y === next.y && prev.ready
+        ? prev
+        : { x: next.x, y: next.y, ready: true }
+    ))
+  }, [align, forcedPanelWidth, open])
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPanelPosition(getInitialPosition())
+      return
+    }
+    updatePanelPosition()
+  }, [open, updatePanelPosition, options, value])
+
   useEffect(() => {
     if (!open) return
 
     const onClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
+      const target = e.target as Node
+      if (containerRef.current?.contains(target)) return
+      if (panelRef.current?.contains(target)) return
+      setOpen(false)
     }
 
     const onEscape = (e: KeyboardEvent) => {
@@ -102,14 +158,20 @@ export default function Dropdown({
       }
     }
 
+    const onViewportChange = () => updatePanelPosition()
+
     window.addEventListener('click', onClick)
     window.addEventListener('keydown', onEscape)
+    window.addEventListener('resize', onViewportChange)
+    window.addEventListener('scroll', onViewportChange, true)
 
     return () => {
       window.removeEventListener('click', onClick)
       window.removeEventListener('keydown', onEscape)
+      window.removeEventListener('resize', onViewportChange)
+      window.removeEventListener('scroll', onViewportChange, true)
     }
-  }, [open])
+  }, [open, updatePanelPosition])
 
   const handleSelect = (optValue: string) => {
     onChange(optValue)
@@ -138,12 +200,35 @@ export default function Dropdown({
     ))
   }
 
-  const triggerWidth = triggerRef.current?.offsetWidth ?? 0
-  const panelWidth = width === 'trigger' ? triggerWidth : width === 'auto' ? undefined : width
-  const panelStyle: React.CSSProperties = {
-    ...(panelWidth ? { width: panelWidth, minWidth: panelWidth } : {}),
-    ...(align === 'right' ? { right: 0 } : { left: 0 }),
-  }
+  const panelStyle: React.CSSProperties = useMemo(() => ({
+    position: 'fixed',
+    left: panelPosition.x,
+    top: panelPosition.y,
+    visibility: panelPosition.ready ? 'visible' : 'hidden',
+    ...(forcedPanelWidth ? { width: forcedPanelWidth, minWidth: forcedPanelWidth } : {}),
+  }), [forcedPanelWidth, panelPosition])
+
+  const panelNode = open ? (
+    <div
+      ref={panelRef}
+      className={`dropdown-panel ${panelClassName}`}
+      style={panelStyle}
+      role="listbox"
+      aria-label={ariaLabel}
+    >
+      {isGrouped(options) ? (
+        options.map((group, idx) => (
+          <div key={group.label || idx}>
+            {group.label && <div className="dropdown-label">{group.label}</div>}
+            {renderOptions(group.options)}
+            {idx < options.length - 1 && <div className="dropdown-divider" />}
+          </div>
+        ))
+      ) : (
+        renderOptions(options)
+      )}
+    </div>
+  ) : null
 
   return (
     <div ref={containerRef} className="relative">
@@ -163,14 +248,14 @@ export default function Dropdown({
         >
           <span className="truncate">{selectedLabel}</span>
           {showChevron && (
-            <svg 
-              width="10" 
-              height="10" 
-              viewBox="0 0 24 24" 
-              fill="none" 
-              stroke="currentColor" 
-              strokeWidth="2" 
-              strokeLinecap="round" 
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
               strokeLinejoin="round"
               className={`shrink-0 opacity-60 transition-transform ${open ? 'rotate-180' : ''}`}
             >
@@ -180,26 +265,9 @@ export default function Dropdown({
         </button>
       )}
 
-      {open && (
-        <div
-          className={`dropdown-panel ${panelClassName}`}
-          style={panelStyle}
-          role="listbox"
-          aria-label={ariaLabel}
-        >
-          {isGrouped(options) ? (
-            options.map((group, idx) => (
-              <div key={group.label || idx}>
-                {group.label && <div className="dropdown-label">{group.label}</div>}
-                {renderOptions(group.options)}
-                {idx < options.length - 1 && <div className="dropdown-divider" />}
-              </div>
-            ))
-          ) : (
-            renderOptions(options)
-          )}
-        </div>
-      )}
+      {panelNode && typeof document !== 'undefined'
+        ? createPortal(panelNode, document.body)
+        : panelNode}
     </div>
   )
 }
@@ -235,19 +303,53 @@ export function DropdownMenu({
 }: DropdownMenuProps) {
   const [internalOpen, setInternalOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [panelPosition, setPanelPosition] = useState<FloatingPanelPosition>(getInitialPosition)
 
   const isControlled = controlledOpen !== undefined
   const open = isControlled ? controlledOpen : internalOpen
-  const setOpen = isControlled ? (onOpenChange ?? (() => {})) : setInternalOpen
+  const setOpen = isControlled ? (onOpenChange ?? NOOP_ON_OPEN_CHANGE) : setInternalOpen
 
-  // Close on click outside
+  const updatePanelPosition = useCallback(() => {
+    if (!open) return
+    const anchor = containerRef.current
+    const panel = panelRef.current
+    if (!anchor || !panel) return
+
+    const anchorRect = anchor.getBoundingClientRect()
+    const panelRect = panel.getBoundingClientRect()
+    const panelWidth = width ?? panelRect.width ?? 180
+    const panelHeight = panelRect.height || panel.scrollHeight || 1
+    const next = getDropdownPanelPosition({
+      anchorRect,
+      menuSize: { width: panelWidth, height: panelHeight },
+      viewport: getViewportSize(),
+      align,
+    })
+
+    setPanelPosition((prev) => (
+      prev.x === next.x && prev.y === next.y && prev.ready
+        ? prev
+        : { x: next.x, y: next.y, ready: true }
+    ))
+  }, [align, open, width])
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPanelPosition(getInitialPosition())
+      return
+    }
+    updatePanelPosition()
+  }, [open, updatePanelPosition])
+
   useEffect(() => {
     if (!open) return
 
     const onClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
+      const target = e.target as Node
+      if (containerRef.current?.contains(target)) return
+      if (panelRef.current?.contains(target)) return
+      setOpen(false)
     }
 
     const onEscape = (e: KeyboardEvent) => {
@@ -256,29 +358,41 @@ export function DropdownMenu({
       }
     }
 
+    const onViewportChange = () => updatePanelPosition()
+
     window.addEventListener('click', onClick)
     window.addEventListener('keydown', onEscape)
+    window.addEventListener('resize', onViewportChange)
+    window.addEventListener('scroll', onViewportChange, true)
 
     return () => {
       window.removeEventListener('click', onClick)
       window.removeEventListener('keydown', onEscape)
+      window.removeEventListener('resize', onViewportChange)
+      window.removeEventListener('scroll', onViewportChange, true)
     }
-  }, [open, setOpen])
+  }, [open, setOpen, updatePanelPosition])
 
   const panelStyle: React.CSSProperties = {
+    position: 'fixed',
+    left: panelPosition.x,
+    top: panelPosition.y,
+    visibility: panelPosition.ready ? 'visible' : 'hidden',
     ...(width ? { width, minWidth: width } : {}),
-    ...(align === 'right' ? { right: 0 } : { left: 0 }),
   }
+
+  const panelNode = open ? (
+    <div ref={panelRef} className={`dropdown-panel ${panelClassName}`} style={panelStyle}>
+      {children}
+    </div>
+  ) : null
 
   return (
     <div ref={containerRef} className="relative">
       <div onClick={() => setOpen(!open)}>{trigger}</div>
-      {open && (
-        <div className={`dropdown-panel ${panelClassName}`} style={panelStyle}>
-          {children}
-        </div>
-      )}
+      {panelNode && typeof document !== 'undefined'
+        ? createPortal(panelNode, document.body)
+        : panelNode}
     </div>
   )
 }
-

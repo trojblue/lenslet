@@ -16,6 +16,7 @@ type LeftSidebarProps = {
   current: string
   data?: FolderIndex
   onOpenFolder: (path: string) => void
+  onOpenFolderActions: (path: string, anchor: { x: number; y: number }) => void
   onPullRefreshFolders: () => Promise<void>
   onContextMenu: (event: MouseEvent, path: string) => void
   countVersion: number
@@ -32,6 +33,13 @@ type LeftSidebarProps = {
 }
 
 const ROOTS = [{ label: 'Root', path: '/' }]
+const SIDEBAR_ICON_BUTTON_BASE = 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors'
+const SIDEBAR_ICON_BUTTON_ACTIVE = 'bg-accent-muted text-accent'
+const SIDEBAR_ICON_BUTTON_INACTIVE = 'bg-surface text-text hover:bg-surface-hover'
+
+function getSidebarIconButtonClass(active: boolean): string {
+  return `${SIDEBAR_ICON_BUTTON_BASE} ${active ? SIDEBAR_ICON_BUTTON_ACTIVE : SIDEBAR_ICON_BUTTON_INACTIVE}`
+}
 
 export default function LeftSidebar({
   leftTool,
@@ -46,6 +54,7 @@ export default function LeftSidebar({
   current,
   data,
   onOpenFolder,
+  onOpenFolderActions,
   onPullRefreshFolders,
   onContextMenu,
   countVersion,
@@ -60,16 +69,10 @@ export default function LeftSidebar({
   onChangeFilters,
   onResize,
 }: LeftSidebarProps): JSX.Element {
-  const folderButtonClass = leftTool === 'folders'
-    ? 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-accent-muted text-accent'
-    : 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-surface text-text hover:bg-surface-hover'
-  const metricsButtonClass = leftTool === 'metrics'
-    ? 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-accent-muted text-accent'
-    : 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-surface text-text hover:bg-surface-hover'
-  const compareButtonClass = compareActive
-    ? 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-accent-muted text-accent'
-    : 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-surface text-text hover:bg-surface-hover'
-  const githubButtonClass = 'w-7 h-7 rounded-md border border-border flex items-center justify-center transition-colors bg-surface text-text hover:bg-surface-hover cursor-pointer'
+  const folderButtonClass = getSidebarIconButtonClass(leftTool === 'folders')
+  const metricsButtonClass = getSidebarIconButtonClass(leftTool === 'metrics')
+  const compareButtonClass = getSidebarIconButtonClass(compareActive)
+  const githubButtonClass = `${getSidebarIconButtonClass(false)} cursor-pointer`
 
   return (
     <div className="app-left-panel col-start-1 row-start-2 relative border-r border-border bg-panel overflow-hidden">
@@ -168,6 +171,7 @@ export default function LeftSidebar({
               onOpen={onOpenFolder}
               onPullRefresh={onPullRefreshFolders}
               onContextMenu={onContextMenu}
+              onOpenActions={onOpenFolderActions}
               countVersion={countVersion}
               className="flex-1 min-h-0 overflow-auto scrollbar-thin"
               showResizeHandle={false}

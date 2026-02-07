@@ -187,6 +187,94 @@
   top: var(--toolbar-h);
 }
 
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+.touch-none {
+  touch-action: none;
+}
+
+.grid-item-action-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  background: color-mix(in oklab, var(--surface-overlay) 88%, transparent);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  z-index: 4;
+}
+
+.group:hover .grid-item-action-btn,
+.grid-item-action-btn:focus-visible {
+  opacity: 1;
+}
+
+.grid-item-action-btn:hover {
+  background: color-mix(in oklab, var(--surface) 90%, transparent);
+  border-color: var(--border-strong);
+}
+
+.tree-expand-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.72;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tree-expand-btn:hover {
+  background: color-mix(in oklab, var(--hover) 70%, transparent);
+  opacity: 1;
+}
+
+.tree-expand-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tree-row-action-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--surface-overlay) 84%, transparent);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.74;
+  transition: opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.tree-row:hover .tree-row-action-btn,
+.tree-row-action-btn:focus-visible {
+  opacity: 1;
+}
+
+.tree-row-action-btn:hover {
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  border-color: var(--border-strong);
+}
+
 .compare-stage {
   position: relative;
   width: 100%;
@@ -859,12 +947,27 @@
   }
 
   .mobile-drawer-panel {
-    top: auto;
-    bottom: calc(100% + 8px);
+    max-height: min(55vh, 320px);
+    overflow: auto;
   }
 
   .grid-shell {
     touch-action: pan-y;
+  }
+}
+
+@media (pointer: coarse) {
+  .grid-item-action-btn {
+    opacity: 1;
+  }
+
+  .tree-row-action-btn {
+    opacity: 1;
+  }
+
+  .btn,
+  .dropdown-trigger {
+    min-height: 36px;
   }
 }
 

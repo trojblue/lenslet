@@ -20,6 +20,9 @@ No `PLANS.md` (or equivalent canonical planning file) is present in this reposit
 - [x] 2026-02-07 20:43:27Z Ran required subagent review and captured gaps around task sizing, touch-action behavior, coordinate-space clamping, and device coverage.
 - [x] 2026-02-07 20:43:27Z Incorporated review feedback by splitting oversized tickets, adding input model rules, and adding explicit iOS/Android validation checklist work.
 - [x] 2026-02-07 20:43:27Z Finalized this plan document under `docs/`.
+- [x] 2026-02-07 21:00:50Z Implemented Sprint S1 task scope (T1-T7): touch long-press utility, explicit grid/tree actions, move-to dialog, upload file-picker fallback, and menu viewport clamping.
+- [x] 2026-02-07 21:00:50Z Added Sprint S1 regression coverage for touch/menu utilities and created manual smoke checklist `docs/20260207_touch_readiness_s1_smoke.md`.
+- [x] 2026-02-07 21:05:08Z Added explicit handover notes with delivered S1 scope, validation evidence, packaging state, and next-operator actions for Sprint S2/S3.
 
 
 ## Surprises & Discoveries
@@ -229,6 +232,51 @@ Input-model thresholds used by this plan:
     Cancel conditions: pointercancel, scroll-start, pointer-up before threshold, or multi-touch start.
 
 
+## Handover Notes
+
+
+Sprint status at handoff:
+
+    Sprint S1 (T1-T7): implemented in code.
+    Sprint S2 (T8-T13): not started in this handoff.
+    Sprint S3 (T14-T19): not started in this handoff.
+
+S1 implementation delivered:
+
+    Shared touch utility and constants: `frontend/src/lib/touch.ts`.
+    Shared menu clamping/position helpers: `frontend/src/lib/menuPosition.ts`.
+    Grid long-press + explicit action button + right-click parity: `frontend/src/features/browse/components/VirtualGrid.tsx`.
+    Folder row explicit actions + button semantics for expand/collapse: `frontend/src/features/folders/FolderTree.tsx`.
+    Move-to dialog flow and upload file-picker fallback: `frontend/src/app/AppShell.tsx` and `frontend/src/shared/ui/Toolbar.tsx`.
+    Viewport-safe context/dropdown placement: `frontend/src/app/menu/ContextMenu.tsx` and `frontend/src/shared/ui/Dropdown.tsx`.
+    Touch target / interaction styling updates: `frontend/src/styles.css`.
+    S1 smoke checklist: `docs/20260207_touch_readiness_s1_smoke.md`.
+
+Validation evidence completed:
+
+    `cd frontend && npm run test` passed (13 files, 51 tests).
+    `cd frontend && npm run build` passed.
+    Added unit tests:
+    `frontend/src/lib/__tests__/touch.test.ts`
+    `frontend/src/lib/__tests__/menuPosition.test.ts`
+
+Validation still required before closing Sprint S1:
+
+    Execute the manual checklist in `docs/20260207_touch_readiness_s1_smoke.md`.
+    Run real-device checks (iOS Safari + Android Chrome) when hardware is available.
+
+Packaging/deploy state at handoff:
+
+    Frontend bundle was built in `frontend/dist`.
+    `src/lenslet/frontend/` has not yet been refreshed from `frontend/dist` in this handoff.
+
+Recommended next operator actions:
+
+    1) Run the S1 manual smoke checklist and record pass/fail notes in `docs/`.
+    2) Refresh packaged assets (`frontend/dist/*` -> `src/lenslet/frontend/`) if this change set is being shipped.
+    3) Begin Sprint S2 with T8/T9 (viewer pointer pan + pinch) before resizing/layout work (T12/T13), since viewer touch parity is the highest remaining tablet risk.
+
+
 ## Interfaces and Dependencies
 
 
@@ -249,4 +297,4 @@ Required interface updates are intentionally minimal and centered on input parit
 6. Responsive breakpoint values should be centralized in a shared definition consumed by both TS and CSS-adjacent logic to avoid drift between `frontend/src/shared/ui/Toolbar.tsx` and stylesheet media rules.
 
 
-Revision note: updated on 2026-02-07 after required subagent review to split oversized gesture/layout tickets, add explicit input-model rules, add coordinate-space clamping scope, and include iOS Safari plus Android Chrome checklist validation.
+Revision note: updated on 2026-02-07 after required subagent review to split oversized gesture/layout tickets, add explicit input-model rules, add coordinate-space clamping scope, include iOS Safari plus Android Chrome checklist validation, and add S1 implementation handover notes.

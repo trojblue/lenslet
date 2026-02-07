@@ -21,6 +21,7 @@ interface FolderTreeProps {
   onPullRefresh?: () => Promise<void> | void
   onResize?: (e: React.MouseEvent) => void
   onContextMenu?: (e: React.MouseEvent, path: string) => void
+  onOpenActions?: (path: string, anchor: { x: number; y: number }) => void
   countVersion?: number
   className?: string
   showResizeHandle?: boolean
@@ -28,6 +29,17 @@ interface FolderTreeProps {
 
 const PULL_REFRESH_THRESHOLD = 64
 const MAX_PULL_DISTANCE = 120
+
+function getExpandedAncestorPaths(path: string): string[] {
+  const parts = path.split('/').filter(Boolean)
+  const ancestors = ['/']
+  let current = ''
+  for (const part of parts) {
+    current = current ? `${current}/${part}` : `/${part}`
+    ancestors.push(current)
+  }
+  return ancestors
+}
 
 export default function FolderTree({
   current,
@@ -37,6 +49,7 @@ export default function FolderTree({
   onPullRefresh,
   onResize,
   onContextMenu,
+  onOpenActions,
   countVersion,
   className,
   showResizeHandle = true,
@@ -49,6 +62,11 @@ export default function FolderTree({
   const pullStartYRef = useRef<number | null>(null)
   const isPullingRef = useRef(false)
   const queryClient = useQueryClient()
+  const resetPullState = useCallback(() => {
+    setPullDistance(0)
+    pullStartYRef.current = null
+    isPullingRef.current = false
+  }, [])
 
   const getSubtreeCount = useCallback(async (path: string): Promise<number> => {
     const target = sanitizePath(path || '/')
@@ -88,11 +106,14 @@ export default function FolderTree({
   }, [countVersion])
 
   useEffect(() => {
-    const parts = current.split('/').filter(Boolean)
-    const acc = ['/']
-    let p = ''
-    for (const part of parts) { p = p ? `${p}/${part}` : `/${part}`; acc.push(p) }
-    setExpanded(prev => { const next = new Set(prev); for (const a of acc) next.add(a); return next })
+    const ancestorPaths = getExpandedAncestorPaths(current)
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      for (const ancestorPath of ancestorPaths) {
+        next.add(ancestorPath)
+      }
+      return next
+    })
   }, [current])
 
   const handlePullRefresh = useCallback(async () => {
@@ -112,7 +133,7 @@ export default function FolderTree({
     if (!onPullRefresh || isPullRefreshing) return
     if (e.touches.length !== 1) return
     if (e.currentTarget.scrollTop > 0) return
-    pullStartYRef.current = e.touches[0]?.clientY ?? null
+    pullStartYRef.current = e.touches[0].clientY
     isPullingRef.current = false
   }, [onPullRefresh, isPullRefreshing])
 
@@ -122,9 +143,7 @@ export default function FolderTree({
     const startY = pullStartYRef.current
     if (startY == null) return
     if (e.currentTarget.scrollTop > 0) {
-      setPullDistance(0)
-      pullStartYRef.current = null
-      isPullingRef.current = false
+      resetPullState()
       return
     }
     const delta = e.touches[0].clientY - startY
@@ -136,13 +155,11 @@ export default function FolderTree({
     isPullingRef.current = true
     e.preventDefault()
     setPullDistance(Math.min(MAX_PULL_DISTANCE, delta * 0.55))
-  }, [onPullRefresh, isPullRefreshing])
+  }, [isPullRefreshing, onPullRefresh, resetPullState])
 
   const handleTouchEnd = useCallback(() => {
     if (!onPullRefresh || isPullRefreshing) {
-      setPullDistance(0)
-      pullStartYRef.current = null
-      isPullingRef.current = false
+      resetPullState()
       return
     }
     const shouldRefresh = isPullingRef.current && pullDistance >= PULL_REFRESH_THRESHOLD
@@ -153,7 +170,7 @@ export default function FolderTree({
       return
     }
     setPullDistance(0)
-  }, [handlePullRefresh, isPullRefreshing, onPullRefresh, pullDistance])
+  }, [handlePullRefresh, isPullRefreshing, onPullRefresh, pullDistance, resetPullState])
 
   const containerClass = className ?? 'h-full overflow-auto bg-panel scrollbar-thin'
   const treeContainerClass = onPullRefresh ? `${containerClass} overscroll-y-contain` : containerClass
@@ -180,7 +197,21 @@ export default function FolderTree({
       )}
       <div className="p-1" role="tree" aria-label="Folders">
         {roots.map(r => (
-          <TreeNode key={r.path} path={r.path} label={r.label} depth={0} current={current} expanded={expanded} setExpanded={setExpanded} onOpen={onOpen} onContextMenu={onContextMenu} initial={data} getSubtreeCount={getSubtreeCount} countVersion={countVersion} />
+          <TreeNode
+            key={r.path}
+            path={r.path}
+            label={r.label}
+            depth={0}
+            current={current}
+            expanded={expanded}
+            setExpanded={setExpanded}
+            onOpen={onOpen}
+            onContextMenu={onContextMenu}
+            onOpenActions={onOpenActions}
+            initial={data}
+            getSubtreeCount={getSubtreeCount}
+            countVersion={countVersion}
+          />
         ))}
       </div>
       {showResizeHandle && (
@@ -199,6 +230,7 @@ interface TreeNodeProps {
   setExpanded: (updater: (s: Set<string>) => Set<string>) => void
   onOpen: (path: string) => void
   onContextMenu?: (e: React.MouseEvent, path: string) => void
+  onOpenActions?: (path: string, anchor: { x: number; y: number }) => void
   initial?: FolderIndex
   getSubtreeCount: (path: string) => Promise<number>
   countVersion?: number
@@ -213,6 +245,7 @@ function TreeNode({
   setExpanded,
   onOpen,
   onContextMenu,
+  onOpenActions,
   initial,
   getSubtreeCount,
   countVersion,
@@ -236,9 +269,25 @@ function TreeNode({
 
   const { onDragOver, onDragEnter, onDragLeave, onDrop } = useFolderTreeDragDrop({ path, isLeaf })
 
-  const toggle = (e: React.MouseEvent) => {
+  const toggle = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation()
-    setExpanded(prev => { const next = new Set(prev); if (next.has(path)) next.delete(path); else next.add(path); return next })
+    if (isLeaf) return
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) {
+        next.delete(path)
+      } else {
+        next.add(path)
+      }
+      return next
+    })
+  }
+
+  const openActions = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    if (!onOpenActions) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    onOpenActions(path, { x: rect.right - 4, y: rect.bottom - 4 })
   }
 
   useEffect(() => {
@@ -267,27 +316,56 @@ function TreeNode({
   return (
     <div>
       <div
-        className={`flex items-center gap-1.5 py-0.5 px-2 rounded-md cursor-pointer min-h-[28px] outline-none transition-colors duration-75 ${isActive ? 'bg-accent/20 text-accent font-medium' : 'hover:bg-white/5 text-text'}`}
+        className={`tree-row flex items-center gap-1.5 py-0.5 px-2 rounded-md cursor-pointer min-h-[32px] outline-none transition-colors duration-75 ${isActive ? 'bg-accent/20 text-accent font-medium' : 'hover:bg-white/5 text-text'}`}
         role="treeitem"
         aria-level={depth+1}
         aria-expanded={isLeaf ? undefined : isExpanded}
         aria-selected={isActive}
         tabIndex={isActive ? 0 : -1}
         style={{ paddingLeft: 8 + depth * 14 }}
-        onClick={()=> onOpen(path)}
-        onContextMenu={(e)=> { e.preventDefault(); e.stopPropagation(); onContextMenu && onContextMenu(e, path) }}
+        onClick={() => onOpen(path)}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          onContextMenu?.(e, path)
+        }}
         onKeyDown={onKeyDown}
         onDragOver={onDragOver}
         onDragEnter={onDragEnter}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       >
-        <span className="w-4 text-center opacity-60 hover:opacity-100 text-[10px]" onClick={toggle}>{isExpanded? '▼' : '▶'}</span>
+        <button
+          type="button"
+          className="tree-expand-btn touch-manipulation"
+          onClick={toggle}
+          aria-label={isLeaf ? `No subfolders in ${label}` : `${isExpanded ? 'Collapse' : 'Expand'} ${label}`}
+          aria-expanded={isLeaf ? undefined : isExpanded}
+          disabled={isLeaf}
+        >
+          {isLeaf ? '•' : (isExpanded ? '▼' : '▶')}
+        </button>
         <span className="flex-1 overflow-hidden truncate text-sm" title={label}>{middleTruncate(label, 28)}</span>
         {subtreeCount !== null && (
           <span className="text-[10px] opacity-50 bg-white/5 border border-white/5 rounded px-1.5 min-w-[24px] text-center">
             {subtreeCount}
           </span>
+        )}
+        {onOpenActions && (
+          <button
+            type="button"
+            className="tree-row-action-btn touch-manipulation"
+            aria-label={`Open actions for ${label}`}
+            aria-haspopup="menu"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={openActions}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="5" r="1.5" />
+              <circle cx="12" cy="12" r="1.5" />
+              <circle cx="12" cy="19" r="1.5" />
+            </svg>
+          </button>
         )}
       </div>
       {isExpanded && idx?.dirs?.map(d => (
@@ -301,6 +379,7 @@ function TreeNode({
           setExpanded={setExpanded}
           onOpen={onOpen}
           onContextMenu={onContextMenu}
+          onOpenActions={onOpenActions}
           getSubtreeCount={getSubtreeCount}
           countVersion={countVersion}
         />

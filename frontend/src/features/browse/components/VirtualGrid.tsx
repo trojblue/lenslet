@@ -7,6 +7,7 @@ import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 import type { AdaptiveRow } from '../model/adaptive'
 import { getVisibleThumbPrefetchPaths } from '../model/virtualGridPrefetch'
+import { LongPressController } from '../../../lib/touch'
 
 const GAP = 12
 const CAPTION_H = 44
@@ -23,6 +24,59 @@ function arePathSetsEqual(a: Set<string>, b: Set<string>): boolean {
   return true
 }
 
+function toLongPressEvent(ev: React.PointerEvent<HTMLDivElement>) {
+  return {
+    pointerId: ev.pointerId,
+    pointerType: ev.pointerType,
+    clientX: ev.clientX,
+    clientY: ev.clientY,
+    isPrimary: ev.isPrimary,
+  }
+}
+
+function findAdaptiveRowIndex(rows: AdaptiveRow[], itemIndex: number): number {
+  let low = 0
+  let high = rows.length - 1
+
+  while (low <= high) {
+    const mid = (low + high) >> 1
+    const row = rows[mid]
+    const firstIndex = row.items[0]?.originalIndex ?? -1
+    const lastIndex = row.items[row.items.length - 1]?.originalIndex ?? -1
+
+    if (itemIndex >= firstIndex && itemIndex <= lastIndex) {
+      return mid
+    }
+    if (itemIndex < firstIndex) {
+      high = mid - 1
+    } else {
+      low = mid + 1
+    }
+  }
+
+  return 0
+}
+
+function renderHighlightedName(name: string, highlight?: string): React.ReactNode {
+  const query = (highlight ?? '').trim()
+  if (!query) return name
+
+  const matchIndex = name.toLowerCase().indexOf(query.toLowerCase())
+  if (matchIndex === -1) return name
+
+  const before = name.slice(0, matchIndex)
+  const match = name.slice(matchIndex, matchIndex + query.length)
+  const after = name.slice(matchIndex + query.length)
+
+  return (
+    <>
+      {before}
+      <mark className="bg-accent/20 text-inherit rounded px-0.5">{match}</mark>
+      {after}
+    </>
+  )
+}
+
 interface VirtualGridProps {
   items: Item[]
   selected: string[]
@@ -30,6 +84,7 @@ interface VirtualGridProps {
   onSelectionChange: (paths: string[]) => void
   onOpenViewer: (path: string) => void
   onContextMenuItem?: (e: React.MouseEvent, path: string) => void
+  onOpenItemActions?: (path: string, anchor: { x: number; y: number }) => void
   highlight?: string
   recentlyUpdated?: Map<string, string>
   onVisiblePathsChange?: (paths: Set<string>) => void
@@ -47,6 +102,7 @@ export default function VirtualGrid({
   onSelectionChange,
   onOpenViewer,
   onContextMenuItem,
+  onOpenItemActions,
   highlight,
   recentlyUpdated,
   onVisiblePathsChange,
@@ -67,6 +123,10 @@ export default function VirtualGrid({
   const parentRef = scrollRef ?? internalRef
   const anchorRef = useRef<string | null>(null)
   const lastVisiblePathsRef = useRef<Set<string>>(new Set())
+  const longPressControllerRef = useRef<LongPressController | null>(null)
+  const longPressPathRef = useRef<string | null>(null)
+  const longPressPointRef = useRef<{ x: number; y: number } | null>(null)
+  const suppressClickRef = useRef<{ path: string; untilMs: number } | null>(null)
 
   const TARGET_CELL = targetCellSize
 
@@ -141,6 +201,7 @@ export default function VirtualGrid({
     if (!el) return
     let timeoutId = 0
     const onScroll = () => {
+      longPressControllerRef.current?.cancelFromScroll()
       setIsScrolling(true)
       window.clearTimeout(timeoutId)
       timeoutId = window.setTimeout(() => setIsScrolling(false), SCROLL_IDLE_MS)
@@ -148,6 +209,25 @@ export default function VirtualGrid({
     el.addEventListener('scroll', onScroll, { passive: true } as any)
     return () => el.removeEventListener('scroll', onScroll as any)
   }, [])
+
+  useEffect(() => {
+    const controller = new LongPressController({
+      onLongPress: (event) => {
+        const path = longPressPathRef.current
+        if (!path || !onOpenItemActions) return
+        const point = longPressPointRef.current ?? { x: event.clientX, y: event.clientY }
+        onOpenItemActions(path, point)
+        suppressClickRef.current = { path, untilMs: Date.now() + 700 }
+      },
+    })
+    longPressControllerRef.current = controller
+    return () => {
+      controller.destroy()
+      if (longPressControllerRef.current === controller) {
+        longPressControllerRef.current = null
+      }
+    }
+  }, [onOpenItemActions])
 
   const cancelPreviewTimer = () => {
     if (previewTimerRef.current != null) {
@@ -250,7 +330,47 @@ export default function VirtualGrid({
     } catch {}
   }, [])
 
+  const openActionsForPath = useCallback((path: string, anchor: { x: number; y: number }) => {
+    onOpenItemActions?.(path, anchor)
+  }, [onOpenItemActions])
+
+  const clearLongPressTracking = () => {
+    longPressPathRef.current = null
+    longPressPointRef.current = null
+  }
+
+  const handleItemPointerDown = (path: string, ev: React.PointerEvent<HTMLDivElement>) => {
+    if ((ev.target as HTMLElement).closest('[data-grid-action]')) return
+    longPressPathRef.current = path
+    longPressPointRef.current = { x: ev.clientX, y: ev.clientY }
+    longPressControllerRef.current?.pointerDown(toLongPressEvent(ev))
+  }
+
+  const handleItemPointerMove = (ev: React.PointerEvent<HTMLDivElement>) => {
+    longPressPointRef.current = { x: ev.clientX, y: ev.clientY }
+    longPressControllerRef.current?.pointerMove(toLongPressEvent(ev))
+  }
+
+  const handleItemPointerUp = (ev: React.PointerEvent<HTMLDivElement>) => {
+    longPressControllerRef.current?.pointerUp(ev.pointerId)
+    clearLongPressTracking()
+  }
+
+  const handleItemPointerCancel = (ev: React.PointerEvent<HTMLDivElement>) => {
+    longPressControllerRef.current?.pointerCancel(ev.pointerId)
+    clearLongPressTracking()
+  }
+
   const handleItemClick = (path: string, ev: React.MouseEvent) => {
+    const suppressed = suppressClickRef.current
+    if (suppressed && suppressed.path === path && suppressed.untilMs > Date.now()) {
+      suppressClickRef.current = null
+      focusCell(path)
+      return
+    }
+    if (suppressed && suppressed.untilMs <= Date.now()) {
+      suppressClickRef.current = null
+    }
     setActive(path)
     setFocused(path)
     const isShift = !!ev.shiftKey
@@ -334,7 +454,7 @@ export default function VirtualGrid({
       setFocused(nextItem.path)
       setActive(nextItem.path)
       onSelectionChange([nextItem.path])
-      try { anchorRef.current = nextItem.path } catch {}
+      anchorRef.current = nextItem.path
       
       // Find row for next item
       const nextRowIdx = layout.mode === 'grid'
@@ -363,29 +483,18 @@ export default function VirtualGrid({
     const el = parentRef.current
     if (!el) return
     if (!restoreToSelectionToken) return
-    if (!selected || selected.length === 0) return
+    if (selected.length === 0) return
     const first = selected[0]
     const idx = pathToIndex.get(first)
     if (idx == null || idx < 0) return
-    
-    let rowIdx = 0
-    if (layout.mode === 'grid') {
-        rowIdx = Math.floor(idx / Math.max(1, layout.columns))
-    } else {
-        let low = 0, high = layout.rows.length - 1
-        while (low <= high) {
-            const mid = (low + high) >> 1
-            const r = layout.rows[mid]
-            if (idx >= r.items[0].originalIndex && idx <= r.items[r.items.length-1].originalIndex) {
-                rowIdx = mid
-                break
-            }
-            if (idx < r.items[0].originalIndex) high = mid - 1
-            else low = mid + 1
-        }
-    }
-    const targetTop = layout.mode === 'adaptive' ? (adaptiveRowMeta?.[rowIdx]?.start ?? 0) : (rowIdx * layout.rowH)
-    
+
+    const rowIdx = layout.mode === 'grid'
+      ? Math.floor(idx / Math.max(1, layout.columns))
+      : findAdaptiveRowIndex(layout.rows, idx)
+    const targetTop = layout.mode === 'adaptive'
+      ? (adaptiveRowMeta?.[rowIdx]?.start ?? 0)
+      : (rowIdx * layout.rowH)
+
     try { el.scrollTop = targetTop } catch {}
   }, [restoreToSelectionToken, layout, adaptiveRowMeta])
 
@@ -403,8 +512,17 @@ export default function VirtualGrid({
     }
   }, [isScrolling, visibleThumbPrefetchPaths, prefetchThumbSafely])
 
-  useEffect(() => { parentRef.current?.focus() }, [])
-  useEffect(() => { if (suppressSelectionHighlight) { try { parentRef.current?.blur() } catch {} ; try { setFocused(null) } catch {} } }, [suppressSelectionHighlight])
+  useEffect(() => {
+    parentRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    if (!suppressSelectionHighlight) return
+    try {
+      parentRef.current?.blur()
+    } catch {}
+    setFocused(null)
+  }, [suppressSelectionHighlight])
 
   const visiblePaths = useMemo(() => {
     const next = new Set<string>()
@@ -510,13 +628,39 @@ export default function VirtualGrid({
                   draggable 
                   style={wrapperStyle}
                   onDragStart={(e) => handleDragStart(it.path, e)}
-                  onDragEnd={() => {}}
-                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (onContextMenuItem) onContextMenuItem(e, it.path) }}>
+                  onPointerDown={(e) => handleItemPointerDown(it.path, e)}
+                  onPointerMove={handleItemPointerMove}
+                  onPointerUp={handleItemPointerUp}
+                  onPointerCancel={handleItemPointerCancel}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onContextMenuItem?.(e, it.path)
+                  }}>
                   <div 
                     className={itemContainerClass}
                     style={imageContainerStyle}
                     onDoubleClick={()=> onOpenViewer(it.path)} 
                     onMouseLeave={clearPreview}>
+                    <button
+                      type="button"
+                      className="grid-item-action-btn touch-manipulation"
+                      data-grid-action="1"
+                      aria-label={`Open actions for ${it.name}`}
+                      aria-haspopup="menu"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        openActionsForPath(it.path, { x: rect.right - 4, y: rect.bottom - 4 })
+                      }}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="5" r="1.5" />
+                        <circle cx="12" cy="12" r="1.5" />
+                        <circle cx="12" cy="19" r="1.5" />
+                      </svg>
+                    </button>
                     <div className="cell-content absolute inset-0">
                       <ThumbCard
                         path={it.path}
@@ -567,17 +711,9 @@ export default function VirtualGrid({
                     </div>
                   </div>
                   <div className="flex flex-col items-center text-center gap-0 mt-1 px-0.5 text-white/90">
-                    <div className="text-sm leading-[18px] thumb-filename line-clamp-2 break-words hyphens-auto text-center" title={it.name}>{(() => {
-                      const q = (highlight||'').trim()
-                      if (!q) return it.name
-                      const hay = it.name
-                      const idx = hay.toLowerCase().indexOf(q.toLowerCase())
-                      if (idx === -1) return it.name
-                      const before = hay.slice(0, idx)
-                      const match = hay.slice(idx, idx + q.length)
-                      const after = hay.slice(idx + q.length)
-                      return (<>{before}<mark className="bg-accent/20 text-inherit rounded px-0.5">{match}</mark>{after}</>)
-                    })()}</div>
+                    <div className="text-sm leading-[18px] thumb-filename line-clamp-2 break-words hyphens-auto text-center" title={it.name}>
+                      {renderHighlightedName(it.name, highlight)}
+                    </div>
                     <div className="text-[11px] leading-[15px] opacity-70">{it.w} × {it.h}</div>
                   </div>
                 </div>

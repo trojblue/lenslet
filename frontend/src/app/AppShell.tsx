@@ -13,7 +13,7 @@ import { api, connectEvents, disconnectEvents, dispatchPresenceLeave, getClientI
 import type { ConnectionStatus, FullFilePrefetchContext, SyncEvent } from '../shared/api/client'
 import { useOldestInflightAgeMs, useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
 import { usePollingEnabled } from '../shared/api/polling'
-import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, isTrashPath, isLikelyImagePath } from './routing/hash'
+import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, getPathName, isTrashPath, isLikelyImagePath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import {
   countActiveFilters,
@@ -2098,6 +2098,28 @@ function ContextMenuItems({
             setExporting(null)
             setCtx(null)
           }
+        }
+
+        const downloadSelection = async () => {
+          if (!sel.length) return
+          setCtx(null)
+          const byPath = new Map(items.map((it) => [it.path, it]))
+          for (const path of sel) {
+            try {
+              const blob = await api.getFile(path)
+              const name = byPath.get(path)?.name || getPathName(path) || 'image'
+              downloadBlob(blob, name)
+            } catch (err) {
+              console.error(`Failed to download ${path}:`, err)
+            }
+          }
+        }
+
+        if (sel.length) {
+          arr.push({
+            label: sel.length > 1 ? `Download (${sel.length})` : 'Download',
+            onClick: downloadSelection,
+          })
         }
         
         // Move to trash

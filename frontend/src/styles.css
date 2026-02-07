@@ -508,6 +508,35 @@
   color: var(--muted);
 }
 
+.ui-code-block-resizable {
+  resize: vertical;
+}
+
+.ui-json-key {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.ui-json-key:hover {
+  color: var(--text);
+}
+
+.ui-json-key-toast {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}
+
 /* Sync indicator */
 .sync-indicator {
   position: relative;

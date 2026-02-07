@@ -67,8 +67,15 @@ function highlightJson(json: string): string {
     result += escapeHtml(json.slice(lastIndex, start))
 
     let color = 'var(--json-fallback)'
+    let jsonKey: string | null = null
     if (token.startsWith('"') && token.trimEnd().endsWith(':')) {
       color = 'var(--json-key)'
+      const literal = token.trim().replace(/:\s*$/, '')
+      try {
+        jsonKey = JSON.parse(literal)
+      } catch {
+        jsonKey = null
+      }
     } else if (token.startsWith('"')) {
       color = 'var(--json-string)'
     } else if (/true|false|null/.test(token)) {
@@ -77,7 +84,11 @@ function highlightJson(json: string): string {
       color = 'var(--json-number)'
     }
 
-    result += `<span style="color:${color}">${escapeHtml(token)}</span>`
+    if (jsonKey) {
+      result += `<span class="ui-json-key" data-json-key="${escapeHtml(jsonKey)}" style="color:${color}">${escapeHtml(token)}</span>`
+    } else {
+      result += `<span style="color:${color}">${escapeHtml(token)}</span>`
+    }
     lastIndex = start + token.length
   }
 
@@ -230,10 +241,13 @@ export default function Inspector({
   // Form state
   const [tags, setTags] = useState('')
   const [notes, setNotes] = useState('')
-  const [metaText, setMetaText] = useState('')
+  const [metaRaw, setMetaRaw] = useState<Record<string, unknown> | null>(null)
   const [metaError, setMetaError] = useState<string | null>(null)
   const [metaState, setMetaState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
   const [metaCopied, setMetaCopied] = useState(false)
+  const [metaKeyCopied, setMetaKeyCopied] = useState<string | null>(null)
+  const metaKeyCopyTimeoutRef = useRef<number | null>(null)
+  const [showPilInfo, setShowPilInfo] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [valueHeights, setValueHeights] = useState<Record<string, number>>({})
   const localTypingActiveRef = useRef(false)
@@ -275,15 +289,25 @@ export default function Inspector({
       setTags((data.tags || []).join(', '))
       setNotes(data.notes || '')
     }
-    setMetaText('')
+    setMetaRaw(null)
     setMetaError(null)
     setMetaState('idle')
     setMetaCopied(false)
+    setMetaKeyCopied(null)
+    if (metaKeyCopyTimeoutRef.current) {
+      window.clearTimeout(metaKeyCopyTimeoutRef.current)
+      metaKeyCopyTimeoutRef.current = null
+    }
+    setShowPilInfo(false)
     notifyLocalTyping(false)
   }, [data?.updated_at, notifyLocalTyping, path])
 
   useEffect(() => {
     return () => {
+      if (metaKeyCopyTimeoutRef.current) {
+        window.clearTimeout(metaKeyCopyTimeoutRef.current)
+        metaKeyCopyTimeoutRef.current = null
+      }
       notifyLocalTyping(false)
     }
   }, [notifyLocalTyping])
@@ -399,35 +423,90 @@ export default function Inspector({
     setMetaError(null)
     try {
       const res = await api.getMetadata(path)
-      const normalized = normalizeMetadata(res.meta)
-      const pretty = JSON.stringify(normalized, null, 1)
-      setMetaText(pretty)
+      setMetaRaw(res.meta)
       setMetaState('loaded')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load metadata'
-      setMetaText(msg)
+      setMetaRaw(null)
       setMetaError(msg)
       setMetaState('error')
     }
   }, [path])
 
+  const metaRawText = useMemo(() => {
+    if (!metaRaw) return ''
+    try {
+      return JSON.stringify(metaRaw, null, 1)
+    } catch {
+      return ''
+    }
+  }, [metaRaw])
+
+  const metaDisplayText = useMemo(() => {
+    if (!metaRaw) return ''
+    const normalized = normalizeMetadata(metaRaw)
+    if (
+      !showPilInfo &&
+      normalized &&
+      typeof normalized === 'object' &&
+      !Array.isArray(normalized) &&
+      'pil_info' in normalized
+    ) {
+      const ordered: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(normalized as Record<string, unknown>)) {
+        ordered[key] = key === 'pil_info'
+          ? 'Hidden (toggle Show PIL info to expand)'
+          : value
+      }
+      return JSON.stringify(ordered, null, 1)
+    }
+    return JSON.stringify(normalized, null, 1)
+  }, [metaRaw, showPilInfo])
+
   const copyMetadata = useCallback(() => {
-    if (!metaText) return
-    navigator.clipboard?.writeText(metaText).then(() => {
+    if (!metaRawText) return
+    navigator.clipboard?.writeText(metaRawText).then(() => {
       setMetaCopied(true)
       setTimeout(() => setMetaCopied(false), 1200)
     }).catch((err) => {
       const msg = err instanceof Error ? err.message : 'Copy failed'
       setMetaError(msg)
     })
-  }, [metaText])
+  }, [metaRawText])
 
-  const highlightedMeta = useMemo(() => (metaText ? highlightJson(metaText) : ''), [metaText])
+  const copyMetadataKey = useCallback((key: string) => {
+    if (!key) return
+    navigator.clipboard?.writeText(key).then(() => {
+      setMetaKeyCopied(key)
+      if (metaKeyCopyTimeoutRef.current) {
+        window.clearTimeout(metaKeyCopyTimeoutRef.current)
+      }
+      metaKeyCopyTimeoutRef.current = window.setTimeout(() => {
+        setMetaKeyCopied(null)
+        metaKeyCopyTimeoutRef.current = null
+      }, 900)
+    }).catch(() => {})
+  }, [])
+
+  const handleMetaClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement | null
+    if (!target) return
+    const keyEl = target.closest('[data-json-key]') as HTMLElement | null
+    if (!keyEl) return
+    const key = keyEl.getAttribute('data-json-key')
+    if (!key) return
+    e.preventDefault()
+    copyMetadataKey(key)
+  }, [copyMetadataKey])
+
+  const highlightedMeta = useMemo(() => (metaDisplayText ? highlightJson(metaDisplayText) : ''), [metaDisplayText])
   const metaContent = metaState === 'loading'
     ? 'Loading metadata…'
-    : (metaText || 'PNG metadata not loaded yet.')
+    : metaState === 'error' && metaError
+      ? metaError
+      : (metaDisplayText || 'PNG metadata not loaded yet.')
   const metadataLoading = metaState === 'loading'
-  const metaLoaded = metaState === 'loaded' && !!metaText
+  const metaLoaded = metaState === 'loaded' && !!metaRawText
   const metaHeightClass = metaLoaded ? 'h-48' : 'h-24'
   const metadataActionLabel = metadataLoading
     ? 'Loading…'
@@ -436,8 +515,19 @@ export default function Inspector({
       : 'Load meta'
   const handleMetadataAction = metaLoaded ? copyMetadata : fetchMetadata
 
+  const hasPilInfo = !!metaRaw && typeof metaRaw === 'object' && !Array.isArray(metaRaw) && 'pil_info' in metaRaw
+
   const metadataActions = !multi ? (
     <div className="flex items-center gap-2 text-xs">
+      {metaLoaded && hasPilInfo && (
+        <button
+          className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
+          onClick={() => setShowPilInfo((prev) => !prev)}
+          disabled={!metaLoaded}
+        >
+          {showPilInfo ? 'Hide PIL info' : 'Show PIL info'}
+        </button>
+      )}
       <button
         className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[78px]"
         onClick={handleMetadataAction}
@@ -739,14 +829,24 @@ export default function Inspector({
           onToggle={() => toggleSection('metadata')}
           actions={metadataActions}
         >
-          <pre className={`ui-code-block ${metaHeightClass} overflow-auto whitespace-pre-wrap`}>
+          <div className="relative">
+            {metaKeyCopied && (
+              <div className="ui-json-key-toast">
+                Copied key: {metaKeyCopied}
+              </div>
+            )}
+            <pre
+              className={`ui-code-block ui-code-block-resizable ${metaHeightClass} overflow-auto whitespace-pre-wrap`}
+              onClick={handleMetaClick}
+            >
             {metaLoaded ? (
               <code
                 className="block whitespace-pre-wrap"
                 dangerouslySetInnerHTML={{ __html: highlightedMeta }}
               />
             ) : metaContent}
-          </pre>
+            </pre>
+          </div>
           {metaError && <div className="text-[11px] text-danger mt-1 break-words">{metaError}</div>}
         </InspectorSection>
       )}

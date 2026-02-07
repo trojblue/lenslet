@@ -514,13 +514,14 @@
 
 .ui-json-key {
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-underline-offset: 2px;
+  text-decoration: none;
 }
 
 .ui-json-key:hover {
   color: var(--text);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
 }
 
 .ui-json-key-toast {

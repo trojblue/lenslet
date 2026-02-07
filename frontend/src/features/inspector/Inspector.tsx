@@ -55,45 +55,64 @@ function parseTags(value: string): string[] {
   return value.split(',').map((tag) => tag.trim()).filter(Boolean)
 }
 
-// Lightweight JSON-ish syntax highlighting without extra deps
-function highlightJson(json: string): string {
-  const tokenRe = /(\"(\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*\"(?:\s*:)?|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b)/g
-  let result = ''
-  let lastIndex = 0
+const JSON_INDENT = 2
 
-  for (const match of json.matchAll(tokenRe)) {
-    const start = match.index ?? 0
-    const token = match[0]
-    result += escapeHtml(json.slice(lastIndex, start))
-
-    let color = 'var(--json-fallback)'
-    let jsonKey: string | null = null
-    if (token.startsWith('"') && token.trimEnd().endsWith(':')) {
-      color = 'var(--json-key)'
-      const literal = token.trim().replace(/:\s*$/, '')
-      try {
-        jsonKey = JSON.parse(literal)
-      } catch {
-        jsonKey = null
-      }
-    } else if (token.startsWith('"')) {
-      color = 'var(--json-string)'
-    } else if (/true|false|null/.test(token)) {
-      color = 'var(--json-literal)'
-    } else {
-      color = 'var(--json-number)'
-    }
-
-    if (jsonKey) {
-      result += `<span class="ui-json-key" data-json-key="${escapeHtml(jsonKey)}" style="color:${color}">${escapeHtml(token)}</span>`
-    } else {
-      result += `<span style="color:${color}">${escapeHtml(token)}</span>`
-    }
-    lastIndex = start + token.length
+function renderJsonValue(value: unknown, path: Array<string | number>, indent: number): string {
+  if (value === null) return `<span style="color:var(--json-literal)">null</span>`
+  if (value === undefined) return `<span style="color:var(--json-fallback)">undefined</span>`
+  if (typeof value === 'string') {
+    return `<span style="color:var(--json-string)">${escapeHtml(JSON.stringify(value))}</span>`
   }
+  if (typeof value === 'number') {
+    return `<span style="color:var(--json-number)">${escapeHtml(String(value))}</span>`
+  }
+  if (typeof value === 'boolean') {
+    return `<span style="color:var(--json-literal)">${value ? 'true' : 'false'}</span>`
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]'
+    const pad = ' '.repeat(indent)
+    const innerPad = ' '.repeat(indent + JSON_INDENT)
+    let out = '[\n'
+    value.forEach((item, idx) => {
+      const rendered = renderJsonValue(item, [...path, idx], indent + JSON_INDENT)
+      out += `${innerPad}${rendered}${idx < value.length - 1 ? ',' : ''}\n`
+    })
+    out += `${pad}]`
+    return out
+  }
+  if (isPlainObject(value)) {
+    const keys = Object.keys(value)
+    if (!keys.length) return '{}'
+    const pad = ' '.repeat(indent)
+    const innerPad = ' '.repeat(indent + JSON_INDENT)
+    let out = '{\n'
+    keys.forEach((key, idx) => {
+      const keyPath = escapeHtml(JSON.stringify([...path, key]))
+      const keyLabel = escapeHtml(JSON.stringify(key))
+      const keyHtml = `<span class="ui-json-key" data-json-path='${keyPath}' style="color:var(--json-key)">${keyLabel}</span>`
+      const rendered = renderJsonValue(value[key], [...path, key], indent + JSON_INDENT)
+      out += `${innerPad}${keyHtml}: ${rendered}${idx < keys.length - 1 ? ',' : ''}\n`
+    })
+    out += `${pad}}`
+    return out
+  }
+  return `<span style="color:var(--json-fallback)">${escapeHtml(String(value))}</span>`
+}
 
-  result += escapeHtml(json.slice(lastIndex))
-  return result
+function buildDisplayMetadata(meta: Record<string, unknown> | null, showPilInfo: boolean): unknown | null {
+  if (!meta) return null
+  const normalized = normalizeMetadata(meta)
+  if (!showPilInfo && isPlainObject(normalized) && 'pil_info' in normalized) {
+    const ordered: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(normalized)) {
+      ordered[key] = key === 'pil_info'
+        ? 'Hidden (toggle Show PIL info to expand)'
+        : value
+    }
+    return ordered
+  }
+  return normalized
 }
 
 function toComparableString(value: unknown): string {
@@ -138,6 +157,39 @@ function appendPath(base: string, key: string | number): string {
   const safe = /^[A-Za-z0-9_$-]+$/.test(key)
   if (!base) return safe ? key : `["${key}"]`
   return safe ? `${base}.${key}` : `${base}["${key}"]`
+}
+
+function formatPathLabel(path: Array<string | number>): string {
+  let current = ''
+  for (const segment of path) {
+    current = appendPath(current, segment)
+  }
+  return current || '(root)'
+}
+
+function getValueAtPath(root: unknown, path: Array<string | number>): unknown {
+  let current: unknown = root
+  for (const segment of path) {
+    if (typeof segment === 'number') {
+      if (!Array.isArray(current)) return undefined
+      current = current[segment]
+      continue
+    }
+    if (!isPlainObject(current)) return undefined
+    current = current[segment]
+  }
+  return current
+}
+
+function formatCopyValue(value: unknown): string {
+  if (value === undefined) return 'undefined'
+  if (value === null) return 'null'
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 1)
+  } catch {
+    return String(value)
+  }
 }
 
 function flattenMeta(
@@ -344,14 +396,20 @@ export default function Inspector({
   const [metaError, setMetaError] = useState<string | null>(null)
   const [metaState, setMetaState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
   const [metaCopied, setMetaCopied] = useState(false)
-  const [metaKeyCopied, setMetaKeyCopied] = useState<string | null>(null)
-  const metaKeyCopyTimeoutRef = useRef<number | null>(null)
+  const [metaValueCopiedPath, setMetaValueCopiedPath] = useState<string | null>(null)
+  const metaValueCopyTimeoutRef = useRef<number | null>(null)
   const [showPilInfo, setShowPilInfo] = useState(false)
   const [compareMetaState, setCompareMetaState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
   const [compareMetaError, setCompareMetaError] = useState<string | null>(null)
   const [compareMetaA, setCompareMetaA] = useState<Record<string, unknown> | null>(null)
   const [compareMetaB, setCompareMetaB] = useState<Record<string, unknown> | null>(null)
   const [compareIncludePilInfo, setCompareIncludePilInfo] = useState(false)
+  const [compareShowPilInfoA, setCompareShowPilInfoA] = useState(false)
+  const [compareShowPilInfoB, setCompareShowPilInfoB] = useState(false)
+  const [compareMetaCopied, setCompareMetaCopied] = useState<'A' | 'B' | null>(null)
+  const [compareValueCopiedPathA, setCompareValueCopiedPathA] = useState<string | null>(null)
+  const [compareValueCopiedPathB, setCompareValueCopiedPathB] = useState<string | null>(null)
+  const compareValueCopyTimeoutRef = useRef<number | null>(null)
   const compareMetaRequestIdRef = useRef(0)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [valueHeights, setValueHeights] = useState<Record<string, number>>({})
@@ -398,10 +456,10 @@ export default function Inspector({
     setMetaError(null)
     setMetaState('idle')
     setMetaCopied(false)
-    setMetaKeyCopied(null)
-    if (metaKeyCopyTimeoutRef.current) {
-      window.clearTimeout(metaKeyCopyTimeoutRef.current)
-      metaKeyCopyTimeoutRef.current = null
+    setMetaValueCopiedPath(null)
+    if (metaValueCopyTimeoutRef.current) {
+      window.clearTimeout(metaValueCopyTimeoutRef.current)
+      metaValueCopyTimeoutRef.current = null
     }
     setShowPilInfo(false)
     notifyLocalTyping(false)
@@ -409,9 +467,13 @@ export default function Inspector({
 
   useEffect(() => {
     return () => {
-      if (metaKeyCopyTimeoutRef.current) {
-        window.clearTimeout(metaKeyCopyTimeoutRef.current)
-        metaKeyCopyTimeoutRef.current = null
+      if (metaValueCopyTimeoutRef.current) {
+        window.clearTimeout(metaValueCopyTimeoutRef.current)
+        metaValueCopyTimeoutRef.current = null
+      }
+      if (compareValueCopyTimeoutRef.current) {
+        window.clearTimeout(compareValueCopyTimeoutRef.current)
+        compareValueCopyTimeoutRef.current = null
       }
       notifyLocalTyping(false)
     }
@@ -572,9 +634,19 @@ export default function Inspector({
       setCompareMetaError(null)
       setCompareMetaA(null)
       setCompareMetaB(null)
+      setCompareShowPilInfoA(false)
+      setCompareShowPilInfoB(false)
+      setCompareMetaCopied(null)
+      setCompareValueCopiedPathA(null)
+      setCompareValueCopiedPathB(null)
       return
     }
     setCompareIncludePilInfo(false)
+    setCompareShowPilInfoA(false)
+    setCompareShowPilInfoB(false)
+    setCompareMetaCopied(null)
+    setCompareValueCopiedPathA(null)
+    setCompareValueCopiedPathB(null)
     fetchCompareMetadata(comparePathA, comparePathB)
   }, [compareReady, comparePathA, comparePathB, fetchCompareMetadata])
 
@@ -587,26 +659,38 @@ export default function Inspector({
     }
   }, [metaRaw])
 
-  const metaDisplayText = useMemo(() => {
-    if (!metaRaw) return ''
-    const normalized = normalizeMetadata(metaRaw)
-    if (
-      !showPilInfo &&
-      normalized &&
-      typeof normalized === 'object' &&
-      !Array.isArray(normalized) &&
-      'pil_info' in normalized
-    ) {
-      const ordered: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(normalized as Record<string, unknown>)) {
-        ordered[key] = key === 'pil_info'
-          ? 'Hidden (toggle Show PIL info to expand)'
-          : value
-      }
-      return JSON.stringify(ordered, null, 1)
+  const metaDisplayValue = useMemo(
+    () => buildDisplayMetadata(metaRaw, showPilInfo),
+    [metaRaw, showPilInfo],
+  )
+
+  const compareMetaRawTextA = useMemo(() => {
+    if (!compareMetaA) return ''
+    try {
+      return JSON.stringify(compareMetaA, null, 1)
+    } catch {
+      return ''
     }
-    return JSON.stringify(normalized, null, 1)
-  }, [metaRaw, showPilInfo])
+  }, [compareMetaA])
+
+  const compareMetaRawTextB = useMemo(() => {
+    if (!compareMetaB) return ''
+    try {
+      return JSON.stringify(compareMetaB, null, 1)
+    } catch {
+      return ''
+    }
+  }, [compareMetaB])
+
+  const compareDisplayValueA = useMemo(
+    () => buildDisplayMetadata(compareMetaA, compareShowPilInfoA),
+    [compareMetaA, compareShowPilInfoA],
+  )
+
+  const compareDisplayValueB = useMemo(
+    () => buildDisplayMetadata(compareMetaB, compareShowPilInfoB),
+    [compareMetaB, compareShowPilInfoB],
+  )
 
   const copyMetadata = useCallback(() => {
     if (!metaRawText) return
@@ -619,37 +703,136 @@ export default function Inspector({
     })
   }, [metaRawText])
 
-  const copyMetadataKey = useCallback((key: string) => {
-    if (!key) return
-    navigator.clipboard?.writeText(key).then(() => {
-      setMetaKeyCopied(key)
-      if (metaKeyCopyTimeoutRef.current) {
-        window.clearTimeout(metaKeyCopyTimeoutRef.current)
-      }
-      metaKeyCopyTimeoutRef.current = window.setTimeout(() => {
-        setMetaKeyCopied(null)
-        metaKeyCopyTimeoutRef.current = null
-      }, 900)
-    }).catch(() => {})
+  const metaDisplayHtml = useMemo(
+    () => (metaDisplayValue ? renderJsonValue(metaDisplayValue, [], 0) : ''),
+    [metaDisplayValue],
+  )
+
+  const compareDisplayHtmlA = useMemo(
+    () => (compareDisplayValueA ? renderJsonValue(compareDisplayValueA, [], 0) : ''),
+    [compareDisplayValueA],
+  )
+
+  const compareDisplayHtmlB = useMemo(
+    () => (compareDisplayValueB ? renderJsonValue(compareDisplayValueB, [], 0) : ''),
+    [compareDisplayValueB],
+  )
+
+  const triggerValueToast = useCallback((path: string) => {
+    setMetaValueCopiedPath(path)
+    if (metaValueCopyTimeoutRef.current) {
+      window.clearTimeout(metaValueCopyTimeoutRef.current)
+    }
+    metaValueCopyTimeoutRef.current = window.setTimeout(() => {
+      setMetaValueCopiedPath(null)
+      metaValueCopyTimeoutRef.current = null
+    }, 900)
   }, [])
 
+  const copyMetadataValue = useCallback((path: string, value: unknown) => {
+    const text = formatCopyValue(value)
+    navigator.clipboard?.writeText(text).then(() => {
+      triggerValueToast(path)
+    }).catch(() => {})
+  }, [triggerValueToast])
+
+  const triggerCompareValueToast = useCallback((side: 'A' | 'B', path: string) => {
+    if (side === 'A') {
+      setCompareValueCopiedPathA(path)
+    } else {
+      setCompareValueCopiedPathB(path)
+    }
+    if (compareValueCopyTimeoutRef.current) {
+      window.clearTimeout(compareValueCopyTimeoutRef.current)
+    }
+    compareValueCopyTimeoutRef.current = window.setTimeout(() => {
+      setCompareValueCopiedPathA(null)
+      setCompareValueCopiedPathB(null)
+      compareValueCopyTimeoutRef.current = null
+    }, 900)
+  }, [])
+
+  const copyCompareMetadataValue = useCallback((side: 'A' | 'B', path: string, value: unknown) => {
+    const text = formatCopyValue(value)
+    navigator.clipboard?.writeText(text).then(() => {
+      triggerCompareValueToast(side, path)
+    }).catch(() => {})
+  }, [triggerCompareValueToast])
+
   const handleMetaClick = useCallback((e: React.MouseEvent) => {
+    if (!metaDisplayValue) return
     const target = e.target as HTMLElement | null
     if (!target) return
-    const keyEl = target.closest('[data-json-key]') as HTMLElement | null
+    const keyEl = target.closest('[data-json-path]') as HTMLElement | null
     if (!keyEl) return
-    const key = keyEl.getAttribute('data-json-key')
-    if (!key) return
-    e.preventDefault()
-    copyMetadataKey(key)
-  }, [copyMetadataKey])
+    const rawPath = keyEl.getAttribute('data-json-path')
+    if (!rawPath) return
+    let path: Array<string | number>
+    try {
+      path = JSON.parse(rawPath) as Array<string | number>
+    } catch {
+      return
+    }
+    const value = getValueAtPath(metaDisplayValue, path)
+    copyMetadataValue(formatPathLabel(path), value)
+  }, [metaDisplayValue, copyMetadataValue])
 
-  const highlightedMeta = useMemo(() => (metaDisplayText ? highlightJson(metaDisplayText) : ''), [metaDisplayText])
-  let metaContent = metaDisplayText || 'PNG metadata not loaded yet.'
+  const handleCompareMetaClickA = useCallback((e: React.MouseEvent) => {
+    if (!compareDisplayValueA) return
+    const target = e.target as HTMLElement | null
+    if (!target) return
+    const keyEl = target.closest('[data-json-path]') as HTMLElement | null
+    if (!keyEl) return
+    const rawPath = keyEl.getAttribute('data-json-path')
+    if (!rawPath) return
+    let path: Array<string | number>
+    try {
+      path = JSON.parse(rawPath) as Array<string | number>
+    } catch {
+      return
+    }
+    const value = getValueAtPath(compareDisplayValueA, path)
+    copyCompareMetadataValue('A', formatPathLabel(path), value)
+  }, [compareDisplayValueA, copyCompareMetadataValue])
+
+  const handleCompareMetaClickB = useCallback((e: React.MouseEvent) => {
+    if (!compareDisplayValueB) return
+    const target = e.target as HTMLElement | null
+    if (!target) return
+    const keyEl = target.closest('[data-json-path]') as HTMLElement | null
+    if (!keyEl) return
+    const rawPath = keyEl.getAttribute('data-json-path')
+    if (!rawPath) return
+    let path: Array<string | number>
+    try {
+      path = JSON.parse(rawPath) as Array<string | number>
+    } catch {
+      return
+    }
+    const value = getValueAtPath(compareDisplayValueB, path)
+    copyCompareMetadataValue('B', formatPathLabel(path), value)
+  }, [compareDisplayValueB, copyCompareMetadataValue])
+
+  const copyCompareMetadata = useCallback((side: 'A' | 'B') => {
+    const raw = side === 'A' ? compareMetaRawTextA : compareMetaRawTextB
+    if (!raw) return
+    navigator.clipboard?.writeText(raw).then(() => {
+      setCompareMetaCopied(side)
+      setTimeout(() => setCompareMetaCopied((curr) => (curr === side ? null : curr)), 1200)
+    }).catch(() => {})
+  }, [compareMetaRawTextA, compareMetaRawTextB])
+
+  let metaContent = metaDisplayValue ? '' : 'PNG metadata not loaded yet.'
   if (metaState === 'loading') {
     metaContent = 'Loading metadata…'
   } else if (metaState === 'error' && metaError) {
     metaContent = metaError
+  }
+  let compareMetaContent = 'Metadata not loaded yet.'
+  if (compareMetaState === 'loading') {
+    compareMetaContent = 'Loading metadata…'
+  } else if (compareMetaState === 'error' && compareMetaError) {
+    compareMetaContent = compareMetaError
   }
   const metadataLoading = metaState === 'loading'
   const metaLoaded = metaState === 'loaded' && !!metaRawText
@@ -663,6 +846,8 @@ export default function Inspector({
   const handleMetadataAction = metaLoaded ? copyMetadata : fetchMetadata
 
   const hasPilInfo = !!metaRaw && typeof metaRaw === 'object' && !Array.isArray(metaRaw) && 'pil_info' in metaRaw
+  const compareHasPilInfoA = !!compareMetaA && typeof compareMetaA === 'object' && !Array.isArray(compareMetaA) && 'pil_info' in compareMetaA
+  const compareHasPilInfoB = !!compareMetaB && typeof compareMetaB === 'object' && !Array.isArray(compareMetaB) && 'pil_info' in compareMetaB
 
   const metadataActions = !multi ? (
     <div className="flex items-center gap-2 text-xs">
@@ -946,6 +1131,92 @@ export default function Inspector({
                 )}
               </div>
             )}
+
+            <div className="grid gap-3 pt-2">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] uppercase tracking-wide text-muted">Metadata A</div>
+                  <div className="flex items-center gap-2 text-xs">
+                    {compareHasPilInfoA && (
+                      <button
+                        className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
+                        onClick={() => setCompareShowPilInfoA((prev) => !prev)}
+                        disabled={compareMetaState !== 'loaded'}
+                      >
+                        {compareShowPilInfoA ? 'Hide PIL info' : 'Show PIL info'}
+                      </button>
+                    )}
+                    <button
+                      className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[70px]"
+                      onClick={() => copyCompareMetadata('A')}
+                      disabled={compareMetaState !== 'loaded'}
+                    >
+                      {compareMetaCopied === 'A' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+                <div className="relative">
+                  {compareValueCopiedPathA && (
+                    <div className="ui-json-key-toast">
+                      Copied value: {compareValueCopiedPathA}
+                    </div>
+                  )}
+                  <pre
+                    className="ui-code-block ui-code-block-resizable h-40 overflow-auto whitespace-pre-wrap"
+                    onClick={handleCompareMetaClickA}
+                  >
+                    {compareMetaState === 'loaded' && compareDisplayHtmlA ? (
+                      <code
+                        className="block whitespace-pre-wrap"
+                        dangerouslySetInnerHTML={{ __html: compareDisplayHtmlA }}
+                      />
+                    ) : compareMetaContent}
+                  </pre>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] uppercase tracking-wide text-muted">Metadata B</div>
+                  <div className="flex items-center gap-2 text-xs">
+                    {compareHasPilInfoB && (
+                      <button
+                        className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
+                        onClick={() => setCompareShowPilInfoB((prev) => !prev)}
+                        disabled={compareMetaState !== 'loaded'}
+                      >
+                        {compareShowPilInfoB ? 'Hide PIL info' : 'Show PIL info'}
+                      </button>
+                    )}
+                    <button
+                      className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[70px]"
+                      onClick={() => copyCompareMetadata('B')}
+                      disabled={compareMetaState !== 'loaded'}
+                    >
+                      {compareMetaCopied === 'B' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+                <div className="relative">
+                  {compareValueCopiedPathB && (
+                    <div className="ui-json-key-toast">
+                      Copied value: {compareValueCopiedPathB}
+                    </div>
+                  )}
+                  <pre
+                    className="ui-code-block ui-code-block-resizable h-40 overflow-auto whitespace-pre-wrap"
+                    onClick={handleCompareMetaClickB}
+                  >
+                    {compareMetaState === 'loaded' && compareDisplayHtmlB ? (
+                      <code
+                        className="block whitespace-pre-wrap"
+                        dangerouslySetInnerHTML={{ __html: compareDisplayHtmlB }}
+                      />
+                    ) : compareMetaContent}
+                  </pre>
+                </div>
+              </div>
+            </div>
           </div>
         </InspectorSection>
       )}
@@ -1121,9 +1392,9 @@ export default function Inspector({
           actions={metadataActions}
         >
           <div className="relative">
-            {metaKeyCopied && (
+            {metaValueCopiedPath && (
               <div className="ui-json-key-toast">
-                Copied key: {metaKeyCopied}
+                Copied value: {metaValueCopiedPath}
               </div>
             )}
             <pre
@@ -1133,7 +1404,7 @@ export default function Inspector({
             {metaLoaded ? (
               <code
                 className="block whitespace-pre-wrap"
-                dangerouslySetInnerHTML={{ __html: highlightedMeta }}
+                dangerouslySetInnerHTML={{ __html: metaDisplayHtml }}
               />
             ) : metaContent}
             </pre>

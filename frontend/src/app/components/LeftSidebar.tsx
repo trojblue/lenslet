@@ -1,4 +1,4 @@
-import type { MouseEvent } from 'react'
+import type { MouseEvent, PointerEvent } from 'react'
 import FolderTree from '../../features/folders/FolderTree'
 import MetricsPanel from '../../features/metrics/MetricsPanel'
 import type { FilterAST, FolderIndex, Item, SavedView } from '../../lib/types'
@@ -29,7 +29,7 @@ type LeftSidebarProps = {
   filters: FilterAST
   onChangeRange: (key: string, range: { min: number; max: number } | null) => void
   onChangeFilters: (filters: FilterAST) => void
-  onResize: (event: MouseEvent) => void
+  onResize: (event: PointerEvent<HTMLDivElement>) => void
 }
 
 const ROOTS = [{ label: 'Root', path: '/' }]
@@ -191,7 +191,10 @@ export default function LeftSidebar({
           />
         )}
       </div>
-      <div className="toolbar-offset absolute bottom-0 right-0 w-1.5 cursor-col-resize z-10 hover:bg-accent/20" onMouseDown={onResize} />
+      <div
+        className="toolbar-offset sidebar-resize-handle absolute bottom-0 right-0"
+        onPointerDown={onResize}
+      />
     </div>
   )
 }

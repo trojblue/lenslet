@@ -46,6 +46,9 @@ export default function CompareViewer({
     resetView,
     handleWheel,
     handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handlePointerCancel,
   } = useCompareZoomPan()
 
   const aPath = aItem?.path ?? null
@@ -112,12 +115,18 @@ export default function CompareViewer({
       setSplitPct(clampSplit(pct))
     }
     const onUp = (ev: PointerEvent) => {
-      target.releasePointerCapture(ev.pointerId)
+      try {
+        target.releasePointerCapture(ev.pointerId)
+      } catch {
+        // Ignore unsupported capture release.
+      }
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }, [clampSplit])
 
   return (
@@ -163,6 +172,9 @@ export default function CompareViewer({
           className={`compare-stage ${dragging ? 'is-dragging' : ''}`}
           onWheel={handleWheel}
           onPointerDown={handleStagePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
         >
           {!aItem || !bItem ? (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-muted">

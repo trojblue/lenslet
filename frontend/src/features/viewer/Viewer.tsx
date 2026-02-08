@@ -20,7 +20,29 @@ export default function Viewer({
   requestedZoomPercent,
   onZoomRequestConsumed,
 }: ViewerProps) {
-  const { scale, setScale, tx, setTx, ty, setTy, base, setBase, ready, setReady, dragging, visible, setVisible, containerRef, imgRef, fitAndCenter, handleWheel, handleMouseDown } = useZoomPan()
+  const {
+    scale,
+    setScale,
+    tx,
+    setTx,
+    ty,
+    setTy,
+    base,
+    setBase,
+    ready,
+    setReady,
+    dragging,
+    visible,
+    setVisible,
+    containerRef,
+    imgRef,
+    fitAndCenter,
+    handleWheel,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handlePointerCancel,
+  } = useZoomPan()
   const url = useBlobUrl(() => api.getFile(path), [path])
   const thumbUrl = useBlobUrl(() => api.getThumb(path), [path])
   const closeViewer = useCallback(() => {
@@ -51,7 +73,7 @@ export default function Viewer({
     
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, onNavigate])
+  }, [closeViewer, onNavigate])
 
   // Reset ready state when URL changes
   useEffect(() => {
@@ -86,11 +108,14 @@ export default function Viewer({
       aria-modal={true}
       aria-label="Image viewer"
       tabIndex={-1}
-      className={`toolbar-offset absolute inset-0 left-[var(--left)] right-[var(--right)] flex items-start justify-start bg-panel z-viewer overflow-hidden transition-opacity duration-[110ms] ease-out cursor-grab focus:outline-none focus-visible:outline-none ${dragging ? 'cursor-grabbing select-none' : ''} ${visible ? 'opacity-100' : 'opacity-0'}`}
+      className={`toolbar-offset touch-none absolute inset-0 left-[var(--left)] right-[var(--right)] flex items-start justify-start bg-panel z-viewer overflow-hidden transition-opacity duration-[110ms] ease-out cursor-grab focus:outline-none focus-visible:outline-none ${dragging ? 'cursor-grabbing select-none' : ''} ${visible ? 'opacity-100' : 'opacity-0'}`}
       style={{ outline: 'none' }}
       onClick={closeViewer}
       onWheel={handleWheel}
-      onMouseDown={handleMouseDown}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
       onKeyDown={(e)=>{ if (e.key === 'Tab') { e.preventDefault() } }}
     >
       <button

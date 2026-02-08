@@ -55,6 +55,7 @@ import {
 } from '../lib/constants'
 import { hydrateFolderPages } from '../features/browse/model/pagedFolder'
 import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
+import { constrainSidebarWidths, LAYOUT_MEDIA_QUERIES } from '../lib/breakpoints'
 
 /** Local storage keys for persisted settings */
 const STORAGE_KEYS = {
@@ -209,6 +210,9 @@ export default function AppShell() {
   const [gridItemSize, setGridItemSize] = useState<number>(220)
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
+  const [viewportWidth, setViewportWidth] = useState(() => (
+    typeof window === 'undefined' ? 1440 : window.innerWidth
+  ))
   const [leftTool, setLeftTool] = useState<'folders' | 'metrics'>('folders')
   const [views, setViews] = useState<SavedView[]>([])
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
@@ -1295,7 +1299,7 @@ export default function AppShell() {
   // Auto-collapse side panels on narrow screens
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const media = window.matchMedia('(max-width: 900px)')
+    const media = window.matchMedia(LAYOUT_MEDIA_QUERIES.narrow)
     const apply = () => {
       if (media.matches) {
         setLeftOpen(false)
@@ -1365,6 +1369,18 @@ export default function AppShell() {
       // Ignore localStorage errors
     }
   }, [viewState, viewMode, gridItemSize, leftOpen, rightOpen])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const update = () => setViewportWidth(window.innerWidth)
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('orientationchange', update)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('orientationchange', update)
+    }
+  }, [])
 
   // Ctrl + scroll adjusts thumbnail size (override browser zoom)
   useEffect(() => {
@@ -1827,8 +1843,16 @@ export default function AppShell() {
     return () => window.removeEventListener('keydown', onKey)
   }, [current, items, selectedPaths, viewer, compareOpen, openFolder])
 
-  const leftCol = leftOpen ? `${leftW}px` : '0px'
-  const rightCol = rightOpen ? `${rightW}px` : '0px'
+  const constrainedSidebars = useMemo(() => constrainSidebarWidths({
+    viewportWidth,
+    leftOpen,
+    rightOpen,
+    leftWidth: leftW,
+    rightWidth: rightW,
+  }), [viewportWidth, leftOpen, rightOpen, leftW, rightW])
+
+  const leftCol = leftOpen ? `${constrainedSidebars.leftWidth}px` : '0px'
+  const rightCol = rightOpen ? `${constrainedSidebars.rightWidth}px` : '0px'
 
   const navCurrent = viewer ?? selectedPaths[0] ?? null
   const navIdx = navCurrent ? itemPaths.indexOf(navCurrent) : -1

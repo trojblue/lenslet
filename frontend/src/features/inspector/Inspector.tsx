@@ -255,7 +255,7 @@ interface InspectorProps {
   compareActive?: boolean
   compareA?: Item | null
   compareB?: Item | null
-  onResize?: (e: React.MouseEvent) => void
+  onResize?: (e: React.PointerEvent<HTMLDivElement>) => void
   onStarChanged?: (paths: string[], val: StarRating) => void
   sortSpec?: SortSpec
   onFindSimilar?: () => void
@@ -993,11 +993,11 @@ export default function Inspector({
     }
   }, [valueHeights])
 
-  const resizeHandleClass = 'toolbar-offset absolute bottom-0 left-0 w-1.5 cursor-col-resize z-10 hover:bg-accent/20'
+  const resizeHandleClass = 'toolbar-offset sidebar-resize-handle absolute bottom-0 left-0'
 
   if (!enabled) return (
     <div className="app-right-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
-      <div className={resizeHandleClass} onMouseDown={onResize} />
+      <div className={resizeHandleClass} onPointerDown={onResize} />
     </div>
   )
 
@@ -1455,7 +1455,7 @@ export default function Inspector({
           />
         </div>
       </InspectorSection>
-      <div className={resizeHandleClass} onMouseDown={onResize} />
+      <div className={resizeHandleClass} onPointerDown={onResize} />
     </div>
   )
 }

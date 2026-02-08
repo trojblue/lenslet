@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import Dropdown from './Dropdown'
 import SyncIndicator, { type SyncIndicatorData } from './SyncIndicator'
 import type { SortSpec, ViewMode } from '../../lib/types'
+import { LAYOUT_MEDIA_QUERIES } from '../../lib/breakpoints'
 
 export interface ToolbarProps {
   rootRef?: React.RefObject<HTMLDivElement>
@@ -104,7 +105,7 @@ export default function Toolbar({
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('matchMedia' in window)) return
-    const media = window.matchMedia('(max-width: 900px)')
+    const media = window.matchMedia(LAYOUT_MEDIA_QUERIES.narrow)
     const onChange = (evt: MediaQueryListEvent) => setIsNarrow(evt.matches)
     setIsNarrow(media.matches)
     if ('addEventListener' in media) {

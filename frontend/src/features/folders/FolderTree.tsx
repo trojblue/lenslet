@@ -19,7 +19,7 @@ interface FolderTreeProps {
   data?: FolderIndex
   onOpen: (path: string) => void
   onPullRefresh?: () => Promise<void> | void
-  onResize?: (e: React.MouseEvent) => void
+  onResize?: (e: React.PointerEvent<HTMLDivElement>) => void
   onContextMenu?: (e: React.MouseEvent, path: string) => void
   onOpenActions?: (path: string, anchor: { x: number; y: number }) => void
   countVersion?: number
@@ -215,7 +215,10 @@ export default function FolderTree({
         ))}
       </div>
       {showResizeHandle && (
-        <div className="toolbar-offset absolute bottom-0 w-1.5 cursor-col-resize z-10 left-[calc(var(--left)-3px)] hover:bg-accent/20" onMouseDown={onResize} />
+        <div
+          className="toolbar-offset sidebar-resize-handle absolute bottom-0 left-[calc(var(--left)-6px)]"
+          onPointerDown={onResize}
+        />
       )}
     </div>
   )

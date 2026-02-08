@@ -4,6 +4,29 @@ const LEFT_FOLDERS_KEY = 'leftW.folders'
 const LEFT_METRICS_KEY = 'leftW.metrics'
 const LEFT_LEGACY_KEY = 'leftW'
 const RIGHT_KEY = 'rightW'
+const LEFT_MIN_WIDTH = 200
+const RIGHT_MIN_WIDTH = 240
+const MIN_CENTER_WIDTH = 200
+
+function isNonPrimaryMousePointer(event: React.PointerEvent<HTMLDivElement>): boolean {
+  return (event.pointerType ?? 'mouse') === 'mouse' && event.button !== 0
+}
+
+function trySetPointerCapture(target: HTMLDivElement, pointerId: number): void {
+  try {
+    target.setPointerCapture(pointerId)
+  } catch {
+    // Ignore unsupported capture attempts.
+  }
+}
+
+function tryReleasePointerCapture(target: HTMLDivElement, pointerId: number): void {
+  try {
+    target.releasePointerCapture(pointerId)
+  } catch {
+    // Ignore unsupported release attempts.
+  }
+}
 
 export function useSidebars(
   appRef: React.RefObject<HTMLDivElement | null>,
@@ -29,57 +52,89 @@ export function useSidebars(
     } catch {}
   }, [])
 
-  const onResizeLeft = (e: React.MouseEvent) => {
-    e.preventDefault()
+  const bindPointerDrag = (
+    event: React.PointerEvent<HTMLDivElement>,
+    onMove: (event: PointerEvent) => void,
+    onComplete: () => void,
+  ): void => {
+    if (isNonPrimaryMousePointer(event)) return
+    event.preventDefault()
+    const handle = event.currentTarget
+    const pointerId = event.pointerId
+    trySetPointerCapture(handle, pointerId)
+
+    const onPointerMove = (nextEvent: PointerEvent) => {
+      if (nextEvent.pointerId !== pointerId) return
+      onMove(nextEvent)
+    }
+
+    function cleanup(): void {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
+      tryReleasePointerCapture(handle, pointerId)
+    }
+
+    function onPointerUp(nextEvent: PointerEvent): void {
+      if (nextEvent.pointerId !== pointerId) return
+      cleanup()
+      onComplete()
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointercancel', onPointerUp)
+  }
+
+  const onResizeLeft = (e: React.PointerEvent<HTMLDivElement>) => {
     const app = appRef.current
     if (!app) return
     const rect = app.getBoundingClientRect()
     const storageKey = leftTool === 'metrics' ? LEFT_METRICS_KEY : LEFT_FOLDERS_KEY
     let latestWidth = leftWRef.current
-    const onMove = (ev: MouseEvent) => {
-      const x = ev.clientX - rect.left
-      const min = 200
-      const max = Math.max(min, rect.width - rightWRef.current - 200)
-      const nw = Math.min(Math.max(x, min), max)
-      latestWidth = nw
-      if (leftTool === 'metrics') {
-        setLeftMetricsW(nw)
-      } else {
-        setLeftFoldersW(nw)
-      }
-    }
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      try { window.localStorage.setItem(storageKey, String(latestWidth)) } catch {}
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    bindPointerDrag(
+      e,
+      (event) => {
+        const x = event.clientX - rect.left
+        const max = Math.max(LEFT_MIN_WIDTH, rect.width - rightWRef.current - MIN_CENTER_WIDTH)
+        const nw = Math.min(Math.max(x, LEFT_MIN_WIDTH), max)
+        latestWidth = nw
+        if (leftTool === 'metrics') {
+          setLeftMetricsW(nw)
+        } else {
+          setLeftFoldersW(nw)
+        }
+      },
+      () => {
+        try {
+          window.localStorage.setItem(storageKey, String(latestWidth))
+        } catch {}
+      },
+    )
   }
 
-  const onResizeRight = (e: React.MouseEvent) => {
-    e.preventDefault()
+  const onResizeRight = (e: React.PointerEvent<HTMLDivElement>) => {
     const app = appRef.current
     if (!app) return
     const rect = app.getBoundingClientRect()
     let latestWidth = rightWRef.current
-    const onMove = (ev: MouseEvent) => {
-      const x = ev.clientX - rect.left
-      const fromRight = rect.width - x
-      const min = 240
-      const max = Math.max(min, rect.width - leftWRef.current - 200)
-      const nw = Math.min(Math.max(fromRight, min), max)
-      latestWidth = nw
-      rightWRef.current = nw
-      setRightW(nw)
-    }
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      try { window.localStorage.setItem(RIGHT_KEY, String(latestWidth)) } catch {}
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    bindPointerDrag(
+      e,
+      (event) => {
+        const x = event.clientX - rect.left
+        const fromRight = rect.width - x
+        const max = Math.max(RIGHT_MIN_WIDTH, rect.width - leftWRef.current - MIN_CENTER_WIDTH)
+        const nw = Math.min(Math.max(fromRight, RIGHT_MIN_WIDTH), max)
+        latestWidth = nw
+        rightWRef.current = nw
+        setRightW(nw)
+      },
+      () => {
+        try {
+          window.localStorage.setItem(RIGHT_KEY, String(latestWidth))
+        } catch {}
+      },
+    )
   }
 
   return { leftW, rightW, onResizeLeft, onResizeRight }

@@ -418,6 +418,17 @@
   font-weight: 600;
 }
 
+.sidebar-resize-handle {
+  width: 12px;
+  cursor: col-resize;
+  z-index: 10;
+  touch-action: none;
+}
+
+.sidebar-resize-handle:hover {
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+}
+
 .app-shell {
   grid-template-rows: var(--toolbar-h) 1fr;
 }
@@ -963,6 +974,10 @@
 
   .tree-row-action-btn {
     opacity: 1;
+  }
+
+  .sidebar-resize-handle {
+    width: 20px;
   }
 
   .btn,

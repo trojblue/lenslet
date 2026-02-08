@@ -197,11 +197,11 @@
 
 .grid-item-action-btn {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
+  top: 7px;
+  right: 7px;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
   border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
   background: color-mix(in oklab, var(--surface-overlay) 88%, transparent);
   color: var(--text);
@@ -264,10 +264,10 @@
 }
 
 .tree-row-action-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
-  border-radius: 999px;
+  border-radius: 10px;
   background: color-mix(in oklab, var(--surface-overlay) 84%, transparent);
   color: var(--text);
   display: inline-flex;
@@ -275,11 +275,13 @@
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  opacity: 0.74;
+  opacity: 0;
   transition: opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
 }
 
 .tree-row:hover .tree-row-action-btn,
+.tree-row:focus-within .tree-row-action-btn,
+.tree-row[aria-selected="true"] .tree-row-action-btn,
 .tree-row-action-btn:focus-visible {
   opacity: 1;
 }
@@ -851,6 +853,36 @@
   box-shadow: inset 0 0 0 2px var(--accent) !important;
 }
 
+.toolbar-shell-compact {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  column-gap: 8px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.toolbar-shell-compact .toolbar-left,
+.toolbar-shell-compact .toolbar-right {
+  gap: 6px;
+}
+
+.toolbar-shell-compact .toolbar-scope-label,
+.toolbar-shell-compact .toolbar-count,
+.toolbar-shell-compact .toolbar-filters-label {
+  display: none;
+}
+
+.toolbar-shell-compact .toolbar-center {
+  justify-content: flex-start;
+}
+
+.toolbar-shell-compact .zoom-slider {
+  width: 110px;
+}
+
+.toolbar-shell-compact .toolbar-search-desktop {
+  width: 168px !important;
+}
+
 /* Responsive toolbar + layout tweaks for narrow screens */
 @media (max-width: 900px) {
   :root {
@@ -1021,14 +1053,16 @@
 @media (pointer: coarse) {
   .grid-item-action-btn {
     opacity: 1;
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
   }
 
   .tree-row-action-btn {
     opacity: 1;
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
   }
 
   .tree-expand-btn {

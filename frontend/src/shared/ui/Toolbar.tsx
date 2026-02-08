@@ -101,6 +101,7 @@ export default function Toolbar({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const isNarrow = useMediaQuery(LAYOUT_MEDIA_QUERIES.narrow)
   const isPhone = useMediaQuery(LAYOUT_MEDIA_QUERIES.phone)
+  const isToolbarCompact = useMediaQuery(LAYOUT_MEDIA_QUERIES.toolbarCompact)
 
   // Close filters on click outside
   useEffect(() => {
@@ -171,6 +172,8 @@ export default function Toolbar({
   ]
 
   const showMobileDrawer = isNarrow && !viewerActive
+  const isCompactViewer = Boolean(viewerActive) && isToolbarCompact
+  const showSortFiltersInToolbar = !isCompactViewer
   const showToolbarNav = !!viewerActive && !isPhone
   const showSelectModeToggle = showMobileDrawer && !!onToggleMultiSelectMode
   const selectModeLabel = multiSelectMode
@@ -206,13 +209,13 @@ export default function Toolbar({
   return (
     <div
       ref={rootRef}
-      className={`toolbar-shell ${viewerActive ? 'toolbar-shell-viewer' : ''} ${isPhone ? 'toolbar-shell-phone' : ''} fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1 select-none`}
+      className={`toolbar-shell ${viewerActive ? 'toolbar-shell-viewer' : ''} ${isPhone ? 'toolbar-shell-phone' : ''} ${isToolbarCompact ? 'toolbar-shell-compact' : ''} fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1 select-none`}
     >
       {/* Left section */}
       <div className="toolbar-left flex items-center gap-4 min-w-0">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex flex-col min-w-0 leading-tight">
-            <span className="text-[10px] uppercase tracking-widest text-muted">Scope</span>
+        <div className="toolbar-scope flex items-center gap-3 min-w-0">
+          <div className="toolbar-scope-text flex flex-col min-w-0 leading-tight">
+            <span className="toolbar-scope-label text-[10px] uppercase tracking-widest text-muted">Scope</span>
             <span className="text-sm font-medium text-text truncate" title={scopeName}>
               {scopeName}
             </span>
@@ -221,50 +224,52 @@ export default function Toolbar({
             <span className="toolbar-count text-xs text-muted whitespace-nowrap tabular-nums">{countLabel}</span>
           )}
         </div>
-        <div className="toolbar-sort flex items-center gap-2">
-          <div className={`toolbar-sort-controls flex items-center gap-2 ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
-            <Dropdown
-              value={currentSort}
-              onChange={handleSortLayoutChange}
-              options={sortOptions}
-              title="Sort and layout options"
-              aria-label="Sort and layout"
-              triggerClassName="min-w-[110px]"
+        {viewerActive && (
+          <button className="toolbar-back-btn btn btn-sm" onClick={onBack} title="Back to grid">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            Back
+          </button>
+        )}
+        {showSortFiltersInToolbar && (
+          <div className="toolbar-sort flex items-center gap-2">
+            <div className={`toolbar-sort-controls flex items-center gap-2 ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
+              <Dropdown
+                value={currentSort}
+                onChange={handleSortLayoutChange}
+                options={sortOptions}
+                title="Sort and layout options"
+                aria-label="Sort and layout"
+                triggerClassName="min-w-[110px]"
+              />
+              <button
+                className="toolbar-sort-dir btn btn-icon"
+                onClick={handleSortDirToggle}
+                title={sortDisabled ? 'Sorting disabled' : (isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`)}
+                aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
+                aria-disabled={sortControlsDisabled}
+                disabled={sortControlsDisabled}
+              >
+                <SortDirectionIcon isRandom={isRandom} dir={sortDir} />
+              </button>
+            </div>
+            <ToolbarFilterMenu
+              viewerActive={Boolean(viewerActive)}
+              filtersOpen={filtersOpen}
+              filtersRef={filtersRef}
+              totalFilterCount={totalFilterCount}
+              filterCount={filterCount}
+              starFilterList={starFilterList}
+              starCounts={starCounts}
+              onToggleFilters={() => setFiltersOpen((value) => !value)}
+              onOpenFilters={onOpenFilters}
+              onToggleStar={onToggleStar}
+              onClearFilters={onClearFilters}
+              onClearStars={onClearStars}
             />
-            <button
-              className="toolbar-sort-dir btn btn-icon"
-              onClick={handleSortDirToggle}
-              title={sortDisabled ? 'Sorting disabled' : (isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`)}
-              aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
-              aria-disabled={sortControlsDisabled}
-              disabled={sortControlsDisabled}
-            >
-              <SortDirectionIcon isRandom={isRandom} dir={sortDir} />
-            </button>
           </div>
-          <ToolbarFilterMenu
-            viewerActive={Boolean(viewerActive)}
-            filtersOpen={filtersOpen}
-            filtersRef={filtersRef}
-            totalFilterCount={totalFilterCount}
-            filterCount={filterCount}
-            starFilterList={starFilterList}
-            starCounts={starCounts}
-            onToggleFilters={() => setFiltersOpen((value) => !value)}
-            onOpenFilters={onOpenFilters}
-            onToggleStar={onToggleStar}
-            onClearFilters={onClearFilters}
-            onClearStars={onClearStars}
-          />
-          {viewerActive && (
-            <button className="btn btn-sm" onClick={onBack} title="Back to grid">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-              Back
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Center section - size slider */}
@@ -306,30 +311,32 @@ export default function Toolbar({
 
       {/* Right section */}
       <div className="toolbar-right flex items-center gap-2 justify-end">
-        <div className={`toolbar-nav flex items-center gap-1 mr-1 ${showToolbarNav ? '' : 'opacity-0 pointer-events-none'}`} aria-hidden={!showToolbarNav}>
-          <button
-            className={`btn btn-icon ${canPrevImage ? '' : 'opacity-40 cursor-not-allowed'}`}
-            title="Previous image (A / ←)"
-            onClick={() => canPrevImage && onPrevImage?.()}
-            aria-label="Previous image"
-            aria-disabled={!canPrevImage}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </button>
-          <button
+        {showToolbarNav && (
+          <div className="toolbar-nav flex items-center gap-1 mr-1">
+            <button
+              className={`btn btn-icon ${canPrevImage ? '' : 'opacity-40 cursor-not-allowed'}`}
+              title="Previous image (A / ←)"
+              onClick={() => canPrevImage && onPrevImage?.()}
+              aria-label="Previous image"
+              aria-disabled={!canPrevImage}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+            <button
               className={`btn btn-icon ${canNextImage ? '' : 'opacity-40 cursor-not-allowed'}`}
               title="Next image (D / →)"
               onClick={() => canNextImage && onNextImage?.()}
               aria-label="Next image"
               aria-disabled={!canNextImage}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 6l6 6-6 6" />
-            </svg>
-          </button>
-        </div>
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Panel toggles */}
         <div className="toolbar-panels flex items-center gap-1">
@@ -378,7 +385,7 @@ export default function Toolbar({
         {syncIndicator && (
           <SyncIndicator
             {...syncIndicator}
-            isNarrow={isNarrow}
+            isNarrow={isNarrow || isToolbarCompact}
           />
         )}
         {!viewerActive && isNarrow && (
@@ -396,7 +403,7 @@ export default function Toolbar({
           </button>
         )}
         {!viewerActive && !isNarrow ? (
-          <div className="toolbar-search w-[240px]">
+          <div className="toolbar-search toolbar-search-desktop w-[240px]">
             <input
               ref={searchInputRef}
               aria-label="Search filename, tags, notes"
@@ -406,8 +413,6 @@ export default function Toolbar({
               disabled={searchDisabled}
             />
           </div>
-        ) : viewerActive ? (
-          <div className="toolbar-search w-[240px]" aria-hidden="true" />
         ) : null}
       </div>
       {!viewerActive && isNarrow && mobileSearchOpen && !searchDisabled && (

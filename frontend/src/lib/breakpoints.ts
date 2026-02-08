@@ -10,6 +10,7 @@ export const LAYOUT_MEDIA_QUERIES = {
   phone: `(max-width: ${LAYOUT_BREAKPOINTS.phoneMax}px)`,
   mobile: `(max-width: ${LAYOUT_BREAKPOINTS.mobileMax}px)`,
   narrow: `(max-width: ${LAYOUT_BREAKPOINTS.narrowMax}px)`,
+  toolbarCompact: `(max-width: ${LAYOUT_BREAKPOINTS.mediumMax}px)`,
 } as const
 
 const SIDEBAR_LEFT_MIN = 200

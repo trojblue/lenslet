@@ -6,6 +6,12 @@ import { api, makeIdempotencyKey } from '../../shared/api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import type { Item, SortSpec, StarRating } from '../../lib/types'
 import { isInputElement } from '../../lib/keyboard'
+import { downloadBlob } from '../../app/utils/appShellHelpers'
+import {
+  DEFAULT_EXPORT_COMPARISON_EMBED_METADATA,
+  buildComparisonExportFilename,
+  buildExportComparisonPayload,
+} from './exportComparison'
 
 // Try to turn JSON-looking strings (common in PNG text chunks) back into objects
 function normalizeMetadata(value: unknown): unknown {
@@ -411,6 +417,10 @@ export default function Inspector({
   const [compareValueCopiedPathB, setCompareValueCopiedPathB] = useState<string | null>(null)
   const compareValueCopyTimeoutRef = useRef<number | null>(null)
   const compareMetaRequestIdRef = useRef(0)
+  const [compareExportLabelsText, setCompareExportLabelsText] = useState('')
+  const [compareExportEmbedMetadata, setCompareExportEmbedMetadata] = useState(DEFAULT_EXPORT_COMPARISON_EMBED_METADATA)
+  const [compareExportMode, setCompareExportMode] = useState<'normal' | 'reverse' | null>(null)
+  const [compareExportError, setCompareExportError] = useState<string | null>(null)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [valueHeights, setValueHeights] = useState<Record<string, number>>({})
   const localTypingActiveRef = useRef(false)
@@ -422,10 +432,9 @@ export default function Inspector({
   }, [onLocalTypingChange])
   
   // Get star from item list (optimistic local value) or sidecar
-  const itemStarFromList = useMemo((): number | null => {
-    const it = items.find((i) => i.path === path)
-    if (it && it.star !== undefined) return it.star
-    return null
+  const itemStarFromList = useMemo((): StarRating | null => {
+    const star = items.find((i) => i.path === path)?.star
+    return star ?? null
   }, [items, path])
   
   const star = itemStarFromList ?? data?.star ?? null
@@ -639,6 +648,10 @@ export default function Inspector({
       setCompareMetaCopied(null)
       setCompareValueCopiedPathA(null)
       setCompareValueCopiedPathB(null)
+      setCompareExportLabelsText('')
+      setCompareExportEmbedMetadata(DEFAULT_EXPORT_COMPARISON_EMBED_METADATA)
+      setCompareExportMode(null)
+      setCompareExportError(null)
       return
     }
     setCompareIncludePilInfo(false)
@@ -647,6 +660,8 @@ export default function Inspector({
     setCompareMetaCopied(null)
     setCompareValueCopiedPathA(null)
     setCompareValueCopiedPathB(null)
+    setCompareExportMode(null)
+    setCompareExportError(null)
     fetchCompareMetadata(comparePathA, comparePathB)
   }, [compareReady, comparePathA, comparePathB, fetchCompareMetadata])
 
@@ -874,6 +889,46 @@ export default function Inspector({
     if (!comparePathA || !comparePathB) return
     fetchCompareMetadata(comparePathA, comparePathB)
   }, [comparePathA, comparePathB, fetchCompareMetadata])
+
+  const compareExportBusy = compareExportMode !== null
+
+  const handleComparisonExport = useCallback(async (reverseOrder: boolean) => {
+    if (!comparePathA || !comparePathB) {
+      setCompareExportError('Comparison export requires two selected images.')
+      return
+    }
+    if (compareExportBusy) return
+
+    const payloadResult = buildExportComparisonPayload({
+      pathA: comparePathA,
+      pathB: comparePathB,
+      labelsText: compareExportLabelsText,
+      embedMetadata: compareExportEmbedMetadata,
+      reverseOrder,
+    })
+    if (!payloadResult.ok) {
+      setCompareExportError(payloadResult.message)
+      return
+    }
+
+    setCompareExportMode(reverseOrder ? 'reverse' : 'normal')
+    setCompareExportError(null)
+    try {
+      const blob = await api.exportComparison(payloadResult.payload)
+      downloadBlob(blob, buildComparisonExportFilename(reverseOrder))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to export comparison.'
+      setCompareExportError(msg)
+    } finally {
+      setCompareExportMode(null)
+    }
+  }, [
+    comparePathA,
+    comparePathB,
+    compareExportBusy,
+    compareExportEmbedMetadata,
+    compareExportLabelsText,
+  ])
 
   const compareDiff = useMemo(() => {
     if (!compareMetaA || !compareMetaB) return null
@@ -1216,6 +1271,51 @@ export default function Inspector({
                   </pre>
                 </div>
               </div>
+            </div>
+
+            <div className="space-y-2 rounded-md border border-border/60 bg-surface-inset/40 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-muted">Export Comparison</div>
+              <textarea
+                className="ui-textarea inspector-input w-full h-20 scrollbar-thin"
+                placeholder={'Label for A\nLabel for B'}
+                value={compareExportLabelsText}
+                onChange={(e) => {
+                  setCompareExportLabelsText(e.target.value)
+                  setCompareExportError(null)
+                }}
+                disabled={compareExportBusy}
+                aria-label="Comparison export labels"
+              />
+              <label className="inline-flex items-center gap-2 text-[11px] text-muted">
+                <input
+                  type="checkbox"
+                  checked={compareExportEmbedMetadata}
+                  onChange={(e) => setCompareExportEmbedMetadata(e.target.checked)}
+                  disabled={compareExportBusy}
+                />
+                <span>Embed metadata</span>
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => { void handleComparisonExport(false) }}
+                  disabled={!compareReady || compareExportBusy}
+                >
+                  {compareExportMode === 'normal' ? 'Exporting…' : 'Export comparison'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => { void handleComparisonExport(true) }}
+                  disabled={!compareReady || compareExportBusy}
+                >
+                  {compareExportMode === 'reverse' ? 'Exporting…' : 'Export (reverse order)'}
+                </button>
+              </div>
+              {compareExportError && (
+                <div className="text-danger break-words">{compareExportError}</div>
+              )}
             </div>
           </div>
         </InspectorSection>

@@ -10,6 +10,7 @@ const PROXY_PATHS = [
   '/move',
   '/delete',
   '/export-intent',
+  '/export-comparison',
   '/views',
   '/search',
   '/health',

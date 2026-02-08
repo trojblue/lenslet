@@ -155,6 +155,14 @@ export type ImageMetadataResponse = {
   meta: Record<string, unknown>
 }
 
+export type ExportComparisonRequest = {
+  v: 1
+  paths: [string, string]
+  labels?: string[]
+  embed_metadata?: boolean
+  reverse_order?: boolean
+}
+
 export type ViewMode = 'grid' | 'adaptive'
 
 export type SortSpec =

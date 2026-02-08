@@ -8,6 +8,7 @@ import type {
   RefreshResponse,
   SearchResult,
   ImageMetadataResponse,
+  ExportComparisonRequest,
   ViewsPayload,
   HealthResponse,
   EmbeddingsResponse,
@@ -655,6 +656,17 @@ export const api = {
     return fileCache.getOrFetch(path, () =>
       fetchBlob(fileUrl(path))
     )
+  },
+
+  /**
+   * Export a side-by-side comparison PNG for two image paths.
+   */
+  exportComparison: (body: ExportComparisonRequest): Promise<Blob> => {
+    return fetchBlob(`${BASE}/export-comparison`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).promise
   },
 
   /**

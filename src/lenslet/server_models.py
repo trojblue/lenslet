@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 Mime = Literal["image/webp", "image/jpeg", "image/png"]
 
@@ -91,6 +91,16 @@ class ImageMetadataResponse(BaseModel):
     path: str
     format: Literal["png", "jpeg", "webp"]
     meta: dict
+
+
+class ExportComparisonRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    v: Literal[1]
+    paths: list[str] = Field(min_length=2, max_length=2)
+    labels: list[str] | None = Field(default=None, max_length=2)
+    embed_metadata: bool = True
+    reverse_order: bool = False
 
 
 class ViewsPayload(BaseModel):

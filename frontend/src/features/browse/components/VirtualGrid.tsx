@@ -8,6 +8,7 @@ import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 import type { AdaptiveRow } from '../model/adaptive'
 import { getVisibleThumbPrefetchPaths } from '../model/virtualGridPrefetch'
 import { LongPressController } from '../../../lib/touch'
+import { shouldOpenOnTap, toggleSelectedPath } from '../../../lib/mobileSelection'
 
 const GAP = 12
 const CAPTION_H = 44
@@ -81,6 +82,7 @@ interface VirtualGridProps {
   items: Item[]
   selected: string[]
   restoreToSelectionToken?: number
+  multiSelectMode?: boolean
   onSelectionChange: (paths: string[]) => void
   onOpenViewer: (path: string) => void
   onContextMenuItem?: (e: React.MouseEvent, path: string) => void
@@ -99,6 +101,7 @@ export default function VirtualGrid({
   items,
   selected,
   restoreToSelectionToken,
+  multiSelectMode = false,
   onSelectionChange,
   onOpenViewer,
   onContextMenuItem,
@@ -127,6 +130,10 @@ export default function VirtualGrid({
   const longPressPathRef = useRef<string | null>(null)
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null)
   const suppressClickRef = useRef<{ path: string; untilMs: number } | null>(null)
+  const lastPointerRef = useRef<{ path: string | null; pointerType: string | null }>({
+    path: null,
+    pointerType: null,
+  })
 
   const TARGET_CELL = targetCellSize
 
@@ -341,22 +348,27 @@ export default function VirtualGrid({
 
   const handleItemPointerDown = (path: string, ev: React.PointerEvent<HTMLDivElement>) => {
     if ((ev.target as HTMLElement).closest('[data-grid-action]')) return
+    lastPointerRef.current = { path, pointerType: ev.pointerType }
+    if (multiSelectMode) return
     longPressPathRef.current = path
     longPressPointRef.current = { x: ev.clientX, y: ev.clientY }
     longPressControllerRef.current?.pointerDown(toLongPressEvent(ev))
   }
 
   const handleItemPointerMove = (ev: React.PointerEvent<HTMLDivElement>) => {
+    if (multiSelectMode) return
     longPressPointRef.current = { x: ev.clientX, y: ev.clientY }
     longPressControllerRef.current?.pointerMove(toLongPressEvent(ev))
   }
 
   const handleItemPointerUp = (ev: React.PointerEvent<HTMLDivElement>) => {
+    if (multiSelectMode) return
     longPressControllerRef.current?.pointerUp(ev.pointerId)
     clearLongPressTracking()
   }
 
   const handleItemPointerCancel = (ev: React.PointerEvent<HTMLDivElement>) => {
+    if (multiSelectMode) return
     longPressControllerRef.current?.pointerCancel(ev.pointerId)
     clearLongPressTracking()
   }
@@ -375,7 +387,21 @@ export default function VirtualGrid({
     setFocused(path)
     const isShift = !!ev.shiftKey
     const isToggle = !!(ev.ctrlKey || ev.metaKey)
-    if (isShift) {
+    if (multiSelectMode) {
+      onSelectionChange(toggleSelectedPath(selected, path))
+      anchorRef.current = path
+    } else if (shouldOpenOnTap({
+      pointerType: lastPointerRef.current.path === path ? lastPointerRef.current.pointerType : null,
+      multiSelectMode,
+      isShift,
+      isToggle,
+      selectedPaths: selected,
+      path,
+    })) {
+      onSelectionChange([path])
+      anchorRef.current = path
+      onOpenViewer(path)
+    } else if (isShift) {
       const anchorPath = anchorRef.current ?? active ?? (selected[0] ?? path)
       const aIdx = pathToIndex.get(anchorPath) ?? items.findIndex(i => i.path === anchorPath)
       const bIdx = pathToIndex.get(path) ?? items.findIndex(i => i.path === path)
@@ -394,13 +420,7 @@ export default function VirtualGrid({
         onSelectionChange([path])
       }
     } else if (isToggle) {
-      const next = new Set(selected)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-      }
-      onSelectionChange(Array.from(next))
+      onSelectionChange(toggleSelectedPath(selected, path))
       anchorRef.current = path
     } else {
       onSelectionChange([path])
@@ -640,7 +660,7 @@ export default function VirtualGrid({
                   <div 
                     className={itemContainerClass}
                     style={imageContainerStyle}
-                    onDoubleClick={()=> onOpenViewer(it.path)} 
+                    onDoubleClick={()=> { if (!multiSelectMode) onOpenViewer(it.path) }} 
                     onMouseLeave={clearPreview}>
                     <button
                       type="button"
@@ -681,7 +701,7 @@ export default function VirtualGrid({
                       onMouseEnter={() => schedulePreview(it.path)}
                       onMouseLeave={clearPreview}>
                       <div
-                        className="absolute right-0 bottom-0 h-[18px] w-[18px] flex items-center justify-center text-text select-none opacity-0 group-hover:opacity-50 hover:opacity-100 transition-all duration-[140ms]"
+                        className="grid-item-preview-corner absolute right-0 bottom-0 h-[18px] w-[18px] flex items-center justify-center text-text select-none"
                         style={{
                           clipPath: 'path("M0 9C0 4.02944 4.02944 0 9 0H18V18H0V9Z")',
                           background: 'linear-gradient(135deg, rgba(18,18,18,0.9) 0%, rgba(34,34,34,0.9) 60%, rgba(22,22,22,0.9) 100%)',

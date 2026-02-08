@@ -77,6 +77,9 @@ The dev server runs at http://localhost:5173 and proxies API requests to http://
 - Thumbnail size slider in the toolbar persists; `Ctrl + mouse wheel` over the gallery adjusts the same size (prevents browser zoom).
 - Sidebar visibility: `Ctrl+B` toggles the left folder tree; `Ctrl+Alt+B` toggles the right inspector. The same toggles exist as small icon buttons beside the search box.
 - Search focus: `/` focuses the search box when not already in an input field.
+- Touch open behavior: on touch/pen input, first tap selects and second tap on the same selected item opens the viewer.
+- Mobile multi-select: on narrow mobile widths (`<=767px`), use the toolbar drawer `Select` toggle for explicit multi-select mode (no Shift/Ctrl requirement).
+- Viewer nav on phones: toolbar nav is shown on narrow viewer layouts except very small phone widths (`<=480px`), where in-viewer `Prev/Next` controls are shown.
 
 ### Running the Backend
 

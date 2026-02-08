@@ -13,7 +13,7 @@ import { api, connectEvents, disconnectEvents, dispatchPresenceLeave, getClientI
 import type { ConnectionStatus, FullFilePrefetchContext, SyncEvent } from '../shared/api/client'
 import { useOldestInflightAgeMs, useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
 import { usePollingEnabled } from '../shared/api/polling'
-import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, getPathName, isTrashPath, isLikelyImagePath, joinPath } from './routing/hash'
+import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, getPathName, isLikelyImagePath, joinPath } from './routing/hash'
 import { applyFilters, applySort } from '../features/browse/model/apply'
 import {
   countActiveFilters,
@@ -34,8 +34,6 @@ import {
 } from '../features/browse/model/filters'
 import { useSidebars } from './layout/useSidebars'
 import { useQueryClient } from '@tanstack/react-query'
-import ContextMenu, { MenuItem } from './menu/ContextMenu'
-import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../features/ratings/services/exportRatings'
 import { useDebounced } from '../shared/hooks/useDebounced'
 import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, PresenceEvent, Sidecar, EmbeddingSearchItem, EmbeddingSearchRequest } from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
@@ -55,7 +53,19 @@ import {
 } from '../lib/constants'
 import { hydrateFolderPages } from '../features/browse/model/pagedFolder'
 import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
-import { constrainSidebarWidths, LAYOUT_MEDIA_QUERIES } from '../lib/breakpoints'
+import { constrainSidebarWidths, LAYOUT_BREAKPOINTS, LAYOUT_MEDIA_QUERIES } from '../lib/breakpoints'
+import { useMediaQuery } from '../shared/hooks/useMediaQuery'
+import MoveToDialog from './components/MoveToDialog'
+import AppContextMenuItems from './menu/AppContextMenuItems'
+import {
+  buildFallbackItem,
+  downloadBlob,
+  formatDateRange,
+  formatRange,
+  formatScopeLabel,
+  formatStarValues,
+  makeUniqueViewId,
+} from './utils/appShellHelpers'
 
 /** Local storage keys for persisted settings */
 const STORAGE_KEYS = {
@@ -208,11 +218,13 @@ export default function AppShell() {
   const [randomSeed, setRandomSeed] = useState<number>(() => Date.now())
   const [viewMode, setViewMode] = useState<ViewMode>('adaptive')
   const [gridItemSize, setGridItemSize] = useState<number>(220)
+  const [mobileSelectMode, setMobileSelectMode] = useState(false)
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
   const [viewportWidth, setViewportWidth] = useState(() => (
     typeof window === 'undefined' ? 1440 : window.innerWidth
   ))
+  const isNarrowViewport = useMediaQuery(LAYOUT_MEDIA_QUERIES.narrow)
   const [leftTool, setLeftTool] = useState<'folders' | 'metrics'>('folders')
   const [views, setViews] = useState<SavedView[]>([])
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
@@ -1298,22 +1310,10 @@ export default function AppShell() {
 
   // Auto-collapse side panels on narrow screens
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    const media = window.matchMedia(LAYOUT_MEDIA_QUERIES.narrow)
-    const apply = () => {
-      if (media.matches) {
-        setLeftOpen(false)
-        setRightOpen(false)
-      }
-    }
-    apply()
-    if ('addEventListener' in media) {
-      media.addEventListener('change', apply)
-      return () => media.removeEventListener('change', apply)
-    }
-    media.addListener(apply)
-    return () => media.removeListener(apply)
-  }, [])
+    if (!isNarrowViewport) return
+    setLeftOpen(false)
+    setRightOpen(false)
+  }, [isNarrowViewport])
 
   // Track browser zoom changes (best-effort heuristic)
   useEffect(() => {
@@ -1381,6 +1381,14 @@ export default function AppShell() {
       window.removeEventListener('orientationchange', update)
     }
   }, [])
+
+  const mobileSelectEnabled = viewportWidth <= LAYOUT_BREAKPOINTS.mobileMax
+
+  useEffect(() => {
+    if (mobileSelectEnabled) return
+    if (!mobileSelectMode) return
+    setMobileSelectMode(false)
+  }, [mobileSelectEnabled, mobileSelectMode])
 
   // Ctrl + scroll adjusts thumbnail size (override browser zoom)
   useEffect(() => {
@@ -1831,6 +1839,11 @@ export default function AppShell() {
         if (selectedPaths.length) {
           e.preventDefault()
           setSelectedPaths([])
+          return
+        }
+        if (mobileSelectMode) {
+          e.preventDefault()
+          setMobileSelectMode(false)
         }
       } else if (e.key === '/') {
         e.preventDefault()
@@ -1841,7 +1854,7 @@ export default function AppShell() {
     
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [current, items, selectedPaths, viewer, compareOpen, openFolder])
+  }, [current, items, selectedPaths, viewer, compareOpen, openFolder, mobileSelectMode])
 
   const constrainedSidebars = useMemo(() => constrainSidebarWidths({
     viewportWidth,
@@ -1922,6 +1935,9 @@ export default function AppShell() {
         onUploadClick={openUploadPicker}
         uploadBusy={uploading}
         uploadDisabled={compareOpen}
+        multiSelectMode={mobileSelectMode}
+        selectedCount={selectedPaths.length}
+        onToggleMultiSelectMode={mobileSelectEnabled ? (() => setMobileSelectMode((prev) => !prev)) : undefined}
         syncIndicator={{
           state: indicatorState,
           presence,
@@ -2070,6 +2086,7 @@ export default function AppShell() {
             items={items}
             selected={selectedPaths}
             restoreToSelectionToken={restoreGridToSelectionToken}
+            multiSelectMode={mobileSelectEnabled && mobileSelectMode}
             onSelectionChange={setSelectedPaths}
             onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
             highlight={searching ? normalizedQ : ''}
@@ -2135,6 +2152,8 @@ export default function AppShell() {
           onZoomChange={(p)=> setCurrentZoom(Math.round(p))}
           requestedZoomPercent={requestedZoom}
           onZoomRequestConsumed={()=> setRequestedZoom(null)}
+          canPrev={canPrevImage}
+          canNext={canNextImage}
           onNavigate={handleNavigate}
         />
       )}
@@ -2168,7 +2187,7 @@ export default function AppShell() {
         </div>
       )}
       {ctx && (
-        <ContextMenuItems
+        <AppContextMenuItems
           ctx={ctx}
           current={current}
           items={items}
@@ -2182,416 +2201,3 @@ export default function AppShell() {
   )
 }
 
-function MoveToDialog({
-  paths,
-  defaultDestination,
-  destinations,
-  loadingDestinations,
-  onClose,
-  onSubmit,
-}: {
-  paths: string[]
-  defaultDestination: string
-  destinations: string[]
-  loadingDestinations: boolean
-  onClose: () => void
-  onSubmit: (paths: string[], destination: string) => Promise<boolean>
-}) {
-  const [destination, setDestination] = useState(() => sanitizePath(defaultDestination || '/'))
-  const [submitting, setSubmitting] = useState(false)
-
-  useEffect(() => {
-    setDestination(sanitizePath(defaultDestination || '/'))
-  }, [defaultDestination, paths])
-
-  const normalizedDestination = sanitizePath(destination || '/')
-  const canSubmit = paths.length > 0 && !submitting
-  const previewNames = paths.slice(0, 3).map((path) => getPathName(path) || path)
-  const remainingCount = Math.max(0, paths.length - previewNames.length)
-  const quickDestinations = destinations
-    .filter((path) => path !== normalizedDestination)
-    .slice(0, 8)
-
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!canSubmit) return
-    setSubmitting(true)
-    try {
-      await onSubmit(paths, normalizedDestination)
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <div className="toolbar-offset fixed inset-0 z-overlay bg-black/45 backdrop-blur-[1px] flex items-center justify-center p-3">
-      <div className="w-full max-w-[560px] rounded-xl border border-border bg-panel shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-text">Move to folder</div>
-            <div className="text-xs text-muted">{paths.length} item(s) selected</div>
-          </div>
-          <button
-            type="button"
-            className="btn btn-icon"
-            onClick={onClose}
-            aria-label="Close move dialog"
-            disabled={submitting}
-          >
-            ×
-          </button>
-        </div>
-
-        <form className="px-4 py-3 flex flex-col gap-3" onSubmit={handleSubmit}>
-          <div className="text-xs text-muted">
-            {previewNames.join(', ')}
-            {remainingCount > 0 ? ` and ${remainingCount} more` : ''}
-          </div>
-
-          <label className="text-xs text-muted flex flex-col gap-1.5">
-            Destination folder
-            <input
-              value={destination}
-              onChange={(event) => setDestination(event.target.value)}
-              className="input w-full"
-              list="move-destination-list"
-              placeholder="/"
-              autoFocus
-              disabled={submitting}
-            />
-          </label>
-          <datalist id="move-destination-list">
-            {destinations.map((path) => (
-              <option key={path} value={path} />
-            ))}
-          </datalist>
-
-          <div className="text-[11px] text-muted">
-            {loadingDestinations ? 'Loading folder list…' : `${destinations.length.toLocaleString()} destination(s) loaded`}
-          </div>
-
-          {quickDestinations.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {quickDestinations.map((path) => (
-                <button
-                  key={path}
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => setDestination(path)}
-                  disabled={submitting}
-                >
-                  {path}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="flex justify-end gap-2 pt-2 border-t border-border">
-            <button type="button" className="btn" onClick={onClose} disabled={submitting}>Cancel</button>
-            <button type="submit" className="btn btn-active" disabled={!canSubmit}>
-              {submitting ? 'Moving…' : 'Move'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-function makeUniqueViewId(name: string, views: SavedView[]): string {
-  const base = slugify(name) || 'view'
-  const existing = new Set(views.map((v) => v.id))
-  if (!existing.has(base)) return base
-  let idx = 2
-  while (existing.has(`${base}-${idx}`)) idx += 1
-  return `${base}-${idx}`
-}
-
-function slugify(input: string): string {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
-
-function formatStarValues(values: number[]): string {
-  const stars = values.filter((v) => v > 0).sort((a, b) => b - a)
-  const hasNone = values.includes(0)
-  const parts = [...stars.map((v) => String(v))]
-  if (hasNone) parts.push('None')
-  return parts.join(', ')
-}
-
-function formatDateRange(from?: string, to?: string): string {
-  if (from && to) return `${from} to ${to}`
-  if (from) return `from ${from}`
-  if (to) return `to ${to}`
-  return ''
-}
-
-function formatScopeLabel(path: string): string {
-  if (path === '/' || path === '') return 'Root'
-  const segments = path.split('/').filter(Boolean)
-  if (!segments.length) return 'Root'
-  if (segments.length <= 2) return `/${segments.join('/')}`
-  const tail = segments.slice(-2).join('/')
-  return `.../${tail}`
-}
-
-function formatRange(min: number, max: number): string {
-  return `${formatNumber(min)}–${formatNumber(max)}`
-}
-
-function formatNumber(value: number): string {
-  const abs = Math.abs(value)
-  if (abs >= 1000) return value.toFixed(0)
-  if (abs >= 10) return value.toFixed(2)
-  return value.toFixed(3)
-}
-
-function guessMimeFromPath(path: string): Item['type'] {
-  const lower = path.toLowerCase()
-  if (lower.endsWith('.png')) return 'image/png'
-  if (lower.endsWith('.webp')) return 'image/webp'
-  return 'image/jpeg'
-}
-
-function buildFallbackItem(path: string, starOverride?: StarRating): Item {
-  const name = path.split('/').pop() ?? path
-  return {
-    path,
-    name,
-    type: guessMimeFromPath(path),
-    w: 0,
-    h: 0,
-    size: 0,
-    hasThumb: true,
-    hasMeta: false,
-    star: starOverride ?? null,
-  }
-}
-
-/**
- * Helper function to trigger a file download from a blob.
- */
-function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
-
-/**
- * Context menu items component - extracted for cleaner render logic.
- */
-function ContextMenuItems({
-  ctx,
-  current,
-  items,
-  setCtx,
-  onRefetch,
-  onOpenMoveDialog,
-  onRefreshFolder,
-}: {
-  ctx: ContextMenuState
-  current: string
-  items: Item[]
-  setCtx: (ctx: ContextMenuState | null) => void
-  onRefetch: () => Promise<unknown>
-  onOpenMoveDialog: (paths: string[]) => void
-  onRefreshFolder: (path: string) => Promise<void>
-}) {
-  const inTrash = isTrashPath(current)
-  const [refreshing, setRefreshing] = React.useState(false)
-  const [exporting, setExporting] = React.useState<'csv' | 'json' | null>(null)
-
-  const timestamp = () => new Date().toISOString().replace(/[:.]/g, '-')
-
-  const handleRefresh = async () => {
-    const target = ctx.payload.path || '/'
-    setRefreshing(true)
-    try {
-      await onRefreshFolder(target)
-    } catch (err) {
-      console.error('Failed to refresh folder:', err)
-    } finally {
-      setRefreshing(false)
-      setCtx(null)
-    }
-  }
-
-  const exportFolder = (format: 'csv' | 'json') => async () => {
-    setExporting(format)
-    const folderPath = ctx.payload.path || current
-    try {
-      const folder = await api.getFolder(folderPath, { recursive: true, legacyRecursive: true })
-      const folderItems = folder.items
-      const ratings = mapItemsToRatings(folderItems)
-      const content = format === 'csv' ? toRatingsCsv(ratings) : toRatingsJson(ratings)
-      const mime = format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8'
-      const slug = folderPath === '/' ? 'root' : (folderPath.replace(/^\/+/, '') || 'root').replace(/\//g, '_')
-      downloadBlob(new Blob([content], { type: mime }), `metadata_${slug}_${timestamp()}.${format}`)
-    } catch (err) {
-      console.error('Failed to export folder:', err)
-      alert('Failed to export folder. See console for details.')
-    } finally {
-      setExporting(null)
-      setCtx(null)
-    }
-  }
-  
-  const menuItems: MenuItem[] = ctx.kind === 'tree'
-    ? [
-        {
-          label: refreshing ? 'Refreshing…' : 'Refresh',
-          disabled: refreshing,
-          onClick: handleRefresh,
-        },
-        {
-          label: exporting === 'csv' ? 'Exporting CSV…' : 'Export metadata (CSV)',
-          disabled: !!exporting || refreshing,
-          onClick: exportFolder('csv'),
-        },
-        {
-          label: exporting === 'json' ? 'Exporting JSON…' : 'Export metadata (JSON)',
-          disabled: !!exporting || refreshing,
-          onClick: exportFolder('json'),
-        },
-      ]
-    : (() => {
-        const sel = ctx.payload.paths ?? []
-        const arr: MenuItem[] = []
-        const exportSelection = (format: 'csv' | 'json') => async () => {
-          setExporting(format)
-          try {
-            const selSet = new Set(sel)
-            const subset = items.filter((i) => selSet.has(i.path))
-            const ratings = mapItemsToRatings(subset)
-            const content = format === 'csv' ? toRatingsCsv(ratings) : toRatingsJson(ratings)
-            const mime = format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8'
-            downloadBlob(
-              new Blob([content], { type: mime }),
-              `metadata_selection_${timestamp()}.${format}`
-            )
-          } finally {
-            setExporting(null)
-            setCtx(null)
-          }
-        }
-
-        const downloadSelection = async () => {
-          if (!sel.length) return
-          setCtx(null)
-          const byPath = new Map(items.map((it) => [it.path, it]))
-          for (const path of sel) {
-            try {
-              const blob = await api.getFile(path)
-              const name = byPath.get(path)?.name || getPathName(path) || 'image'
-              downloadBlob(blob, name)
-            } catch (err) {
-              console.error(`Failed to download ${path}:`, err)
-            }
-          }
-        }
-
-        if (sel.length) {
-          arr.push({
-            label: sel.length > 1 ? `Download (${sel.length})` : 'Download',
-            onClick: downloadSelection,
-          })
-        }
-
-        if (sel.length) {
-          arr.push({
-            label: 'Move to…',
-            disabled: inTrash,
-            onClick: () => {
-              if (inTrash) return
-              onOpenMoveDialog(sel)
-            },
-          })
-        }
-        
-        // Move to trash
-        arr.push({
-          label: 'Move to trash',
-          disabled: inTrash,
-          onClick: async () => {
-            if (inTrash) return
-            for (const p of sel) {
-              try {
-                await api.moveFile(p, '/_trash_')
-              } catch (err) {
-                console.error(`Failed to trash ${p}:`, err)
-              }
-            }
-            void onRefetch()
-            setCtx(null)
-          },
-        })
-        
-        // Trash-specific actions
-        if (inTrash) {
-          arr.push({
-            label: 'Permanent delete',
-            danger: true,
-            onClick: async () => {
-              if (!confirm(`Delete ${sel.length} file(s) permanently? This cannot be undone.`)) {
-                return
-              }
-              try {
-                await api.deleteFiles(sel)
-              } catch (err) {
-                console.error('Failed to delete files:', err)
-              }
-              void onRefetch()
-              setCtx(null)
-            },
-          })
-          
-          arr.push({
-            label: 'Recover',
-            onClick: async () => {
-              for (const p of sel) {
-                try {
-                  const sc = await api.getSidecar(p)
-                  const originalPath = sc.original_position
-                  const targetDir = originalPath
-                    ? originalPath.split('/').slice(0, -1).join('/') || '/'
-                    : '/'
-                  await api.moveFile(p, targetDir)
-                } catch (err) {
-                  console.error(`Failed to recover ${p}:`, err)
-                }
-              }
-              void onRefetch()
-              setCtx(null)
-            },
-          })
-        }
-        
-        // Export ratings
-        if (sel.length) {
-          arr.push({
-            label: exporting === 'csv' ? 'Exporting CSV…' : 'Export metadata (CSV)',
-            disabled: !!exporting,
-            onClick: exportSelection('csv'),
-          })
-          
-          arr.push({
-            label: exporting === 'json' ? 'Exporting JSON…' : 'Export metadata (JSON)',
-            disabled: !!exporting,
-            onClick: exportSelection('json'),
-          })
-        }
-        
-        return arr
-      })()
-  
-  return <ContextMenu x={ctx.x} y={ctx.y} items={menuItems} />
-}

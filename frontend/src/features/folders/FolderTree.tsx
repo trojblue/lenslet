@@ -319,7 +319,7 @@ function TreeNode({
   return (
     <div>
       <div
-        className={`tree-row flex items-center gap-1.5 py-0.5 px-2 rounded-md cursor-pointer min-h-[32px] outline-none transition-colors duration-75 ${isActive ? 'bg-accent/20 text-accent font-medium' : 'hover:bg-white/5 text-text'}`}
+        className={`tree-row flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer min-h-[40px] outline-none transition-colors duration-75 ${isActive ? 'bg-accent/20 text-accent font-medium' : 'hover:bg-white/5 text-text'}`}
         role="treeitem"
         aria-level={depth+1}
         aria-expanded={isLeaf ? undefined : isExpanded}

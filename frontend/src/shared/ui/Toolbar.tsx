@@ -3,6 +3,10 @@ import Dropdown from './Dropdown'
 import SyncIndicator, { type SyncIndicatorData } from './SyncIndicator'
 import type { SortSpec, ViewMode } from '../../lib/types'
 import { LAYOUT_MEDIA_QUERIES } from '../../lib/breakpoints'
+import { useMediaQuery } from '../hooks/useMediaQuery'
+import SortDirectionIcon from './toolbar/SortDirectionIcon'
+import ToolbarFilterMenu from './toolbar/ToolbarFilterMenu'
+import ToolbarMobileDrawer from './toolbar/ToolbarMobileDrawer'
 
 export interface ToolbarProps {
   rootRef?: React.RefObject<HTMLDivElement>
@@ -42,6 +46,9 @@ export interface ToolbarProps {
   onUploadClick?: () => void
   uploadBusy?: boolean
   uploadDisabled?: boolean
+  multiSelectMode?: boolean
+  selectedCount?: number
+  onToggleMultiSelectMode?: () => void
   syncIndicator?: SyncIndicatorData
 }
 
@@ -83,13 +90,17 @@ export default function Toolbar({
   onUploadClick,
   uploadBusy = false,
   uploadDisabled = false,
+  multiSelectMode = false,
+  selectedCount = 0,
+  onToggleMultiSelectMode,
   syncIndicator,
 }: ToolbarProps): JSX.Element {
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [isNarrow, setIsNarrow] = useState(false)
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const filtersRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const isNarrow = useMediaQuery(LAYOUT_MEDIA_QUERIES.narrow)
+  const isPhone = useMediaQuery(LAYOUT_MEDIA_QUERIES.phone)
 
   // Close filters on click outside
   useEffect(() => {
@@ -102,19 +113,6 @@ export default function Toolbar({
     window.addEventListener('click', onClick)
     return () => window.removeEventListener('click', onClick)
   }, [filtersOpen])
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('matchMedia' in window)) return
-    const media = window.matchMedia(LAYOUT_MEDIA_QUERIES.narrow)
-    const onChange = (evt: MediaQueryListEvent) => setIsNarrow(evt.matches)
-    setIsNarrow(media.matches)
-    if ('addEventListener' in media) {
-      media.addEventListener('change', onChange)
-      return () => media.removeEventListener('change', onChange)
-    }
-    media.addListener(onChange)
-    return () => media.removeListener(onChange)
-  }, [])
 
   useEffect(() => {
     if (searchDisabled) {
@@ -173,6 +171,11 @@ export default function Toolbar({
   ]
 
   const showMobileDrawer = isNarrow && !viewerActive
+  const showToolbarNav = !!viewerActive && !isPhone
+  const showSelectModeToggle = showMobileDrawer && !!onToggleMultiSelectMode
+  const selectModeLabel = multiSelectMode
+    ? (selectedCount > 0 ? `Done (${selectedCount})` : 'Done')
+    : 'Select'
 
   const handleSortLayoutChange = (value: string) => {
     if (value.startsWith('layout:')) {
@@ -201,7 +204,10 @@ export default function Toolbar({
   const scopeName = currentLabel || 'Root'
 
   return (
-    <div ref={rootRef} className="toolbar-shell fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1 select-none">
+    <div
+      ref={rootRef}
+      className={`toolbar-shell ${viewerActive ? 'toolbar-shell-viewer' : ''} ${isPhone ? 'toolbar-shell-phone' : ''} fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1 select-none`}
+    >
       {/* Left section */}
       <div className="toolbar-left flex items-center gap-4 min-w-0">
         <div className="flex items-center gap-3 min-w-0">
@@ -233,121 +239,23 @@ export default function Toolbar({
               aria-disabled={sortControlsDisabled}
               disabled={sortControlsDisabled}
             >
-              {isRandom ? (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                  <path d="M21 3v5h-5" />
-                </svg>
-              ) : sortDir === 'desc' ? (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 5v14" />
-                  <path d="M19 12l-7 7-7-7" />
-                </svg>
-              ) : (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 19V5" />
-                  <path d="M5 12l7-7 7 7" />
-                </svg>
-              )}
+              <SortDirectionIcon isRandom={isRandom} dir={sortDir} />
             </button>
           </div>
-          <div ref={filtersRef} className={`toolbar-filter relative ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
-            <button
-              className={`btn ${totalFilterCount > 0 ? 'btn-active' : ''}`}
-              onClick={() => setFiltersOpen((v) => !v)}
-              aria-haspopup="dialog"
-              aria-expanded={filtersOpen}
-              title="Filters"
-              aria-disabled={viewerActive}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-              </svg>
-              <span className="toolbar-filters-label">Filters</span>
-              {totalFilterCount > 0 && (
-                <span className="toolbar-filters-count px-1.5 py-0.5 text-[11px] rounded-full bg-accent-strong text-text">
-                  {totalFilterCount}
-                </span>
-              )}
-            </button>
-
-            {filtersOpen && (
-              <div
-                role="dialog"
-                aria-label="Filters"
-                className="dropdown-panel w-[240px]"
-                style={{ top: '38px', left: 0 }}
-              >
-                {/* Rating section */}
-                <div className="dropdown-label">Rating</div>
-                <div className="px-1">
-                  {[5, 4, 3, 2, 1].map((v) => {
-                    const active = starFilterList.includes(v)
-                    const count = starCounts?.[String(v)] ?? 0
-                    return (
-                      <button
-                        key={v}
-                        onClick={() => onToggleStar?.(v)}
-                        className={`dropdown-item justify-between ${active ? 'bg-accent-muted' : ''}`}
-                      >
-                        <span className={active ? 'text-star-active' : 'text-text'}>
-                          {'★'.repeat(v)}{'☆'.repeat(5 - v)}
-                        </span>
-                        <span className="text-xs text-muted">{count}</span>
-                      </button>
-                    )
-                  })}
-                  <button
-                    onClick={() => onToggleStar?.(0)}
-                    className={`dropdown-item justify-between ${starFilterList.includes(0) ? 'bg-accent-muted' : ''}`}
-                  >
-                    <span className="text-text">Unrated</span>
-                    <span className="text-xs text-muted">{starCounts?.['0'] ?? 0}</span>
-                  </button>
-                </div>
-
-                <div className="dropdown-divider" />
-
-                {/* Metrics section */}
-                <div className="dropdown-label">Metrics</div>
-                <button
-                  className="dropdown-item"
-                  onClick={() => {
-                    setFiltersOpen(false)
-                    onOpenFilters?.()
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 19V9" />
-                    <path d="M10 19V5" />
-                    <path d="M16 19v-7" />
-                    <path d="M3 19h18" />
-                  </svg>
-                  <span>Open Metrics Panel</span>
-                  {(filterCount || 0) > 0 && (
-                    <span className="ml-auto text-xs text-muted">{filterCount} active</span>
-                  )}
-                </button>
-
-                <div className="dropdown-divider" />
-
-                {/* Clear all */}
-                <button
-                  className="dropdown-item text-muted hover:text-text"
-                  onClick={() => {
-                    if (onClearFilters) {
-                      onClearFilters()
-                    } else {
-                      onClearStars?.()
-                    }
-                  }}
-                  disabled={totalFilterCount === 0}
-                >
-                  Clear all filters
-                </button>
-              </div>
-            )}
-          </div>
+          <ToolbarFilterMenu
+            viewerActive={Boolean(viewerActive)}
+            filtersOpen={filtersOpen}
+            filtersRef={filtersRef}
+            totalFilterCount={totalFilterCount}
+            filterCount={filterCount}
+            starFilterList={starFilterList}
+            starCounts={starCounts}
+            onToggleFilters={() => setFiltersOpen((value) => !value)}
+            onOpenFilters={onOpenFilters}
+            onToggleStar={onToggleStar}
+            onClearFilters={onClearFilters}
+            onClearStars={onClearStars}
+          />
           {viewerActive && (
             <button className="btn btn-sm" onClick={onBack} title="Back to grid">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -398,7 +306,7 @@ export default function Toolbar({
 
       {/* Right section */}
       <div className="toolbar-right flex items-center gap-2 justify-end">
-        <div className={`toolbar-nav flex items-center gap-1 mr-1 ${viewerActive ? '' : 'opacity-0 pointer-events-none'}`} aria-hidden={!viewerActive}>
+        <div className={`toolbar-nav flex items-center gap-1 mr-1 ${showToolbarNav ? '' : 'opacity-0 pointer-events-none'}`} aria-hidden={!showToolbarNav}>
           <button
             className={`btn btn-icon ${canPrevImage ? '' : 'opacity-40 cursor-not-allowed'}`}
             title="Previous image (A / ←)"
@@ -514,69 +422,25 @@ export default function Toolbar({
         </div>
       )}
       {showMobileDrawer && (
-        <div className="mobile-drawer">
-          <div className="mobile-drawer-row">
-            <div className="mobile-pill-group">
-              <button
-                className={`mobile-pill ${viewMode === 'grid' ? 'is-active' : ''}`}
-                onClick={() => onViewMode?.('grid')}
-                aria-pressed={viewMode === 'grid'}
-              >
-                Grid
-              </button>
-              <button
-                className={`mobile-pill ${viewMode === 'adaptive' ? 'is-active' : ''}`}
-                onClick={() => onViewMode?.('adaptive')}
-                aria-pressed={viewMode === 'adaptive'}
-              >
-                Masonry
-              </button>
-            </div>
-            <Dropdown
-              value={currentSort}
-              onChange={(value) => onSortChange?.(parseSort(value, effectiveSort))}
-              options={sortOnlyOptions}
-              aria-label="Sort"
-              triggerClassName="mobile-pill mobile-pill-dropdown"
-              panelClassName="mobile-drawer-panel"
-              disabled={sortDisabled}
-            />
-            <button
-              className={`mobile-pill mobile-pill-icon ${sortControlsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-              onClick={handleSortDirToggle}
-              title={sortDisabled ? 'Sorting disabled' : (isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`)}
-              aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
-              aria-disabled={sortControlsDisabled}
-              disabled={sortControlsDisabled}
-            >
-              {isRandom ? (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                  <path d="M21 3v5h-5" />
-                </svg>
-              ) : sortDir === 'desc' ? (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 5v14" />
-                  <path d="M19 12l-7 7-7-7" />
-                </svg>
-              ) : (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 19V5" />
-                  <path d="M5 12l7-7 7 7" />
-                </svg>
-              )}
-            </button>
-            {onUploadClick && (
-              <button
-                className={`mobile-pill ${uploadDisabled || uploadBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-                onClick={() => !uploadDisabled && !uploadBusy && onUploadClick()}
-                disabled={uploadDisabled || uploadBusy}
-              >
-                {uploadBusy ? 'Uploading…' : 'Upload'}
-              </button>
-            )}
-          </div>
-        </div>
+        <ToolbarMobileDrawer
+          viewMode={viewMode}
+          currentSort={currentSort}
+          sortOnlyOptions={sortOnlyOptions}
+          sortDisabled={sortDisabled}
+          sortControlsDisabled={sortControlsDisabled}
+          sortDir={sortDir}
+          isRandom={isRandom}
+          showSelectModeToggle={showSelectModeToggle}
+          multiSelectMode={multiSelectMode}
+          selectModeLabel={selectModeLabel}
+          uploadBusy={uploadBusy}
+          uploadDisabled={uploadDisabled}
+          onViewMode={onViewMode}
+          onSortChange={(value) => onSortChange?.(parseSort(value, effectiveSort))}
+          onToggleSortDir={handleSortDirToggle}
+          onToggleMultiSelectMode={onToggleMultiSelectMode}
+          onUploadClick={onUploadClick}
+        />
       )}
     </div>
   )

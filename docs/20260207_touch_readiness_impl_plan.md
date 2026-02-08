@@ -26,6 +26,9 @@ No `PLANS.md` (or equivalent canonical planning file) is present in this reposit
 - [x] 2026-02-07 21:20:58Z Implemented Sprint S2 task scope (T8-T13): viewer/compare pointer pan and pinch zoom, pointercancel handling, pointer-aware sidebar resizing, widened resize handles, shared TS breakpoint definitions, and tablet panel width constraints.
 - [x] 2026-02-07 21:20:58Z Added Sprint S2 regression coverage for panel constraints (`frontend/src/lib/__tests__/breakpoints.test.ts`) and revalidated frontend tests/build.
 - [x] 2026-02-08 01:10:32Z Updated plan handover notes for Sprint S2 with latest validation outcomes and next-operator actions.
+- [x] 2026-02-08 01:25:04Z Implemented Sprint S3 interaction/layout scope (T14-T17): touch tap-to-open behavior, mobile viewer navigation visibility rules, mobile select-mode toggle, and normalized touch targets for critical controls.
+- [x] 2026-02-08 01:25:04Z Added Sprint S3 regression coverage for mobile selection/tap-open behavior (`frontend/src/lib/mobileSelection.ts`, `frontend/src/lib/__tests__/mobileSelection.test.ts`) and revalidated frontend tests/build.
+- [x] 2026-02-08 01:25:04Z Created device coverage checklist `docs/touch_readiness_checklist.md`, refreshed Sprint handover notes, and completed T19 regression/docs/packaging steps (`pytest -q`, frontend build, packaged asset sync).
 
 
 ## Surprises & Discoveries
@@ -242,7 +245,7 @@ Sprint status at handoff:
 
     Sprint S1 (T1-T7): implemented in code.
     Sprint S2 (T8-T13): implemented in code.
-    Sprint S3 (T14-T19): not started in this handoff.
+    Sprint S3 (T14-T19): implemented in code/docs in this handoff; physical-device checklist remains pending.
 
 S1 implementation delivered:
 
@@ -264,38 +267,49 @@ S2 implementation delivered:
     Toolbar/App shell narrow-screen media logic switched to shared breakpoint definitions: `frontend/src/shared/ui/Toolbar.tsx` and `frontend/src/app/AppShell.tsx`.
     Widened resize-handle hit targets and touch behavior: `frontend/src/styles.css`.
 
+S3 implementation delivered:
+
+    Tap-friendly open behavior for touch without desktop regression (single tap select, second tap open on touch input): `frontend/src/features/browse/components/VirtualGrid.tsx` and `frontend/src/lib/mobileSelection.ts`.
+    Mobile viewer navigation visibility rules by breakpoint (toolbar nav on narrow viewer layouts, in-viewer controls at <=480px): `frontend/src/shared/ui/Toolbar.tsx`, `frontend/src/features/viewer/Viewer.tsx`, `frontend/src/styles.css`, and `frontend/src/lib/breakpoints.ts`.
+    Lightweight mobile multi-select mode toggle and selection semantics (no Shift/Ctrl dependency): `frontend/src/app/AppShell.tsx`, `frontend/src/shared/ui/Toolbar.tsx`, and `frontend/src/features/browse/components/VirtualGrid.tsx`.
+    Touch-target normalization across critical controls: `frontend/src/styles.css`, `frontend/src/features/folders/FolderTree.tsx`, and `frontend/src/app/components/LeftSidebar.tsx`.
+    Device checklist artifact for iOS Safari + Android Chrome runs: `docs/touch_readiness_checklist.md`.
+    Sprint docs update for touch/mobile controls: `README.md` and `DEVELOPMENT.md`.
+
 Validation evidence completed:
 
-    `cd frontend && npm run test` passed (14 files, 54 tests).
+    `cd frontend && npm run test` passed (15 files, 58 tests).
     `cd frontend && npm run build` passed.
+    `pytest -q` passed (58 tests).
     Added unit tests:
     `frontend/src/lib/__tests__/touch.test.ts`
     `frontend/src/lib/__tests__/menuPosition.test.ts`
     `frontend/src/lib/__tests__/breakpoints.test.ts`
+    `frontend/src/lib/__tests__/mobileSelection.test.ts`
 
-Validation still required before closing Sprint S2:
+Validation still required before final Sprint S3 sign-off:
 
     Execute the manual checklist in `docs/20260207_touch_readiness_s1_smoke.md`.
-    Run Sprint S2 manual checks: viewer/compare pan+pinch and sidebar resizing at 1180px, 1024px, 900px, and 768px.
-    Run real-device checks (iOS Safari + Android Chrome) when hardware is available.
+    Execute and fill `docs/touch_readiness_checklist.md` on physical iOS Safari and Android Chrome devices.
+    Record pass/fail and any follow-up issues from real-device gesture and control checks.
 
 Packaging/deploy state at handoff:
 
     Frontend bundle was built in `frontend/dist`.
-    `src/lenslet/frontend/` has not yet been refreshed from `frontend/dist` in this handoff.
+    `src/lenslet/frontend/` was refreshed from `frontend/dist` in this handoff.
 
 Recommended next operator actions:
 
-    1) Run the S1 + S2 manual smoke checks and record pass/fail notes in `docs/`.
-    2) Begin Sprint S3 with T14/T15 (tap-friendly open behavior + mobile viewer navigation visibility) before select-mode work (T16).
-    3) Refresh packaged assets (`frontend/dist/*` -> `src/lenslet/frontend/`) if this change set is being shipped.
+    1) Run and complete physical-device checks in `docs/touch_readiness_checklist.md` (iOS Safari + Android Chrome).
+    2) If any device issues are found, patch and rerun `cd frontend && npm run test`, `cd frontend && npm run build`, and `pytest -q`.
+    3) Ship with current packaged assets unless frontend changes are added after this handoff.
 
-Latest operator handover update (2026-02-08 01:10:32Z):
+Latest operator handover update (2026-02-08 01:25:04Z):
 
-    Sprint S2 implementation remains complete in code; Sprint S3 is still pending.
-    Latest automated checks passed again: `cd frontend && npm run test` (14 files, 54 tests) and `cd frontend && npm run build`.
-    Manual device validation remains outstanding and should be completed before Sprint S3 sign-off.
-    Packaging copy step (`frontend/dist/*` -> `src/lenslet/frontend/`) remains pending in this handoff.
+    Sprint S3 implementation is now complete in code and documentation (T14-T19 scope delivered).
+    Latest automated checks passed: `cd frontend && npm run test` (15 files, 58 tests), `cd frontend && npm run build`, and `pytest -q` (58 passed).
+    Packaged frontend assets were refreshed into `src/lenslet/frontend/`.
+    Manual physical-device validation remains outstanding and is tracked in `docs/touch_readiness_checklist.md`.
 
 
 ## Interfaces and Dependencies
@@ -318,4 +332,4 @@ Required interface updates are intentionally minimal and centered on input parit
 6. Responsive breakpoint values should be centralized in a shared definition consumed by both TS and CSS-adjacent logic to avoid drift between `frontend/src/shared/ui/Toolbar.tsx` and stylesheet media rules.
 
 
-Revision note: updated on 2026-02-08 to add explicit Sprint S2 handover refresh details, current validation status, and next-operator actions requested by the user.
+Revision note: updated on 2026-02-08 to include Sprint S3 implementation details, current validation/packaging status, and remaining physical-device checklist requirements.

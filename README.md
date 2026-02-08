@@ -19,6 +19,13 @@ Lenslet is a self-contained image gallery server designed for simplicity and spe
 - **Labels & export**: Tag, rate, and annotate items, then export metadata as JSON or CSV
 - **Single command**: Just point to a directory or Parquet file and go
 
+## Touch + Mobile Controls
+
+- Tap-first browse flow: on touch devices, tap once to select and tap the selected item again to open the viewer.
+- Explicit actions on touch: grid and folder action buttons are visible on coarse pointers; right-click still works on desktop.
+- Mobile select mode: use the `Select`/`Done` toggle in the narrow-screen toolbar drawer to multi-select without Shift/Ctrl keys.
+- Viewer navigation at phone widths: next/previous controls remain available on narrow screens (including in-viewer controls at very small widths).
+
 ## Installation
 
 ```bash

@@ -7,6 +7,8 @@ interface ViewerProps {
   path: string
   onClose: () => void
   onNavigate?: (delta: number) => void
+  canPrev?: boolean
+  canNext?: boolean
   onZoomChange?: (percent: number) => void
   requestedZoomPercent?: number | null
   onZoomRequestConsumed?: () => void
@@ -16,6 +18,8 @@ export default function Viewer({
   path,
   onClose,
   onNavigate,
+  canPrev = false,
+  canNext = false,
   onZoomChange,
   requestedZoomPercent,
   onZoomRequestConsumed,
@@ -152,6 +156,30 @@ export default function Viewer({
           onClick={(e)=> e.stopPropagation()}
           style={{ transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`, transformOrigin: `0 0`, opacity: ready ? 0.99 : 0, WebkitUserDrag: 'none' } as React.CSSProperties}
         />
+      )}
+      {onNavigate && (
+        <div className="viewer-mobile-nav" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className={`viewer-mobile-nav-btn ${canPrev ? '' : 'is-disabled'}`}
+            onClick={() => canPrev && onNavigate(-1)}
+            aria-label="Previous image"
+            aria-disabled={!canPrev}
+            disabled={!canPrev}
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            className={`viewer-mobile-nav-btn ${canNext ? '' : 'is-disabled'}`}
+            onClick={() => canNext && onNavigate(1)}
+            aria-label="Next image"
+            aria-disabled={!canNext}
+            disabled={!canNext}
+          >
+            Next
+          </button>
+        </div>
       )}
     </div>
   )

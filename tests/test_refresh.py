@@ -32,8 +32,12 @@ def test_invalidate_subtree_drops_cache_and_rebuilds(tmp_path: Path):
 
     storage.get_thumbnail("/a/one.jpg")
     storage.get_dimensions("/a/one.jpg")
+    meta = storage.get_metadata("/a/one.jpg")
+    meta["notes"] = "stale"
+    storage.set_metadata("/a/one.jpg", meta)
     assert "/a/one.jpg" in storage._thumbnails  # type: ignore[attr-defined]
     assert "/a/one.jpg" in storage._dimensions  # type: ignore[attr-defined]
+    assert "/a/one.jpg" in storage._metadata  # type: ignore[attr-defined]
 
     # Mutate filesystem under /a
     img_a2 = folder_a / "two.jpg"
@@ -50,7 +54,36 @@ def test_invalidate_subtree_drops_cache_and_rebuilds(tmp_path: Path):
     # Cache entries under /a were purged, /b untouched
     assert "/a/one.jpg" not in storage._thumbnails  # type: ignore[attr-defined]
     assert "/a/one.jpg" not in storage._dimensions  # type: ignore[attr-defined]
+    assert "/a/one.jpg" not in storage._metadata  # type: ignore[attr-defined]
     assert len(storage.get_index("/b").items) == 1
+
+
+def test_invalidate_subtree_can_preserve_metadata(tmp_path: Path):
+    root = tmp_path
+    folder = root / "a"
+    img = folder / "one.jpg"
+    _make_image(img)
+
+    storage = MemoryStorage(str(root))
+    storage.get_index("/a")
+    storage.get_thumbnail("/a/one.jpg")
+    storage.get_dimensions("/a/one.jpg")
+
+    meta = storage.get_metadata("/a/one.jpg")
+    meta["notes"] = "keep me"
+    meta["tags"] = ["tagged"]
+    meta["star"] = 4
+    storage.set_metadata("/a/one.jpg", meta)
+
+    storage.invalidate_subtree("/a", clear_metadata=False)
+
+    assert "/a/one.jpg" not in storage._thumbnails  # type: ignore[attr-defined]
+    assert "/a/one.jpg" not in storage._dimensions  # type: ignore[attr-defined]
+
+    preserved = storage.get_metadata("/a/one.jpg")
+    assert preserved["notes"] == "keep me"
+    assert preserved["tags"] == ["tagged"]
+    assert preserved["star"] == 4
 
 
 def test_refresh_endpoint_reindexes_folder(tmp_path: Path):
@@ -79,6 +112,41 @@ def test_refresh_endpoint_reindexes_folder(tmp_path: Path):
 
     updated = client.get("/folders", params={"path": "/shots"})
     assert len(updated.json()["items"]) == 2
+
+
+def test_refresh_endpoint_preserves_sidecar_annotations(tmp_path: Path):
+    root = tmp_path
+    shots = root / "shots"
+    img1 = shots / "first.jpg"
+    img2 = shots / "second.jpg"
+    _make_image(img1)
+
+    app = create_app(str(root))
+    client = TestClient(app)
+
+    put = client.put(
+        "/item",
+        params={"path": "/shots/first.jpg"},
+        json={"tags": ["keep"], "notes": "persist", "star": 5},
+    )
+    assert put.status_code == 200
+    assert put.json()["notes"] == "persist"
+
+    _make_image(img2)
+    refresh = client.post("/refresh", params={"path": "/shots"})
+    assert refresh.status_code == 200
+    assert refresh.json()["ok"] is True
+
+    updated = client.get("/folders", params={"path": "/shots"})
+    assert updated.status_code == 200
+    assert len(updated.json()["items"]) == 2
+
+    sidecar = client.get("/item", params={"path": "/shots/first.jpg"})
+    assert sidecar.status_code == 200
+    payload = sidecar.json()
+    assert payload["notes"] == "persist"
+    assert payload["tags"] == ["keep"]
+    assert payload["star"] == 5
 
 
 def test_refresh_endpoint_dataset_mode_is_noop():

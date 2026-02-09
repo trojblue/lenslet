@@ -65,6 +65,7 @@ import {
   formatScopeLabel,
   formatStarValues,
   makeUniqueViewId,
+  resolveScopeFromHashTarget,
 } from './utils/appShellHelpers'
 
 /** Local storage keys for persisted settings */
@@ -243,6 +244,7 @@ export default function AppShell() {
   const compareHistoryPushedRef = useRef(false)
   const lastFocusedPathRef = useRef<string | null>(null)
   const similarityPrevSelectionRef = useRef<string[] | null>(null)
+  const initialHashSyncRef = useRef(false)
   const presenceClientIdRef = useRef<string>(getClientId())
   const presenceLeaseIdRef = useRef<string | null>(null)
   const activePresenceGalleryRef = useRef<string | null>(null)
@@ -282,6 +284,8 @@ export default function AppShell() {
       const norm = sanitizePath(raw)
       const imageTarget = isLikelyImagePath(norm) ? norm : null
       const folderTarget = imageTarget ? getParentPath(norm) : norm
+      const isInitialHashSync = !initialHashSyncRef.current
+      initialHashSyncRef.current = true
       if (imageTarget) {
         setViewer(imageTarget)
         setSelectedPaths([imageTarget])
@@ -291,9 +295,15 @@ export default function AppShell() {
       }
       // Only trigger "restore selection into view" when the folder/tab actually changes
       setCurrent((prev) => {
-        if (prev === folderTarget) return prev
+        const nextScope = resolveScopeFromHashTarget(
+          prev,
+          folderTarget,
+          imageTarget,
+          isInitialHashSync,
+        )
+        if (prev === nextScope) return prev
         setRestoreGridToSelectionToken((t) => t + 1)
-        return folderTarget
+        return nextScope
       })
     }
 
@@ -2200,4 +2210,3 @@ export default function AppShell() {
     </div>
   )
 }
-

@@ -480,8 +480,13 @@ class MemoryStorage:
             self._metadata.pop(self._canonical_meta_key(path), None)
             self._dimensions.pop(path, None)
 
-    def invalidate_subtree(self, path: str) -> None:
-        """Drop all cached entries for a folder and its descendants."""
+    def invalidate_subtree(self, path: str, clear_metadata: bool = True) -> None:
+        """Drop cached entries for a folder subtree.
+
+        By default, metadata is cleared too. For refresh flows, callers can pass
+        clear_metadata=False to preserve in-memory annotations while rebuilding
+        folder indexes and thumbnails.
+        """
         norm = self._normalize_path(path)
         self._leaf_batch.clear()
 
@@ -503,17 +508,21 @@ class MemoryStorage:
                 if key == norm or key.startswith(prefix):
                     self._indexes.pop(key, None)
 
-        # Invalidate per-item caches (thumbs, metadata, dimensions)
+        # Invalidate per-item caches (thumbs, dimensions, and optionally metadata)
         def _matches(item_path: str) -> bool:
             candidate = _canonical_item(item_path)
             if canonical == "/":
                 return True
             return candidate == canonical or candidate.startswith(canonical + "/")
 
-        for cache in (self._thumbnails, self._metadata, self._dimensions):
+        for cache in (self._thumbnails, self._dimensions):
             for key in list(cache.keys()):
                 if _matches(key):
                     cache.pop(key, None)
+        if clear_metadata:
+            for key in list(self._metadata.keys()):
+                if _matches(key):
+                    self._metadata.pop(key, None)
 
     @staticmethod
     def _guess_mime(name: str) -> str:

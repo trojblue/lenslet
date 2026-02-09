@@ -44,6 +44,21 @@ export function formatScopeLabel(path: string): string {
   return `.../${tail}`
 }
 
+export function resolveScopeFromHashTarget(
+  previousScope: string,
+  folderTarget: string,
+  imageTarget: string | null,
+  isInitialHashSync: boolean
+): string {
+  if (!imageTarget) return folderTarget
+  if (isInitialHashSync) return folderTarget
+  if (previousScope === '/' || previousScope === '') return previousScope || '/'
+  if (imageTarget === previousScope || imageTarget.startsWith(`${previousScope}/`)) {
+    return previousScope
+  }
+  return folderTarget
+}
+
 export function formatRange(min: number, max: number): string {
   return `${formatNumber(min)}–${formatNumber(max)}`
 }

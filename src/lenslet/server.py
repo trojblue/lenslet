@@ -1941,7 +1941,8 @@ def create_app(
         if not os.path.isdir(target):
             raise HTTPException(404, "folder not found")
 
-        storage.invalidate_subtree(path)
+        # Keep in-memory sidecar metadata so annotations survive refresh.
+        storage.invalidate_subtree(path, clear_metadata=False)
         return {"ok": True}
 
     _register_common_api_routes(

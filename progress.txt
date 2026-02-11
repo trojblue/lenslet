@@ -65,3 +65,242 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260211_foundational_long_file_refactor_pla
   - `python - <<'PY' ...` import probe -> `import-contract-ok`.
 - Blockers: none.
 - Next step: execute `S1 / T4a` by extracting folders/item/thumb/file/search route registration into `src/lenslet/server_routes_common.py` while keeping response shapes unchanged.
+
+## Iteration 5 - 2026-02-11T04:38:56Z
+- Completed ticket: `S1 / T4a` (extract common route registration domain).
+- Implemented artifacts:
+  - Added `src/lenslet/server_routes_common.py` with extracted registration for `/folders`, `/item`, `/metadata`, `/export-comparison`, `/events`, `/thumb`, `/file`, and `/search` plus route-local `_update_item` helper.
+  - Updated `src/lenslet/server.py` to import `RecordUpdateFn` and `_register_common_api_routes` from `server_routes_common`, remove duplicated common-route bodies, and keep seam-anchor notes aligned to extracted modules.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (Progress, Surprises & Discoveries, Decision Log, and `T4a` status).
+- Validation run:
+  - `pytest -q tests/test_folder_pagination.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_collaboration_sync.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_import_contract.py` -> `42 passed in 1.96s`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+- Surprises/blockers:
+  - First validation attempt failed (`4` tests in `tests/test_collaboration_sync.py`) because cleanup removed `server_sync` helper imports that `server_routes_common` dereferences via `lenslet.server` module attributes; restoring those imports resolved parity.
+- Next step: execute `S1 / T4b` by extracting presence route registration and lifecycle helpers into `src/lenslet/server_routes_presence.py` while keeping diagnostics and lease semantics unchanged.
+
+## Iteration 6 - 2026-02-11T04:43:53Z
+- Completed ticket: `S1 / T4b` (extract presence route registration domain).
+- Implemented artifacts:
+  - Added `src/lenslet/server_routes_presence.py` with presence diagnostics payload builders, lease/scope error payload helpers, prune-loop lifecycle installer, edit-touch publishing helper, and registration for `/presence/diagnostics`, `/presence/join`, `/presence/move`, `/presence/leave`, and `/presence`.
+  - Updated `src/lenslet/server.py` to remove inlined presence helpers and re-export compatibility aliases from `server_routes_presence` (`_register_presence_routes`, `_touch_presence_edit`, `_presence_runtime_payload`, `_install_presence_prune_loop`, plus related payload/publish helpers) so `lenslet.server` monkeypatch/import surfaces remain stable.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (Progress, Surprises & Discoveries, Decision Log, and `T4b` status).
+- Validation run:
+  - `pytest -q tests/test_presence_lifecycle.py tests/test_collaboration_sync.py tests/test_hotpath_sprint_s4.py tests/test_import_contract.py` -> `24 passed in 1.86s`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+- Blockers: none.
+- Next step: execute `S1 / T4c` by extracting embeddings and views route registration into dedicated sibling modules while preserving endpoint payload contracts.
+
+## Iteration 7 - 2026-02-11T04:45:14Z
+- Completed ticket: `S1 / T4c` (extract embeddings and views route registration domains).
+- Implemented artifacts:
+  - Added `src/lenslet/server_routes_embeddings.py` with registration for `/embeddings` and `/embeddings/search`, including payload assembly and validation/search flow parity with the prior in-module implementation.
+  - Added `src/lenslet/server_routes_views.py` with registration for `/views` GET/PUT handlers.
+  - Updated `src/lenslet/server.py` to remove inlined embeddings/views route bodies and re-export facade aliases via imports (`_register_embedding_routes`, `_register_views_routes`) so app-factory call sites and `lenslet.server` touchpoints remain stable.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (Progress, Surprises & Discoveries, Decision Log, and `T4c` status).
+- Validation run:
+  - `pytest -q tests/test_embeddings_search.py tests/test_parquet_ingestion.py tests/test_embeddings_cache.py tests/test_import_contract.py` -> `9 passed in 0.76s`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+  - `python -m compileall -q src/lenslet/server.py src/lenslet/server_routes_embeddings.py src/lenslet/server_routes_views.py` -> `compile-ok`.
+- Blockers: none.
+- Next step: execute `S1 / T4d` by extracting index/OG/media route helpers into sibling modules while preserving current endpoint semantics and compatibility aliases.
+
+## Iteration 8 - 2026-02-11T04:52:09Z
+- Completed ticket: `S1 / T4d` (extract index/OG/media route helpers and wiring).
+- Implemented artifacts:
+  - Added `src/lenslet/server_media.py` with extracted thumbnail/file fast-path helpers (`_thumb_response_async`, `_file_response`, `_thumb_worker_count`) and cache/local-source resolution helpers.
+  - Added `src/lenslet/server_routes_index.py` with `register_index_routes(...)`, `mount_frontend(...)`, and `NoCacheIndexStaticFiles`.
+  - Added `src/lenslet/server_routes_og.py` with OG route registration plus dataset-label/signature/cache helpers.
+  - Updated `src/lenslet/server.py` to consume and re-export facade aliases for media/index/OG helpers (`_thumb_response_async`, `_file_response`, `_register_index_routes`, `_register_og_routes`, `NoCacheIndexStaticFiles`) while keeping app-factory behavior unchanged.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (Progress, Surprises & Discoveries, Decision Log, and `T4d` status).
+- Validation run:
+  - `pytest -q tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_compare_export_endpoint.py tests/test_import_contract.py` -> `31 passed in 1.60s`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+  - `python -m compileall -q src/lenslet/server.py src/lenslet/server_media.py src/lenslet/server_routes_index.py src/lenslet/server_routes_og.py` -> success.
+- Blockers: none.
+- Next step: execute `S1 / T5` to finish reducing `src/lenslet/server.py` to a stable facade/composition module while preserving public and de facto import/monkeypatch contracts.
+
+## Iteration 9 - 2026-02-11T04:54:19Z
+- Completed ticket: `S1 / T5` (keep `server.py` as stable facade module).
+- Implemented artifacts:
+  - Added `src/lenslet/server_browse.py` for browse/item/recursive-pagination helpers and `HotpathTelemetry`.
+  - Added `src/lenslet/server_factory.py` for app-factory/runtime wiring (`create_app*`, storage attachment, embedding manager/cache wiring).
+  - Rewrote `src/lenslet/server.py` into a 335-line compatibility facade that re-exports route/runtime touchpoints while retaining monkeypatch-sensitive comparison-export constants/helpers.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (Progress, Surprises & Discoveries, Decision Log, `T5` status, and Sprint S1 handover notes).
+- Validation run:
+  - `python -m compileall -q src/lenslet/server.py src/lenslet/server_browse.py src/lenslet/server_factory.py` -> success.
+  - `pytest -q tests/test_import_contract.py` -> `2 passed in 0.35s`.
+  - `pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py tests/test_import_contract.py` -> `65 passed in 3.22s`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+- Blockers: none.
+- Next step: start `S2 / T6` by profiling and optimizing recursive folder traversal in `server_browse._collect_recursive_cached_items` while preserving pagination and ordering semantics.
+
+## Iteration 10 - 2026-02-11T05:02:54Z
+- Completed ticket: `S2 / T6` (optimize recursive folder and traversal hotpaths).
+- Implemented artifacts:
+  - Updated `src/lenslet/server_browse.py` so non-legacy recursive pagination collects only the smallest `page * page_size` canonical paths during traversal while still counting full recursive totals for `totalItems/pageCount`.
+  - Preserved legacy recursive behavior (full recursive payload with no pagination metadata).
+  - Added performance note `docs/dev_notes/20260211_s2_t6_recursive_traversal_windowing.md` and updated `docs/20260211_foundational_long_file_refactor_plan.md` (Progress, Surprises & Discoveries, Decision Log, and `T6` status).
+- Validation run:
+  - `pytest -q tests/test_folder_pagination.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py` -> `30 passed in 1.17s`.
+  - `pytest -q --durations=10 tests/test_folder_pagination.py tests/test_hotpath_sprint_s4.py` -> `15 passed in 0.81s`; targeted recursive hot case improved from `0.14s` to `0.13s`.
+  - `pytest -q tests/test_import_contract.py` -> `2 passed in 0.36s`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+- Blockers: none.
+- Next step: execute `S2 / T7` by reducing avoidable work on thumb/file response paths in `src/lenslet/server_media.py` while preserving response headers and fallback behavior.
+
+## Iteration 11 - 2026-02-11T05:10:38Z
+- Completed ticket: `S2 / T7` (optimize thumb/file response work).
+- Implemented artifacts:
+  - Updated `src/lenslet/server_media.py` so local-file resolution returns `(path, stat_result)` and `_file_response(...)` forwards `stat_result` to `FileResponse(...)`.
+  - Updated `tests/test_hotpath_sprint_s2.py` to assert local streaming responses expose populated `FileResponse.stat_result` while preserving no-`read_bytes` behavior.
+  - Added performance note `docs/dev_notes/20260211_s2_t7_media_stat_reuse.md` and updated `docs/20260211_foundational_long_file_refactor_plan.md` (Progress, Surprises & Discoveries, Decision Log, and `T7` status).
+- Validation run:
+  - `pytest -q tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s4.py tests/test_metadata_endpoint.py tests/test_import_contract.py` -> `18 passed in 0.75s`.
+  - `pytest -q --durations=10 tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s4.py` -> `14 passed in 0.70s`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+- Blockers: none.
+- Next step: execute `S2 / T8` by trimming incidental overhead in presence publish/prune paths while preserving lifecycle and collaboration semantics.
+
+## Iteration 12 - 2026-02-11T05:15:47Z
+- Completed ticket: `S2 / T8` (optimize presence and sync-path incidental overhead).
+- Implemented artifacts:
+  - Added no-op delta short-circuit in `src/lenslet/server_routes_presence.py` (`publish_presence_deltas` returns immediately when snapshots are unchanged).
+  - Optimized `src/lenslet/server_sync.py` internals:
+    - `EventBroker.replay` now exits early when there are no buffered events or no events newer than `last_id`.
+    - `PresenceTracker._prune_stale_locked` and `_counts_locked` now use lower-churn iteration patterns to reduce temporary allocations.
+  - Added replay fast-path regression coverage in `tests/test_presence_lifecycle.py`.
+  - Added implementation note `docs/dev_notes/20260211_s2_t8_presence_sync_fastpaths.md`.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (Progress, Surprises & Discoveries, Decision Log, `T8` status, and `S2` handover notes).
+- Validation run:
+  - `pytest -q tests/test_presence_lifecycle.py tests/test_collaboration_sync.py tests/test_hotpath_sprint_s4.py tests/test_import_contract.py` -> `25 passed in 1.90s`.
+  - `pytest -q --durations=10 tests/test_presence_lifecycle.py tests/test_collaboration_sync.py` -> `13 passed in 1.70s`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+- Blockers: none.
+- Next step: start `S3 / T9` by extracting schema/path-source derivation from `src/lenslet/storage/table.py` into dedicated modules while preserving `TableStorage` constructor and method contracts.
+
+## Iteration 13 - 2026-02-11T05:20:14Z
+- Completed ticket: `S3 / T9` (extract table schema/path resolution modules).
+- Implemented artifacts:
+  - Added `src/lenslet/storage/table_schema.py` for column resolution, source/path column selection, sampling/loadable scoring, and value coercion helpers.
+  - Added `src/lenslet/storage/table_paths.py` for URI/path normalization, logical-path derivation, S3/local prefix inference, and local-source safety resolution.
+  - Updated `src/lenslet/storage/table.py` to delegate schema/path/coercion responsibilities to the new modules while preserving existing `TableStorage` method contracts.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (Progress, Surprises & Discoveries, Decision Log, and `T9` status).
+- Validation run:
+  - `pytest -q tests/test_parquet_ingestion.py tests/test_table_security.py tests/test_import_contract.py` -> `6 passed in 0.73s`.
+  - `pytest -q tests/test_remote_worker_scaling.py tests/test_hotpath_sprint_s3.py` -> `6 passed in 0.63s`.
+  - `python -m compileall -q src/lenslet/storage/table.py src/lenslet/storage/table_schema.py src/lenslet/storage/table_paths.py && echo compile-ok` -> `compile-ok`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+- Blockers: none.
+- Next step: execute `S3 / T10` by extracting the table index-build pipeline into `src/lenslet/storage/table_index.py` and then optimizing repeated row-scan work with parity checks.
+
+## Iteration 14 - 2026-02-11T05:25:21Z
+- Completed ticket: `S3 / T10` (extract and optimize table index build pipeline).
+- Implemented artifacts:
+  - Added `src/lenslet/storage/table_index.py` with explicit index-build phases (`build_index_columns`, `scan_rows`, `assemble_indexes`) and shared progress throttling (`ProgressTicker`).
+  - Updated `src/lenslet/storage/table.py` to delegate `_build_indexes`, `_extract_metrics`, and `_extract_metrics_map` to the new index module while keeping `TableStorage` method contracts stable (`table.py` line count `1100` -> `855`).
+  - Added `tests/test_table_index_pipeline.py` for metric-map precedence and duplicate logical-path row-map continuity.
+  - Added implementation/perf note `docs/dev_notes/20260211_s3_t10_table_index_pipeline.md`.
+  - Updated plan log sections and `T10` status in `docs/20260211_foundational_long_file_refactor_plan.md`.
+- Validation run:
+  - `pytest -q tests/test_table_index_pipeline.py tests/test_parquet_ingestion.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_hotpath_sprint_s3.py tests/test_import_contract.py` -> `14 passed in 0.92s`.
+  - `pytest -q --durations=10 tests/test_table_index_pipeline.py tests/test_parquet_ingestion.py tests/test_table_security.py tests/test_remote_worker_scaling.py` -> `7 passed in 0.73s`.
+  - `python -m compileall -q src/lenslet/storage/table.py src/lenslet/storage/table_index.py && echo compile-ok` -> `compile-ok`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+  - Table-build benchmark harness (`1200` synthetic rows, `TableStorage(rows, skip_indexing=True)`, 5 rounds): median `0.0259s` -> `0.0192s`, mean `0.0267s` -> `0.0196s`.
+- Blockers: none.
+- Next step: execute `S3 / T11` by extracting remote header probing and dimension readers into `table_probe.py` and `table_media.py`, then rerun remote-worker/hotpath parity slices with before/after evidence.
+
+## Iteration 15 - 2026-02-11T05:37:46Z
+- Completed ticket: `S3 / T11` (extract remote probing and fast-dimension readers).
+- Implemented artifacts:
+  - Added `src/lenslet/storage/table_probe.py` for remote probe orchestration and helpers (`effective_remote_workers`, `parse_content_range`, `get_remote_header_bytes`, `get_remote_header_info`, `probe_remote_dimensions`).
+  - Added `src/lenslet/storage/table_media.py` for format-specific size readers (`read_dimensions_from_bytes`, `read_dimensions_fast`, JPEG/PNG/WebP parsers).
+  - Updated `src/lenslet/storage/table.py` to keep private method contracts as thin delegates (`_probe_remote_dimensions`, `_effective_remote_workers`, `_get_remote_header_*`, `_read_dimensions_*`) while removing inlined probe/parser logic (`table.py` line count `855` -> `710`).
+  - Added implementation note `docs/dev_notes/20260211_s3_t11_probe_media_extraction.md`.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T11` status).
+- Validation run:
+  - `python -m compileall -q src/lenslet/storage/table.py src/lenslet/storage/table_probe.py src/lenslet/storage/table_media.py && echo compile-ok` -> `compile-ok`.
+  - `pytest -q tests/test_remote_worker_scaling.py tests/test_hotpath_sprint_s3.py tests/test_parquet_ingestion.py tests/test_table_security.py tests/test_import_contract.py` -> `12 passed in 0.91s`.
+  - `pytest -q --durations=10 tests/test_remote_worker_scaling.py tests/test_hotpath_sprint_s3.py` -> `6 passed in 0.64s`; slowest case `0.10s`.
+  - `pytest -q tests/test_table_index_pipeline.py` -> `2 passed in 0.04s`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+- Blockers: none.
+- Next step: execute `S3 / T12` by tightening `TableStorage` into a thinner facade (delegate remaining cohesive internals where safe) while preserving constructor and private-method compatibility surfaces used by current tests/callers.
+
+## Iteration 16 - 2026-02-11T05:39:21Z
+- Completed ticket: `S3 / T12` (keep `TableStorage` as facade with delegated collaborators).
+- Implemented artifacts:
+  - Added `src/lenslet/storage/table_facade.py` for table-shape parsing, source byte I/O, thumbnail generation, dimensions/metadata/search operations, and S3 presign/client helpers.
+  - Updated `src/lenslet/storage/table.py` to preserve constructor/public/private method contracts as thin wrappers delegated to `table_facade.py` (`table.py` line count `710` -> `532`).
+  - Added implementation note `docs/dev_notes/20260211_s3_t12_table_facade_delegate.md`.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, `T12` status, `T2c` status, and `S3 handover`).
+- Validation run:
+  - `python -m compileall -q src/lenslet/storage/table.py src/lenslet/storage/table_facade.py src/lenslet/storage/table_index.py src/lenslet/storage/table_probe.py src/lenslet/storage/table_media.py && echo compile-ok` -> `compile-ok`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+  - `pytest -q tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_parquet_ingestion.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_hotpath_sprint_s3.py tests/test_table_index_pipeline.py tests/test_import_contract.py` -> `18 passed in 0.98s`.
+  - `pytest -q tests/test_hotpath_sprint_s4.py` -> `10 passed in 0.61s`.
+  - `pytest -q --durations=10 tests/test_remote_worker_scaling.py tests/test_hotpath_sprint_s3.py` -> `6 passed in 0.63s`; slowest case `0.10s`.
+- Blockers: none.
+- Next step: start `S4 / T13a` by extracting AppShell data-scope loading/derivation logic into `frontend/src/app/hooks/useAppDataScope.ts` while preserving existing query and presence behavior.
+
+## Iteration 17 - 2026-02-11T05:49:36Z
+- Completed ticket: `S4 / T13a` (extract AppShell data-scope domain hook).
+- Implemented artifacts:
+  - Added `frontend/src/app/hooks/useAppDataScope.ts` to own AppShell data-scope logic: recursive folder query hydration, recursive query-cache cleanup, search + embeddings query wiring, and pool/similarity/final item derivations.
+  - Rewired `frontend/src/app/AppShell.tsx` to consume `useAppDataScope` outputs while preserving existing selection/viewer/compare, presence/sync, and mutation action flows.
+  - Kept scope-change UX behavior by preserving `setActionError(null)` on folder scope changes after hook extraction.
+  - Applied a type-only compatibility cleanup in `frontend/src/app/AppShell.tsx` (`updateItemCaches` metrics assignment now normalizes nullable metrics to `undefined`).
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T13a` status).
+- Validation run:
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `39 passed`.
+  - `npm run build` -> success.
+  - `npx tsc --noEmit` -> fails with pre-existing type errors in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+- Blockers: none.
+- Next step: execute `S4 / T13b` by extracting selection/viewer/compare state and navigation semantics into a dedicated AppShell hook while preserving existing keyboard/hash/history behavior.
+
+## Iteration 18 - 2026-02-11T05:58:53Z
+- Completed ticket: `S4 / T13b` (extract AppShell selection/viewer/compare domain hook).
+- Implemented artifacts:
+  - Added `frontend/src/app/hooks/useAppSelectionViewerCompare.ts` to own selection state, viewer/compare state, compare derivations, history transitions, and image navigation callbacks.
+  - Rewired `frontend/src/app/AppShell.tsx` to consume the new hook outputs (`selectedPaths`, `viewer`, `compareOpen`, compare tuples, navigation handlers, restore token) while keeping data-scope, presence/sync, and mutation domains in place.
+  - Preserved hash-driven scope resolution in `AppShell` and routed image-target sync through hook actions; adjusted effect ordering so hash sync runs after hook callback declaration to avoid block-scope initialization errors.
+  - Reduced `frontend/src/app/AppShell.tsx` from `2125` to `2020` lines.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T13b` status).
+- Validation run:
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `39 passed`.
+  - `npm run build` -> success.
+  - `npx tsc --noEmit` -> fails with known pre-existing errors in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+- Blockers: none.
+- Next step: execute `S4 / T13c` by extracting AppShell presence/sync subscriptions and connection/activity derivation into a dedicated hook while preserving reconnect and presence-indicator behavior.
+
+## Iteration 19 - 2026-02-11T06:00:15Z
+- Completed ticket: `S4 / T13c` (extract AppShell presence/sync domain hook).
+- Implemented artifacts:
+  - Added `frontend/src/app/hooks/useAppPresenceSync.ts` to own presence scope lifecycle (join/move/leave/heartbeat), event-stream subscriptions, connection-state tracking, and activity derivations (off-view summary, highlights, recent touches, edit recency labels).
+  - Rewired `frontend/src/app/AppShell.tsx` to consume `useAppPresenceSync` outputs (`connectionStatus`, `presence`, indicator labels, activity handlers) while keeping data-scope (`T13a`), selection/viewer/compare (`T13b`), and mutation domains untouched.
+  - Preserved item/search cache-update semantics by injecting `updateItemCaches` into the hook for sync event handling.
+  - Added implementation note `docs/dev_notes/20260211_s4_t13c_presence_sync_hook.md`.
+  - Reduced `frontend/src/app/AppShell.tsx` line count from `2020` to `1664`.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T13c` status).
+- Validation run:
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `39 passed`.
+  - `npm run build` -> success.
+  - `npx tsc --noEmit` -> known pre-existing failures remain in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+- Blockers: none.
+- Next step: execute `S4 / T13d` by extracting AppShell mutation/actions (upload/move/context-menu workflow + error handling) into a dedicated hook while preserving current UX and cache-refresh semantics.
+
+## Iteration 20 - 2026-02-11T06:08:15Z
+- Completed ticket: `S4 / T13d` (extract AppShell mutation/actions domain hook).
+- Implemented artifacts:
+  - Added `frontend/src/app/hooks/useAppActions.ts` to own upload/move/context-action lifecycle, destination-folder collection, drag/drop uploads, and mutation error normalization.
+  - Rewired `frontend/src/app/AppShell.tsx` to consume `useAppActions` outputs (`uploading`, `actionError`, `ctx`, `moveDialog`, `openGridActions`, `openFolderActions`, `moveSelectedToFolder`, `openMoveDialogForPaths`, `handleUploadInputChange`, `openUploadPicker`).
+  - Preserved folder refresh/count invalidation semantics by injecting `refetch` and `invalidateDerivedCounts` into the hook instead of duplicating cache logic.
+  - Reduced `frontend/src/app/AppShell.tsx` line count from `1664` to `1429`.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T13d` status).
+- Validation run:
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `39 passed`.
+  - `npm run build` -> success.
+  - `npx tsc --noEmit` -> known pre-existing failures remain in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+- Blockers: none.
+- Next step: execute `S4 / T14` by extracting AppShell selectors/derived transforms into pure model helpers with dedicated tests.

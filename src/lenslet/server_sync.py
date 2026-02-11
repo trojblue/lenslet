@@ -191,10 +191,14 @@ class EventBroker:
         if last_id is None:
             return []
         with self._lock:
-            if self._buffer:
-                oldest_id = int(self._buffer[0].get("id", 0))
-                if last_id < oldest_id - 1:
-                    self._replay_miss_total += 1
+            if not self._buffer:
+                return []
+            oldest_id = int(self._buffer[0].get("id", 0))
+            newest_id = int(self._buffer[-1].get("id", 0))
+            if last_id >= newest_id:
+                return []
+            if last_id < oldest_id - 1:
+                self._replay_miss_total += 1
             return [item for item in self._buffer if item.get("id", 0) > last_id]
 
     def diagnostics(self) -> dict[str, Any]:
@@ -286,9 +290,14 @@ class PresenceTracker:
 
     def _prune_stale_locked(self, now: float) -> set[str]:
         affected: set[str] = set()
-        for client_id, session in list(self._sessions.items()):
+        if not self._sessions:
+            return affected
+        stale_clients: list[str] = []
+        for client_id, session in self._sessions.items():
             if self._is_viewing(session, now) or self._is_editing(session, now):
                 continue
+            stale_clients.append(client_id)
+        for client_id in stale_clients:
             removed_scope = self._remove_client_locked(client_id)
             if removed_scope is not None:
                 self._stale_pruned_total += 1
@@ -301,18 +310,15 @@ class PresenceTracker:
             return 0, 0
         viewing = 0
         editing = 0
-        stale_members: list[str] = []
-        for client_id in list(members):
+        for client_id in tuple(members):
             session = self._sessions.get(client_id)
             if session is None or session.gallery_id != gallery_id:
-                stale_members.append(client_id)
+                self._scope_remove_locked(gallery_id, client_id)
                 continue
             if self._is_viewing(session, now):
                 viewing += 1
             if self._is_editing(session, now):
                 editing += 1
-        for client_id in stale_members:
-            self._scope_remove_locked(gallery_id, client_id)
         return viewing, editing
 
     def _counts_payloads_locked(self, scopes: set[str], now: float) -> list[PresenceCount]:

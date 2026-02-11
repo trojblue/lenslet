@@ -6,15 +6,11 @@ import Viewer from '../features/viewer/Viewer'
 import CompareViewer from '../features/compare/CompareViewer'
 import Inspector from '../features/inspector/Inspector'
 import SimilarityModal from '../features/embeddings/SimilarityModal'
-import { DEFAULT_RECURSIVE_PAGE_SIZE, shouldRemoveRecursiveFolderQuery, useFolder } from '../shared/api/folders'
-import { useSearch } from '../shared/api/search'
-import { useEmbeddings } from '../shared/api/embeddings'
-import { api, connectEvents, disconnectEvents, dispatchPresenceLeave, getClientId, subscribeEvents, subscribeEventStatus } from '../shared/api/client'
-import type { ConnectionStatus, FullFilePrefetchContext, SyncEvent } from '../shared/api/client'
-import { useOldestInflightAgeMs, useSyncStatus, updateConflictFromServer, sidecarQueryKey } from '../shared/api/items'
+import { api } from '../shared/api/client'
+import type { FullFilePrefetchContext } from '../shared/api/client'
+import { useOldestInflightAgeMs, useSyncStatus } from '../shared/api/items'
 import { usePollingEnabled } from '../shared/api/polling'
-import { readHash, writeHash, replaceHash, sanitizePath, getParentPath, getPathName, isLikelyImagePath, joinPath } from './routing/hash'
-import { applyFilters, applySort } from '../features/browse/model/apply'
+import { readHash, writeHash, sanitizePath, getParentPath, isLikelyImagePath } from './routing/hash'
 import {
   countActiveFilters,
   getStarFilter,
@@ -34,31 +30,21 @@ import {
 } from '../features/browse/model/filters'
 import { useSidebars } from './layout/useSidebars'
 import { useQueryClient } from '@tanstack/react-query'
-import { useDebounced } from '../shared/hooks/useDebounced'
-import type { FilterAST, Item, SavedView, SortSpec, ContextMenuState, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, PresenceEvent, Sidecar, EmbeddingSearchItem, EmbeddingSearchRequest } from '../lib/types'
+import type { FilterAST, Item, SavedView, SortSpec, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, EmbeddingSearchRequest } from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
-import { formatAbsoluteTime, formatRelativeTime, parseTimestampMs, safeJsonParse } from '../lib/util'
+import { safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
 import { FetchError } from '../lib/fetcher'
 import LeftSidebar from './components/LeftSidebar'
 import StatusBar from './components/StatusBar'
-import { buildRecentSummary, buildRecentTouchesDisplay, usePresenceActivity } from './presenceActivity'
 import { deriveIndicatorState } from './presenceUi'
-import {
-  LAST_EDIT_RELATIVE_MS,
-  LONG_SYNC_THRESHOLD_MS,
-  PRESENCE_HEARTBEAT_MS,
-  PRESENCE_MOVE_COALESCE_MS,
-  RECENT_EDIT_FLASH_MS,
-} from '../lib/constants'
-import { hydrateFolderPages } from '../features/browse/model/pagedFolder'
+import { LONG_SYNC_THRESHOLD_MS } from '../lib/constants'
 import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
 import { constrainSidebarWidths, LAYOUT_BREAKPOINTS, LAYOUT_MEDIA_QUERIES } from '../lib/breakpoints'
 import { useMediaQuery } from '../shared/hooks/useMediaQuery'
 import MoveToDialog from './components/MoveToDialog'
 import AppContextMenuItems from './menu/AppContextMenuItems'
 import {
-  buildFallbackItem,
   downloadBlob,
   formatDateRange,
   formatRange,
@@ -67,11 +53,15 @@ import {
   makeUniqueViewId,
   resolveScopeFromHashTarget,
 } from './utils/appShellHelpers'
+import { useAppDataScope, type SimilarityState } from './hooks/useAppDataScope'
+import { useAppSelectionViewerCompare } from './hooks/useAppSelectionViewerCompare'
+import { useAppPresenceSync } from './hooks/useAppPresenceSync'
+import { useAppActions } from './hooks/useAppActions'
 
 // S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
 // - T13a data scope: folder/search/similarity loading + derived pools.
 // - T13b selection/viewer/compare: selection state, openViewer/closeViewer, openCompare/closeCompare.
-// - T13c presence/sync: applyPresenceCounts/joinPresenceScope/syncPresenceScope effects.
+// - T13c presence/sync: useAppPresenceSync lifecycle, subscriptions, and activity derivations.
 // - T13d mutations/actions: uploadFiles/moveSelectedToFolder/view persistence actions.
 // - T14/T15 selectors + render/effect optimization: filter/select helpers and memo/effect boundaries.
 
@@ -89,64 +79,11 @@ const STORAGE_KEYS = {
   rightOpen: 'rightOpen',
 } as const
 
-const MOVE_FOLDER_SCAN_LIMIT = 600
-
-type SimilarityState = {
-  embedding: string
-  queryPath: string | null
-  queryVector: string | null
-  topK: number
-  minScore: number | null
-  items: EmbeddingSearchItem[]
-  createdAt: number
-}
-
-type MoveDialogState = {
-  paths: string[]
-}
-
-function getConnectionLabel(status: ConnectionStatus): string {
-  switch (status) {
-    case 'live':
-      return 'Live'
-    case 'reconnecting':
-      return 'Reconnecting…'
-    case 'offline':
-      return 'Offline'
-    case 'connecting':
-    case 'idle':
-    default:
-      return 'Connecting…'
-  }
-}
-
-function getPresenceErrorCode(error: unknown): string | null {
-  if (!(error instanceof FetchError)) return null
-  const body = error.body
-  if (!body || typeof body !== 'object') return null
-  const code = (body as Record<string, unknown>).error
-  return typeof code === 'string' ? code : null
-}
-
 function prefetchFilesAndThumbs(paths: readonly string[], context: FullFilePrefetchContext): void {
   for (const path of paths) {
     api.prefetchFile(path, context)
     api.prefetchThumb(path)
   }
-}
-
-function formatTimestampLabel(timestampMs: number, nowMs: number): string {
-  if (nowMs - timestampMs < LAST_EDIT_RELATIVE_MS) {
-    return formatRelativeTime(timestampMs, nowMs)
-  }
-  return formatAbsoluteTime(timestampMs)
-}
-
-function getEmbeddingsError(isError: boolean, error: unknown): string | null {
-  if (!isError) return null
-  if (error instanceof FetchError) return error.message
-  if (error instanceof Error) return error.message
-  return 'Failed to load embeddings.'
 }
 
 function getDisplayItemCount(
@@ -172,43 +109,12 @@ function getDisplayTotalCount(
   return current === '/' ? scopeTotal : rootTotal
 }
 
-function isReadOnlyError(error: unknown): boolean {
-  if (!(error instanceof FetchError)) return false
-  if (error.status === 403 || error.status === 405) return true
-  const message = String(error.message || '').toLowerCase()
-  return message.includes('read-only') || message.includes('no-write') || message.includes('write')
-}
-
-function formatMutationError(error: unknown, fallback: string): string {
-  if (isReadOnlyError(error)) {
-    return 'This workspace is read-only. Upload and move actions are disabled.'
-  }
-  if (error instanceof FetchError) return error.message
-  if (error instanceof Error && error.message) return error.message
-  return fallback
-}
-
-function dedupePaths(paths: string[]): string[] {
-  return Array.from(new Set(paths.filter(Boolean)))
-}
-
-function summarizeFailures(label: string, failures: string[]): string {
-  if (!failures.length) return ''
-  if (failures.length === 1) return failures[0]
-  return `${label} failed for ${failures.length} item(s). ${failures[0]}`
-}
-
 export default function AppShell() {
   // Navigation state
   const [current, setCurrent] = useState<string>('/')
   const [query, setQuery] = useState('')
-  const [selectedPaths, setSelectedPaths] = useState<string[]>([])
   const [similarityOpen, setSimilarityOpen] = useState(false)
   const [similarityState, setSimilarityState] = useState<SimilarityState | null>(null)
-  const [viewer, setViewer] = useState<string | null>(null)
-  const [compareOpen, setCompareOpen] = useState(false)
-  const [compareIndex, setCompareIndex] = useState(0)
-  const [restoreGridToSelectionToken, setRestoreGridToSelectionToken] = useState(0)
   
   // Viewer zoom state
   const [requestedZoom, setRequestedZoom] = useState<number | null>(null)
@@ -247,45 +153,92 @@ export default function AppShell() {
   const gridScrollRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
-  const viewerHistoryPushedRef = useRef(false)
-  const compareHistoryPushedRef = useRef(false)
-  const lastFocusedPathRef = useRef<string | null>(null)
   const similarityPrevSelectionRef = useRef<string[] | null>(null)
   const initialHashSyncRef = useRef(false)
-  const presenceClientIdRef = useRef<string>(getClientId())
-  const presenceLeaseIdRef = useRef<string | null>(null)
-  const activePresenceGalleryRef = useRef<string | null>(null)
-  const pendingPresenceGalleryRef = useRef<string | null>(null)
-  const presenceTransitionInFlightRef = useRef(false)
-  const presenceMoveTimerRef = useRef<number | null>(null)
-  const prevConnectionStatusRef = useRef<ConnectionStatus>('idle')
 
   const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool)
 
-  // Drag and drop state
-  const [isDraggingOver, setDraggingOver] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [moveDialog, setMoveDialog] = useState<MoveDialogState | null>(null)
-  const [moveFolders, setMoveFolders] = useState<string[]>(['/'])
-  const [moveFoldersLoading, setMoveFoldersLoading] = useState(false)
-  
-  // Context menu state
-  const [ctx, setCtx] = useState<ContextMenuState | null>(null)
   const queryClient = useQueryClient()
   const syncStatus = useSyncStatus()
   const pollingEnabled = usePollingEnabled()
   const oldestInflightAgeMs = useOldestInflightAgeMs()
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
-  const [presenceByGallery, setPresenceByGallery] = useState<Record<string, PresenceEvent>>({})
-  const [lastEditedAt, setLastEditedAt] = useState<number | null>(null)
-  const [recentEditAt, setRecentEditAt] = useState<number | null>(null)
-  const [recentEditActive, setRecentEditActive] = useState(false)
-  const [lastEditedNow, setLastEditedNow] = useState(() => Date.now())
-  const [persistenceEnabled, setPersistenceEnabled] = useState(true)
   const [localTypingActive, setLocalTypingActive] = useState(false)
 
-  // Initialize current folder from URL hash and keep in sync
+  const {
+    data,
+    refetch,
+    isLoading,
+    isError,
+    searching,
+    normalizedQ,
+    similarityActive,
+    embeddings,
+    embeddingsRejected,
+    embeddingsAvailable,
+    embeddingsLoading,
+    embeddingsError,
+    poolItems,
+    similarityItems,
+    items,
+    totalCount,
+    filteredCount,
+    scopeTotal,
+    rootTotal,
+  } = useAppDataScope({
+    current,
+    query,
+    similarityState,
+    viewState,
+    randomSeed,
+    localStarOverrides,
+  })
+  const currentGalleryId = useMemo(() => sanitizePath(current || '/'), [current])
+  const starFilters = useMemo(() => getStarFilter(viewState.filters), [viewState.filters])
+
+  const itemPaths = useMemo(() => items.map((i) => i.path), [items])
+  const focusGridCell = useCallback((path: string | null | undefined) => {
+    if (!path) return
+    const el = document.getElementById(`cell-${encodeURIComponent(path)}`)
+    el?.focus()
+  }, [])
+  const selectionPool = similarityState ? similarityItems : poolItems
+  const {
+    selectedPaths,
+    setSelectedPaths,
+    viewer,
+    compareOpen,
+    restoreGridToSelectionToken,
+    bumpRestoreGridToSelectionToken,
+    selectedItems,
+    compareItems,
+    comparePaths,
+    compareIndexClamped,
+    compareA,
+    compareB,
+    canComparePrev,
+    canCompareNext,
+    compareEnabled,
+    canPrevImage,
+    canNextImage,
+    overlayActive,
+    rememberFocusedPath,
+    openViewer,
+    closeViewer,
+    openCompare,
+    closeCompare,
+    handleCompareNavigate,
+    handleNavigate,
+    resetViewerState,
+    clearViewerForSearch,
+    syncHashImageSelection,
+  } = useAppSelectionViewerCompare({
+    current,
+    itemPaths,
+    items,
+    selectionPool,
+    focusGridCell,
+  })
+  // Initialize current folder from URL hash and keep in sync.
   useEffect(() => {
     const applyHash = (raw: string) => {
       const norm = sanitizePath(raw)
@@ -293,14 +246,8 @@ export default function AppShell() {
       const folderTarget = imageTarget ? getParentPath(norm) : norm
       const isInitialHashSync = !initialHashSyncRef.current
       initialHashSyncRef.current = true
-      if (imageTarget) {
-        setViewer(imageTarget)
-        setSelectedPaths([imageTarget])
-      } else {
-        setViewer(null)
-        viewerHistoryPushedRef.current = false
-      }
-      // Only trigger "restore selection into view" when the folder/tab actually changes
+      syncHashImageSelection(imageTarget)
+      // Only trigger "restore selection into view" when the folder/tab actually changes.
       setCurrent((prev) => {
         const nextScope = resolveScopeFromHashTarget(
           prev,
@@ -309,7 +256,7 @@ export default function AppShell() {
           isInitialHashSync,
         )
         if (prev === nextScope) return prev
-        setRestoreGridToSelectionToken((t) => t + 1)
+        bumpRestoreGridToSelectionToken()
         return nextScope
       })
     }
@@ -318,158 +265,8 @@ export default function AppShell() {
     const onHash = () => applyHash(readHash())
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [])
-
-  useEffect(() => {
-    if (recentEditAt == null) {
-      setRecentEditActive(false)
-      return
-    }
-    setRecentEditActive(true)
-    const id = window.setTimeout(() => setRecentEditActive(false), RECENT_EDIT_FLASH_MS)
-    return () => window.clearTimeout(id)
-  }, [recentEditAt])
-
-  useEffect(() => {
-    if (lastEditedAt == null) return
-    setLastEditedNow(Date.now())
-    const id = window.setInterval(() => setLastEditedNow(Date.now()), 10_000)
-    return () => window.clearInterval(id)
-  }, [lastEditedAt])
-
-  const {
-    data: recursiveFirstPage,
-    refetch: refetchFirstPage,
-    isLoading,
-    isError,
-  } = useFolder(current, true, { page: 1, pageSize: DEFAULT_RECURSIVE_PAGE_SIZE })
-  const [data, setData] = useState<FolderIndex | undefined>()
-  const recursiveLoadTokenRef = useRef(0)
-  const refetch = useCallback(() => refetchFirstPage(), [refetchFirstPage])
-  const { data: cachedRootRecursive } = useFolder('/', true, {
-    enabled: false,
-    page: 1,
-    pageSize: DEFAULT_RECURSIVE_PAGE_SIZE,
-  })
-
-  useEffect(() => {
-    queryClient.removeQueries({
-      predicate: ({ queryKey }) => shouldRemoveRecursiveFolderQuery(queryKey, current, true),
-    })
-  }, [current, queryClient])
-
-  useEffect(() => {
-    recursiveLoadTokenRef.current += 1
-    setData(undefined)
-    setActionError(null)
-  }, [current])
-
-  useEffect(() => {
-    if (!recursiveFirstPage) return
-    const requestId = ++recursiveLoadTokenRef.current
-    let cancelled = false
-    void hydrateFolderPages(recursiveFirstPage, {
-      defaultPageSize: DEFAULT_RECURSIVE_PAGE_SIZE,
-      fetchPage: (page, pageSize) => api.getFolder(recursiveFirstPage.path, {
-        recursive: true,
-        page,
-        pageSize,
-      }),
-      onUpdate: setData,
-      shouldContinue: () => !cancelled && recursiveLoadTokenRef.current === requestId,
-      progressiveUpdates: false,
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [recursiveFirstPage])
-
-  const similarityActive = similarityState !== null
-  const searching = !similarityActive && query.trim().length > 0
-  const debouncedQ = useDebounced(query, 250)
-  const normalizedQ = useMemo(() => debouncedQ.trim().replace(/\s+/g, ' '), [debouncedQ])
-  const search = useSearch(searching ? normalizedQ : '', current)
-  const embeddingsQuery = useEmbeddings()
-  const embeddings = embeddingsQuery.data?.embeddings ?? []
-  const embeddingsRejected = embeddingsQuery.data?.rejected ?? []
-  const embeddingsAvailable = embeddings.length > 0
-  const embeddingsError = getEmbeddingsError(embeddingsQuery.isError, embeddingsQuery.error)
-  const currentGalleryId = useMemo(() => sanitizePath(current || '/'), [current])
-  const starFilters = useMemo(() => getStarFilter(viewState.filters), [viewState.filters])
-
-  // Pool items (current scope) + derived view (filters/sort)
-  const poolItems = useMemo((): Item[] => {
-    const base = searching ? (search.data?.items ?? []) : (data?.items ?? [])
-    return base.map((it) => ({
-      ...it,
-      star: localStarOverrides[it.path] !== undefined ? localStarOverrides[it.path] : it.star,
-    }))
-  }, [searching, search.data, data, localStarOverrides])
-
-  const poolItemsByPath = useMemo(() => {
-    const map = new Map<string, Item>()
-    for (const it of poolItems) {
-      map.set(it.path, it)
-    }
-    const extras = search.data?.items ?? []
-    for (const it of extras) {
-      if (map.has(it.path)) continue
-      const star = localStarOverrides[it.path] !== undefined ? localStarOverrides[it.path] : it.star
-      map.set(it.path, { ...it, star })
-    }
-    return map
-  }, [poolItems, search.data, localStarOverrides])
-
-  const similarityItems = useMemo((): Item[] => {
-    if (!similarityState) return []
-    return similarityState.items.map((entry) => {
-      const existing = poolItemsByPath.get(entry.path)
-      if (existing) return existing
-      return buildFallbackItem(entry.path, localStarOverrides[entry.path])
-    })
-  }, [similarityState, poolItemsByPath, localStarOverrides])
-
-  const items = useMemo((): Item[] => {
-    if (similarityState) {
-      return applyFilters(similarityItems, viewState.filters)
-    }
-    const filtered = applyFilters(poolItems, viewState.filters)
-    return applySort(filtered, viewState.sort, randomSeed)
-  }, [similarityState, similarityItems, poolItems, viewState.filters, viewState.sort, randomSeed])
-
-  const totalCount = similarityState ? similarityItems.length : poolItems.length
-  const filteredCount = items.length
-
-  const itemPaths = useMemo(() => items.map((i) => i.path), [items])
-  const {
-    offViewActivity,
-    recentTouches,
-    highlightedPaths,
-    onVisiblePathsChange: handleVisiblePathsChange,
-    markRecentActivity,
-    markRecentTouch,
-    clearOffViewActivity,
-  } = usePresenceActivity(itemPaths)
-  const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths])
-  const selectedItems = useMemo(() => {
-    if (!selectedPaths.length) return []
-    const selectionPool = similarityState ? similarityItems : poolItems
-    const poolByPath = new Map(selectionPool.map((it) => [it.path, it]))
-    const itemsByPath = new Map(items.map((it) => [it.path, it]))
-    return selectedPaths
-      .map((path) => poolByPath.get(path) ?? itemsByPath.get(path))
-      .filter((it): it is Item => !!it)
-  }, [selectedPaths, similarityState, similarityItems, poolItems, items])
-  const compareItems = useMemo(() => items.filter((it) => selectedSet.has(it.path)), [items, selectedSet])
-  const comparePaths = useMemo(() => compareItems.map((it) => it.path), [compareItems])
-  const compareMaxIndex = Math.max(0, compareItems.length - 2)
-  const compareIndexClamped = Math.min(compareIndex, compareMaxIndex)
-  const compareA = compareItems[compareIndexClamped] ?? null
-  const compareB = compareItems[compareIndexClamped + 1] ?? null
-  const canComparePrev = compareIndexClamped > 0
-  const canCompareNext = compareIndexClamped < compareItems.length - 2
-  const compareEnabled = compareItems.length >= 2
-  const metricsBaseItems = similarityState ? similarityItems : poolItems
+  }, [bumpRestoreGridToSelectionToken, syncHashImageSelection])
+  const metricsBaseItems = selectionPool
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
   const hasMetricScrollbar = useMemo(() => {
     if (!metricSortKey) return false
@@ -479,24 +276,7 @@ export default function AppShell() {
     })
   }, [items, metricSortKey])
 
-  useEffect(() => {
-    setCompareIndex((prev) => (prev > compareMaxIndex ? compareMaxIndex : prev))
-  }, [compareMaxIndex])
-
-  const updateLastEdited = useCallback((updatedAt?: string | null) => {
-    const now = Date.now()
-    const parsed = parseTimestampMs(updatedAt)
-    const candidate = parsed ?? now
-    const safeCandidate = candidate > now ? now : candidate
-    setLastEditedAt((prev) => {
-      if (prev == null) return safeCandidate
-      return prev > safeCandidate ? prev : safeCandidate
-    })
-    setRecentEditAt(now)
-    setLastEditedNow(now)
-  }, [])
-
-  const updateItemCaches = useCallback((payload: { path: string; star?: StarRating | null; metrics?: Record<string, number | null>; comments?: string | null }) => {
+  const updateItemCaches = useCallback((payload: { path: string; star?: StarRating | null; metrics?: Record<string, number | null> | null; comments?: string | null }) => {
     const hasStar = Object.prototype.hasOwnProperty.call(payload, 'star')
     const hasMetrics = payload.metrics !== undefined
     const hasComments = payload.comments !== undefined
@@ -509,7 +289,7 @@ export default function AppShell() {
         next = { ...next, star: payload.star ?? null }
       }
       if (hasMetrics) {
-        next = { ...next, metrics: payload.metrics ?? null }
+        next = { ...next, metrics: payload.metrics ?? undefined }
       }
       if (hasComments && item.comments !== payload.comments) {
         next = { ...next, comments: payload.comments ?? '' }
@@ -536,6 +316,30 @@ export default function AppShell() {
       predicate: ({ queryKey }) => Array.isArray(queryKey) && queryKey[0] === 'search',
     }, updateList)
   }, [queryClient])
+
+  const {
+    connectionStatus,
+    connectionLabel,
+    presence,
+    editingCount,
+    recentEditActive,
+    hasEdits,
+    lastEditedLabel,
+    persistenceEnabled,
+    highlightedPaths,
+    onVisiblePathsChange: handleVisiblePathsChange,
+    offViewSummary,
+    recentTouchesDisplay,
+    clearOffViewActivity,
+  } = useAppPresenceSync({
+    current,
+    currentGalleryId,
+    itemPaths,
+    items,
+    queryClient,
+    updateItemCaches,
+    setLocalStarOverrides,
+  })
 
   const invalidateDerivedCounts = useCallback(() => {
     setFolderCountsVersion((prev) => prev + 1)
@@ -583,279 +387,6 @@ export default function AppShell() {
       console.error('Failed to refresh folder:', err)
     }
   }, [current, refreshFolderPath])
-
-  const applyPresenceCounts = useCallback((counts: PresenceEvent[]) => {
-    if (!counts.length) return
-    setPresenceByGallery((prev) => {
-      let changed = false
-      const next = { ...prev }
-      for (const count of counts) {
-        const existing = prev[count.gallery_id]
-        if (existing && existing.viewing === count.viewing && existing.editing === count.editing) {
-          continue
-        }
-        next[count.gallery_id] = count
-        changed = true
-      }
-      return changed ? next : prev
-    })
-  }, [])
-
-  const clearPresenceMoveTimer = useCallback(() => {
-    if (presenceMoveTimerRef.current == null) return
-    window.clearTimeout(presenceMoveTimerRef.current)
-    presenceMoveTimerRef.current = null
-  }, [])
-
-  const clearPresenceScope = useCallback((galleryId: string | null) => {
-    if (!galleryId) return
-    setPresenceByGallery((prev) => {
-      if (!(galleryId in prev)) return prev
-      const next = { ...prev }
-      delete next[galleryId]
-      return next
-    })
-  }, [])
-
-  const applyJoinedPresence = useCallback((response: PresenceEvent & { lease_id: string }) => {
-    presenceLeaseIdRef.current = response.lease_id
-    activePresenceGalleryRef.current = response.gallery_id
-    applyPresenceCounts([response])
-  }, [applyPresenceCounts])
-
-  const joinPresenceScope = useCallback(async (galleryId: string, forceNewLease = false) => {
-    const clientId = presenceClientIdRef.current
-    const preferredLease = forceNewLease ? undefined : (presenceLeaseIdRef.current ?? undefined)
-    const join = (leaseId?: string) => api.joinPresence(galleryId, leaseId, clientId)
-    try {
-      applyJoinedPresence(await join(preferredLease))
-      return
-    } catch (error) {
-      if (!forceNewLease && getPresenceErrorCode(error) === 'invalid_lease') {
-        applyJoinedPresence(await join(undefined))
-        return
-      }
-      throw error
-    }
-  }, [applyJoinedPresence])
-
-  const movePresenceScope = useCallback(async (fromGalleryId: string, toGalleryId: string) => {
-    if (fromGalleryId === toGalleryId) {
-      await joinPresenceScope(toGalleryId)
-      return
-    }
-
-    const leaseId = presenceLeaseIdRef.current
-    if (!leaseId) {
-      await joinPresenceScope(toGalleryId, true)
-      return
-    }
-
-    try {
-      const response = await api.movePresence(
-        fromGalleryId,
-        toGalleryId,
-        leaseId,
-        presenceClientIdRef.current,
-      )
-      activePresenceGalleryRef.current = response.to_scope.gallery_id
-      applyPresenceCounts([response.from_scope, response.to_scope])
-      return
-    } catch (error) {
-      const code = getPresenceErrorCode(error)
-      if (code === 'invalid_lease') {
-        await joinPresenceScope(toGalleryId, true)
-        return
-      }
-      if (code === 'scope_mismatch') {
-        await joinPresenceScope(toGalleryId)
-        return
-      }
-      throw error
-    }
-  }, [applyPresenceCounts, joinPresenceScope])
-
-  const syncPresenceScope = useCallback(async (targetGalleryId: string) => {
-    const activeGalleryId = activePresenceGalleryRef.current
-    if (!activeGalleryId) {
-      await joinPresenceScope(targetGalleryId, true)
-      return
-    }
-    if (activeGalleryId === targetGalleryId) {
-      await joinPresenceScope(targetGalleryId)
-      return
-    }
-    await movePresenceScope(activeGalleryId, targetGalleryId)
-  }, [joinPresenceScope, movePresenceScope])
-
-  const flushPendingPresenceTransition = useCallback(async () => {
-    if (presenceTransitionInFlightRef.current) return
-    const targetGalleryId = pendingPresenceGalleryRef.current
-    if (!targetGalleryId) return
-    pendingPresenceGalleryRef.current = null
-    presenceTransitionInFlightRef.current = true
-
-    try {
-      await syncPresenceScope(targetGalleryId)
-    } catch {
-      // Presence lifecycle calls are best-effort; keep UI responsive on failures.
-    } finally {
-      presenceTransitionInFlightRef.current = false
-      const pending = pendingPresenceGalleryRef.current
-      if (pending && pending !== activePresenceGalleryRef.current) {
-        void flushPendingPresenceTransition()
-      }
-    }
-  }, [syncPresenceScope])
-
-  const schedulePresenceTransition = useCallback((targetGalleryId: string, immediate = false) => {
-    pendingPresenceGalleryRef.current = targetGalleryId
-    clearPresenceMoveTimer()
-    if (immediate || activePresenceGalleryRef.current == null) {
-      void flushPendingPresenceTransition()
-      return
-    }
-    presenceMoveTimerRef.current = window.setTimeout(() => {
-      presenceMoveTimerRef.current = null
-      void flushPendingPresenceTransition()
-    }, PRESENCE_MOVE_COALESCE_MS)
-  }, [clearPresenceMoveTimer, flushPendingPresenceTransition])
-
-  const clearPresenceSessionRefs = useCallback(() => {
-    activePresenceGalleryRef.current = null
-    presenceLeaseIdRef.current = null
-    pendingPresenceGalleryRef.current = null
-    clearPresenceMoveTimer()
-  }, [clearPresenceMoveTimer])
-
-  const signalPresenceLeave = useCallback((clearLocal: boolean) => {
-    const galleryId = activePresenceGalleryRef.current
-    const leaseId = presenceLeaseIdRef.current
-    if (!galleryId || !leaseId) return
-    dispatchPresenceLeave(galleryId, leaseId, presenceClientIdRef.current)
-    if (clearLocal) {
-      clearPresenceScope(galleryId)
-    }
-    clearPresenceSessionRefs()
-  }, [clearPresenceScope, clearPresenceSessionRefs])
-
-  useEffect(() => {
-    connectEvents()
-    const offEvents = subscribeEvents((evt: SyncEvent) => {
-      if (evt.type === 'presence') {
-        const data = evt.data
-        if (!data?.gallery_id) return
-        applyPresenceCounts([data])
-        return
-      }
-
-      const data = evt.data as { path?: string }
-      if (!data?.path) return
-      const path = data.path
-
-      if (evt.type === 'item-updated') {
-        const payload = evt.data
-        const sidecar: Sidecar = {
-          v: 1,
-          tags: payload.tags ?? [],
-          notes: payload.notes ?? '',
-          star: payload.star ?? null,
-          version: payload.version ?? 1,
-          updated_at: payload.updated_at ?? '',
-          updated_by: payload.updated_by ?? 'server',
-        }
-        queryClient.setQueryData(sidecarQueryKey(path), sidecar)
-        updateItemCaches({
-          path,
-          star: payload.star ?? null,
-          metrics: payload.metrics,
-          comments: payload.notes ?? '',
-        })
-        updateConflictFromServer(path, sidecar)
-        markRecentActivity(path, 'item-updated', evt.id)
-        markRecentTouch(path, 'item-updated', payload.updated_at)
-        updateLastEdited(payload.updated_at)
-        setLocalStarOverrides((prev) => {
-          if (prev[path] === undefined) return prev
-          const next = { ...prev }
-          delete next[path]
-          return next
-        })
-      } else if (evt.type === 'metrics-updated') {
-        const payload = evt.data
-        updateItemCaches({ path, metrics: payload.metrics })
-        markRecentActivity(path, 'metrics-updated', evt.id)
-        markRecentTouch(path, 'metrics-updated', payload.updated_at)
-        updateLastEdited(payload.updated_at)
-      }
-    })
-    const offStatus = subscribeEventStatus(setConnectionStatus)
-    return () => {
-      offEvents()
-      offStatus()
-      disconnectEvents()
-    }
-  }, [applyPresenceCounts, markRecentActivity, markRecentTouch, queryClient, updateItemCaches, updateLastEdited])
-
-  useEffect(() => {
-    const activeGalleryId = activePresenceGalleryRef.current
-    if (activeGalleryId === currentGalleryId) return
-    schedulePresenceTransition(currentGalleryId, activeGalleryId == null)
-  }, [currentGalleryId, schedulePresenceTransition])
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      const activeGalleryId = activePresenceGalleryRef.current
-      if (!activeGalleryId) return
-      void joinPresenceScope(activeGalleryId)
-    }, PRESENCE_HEARTBEAT_MS)
-    return () => {
-      window.clearInterval(id)
-    }
-  }, [joinPresenceScope])
-
-  useEffect(() => {
-    const previous = prevConnectionStatusRef.current
-    prevConnectionStatusRef.current = connectionStatus
-    if (connectionStatus === 'live' && previous !== 'live') {
-      schedulePresenceTransition(currentGalleryId, true)
-      return
-    }
-    if (connectionStatus === 'reconnecting' || connectionStatus === 'offline') {
-      clearPresenceScope(activePresenceGalleryRef.current)
-    }
-  }, [clearPresenceScope, connectionStatus, currentGalleryId, schedulePresenceTransition])
-
-  useEffect(() => {
-    const onPageHide = () => signalPresenceLeave(true)
-    const onBeforeUnload = () => signalPresenceLeave(true)
-    const onPageShow = () => {
-      schedulePresenceTransition(currentGalleryId, true)
-    }
-    window.addEventListener('pagehide', onPageHide)
-    window.addEventListener('beforeunload', onBeforeUnload)
-    window.addEventListener('pageshow', onPageShow)
-    return () => {
-      window.removeEventListener('pagehide', onPageHide)
-      window.removeEventListener('beforeunload', onBeforeUnload)
-      window.removeEventListener('pageshow', onPageShow)
-      signalPresenceLeave(false)
-    }
-  }, [currentGalleryId, schedulePresenceTransition, signalPresenceLeave])
-
-  useEffect(() => {
-    let cancelled = false
-    api.getHealth()
-      .then((res) => {
-        if (cancelled) return
-        const enabled = res?.labels?.enabled ?? true
-        setPersistenceEnabled(enabled)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   // Compute star counts for the filter UI
   const starCounts = useMemo(() => {
@@ -908,13 +439,8 @@ export default function AppShell() {
   }, [metricKeys, viewState.sort, similarityActive])
 
   const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
-  const scopeTotal = data?.totalItems ?? data?.items.length ?? totalCount
-  const rootTotal = current === '/'
-    ? scopeTotal
-    : (cachedRootRecursive?.totalItems ?? cachedRootRecursive?.items.length ?? scopeTotal)
   const showFilteredCounts = similarityActive || searching || activeFilterCount > 0
 
-  const presence = presenceByGallery[current]
   const syncLabel = (() => {
     if (syncStatus.state === 'syncing') return 'Syncing…'
     if (syncStatus.state === 'error') {
@@ -922,13 +448,6 @@ export default function AppShell() {
     }
     return 'All changes saved'
   })()
-  const connectionLabel = getConnectionLabel(connectionStatus)
-  const hasEdits = lastEditedAt != null
-  const lastEditedLabel = useMemo(() => {
-    if (!hasEdits || lastEditedAt == null) return 'No edits yet.'
-    return formatTimestampLabel(lastEditedAt, lastEditedNow)
-  }, [hasEdits, lastEditedAt, lastEditedNow])
-  const editingCount = presence?.editing ?? 0
   const longSync = oldestInflightAgeMs != null && oldestInflightAgeMs > LONG_SYNC_THRESHOLD_MS
   const isOffline = connectionStatus === 'offline' || connectionStatus === 'connecting' || connectionStatus === 'idle'
   const isUnstable = connectionStatus === 'reconnecting' || pollingEnabled || syncStatus.state === 'error' || longSync
@@ -938,15 +457,6 @@ export default function AppShell() {
     recentEditActive,
     editingCount,
   })
-
-  const offViewSummary = useMemo(
-    () => buildRecentSummary(offViewActivity, items),
-    [offViewActivity, items],
-  )
-  const recentTouchesDisplay = useMemo(
-    () => buildRecentTouchesDisplay(recentTouches, items, lastEditedNow, formatTimestampLabel),
-    [items, lastEditedNow, recentTouches],
-  )
   const displayItemCount = getDisplayItemCount(
     similarityActive,
     showFilteredCounts,
@@ -1009,11 +519,11 @@ export default function AppShell() {
     similarityPrevSelectionRef.current = null
     if (prevSelection && prevSelection.length) {
       setSelectedPaths(prevSelection)
-      setRestoreGridToSelectionToken((token) => token + 1)
+      bumpRestoreGridToSelectionToken()
     } else {
       setSelectedPaths([])
     }
-  }, [])
+  }, [bumpRestoreGridToSelectionToken, setSelectedPaths])
 
   const handleRevealOffView = useCallback(() => {
     if (similarityState) {
@@ -1042,11 +552,11 @@ export default function AppShell() {
         ? payload.query_path
         : res.items[0].path
       setSelectedPaths([preferred])
-      setRestoreGridToSelectionToken((token) => token + 1)
+      bumpRestoreGridToSelectionToken()
     } else {
       setSelectedPaths([])
     }
-  }, [similarityState, selectedPaths])
+  }, [bumpRestoreGridToSelectionToken, selectedPaths, setSelectedPaths, similarityState])
 
   const handleMetricRange = useCallback((key: string, range: { min: number; max: number } | null) => {
     updateFilters((filters) => setMetricRangeFilter(filters, key, range))
@@ -1219,13 +729,9 @@ export default function AppShell() {
   useEffect(() => {
     if (searching) {
       setSelectedPaths([])
-      if (viewer) {
-        setViewer(null)
-        viewerHistoryPushedRef.current = false
-        replaceHash(current)
-      }
+      clearViewerForSearch(current)
     }
-  }, [searching, viewer, current])
+  }, [clearViewerForSearch, current, searching, setSelectedPaths])
 
   // Track toolbar height so overlays align on small screens
   useEffect(() => {
@@ -1480,174 +986,38 @@ export default function AppShell() {
 
   // Navigation callbacks
   const openFolder = useCallback((p: string) => {
-    setViewer(null)
-    viewerHistoryPushedRef.current = false
+    resetViewerState()
     const safe = sanitizePath(p)
     setCurrent(safe)
     writeHash(safe)
-  }, [])
+  }, [resetViewerState])
 
-  const resolveGridActionPaths = useCallback((targetPath: string): string[] => {
-    const currentSelection = dedupePaths(selectedPaths)
-    if (currentSelection.includes(targetPath)) return currentSelection
-    return [targetPath]
-  }, [selectedPaths])
-
-  const openGridActions = useCallback((targetPath: string, anchor: { x: number; y: number }) => {
-    const paths = resolveGridActionPaths(targetPath)
-    setSelectedPaths(paths)
-    setCtx({ x: anchor.x, y: anchor.y, kind: 'grid', payload: { paths } })
-  }, [resolveGridActionPaths])
-
-  const openFolderActions = useCallback((path: string, anchor: { x: number; y: number }) => {
-    setCtx({ x: anchor.x, y: anchor.y, kind: 'tree', payload: { path } })
-  }, [])
-
-  const collectMoveFolders = useCallback(async (): Promise<string[]> => {
-    const queue: string[] = ['/']
-    const visited = new Set<string>()
-    const found = new Set<string>(['/'])
-
-    while (queue.length > 0 && visited.size < MOVE_FOLDER_SCAN_LIMIT) {
-      const path = queue.shift() ?? '/'
-      const safePath = sanitizePath(path)
-      if (visited.has(safePath)) continue
-      visited.add(safePath)
-      let folder: FolderIndex | null = null
-      try {
-        folder = await api.getFolder(safePath)
-      } catch {
-        folder = null
-      }
-      if (!folder) continue
-      for (const dir of folder.dirs ?? []) {
-        const child = sanitizePath(joinPath(safePath, dir.name))
-        if (found.has(child)) continue
-        found.add(child)
-        queue.push(child)
-      }
-    }
-
-    return Array.from(found).sort((a, b) => {
-      if (a === '/') return -1
-      if (b === '/') return 1
-      return a.localeCompare(b)
-    })
-  }, [])
-
-  useEffect(() => {
-    if (!moveDialog) return
-    let cancelled = false
-    setMoveFoldersLoading(true)
-    void collectMoveFolders()
-      .then((paths) => {
-        if (!cancelled) setMoveFolders(paths)
-      })
-      .catch((err) => {
-        if (!cancelled) setActionError(formatMutationError(err, 'Failed to load destination folders.'))
-      })
-      .finally(() => {
-        if (!cancelled) setMoveFoldersLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [collectMoveFolders, moveDialog])
-
-  const moveSelectedToFolder = useCallback(async (paths: string[], destination: string): Promise<boolean> => {
-    const selected = dedupePaths(paths)
-    if (!selected.length) return false
-    const targetDir = sanitizePath(destination || '/')
-    setActionError(null)
-
-    const failures: string[] = []
-    const failedPaths: string[] = []
-    for (const path of selected) {
-      try {
-        await api.moveFile(path, targetDir)
-      } catch (err) {
-        failures.push(`${getPathName(path) || path}: ${formatMutationError(err, 'Move failed.')}`)
-        failedPaths.push(path)
-      }
-    }
-    try {
-      await queryClient.invalidateQueries({
-        predicate: ({ queryKey }) => Array.isArray(queryKey) && queryKey[0] === 'folder',
-      })
-      invalidateDerivedCounts()
-      await refetch()
-    } catch (err) {
-      failures.push(formatMutationError(err, 'Move completed, but refresh failed.'))
-    }
-
-    if (failures.length) {
-      setActionError(summarizeFailures('Move', failures))
-      setSelectedPaths(failedPaths)
-      return false
-    }
-
-    setMoveDialog(null)
-    setCtx(null)
-    const moved = new Set(selected)
-    setSelectedPaths((prev) => prev.filter((path) => !moved.has(path)))
-    return true
-  }, [invalidateDerivedCounts, queryClient, refetch])
-
-  const openMoveDialogForPaths = useCallback((paths: string[]) => {
-    const selected = dedupePaths(paths)
-    if (!selected.length) return
-    setActionError(null)
-    setMoveDialog({ paths: selected })
-    setCtx(null)
-  }, [])
-
-  const uploadFiles = useCallback(async (files: File[]): Promise<void> => {
-    if (!files.length) return
-    const isLeaf = (data?.dirs?.length ?? 0) === 0
-    if (!isLeaf) {
-      setActionError('Uploads are only allowed into folders without subdirectories.')
-      return
-    }
-
-    setUploading(true)
-    setActionError(null)
-    const failures: string[] = []
-
-    try {
-      for (const file of files) {
-        try {
-          await api.uploadFile(current, file)
-        } catch (err) {
-          failures.push(`${file.name}: ${formatMutationError(err, 'Upload failed.')}`)
-        }
-      }
-      try {
-        await refetch()
-      } catch (err) {
-        failures.push(formatMutationError(err, 'Upload completed, but refresh failed.'))
-      }
-    } finally {
-      setUploading(false)
-    }
-
-    if (failures.length) {
-      setActionError(summarizeFailures('Upload', failures))
-      return
-    }
-    setActionError(null)
-  }, [current, data?.dirs?.length, refetch])
-
-  const openUploadPicker = useCallback(() => {
-    if (uploading) return
-    uploadInputRef.current?.click()
-  }, [uploading])
-
-  const handleUploadInputChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? [])
-    event.target.value = ''
-    if (!files.length) return
-    await uploadFiles(files)
-  }, [uploadFiles])
+  const {
+    uploading,
+    actionError,
+    isDraggingOver,
+    moveDialog,
+    moveFolders,
+    moveFoldersLoading,
+    ctx,
+    setCtx,
+    closeMoveDialog,
+    openUploadPicker,
+    handleUploadInputChange,
+    openGridActions,
+    openFolderActions,
+    openMoveDialogForPaths,
+    moveSelectedToFolder,
+  } = useAppActions({
+    appRef,
+    uploadInputRef,
+    current,
+    currentDirCount: data?.dirs?.length ?? 0,
+    selectedPaths,
+    setSelectedPaths,
+    refetch,
+    invalidateDerivedCounts,
+  })
 
   const handleSaveView = useCallback(async () => {
     const name = window.prompt('Save Smart Folder as:', 'New Smart Folder')
@@ -1688,147 +1058,6 @@ export default function AppShell() {
       setActiveViewId(null)
     }
   }, [activeViewId, views, current, viewState])
-
-  const focusGridCell = useCallback((path: string | null | undefined) => {
-    if (!path) return
-    const el = document.getElementById(`cell-${encodeURIComponent(path)}`)
-    el?.focus()
-  }, [])
-
-  const openViewer = useCallback((p: string) => {
-    setViewer(p)
-    viewerHistoryPushedRef.current = true
-    writeHash(p)
-  }, [])
-
-  const closeViewer = useCallback(() => {
-    setViewer(null)
-    if (viewerHistoryPushedRef.current) {
-      viewerHistoryPushedRef.current = false
-      window.history.back()
-    } else {
-      replaceHash(current)
-    }
-    // Restore focus to the last focused grid cell
-    focusGridCell(lastFocusedPathRef.current)
-  }, [focusGridCell])
-
-  const openCompare = useCallback(() => {
-    if (compareOpen || !compareEnabled) return
-    if (selectedPaths[0]) lastFocusedPathRef.current = selectedPaths[0]
-    setCompareIndex(0)
-    setCompareOpen(true)
-
-    if (viewer) {
-      setViewer(null)
-      if (viewerHistoryPushedRef.current) {
-        viewerHistoryPushedRef.current = false
-      }
-      replaceHash(current)
-    }
-
-    if (!compareHistoryPushedRef.current) {
-      window.history.pushState({ compare: true }, '', window.location.href)
-      compareHistoryPushedRef.current = true
-    }
-  }, [compareOpen, compareEnabled, selectedPaths, viewer, current])
-
-  const closeCompare = useCallback(() => {
-    setCompareOpen(false)
-    if (compareHistoryPushedRef.current) {
-      compareHistoryPushedRef.current = false
-      window.history.back()
-    }
-    focusGridCell(lastFocusedPathRef.current ?? selectedPaths[0])
-  }, [focusGridCell, selectedPaths])
-
-  const handleCompareNavigate = useCallback((delta: number) => {
-    if (compareItems.length < 2) return
-    setCompareIndex((prev) => {
-      const max = Math.max(0, compareItems.length - 2)
-      return Math.min(max, Math.max(0, prev + delta))
-    })
-  }, [compareItems.length])
-
-  useEffect(() => {
-    if (!compareOpen) return
-    if (compareEnabled) return
-    closeCompare()
-  }, [compareOpen, compareEnabled, closeCompare])
-
-  // Handle browser back/forward specifically for closing the viewer.
-  // NOTE: We intentionally do NOT touch grid scroll position here – closing
-  // the fullscreen viewer should leave the grid exactly where it was.
-  useEffect(() => {
-    const onPop = () => {
-      if (viewer) {
-        viewerHistoryPushedRef.current = false
-        setViewer(null)
-      }
-      if (compareOpen) {
-        compareHistoryPushedRef.current = false
-        setCompareOpen(false)
-      }
-    }
-    window.addEventListener('popstate', onPop)
-    return () => window.removeEventListener('popstate', onPop)
-  }, [viewer, compareOpen])
-
-  // Drag and drop file upload handling
-  useEffect(() => {
-    const el = appRef.current
-    if (!el) return
-
-    const onDragOver = (e: DragEvent) => {
-      if (!e.dataTransfer) return
-      if (Array.from(e.dataTransfer.types).includes('Files')) {
-        e.preventDefault()
-        setDraggingOver(true)
-      }
-    }
-
-    const onDragLeave = (e: DragEvent) => {
-      // Only trigger if leaving the app container entirely
-      const related = e.relatedTarget as Node | null
-      if (related && el.contains(related)) return
-      setDraggingOver(false)
-    }
-
-    const onDrop = async (e: DragEvent) => {
-      e.preventDefault()
-      setDraggingOver(false)
-      
-      const files = Array.from(e.dataTransfer?.files ?? [])
-      if (!files.length) return
-      await uploadFiles(files)
-    }
-
-    el.addEventListener('dragover', onDragOver)
-    el.addEventListener('dragleave', onDragLeave)
-    el.addEventListener('drop', onDrop)
-    
-    return () => {
-      el.removeEventListener('dragover', onDragOver)
-      el.removeEventListener('dragleave', onDragLeave)
-      el.removeEventListener('drop', onDrop)
-    }
-  }, [uploadFiles])
-
-  // Close context menu on click or escape
-  useEffect(() => {
-    const onGlobalClick = () => setCtx(null)
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setCtx(null)
-    }
-    
-    window.addEventListener('click', onGlobalClick)
-    window.addEventListener('keydown', onEsc)
-    
-    return () => {
-      window.removeEventListener('click', onGlobalClick)
-      window.removeEventListener('keydown', onEsc)
-    }
-  }, [])
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -1884,27 +1113,6 @@ export default function AppShell() {
 
   const leftCol = leftOpen ? `${constrainedSidebars.leftWidth}px` : '0px'
   const rightCol = rightOpen ? `${constrainedSidebars.rightWidth}px` : '0px'
-
-  const navCurrent = viewer ?? selectedPaths[0] ?? null
-  const navIdx = navCurrent ? itemPaths.indexOf(navCurrent) : -1
-  const canPrevImage = navIdx > 0
-  const canNextImage = navIdx >= 0 && navIdx < itemPaths.length - 1
-
-  const handleNavigate = useCallback((delta: number) => {
-    if (!itemPaths.length) return
-    const currentPath = viewer ?? selectedPaths[0]
-    if (!currentPath) return
-    const idx = itemPaths.indexOf(currentPath)
-    if (idx === -1) return
-    const next = Math.min(itemPaths.length - 1, Math.max(0, idx + delta))
-    const nextPath = itemPaths[next]
-    if (!nextPath || nextPath === currentPath) return
-    if (viewer) {
-      setViewer(nextPath)
-      replaceHash(nextPath)
-    }
-    setSelectedPaths([nextPath])
-  }, [itemPaths, viewer, selectedPaths])
 
   return (
     <div
@@ -1996,7 +1204,10 @@ export default function AppShell() {
           onOpenFolder={(p) => { setActiveViewId(null); openFolder(p) }}
           onOpenFolderActions={openFolderActions}
           onPullRefreshFolders={handlePullRefreshFolders}
-          onContextMenu={(e, p) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, kind: 'tree', payload: { path: p } }) }}
+          onContextMenu={(e, p) => {
+            e.preventDefault()
+            openFolderActions(p, { x: e.clientX, y: e.clientY })
+          }}
           countVersion={folderCountsVersion}
           items={metricsBaseItems}
           filteredItems={items}
@@ -2106,18 +1317,16 @@ export default function AppShell() {
             restoreToSelectionToken={restoreGridToSelectionToken}
             multiSelectMode={mobileSelectEnabled && mobileSelectMode}
             onSelectionChange={setSelectedPaths}
-            onOpenViewer={(p)=> { try { lastFocusedPathRef.current = p } catch {} ; openViewer(p); setSelectedPaths([p]) }}
+            onOpenViewer={(p) => { rememberFocusedPath(p); openViewer(p); setSelectedPaths([p]) }}
             highlight={searching ? normalizedQ : ''}
             recentlyUpdated={highlightedPaths}
             onVisiblePathsChange={handleVisiblePathsChange}
-            suppressSelectionHighlight={!!viewer || compareOpen}
+            suppressSelectionHighlight={overlayActive}
             viewMode={viewMode}
             targetCellSize={gridItemSize}
             onContextMenuItem={(e, path) => {
               e.preventDefault()
-              const paths = resolveGridActionPaths(path)
-              setSelectedPaths(paths)
-              setCtx({ x: e.clientX, y: e.clientY, kind: 'grid', payload: { paths } })
+              openGridActions(path, { x: e.clientX, y: e.clientY })
             }}
             onOpenItemActions={openGridActions}
             scrollRef={gridScrollRef}
@@ -2149,7 +1358,7 @@ export default function AppShell() {
           }}
           onFindSimilar={() => setSimilarityOpen(true)}
           embeddingsAvailable={embeddingsAvailable}
-          embeddingsLoading={embeddingsQuery.isLoading}
+          embeddingsLoading={embeddingsLoading}
           onLocalTypingChange={setLocalTypingActive}
         />
       )}
@@ -2158,7 +1367,7 @@ export default function AppShell() {
         embeddings={embeddings}
         rejected={embeddingsRejected}
         selectedPath={selectedPaths[0] ?? null}
-        embeddingsLoading={embeddingsQuery.isLoading}
+        embeddingsLoading={embeddingsLoading}
         embeddingsError={embeddingsError}
         onClose={() => setSimilarityOpen(false)}
         onSearch={handleSimilaritySearch}
@@ -2193,7 +1402,7 @@ export default function AppShell() {
           defaultDestination={current}
           destinations={moveFolders}
           loadingDestinations={moveFoldersLoading}
-          onClose={() => setMoveDialog(null)}
+          onClose={closeMoveDialog}
           onSubmit={moveSelectedToFolder}
         />
       )}

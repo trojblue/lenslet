@@ -9,7 +9,7 @@ from PIL import Image
 import pytest
 
 from lenslet.server import create_app
-from lenslet.server_sync import PresenceLeaseError, PresenceScopeError, PresenceTracker
+from lenslet.server_sync import EventBroker, PresenceLeaseError, PresenceScopeError, PresenceTracker
 
 
 def _make_image(path: Path) -> None:
@@ -91,6 +91,23 @@ def test_presence_tracker_invariants_and_idempotence() -> None:
         tracker.move("/dogs", "/cats", "client-b", lease_1)
     with pytest.raises(PresenceScopeError):
         tracker.move("/wrong", "/cats", "client-b", lease_2)
+
+
+def test_event_broker_replay_latest_event_returns_empty_without_replay_miss() -> None:
+    broker = EventBroker(buffer_size=8)
+    assert broker.replay(0) == []
+
+    first_id = broker.publish("presence", {"gallery_id": "/room", "viewing": 1, "editing": 0})
+    second_id = broker.publish("presence", {"gallery_id": "/room", "viewing": 0, "editing": 0})
+    assert first_id < second_id
+
+    miss_before = broker.diagnostics()["replay_miss_total"]
+    assert broker.replay(second_id) == []
+    assert broker.diagnostics()["replay_miss_total"] == miss_before
+
+    replay = broker.replay(first_id)
+    assert len(replay) == 1
+    assert replay[0].get("id") == second_id
 
 
 async def _run_presence_lifecycle_api(app) -> None:

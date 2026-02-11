@@ -71,6 +71,8 @@ def test_file_response_uses_streaming_when_local_source_path_exists(tmp_path: Pa
 
     assert isinstance(response, FileResponse)
     assert response.path == str(local_path)
+    assert response.stat_result is not None
+    assert response.stat_result.st_size == local_path.stat().st_size
     assert storage.read_calls == 0
 
 

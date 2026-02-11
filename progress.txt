@@ -304,3 +304,139 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260211_foundational_long_file_refactor_pla
   - `npx tsc --noEmit` -> known pre-existing failures remain in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
 - Blockers: none.
 - Next step: execute `S4 / T14` by extracting AppShell selectors/derived transforms into pure model helpers with dedicated tests.
+
+## Iteration 21 - 2026-02-11T09:38:22Z
+- Completed ticket: `S4 / T14` (extract AppShell selectors and pure helper models).
+- Implemented artifacts:
+  - Added `frontend/src/app/model/appShellSelectors.ts` with pure selectors for metric-scrollbar eligibility, metric-key collection, star-count aggregation, similarity labels, and display-count derivations.
+  - Added `frontend/src/app/__tests__/appShellSelectors.test.ts` with focused unit coverage for selector behavior and edge-case scan semantics.
+  - Rewired `frontend/src/app/AppShell.tsx` to consume selector helpers instead of inline derived-state blocks.
+  - Reduced `frontend/src/app/AppShell.tsx` from `1429` to `1385` lines.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T14` status).
+- Validation run:
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `45 passed`.
+  - `npm run build` -> success.
+  - `npx tsc --noEmit` -> known pre-existing failures remain in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+- Blockers: none.
+- Next step: execute `S4 / T15` by reducing AppShell rerender/effect churn (memo boundaries and listener lifecycle tightening) while preserving behavior.
+
+## Iteration 22 - 2026-02-11T09:44:52Z
+- Completed ticket: `S4 / T15` (reduce AppShell rerender/effect churn via listener lifecycle stabilization).
+- Implemented artifacts:
+  - Added `frontend/src/shared/hooks/useLatestRef.ts` for stable latest-value refs in long-lived listeners.
+  - Updated `frontend/src/app/AppShell.tsx` so hash-sync (`hashchange`), global keyboard (`keydown`), and pinch-resize (`touchstart`/`touchmove`) listeners remain mounted and read current state via refs instead of dependency-driven listener rebinds.
+  - Added implementation/perf note `docs/dev_notes/20260211_s4_t15_listener_lifecycle_stabilization.md`.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, `T15` status, and `S4 handover`).
+- Validation run:
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `45 passed`.
+  - `npm run build` -> success.
+  - `npx tsc --noEmit` -> known pre-existing failures remain in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+- Blockers: none.
+- Next step: execute `S5 / T16` by extracting Inspector metadata normalization and compare-diff model utilities into `frontend/src/features/inspector/model/` with focused unit coverage, then rerun inspector/frontend parity slices.
+
+## Iteration 23 - 2026-02-11T09:48:03Z
+- Completed ticket: `S5 / T16` (extract Inspector pure metadata and compare model utilities).
+- Implemented artifacts:
+  - Added `frontend/src/features/inspector/model/metadataCompare.ts` with pure metadata transforms and compare-diff derivation (`normalizeMetadata`, `buildDisplayMetadata`, `renderJsonValue`, path/copy helpers, `buildCompareMetadataDiff`, `hasPilInfoMetadata`).
+  - Added `frontend/src/features/inspector/model/__tests__/metadataCompare.test.ts` with focused coverage for normalization, PIL-info masking, html/path rendering markers, path resolution, copy formatting, pil-info detection, compare-diff inclusion/exclusion, and truncation behavior.
+  - Updated `frontend/src/features/inspector/Inspector.tsx` to consume the new model module for metadata display/path/copy behavior and compare-diff generation while keeping async workflows and UI actions unchanged.
+  - Reduced `frontend/src/features/inspector/Inspector.tsx` from `1567` to `1313` lines.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T16` status).
+- Validation run:
+  - `npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/features/inspector/model/__tests__/metadataCompare.test.ts` -> `15 passed`.
+  - `npm run build` -> success.
+- Blockers: none.
+- Next step: execute `S5 / T17` by splitting `Inspector` section render blocks into typed section components under `frontend/src/features/inspector/sections/` while preserving current interaction and copy/export behavior.
+
+## Iteration 24 - 2026-02-11T09:55:59Z
+- Completed ticket: `S5 / T17` (split Inspector sections into typed components).
+- Implemented artifacts:
+  - Added shared section shell `frontend/src/features/inspector/sections/InspectorSection.tsx`.
+  - Added typed section components: `frontend/src/features/inspector/sections/OverviewSection.tsx`, `frontend/src/features/inspector/sections/CompareMetadataSection.tsx`, `frontend/src/features/inspector/sections/BasicsSection.tsx`, `frontend/src/features/inspector/sections/MetadataSection.tsx`, and `frontend/src/features/inspector/sections/NotesSection.tsx`.
+  - Rewired `frontend/src/features/inspector/Inspector.tsx` to delegate overview/compare/basics/metadata/notes rendering through section components while preserving existing state/effect ownership and action handlers in `Inspector`.
+  - Reduced `frontend/src/features/inspector/Inspector.tsx` line count from `1313` to `865`.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T17` status).
+- Validation run:
+  - `npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/features/inspector/model/__tests__/metadataCompare.test.ts` -> `15 passed`.
+  - `npm run build` -> success.
+- Blockers: none.
+- Next step: execute `S5 / T18` by extracting Inspector async workflows (metadata load/reload, compare export submit, typing/conflict flows) into dedicated hooks under `frontend/src/features/inspector/hooks/` while preserving current success/error semantics.
+
+## Iteration 25 - 2026-02-11T10:05:03Z
+- Completed ticket: `S5 / T18` (extract Inspector async workflows into hooks).
+- Implemented artifacts:
+  - Added `frontend/src/features/inspector/hooks/useInspectorSidecarWorkflow.ts` to own Inspector typing-state notifications, sidecar commit flows, and conflict apply/keep semantics.
+  - Added `frontend/src/features/inspector/hooks/useInspectorMetadataWorkflow.ts` to own metadata load/reload, compare-metadata request lifecycle, and comparison-export submit state.
+  - Rewired `frontend/src/features/inspector/Inspector.tsx` to consume both hooks while preserving existing section rendering and copy interactions.
+  - Reduced `frontend/src/features/inspector/Inspector.tsx` from `865` to `714` lines.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T18` status).
+- Validation run:
+  - `npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/features/inspector/model/__tests__/metadataCompare.test.ts` -> `15 passed`.
+  - `npm run build` -> success.
+  - `npx tsc --noEmit` -> known pre-existing failures remain in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+- Blockers: none.
+- Next step: execute `S5 / T19` by optimizing heavy Inspector compare/metadata render paths (memo boundaries and derived rendering churn) while preserving output parity.
+
+## Iteration 26 - 2026-02-11T11:20:25Z
+- Completed ticket: `S5 / T19` (optimize heavy Inspector render paths).
+- Implemented artifacts:
+  - Added normalized metadata reuse helpers in `frontend/src/features/inspector/model/metadataCompare.ts` (`normalizeMetadataRecord`, `buildDisplayMetadataFromNormalized`, `buildCompareMetadataDiffFromNormalized`) while keeping legacy wrapper entrypoints intact.
+  - Rewired `frontend/src/features/inspector/Inspector.tsx` to reuse normalized compare metadata and gate heavy compare/metadata transforms to open-section paths.
+  - Memoized heavy Inspector section rendering in `frontend/src/features/inspector/sections/CompareMetadataSection.tsx` (with memoized `CompareDiffTable`) and `frontend/src/features/inspector/sections/MetadataSection.tsx`.
+  - Added parity coverage in `frontend/src/features/inspector/model/__tests__/metadataCompare.test.ts` for normalized-helper pathways.
+  - Added implementation/perf note `docs/dev_notes/20260211_s5_t19_inspector_render_optimization.md`.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, `T19` status, and `S5` handover notes).
+- Validation run:
+  - `npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/features/inspector/model/__tests__/metadataCompare.test.ts` -> `16 passed`.
+  - `npm run build` -> success.
+  - `npx tsc --noEmit` -> known pre-existing failures remain in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+  - Synthetic compare-render benchmark (`node --experimental-strip-types ...`) improved from pre-`T19` `median 12.88ms` / `mean 13.43ms` to post-`T19` optimized `median 10.65ms` / `mean 10.93ms` with identical checksum.
+- Blockers: none.
+- Next step: execute `S6 / T20` by splitting `frontend/src/features/metrics/MetricsPanel.tsx` into typed components under `frontend/src/features/metrics/components/` while preserving filter/histogram behavior.
+
+## Iteration 27 - 2026-02-11T11:28:25Z
+- Completed ticket: `S6 / T20` (split MetricsPanel into cards/components).
+- Implemented artifacts:
+  - Added `frontend/src/features/metrics/components/AttributesPanel.tsx` for attributes filters (rating/filename/comments/url/date/dimensions) with unchanged filter helper wiring.
+  - Added `frontend/src/features/metrics/components/MetricRangePanel.tsx` for metric picker + single/all histogram-card composition.
+  - Added `frontend/src/features/metrics/components/MetricHistogramCard.tsx` containing histogram rendering and range interaction behavior extracted from `MetricsPanel.tsx`.
+  - Rewrote `frontend/src/features/metrics/MetricsPanel.tsx` as a thin composition facade plus selected-metrics summary (`1024` -> `150` lines).
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T20` status).
+- Validation run:
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `45 passed`.
+  - `npm run build` -> success.
+  - `npx tsc --noEmit` -> known pre-existing failures remain in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+- Blockers: none.
+- Next step: execute `S6 / T21` by extracting histogram math/range/formatting helpers from `MetricHistogramCard.tsx` into `frontend/src/features/metrics/model/histogram.ts` with dedicated utility tests.
+
+## Iteration 28 - 2026-02-11T13:40:15Z
+- Completed ticket: `S6 / T21` (extract histogram math utilities into pure module).
+- Implemented artifacts:
+  - Added `frontend/src/features/metrics/model/histogram.ts` with pure helpers for metric-value collection, histogram binning (with optional base-domain anchoring), range normalization, clamping, tolerant numeric comparison, and number/input formatting + parsing.
+  - Added `frontend/src/features/metrics/model/__tests__/histogram.test.ts` with dedicated edge-case coverage for empty inputs, degenerate domains, base-domain histogram reuse, numeric formatting thresholds, parse validation, clamping, and approximate comparisons.
+  - Rewired `frontend/src/features/metrics/components/MetricHistogramCard.tsx` to consume histogram model helpers instead of owning local numeric utility functions.
+  - Updated `frontend/src/features/metrics/components/MetricRangePanel.tsx` and `frontend/src/features/metrics/MetricsPanel.tsx` to source `Range`/`formatNumber` from the new model module.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T21` status).
+- Validation run:
+  - `npm run test -- src/features/metrics/model/__tests__/histogram.test.ts` -> `8 passed`.
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `45 passed`.
+  - `npm run build` -> success.
+  - `npx tsc --noEmit` -> known pre-existing failures unchanged in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+- Blockers: none.
+- Next step: execute `S6 / T22` by extracting histogram drag/hover/commit transitions into a dedicated hook under `frontend/src/features/metrics/hooks/` while preserving drag-to-filter and clear semantics.
+
+## Iteration 29 - 2026-02-11T13:48:25Z
+- Completed ticket: `S6 / T22` (extract histogram interaction state machine hook).
+- Implemented artifacts:
+  - Added `frontend/src/features/metrics/hooks/useMetricHistogramInteraction.ts` to own histogram pointer interaction transitions (drag start/move/commit, hover, and click-clear behavior).
+  - Added exported pure transition helpers in the hook module (`histogramValueFromClientX`, `didPointerDrag`, `rangeFromDrag`, `resolvePointerUpOutcome`) for deterministic state-machine testing.
+  - Added `frontend/src/features/metrics/hooks/__tests__/useMetricHistogramInteraction.test.ts` with coverage for value projection/clamping, drag-threshold behavior, range normalization, and pointer-up commit/clear outcomes.
+  - Rewired `frontend/src/features/metrics/components/MetricHistogramCard.tsx` to consume the extracted hook while preserving drag-to-filter and clear semantics.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T22` status).
+- Validation run:
+  - `npm run test -- src/features/metrics/model/__tests__/histogram.test.ts src/features/metrics/hooks/__tests__/useMetricHistogramInteraction.test.ts` -> `12 passed`.
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `45 passed`.
+  - `npm run build` -> success.
+  - `npx tsc --noEmit` -> known pre-existing failures unchanged in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+- Blockers: none.
+- Next step: execute `S6 / T23` by optimizing metrics histogram/filter computation reuse (memoized shared value extraction and histogram reuse across selected/filtered overlays) while preserving filter outcomes.

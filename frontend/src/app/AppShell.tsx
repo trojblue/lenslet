@@ -44,6 +44,16 @@ import { constrainSidebarWidths, LAYOUT_BREAKPOINTS, LAYOUT_MEDIA_QUERIES } from
 import { useMediaQuery } from '../shared/hooks/useMediaQuery'
 import MoveToDialog from './components/MoveToDialog'
 import AppContextMenuItems from './menu/AppContextMenuItems'
+import { useLatestRef } from '../shared/hooks/useLatestRef'
+import {
+  buildStarCounts,
+  collectMetricKeys,
+  getDisplayItemCount,
+  getDisplayTotalCount,
+  getSimilarityCountLabel,
+  getSimilarityQueryLabel,
+  hasMetricSortValues,
+} from './model/appShellSelectors'
 import {
   downloadBlob,
   formatDateRange,
@@ -84,29 +94,6 @@ function prefetchFilesAndThumbs(paths: readonly string[], context: FullFilePrefe
     api.prefetchFile(path, context)
     api.prefetchThumb(path)
   }
-}
-
-function getDisplayItemCount(
-  similarityActive: boolean,
-  showFilteredCounts: boolean,
-  filteredCount: number,
-  scopeTotal: number
-): number {
-  if (similarityActive) return filteredCount
-  return showFilteredCounts ? filteredCount : scopeTotal
-}
-
-function getDisplayTotalCount(
-  similarityActive: boolean,
-  showFilteredCounts: boolean,
-  totalCount: number,
-  scopeTotal: number,
-  rootTotal: number,
-  current: string
-): number {
-  if (similarityActive) return totalCount
-  if (showFilteredCounts) return scopeTotal
-  return current === '/' ? scopeTotal : rootTotal
 }
 
 export default function AppShell() {
@@ -238,6 +225,8 @@ export default function AppShell() {
     selectionPool,
     focusGridCell,
   })
+  const syncHashImageSelectionRef = useLatestRef(syncHashImageSelection)
+  const bumpRestoreGridToSelectionTokenRef = useLatestRef(bumpRestoreGridToSelectionToken)
   // Initialize current folder from URL hash and keep in sync.
   useEffect(() => {
     const applyHash = (raw: string) => {
@@ -246,7 +235,7 @@ export default function AppShell() {
       const folderTarget = imageTarget ? getParentPath(norm) : norm
       const isInitialHashSync = !initialHashSyncRef.current
       initialHashSyncRef.current = true
-      syncHashImageSelection(imageTarget)
+      syncHashImageSelectionRef.current(imageTarget)
       // Only trigger "restore selection into view" when the folder/tab actually changes.
       setCurrent((prev) => {
         const nextScope = resolveScopeFromHashTarget(
@@ -256,7 +245,7 @@ export default function AppShell() {
           isInitialHashSync,
         )
         if (prev === nextScope) return prev
-        bumpRestoreGridToSelectionToken()
+        bumpRestoreGridToSelectionTokenRef.current()
         return nextScope
       })
     }
@@ -265,16 +254,13 @@ export default function AppShell() {
     const onHash = () => applyHash(readHash())
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [bumpRestoreGridToSelectionToken, syncHashImageSelection])
+  }, [bumpRestoreGridToSelectionTokenRef, syncHashImageSelectionRef])
   const metricsBaseItems = selectionPool
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
-  const hasMetricScrollbar = useMemo(() => {
-    if (!metricSortKey) return false
-    return items.some((it) => {
-      const raw = it.metrics?.[metricSortKey]
-      return raw != null && !Number.isNaN(raw)
-    })
-  }, [items, metricSortKey])
+  const hasMetricScrollbar = useMemo(
+    () => hasMetricSortValues(items, metricSortKey),
+    [items, metricSortKey],
+  )
 
   const updateItemCaches = useCallback((payload: { path: string; star?: StarRating | null; metrics?: Record<string, number | null> | null; comments?: string | null }) => {
     const hasStar = Object.prototype.hasOwnProperty.call(payload, 'star')
@@ -391,29 +377,12 @@ export default function AppShell() {
   // Compute star counts for the filter UI
   const starCounts = useMemo(() => {
     const baseItems = similarityState ? similarityItems : poolItems
-    const counts: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 }
-    for (const it of baseItems) {
-      const star = localStarOverrides[it.path] ?? it.star ?? 0
-      counts[String(star)] = (counts[String(star)] || 0) + 1
-    }
-    return counts
+    return buildStarCounts(baseItems, localStarOverrides)
   }, [similarityState, similarityItems, poolItems, localStarOverrides])
 
   const metricKeys = useMemo(() => {
-    const keys = new Set<string>()
-    let scanned = 0
     const baseItems = similarityState ? similarityItems : poolItems
-    for (const it of baseItems) {
-      const metrics = it.metrics
-      if (metrics) {
-        for (const key of Object.keys(metrics)) {
-          keys.add(key)
-        }
-      }
-      scanned += 1
-      if (scanned >= 250 && keys.size > 0) break
-    }
-    return Array.from(keys).sort()
+    return collectMetricKeys(baseItems)
   }, [similarityState, similarityItems, poolItems])
 
   useEffect(() => {
@@ -472,21 +441,11 @@ export default function AppShell() {
     current
   )
 
-  const similarityQueryLabel = useMemo(() => {
-    if (!similarityState) return null
-    if (similarityState.queryPath) {
-      const parts = similarityState.queryPath.split('/').filter(Boolean)
-      return parts.length ? parts[parts.length - 1] : similarityState.queryPath
-    }
-    if (similarityState.queryVector) return 'Vector query'
-    return null
-  }, [similarityState])
-
-  const similarityCountLabel = useMemo(() => {
-    if (!similarityState) return null
-    if (activeFilterCount > 0) return `${filteredCount} of ${totalCount}`
-    return `${totalCount}`
-  }, [similarityState, activeFilterCount, filteredCount, totalCount])
+  const similarityQueryLabel = useMemo(() => getSimilarityQueryLabel(similarityState), [similarityState])
+  const similarityCountLabel = useMemo(
+    () => getSimilarityCountLabel(similarityState !== null, activeFilterCount, filteredCount, totalCount),
+    [similarityState, activeFilterCount, filteredCount, totalCount],
+  )
 
   const updateFilters = useCallback((updater: (filters: FilterAST) => FilterAST) => {
     setViewState((prev) => ({
@@ -907,6 +866,7 @@ export default function AppShell() {
   }, [])
 
   const mobileSelectEnabled = viewportWidth <= LAYOUT_BREAKPOINTS.mobileMax
+  const gridItemSizeRef = useLatestRef(gridItemSize)
 
   useEffect(() => {
     if (mobileSelectEnabled) return
@@ -947,7 +907,7 @@ export default function AppShell() {
       if (e.touches.length !== 2) return
       const dist = getDistance(e.touches)
       if (!dist) return
-      pinchStart = { dist, size: gridItemSize }
+      pinchStart = { dist, size: gridItemSizeRef.current }
     }
 
     const onTouchMove = (e: TouchEvent) => {
@@ -972,7 +932,7 @@ export default function AppShell() {
       shell.removeEventListener('touchend', onTouchEnd)
       shell.removeEventListener('touchcancel', onTouchEnd)
     }
-  }, [viewer, compareOpen, gridItemSize])
+  }, [viewer, compareOpen, gridItemSizeRef])
 
   // Prefetch neighbors for the open viewer (previous and next)
   useEffect(() => {
@@ -1059,9 +1019,20 @@ export default function AppShell() {
     }
   }, [activeViewId, views, current, viewState])
 
+  const keyboardStateRef = useLatestRef({
+    current,
+    items,
+    selectedPaths,
+    viewer,
+    compareOpen,
+    mobileSelectMode,
+    openFolder,
+  })
+
   // Global keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const state = keyboardStateRef.current
       // Ignore if in input field
       if (isInputElement(e.target)) return
 
@@ -1074,21 +1045,21 @@ export default function AppShell() {
       }
 
       // Ignore if viewer or compare is open (they have their own handlers)
-      if (viewer || compareOpen) return
+      if (state.viewer || state.compareOpen) return
       
       if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault()
-        openFolder(getParentPath(current))
+        state.openFolder(getParentPath(state.current))
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault()
-        setSelectedPaths(items.map((i) => i.path))
+        setSelectedPaths(state.items.map((i) => i.path))
       } else if (e.key === 'Escape') {
-        if (selectedPaths.length) {
+        if (state.selectedPaths.length) {
           e.preventDefault()
           setSelectedPaths([])
           return
         }
-        if (mobileSelectMode) {
+        if (state.mobileSelectMode) {
           e.preventDefault()
           setMobileSelectMode(false)
         }
@@ -1101,7 +1072,7 @@ export default function AppShell() {
     
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [current, items, selectedPaths, viewer, compareOpen, openFolder, mobileSelectMode])
+  }, [keyboardStateRef, setSelectedPaths])
 
   const constrainedSidebars = useMemo(() => constrainSidebarWidths({
     viewportWidth,

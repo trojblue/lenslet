@@ -66,14 +66,28 @@ if [ ! -f "$PROGRESS_FILE" ]; then
   } > "$PROGRESS_FILE"
 fi
 
+# Continue cumulative numbering across invocations by reading the highest
+# recorded iteration header from progress.txt (e.g. "## Iteration 20 - ...").
+LAST_ITERATION_NUM=$(awk '
+  match($0, /^## Iteration[[:space:]]+([0-9]+)/, m) {
+    n = m[1] + 0
+    if (n > max) max = n
+  }
+  END { print max + 0 }
+' "$PROGRESS_FILE" 2>/dev/null || echo 0)
+START_ITERATION_NUM=$((LAST_ITERATION_NUM + 1))
+END_ITERATION_NUM=$((START_ITERATION_NUM + MAX_ITERATIONS - 1))
+
 echo "Starting Ralph plan loop"
 echo "Max iterations: $MAX_ITERATIONS"
 echo "Plan file: $PLAN_FILE"
+echo "Cumulative iteration range: $START_ITERATION_NUM-$END_ITERATION_NUM"
 
 for i in $(seq 1 "$MAX_ITERATIONS"); do
+  ITERATION_NUM=$((START_ITERATION_NUM + i - 1))
   echo ""
   echo "======================================================="
-  echo "  Ralph Plan Iteration $i of $MAX_ITERATIONS"
+  echo "  Ralph Plan Iteration $ITERATION_NUM (run $i of $MAX_ITERATIONS)"
   echo "======================================================="
 
   ITERATION_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -85,7 +99,8 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
       echo "Runtime context:"
       echo "- plan_file: $PLAN_FILE"
       echo "- progress_file: $PROGRESS_FILE"
-      echo "- iteration: $i/$MAX_ITERATIONS"
+      echo "- iteration: $ITERATION_NUM/$END_ITERATION_NUM"
+      echo "- run_iteration: $i/$MAX_ITERATIONS"
       echo "- timestamp_utc: $ITERATION_TS"
     } | codex exec --dangerously-bypass-approvals-and-sandbox --color never -C "$SCRIPT_DIR" - 2>&1 | tee /dev/stderr
   ) || true
@@ -95,7 +110,7 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
   if [ "$LAST_PROMISE" = "<promise>COMPLETE</promise>" ]; then
     echo ""
     echo "Ralph plan loop completed all sprint work."
-    echo "Completed at iteration $i of $MAX_ITERATIONS"
+    echo "Completed at cumulative iteration $ITERATION_NUM (run $i of $MAX_ITERATIONS)"
     exit 0
   fi
 
@@ -111,6 +126,7 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
 done
 
 echo ""
-echo "Ralph reached max iterations ($MAX_ITERATIONS) without completion."
+echo "Ralph reached max iterations for this run ($MAX_ITERATIONS) without completion."
+echo "Last cumulative iteration attempted: $END_ITERATION_NUM"
 echo "Check $PROGRESS_FILE and $PLAN_FILE for current handover state."
 exit 1

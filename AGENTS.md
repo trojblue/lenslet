@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+For each proposed change, examine the existing system and redesign it into the most elegant solution that would have emerged if the change had been a foundational assumption from the start.
+
 ## Project Structure & Module Organization
 - `src/lenslet/` is the shipping Python package. Key entrypoints: `cli.py` (CLI) and `server.py` (FastAPI app).
 - `src/lenslet/storage/` holds storage backends: `local.py` (read-only filesystem) and `memory.py` (RAM cache).

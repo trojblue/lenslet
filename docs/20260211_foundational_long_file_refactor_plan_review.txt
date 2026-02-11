@@ -1,0 +1,19 @@
+Subagent review executed via `codex exec` on 2026-02-11 for:
+- docs/20260211_foundational_long_file_refactor_plan.md
+
+Prompt used (verbatim):
+Review this sprint/task plan for missing work, oversized tasks, unclear goals, validation gaps, hidden dependencies, and risks. Suggest improvements or missing tickets. Keep feedback concise and actionable.
+
+Top findings from review:
+1. Resolve `lenslet.server` structure ambiguity (module facade vs package migration).
+2. Expand compatibility guardrails beyond public imports to include relied-on private/de facto surfaces.
+3. Unify and expand validation matrix to include omitted suites (`test_hotpath_sprint_s2.py`, `test_metadata_endpoint.py`, `test_embeddings_cache.py`).
+4. Split oversized tasks into atomic route-domain and AppShell-domain tickets.
+5. Add explicit frontend shipped-asset sync and packaged-app smoke checks.
+
+Actions integrated into plan revision:
+- Chosen module-only server extraction shape (`server.py` + sibling helper modules).
+- Added import-contract checks for public + de facto-private symbols.
+- Expanded backend/frontend validation matrix and added type/build/package checks.
+- Split previously oversized tickets and added API freeze checkpoint.
+- Added explicit `frontend/dist -> src/lenslet/frontend/` sync requirement.

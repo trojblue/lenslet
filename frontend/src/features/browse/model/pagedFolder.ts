@@ -23,6 +23,7 @@ type HydrateFolderPagesOptions = {
   fetchPage: (page: number, pageSize: number) => Promise<FolderIndex>
   onUpdate: (value: FolderIndex) => void
   shouldContinue?: () => boolean
+  progressiveUpdates?: boolean
 }
 
 export function normalizeFolderPage(page: FolderIndex): FolderIndex {
@@ -62,12 +63,14 @@ export function mergeFolderPages(base: FolderIndex, next: FolderIndex): FolderIn
 
 export async function hydrateFolderPages(firstPage: FolderIndex, options: HydrateFolderPagesOptions): Promise<void> {
   const shouldContinue = options.shouldContinue ?? (() => true)
+  const progressiveUpdates = options.progressiveUpdates ?? true
   let merged = normalizeFolderPage(firstPage)
   options.onUpdate(merged)
 
   const plan = getRemainingPagesPlan(firstPage, options.defaultPageSize)
   if (!plan) return
 
+  let hasMergedAdditionalPage = false
   for (let page = plan.startPage; page <= plan.endPage; page += 1) {
     let nextPage: FolderIndex
     try {
@@ -77,6 +80,13 @@ export async function hydrateFolderPages(firstPage: FolderIndex, options: Hydrat
     }
     if (!shouldContinue()) return
     merged = mergeFolderPages(merged, nextPage)
+    hasMergedAdditionalPage = true
+    if (progressiveUpdates) {
+      options.onUpdate(merged)
+    }
+  }
+
+  if (!progressiveUpdates && hasMergedAdditionalPage) {
     options.onUpdate(merged)
   }
 }

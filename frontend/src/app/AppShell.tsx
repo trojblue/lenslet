@@ -370,6 +370,7 @@ export default function AppShell() {
       }),
       onUpdate: setData,
       shouldContinue: () => !cancelled && recursiveLoadTokenRef.current === requestId,
+      progressiveUpdates: false,
     })
     return () => {
       cancelled = true

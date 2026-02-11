@@ -26,6 +26,12 @@ import {
   setWidthCompareFilter,
 } from '../browse/model/filters'
 
+// S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
+// - T20 component split: MetricsPanel + AttributesPanel + MetricRangePanel + MetricHistogramCard.
+// - T21 histogram math extraction: computeHistogramFromValues and numeric helper stack.
+// - T22 interaction hook extraction: drag/hover/edit state in MetricHistogramCard.
+// - T23 optimization seam: histogram reuse across population/filtered/selected computations.
+
 type Range = { min: number; max: number }
 
 type CompareOp = '<' | '<=' | '>' | '>='

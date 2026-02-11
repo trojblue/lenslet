@@ -51,6 +51,7 @@ from .storage.table import TableStorage, load_parquet_schema, load_parquet_table
 from .thumbs import ThumbnailScheduler
 from .thumb_cache import ThumbCache
 from .og_cache import OgImageCache
+from .server_runtime import AppRuntime, PresenceMetrics, build_app_runtime
 from .workspace import Workspace
 from .server_models import (
     DirEntry,
@@ -79,7 +80,6 @@ from .server_sync import (
     _ensure_meta_fields,
     _format_sse,
     _gallery_id_from_path,
-    _init_sync_state,
     _last_event_id_from_request,
     _now_iso,
     _parse_if_match,
@@ -91,6 +91,15 @@ from .server_sync import (
     PresenceScopeError,
     PresenceTracker,
 )
+
+# S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
+# - T3 runtime wiring: create_app/create_app_from_* and shared app.state setup.
+# - T4a common routes: _register_folder_route + _register_common_api_routes.
+# - T4b presence routes: _register_presence_routes.
+# - T4c embeddings/views routes: _register_embedding_routes + _register_views_routes.
+# - T4d index/OG/media routes/helpers: _register_index_routes + _register_og_routes +
+#   _thumb_response_async + _file_response.
+# - T5 facade compatibility: keep HotpathTelemetry/_thumb_response_async/_file_response/og import.
 
 
 def _storage_from_request(request: Request):
@@ -884,25 +893,11 @@ def _dataset_count(storage) -> int | None:
     return None
 
 
-class _PresenceMetrics:
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._invalid_lease_total = 0
-
-    def record_invalid_lease(self) -> None:
-        with self._lock:
-            self._invalid_lease_total += 1
-
-    def snapshot(self) -> dict[str, int]:
-        with self._lock:
-            return {"invalid_lease_total": self._invalid_lease_total}
-
-
 def _presence_runtime_payload(
     *,
     presence: PresenceTracker,
     broker,
-    metrics: _PresenceMetrics,
+    metrics: PresenceMetrics,
     lifecycle_v2_enabled: bool,
     prune_interval_seconds: float,
 ) -> dict[str, Any]:
@@ -1053,7 +1048,7 @@ def _register_presence_routes(
     broker,
     *,
     lifecycle_v2_enabled: bool,
-    metrics: _PresenceMetrics,
+    metrics: PresenceMetrics,
 ) -> None:
     def _presence_diag() -> dict[str, Any]:
         prune_interval = float(getattr(app.state, "presence_prune_interval", 5.0))
@@ -1775,6 +1770,34 @@ def _register_common_api_routes(
 
 # --- App Factory ---
 
+
+def _initialize_runtime(
+    app: FastAPI,
+    *,
+    storage,
+    workspace: Workspace,
+    thumb_cache: bool,
+    presence_view_ttl: float,
+    presence_edit_ttl: float,
+    presence_prune_interval: float,
+    presence_lifecycle_v2: bool,
+) -> AppRuntime:
+    return build_app_runtime(
+        app,
+        storage=storage,
+        workspace=workspace,
+        presence_view_ttl=presence_view_ttl,
+        presence_edit_ttl=presence_edit_ttl,
+        presence_prune_interval=presence_prune_interval,
+        presence_lifecycle_v2=presence_lifecycle_v2,
+        thumb_cache_enabled=thumb_cache,
+        thumb_worker_count=_thumb_worker_count(),
+        build_thumb_cache=_thumb_cache_from_workspace,
+        install_presence_prune_loop=_install_presence_prune_loop,
+        build_hotpath_metrics=_create_hotpath_metrics,
+    )
+
+
 def create_app(
     root_path: str,
     thumb_size: int = 256,
@@ -1853,15 +1876,16 @@ def create_app(
         print(f"[lenslet] Warning: failed to initialize workspace: {exc}")
         workspace.can_write = False
 
-    meta_lock = threading.Lock()
-    log_lock = threading.Lock()
-    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock, log_lock)
-    sync_state = {"last_event_id": max_event_id}
-    presence = PresenceTracker(view_ttl=presence_view_ttl, edit_ttl=presence_edit_ttl)
-    presence_metrics = _PresenceMetrics()
-    app.state.sync_broker = broker
-    app.state.presence_lifecycle_v2_enabled = presence_lifecycle_v2
-    _install_presence_prune_loop(app, presence, broker, interval_seconds=presence_prune_interval)
+    runtime = _initialize_runtime(
+        app,
+        storage=storage,
+        workspace=workspace,
+        thumb_cache=thumb_cache,
+        presence_view_ttl=presence_view_ttl,
+        presence_edit_ttl=presence_edit_ttl,
+        presence_prune_interval=presence_prune_interval,
+        presence_lifecycle_v2=presence_lifecycle_v2,
+    )
 
     embedding_manager: EmbeddingManager | None = None
     if storage_mode == "table" and items_path.is_file() and isinstance(storage, TableStorage):
@@ -1886,21 +1910,17 @@ def create_app(
                 print(f"[lenslet] Warning: failed to build index: {exc}")
         threading.Thread(target=_warm_index, daemon=True).start()
 
-    thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
-    thumb_cache_store = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
-    hotpath_metrics = _create_hotpath_metrics(app)
-
     def _to_item(storage, cached) -> Item:
         meta = storage.get_metadata(cached.path)
         return _build_item(cached, meta)
 
     record_update = _build_record_update(
         storage,
-        broker=broker,
+        broker=runtime.broker,
         workspace=workspace,
-        log_lock=log_lock,
-        snapshotter=snapshotter,
-        sync_state=sync_state,
+        log_lock=runtime.log_lock,
+        snapshotter=runtime.snapshotter,
+        sync_state=runtime.sync_state,
     )
 
     # Inject storage via middleware
@@ -1917,13 +1937,13 @@ def create_app(
             "can_write": workspace.can_write,
             "labels": _labels_health_payload(workspace),
             "presence": _presence_runtime_payload(
-                presence=presence,
-                broker=broker,
-                metrics=presence_metrics,
+                presence=runtime.presence,
+                broker=runtime.broker,
+                metrics=runtime.presence_metrics,
                 lifecycle_v2_enabled=presence_lifecycle_v2,
                 prune_interval_seconds=float(getattr(app.state, "presence_prune_interval", presence_prune_interval)),
             ),
-            "hotpath": hotpath_metrics.snapshot(storage),
+            "hotpath": runtime.hotpath_metrics.snapshot(storage),
         }
 
     @app.post("/refresh")
@@ -1948,16 +1968,16 @@ def create_app(
     _register_common_api_routes(
         app,
         _to_item,
-        meta_lock=meta_lock,
-        presence=presence,
-        broker=broker,
+        meta_lock=runtime.meta_lock,
+        presence=runtime.presence,
+        broker=runtime.broker,
         lifecycle_v2_enabled=presence_lifecycle_v2,
-        presence_metrics=presence_metrics,
-        idempotency_cache=idempotency_cache,
+        presence_metrics=runtime.presence_metrics,
+        idempotency_cache=runtime.idempotency_cache,
         record_update=record_update,
-        thumb_queue=thumb_queue,
-        thumb_cache=thumb_cache_store,
-        hotpath_metrics=hotpath_metrics,
+        thumb_queue=runtime.thumb_queue,
+        thumb_cache=runtime.thumb_cache,
+        hotpath_metrics=runtime.hotpath_metrics,
     )
 
     _register_embedding_routes(app, storage, embedding_manager)
@@ -2011,18 +2031,16 @@ def create_app_from_datasets(
         include_source_in_search=show_source,
     )
     workspace = Workspace.for_dataset(None, can_write=False)
-    meta_lock = threading.Lock()
-    log_lock = threading.Lock()
-    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock, log_lock)
-    sync_state = {"last_event_id": max_event_id}
-    presence = PresenceTracker(view_ttl=presence_view_ttl, edit_ttl=presence_edit_ttl)
-    presence_metrics = _PresenceMetrics()
-    app.state.sync_broker = broker
-    app.state.presence_lifecycle_v2_enabled = presence_lifecycle_v2
-    _install_presence_prune_loop(app, presence, broker, interval_seconds=presence_prune_interval)
-    thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
-    thumb_cache_store = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
-    hotpath_metrics = _create_hotpath_metrics(app)
+    runtime = _initialize_runtime(
+        app,
+        storage=storage,
+        workspace=workspace,
+        thumb_cache=thumb_cache,
+        presence_view_ttl=presence_view_ttl,
+        presence_edit_ttl=presence_edit_ttl,
+        presence_prune_interval=presence_prune_interval,
+        presence_lifecycle_v2=presence_lifecycle_v2,
+    )
     embedding_manager: EmbeddingManager | None = None
     if embedding_parquet_path and isinstance(storage, TableStorage):
         detection = _resolve_embedding_detection(embedding_parquet_path, embedding_config)
@@ -2051,11 +2069,11 @@ def create_app_from_datasets(
 
     record_update = _build_record_update(
         storage,
-        broker=broker,
+        broker=runtime.broker,
         workspace=workspace,
-        log_lock=log_lock,
-        snapshotter=snapshotter,
-        sync_state=sync_state,
+        log_lock=runtime.log_lock,
+        snapshotter=runtime.snapshotter,
+        sync_state=runtime.sync_state,
     )
 
     # Inject storage via middleware
@@ -2075,13 +2093,13 @@ def create_app_from_datasets(
             "can_write": workspace.can_write,
             "labels": _labels_health_payload(workspace),
             "presence": _presence_runtime_payload(
-                presence=presence,
-                broker=broker,
-                metrics=presence_metrics,
+                presence=runtime.presence,
+                broker=runtime.broker,
+                metrics=runtime.presence_metrics,
                 lifecycle_v2_enabled=presence_lifecycle_v2,
                 prune_interval_seconds=float(getattr(app.state, "presence_prune_interval", presence_prune_interval)),
             ),
-            "hotpath": hotpath_metrics.snapshot(storage),
+            "hotpath": runtime.hotpath_metrics.snapshot(storage),
         }
 
     @app.post("/refresh")
@@ -2093,16 +2111,16 @@ def create_app_from_datasets(
     _register_common_api_routes(
         app,
         _to_item,
-        meta_lock=meta_lock,
-        presence=presence,
-        broker=broker,
+        meta_lock=runtime.meta_lock,
+        presence=runtime.presence,
+        broker=runtime.broker,
         lifecycle_v2_enabled=presence_lifecycle_v2,
-        presence_metrics=presence_metrics,
-        idempotency_cache=idempotency_cache,
+        presence_metrics=runtime.presence_metrics,
+        idempotency_cache=runtime.idempotency_cache,
         record_update=record_update,
-        thumb_queue=thumb_queue,
-        thumb_cache=thumb_cache_store,
-        hotpath_metrics=hotpath_metrics,
+        thumb_queue=runtime.thumb_queue,
+        thumb_cache=runtime.thumb_cache,
+        hotpath_metrics=runtime.hotpath_metrics,
     )
 
     _register_embedding_routes(app, storage, embedding_manager)
@@ -2196,18 +2214,16 @@ def create_app_from_storage(
 
     if workspace is None:
         workspace = Workspace.for_dataset(None, can_write=False)
-    meta_lock = threading.Lock()
-    log_lock = threading.Lock()
-    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(storage, workspace, meta_lock, log_lock)
-    sync_state = {"last_event_id": max_event_id}
-    presence = PresenceTracker(view_ttl=presence_view_ttl, edit_ttl=presence_edit_ttl)
-    presence_metrics = _PresenceMetrics()
-    app.state.sync_broker = broker
-    app.state.presence_lifecycle_v2_enabled = presence_lifecycle_v2
-    _install_presence_prune_loop(app, presence, broker, interval_seconds=presence_prune_interval)
-    thumb_queue = ThumbnailScheduler(max_workers=_thumb_worker_count())
-    thumb_cache_store = _thumb_cache_from_workspace(workspace, enabled=thumb_cache)
-    hotpath_metrics = _create_hotpath_metrics(app)
+    runtime = _initialize_runtime(
+        app,
+        storage=storage,
+        workspace=workspace,
+        thumb_cache=thumb_cache,
+        presence_view_ttl=presence_view_ttl,
+        presence_edit_ttl=presence_edit_ttl,
+        presence_prune_interval=presence_prune_interval,
+        presence_lifecycle_v2=presence_lifecycle_v2,
+    )
     embedding_manager: EmbeddingManager | None = None
     if embedding_parquet_path:
         detection = _resolve_embedding_detection(embedding_parquet_path, embedding_config)
@@ -2231,11 +2247,11 @@ def create_app_from_storage(
 
     record_update = _build_record_update(
         storage,
-        broker=broker,
+        broker=runtime.broker,
         workspace=workspace,
-        log_lock=log_lock,
-        snapshotter=snapshotter,
-        sync_state=sync_state,
+        log_lock=runtime.log_lock,
+        snapshotter=runtime.snapshotter,
+        sync_state=runtime.sync_state,
     )
 
     _attach_storage(app, storage)
@@ -2249,13 +2265,13 @@ def create_app_from_storage(
             "can_write": workspace.can_write,
             "labels": _labels_health_payload(workspace),
             "presence": _presence_runtime_payload(
-                presence=presence,
-                broker=broker,
-                metrics=presence_metrics,
+                presence=runtime.presence,
+                broker=runtime.broker,
+                metrics=runtime.presence_metrics,
                 lifecycle_v2_enabled=presence_lifecycle_v2,
                 prune_interval_seconds=float(getattr(app.state, "presence_prune_interval", presence_prune_interval)),
             ),
-            "hotpath": hotpath_metrics.snapshot(storage),
+            "hotpath": runtime.hotpath_metrics.snapshot(storage),
         }
 
     @app.post("/refresh")
@@ -2266,16 +2282,16 @@ def create_app_from_storage(
     _register_common_api_routes(
         app,
         _to_item,
-        meta_lock=meta_lock,
-        presence=presence,
-        broker=broker,
+        meta_lock=runtime.meta_lock,
+        presence=runtime.presence,
+        broker=runtime.broker,
         lifecycle_v2_enabled=presence_lifecycle_v2,
-        presence_metrics=presence_metrics,
-        idempotency_cache=idempotency_cache,
+        presence_metrics=runtime.presence_metrics,
+        idempotency_cache=runtime.idempotency_cache,
         record_update=record_update,
-        thumb_queue=thumb_queue,
-        thumb_cache=thumb_cache_store,
-        hotpath_metrics=hotpath_metrics,
+        thumb_queue=runtime.thumb_queue,
+        thumb_cache=runtime.thumb_cache,
+        hotpath_metrics=runtime.hotpath_metrics,
     )
 
     _register_embedding_routes(app, storage, embedding_manager)

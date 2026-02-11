@@ -30,3 +30,4 @@ Execution constraints:
 Completion contract:
 - Emit `<promise>COMPLETE</promise>` only when all planned sprints/tasks are complete and acceptance validation is satisfied.
 - Otherwise emit `<promise>CONTINUE</promise>`.
+- Emit exactly one terminal promise token as the final line of your response.

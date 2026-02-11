@@ -13,6 +13,12 @@ import {
   buildExportComparisonPayload,
 } from './exportComparison'
 
+// S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
+// - T16 model extraction: metadata normalization/flattening and compare diff helpers.
+// - T17 section extraction: InspectorSection plus typed overview/compare/basics/metadata/notes blocks.
+// - T18 async hook extraction: fetchMetadata/fetchCompareMetadata/handleComparisonExport flows.
+// - T19 render optimization: compare diff + metadata display memoization boundaries.
+
 // Try to turn JSON-looking strings (common in PNG text chunks) back into objects
 function normalizeMetadata(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalizeMetadata)

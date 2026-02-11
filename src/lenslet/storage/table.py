@@ -16,6 +16,12 @@ from PIL import Image
 from .progress import ProgressBar
 from .s3 import S3_DEPENDENCY_ERROR, create_s3_client
 
+# S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
+# - T9 schema/path extraction: _resolve_source_column/_compute_s3_prefixes/_compute_local_prefix.
+# - T10 index pipeline extraction: _build_indexes + metric extraction helpers.
+# - T11 probe/media extraction: _probe_remote_dimensions/_read_dimensions_from_bytes/_read_dimensions_fast.
+# - T12 facade compatibility: keep TableStorage public methods + load_parquet_table/load_parquet_schema.
+
 
 @dataclass
 class CachedItem:

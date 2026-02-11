@@ -1,0 +1,67 @@
+# Ralph Progress Log
+Started: 2026-02-11T04:11:29Z
+Branch: main
+Plan: /home/ubuntu/dev/lenslet/docs/20260211_foundational_long_file_refactor_plan.md
+---
+## Codebase Patterns
+- Baseline parity/compat checks for this refactor are anchored to the fixed backend suite and import-contract probe defined in `docs/20260211_foundational_long_file_refactor_plan.md`.
+- Hotpath before/after comparisons should quote `pytest --durations=10` results from `tests/test_hotpath_sprint_s2.py`, `tests/test_hotpath_sprint_s3.py`, and `tests/test_hotpath_sprint_s4.py`.
+
+## Iteration 1 - 2026-02-11T04:12:31Z
+- Completed ticket: `S0 / T0` (behavioral and performance baseline snapshots).
+- Implemented artifacts: `docs/dev_notes/20260211_s0_t0_baseline_snapshot.md`; updated plan progress/discoveries/decision log/status in `docs/20260211_foundational_long_file_refactor_plan.md`.
+- Validation run:
+  - `pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py` -> `63 passed in 3.49s`.
+  - `python - <<'PY' ...` import contract probe -> `import-contract-ok`.
+  - `pytest -q --durations=10 tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py` -> `19 passed in 0.84s`; slowest `0.10s`.
+- Blockers: none.
+- Next step: execute `S0 / T1` seam-map extraction notes in `docs/dev_notes/` with file-anchored boundaries and ticket mapping.
+
+## Iteration 2 - 2026-02-11T04:21:23Z
+- Completed ticket: `S0 / T1` (per-file extraction seam map).
+- Implemented artifacts:
+  - Added seam-map note `docs/dev_notes/20260211_s0_t1_seam_map.md`.
+  - Added `S0/T1 seam anchors` comments in `src/lenslet/server.py`, `src/lenslet/storage/table.py`, `frontend/src/app/AppShell.tsx`, `frontend/src/features/inspector/Inspector.tsx`, and `frontend/src/features/metrics/MetricsPanel.tsx`.
+  - Updated plan status/log sections in `docs/20260211_foundational_long_file_refactor_plan.md`.
+- Validation run:
+  - `pytest -q tests/test_presence_lifecycle.py tests/test_parquet_ingestion.py` -> `11 passed in 2.03s`.
+  - `python - <<'PY' ...` import contract probe -> `import-contract-ok`.
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts` -> `3 files passed`, `19 tests passed`.
+- Blockers: none.
+- Next step: execute `S0 / T2a` by adding an explicit architecture decision artifact that locks the module-only `server.py` + sibling helper-module layout before S1 extraction begins.
+
+## Iteration 2 (continued) - 2026-02-11T04:22:50Z
+- Completed ticket: `S0 / T2a` (server module-structure decision gate).
+- Implemented artifacts:
+  - Added architecture gate note `docs/dev_notes/20260211_s0_t2a_server_module_structure_gate.md`.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` progress/discoveries/decision log and marked `T2a` complete with artifact linkage.
+- Validation run:
+  - `python - <<'PY' ...` module import probe -> `server-module-import-ok`.
+  - `rg -n "T2a|20260211_s0_t2a_server_module_structure_gate.md|src/lenslet/server/" docs/20260211_foundational_long_file_refactor_plan.md docs/dev_notes/20260211_s0_t2a_server_module_structure_gate.md` -> plan + artifact cross-references present; package-conversion prohibition documented.
+- Blockers: none.
+- Next step: execute `S0 / T2b` by adding an explicit import-compatibility contract check under `tests/` or a dedicated CI helper script.
+
+## Iteration 3 - 2026-02-11T04:25:18Z
+- Completed ticket: `S0 / T2b` (explicit import-compatibility contract checks).
+- Implemented artifacts:
+  - Added `tests/test_import_contract.py` to lock the server/table import contract for public and de facto-private symbols.
+  - Added an explicit assertion for monkeypatch continuity at `lenslet.server.og.subtree_image_count`.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (Progress, Surprises & Discoveries, Decision Log, and `T2b` status).
+- Validation run:
+  - `pytest -q tests/test_import_contract.py` -> `2 passed in 0.42s`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+- Blockers: none. `T2c` remains intentionally pending because its acceptance checkpoint is defined as post-`S3`.
+- Next step: execute `S1 / T3` by extracting runtime wiring into `src/lenslet/server_runtime.py` while preserving `lenslet.server` facade contracts.
+
+## Iteration 4 - 2026-02-11T04:27:13Z
+- Completed ticket: `S1 / T3` (extract app runtime wiring into sibling runtime module).
+- Implemented artifacts:
+  - Added `src/lenslet/server_runtime.py` with `PresenceMetrics`, `AppRuntime`, and `build_app_runtime(...)` for shared sync/presence/thumb/hotpath setup.
+  - Updated `src/lenslet/server.py` to route `create_app`, `create_app_from_datasets`, and `create_app_from_storage` through `_initialize_runtime(...)` while preserving facade exports and route contracts.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (Progress, Surprises & Discoveries, Decision Log, and `T3` status).
+- Validation run:
+  - `pytest -q tests/test_hotpath_sprint_s3.py tests/test_presence_lifecycle.py tests/test_refresh.py tests/test_import_contract.py` -> `21 passed in 1.89s`.
+  - `pytest -q tests/test_hotpath_sprint_s4.py tests/test_collaboration_sync.py` -> `14 passed in 0.75s`.
+  - `python - <<'PY' ...` import probe -> `import-contract-ok`.
+- Blockers: none.
+- Next step: execute `S1 / T4a` by extracting folders/item/thumb/file/search route registration into `src/lenslet/server_routes_common.py` while keeping response shapes unchanged.

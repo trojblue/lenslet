@@ -17,6 +17,11 @@ This plan now explicitly allows bold internal refactors and algorithmic optimiza
 - [x] 2026-02-11 04:01:34Z Captured user directive to permit larger, performance-oriented refactors while preserving behavior and contracts.
 - [x] 2026-02-11 04:01:34Z Completed mandatory subagent review using the required prompt and integrated findings (architecture gate, compatibility matrix, validation expansion, ticket splits, artifact sync).
 - [x] 2026-02-11 04:01:34Z Finalized this plan as implementation handoff under `docs/`.
+- [x] 2026-02-11 04:12:31Z Completed S0 `T0` baseline snapshot capture: backend parity matrix (`63 passed`), import-contract probe (`import-contract-ok`), and hotpath timing baseline (`19 passed`, slowest case `0.10s`) recorded in `docs/dev_notes/20260211_s0_t0_baseline_snapshot.md`.
+- [x] 2026-02-11 04:21:23Z Completed S0 `T1` seam-map capture: added per-file extraction map in `docs/dev_notes/20260211_s0_t1_seam_map.md` plus `S0/T1 seam anchors` comments in `src/lenslet/server.py`, `src/lenslet/storage/table.py`, `frontend/src/app/AppShell.tsx`, `frontend/src/features/inspector/Inspector.tsx`, and `frontend/src/features/metrics/MetricsPanel.tsx`; validation: backend slice (`11 passed`), import probe (`import-contract-ok`), frontend slice (`19 passed`).
+- [x] 2026-02-11 04:22:50Z Completed S0 `T2a` architecture decision gate: added module-structure artifact `docs/dev_notes/20260211_s0_t2a_server_module_structure_gate.md`, explicitly locked module-only extraction (`server.py` + sibling helpers), and recorded the no-package-conversion constraint before S1 edits; validation: architecture-link check and module import probe (`server-module-import-ok`).
+- [x] 2026-02-11 04:25:18Z Completed S0 `T2b` import-compatibility contract checks: added `tests/test_import_contract.py` to lock public/de-facto symbol exposure (`create_app*`, `HotpathTelemetry`, `_file_response`, `_thumb_response_async`, `og`, `TableStorage`, parquet loaders) plus the monkeypatch-sensitive `lenslet.server.og.subtree_image_count` path; validation: `pytest -q tests/test_import_contract.py` (`2 passed`) and import probe (`import-contract-ok`).
+- [x] 2026-02-11 04:27:13Z Completed S1 `T3` runtime extraction: added `src/lenslet/server_runtime.py` with `build_app_runtime` and `AppRuntime`, rewired `create_app`, `create_app_from_datasets`, and `create_app_from_storage` through shared runtime construction while preserving `lenslet.server` facade symbols and health payload semantics; validation: `pytest -q tests/test_hotpath_sprint_s3.py tests/test_presence_lifecycle.py tests/test_refresh.py tests/test_import_contract.py` (`21 passed`), `pytest -q tests/test_hotpath_sprint_s4.py tests/test_collaboration_sync.py` (`14 passed`), and import probe (`import-contract-ok`).
 
 
 ## Surprises & Discoveries
@@ -32,6 +37,16 @@ Subagent review surfaced a critical architectural ambiguity: the first draft mix
 
 Subagent review also found gaps in the first validation matrix. Additional existing suites are now required for parity: `tests/test_hotpath_sprint_s2.py`, `tests/test_metadata_endpoint.py`, and `tests/test_embeddings_cache.py`.
 
+Initial baseline run for S0 `T0` completed quickly (`63 backend tests` in `3.49s` pytest time) with the current slowest hotpath test at `0.10s`, giving a concrete pre-refactor latency reference for S1+ comparisons.
+
+Seam mapping confirmed that all three frontend target files interleave domain logic and UI rendering in the same component body; extraction should start from pure helpers and async workflows first to avoid stale-closure regressions during hook/component splits.
+
+While closing S0 `T2a`, the architecture risk proved broader than import precedence alone: creating a `src/lenslet/server/` package would also destabilize de facto monkeypatch surfaces (`lenslet.server.og`) used in tests. Keeping sibling helper modules preserves both import path and patch target continuity.
+
+For S0 `T2b`, the import contract needed one additional assertion beyond raw symbol presence: retaining `lenslet.server.og.subtree_image_count` as a concrete monkeypatch target to avoid hidden breakage in existing hotpath tests.
+
+For S1 `T3`, extracting runtime wiring into a sibling module was safest when done with callable hooks (`build_thumb_cache`, prune-loop installer, hotpath factory) to avoid circular imports while still centralizing lock/sync/presence/queue setup.
+
 
 ## Decision Log
 
@@ -43,6 +58,11 @@ Subagent review also found gaps in the first validation matrix. Additional exist
 5. 2026-02-11, assistant. Oversized tickets are split into atomic domain tickets (routes by domain, AppShell domains, validation execution vs regression-fix execution).
 6. 2026-02-11, assistant. Line-count reduction is secondary. Primary success criteria are readability, separable responsibilities, and measurable speed improvements with stable behavior.
 7. 2026-02-11, assistant. Frontend artifact sync to `src/lenslet/frontend/` is mandatory in closeout when UI files are changed.
+8. 2026-02-11, assistant. S0 `T0` performance baseline comparisons use the recorded hotpath `pytest --durations=10` snapshot in `docs/dev_notes/20260211_s0_t0_baseline_snapshot.md` as the before-reference unless a ticket defines a narrower benchmark harness.
+9. 2026-02-11, assistant. S0 `T1` will use dual seam artifacts (a detailed `docs/dev_notes` map and lightweight in-file `S0/T1 seam anchors`) so later extraction tickets can move quickly without re-discovering boundaries.
+10. 2026-02-11, assistant. S0 `T2a` is considered complete only with an explicit architecture artifact under `docs/dev_notes/` and an explicit prohibition on creating a `src/lenslet/server/` package during S1 extraction.
+11. 2026-02-11, assistant. S0 `T2b` compatibility locking is implemented as a dedicated pytest module (`tests/test_import_contract.py`) so it runs naturally in the existing test workflow and enforces both symbol presence and `lenslet.server.og.subtree_image_count` monkeypatch continuity.
+12. 2026-02-11, assistant. S1 `T3` runtime extraction uses `server_runtime.build_app_runtime` plus a thin `_initialize_runtime` facade wrapper in `server.py` so app factories share one runtime path without changing `lenslet.server` exports or monkeypatch touchpoints.
 
 
 ## Outcomes & Retrospective
@@ -176,21 +196,25 @@ Packaging sanity and shipped-asset sync:
    Goal: record baseline correctness and hotpath numbers before major refactor begins.
    Affected files and areas: test outputs and sprint notes.
    Validation: baseline command set passes and baseline timing snapshot for representative flows is saved.
+   Status: completed at `2026-02-11T04:12:31Z`; artifact `docs/dev_notes/20260211_s0_t0_baseline_snapshot.md`.
 
 2. T1: Produce per-file extraction seam map.
    Goal: define responsibility boundaries and extraction order by domain.
    Affected files and areas: `docs/dev_notes/` note plus anchors in target files.
    Validation: each target file has a committed seam map with ticket references.
+   Status: completed at `2026-02-11T04:21:23Z`; artifact `docs/dev_notes/20260211_s0_t1_seam_map.md` plus in-file seam comments in all five target long files.
 
 3. T2a: Resolve server module structure decision gate.
    Goal: lock module-only extraction shape (`server.py` + sibling helper modules), avoiding package conversion ambiguity.
    Affected files and areas: this plan and architecture note.
    Validation: documented decision approved before S1 code edits begin.
+   Status: completed at `2026-02-11T04:22:50Z`; artifact `docs/dev_notes/20260211_s0_t2a_server_module_structure_gate.md`; approval recorded in Decision Log item `10`.
 
 4. T2b: Add explicit import-compatibility contract checks.
    Goal: codify compatibility for public and currently relied-on private symbols.
    Affected files and areas: small compatibility test/script under `tests/` or CI helper script.
    Validation: check script passes pre- and post-refactor.
+   Status: completed at `2026-02-11T04:25:18Z`; artifact `tests/test_import_contract.py`; validation `pytest -q tests/test_import_contract.py` (`2 passed`) and import probe (`import-contract-ok`).
 
 5. T2c: Add API freeze checkpoint before frontend refactors.
    Goal: guarantee backend route contracts are stable before S4 starts.
@@ -201,6 +225,7 @@ Packaging sanity and shipped-asset sync:
    Goal: move shared setup for workspace, sync state, presence, queue, and telemetry to a dedicated runtime constructor.
    Affected files and areas: `src/lenslet/server.py`, new `src/lenslet/server_runtime.py`.
    Validation: `/health` payload semantics remain unchanged in existing tests.
+   Status: completed at `2026-02-11T04:27:13Z`; artifacts `src/lenslet/server_runtime.py` and runtime-facade updates in `src/lenslet/server.py`; validation `pytest -q tests/test_hotpath_sprint_s3.py tests/test_presence_lifecycle.py tests/test_refresh.py tests/test_import_contract.py` (`21 passed`), `pytest -q tests/test_hotpath_sprint_s4.py tests/test_collaboration_sync.py` (`14 passed`), plus import probe (`import-contract-ok`).
 
 7. T4a: Extract common route registration domain.
    Goal: isolate folders/item/thumb/file/search route registration.
@@ -435,6 +460,8 @@ No storage migration is introduced in this plan, so rollback does not require da
 
 
 Subagent review artifact for this plan is stored at `docs/20260211_foundational_long_file_refactor_plan_review.txt`.
+
+S0 `T2a` architecture-gate artifact is stored at `docs/dev_notes/20260211_s0_t2a_server_module_structure_gate.md`.
 
 Proposed backend target module shape (module-only; no `server/` package conversion):
 

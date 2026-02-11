@@ -68,6 +68,13 @@ import {
   resolveScopeFromHashTarget,
 } from './utils/appShellHelpers'
 
+// S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
+// - T13a data scope: folder/search/similarity loading + derived pools.
+// - T13b selection/viewer/compare: selection state, openViewer/closeViewer, openCompare/closeCompare.
+// - T13c presence/sync: applyPresenceCounts/joinPresenceScope/syncPresenceScope effects.
+// - T13d mutations/actions: uploadFiles/moveSelectedToFolder/view persistence actions.
+// - T14/T15 selectors + render/effect optimization: filter/select helpers and memo/effect boundaries.
+
 /** Local storage keys for persisted settings */
 const STORAGE_KEYS = {
   sortKey: 'sortKey',

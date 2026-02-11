@@ -90,17 +90,22 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
     } | codex exec --dangerously-bypass-approvals-and-sandbox --color never -C "$SCRIPT_DIR" - 2>&1 | tee /dev/stderr
   ) || true
 
-  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+  LAST_PROMISE=$(echo "$OUTPUT" | grep -Eo '<promise>(COMPLETE|CONTINUE)</promise>' | tail -n 1 || true)
+
+  if [ "$LAST_PROMISE" = "<promise>COMPLETE</promise>" ]; then
     echo ""
     echo "Ralph plan loop completed all sprint work."
     echo "Completed at iteration $i of $MAX_ITERATIONS"
     exit 0
   fi
 
-  if ! echo "$OUTPUT" | grep -q "<promise>CONTINUE</promise>"; then
-    echo "Warning: iteration did not emit <promise>CONTINUE</promise> or <promise>COMPLETE</promise>." >&2
+  if [ "$LAST_PROMISE" = "<promise>CONTINUE</promise>" ]; then
+    echo "Iteration $i complete. Continuing..."
+    sleep 2
+    continue
   fi
 
+  echo "Warning: iteration did not emit a terminal promise token; continuing by default." >&2
   echo "Iteration $i complete. Continuing..."
   sleep 2
 done

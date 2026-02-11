@@ -171,6 +171,31 @@ def require_presence_client_id(client_id: str) -> str:
     return client_id
 
 
+def _invalid_lease_response(
+    metrics: PresenceMetrics,
+    *,
+    gallery_id: str,
+    client_id: str,
+) -> JSONResponse:
+    metrics.record_invalid_lease()
+    payload = presence_invalid_lease_payload(gallery_id=gallery_id, client_id=client_id)
+    return JSONResponse(status_code=409, content=payload)
+
+
+def _scope_mismatch_response(
+    exc: PresenceScopeError,
+    *,
+    requested_gallery_id: str,
+    client_id: str,
+) -> JSONResponse:
+    payload = presence_scope_mismatch_payload(
+        exc,
+        requested_gallery_id=requested_gallery_id,
+        client_id=client_id,
+    )
+    return JSONResponse(status_code=409, content=payload)
+
+
 def register_presence_routes(
     app: FastAPI,
     presence: PresenceTracker,
@@ -203,9 +228,7 @@ def register_presence_routes(
             else:
                 lease_id, counts = presence.touch_view(gallery_id, client_id, lease_id=body.lease_id)
         except PresenceLeaseError:
-            metrics.record_invalid_lease()
-            payload = presence_invalid_lease_payload(gallery_id=gallery_id, client_id=client_id)
-            return JSONResponse(status_code=409, content=payload)
+            return _invalid_lease_response(metrics, gallery_id=gallery_id, client_id=client_id)
         publish_presence_counts(broker, counts)
         current = presence_count_for_gallery(counts, gallery_id)
         return presence_payload_for_client(current, client_id, lease_id)
@@ -231,12 +254,13 @@ def register_presence_routes(
                     lease_id=body.lease_id,
                 )
         except PresenceLeaseError:
-            metrics.record_invalid_lease()
-            payload = presence_invalid_lease_payload(gallery_id=from_gallery_id, client_id=client_id)
-            return JSONResponse(status_code=409, content=payload)
+            return _invalid_lease_response(metrics, gallery_id=from_gallery_id, client_id=client_id)
         except PresenceScopeError as exc:
-            payload = presence_scope_mismatch_payload(exc, requested_gallery_id=from_gallery_id, client_id=client_id)
-            return JSONResponse(status_code=409, content=payload)
+            return _scope_mismatch_response(
+                exc,
+                requested_gallery_id=from_gallery_id,
+                client_id=client_id,
+            )
         publish_presence_counts(broker, counts)
         from_scope = presence_count_for_gallery(counts, from_gallery_id)
         to_scope = presence_count_for_gallery(counts, to_gallery_id)
@@ -260,12 +284,13 @@ def register_presence_routes(
         try:
             removed, counts = presence.leave(gallery_id=gallery_id, client_id=client_id, lease_id=body.lease_id)
         except PresenceLeaseError:
-            metrics.record_invalid_lease()
-            payload = presence_invalid_lease_payload(gallery_id=gallery_id, client_id=client_id)
-            return JSONResponse(status_code=409, content=payload)
+            return _invalid_lease_response(metrics, gallery_id=gallery_id, client_id=client_id)
         except PresenceScopeError as exc:
-            payload = presence_scope_mismatch_payload(exc, requested_gallery_id=gallery_id, client_id=client_id)
-            return JSONResponse(status_code=409, content=payload)
+            return _scope_mismatch_response(
+                exc,
+                requested_gallery_id=gallery_id,
+                client_id=client_id,
+            )
         publish_presence_counts(broker, counts)
         current = presence_count_for_gallery(counts, gallery_id)
         payload = presence_payload_for_client(current, client_id, body.lease_id)
@@ -279,9 +304,7 @@ def register_presence_routes(
         try:
             lease_id, counts = presence.touch_view(gallery_id, client_id, lease_id=body.lease_id)
         except PresenceLeaseError:
-            metrics.record_invalid_lease()
-            payload = presence_invalid_lease_payload(gallery_id=gallery_id, client_id=client_id)
-            return JSONResponse(status_code=409, content=payload)
+            return _invalid_lease_response(metrics, gallery_id=gallery_id, client_id=client_id)
         publish_presence_counts(broker, counts)
         current = presence_count_for_gallery(counts, gallery_id)
         return presence_payload_for_client(current, client_id, lease_id)

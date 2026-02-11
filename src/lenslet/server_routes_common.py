@@ -57,12 +57,12 @@ def register_folder_route(
 
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(
+        request: Request,
         path: str = "/",
         recursive: bool = False,
         page: str | None = None,
         page_size: str | None = None,
         legacy_recursive: bool = False,
-        request: Request = None,
     ):
         storage = _server._storage_from_request(request)
         return _server._build_folder_index(
@@ -96,18 +96,20 @@ def register_common_api_routes(
 
     register_folder_route(app, to_item, hotpath_metrics=hotpath_metrics)
 
-    @app.get("/item")
-    def get_item(path: str, request: Request = None):
+    def _resolve_image_request(path: str, request: Request):
         storage = _server._storage_from_request(request)
-        path = _server._canonical_path(path)
-        _server._ensure_image(storage, path)
+        canonical_path = _server._canonical_path(path)
+        _server._ensure_image(storage, canonical_path)
+        return storage, canonical_path
+
+    @app.get("/item")
+    def get_item(path: str, request: Request):
+        storage, path = _resolve_image_request(path, request)
         return _server._build_sidecar(storage, path)
 
     @app.get("/metadata", response_model=ImageMetadataResponse)
-    def get_metadata(path: str, request: Request = None):
-        storage = _server._storage_from_request(request)
-        path = _server._canonical_path(path)
-        _server._ensure_image(storage, path)
+    def get_metadata(path: str, request: Request):
+        storage, path = _resolve_image_request(path, request)
         return _server._build_image_metadata(storage, path)
 
     @app.post("/export-comparison")
@@ -167,10 +169,8 @@ def register_common_api_routes(
         return Response(content=exported_png, media_type="image/png", headers=headers)
 
     @app.put("/item")
-    def put_item(path: str, body: Sidecar, request: Request = None):
-        storage = _server._storage_from_request(request)
-        path = _server._canonical_path(path)
-        _server._ensure_image(storage, path)
+    def put_item(path: str, body: Sidecar, request: Request):
+        storage, path = _resolve_image_request(path, request)
         updated_by = _server._updated_by_from_request(request)
         with meta_lock:
             sidecar = _update_item(
@@ -191,11 +191,9 @@ def register_common_api_routes(
         return sidecar
 
     @app.patch("/item")
-    def patch_item(path: str, body: SidecarPatch, request: Request = None):
-        storage = _server._storage_from_request(request)
-        path = _server._canonical_path(path)
-        _server._ensure_image(storage, path)
-        idem_key = request.headers.get("Idempotency-Key") if request else None
+    def patch_item(path: str, body: SidecarPatch, request: Request):
+        storage, path = _resolve_image_request(path, request)
+        idem_key = request.headers.get("Idempotency-Key")
         if not idem_key:
             raise HTTPException(400, "Idempotency-Key header required")
         cached = idempotency_cache.get(idem_key)
@@ -203,8 +201,8 @@ def register_common_api_routes(
             status, payload = cached
             return JSONResponse(status_code=status, content=payload)
 
-        if_match = _server._parse_if_match(request.headers.get("If-Match") if request else None)
-        if request and request.headers.get("If-Match") and if_match is None:
+        if_match = _server._parse_if_match(request.headers.get("If-Match"))
+        if request.headers.get("If-Match") and if_match is None:
             payload = {"error": "invalid_if_match", "message": "If-Match must be an integer version"}
             idempotency_cache.set(idem_key, 400, payload)
             return JSONResponse(status_code=400, content=payload)
@@ -285,10 +283,8 @@ def register_common_api_routes(
         return response
 
     @app.get("/thumb")
-    async def get_thumb(path: str, request: Request = None):
-        storage = _server._storage_from_request(request)
-        path = _server._canonical_path(path)
-        _server._ensure_image(storage, path)
+    async def get_thumb(path: str, request: Request):
+        storage, path = _resolve_image_request(path, request)
         return await _server._thumb_response_async(
             storage,
             path,
@@ -299,13 +295,11 @@ def register_common_api_routes(
         )
 
     @app.get("/file")
-    def get_file(path: str, request: Request = None):
-        storage = _server._storage_from_request(request)
-        path = _server._canonical_path(path)
-        _server._ensure_image(storage, path)
+    def get_file(path: str, request: Request):
+        storage, path = _resolve_image_request(path, request)
         return _server._file_response(storage, path, request=request, hotpath_metrics=hotpath_metrics)
 
     @app.get("/search", response_model=SearchResult)
-    def search(request: Request = None, q: str = "", path: str = "/", limit: int = 100):
+    def search(request: Request, q: str = "", path: str = "/", limit: int = 100):
         storage = _server._storage_from_request(request)
         return _server._search_results(storage, to_item, q, _server._canonical_path(path), limit)

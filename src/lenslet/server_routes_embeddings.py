@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 
 from .embeddings.index import EmbeddingIndexError, EmbeddingManager
 from .server_models import (
@@ -46,8 +46,7 @@ def register_embedding_routes(
         return _build_embeddings_payload(manager)
 
     @app.post("/embeddings/search", response_model=EmbeddingSearchResponse)
-    def search_embeddings(body: EmbeddingSearchRequest, request: Request = None):
-        _ = request
+    def search_embeddings(body: EmbeddingSearchRequest):
         if manager is None:
             raise HTTPException(404, "embedding search unavailable")
         if not body.embedding:

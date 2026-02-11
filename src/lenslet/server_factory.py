@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import threading
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,12 +39,25 @@ from .thumb_cache import ThumbCache
 from .workspace import Workspace
 
 
+def _create_base_app(*, description: str) -> FastAPI:
+    app = FastAPI(
+        title="Lenslet",
+        description=description,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    return app
+
+
 def _attach_storage(app: FastAPI, storage) -> None:
     @app.middleware("http")
     async def attach_storage(request: Request, call_next):
         request.state.storage = storage
-        response = await call_next(request)
-        return response
+        return await call_next(request)
 
 
 def _resolve_embedding_detection(
@@ -142,6 +156,90 @@ def _initialize_runtime(
     )
 
 
+def _presence_health_payload(
+    app: FastAPI,
+    runtime: AppRuntime,
+    *,
+    lifecycle_v2_enabled: bool,
+    prune_interval_fallback: float,
+) -> dict[str, Any]:
+    prune_interval = float(
+        getattr(app.state, "presence_prune_interval", prune_interval_fallback),
+    )
+    return _presence_runtime_payload(
+        presence=runtime.presence,
+        broker=runtime.broker,
+        metrics=runtime.presence_metrics,
+        lifecycle_v2_enabled=lifecycle_v2_enabled,
+        prune_interval_seconds=prune_interval,
+    )
+
+
+def _base_health_payload(
+    app: FastAPI,
+    *,
+    mode: str,
+    storage,
+    workspace: Workspace,
+    runtime: AppRuntime,
+    lifecycle_v2_enabled: bool,
+    prune_interval_fallback: float,
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "mode": mode,
+        "can_write": workspace.can_write,
+        "labels": _labels_health_payload(workspace),
+        "presence": _presence_health_payload(
+            app,
+            runtime,
+            lifecycle_v2_enabled=lifecycle_v2_enabled,
+            prune_interval_fallback=prune_interval_fallback,
+        ),
+        "hotpath": runtime.hotpath_metrics.snapshot(storage),
+    }
+
+
+def _register_common_routes(
+    app: FastAPI,
+    to_item,
+    *,
+    runtime: AppRuntime,
+    lifecycle_v2_enabled: bool,
+    record_update: RecordUpdateFn,
+) -> None:
+    _register_common_api_routes(
+        app,
+        to_item,
+        meta_lock=runtime.meta_lock,
+        presence=runtime.presence,
+        broker=runtime.broker,
+        lifecycle_v2_enabled=lifecycle_v2_enabled,
+        presence_metrics=runtime.presence_metrics,
+        idempotency_cache=runtime.idempotency_cache,
+        record_update=record_update,
+        thumb_queue=runtime.thumb_queue,
+        thumb_cache=runtime.thumb_cache,
+        hotpath_metrics=runtime.hotpath_metrics,
+    )
+
+
+def _register_static_refresh_route(app: FastAPI, note: str) -> None:
+    @app.post("/refresh")
+    def refresh(path: str = "/"):
+        _ = path
+        return {"ok": True, "note": note}
+
+
+def _warn_dataset_embedding_search_unavailable(embedding_parquet_path: str | None) -> None:
+    if not embedding_parquet_path:
+        return
+    print(
+        "[lenslet] Warning: embedding search is unavailable in dataset mode; "
+        "ignoring embedding_parquet_path",
+    )
+
+
 def create_app(
     root_path: str,
     thumb_size: int = 256,
@@ -162,18 +260,7 @@ def create_app(
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
-    app = FastAPI(
-        title="Lenslet",
-        description="Lightweight image gallery server",
-    )
-
-    # CORS for browser access
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    app = _create_base_app(description="Lightweight image gallery server")
 
     # Create storage (prefer table dataset if present)
     items_path = Path(root_path) / "items.parquet"
@@ -277,23 +364,20 @@ def create_app(
     @app.get("/health")
     def health():
         return {
-            "ok": True,
-            "mode": storage_mode,
-            "root": root_path,
-            "can_write": workspace.can_write,
-            "labels": _labels_health_payload(workspace),
-            "presence": _presence_runtime_payload(
-                presence=runtime.presence,
-                broker=runtime.broker,
-                metrics=runtime.presence_metrics,
+            **_base_health_payload(
+                app,
+                mode=storage_mode,
+                storage=storage,
+                workspace=workspace,
+                runtime=runtime,
                 lifecycle_v2_enabled=presence_lifecycle_v2,
-                prune_interval_seconds=float(getattr(app.state, "presence_prune_interval", presence_prune_interval)),
+                prune_interval_fallback=presence_prune_interval,
             ),
-            "hotpath": runtime.hotpath_metrics.snapshot(storage),
+            "root": root_path,
         }
 
     @app.post("/refresh")
-    def refresh(path: str = "/", request: Request = None):
+    def refresh(request: Request, path: str = "/"):
         if storage_mode != "memory":
             return {"ok": True, "note": f"{storage_mode} mode is static"}
 
@@ -311,19 +395,12 @@ def create_app(
         storage.invalidate_subtree(path, clear_metadata=False)
         return {"ok": True}
 
-    _register_common_api_routes(
+    _register_common_routes(
         app,
         _to_item,
-        meta_lock=runtime.meta_lock,
-        presence=runtime.presence,
-        broker=runtime.broker,
+        runtime=runtime,
         lifecycle_v2_enabled=presence_lifecycle_v2,
-        presence_metrics=runtime.presence_metrics,
-        idempotency_cache=runtime.idempotency_cache,
         record_update=record_update,
-        thumb_queue=runtime.thumb_queue,
-        thumb_cache=runtime.thumb_cache,
-        hotpath_metrics=runtime.hotpath_metrics,
     )
 
     _register_embedding_routes(app, storage, embedding_manager)
@@ -356,18 +433,7 @@ def create_app_from_datasets(
 ) -> FastAPI:
     """Create FastAPI app with in-memory dataset storage."""
 
-    app = FastAPI(
-        title="Lenslet",
-        description="Lightweight image gallery server (dataset mode)",
-    )
-
-    # CORS for browser access
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    app = _create_base_app(description="Lightweight image gallery server (dataset mode)")
 
     # Create dataset storage
     storage = DatasetStorage(
@@ -387,21 +453,8 @@ def create_app_from_datasets(
         presence_prune_interval=presence_prune_interval,
         presence_lifecycle_v2=presence_lifecycle_v2,
     )
+    _warn_dataset_embedding_search_unavailable(embedding_parquet_path)
     embedding_manager: EmbeddingManager | None = None
-    if embedding_parquet_path and isinstance(storage, TableStorage):
-        detection = _resolve_embedding_detection(embedding_parquet_path, embedding_config)
-        embed_cache = _embedding_cache_from_workspace(
-            workspace,
-            enabled=embedding_cache,
-            cache_dir=embedding_cache_dir,
-        )
-        embedding_manager = _build_embedding_manager(
-            embedding_parquet_path,
-            storage,
-            detection,
-            cache=embed_cache,
-            preload=embedding_preload,
-        )
 
     def _to_item(storage: DatasetStorage, cached):
         meta = storage.get_metadata(cached.path)
@@ -432,41 +485,27 @@ def create_app_from_datasets(
         dataset_names = list(datasets.keys())
         total_images = sum(len(paths) for paths in datasets.values())
         return {
-            "ok": True,
-            "mode": "dataset",
+            **_base_health_payload(
+                app,
+                mode="dataset",
+                storage=storage,
+                workspace=workspace,
+                runtime=runtime,
+                lifecycle_v2_enabled=presence_lifecycle_v2,
+                prune_interval_fallback=presence_prune_interval,
+            ),
             "datasets": dataset_names,
             "total_images": total_images,
-            "can_write": workspace.can_write,
-            "labels": _labels_health_payload(workspace),
-            "presence": _presence_runtime_payload(
-                presence=runtime.presence,
-                broker=runtime.broker,
-                metrics=runtime.presence_metrics,
-                lifecycle_v2_enabled=presence_lifecycle_v2,
-                prune_interval_seconds=float(getattr(app.state, "presence_prune_interval", presence_prune_interval)),
-            ),
-            "hotpath": runtime.hotpath_metrics.snapshot(storage),
         }
 
-    @app.post("/refresh")
-    def refresh(path: str = "/", request: Request = None):
-        # Dataset mode is static for now, but keep API parity with memory mode
-        _ = path
-        return {"ok": True, "note": "dataset mode is static"}
+    _register_static_refresh_route(app, note="dataset mode is static")
 
-    _register_common_api_routes(
+    _register_common_routes(
         app,
         _to_item,
-        meta_lock=runtime.meta_lock,
-        presence=runtime.presence,
-        broker=runtime.broker,
+        runtime=runtime,
         lifecycle_v2_enabled=presence_lifecycle_v2,
-        presence_metrics=runtime.presence_metrics,
-        idempotency_cache=runtime.idempotency_cache,
         record_update=record_update,
-        thumb_queue=runtime.thumb_queue,
-        thumb_cache=runtime.thumb_cache,
-        hotpath_metrics=runtime.hotpath_metrics,
     )
 
     _register_embedding_routes(app, storage, embedding_manager)
@@ -546,17 +585,7 @@ def create_app_from_storage(
 ) -> FastAPI:
     """Create FastAPI app using a pre-built TableStorage."""
 
-    app = FastAPI(
-        title="Lenslet",
-        description="Lightweight image gallery server (table mode)",
-    )
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    app = _create_base_app(description="Lightweight image gallery server (table mode)")
 
     if workspace is None:
         workspace = Workspace.for_dataset(None, can_write=False)
@@ -605,39 +634,26 @@ def create_app_from_storage(
     @app.get("/health")
     def health():
         return {
-            "ok": True,
-            "mode": "table",
-            "total_images": len(storage._items),
-            "can_write": workspace.can_write,
-            "labels": _labels_health_payload(workspace),
-            "presence": _presence_runtime_payload(
-                presence=runtime.presence,
-                broker=runtime.broker,
-                metrics=runtime.presence_metrics,
+            **_base_health_payload(
+                app,
+                mode="table",
+                storage=storage,
+                workspace=workspace,
+                runtime=runtime,
                 lifecycle_v2_enabled=presence_lifecycle_v2,
-                prune_interval_seconds=float(getattr(app.state, "presence_prune_interval", presence_prune_interval)),
+                prune_interval_fallback=presence_prune_interval,
             ),
-            "hotpath": runtime.hotpath_metrics.snapshot(storage),
+            "total_images": len(storage._items),
         }
 
-    @app.post("/refresh")
-    def refresh(path: str = "/", request: Request = None):
-        _ = path
-        return {"ok": True, "note": "table mode is static"}
+    _register_static_refresh_route(app, note="table mode is static")
 
-    _register_common_api_routes(
+    _register_common_routes(
         app,
         _to_item,
-        meta_lock=runtime.meta_lock,
-        presence=runtime.presence,
-        broker=runtime.broker,
+        runtime=runtime,
         lifecycle_v2_enabled=presence_lifecycle_v2,
-        presence_metrics=runtime.presence_metrics,
-        idempotency_cache=runtime.idempotency_cache,
         record_update=record_update,
-        thumb_queue=runtime.thumb_queue,
-        thumb_cache=runtime.thumb_cache,
-        hotpath_metrics=runtime.hotpath_metrics,
     )
 
     _register_embedding_routes(app, storage, embedding_manager)

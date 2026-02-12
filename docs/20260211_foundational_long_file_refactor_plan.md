@@ -50,6 +50,10 @@ This plan now explicitly allows bold internal refactors and algorithmic optimiza
 - [x] 2026-02-11 13:48:25Z Completed S6 `T22` histogram interaction hook extraction: added `frontend/src/features/metrics/hooks/useMetricHistogramInteraction.ts` with a dedicated drag/hover/commit state-machine hook plus exported transition helpers, rewired `frontend/src/features/metrics/components/MetricHistogramCard.tsx` to consume the hook while preserving drag-to-filter and click-to-clear behavior, and added unit coverage in `frontend/src/features/metrics/hooks/__tests__/useMetricHistogramInteraction.test.ts`; validation: `npm run test -- src/features/metrics/model/__tests__/histogram.test.ts src/features/metrics/hooks/__tests__/useMetricHistogramInteraction.test.ts` (`12 passed`), `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` (`45 passed`), `npm run build` (success), and `npx tsc --noEmit` (known pre-existing failures unchanged in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`).
 - [x] 2026-02-12 01:26:58Z Completed S6 `T23` metrics computation reuse: added `frontend/src/features/metrics/model/metricValues.ts` plus unit coverage in `frontend/src/features/metrics/model/__tests__/metricValues.test.ts`, rewired `frontend/src/features/metrics/MetricsPanel.tsx` and `frontend/src/features/metrics/components/MetricRangePanel.tsx` to reuse keyed metric-value caches across selected-summary and histogram cards, and rewired `frontend/src/features/metrics/components/MetricHistogramCard.tsx` to consume precomputed value slices instead of per-card rescans; recorded profiling evidence in `docs/dev_notes/20260212_s6_t23_metrics_computation_reuse.md`; validation: `npm run test -- src/features/metrics/model/__tests__/metricValues.test.ts src/features/metrics/model/__tests__/histogram.test.ts src/features/metrics/hooks/__tests__/useMetricHistogramInteraction.test.ts` (`14 passed`), `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` (`45 passed`), and `npm run build` (success).
 - [x] 2026-02-12 01:28:22Z Completed S7 `T24a` fixed-matrix execution pass (validation only, no fixes): backend matrix `pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py` (`64 passed`), import probe (`import-contract-ok`), frontend parity slice (`45 passed`), and frontend production build (success); failing domains captured for follow-up ownership in `T24b`: `[frontend-typecheck]` `npx tsc --noEmit` errors in `frontend/src/api/__tests__/client.presence.test.ts`, `frontend/src/app/AppShell.tsx`, `frontend/src/app/components/StatusBar.tsx`, and `frontend/src/features/inspector/Inspector.tsx`; `[packaging-tooling]` `python -m build` failed with `No module named build`.
+- [x] 2026-02-12 01:40:37Z Completed S7 `T24b` frontend ownership slice (`[frontend-typecheck]`): fixed TypeScript failures in `frontend/src/api/__tests__/client.presence.test.ts`, `frontend/src/app/AppShell.tsx`, `frontend/src/app/components/StatusBar.tsx`, and `frontend/src/features/inspector/Inspector.tsx` via typed mock-call narrowing, `ResizeObserver` constructor guard typing, nullable `StatusBar` return typing, and inspector star-value narrowing to `StarRating`; validation: `cd frontend && npx tsc --noEmit` (pass) and `cd frontend && npm run test -- src/api/__tests__/client.presence.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/app/__tests__/presenceUi.test.ts` (`14 passed`). Remaining `T24b` scope: `[packaging-tooling]`.
+- [x] 2026-02-12 01:43:06Z Completed S7 `T24b` packaging ownership slice (`[packaging-tooling]`): added `build>=1.2` to `pyproject.toml` `dev` extras so packaging tooling is part of the documented editable-dev install contract; validation: `python -m pip install -e '.[dev]'` (success, `build` present) and `python -m build` (success, produced sdist and wheel).
+- [x] 2026-02-12 01:45:33Z Completed S7 `T25` frontend artifact sync: rebuilt `frontend/dist` with `npm run build`, mirrored it into `src/lenslet/frontend/` with stale-asset deletion, and verified FastAPI static serving returns the shipped shell bytes and current hashed asset path; validation: `cd frontend && npm run build` (success), `rsync -a --delete frontend/dist/ src/lenslet/frontend/` (success), and Python `TestClient` shell probe (`frontend-shell-serve-ok`).
+- [x] 2026-02-12 01:50:43Z Completed S7 `T26` docs/module-map closeout: updated `README.md` and `DEVELOPMENT.md` with the implemented backend/storage/frontend module boundaries, standardized operational commands (`rsync -a --delete` frontend artifact mirroring + fixed acceptance matrix), and aligned this plan’s module-map/command references; validation: full acceptance matrix pass (`pytest` backend slice `64 passed`, import probe `import-contract-ok`, frontend parity slice `45 passed`, `npx tsc --noEmit` pass, `npm run build` success, `python -m build` success).
 
 
 ## Surprises & Discoveries
@@ -129,6 +133,14 @@ For S6 `T23`, the first cache attempt (generic `Object.entries` scans) regressed
 
 For S7 `T24a`, running the fixed matrix without edits confirmed functional parity in backend/frontend test slices and frontend production build, but surfaced two explicit closeout blockers: `[frontend-typecheck]` repo typecheck still fails in four known files, and `[packaging-tooling]` packaging sanity fails in this environment because the `build` module is unavailable (`python -m build` -> `No module named build`).
 
+For S7 `T24b` frontend ownership, Vitest mock-call inference in `client.presence` tests surfaced as `[][]` under the current type context, so tuple-index assertions were rewritten with explicit `unknown[][]` narrowing to preserve assertions without introducing `any`. In `AppShell`, `'ResizeObserver' in window` narrowed the fallback branch to `never`; switching to a typed constructor lookup preserved the runtime fallback semantics while satisfying strict typecheck.
+
+For S7 `T24b` packaging ownership, the failure mode was environment reproducibility rather than build backend behavior: `python -m build` worked immediately once `build` was installed, so the durable fix was to encode `build>=1.2` into `pyproject.toml` `dev` extras to match the documented dev-install path instead of relying on ad-hoc local package installs.
+
+For S7 `T25`, direct `cp -r dist/*` sync risks stale hashed assets in `src/lenslet/frontend/assets`; using `rsync --delete` keeps the shipped static bundle deterministic and aligned to `index.html`. A `TestClient` probe against `/` and `/index.html` verified Python-served shell bytes match the shipped artifact, and the referenced hashed JS asset is served under the static mount.
+
+For S7 `T26`, the remaining operational drift risk was documentation divergence across `README.md`, `DEVELOPMENT.md`, and this plan. Copying the same acceptance matrix and deterministic frontend-sync command into both docs made closeout/release steps mechanically consistent and removed legacy `cp -r` guidance that could leave stale hashed assets in packaged frontend output.
+
 
 ## Decision Log
 
@@ -173,14 +185,16 @@ For S7 `T24a`, running the fixed matrix without edits confirmed functional parit
 38. 2026-02-11, assistant. S6 `T22` centralizes histogram pointer interaction ownership in `frontend/src/features/metrics/hooks/useMetricHistogramInteraction.ts`, preserving prior drag/hover/commit/clear semantics (including the 4px drag threshold and click-clear fallback) while exposing deterministic transition helpers for unit testing.
 39. 2026-02-12, assistant. S6 `T23` reuses keyed metric-value caches across `MetricsPanel` selection summaries and `MetricRangePanel` histogram cards, with `MetricHistogramCard` now consuming precomputed population/filtered/selected slices and range panel collection scoped to visible metrics (`show all` vs `show one`) to reduce repeated work while preserving filter semantics.
 40. 2026-02-12, assistant. S7 `T24a` records failing-domain ownership tags without code fixes: `[frontend-typecheck]` for `npx tsc --noEmit` failures and `[packaging-tooling]` for missing `python -m build` dependency in the current environment; `T24b` must resolve or explicitly baseline these failures before acceptance closeout.
+41. 2026-02-12, assistant. S7 `T24b` resolves the `[frontend-typecheck]` failure domain with behavior-preserving type-level changes only (test mock-call narrowing, optional `ResizeObserver` constructor lookup, nullable `StatusBar` return type, and inspector star narrowing to `StarRating`), while keeping `[packaging-tooling]` as remaining closeout scope for the same ticket.
+42. 2026-02-12, assistant. S7 `T24b` resolves the `[packaging-tooling]` failure domain by promoting `build>=1.2` into `pyproject.toml` `dev` extras and validating `python -m build` in the same environment, so documented `pip install -e '.[dev]'` setup now satisfies packaging sanity without ad-hoc dependency installation.
+43. 2026-02-12, assistant. S7 `T25` standardizes frontend artifact shipping as a deterministic mirror (`rsync --delete` from `frontend/dist/` to `src/lenslet/frontend/`) and validates with FastAPI `TestClient` that `/` and `/index.html` serve the shipped HTML and referenced hashed assets.
+44. 2026-02-12, assistant. S7 `T26` treats `README.md` + `DEVELOPMENT.md` as the canonical operator surface for post-refactor boundaries and release checks, and keeps both docs aligned to the fixed acceptance matrix plus deterministic frontend artifact mirroring (`rsync -a --delete`) to prevent stale-asset drift.
 
 
 ## Outcomes & Retrospective
 
 
-At this planning milestone, the deliverable is a fully self-contained execution document that a new engineer can run without guessing architecture choices. Compared with the initial draft, this revision resolves the server module-structure ambiguity, expands validation to cover hidden compatibility surfaces, and introduces explicit performance verification in addition to parity checks.
-
-The implementation gap remains execution itself. Success of this plan will be judged by whether each sprint can ship independently with passing tests and measurable non-regression or improvement evidence.
+Execution is complete across S0-S7. The plan now serves as both historical implementation log and operational handover: module boundaries are documented, compatibility/performance decisions are recorded, and the fixed acceptance matrix has passed with packaging and shipped-frontend verification in the final sprint.
 
 
 ## Context and Orientation
@@ -293,7 +307,7 @@ Packaging sanity and shipped-asset sync:
     Working directory: /home/ubuntu/dev/lenslet/frontend
 
     npm run build
-    cp -r dist/* ../src/lenslet/frontend/
+    rsync -a --delete dist/ ../src/lenslet/frontend/
 
     Working directory: /home/ubuntu/dev/lenslet
 
@@ -542,16 +556,25 @@ S6 handover (`2026-02-12T01:26:58Z`):
     Goal: resolve failures in scoped follow-up commits by backend/table/frontend ownership lanes.
     Affected files and areas: only files implicated by failing checks.
     Validation: previously failing checks pass; no new failures introduced.
+    Status: completed at `2026-02-12T01:43:06Z`; resolved `[frontend-typecheck]` domain with artifacts `frontend/src/api/__tests__/client.presence.test.ts`, `frontend/src/app/AppShell.tsx`, `frontend/src/app/components/StatusBar.tsx`, and `frontend/src/features/inspector/Inspector.tsx` (validation: `cd frontend && npx tsc --noEmit` pass; `cd frontend && npm run test -- src/api/__tests__/client.presence.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/app/__tests__/presenceUi.test.ts` -> `14 passed`) and resolved `[packaging-tooling]` by adding `build>=1.2` to `pyproject.toml` `dev` extras (validation: `python -m pip install -e '.[dev]'` success; `python -m build` success).
 
 35. T25: Regenerate shipped frontend assets and verify Python-served shell.
     Goal: ensure packaged app serves updated frontend after UI refactor.
     Affected files and areas: `src/lenslet/frontend/` generated assets.
     Validation: build copy succeeds and app serves expected `index.html` content via FastAPI static mount.
+    Status: completed at `2026-02-12T01:45:33Z`; regenerated shipped assets in `src/lenslet/frontend/index.html` and `src/lenslet/frontend/assets/index-CAfycEDX.css` + `src/lenslet/frontend/assets/index-B5RaBndO.js`; validation `cd frontend && npm run build` (success), `rsync -a --delete frontend/dist/ src/lenslet/frontend/` (success), and shell-serve probe (`frontend-shell-serve-ok`).
 
 36. T26: Update docs with new module map and operational notes.
     Goal: document new boundaries and maintenance guidance for future contributors.
     Affected files and areas: `DEVELOPMENT.md`, `README.md`, and this plan progress section as needed.
     Validation: docs reflect final module layout and verification workflow.
+    Status: completed at `2026-02-12T01:50:43Z`; artifacts `README.md`, `DEVELOPMENT.md`, and module-map/command alignment updates in this plan; validation `pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py` (`64 passed`), import probe (`import-contract-ok`), `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` (`45 passed`), `npx tsc --noEmit` (pass), `npm run build` (success), and `python -m build` (success).
+
+S7 handover (`2026-02-12T01:50:43Z`):
+1. Completed: `T24a`, `T24b`, `T25`, and `T26`; closeout now includes green fixed validation matrix, resolved typecheck/packaging regressions, deterministic shipped-frontend artifact mirroring, and updated operator docs for final module boundaries/workflows.
+2. Validations run and outcomes: backend matrix `pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py` -> `64 passed`; import probe -> `import-contract-ok`; frontend parity slice `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `45 passed`; `npx tsc --noEmit` -> pass; `npm run build` -> success; `python -m build` -> success.
+3. Known risks/follow-ups: line-budget guidance remains non-blocking in two files (`frontend/src/app/AppShell.tsx` at ~`1401` lines vs `<=850`, `frontend/src/features/inspector/Inspector.tsx` at ~`740` lines vs `<=700`) and one backend facade (`src/lenslet/storage/table.py` at `532` lines vs `<=500`); further reductions should be optional maintenance-only refactors with compatibility guards, not acceptance blockers.
+4. First step for post-plan maintenance: keep the fixed acceptance matrix and deterministic frontend asset sync (`rsync -a --delete frontend/dist/ src/lenslet/frontend/`) as required release gates for future changes.
 
 
 ## Validation and Acceptance
@@ -605,7 +628,7 @@ Required validation matrix:
 
     npx tsc --noEmit
     npm run build
-    cp -r dist/* ../src/lenslet/frontend/
+    rsync -a --delete dist/ ../src/lenslet/frontend/
 
     Working directory: /home/ubuntu/dev/lenslet
 
@@ -661,11 +684,11 @@ Proposed table-storage internal split while preserving `TableStorage` facade:
     src/lenslet/storage/table_probe.py                 # remote headers/dimensions
     src/lenslet/storage/table_media.py                 # local fast-dimension readers/thumbnail helpers
 
-Proposed frontend target module shape:
+Final frontend module shape (implemented):
 
     frontend/src/app/AppShell.tsx
     frontend/src/app/hooks/useAppDataScope.ts
-    frontend/src/app/hooks/useAppSelection.ts
+    frontend/src/app/hooks/useAppSelectionViewerCompare.ts
     frontend/src/app/hooks/useAppPresenceSync.ts
     frontend/src/app/hooks/useAppActions.ts
     frontend/src/app/model/*.ts
@@ -676,6 +699,7 @@ Proposed frontend target module shape:
     frontend/src/features/metrics/MetricsPanel.tsx
     frontend/src/features/metrics/components/*.tsx
     frontend/src/features/metrics/model/histogram.ts
+    frontend/src/features/metrics/model/metricValues.ts
     frontend/src/features/metrics/hooks/*.ts
 
 Target line-budget outcomes after completion are guidance only:
@@ -719,7 +743,7 @@ Table-storage internal interface targets are:
 Frontend interface targets are:
 
     useAppDataScope(...) -> { data, items, metricKeys, refetch, loadingState, errors }
-    useAppSelection(...) -> { selectedPaths, setSelectedPaths, openViewer, closeViewer, compareState }
+    useAppSelectionViewerCompare(...) -> { selectedPaths, setSelectedPaths, openViewer, closeViewer, compareState }
     useInspectorCompareExport(...) -> { exportState, onExport, onReverseExport }
     computeHistogramFromValues(values: number[], bins: number, base?: Histogram): Histogram | null
 

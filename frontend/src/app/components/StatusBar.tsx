@@ -16,7 +16,7 @@ export default function StatusBar({
   canRevealOffView = false,
   onClearOffView,
   browserZoomPercent,
-}: StatusBarProps): JSX.Element {
+}: StatusBarProps): JSX.Element | null {
   const hasOffViewNames = !!offViewSummary?.names.length
   const offViewLabel = hasOffViewNames && offViewSummary
     ? ` (${offViewSummary.names.join(', ')}${offViewSummary.extra ? ` +${offViewSummary.extra}` : ''})`

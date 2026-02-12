@@ -114,7 +114,9 @@ describe('presence leave transport', () => {
 
     expect(dispatched).toBe(true)
     expect(sendBeacon).toHaveBeenCalledTimes(1)
-    expect(sendBeacon.mock.calls[0]?.[0]).toContain('/presence/leave')
+    const beaconCalls = sendBeacon.mock.calls as unknown[][]
+    const beaconPath = beaconCalls[0]?.[0]
+    expect(typeof beaconPath === 'string' ? beaconPath : '').toContain('/presence/leave')
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
@@ -130,7 +132,9 @@ describe('presence leave transport', () => {
 
     expect(dispatched).toBe(true)
     expect(fetchSpy).toHaveBeenCalledTimes(1)
-    const [, init] = fetchSpy.mock.calls[0] ?? []
+    const fetchCalls = fetchSpy.mock.calls as unknown[][]
+    const fetchCall = fetchCalls[0]
+    const init = fetchCall?.[1]
     expect(init).toMatchObject({
       method: 'POST',
       keepalive: true,

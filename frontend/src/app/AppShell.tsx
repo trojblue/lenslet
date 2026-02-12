@@ -702,8 +702,9 @@ export default function AppShell() {
       appEl.style.setProperty('--toolbar-h', `${h}px`)
     }
     update()
-    if ('ResizeObserver' in window) {
-      const ro = new ResizeObserver(update)
+    const resizeObserverCtor = (window as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver
+    if (resizeObserverCtor) {
+      const ro = new resizeObserverCtor(update)
       ro.observe(toolbarEl)
       return () => ro.disconnect()
     }

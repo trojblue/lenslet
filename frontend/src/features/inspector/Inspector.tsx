@@ -36,7 +36,7 @@ interface InspectorItem {
   h: number
   type: string
   source?: string | null
-  star?: number | null
+  star?: StarRating | null
   metrics?: Record<string, number | null> | null
 }
 

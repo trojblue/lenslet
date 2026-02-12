@@ -174,6 +174,78 @@ lenslet.launch(datasets, blocking=False, port=7070)
 
 See [Programmatic API Documentation](docs/PROGRAMMATIC_API.md) for details and examples.
 
+## Module Map (Post-Refactor Baseline)
+
+The refactor keeps public interfaces stable while moving domain logic behind explicit module boundaries.
+
+Backend facade and route/runtime modules:
+
+- `src/lenslet/server.py` - stable public facade (`create_app*`, compatibility touchpoints).
+- `src/lenslet/server_runtime.py` - shared runtime assembly (`AppRuntime`, runtime wiring).
+- `src/lenslet/server_browse.py` - folder traversal and browse path helpers.
+- `src/lenslet/server_factory.py` - app factory composition.
+- `src/lenslet/server_routes_common.py` - folders/item/metadata/export/events/thumb/file/search routes.
+- `src/lenslet/server_routes_presence.py` - presence lifecycle, diagnostics, and prune wiring.
+- `src/lenslet/server_routes_embeddings.py` - embeddings routes.
+- `src/lenslet/server_routes_views.py` - views routes.
+- `src/lenslet/server_routes_index.py` - index/static shell routes.
+- `src/lenslet/server_routes_og.py` - OG preview route wiring.
+- `src/lenslet/server_media.py` - media/file/thumb response helpers.
+- `src/lenslet/server_sync.py` - collaboration event broker and presence tracker internals.
+
+Table storage facade and collaborators:
+
+- `src/lenslet/storage/table.py` - `TableStorage` compatibility facade.
+- `src/lenslet/storage/table_facade.py` - delegated read/search/metadata/presign operations.
+- `src/lenslet/storage/table_schema.py` - source column and schema coercion logic.
+- `src/lenslet/storage/table_paths.py` - path/source resolution and safety checks.
+- `src/lenslet/storage/table_index.py` - index-build pipeline (`build_index_columns`, `scan_rows`, `assemble_indexes`).
+- `src/lenslet/storage/table_probe.py` - remote header/dimension probing helpers.
+- `src/lenslet/storage/table_media.py` - local media dimension/thumbnail helpers.
+
+Frontend decomposition seams:
+
+- `frontend/src/app/AppShell.tsx` + domain hooks under `frontend/src/app/hooks/`.
+- `frontend/src/app/model/appShellSelectors.ts` for pure AppShell selectors.
+- `frontend/src/features/inspector/Inspector.tsx` + `sections/`, `hooks/`, and `model/metadataCompare.ts`.
+- `frontend/src/features/metrics/MetricsPanel.tsx` + split `components/`, `hooks/`, and `model/` (`histogram.ts`, `metricValues.ts`).
+
+## Maintainer Workflows
+
+Run the fixed acceptance matrix from repo root:
+
+```bash
+pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py
+python - <<'PY'
+import lenslet.server as server
+import lenslet.storage.table as table
+assert hasattr(server, 'create_app')
+assert hasattr(server, 'create_app_from_datasets')
+assert hasattr(server, 'create_app_from_table')
+assert hasattr(server, 'create_app_from_storage')
+assert hasattr(server, 'HotpathTelemetry')
+assert hasattr(server, '_file_response')
+assert hasattr(server, '_thumb_response_async')
+assert hasattr(server, 'og')
+assert hasattr(table, 'TableStorage')
+assert hasattr(table, 'load_parquet_table')
+assert hasattr(table, 'load_parquet_schema')
+print('import-contract-ok')
+PY
+cd frontend
+npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts
+npx tsc --noEmit
+cd ..
+python -m build
+```
+
+After frontend changes, ship deterministic packaged assets:
+
+```bash
+cd frontend && npm run build && cd ..
+rsync -a --delete frontend/dist/ src/lenslet/frontend/
+```
+
 ## Hotpath API Notes (2026-02)
 
 - `GET /folders` recursive mode is paged by default with `recursive=1&page=<n>&page_size=<n>`.

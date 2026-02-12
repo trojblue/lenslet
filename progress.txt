@@ -474,3 +474,59 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260211_foundational_long_file_refactor_pla
   - `[frontend-typecheck]` repo typecheck is still red and blocks S7 full-matrix acceptance.
   - `[packaging-tooling]` packaging command cannot run in current environment until `build` module is available.
 - Next step: execute `S7 / T24b` by resolving failing domains in scoped ownership lanes (frontend typecheck fixes and packaging toolchain availability), then rerun failed checks.
+
+## Iteration 32 - 2026-02-12T01:40:37Z
+- Completed ticket: `S7 / T24b` frontend ownership slice (`[frontend-typecheck]`).
+- Implemented artifacts:
+  - Updated `frontend/src/api/__tests__/client.presence.test.ts` to keep presence-leave transport assertions while making Vitest mock-call access type-safe under strict TS (`unknown[][]` narrowing).
+  - Updated `frontend/src/app/AppShell.tsx` toolbar-height effect to use a typed optional `ResizeObserver` constructor lookup, preserving existing runtime fallback semantics.
+  - Updated `frontend/src/app/components/StatusBar.tsx` return type to `JSX.Element | null` (matches existing `return null` behavior).
+  - Updated `frontend/src/features/inspector/Inspector.tsx` local `InspectorItem.star` typing to `StarRating | null` so derived star values remain within the existing domain contract.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T24b` status) to record this scoped completion and remaining domain.
+- Validation run:
+  - `cd frontend && npx tsc --noEmit` -> pass.
+  - `cd frontend && npm run test -- src/api/__tests__/client.presence.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/app/__tests__/presenceUi.test.ts` -> `14 passed`.
+- Blockers:
+  - `[packaging-tooling]` remains open for `T24b`: `python -m build` currently fails with `No module named build` in this environment.
+- Next step: complete remaining `S7 / T24b` packaging-tooling ownership slice, then proceed to `T25` frontend asset sync.
+
+## Iteration 33 - 2026-02-12T01:43:06Z
+- Completed ticket: `S7 / T24b` packaging ownership slice (`[packaging-tooling]`).
+- Implemented artifacts:
+  - Added `build>=1.2` to `pyproject.toml` `dev` extras so packaging tooling is included in the documented editable-dev install path.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T24b` status) to close the remaining domain.
+- Validation run:
+  - `python -m pip install -e '.[dev]'` -> success.
+  - `python -m build` -> success (built `lenslet-0.2.13.tar.gz` and `lenslet-0.2.13-py3-none-any.whl`).
+- Blockers: none.
+- Next step: execute `S7 / T25` by regenerating shipped frontend assets in `src/lenslet/frontend/` and verifying Python-served shell content.
+
+## Iteration 34 - 2026-02-12T01:45:33Z
+- Completed ticket: `S7 / T25` (regenerate shipped frontend assets and verify Python-served shell).
+- Implemented artifacts:
+  - Rebuilt frontend production bundle via `cd frontend && npm run build`.
+  - Synced generated artifacts into shipped package assets via `rsync -a --delete frontend/dist/ src/lenslet/frontend/`.
+  - Updated shipped frontend outputs in `src/lenslet/frontend/index.html` and `src/lenslet/frontend/assets/` (`index-CAfycEDX.css`, `index-B5RaBndO.js`).
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T25` status).
+- Validation run:
+  - `cd frontend && npm run build` -> success.
+  - `rsync -a --delete frontend/dist/ src/lenslet/frontend/` -> success.
+  - `python - <<'PY' ...` FastAPI static-mount probe (`/`, `/index.html`, and referenced hashed JS asset) -> `frontend-shell-serve-ok`.
+- Blockers: none.
+- Next step: execute `S7 / T26` by updating `README.md`/`DEVELOPMENT.md` module-map and operational notes, then run the final full acceptance matrix.
+
+## Iteration 35 - 2026-02-12T01:50:43Z
+- Completed ticket: `S7 / T26` (update docs with final module map and operational notes).
+- Implemented artifacts:
+  - Updated `README.md` with post-refactor module boundaries (backend facade/routes/runtime/media, table collaborators, frontend seams) and canonical maintainer workflows (fixed acceptance matrix + deterministic frontend artifact mirror command).
+  - Updated `DEVELOPMENT.md` project structure, backend architecture notes, packaging guidance, and closeout commands to match the implemented architecture and release flow (`rsync -a --delete` + `python -m build`).
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, `T26` status, `S7` handover, and finalized outcomes), plus command/module-map alignment (`rsync` command replacement and final hook/module names).
+- Validation run:
+  - `pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py` -> `64 passed`.
+  - `python - <<'PY' ...` import contract probe -> `import-contract-ok`.
+  - `cd frontend && npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `45 passed`.
+  - `cd frontend && npx tsc --noEmit` -> pass.
+  - `cd frontend && npm run build` -> success.
+  - `python -m build` -> success.
+- Blockers: none.
+- Next step: sprint plan complete through `S7 / T26`; continue with normal maintenance/release flow using the documented acceptance matrix and deterministic frontend artifact sync gate.

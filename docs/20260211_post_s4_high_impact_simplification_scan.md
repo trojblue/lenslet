@@ -18,9 +18,35 @@ This repository does not currently contain a `PLANS.md`-style canonical planning
 - [x] 2026-02-12T02:09:28Z Removed outdated findings that were already addressed during S4-S7 completion work.
 - [x] 2026-02-12T02:09:28Z Re-ranked current simplification opportunities by impact and converted the scan into an executable sprint/task plan.
 - [x] 2026-02-12T02:11:29Z Ran mandatory subagent review and incorporated missing dependency ordering, task splits, validation gaps, and parity assertions.
-- [ ] Execute Sprint S8 tasks `T1`, `T2a`, `T2b`, `T3a`, `T3b`, `T4`, and `T11` and capture validation artifacts.
-- [ ] Execute Sprint S9 tasks `T5`, `T6`, and `T7` and capture validation artifacts.
-- [ ] Execute Sprint S10 tasks `T8`, `T9`, and `T10` and capture validation artifacts.
+- [x] 2026-02-12T02:24:49Z Completed Sprint S8 `T1` by extracting Inspector UI state orchestration into `frontend/src/features/inspector/hooks/useInspectorUiState.ts` (section persistence, section toggles, metrics expansion toggle, and copy-toast timers) and slimming `frontend/src/features/inspector/Inspector.tsx` to composition/wiring.
+- [x] 2026-02-12T02:24:49Z Validation for `T1`: `cd frontend && npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/features/inspector/model/__tests__/metadataCompare.test.ts` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T02:28:50Z Completed Sprint S8 `T3a` by splitting `frontend/src/features/inspector/hooks/useInspectorMetadataWorkflow.ts` into `useInspectorSingleMetadata`, `useInspectorCompareMetadata`, and `useInspectorCompareExport`, while preserving the existing workflow return contract consumed by `frontend/src/features/inspector/Inspector.tsx`.
+- [x] 2026-02-12T02:28:50Z Validation for `T3a`: `cd frontend && npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/features/inspector/model/__tests__/metadataCompare.test.ts` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T02:34:48Z Completed Sprint S8 `T3b` by adding explicit request-context guards for stale metadata responses in `frontend/src/features/inspector/hooks/useInspectorSingleMetadata.ts` and `frontend/src/features/inspector/hooks/useInspectorCompareMetadata.ts`, backed by shared guard helpers in `frontend/src/features/inspector/hooks/metadataRequestGuards.ts`.
+- [x] 2026-02-12T02:34:48Z Validation for `T3b`: `cd frontend && npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/features/inspector/model/__tests__/metadataCompare.test.ts src/features/inspector/hooks/__tests__/metadataRequestGuards.test.ts` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T02:39:52Z Completed Sprint S8 `T4` by hardening `frontend/src/features/inspector/hooks/useInspectorSidecarWorkflow.ts` with explicit draft reset semantics keyed by sidecar/path context, dirty-state guards for notes/tags inputs, and semantic no-op suppression on blur commits. Added shared draft guard helpers in `frontend/src/features/inspector/hooks/sidecarDraftGuards.ts`.
+- [x] 2026-02-12T02:39:52Z Validation for `T4`: `cd frontend && npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/features/inspector/model/__tests__/metadataCompare.test.ts src/features/inspector/hooks/__tests__/metadataRequestGuards.test.ts src/features/inspector/hooks/__tests__/sidecarDraftGuards.test.ts` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T02:44:24Z Completed Sprint S8 `T2a` by introducing typed metadata render nodes in `frontend/src/features/inspector/model/metadataCompare.ts` (`buildJsonRenderNode` + typed node contracts), wiring `frontend/src/features/inspector/sections/MetadataSection.tsx` to prefer typed rendering, and retaining the legacy HTML renderer as an explicit fallback path.
+- [x] 2026-02-12T02:44:24Z Validation for `T2a`: `cd frontend && npm run test -- src/features/inspector/model/__tests__/metadataCompare.test.ts src/features/inspector/__tests__/exportComparison.test.tsx` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T02:49:02Z Completed Sprint S8 `T2b` by removing legacy HTML metadata rendering (`renderJsonValue` + `dangerouslySetInnerHTML`) and replacing serialized `data-json-path` decoding with direct typed-path callbacks across single and compare metadata sections (`frontend/src/features/inspector/sections/JsonRenderCode.tsx`, `frontend/src/features/inspector/sections/MetadataSection.tsx`, `frontend/src/features/inspector/sections/CompareMetadataSection.tsx`, and `frontend/src/features/inspector/Inspector.tsx`).
+- [x] 2026-02-12T02:49:02Z Validation for `T2b`: `cd frontend && npm run test -- src/features/inspector/model/__tests__/metadataCompare.test.ts src/features/inspector/__tests__/exportComparison.test.tsx` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T02:50:22Z Completed Sprint S8 `T11` by centralizing metadata path-copy payload derivation in `frontend/src/features/inspector/model/metadataCompare.ts` (`buildMetadataPathCopyPayload`) and adding parity-oriented tests across model/guard/section suites (`frontend/src/features/inspector/model/__tests__/metadataCompare.test.ts`, `frontend/src/features/inspector/hooks/__tests__/metadataRequestGuards.test.ts`, `frontend/src/features/inspector/sections/__tests__/metadataSections.test.tsx`).
+- [x] 2026-02-12T02:50:22Z Validation for `T11`: `cd frontend && npm run test -- src/features/inspector/model/__tests__/metadataCompare.test.ts src/features/inspector/hooks/__tests__/metadataRequestGuards.test.ts src/features/inspector/sections/__tests__/metadataSections.test.tsx src/features/inspector/__tests__/exportComparison.test.tsx` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T02:50:22Z Completed Sprint S8 acceptance and added explicit sprint handover notes in the Sprint Plan section.
+- [x] 2026-02-12T03:00:05Z Completed Sprint S9 `T5` by replacing the in-component filter-chip `if/else` chain in `frontend/src/app/AppShell.tsx` with a typed declarative registry (`frontend/src/app/model/filterChips.ts`) that pairs clause readers with clear actions.
+- [x] 2026-02-12T03:00:05Z Validation for `T5`: `cd frontend && npm run test -- src/app/model/__tests__/filterChips.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceUi.test.ts` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T03:02:12Z Completed Sprint S9 `T6` by removing the dead breadcrumb/path bar branch guarded by `false` in `frontend/src/app/AppShell.tsx`, including its unreachable inline path-segmentation and clipboard handlers.
+- [x] 2026-02-12T03:02:12Z Validation for `T6`: `cd frontend && npm run test -- src/app/model/__tests__/filterChips.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceUi.test.ts` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T03:05:05Z Completed Sprint S9 `T7` by deduplicating compare metadata A/B pane rendering into a shared `CompareMetadataPane` inside `frontend/src/features/inspector/sections/CompareMetadataSection.tsx`, preserving copy/PIL toggle/toast behavior.
+- [x] 2026-02-12T03:05:05Z Validation for `T7`: `cd frontend && npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx src/features/inspector/__tests__/exportComparison.test.tsx` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T03:05:05Z Completed Sprint S9 acceptance and added explicit sprint handover notes in the Sprint Plan section.
+- [x] 2026-02-12T03:08:41Z Completed Sprint S10 `T8` by extracting shared metric-number formatting into `frontend/src/lib/util.ts` (`formatMetricNumber`) and wiring both metrics and inspector basics call sites to the shared utility (`frontend/src/features/metrics/model/histogram.ts`, `frontend/src/features/inspector/sections/BasicsSection.tsx`).
+- [x] 2026-02-12T03:08:41Z Validation for `T8`: `cd frontend && npm run test -- src/features/metrics/model/__tests__/histogram.test.ts src/features/metrics/model/__tests__/metricValues.test.ts src/lib/__tests__/util.test.ts` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T03:11:15Z Completed Sprint S10 `T9` by removing redundant item-level metric collection from `frontend/src/features/metrics/model/histogram.ts` (`collectMetricValues`) so runtime extraction remains canonical in `frontend/src/features/metrics/model/metricValues.ts`.
+- [x] 2026-02-12T03:11:15Z Validation for `T9`: `cd frontend && npm run test -- src/features/metrics/model/__tests__/histogram.test.ts src/features/metrics/model/__tests__/metricValues.test.ts` (pass), `cd frontend && npx tsc --noEmit` (pass).
+- [x] 2026-02-12T03:15:59Z Completed Sprint S10 `T10` by removing Inspector `valueHeights` runtime measuring in `frontend/src/features/inspector/Inspector.tsx` and replacing Basics copy-value rendering in `frontend/src/features/inspector/sections/BasicsSection.tsx` with a CSS-only overlay pattern that preserves row height while showing `Copied`.
+- [x] 2026-02-12T03:15:59Z Validation for `T10` and final acceptance: `cd /home/ubuntu/dev/lenslet/frontend && npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/features/inspector/model/__tests__/metadataCompare.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceUi.test.ts src/features/metrics/model/__tests__/histogram.test.ts src/features/metrics/model/__tests__/metricValues.test.ts` (pass), `cd /home/ubuntu/dev/lenslet/frontend && npx tsc --noEmit` (pass), `cd /home/ubuntu/dev/lenslet/frontend && npm run build` (pass).
+- [x] 2026-02-12T03:15:59Z Completed Sprint S10 acceptance and added explicit sprint handover notes in the Sprint Plan section.
 
 
 ## Surprises & Discoveries
@@ -30,9 +56,37 @@ The previous scan mixed two different states of the codebase: true unresolved it
 
 The largest remaining simplification opportunities are not raw file length anymore. They are boundary quality issues, especially in `frontend/src/features/inspector/Inspector.tsx` where state orchestration and prop fan-out still dominate.
 
-A few non-trivial legacy behaviors remain in plain sight and are easy to miss during normal development, including the dead breadcrumb block in `frontend/src/app/AppShell.tsx` guarded by `false`.
+A few non-trivial legacy behaviors remain in plain sight and are easy to miss during normal development, especially constant-guarded UI branches and duplicated compare-pane rendering paths.
 
 Hook and rendering tasks are coupled more tightly than they first appear. Rendering migration, compare-pane deduplication, and async lifecycle splits can interfere if applied in the wrong sequence.
+
+Inspector currently has no dedicated component-level tests for section persistence/copy-toast UI behavior, so this iteration validated via existing inspector model/export suites and typecheck; focused Inspector interaction coverage remains part of `T11`.
+
+During `T3a`, compare-workflow reset semantics proved intentionally asymmetric: labels/embed reset only when compare context is inactive, while export mode/error reset on every compare context change. Keeping this behavior unchanged is now an explicit parity anchor for `T3b`.
+
+`T3b` confirmed a previously implicit race in single-metadata fetches: when selection/context changed mid-request, late responses could repopulate cleared metadata state. Compare metadata already had request-id suppression, but now both flows share the same explicit “request id + context key must match” contract.
+
+`T4` surfaced a subtle stale-draft risk in sidecar notes/tags: the previous workflow did not explicitly reset drafts when selection changed to a path whose sidecar had not loaded yet, so the UI could temporarily show prior-item values. The new reset contract now treats path/sidecar context as authoritative draft source.
+
+`T2a` confirmed that one metadata surface can move to typed rendering without changing click-copy behavior by preserving existing `data-json-path` markers on key spans. Keeping the HTML path as a fallback in this step reduced migration risk and isolates `T2b` to strict legacy-path removal.
+
+`T2b` validated that removing serialized path encoding/decoding is straightforward once both metadata surfaces share one typed renderer contract. The remaining parity risk is now concentrated in interaction coverage (`T11`) rather than renderer implementation drift.
+
+`T11` showed that parity coverage can be strengthened in this codebase without introducing a new DOM harness: server-rendered section snapshots plus pure model/guard tests are enough to lock copy-path label text, copied payload formatting, and compare-pane A/B state labeling contracts.
+
+Path-copy derivation had drift risk because single and compare handlers each rebuilt label/value formatting manually in `Inspector.tsx`; promoting that logic to one model helper now keeps copy semantics testable and consistent.
+
+`T5` confirmed that AppShell chip behavior can be centralized without UI regressions by treating each filter clause as data (`read` + `clear`) in a registry. Legacy `stars` and canonical `starsIn` clauses now intentionally share one clear action contract, which reduces branch drift risk ahead of `T6`.
+
+`T6` confirmed the dead breadcrumb block in `AppShell` was fully unreachable and self-contained; deleting it required no routing/state changes and reduced render noise ahead of compare-pane deduplication in `T7`.
+
+`T7` confirmed compare metadata pane duplication can be removed without behavior churn by extracting one shared pane subcomponent and passing side-specific state/handlers. The highest remaining risk in this area is now accidental prop-wiring drift, not rendering-logic divergence.
+
+`T8` confirmed metrics and inspector can share one number-format utility with no display threshold regressions. A third formatter still exists in `frontend/src/features/browse/components/MetricScrollbar.tsx`, but it intentionally uses `'-'` for null values (vs `'–'`), so it remains out of scope for this parity-preserving sprint.
+
+`T9` confirmed histogram-level metric extraction had become pure duplication: `collectMetricValues` was no longer used by runtime paths and only remained as a parallel test seam. Removing it tightened boundaries so histogram owns numeric/domain math and `metricValues.ts` remains the single source of item-to-metric extraction semantics.
+
+`T10` confirmed Inspector basics row-jitter protection does not need runtime DOM measurement state: preserving the original value text in layout flow (hidden) while rendering `Copied` as an absolute overlay keeps row height stable and removes transient state/callback complexity.
 
 
 ## Decision Log
@@ -45,6 +99,20 @@ Hook and rendering tasks are coupled more tightly than they first appear. Render
 5. 2026-02-12, assistant. Preserve this file path (`docs/20260211_post_s4_high_impact_simplification_scan.md`) for continuity, but update its content to serve as an implementation-ready plan rather than a static findings table.
 6. 2026-02-12, assistant. Split oversized rendering and workflow tickets into staged sub-tasks (`T2a`/`T2b`, `T3a`/`T3b`) to reduce rollback complexity and make validation checkpoints explicit.
 7. 2026-02-12, assistant. Add explicit dependency order and manual parity checklist to prevent hidden regressions in copy-path behavior, stale-request handling, and compare metadata interactions.
+8. 2026-02-12, assistant. Implement `T1` by introducing a dedicated `useInspectorUiState` hook that preserves existing localStorage keys and toast timing semantics while moving section/copy UI orchestration out of `Inspector.tsx`.
+9. 2026-02-12, assistant. Implement `T3a` as a pure composition refactor: keep `useInspectorMetadataWorkflow` as the compatibility wrapper and move single-metadata, compare-metadata, and export lifecycles into dedicated hooks to reduce coupling without changing `Inspector` call sites.
+10. 2026-02-12, assistant. Preserve existing compare export reset behavior exactly during extraction (inactive context resets labels/embed/mode/error; active context resets mode/error only) so `T3b` can focus only on stale-response hardening.
+11. 2026-02-12, assistant. Implement `T3b` with a shared `metadataRequestGuards` module and apply the same gating predicate to both single and compare metadata hooks so stale suppression semantics are centralized and testable.
+12. 2026-02-12, assistant. Implement `T4` with two complementary safeguards: dirty refs to avoid blur-triggered writes without user edits, and semantic comparison helpers (notes exact-match, tags normalized comma parsing) so writes occur only when meaningfully changed.
+13. 2026-02-12, assistant. Implement `T2a` as a bridge migration: introduce typed render-node contracts and typed rendering in `MetadataSection` first, while keeping legacy HTML rendering available as fallback so `T2b` can remove old HTML/decode paths in a separate, parity-focused step.
+14. 2026-02-12, assistant. Implement `T2b` with a shared typed renderer component (`JsonRenderCode`) consumed by both single and compare metadata sections, and move copy-path behavior to direct typed-path callbacks so no serialized DOM path decoding remains.
+15. 2026-02-12, assistant. Implement `T11` with a model-first test strategy in the existing Node Vitest environment: centralize metadata path-copy payload derivation in one helper and lock UI semantics with SSR section rendering tests instead of introducing new DOM runtime dependencies mid-sprint.
+16. 2026-02-12, assistant. Implement `T5` by extracting filter-chip clause handling into a typed AppShell registry helper (`buildFilterChips`) and keeping `AppShell.tsx` responsible only for wiring filter clear actions.
+17. 2026-02-12, assistant. Implement `T6` by deleting the constant-false breadcrumb/path bar branch outright rather than preserving dormant UI code, because no active behavior referenced it and parity is better protected by removal than by keeping unreachable JSX.
+18. 2026-02-12, assistant. Implement `T7` by introducing a local shared `CompareMetadataPane` component in `CompareMetadataSection.tsx` and reusing it for sides A/B, so copy/PIL/toast semantics are parameterized instead of duplicated inline.
+19. 2026-02-12, assistant. Implement `T8` by introducing `formatMetricNumber` in `frontend/src/lib/util.ts` as the single threshold source and preserving `histogram.ts`'s `formatNumber` API as a thin compatibility wrapper; defer `MetricScrollbar` formatter unification to avoid changing its distinct null glyph contract in this ticket.
+20. 2026-02-12, assistant. Implement `T9` by deleting `collectMetricValues` from `frontend/src/features/metrics/model/histogram.ts` and moving the finite-value collection assertion into `metricValues` tests, so item metric extraction has one canonical implementation path (`collectMetricValuesByKey`).
+21. 2026-02-12, assistant. Implement `T10` by removing `valueHeights` runtime measurement entirely and using a CSS-only copy-state overlay in `BasicsSection`, because this preserves row-height parity while reducing Inspector state and callback surface.
 
 
 ## Outcomes & Retrospective
@@ -52,7 +120,7 @@ Hook and rendering tasks are coupled more tightly than they first appear. Render
 
 The immediate outcome of this update is a clean, current target list with explicit execution order and validation requirements. The stale entries that depended on pre-S7 assumptions are no longer present.
 
-Implementation has not started in this pass. The next milestone is successful completion of Sprint S8 with green targeted tests and unchanged user-visible behavior in Inspector interactions.
+Sprint S8 is complete (`T1`, `T2a`, `T2b`, `T3a`, `T3b`, `T4`, `T11`), Sprint S9 is complete (`T5`, `T6`, `T7`), and Sprint S10 is complete (`T8`, `T9`, `T10`). Inspector basics no longer depends on runtime value-height measuring, while copy-state behavior remains parity-preserving through CSS-only layout retention. Final acceptance command matrix, typecheck, and production build are all green.
 
 
 ## Context and Orientation
@@ -89,6 +157,50 @@ The updated findings ranked by impact are as follows.
 1. Sprint S8: Inspector Boundary Hardening. Goal: make Inspector orchestration modular and deterministic. Demo outcome: `Inspector.tsx` acts primarily as composition/wiring, metadata rendering is migrated in controlled stages, and metadata workflows are split with explicit stale-request contract. Linked tasks: `T1`, `T2a`, `T2b`, `T3a`, `T3b`, `T4`, `T11`.
 2. Sprint S9: AppShell and Compare UI Simplification. Goal: remove legacy/dead branches and eliminate major duplication in compare metadata rendering and filter-chip derivation. Demo outcome: AppShell filter chips come from declarative rules and compare A/B metadata panes are rendered by one reusable unit. Linked tasks: `T5`, `T6`, `T7`.
 3. Sprint S10: Utility Convergence and Residual Cleanup. Goal: reduce utility drift and remove low-value legacy measurement paths. Demo outcome: one shared metric format utility and no redundant runtime metric collector path in histogram model, with Inspector basics rendering unchanged for users. Linked tasks: `T8`, `T9`, `T10`.
+
+#### Sprint S8 Handover (2026-02-12T02:50:22Z)
+
+- Completed:
+  - `T1`, `T2a`, `T2b`, `T3a`, `T3b`, `T4`, `T11`.
+  - Inspector metadata copy-path logic is now centralized via `buildMetadataPathCopyPayload` and parity-covered in model + section suites.
+- Validations run and outcomes:
+  - `cd frontend && npm run test -- src/features/inspector/model/__tests__/metadataCompare.test.ts src/features/inspector/hooks/__tests__/metadataRequestGuards.test.ts src/features/inspector/sections/__tests__/metadataSections.test.tsx src/features/inspector/__tests__/exportComparison.test.tsx` (pass).
+  - `cd frontend && npx tsc --noEmit` (pass).
+- Known risks/follow-ups:
+  - Rapid selection/compare stale-response behavior is covered at guard-contract level; there is still no full DOM interaction harness for end-to-end Inspector click flows in this repo.
+  - AppShell simplification (`T5`/`T6`) remains untouched and is the next major legacy-risk surface.
+- First step for the next sprint:
+  - Start Sprint S9 with `T5`: replace AppShell filter-chip clause branching in `frontend/src/app/AppShell.tsx` with a declarative typed clause registry while preserving label/clear behavior parity.
+
+#### Sprint S9 Handover (2026-02-12T03:05:05Z)
+
+- Completed:
+  - `T5`, `T6`, `T7`.
+  - AppShell filter chips now come from one typed registry, the dead breadcrumb block is removed, and compare metadata A/B panes now render through one shared pane component.
+- Validations run and outcomes:
+  - `cd frontend && npm run test -- src/app/model/__tests__/filterChips.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceUi.test.ts` (pass).
+  - `cd frontend && npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx src/features/inspector/__tests__/exportComparison.test.tsx` (pass).
+  - `cd frontend && npx tsc --noEmit` (pass).
+- Known risks/follow-ups:
+  - Compare metadata parity is still protected by SSR section tests and manual inspection rather than a browser interaction harness, so full click-through behavior remains a lightweight manual checklist item.
+  - Sprint S10 will touch shared metric formatting paths used by both metrics and inspector basics; threshold parity should be locked with focused model tests before any additional cleanup.
+- First step for the next sprint:
+  - Start Sprint S10 with `T8`: extract a shared metric-number formatting utility and wire it into metrics/inspector call sites with unchanged display thresholds.
+
+#### Sprint S10 Handover (2026-02-12T03:15:59Z)
+
+- Completed:
+  - `T8`, `T9`, `T10`.
+  - Inspector basics now removes `valueHeights` measurement state and keeps copy-row height stable via CSS-only copy overlays in `BasicsSection`.
+- Validations run and outcomes:
+  - `cd /home/ubuntu/dev/lenslet/frontend && npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/features/inspector/model/__tests__/metadataCompare.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceUi.test.ts src/features/metrics/model/__tests__/histogram.test.ts src/features/metrics/model/__tests__/metricValues.test.ts` (pass).
+  - `cd /home/ubuntu/dev/lenslet/frontend && npx tsc --noEmit` (pass).
+  - `cd /home/ubuntu/dev/lenslet/frontend && npm run build` (pass).
+- Known risks/follow-ups:
+  - Inspector basics still has no browser-level interaction harness for visual jitter/clipping assertions; parity is currently guarded by code-path simplification plus the existing regression suite.
+  - Manual parity checklist item 7 (mixed short/long basics values) should still be spot-checked in the running app when convenient.
+- First step for the next sprint:
+  - No further sprint is scheduled in this plan; if a new cleanup sprint is opened, first step should be adding a browser-level Inspector basics interaction test harness to cover visual copy-state parity directly.
 
 ### Dependency Order
 

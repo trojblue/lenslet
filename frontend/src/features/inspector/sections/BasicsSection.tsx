@@ -1,15 +1,7 @@
 import React from 'react'
-import { fmtBytes } from '../../../lib/util'
+import { fmtBytes, formatMetricNumber } from '../../../lib/util'
 import type { SortSpec, StarRating } from '../../../lib/types'
 import { InspectorSection } from './InspectorSection'
-
-function formatMetricValue(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return '–'
-  const abs = Math.abs(value)
-  if (abs >= 1000) return value.toFixed(0)
-  if (abs >= 10) return value.toFixed(2)
-  return value.toFixed(3)
-}
 
 interface BasicsInspectorItem {
   path: string
@@ -36,11 +28,25 @@ interface BasicsSectionProps {
   sortSpec?: SortSpec
   copiedField: string | null
   onCopyInfo: (key: string, text: string) => void
-  valueHeights: Record<string, number>
-  onRememberHeight: (key: string, element: HTMLSpanElement | null) => void
   metricsExpanded: boolean
   onToggleMetricsExpanded: () => void
   metricsPreviewLimit: number
+}
+
+interface CopyableInfoValueProps {
+  copied: boolean
+  value: string
+  className?: string
+  title?: string
+}
+
+function CopyableInfoValue({ copied, value, className = '', title }: CopyableInfoValueProps): JSX.Element {
+  return (
+    <span className={`ui-kv-value relative inline-block text-right min-w-[80px] ${className}`.trim()} title={title}>
+      <span className={copied ? 'invisible block' : 'block'}>{value}</span>
+      {copied && <span className="absolute inset-0 text-right">Copied</span>}
+    </span>
+  )
 }
 
 export function BasicsSection({
@@ -57,8 +63,6 @@ export function BasicsSection({
   sortSpec,
   copiedField,
   onCopyInfo,
-  valueHeights,
-  onRememberHeight,
   metricsExpanded,
   onToggleMetricsExpanded,
   metricsPreviewLimit,
@@ -116,13 +120,7 @@ export function BasicsSection({
             >
               Dimensions
             </span>
-            <span
-              className="ui-kv-value inline-block text-right min-w-[80px]"
-              ref={(el) => onRememberHeight('dimensions', el)}
-              style={valueHeights.dimensions ? { minHeight: valueHeights.dimensions } : undefined}
-            >
-              {copiedField === 'dimensions' ? 'Copied' : `${currentItem.w}×${currentItem.h}`}
-            </span>
+            <CopyableInfoValue copied={copiedField === 'dimensions'} value={`${currentItem.w}×${currentItem.h}`} />
           </div>
           <div className="ui-kv-row">
             <span
@@ -131,13 +129,7 @@ export function BasicsSection({
             >
               Size
             </span>
-            <span
-              className="ui-kv-value inline-block text-right min-w-[80px]"
-              ref={(el) => onRememberHeight('size', el)}
-              style={valueHeights.size ? { minHeight: valueHeights.size } : undefined}
-            >
-              {copiedField === 'size' ? 'Copied' : fmtBytes(currentItem.size)}
-            </span>
+            <CopyableInfoValue copied={copiedField === 'size'} value={fmtBytes(currentItem.size)} />
           </div>
           <div className="ui-kv-row">
             <span
@@ -146,13 +138,7 @@ export function BasicsSection({
             >
               Type
             </span>
-            <span
-              className="ui-kv-value break-all text-right inline-block min-w-[80px]"
-              ref={(el) => onRememberHeight('type', el)}
-              style={valueHeights.type ? { minHeight: valueHeights.type } : undefined}
-            >
-              {copiedField === 'type' ? 'Copied' : currentItem.type}
-            </span>
+            <CopyableInfoValue copied={copiedField === 'type'} value={currentItem.type} className="break-all" />
           </div>
           <div className="ui-kv-row">
             <span
@@ -161,14 +147,12 @@ export function BasicsSection({
             >
               Source
             </span>
-            <span
-              className="ui-kv-value inspector-value-clamp break-words text-right max-w-[70%] inline-block min-w-[80px]"
-              ref={(el) => onRememberHeight('source', el)}
-              style={valueHeights.source ? { minHeight: valueHeights.source } : undefined}
+            <CopyableInfoValue
+              copied={copiedField === 'source'}
+              value={sourceValue}
+              className="inspector-value-clamp break-words max-w-[70%]"
               title={sourceValue}
-            >
-              {copiedField === 'source' ? 'Copied' : sourceValue}
-            </span>
+            />
           </div>
           {(() => {
             const metrics = currentItem.metrics || null
@@ -200,7 +184,7 @@ export function BasicsSection({
                           {key}
                         </span>
                         <span className={`ui-kv-value text-right ${isHighlighted ? 'text-accent font-medium' : ''}`}>
-                          {formatMetricValue(val)}
+                          {formatMetricNumber(val)}
                         </span>
                       </div>
                     )

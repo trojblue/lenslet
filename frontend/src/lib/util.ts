@@ -9,6 +9,14 @@ export function fmtBytes(n: number): string {
   return `${val.toFixed(1)} ${units[idx]}`
 }
 
+export function formatMetricNumber(value?: number | null): string {
+  if (value == null || Number.isNaN(value)) return '–'
+  const abs = Math.abs(value)
+  if (abs >= 1000) return value.toFixed(0)
+  if (abs >= 10) return value.toFixed(2)
+  return value.toFixed(3)
+}
+
 export function safeJsonParse<T>(raw: string | null): T | null {
   if (!raw) return null
   try {

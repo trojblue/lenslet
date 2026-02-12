@@ -56,10 +56,7 @@ import {
 } from './model/appShellSelectors'
 import {
   downloadBlob,
-  formatDateRange,
-  formatRange,
   formatScopeLabel,
-  formatStarValues,
   makeUniqueViewId,
   resolveScopeFromHashTarget,
 } from './utils/appShellHelpers'
@@ -67,6 +64,7 @@ import { useAppDataScope, type SimilarityState } from './hooks/useAppDataScope'
 import { useAppSelectionViewerCompare } from './hooks/useAppSelectionViewerCompare'
 import { useAppPresenceSync } from './hooks/useAppPresenceSync'
 import { useAppActions } from './hooks/useAppActions'
+import { buildFilterChips } from './model/filterChips'
 
 // S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
 // - T13a data scope: folder/search/similarity loading + derived pools.
@@ -521,114 +519,20 @@ export default function AppShell() {
     updateFilters((filters) => setMetricRangeFilter(filters, key, range))
   }, [updateFilters])
 
-  const filterChips = useMemo(() => {
-    const chips: { id: string; label: string; onRemove: () => void }[] = []
-    for (const clause of viewState.filters.and) {
-      if ('stars' in clause) {
-        const stars = clause.stars || []
-        if (!stars.length) continue
-        chips.push({
-          id: 'stars',
-          label: `Rating in: ${formatStarValues(stars)}`,
-          onRemove: () => handleClearStars(),
-        })
-      } else if ('starsIn' in clause) {
-        const stars = clause.starsIn.values || []
-        if (!stars.length) continue
-        chips.push({
-          id: 'stars-in',
-          label: `Rating in: ${formatStarValues(stars)}`,
-          onRemove: () => handleClearStars(),
-        })
-      } else if ('starsNotIn' in clause) {
-        const stars = clause.starsNotIn.values || []
-        if (!stars.length) continue
-        chips.push({
-          id: 'stars-not-in',
-          label: `Rating not in: ${formatStarValues(stars)}`,
-          onRemove: () => updateFilters((filters) => setStarsNotInFilter(filters, [])),
-        })
-      } else if ('nameContains' in clause) {
-        const value = clause.nameContains.value?.trim()
-        if (!value) continue
-        chips.push({
-          id: 'name-contains',
-          label: `Filename contains: ${value}`,
-          onRemove: () => updateFilters((filters) => setNameContainsFilter(filters, '')),
-        })
-      } else if ('nameNotContains' in clause) {
-        const value = clause.nameNotContains.value?.trim()
-        if (!value) continue
-        chips.push({
-          id: 'name-not-contains',
-          label: `Filename not: ${value}`,
-          onRemove: () => updateFilters((filters) => setNameNotContainsFilter(filters, '')),
-        })
-      } else if ('commentsContains' in clause) {
-        const value = clause.commentsContains.value?.trim()
-        if (!value) continue
-        chips.push({
-          id: 'comments-contains',
-          label: `Comments contain: ${value}`,
-          onRemove: () => updateFilters((filters) => setCommentsContainsFilter(filters, '')),
-        })
-      } else if ('commentsNotContains' in clause) {
-        const value = clause.commentsNotContains.value?.trim()
-        if (!value) continue
-        chips.push({
-          id: 'comments-not-contains',
-          label: `Comments not: ${value}`,
-          onRemove: () => updateFilters((filters) => setCommentsNotContainsFilter(filters, '')),
-        })
-      } else if ('urlContains' in clause) {
-        const value = clause.urlContains.value?.trim()
-        if (!value) continue
-        chips.push({
-          id: 'url-contains',
-          label: `URL contains: ${value}`,
-          onRemove: () => updateFilters((filters) => setUrlContainsFilter(filters, '')),
-        })
-      } else if ('urlNotContains' in clause) {
-        const value = clause.urlNotContains.value?.trim()
-        if (!value) continue
-        chips.push({
-          id: 'url-not-contains',
-          label: `URL not: ${value}`,
-          onRemove: () => updateFilters((filters) => setUrlNotContainsFilter(filters, '')),
-        })
-      } else if ('dateRange' in clause) {
-        const { from, to } = clause.dateRange
-        if (!from && !to) continue
-        chips.push({
-          id: 'date-range',
-          label: `Date: ${formatDateRange(from, to)}`,
-          onRemove: () => updateFilters((filters) => setDateRangeFilter(filters, null)),
-        })
-      } else if ('widthCompare' in clause) {
-        const { op, value } = clause.widthCompare
-        chips.push({
-          id: 'width-compare',
-          label: `Width ${op} ${value}`,
-          onRemove: () => updateFilters((filters) => setWidthCompareFilter(filters, null)),
-        })
-      } else if ('heightCompare' in clause) {
-        const { op, value } = clause.heightCompare
-        chips.push({
-          id: 'height-compare',
-          label: `Height ${op} ${value}`,
-          onRemove: () => updateFilters((filters) => setHeightCompareFilter(filters, null)),
-        })
-      } else if ('metricRange' in clause) {
-        const { key, min, max } = clause.metricRange
-        chips.push({
-          id: `metric:${key}`,
-          label: `${key}: ${formatRange(min, max)}`,
-          onRemove: () => handleMetricRange(key, null),
-        })
-      }
-    }
-    return chips
-  }, [viewState.filters, handleClearStars, handleMetricRange, updateFilters])
+  const filterChips = useMemo(() => buildFilterChips(viewState.filters, {
+    clearStars: handleClearStars,
+    clearStarsNotIn: () => updateFilters((filters) => setStarsNotInFilter(filters, [])),
+    clearNameContains: () => updateFilters((filters) => setNameContainsFilter(filters, '')),
+    clearNameNotContains: () => updateFilters((filters) => setNameNotContainsFilter(filters, '')),
+    clearCommentsContains: () => updateFilters((filters) => setCommentsContainsFilter(filters, '')),
+    clearCommentsNotContains: () => updateFilters((filters) => setCommentsNotContainsFilter(filters, '')),
+    clearUrlContains: () => updateFilters((filters) => setUrlContainsFilter(filters, '')),
+    clearUrlNotContains: () => updateFilters((filters) => setUrlNotContainsFilter(filters, '')),
+    clearDateRange: () => updateFilters((filters) => setDateRangeFilter(filters, null)),
+    clearWidthCompare: () => updateFilters((filters) => setWidthCompareFilter(filters, null)),
+    clearHeightCompare: () => updateFilters((filters) => setHeightCompareFilter(filters, null)),
+    clearMetricRange: (key: string) => handleMetricRange(key, null),
+  }), [viewState.filters, handleClearStars, handleMetricRange, updateFilters])
 
   const handleToggleStar = useCallback((v: number) => {
     const next = new Set(starFilters)
@@ -1253,33 +1157,6 @@ export default function AppShell() {
                 Clear all
               </button>
             </div>
-          </div>
-        )}
-        {/* Breadcrumb / path bar intentionally hidden for now */}
-        {false && (
-          <div className="sticky top-0 z-10 px-3 py-2.5 bg-panel backdrop-blur-sm shadow-[0_1px_0_rgba(255,255,255,.04),0_6px_8px_-6px_rgba(0,0,0,.5)]">
-            {(() => {
-              const parts = current.split('/').filter(Boolean)
-              const segs: { label:string; path:string }[] = []
-              let acc = ''
-              for (const p of parts) { acc = acc ? `${acc}/${p}` : `/${p}`; segs.push({ label: p, path: acc }) }
-              return (
-                <>
-                  <a href={`#${encodeURI('/')}`} onClick={(e)=>{ e.preventDefault(); openFolder('/') }} className="text-text opacity-85 no-underline hover:opacity-100 hover:underline">Root</a>
-                  {segs.map((s, i) => (
-                    <span key={s.path}>
-                      <span className="opacity-50 mx-1.5">/</span>
-                      {i < segs.length-1 ? (
-                        <a href={`#${encodeURI(s.path)}`} onClick={(e)=>{ e.preventDefault(); openFolder(s.path) }} className="text-text opacity-85 no-underline hover:opacity-100 hover:underline">{s.label}</a>
-                      ) : (
-                        <span aria-current="page">{s.label}</span>
-                      )}
-                    </span>
-                  ))}
-                  <span className="opacity-0 hover:opacity-100 ml-2 cursor-pointer text-xs text-muted" role="button" aria-label="Copy path" title="Copy path" onClick={()=>{ try { navigator.clipboard.writeText(current) } catch {} }}>⧉</span>
-                </>
-              )
-            })()}
           </div>
         )}
         <div className="flex-1 min-h-0 relative">

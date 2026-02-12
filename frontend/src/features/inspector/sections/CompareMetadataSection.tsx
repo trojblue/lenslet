@@ -1,5 +1,6 @@
 import React from 'react'
-import type { CompareMetadataDiffResult } from '../model/metadataCompare'
+import type { CompareMetadataDiffResult, JsonRenderNode, MetadataPathSegment } from '../model/metadataCompare'
+import { JsonRenderCode } from './JsonRenderCode'
 import { InspectorSection } from './InspectorSection'
 
 type CompareMetaState = 'idle' | 'loading' | 'loaded' | 'error'
@@ -25,11 +26,11 @@ interface CompareMetadataSectionProps {
   onCopyCompareMetadata: (side: 'A' | 'B') => void
   compareValueCopiedPathA: string | null
   compareValueCopiedPathB: string | null
-  compareDisplayHtmlA: string
-  compareDisplayHtmlB: string
+  compareDisplayNodeA: JsonRenderNode | null
+  compareDisplayNodeB: JsonRenderNode | null
   compareMetaContent: string
-  onCompareMetaClickA: (e: React.MouseEvent) => void
-  onCompareMetaClickB: (e: React.MouseEvent) => void
+  onCompareMetaPathCopyA: (path: MetadataPathSegment[]) => void
+  onCompareMetaPathCopyB: (path: MetadataPathSegment[]) => void
   compareExportLabelsText: string
   onCompareExportLabelsTextChange: (value: string) => void
   compareExportEmbedMetadata: boolean
@@ -43,6 +44,20 @@ interface CompareMetadataSectionProps {
 
 interface CompareDiffTableProps {
   compareDiff: CompareMetadataDiffResult
+}
+
+interface CompareMetadataPaneProps {
+  side: 'A' | 'B'
+  compareMetaLoaded: boolean
+  hasPilInfo: boolean
+  showPilInfo: boolean
+  onToggleShowPilInfo: () => void
+  copied: boolean
+  onCopy: () => void
+  copiedPath: string | null
+  displayNode: JsonRenderNode | null
+  compareMetaContent: string
+  onMetaPathCopy: (path: MetadataPathSegment[]) => void
 }
 
 const CompareDiffTable = React.memo(function CompareDiffTable({
@@ -109,6 +124,68 @@ const CompareDiffTable = React.memo(function CompareDiffTable({
 
 CompareDiffTable.displayName = 'CompareDiffTable'
 
+const CompareMetadataPane = React.memo(function CompareMetadataPane({
+  side,
+  compareMetaLoaded,
+  hasPilInfo,
+  showPilInfo,
+  onToggleShowPilInfo,
+  copied,
+  onCopy,
+  copiedPath,
+  displayNode,
+  compareMetaContent,
+  onMetaPathCopy,
+}: CompareMetadataPaneProps): JSX.Element {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] uppercase tracking-wide text-muted">
+          Metadata
+          {' '}
+          {side}
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          {hasPilInfo && (
+            <button
+              className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
+              onClick={onToggleShowPilInfo}
+              disabled={!compareMetaLoaded}
+            >
+              {showPilInfo ? 'Hide PIL info' : 'Show PIL info'}
+            </button>
+          )}
+          <button
+            className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[70px]"
+            onClick={onCopy}
+            disabled={!compareMetaLoaded}
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      </div>
+      <div className="relative">
+        {copiedPath && (
+          <div className="ui-json-key-toast">
+            Copied value:
+            {' '}
+            {copiedPath}
+          </div>
+        )}
+        <pre
+          className="ui-code-block ui-code-block-resizable h-40 overflow-auto whitespace-pre-wrap"
+        >
+          {compareMetaLoaded && displayNode ? (
+            <JsonRenderCode node={displayNode} onPathClick={onMetaPathCopy} />
+          ) : compareMetaContent}
+        </pre>
+      </div>
+    </div>
+  )
+})
+
+CompareMetadataPane.displayName = 'CompareMetadataPane'
+
 function CompareMetadataSectionComponent({
   open,
   onToggle,
@@ -130,11 +207,11 @@ function CompareMetadataSectionComponent({
   onCopyCompareMetadata,
   compareValueCopiedPathA,
   compareValueCopiedPathB,
-  compareDisplayHtmlA,
-  compareDisplayHtmlB,
+  compareDisplayNodeA,
+  compareDisplayNodeB,
   compareMetaContent,
-  onCompareMetaClickA,
-  onCompareMetaClickB,
+  onCompareMetaPathCopyA,
+  onCompareMetaPathCopyB,
   compareExportLabelsText,
   onCompareExportLabelsTextChange,
   compareExportEmbedMetadata,
@@ -145,6 +222,8 @@ function CompareMetadataSectionComponent({
   onComparisonExport,
   compareExportError,
 }: CompareMetadataSectionProps): JSX.Element {
+  const compareMetaLoaded = compareMetaState === 'loaded'
+
   return (
     <InspectorSection
       title="Compare Metadata"
@@ -162,7 +241,7 @@ function CompareMetadataSectionComponent({
           <button
             className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
             onClick={onToggleCompareIncludePilInfo}
-            disabled={compareMetaState !== 'loaded'}
+            disabled={!compareMetaLoaded}
           >
             {compareIncludePilInfo ? 'Hide PIL info' : 'Include PIL info'}
           </button>
@@ -192,96 +271,35 @@ function CompareMetadataSectionComponent({
           <div className="text-danger break-words">{compareMetaError}</div>
         )}
 
-        {compareMetaState === 'loaded' && compareDiff && <CompareDiffTable compareDiff={compareDiff} />}
+        {compareMetaLoaded && compareDiff && <CompareDiffTable compareDiff={compareDiff} />}
 
         <div className="grid gap-3 pt-2">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-[10px] uppercase tracking-wide text-muted">Metadata A</div>
-              <div className="flex items-center gap-2 text-xs">
-                {compareHasPilInfoA && (
-                  <button
-                    className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
-                    onClick={onToggleCompareShowPilInfoA}
-                    disabled={compareMetaState !== 'loaded'}
-                  >
-                    {compareShowPilInfoA ? 'Hide PIL info' : 'Show PIL info'}
-                  </button>
-                )}
-                <button
-                  className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[70px]"
-                  onClick={() => onCopyCompareMetadata('A')}
-                  disabled={compareMetaState !== 'loaded'}
-                >
-                  {compareMetaCopied === 'A' ? 'Copied' : 'Copy'}
-                </button>
-              </div>
-            </div>
-            <div className="relative">
-              {compareValueCopiedPathA && (
-                <div className="ui-json-key-toast">
-                  Copied value:
-                  {' '}
-                  {compareValueCopiedPathA}
-                </div>
-              )}
-              <pre
-                className="ui-code-block ui-code-block-resizable h-40 overflow-auto whitespace-pre-wrap"
-                onClick={onCompareMetaClickA}
-              >
-                {compareMetaState === 'loaded' && compareDisplayHtmlA ? (
-                  <code
-                    className="block whitespace-pre-wrap"
-                    dangerouslySetInnerHTML={{ __html: compareDisplayHtmlA }}
-                  />
-                ) : compareMetaContent}
-              </pre>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-[10px] uppercase tracking-wide text-muted">Metadata B</div>
-              <div className="flex items-center gap-2 text-xs">
-                {compareHasPilInfoB && (
-                  <button
-                    className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
-                    onClick={onToggleCompareShowPilInfoB}
-                    disabled={compareMetaState !== 'loaded'}
-                  >
-                    {compareShowPilInfoB ? 'Hide PIL info' : 'Show PIL info'}
-                  </button>
-                )}
-                <button
-                  className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[70px]"
-                  onClick={() => onCopyCompareMetadata('B')}
-                  disabled={compareMetaState !== 'loaded'}
-                >
-                  {compareMetaCopied === 'B' ? 'Copied' : 'Copy'}
-                </button>
-              </div>
-            </div>
-            <div className="relative">
-              {compareValueCopiedPathB && (
-                <div className="ui-json-key-toast">
-                  Copied value:
-                  {' '}
-                  {compareValueCopiedPathB}
-                </div>
-              )}
-              <pre
-                className="ui-code-block ui-code-block-resizable h-40 overflow-auto whitespace-pre-wrap"
-                onClick={onCompareMetaClickB}
-              >
-                {compareMetaState === 'loaded' && compareDisplayHtmlB ? (
-                  <code
-                    className="block whitespace-pre-wrap"
-                    dangerouslySetInnerHTML={{ __html: compareDisplayHtmlB }}
-                  />
-                ) : compareMetaContent}
-              </pre>
-            </div>
-          </div>
+          <CompareMetadataPane
+            side="A"
+            compareMetaLoaded={compareMetaLoaded}
+            hasPilInfo={compareHasPilInfoA}
+            showPilInfo={compareShowPilInfoA}
+            onToggleShowPilInfo={onToggleCompareShowPilInfoA}
+            copied={compareMetaCopied === 'A'}
+            onCopy={() => onCopyCompareMetadata('A')}
+            copiedPath={compareValueCopiedPathA}
+            displayNode={compareDisplayNodeA}
+            compareMetaContent={compareMetaContent}
+            onMetaPathCopy={onCompareMetaPathCopyA}
+          />
+          <CompareMetadataPane
+            side="B"
+            compareMetaLoaded={compareMetaLoaded}
+            hasPilInfo={compareHasPilInfoB}
+            showPilInfo={compareShowPilInfoB}
+            onToggleShowPilInfo={onToggleCompareShowPilInfoB}
+            copied={compareMetaCopied === 'B'}
+            onCopy={() => onCopyCompareMetadata('B')}
+            copiedPath={compareValueCopiedPathB}
+            displayNode={compareDisplayNodeB}
+            compareMetaContent={compareMetaContent}
+            onMetaPathCopy={onCompareMetaPathCopyB}
+          />
         </div>
 
         <div className="space-y-2 rounded-md border border-border/60 bg-surface-inset/40 p-3">

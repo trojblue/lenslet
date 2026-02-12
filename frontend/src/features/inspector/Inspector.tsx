@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import React, { useEffect, useMemo, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict } from '../../shared/api/items'
 import { api, makeIdempotencyKey } from '../../shared/api/client'
@@ -6,14 +6,12 @@ import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import type { Item, SortSpec, StarRating } from '../../lib/types'
 import { isInputElement } from '../../lib/keyboard'
 import {
+  buildMetadataPathCopyPayload,
+  buildJsonRenderNode,
   buildCompareMetadataDiffFromNormalized,
   buildDisplayMetadataFromNormalized,
-  formatCopyValue,
-  formatPathLabel,
-  getValueAtPath,
   hasPilInfoMetadata,
   normalizeMetadataRecord,
-  renderJsonValue,
 } from './model/metadataCompare'
 import { BasicsSection } from './sections/BasicsSection'
 import { CompareMetadataSection } from './sections/CompareMetadataSection'
@@ -22,6 +20,7 @@ import { NotesSection } from './sections/NotesSection'
 import { OverviewSection } from './sections/OverviewSection'
 import { useInspectorMetadataWorkflow } from './hooks/useInspectorMetadataWorkflow'
 import { useInspectorSidecarWorkflow } from './hooks/useInspectorSidecarWorkflow'
+import { useInspectorUiState } from './hooks/useInspectorUiState'
 
 // S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
 // - T16 model extraction: metadata normalization/flattening and compare diff helpers.
@@ -56,22 +55,10 @@ interface InspectorProps {
   onLocalTypingChange?: (active: boolean) => void
 }
 
-type InspectorSectionKey = 'overview' | 'compare' | 'basics' | 'metadata' | 'notes'
-
-const INSPECTOR_SECTION_KEYS: InspectorSectionKey[] = ['overview', 'compare', 'basics', 'metadata', 'notes']
-const INSPECTOR_SECTION_STORAGE_KEY = 'lenslet.inspector.sections'
-const INSPECTOR_METRICS_EXPANDED_KEY = 'lenslet.inspector.metricsExpanded'
 const METRICS_PREVIEW_LIMIT = 12
 const COMPARE_DIFF_LIMIT = 120
 const COMPARE_DIFF_MAX_DEPTH = 8
 const COMPARE_DIFF_MAX_ARRAY = 80
-const DEFAULT_SECTION_STATE: Record<InspectorSectionKey, boolean> = {
-  overview: true,
-  compare: true,
-  metadata: true,
-  basics: true,
-  notes: true,
-}
 
 export default function Inspector({
   path,
@@ -93,17 +80,6 @@ export default function Inspector({
   const mut = useUpdateSidecar(path ?? '')
   const qc = useQueryClient()
 
-  const [openSections, setOpenSections] = useState<Record<InspectorSectionKey, boolean>>(DEFAULT_SECTION_STATE)
-  const toggleSection = useCallback((key: InspectorSectionKey) => {
-    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
-  }, [])
-  const toggleOverviewSection = useCallback(() => toggleSection('overview'), [toggleSection])
-  const toggleCompareSection = useCallback(() => toggleSection('compare'), [toggleSection])
-  const toggleBasicsSection = useCallback(() => toggleSection('basics'), [toggleSection])
-  const toggleMetadataSection = useCallback(() => toggleSection('metadata'), [toggleSection])
-  const toggleNotesSection = useCallback(() => toggleSection('notes'), [toggleSection])
-  
-  const [metricsExpanded, setMetricsExpanded] = useState(false)
   const multi = selectedPaths.length > 1
 
   const canFindSimilar = !!onFindSimilar && embeddingsAvailable && !multi
@@ -114,17 +90,6 @@ export default function Inspector({
     return null
   })()
 
-  const [copiedField, setCopiedField] = useState<string | null>(null)
-  const [valueHeights, setValueHeights] = useState<Record<string, number>>({})
-
-  const [metaCopied, setMetaCopied] = useState(false)
-  const [metaValueCopiedPath, setMetaValueCopiedPath] = useState<string | null>(null)
-  const metaValueCopyTimeoutRef = useRef<number | null>(null)
-  const [compareMetaCopied, setCompareMetaCopied] = useState<'A' | 'B' | null>(null)
-  const [compareValueCopiedPathA, setCompareValueCopiedPathA] = useState<string | null>(null)
-  const [compareValueCopiedPathB, setCompareValueCopiedPathB] = useState<string | null>(null)
-  const compareValueCopyTimeoutRef = useRef<number | null>(null)
-  
   // Get star from item list (optimistic local value) or sidecar
   const itemStarFromList = useMemo((): StarRating | null => {
     const star = items.find((i) => i.path === path)?.star
@@ -137,6 +102,33 @@ export default function Inspector({
   const comparePathA = compareA?.path ?? null
   const comparePathB = compareB?.path ?? null
   const compareReady = compareActive && !!comparePathA && !!comparePathB
+  const {
+    openSections,
+    toggleOverviewSection,
+    toggleCompareSection,
+    toggleBasicsSection,
+    toggleMetadataSection,
+    toggleNotesSection,
+    metricsExpanded,
+    toggleMetricsExpanded,
+    copiedField,
+    markInfoCopied,
+    metaCopied,
+    markMetadataCopied,
+    metaValueCopiedPath,
+    markMetadataValueCopied,
+    compareMetaCopied,
+    markCompareMetadataCopied,
+    compareValueCopiedPathA,
+    compareValueCopiedPathB,
+    markCompareMetadataValueCopied,
+  } = useInspectorUiState({
+    path,
+    sidecarUpdatedAt: data?.updated_at,
+    comparePathA,
+    comparePathB,
+    compareReady,
+  })
   const compareSectionOpen = compareReady && compareActive && openSections.compare
   const metadataSectionOpen = !multi && openSections.metadata
   const compareLabelA = compareA?.name ?? comparePathA ?? 'A'
@@ -217,38 +209,6 @@ export default function Inspector({
     () => selectedItems.reduce((acc, it) => acc + (it.size || 0), 0),
     [selectedItems]
   )
-
-  useEffect(() => {
-    setMetaCopied(false)
-    setMetaValueCopiedPath(null)
-    if (metaValueCopyTimeoutRef.current) {
-      window.clearTimeout(metaValueCopyTimeoutRef.current)
-      metaValueCopyTimeoutRef.current = null
-    }
-  }, [data?.updated_at, path])
-
-  useEffect(() => {
-    setCompareMetaCopied(null)
-    setCompareValueCopiedPathA(null)
-    setCompareValueCopiedPathB(null)
-    if (compareValueCopyTimeoutRef.current) {
-      window.clearTimeout(compareValueCopyTimeoutRef.current)
-      compareValueCopyTimeoutRef.current = null
-    }
-  }, [comparePathA, comparePathB, compareReady])
-
-  useEffect(() => {
-    return () => {
-      if (metaValueCopyTimeoutRef.current) {
-        window.clearTimeout(metaValueCopyTimeoutRef.current)
-        metaValueCopyTimeoutRef.current = null
-      }
-      if (compareValueCopyTimeoutRef.current) {
-        window.clearTimeout(compareValueCopyTimeoutRef.current)
-        compareValueCopyTimeoutRef.current = null
-      }
-    }
-  }, [])
 
   // Keyboard shortcuts for star ratings (0-5)
   useEffect(() => {
@@ -348,132 +308,68 @@ export default function Inspector({
   const copyMetadata = useCallback(() => {
     if (!metaRawText) return
     navigator.clipboard?.writeText(metaRawText).then(() => {
-      setMetaCopied(true)
-      setTimeout(() => setMetaCopied(false), 1200)
+      markMetadataCopied()
     }).catch((err) => {
       const msg = err instanceof Error ? err.message : 'Copy failed'
       setMetaError(msg)
     })
-  }, [metaRawText])
+  }, [markMetadataCopied, metaRawText, setMetaError])
 
-  const metaDisplayHtml = useMemo(() => {
-    if (!metadataSectionOpen || !metaDisplayValue) return ''
-    return renderJsonValue(metaDisplayValue, [], 0)
+  const metaDisplayNode = useMemo(() => {
+    if (!metadataSectionOpen || !metaDisplayValue) return null
+    return buildJsonRenderNode(metaDisplayValue)
   }, [metadataSectionOpen, metaDisplayValue])
 
-  const compareDisplayHtmlA = useMemo(() => {
-    if (!compareSectionOpen || !compareDisplayValueA) return ''
-    return renderJsonValue(compareDisplayValueA, [], 0)
+  const compareDisplayNodeA = useMemo(() => {
+    if (!compareSectionOpen || !compareDisplayValueA) return null
+    return buildJsonRenderNode(compareDisplayValueA)
   }, [compareSectionOpen, compareDisplayValueA])
 
-  const compareDisplayHtmlB = useMemo(() => {
-    if (!compareSectionOpen || !compareDisplayValueB) return ''
-    return renderJsonValue(compareDisplayValueB, [], 0)
+  const compareDisplayNodeB = useMemo(() => {
+    if (!compareSectionOpen || !compareDisplayValueB) return null
+    return buildJsonRenderNode(compareDisplayValueB)
   }, [compareSectionOpen, compareDisplayValueB])
 
-  const triggerValueToast = useCallback((path: string) => {
-    setMetaValueCopiedPath(path)
-    if (metaValueCopyTimeoutRef.current) {
-      window.clearTimeout(metaValueCopyTimeoutRef.current)
-    }
-    metaValueCopyTimeoutRef.current = window.setTimeout(() => {
-      setMetaValueCopiedPath(null)
-      metaValueCopyTimeoutRef.current = null
-    }, 900)
-  }, [])
-
-  const copyMetadataValue = useCallback((path: string, value: unknown) => {
-    const text = formatCopyValue(value)
-    navigator.clipboard?.writeText(text).then(() => {
-      triggerValueToast(path)
+  const copyMetadataValue = useCallback((pathLabel: string, copyText: string) => {
+    navigator.clipboard?.writeText(copyText).then(() => {
+      markMetadataValueCopied(pathLabel)
     }).catch(() => {})
-  }, [triggerValueToast])
+  }, [markMetadataValueCopied])
 
-  const triggerCompareValueToast = useCallback((side: 'A' | 'B', path: string) => {
-    if (side === 'A') {
-      setCompareValueCopiedPathA(path)
-    } else {
-      setCompareValueCopiedPathB(path)
-    }
-    if (compareValueCopyTimeoutRef.current) {
-      window.clearTimeout(compareValueCopyTimeoutRef.current)
-    }
-    compareValueCopyTimeoutRef.current = window.setTimeout(() => {
-      setCompareValueCopiedPathA(null)
-      setCompareValueCopiedPathB(null)
-      compareValueCopyTimeoutRef.current = null
-    }, 900)
-  }, [])
+  const copyCompareMetadataValue = useCallback(
+    (side: 'A' | 'B', pathLabel: string, copyText: string) => {
+      navigator.clipboard?.writeText(copyText).then(() => {
+        markCompareMetadataValueCopied(side, pathLabel)
+      }).catch(() => {})
+    },
+    [markCompareMetadataValueCopied],
+  )
 
-  const copyCompareMetadataValue = useCallback((side: 'A' | 'B', path: string, value: unknown) => {
-    const text = formatCopyValue(value)
-    navigator.clipboard?.writeText(text).then(() => {
-      triggerCompareValueToast(side, path)
-    }).catch(() => {})
-  }, [triggerCompareValueToast])
-
-  const handleMetaClick = useCallback((e: React.MouseEvent) => {
+  const handleMetaPathCopy = useCallback((path: Array<string | number>) => {
     if (!metaDisplayValue) return
-    const target = e.target as HTMLElement | null
-    if (!target) return
-    const keyEl = target.closest('[data-json-path]') as HTMLElement | null
-    if (!keyEl) return
-    const rawPath = keyEl.getAttribute('data-json-path')
-    if (!rawPath) return
-    let path: Array<string | number>
-    try {
-      path = JSON.parse(rawPath) as Array<string | number>
-    } catch {
-      return
-    }
-    const value = getValueAtPath(metaDisplayValue, path)
-    copyMetadataValue(formatPathLabel(path), value)
+    const payload = buildMetadataPathCopyPayload(metaDisplayValue, path)
+    copyMetadataValue(payload.pathLabel, payload.copyText)
   }, [metaDisplayValue, copyMetadataValue])
 
-  const handleCompareMetaClickA = useCallback((e: React.MouseEvent) => {
+  const handleCompareMetaPathCopyA = useCallback((path: Array<string | number>) => {
     if (!compareDisplayValueA) return
-    const target = e.target as HTMLElement | null
-    if (!target) return
-    const keyEl = target.closest('[data-json-path]') as HTMLElement | null
-    if (!keyEl) return
-    const rawPath = keyEl.getAttribute('data-json-path')
-    if (!rawPath) return
-    let path: Array<string | number>
-    try {
-      path = JSON.parse(rawPath) as Array<string | number>
-    } catch {
-      return
-    }
-    const value = getValueAtPath(compareDisplayValueA, path)
-    copyCompareMetadataValue('A', formatPathLabel(path), value)
+    const payload = buildMetadataPathCopyPayload(compareDisplayValueA, path)
+    copyCompareMetadataValue('A', payload.pathLabel, payload.copyText)
   }, [compareDisplayValueA, copyCompareMetadataValue])
 
-  const handleCompareMetaClickB = useCallback((e: React.MouseEvent) => {
+  const handleCompareMetaPathCopyB = useCallback((path: Array<string | number>) => {
     if (!compareDisplayValueB) return
-    const target = e.target as HTMLElement | null
-    if (!target) return
-    const keyEl = target.closest('[data-json-path]') as HTMLElement | null
-    if (!keyEl) return
-    const rawPath = keyEl.getAttribute('data-json-path')
-    if (!rawPath) return
-    let path: Array<string | number>
-    try {
-      path = JSON.parse(rawPath) as Array<string | number>
-    } catch {
-      return
-    }
-    const value = getValueAtPath(compareDisplayValueB, path)
-    copyCompareMetadataValue('B', formatPathLabel(path), value)
+    const payload = buildMetadataPathCopyPayload(compareDisplayValueB, path)
+    copyCompareMetadataValue('B', payload.pathLabel, payload.copyText)
   }, [compareDisplayValueB, copyCompareMetadataValue])
 
   const copyCompareMetadata = useCallback((side: 'A' | 'B') => {
     const raw = side === 'A' ? compareMetaRawTextA : compareMetaRawTextB
     if (!raw) return
     navigator.clipboard?.writeText(raw).then(() => {
-      setCompareMetaCopied(side)
-      setTimeout(() => setCompareMetaCopied((curr) => (curr === side ? null : curr)), 1200)
+      markCompareMetadataCopied(side)
     }).catch(() => {})
-  }, [compareMetaRawTextA, compareMetaRawTextB])
+  }, [compareMetaRawTextA, compareMetaRawTextB, markCompareMetadataCopied])
 
   let metaContent = metaDisplayValue ? '' : 'PNG metadata not loaded yet.'
   if (metaState === 'loading') {
@@ -512,69 +408,12 @@ export default function Inspector({
     })
   }, [compareSectionOpen, normalizedCompareMetaA, normalizedCompareMetaB, compareIncludePilInfo])
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(INSPECTOR_SECTION_STORAGE_KEY)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as Record<string, unknown>
-      if (!parsed || typeof parsed !== 'object') return
-      const restored: Partial<Record<InspectorSectionKey, boolean>> = {}
-      for (const key of INSPECTOR_SECTION_KEYS) {
-        if (typeof parsed[key] === 'boolean') restored[key] = parsed[key] as boolean
-      }
-      if (Object.keys(restored).length > 0) {
-        setOpenSections((prev) => ({ ...prev, ...restored }))
-      }
-    } catch {
-      // Ignore localStorage parsing errors
-    }
-  }, [])
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(INSPECTOR_SECTION_STORAGE_KEY, JSON.stringify(openSections))
-    } catch {
-      // Ignore localStorage write errors
-    }
-  }, [openSections])
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(INSPECTOR_METRICS_EXPANDED_KEY)
-      if (raw === '1' || raw === 'true') {
-        setMetricsExpanded(true)
-      } else if (raw === '0' || raw === 'false') {
-        setMetricsExpanded(false)
-      }
-    } catch {
-      // Ignore localStorage parsing errors
-    }
-  }, [])
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(INSPECTOR_METRICS_EXPANDED_KEY, metricsExpanded ? '1' : '0')
-    } catch {
-      // Ignore localStorage write errors
-    }
-  }, [metricsExpanded])
-
   const copyInfo = useCallback((key: string, text: string) => {
     if (!text) return
     navigator.clipboard?.writeText(text).then(() => {
-      setCopiedField(key)
-      setTimeout(() => setCopiedField((curr) => (curr === key ? null : curr)), 1000)
+      markInfoCopied(key)
     }).catch(() => {})
-  }, [])
-
-  const rememberHeight = useCallback((key: string, el: HTMLSpanElement | null) => {
-    if (el && !valueHeights[key]) {
-      const h = el.offsetHeight
-      if (h) {
-        setValueHeights((prev) => (prev[key] ? prev : { ...prev, [key]: h }))
-      }
-    }
-  }, [valueHeights])
+  }, [markInfoCopied])
 
   const handleSelectStar = useCallback((value: StarRating) => {
     if (multi && selectedPaths.length) {
@@ -587,9 +426,6 @@ export default function Inspector({
     queueSidecarUpdate(path, { star: value })
   }, [multi, onStarChanged, path, selectedPaths])
 
-  const handleToggleMetricsExpanded = useCallback(() => {
-    setMetricsExpanded((prev) => !prev)
-  }, [])
   const handleToggleShowPilInfo = useCallback(() => {
     setShowPilInfo((prev) => !prev)
   }, [setShowPilInfo])
@@ -661,11 +497,11 @@ export default function Inspector({
           onCopyCompareMetadata={copyCompareMetadata}
           compareValueCopiedPathA={compareValueCopiedPathA}
           compareValueCopiedPathB={compareValueCopiedPathB}
-          compareDisplayHtmlA={compareDisplayHtmlA}
-          compareDisplayHtmlB={compareDisplayHtmlB}
+          compareDisplayNodeA={compareDisplayNodeA}
+          compareDisplayNodeB={compareDisplayNodeB}
           compareMetaContent={compareMetaContent}
-          onCompareMetaClickA={handleCompareMetaClickA}
-          onCompareMetaClickB={handleCompareMetaClickB}
+          onCompareMetaPathCopyA={handleCompareMetaPathCopyA}
+          onCompareMetaPathCopyB={handleCompareMetaPathCopyB}
           compareExportLabelsText={compareExportLabelsText}
           onCompareExportLabelsTextChange={handleCompareExportLabelsTextChange}
           compareExportEmbedMetadata={compareExportEmbedMetadata}
@@ -692,10 +528,8 @@ export default function Inspector({
         sortSpec={sortSpec}
         copiedField={copiedField}
         onCopyInfo={copyInfo}
-        valueHeights={valueHeights}
-        onRememberHeight={rememberHeight}
         metricsExpanded={metricsExpanded}
-        onToggleMetricsExpanded={handleToggleMetricsExpanded}
+        onToggleMetricsExpanded={toggleMetricsExpanded}
         metricsPreviewLimit={METRICS_PREVIEW_LIMIT}
       />
 
@@ -713,10 +547,10 @@ export default function Inspector({
           metaValueCopiedPath={metaValueCopiedPath}
           metaHeightClass={metaHeightClass}
           metaLoaded={metaLoaded}
-          metaDisplayHtml={metaDisplayHtml}
+          metaDisplayNode={metaDisplayNode}
           metaContent={metaContent}
           metaError={metaError}
-          onMetaClick={handleMetaClick}
+          onMetaPathCopy={handleMetaPathCopy}
         />
       )}
 

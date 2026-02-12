@@ -1,4 +1,6 @@
 import React from 'react'
+import type { JsonRenderNode, MetadataPathSegment } from '../model/metadataCompare'
+import { JsonRenderCode } from './JsonRenderCode'
 import { InspectorSection } from './InspectorSection'
 
 interface MetadataSectionProps {
@@ -14,10 +16,10 @@ interface MetadataSectionProps {
   metaValueCopiedPath: string | null
   metaHeightClass: string
   metaLoaded: boolean
-  metaDisplayHtml: string
+  metaDisplayNode: JsonRenderNode | null
   metaContent: string
   metaError: string | null
-  onMetaClick: (e: React.MouseEvent) => void
+  onMetaPathCopy: (path: MetadataPathSegment[]) => void
 }
 
 function MetadataSectionComponent({
@@ -33,10 +35,10 @@ function MetadataSectionComponent({
   metaValueCopiedPath,
   metaHeightClass,
   metaLoaded,
-  metaDisplayHtml,
+  metaDisplayNode,
   metaContent,
   metaError,
-  onMetaClick,
+  onMetaPathCopy,
 }: MetadataSectionProps): JSX.Element {
   const metadataActions = (
     <div className="flex items-center gap-2 text-xs">
@@ -76,13 +78,11 @@ function MetadataSectionComponent({
         )}
         <pre
           className={`ui-code-block ui-code-block-resizable ${metaHeightClass} overflow-auto whitespace-pre-wrap`}
-          onClick={onMetaClick}
         >
           {metaLoaded ? (
-            <code
-              className="block whitespace-pre-wrap"
-              dangerouslySetInnerHTML={{ __html: metaDisplayHtml }}
-            />
+            metaDisplayNode ? (
+              <JsonRenderCode node={metaDisplayNode} onPathClick={onMetaPathCopy} />
+            ) : metaContent
           ) : metaContent}
         </pre>
       </div>

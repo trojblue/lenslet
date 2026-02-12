@@ -1,4 +1,4 @@
-import type { Item } from '../../../lib/types'
+import { formatMetricNumber } from '../../../lib/util'
 
 export type Range = { min: number; max: number }
 
@@ -7,16 +7,6 @@ export interface Histogram {
   min: number
   max: number
   count: number
-}
-
-export function collectMetricValues(items: Item[], key: string): number[] {
-  const values: number[] = []
-  for (const it of items) {
-    const val = it.metrics?.[key]
-    if (val == null || Number.isNaN(val)) continue
-    values.push(val)
-  }
-  return values
 }
 
 export function computeHistogramFromValues(values: number[], bins: number, base?: Histogram): Histogram | null {
@@ -39,11 +29,7 @@ export function normalizeRange(a: number, b: number): Range {
 }
 
 export function formatNumber(value?: number | null): string {
-  if (value == null || Number.isNaN(value)) return '–'
-  const abs = Math.abs(value)
-  if (abs >= 1000) return value.toFixed(0)
-  if (abs >= 10) return value.toFixed(2)
-  return value.toFixed(3)
+  return formatMetricNumber(value)
 }
 
 export function formatInputValue(value: number): string {

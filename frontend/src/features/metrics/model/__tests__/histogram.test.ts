@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { Item } from '../../../../lib/types'
 import {
   clamp,
   clamp01,
-  collectMetricValues,
   computeHistogramFromValues,
   formatInputValue,
   formatNumber,
@@ -12,33 +10,7 @@ import {
   parseNumberInput,
 } from '../histogram'
 
-function makeItem(metrics?: Record<string, number | null>): Item {
-  return {
-    path: '/tmp/example.jpg',
-    name: 'example.jpg',
-    type: 'image/jpeg',
-    w: 1,
-    h: 1,
-    size: 1,
-    hasThumb: false,
-    hasMeta: false,
-    metrics,
-  }
-}
-
 describe('metrics histogram model utilities', () => {
-  it('collects only finite metric values', () => {
-    const items = [
-      makeItem({ score: 1.2 }),
-      makeItem({ score: null }),
-      makeItem({ score: Number.NaN }),
-      makeItem({ score: 4 }),
-      makeItem(),
-    ]
-
-    expect(collectMetricValues(items, 'score')).toEqual([1.2, 4])
-  })
-
   it('returns null histogram for empty values', () => {
     expect(computeHistogramFromValues([], 40)).toBeNull()
   })

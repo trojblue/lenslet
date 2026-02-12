@@ -20,16 +20,63 @@ export interface BuildCompareMetadataDiffOptions {
   maxArray: number
 }
 
-const JSON_INDENT = 2
+export type MetadataPathSegment = string | number
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+export interface JsonRenderNullNode {
+  kind: 'null'
+  text: 'null'
 }
+
+export interface JsonRenderUndefinedNode {
+  kind: 'undefined'
+  text: 'undefined'
+}
+
+export interface JsonRenderStringNode {
+  kind: 'string'
+  text: string
+}
+
+export interface JsonRenderNumberNode {
+  kind: 'number'
+  text: string
+}
+
+export interface JsonRenderBooleanNode {
+  kind: 'boolean'
+  text: 'true' | 'false'
+}
+
+export interface JsonRenderFallbackNode {
+  kind: 'fallback'
+  text: string
+}
+
+export interface JsonRenderArrayNode {
+  kind: 'array'
+  items: JsonRenderNode[]
+}
+
+export interface JsonRenderObjectEntry {
+  key: string
+  path: MetadataPathSegment[]
+  value: JsonRenderNode
+}
+
+export interface JsonRenderObjectNode {
+  kind: 'object'
+  entries: JsonRenderObjectEntry[]
+}
+
+export type JsonRenderNode =
+  | JsonRenderNullNode
+  | JsonRenderUndefinedNode
+  | JsonRenderStringNode
+  | JsonRenderNumberNode
+  | JsonRenderBooleanNode
+  | JsonRenderFallbackNode
+  | JsonRenderArrayNode
+  | JsonRenderObjectNode
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -176,47 +223,41 @@ export function buildDisplayMetadata(
   return buildDisplayMetadataFromNormalized(normalizeMetadataRecord(meta), showPilInfo)
 }
 
-export function renderJsonValue(value: unknown, path: Array<string | number>, indent: number): string {
-  if (value === null) return '<span style="color:var(--json-literal)">null</span>'
-  if (value === undefined) return '<span style="color:var(--json-fallback)">undefined</span>'
+export function buildJsonRenderNode(
+  value: unknown,
+  path: MetadataPathSegment[] = [],
+): JsonRenderNode {
+  if (value === null) return { kind: 'null', text: 'null' }
+  if (value === undefined) return { kind: 'undefined', text: 'undefined' }
   if (typeof value === 'string') {
-    return `<span style="color:var(--json-string)">${escapeHtml(JSON.stringify(value))}</span>`
+    return { kind: 'string', text: JSON.stringify(value) }
   }
   if (typeof value === 'number') {
-    return `<span style="color:var(--json-number)">${escapeHtml(String(value))}</span>`
+    return { kind: 'number', text: String(value) }
   }
   if (typeof value === 'boolean') {
-    return `<span style="color:var(--json-literal)">${value ? 'true' : 'false'}</span>`
+    return { kind: 'boolean', text: value ? 'true' : 'false' }
   }
   if (Array.isArray(value)) {
-    if (value.length === 0) return '[]'
-    const pad = ' '.repeat(indent)
-    const innerPad = ' '.repeat(indent + JSON_INDENT)
-    let out = '[\n'
-    value.forEach((item, idx) => {
-      const rendered = renderJsonValue(item, [...path, idx], indent + JSON_INDENT)
-      out += `${innerPad}${rendered}${idx < value.length - 1 ? ',' : ''}\n`
-    })
-    out += `${pad}]`
-    return out
+    return {
+      kind: 'array',
+      items: value.map((item, idx) => buildJsonRenderNode(item, [...path, idx])),
+    }
   }
   if (isPlainObject(value)) {
-    const keys = Object.keys(value)
-    if (!keys.length) return '{}'
-    const pad = ' '.repeat(indent)
-    const innerPad = ' '.repeat(indent + JSON_INDENT)
-    let out = '{\n'
-    keys.forEach((key, idx) => {
-      const keyPath = escapeHtml(JSON.stringify([...path, key]))
-      const keyLabel = escapeHtml(JSON.stringify(key))
-      const keyHtml = `<span class="ui-json-key" data-json-path='${keyPath}' style="color:var(--json-key)">${keyLabel}</span>`
-      const rendered = renderJsonValue(value[key], [...path, key], indent + JSON_INDENT)
-      out += `${innerPad}${keyHtml}: ${rendered}${idx < keys.length - 1 ? ',' : ''}\n`
-    })
-    out += `${pad}}`
-    return out
+    return {
+      kind: 'object',
+      entries: Object.keys(value).map((key) => {
+        const nextPath = [...path, key]
+        return {
+          key,
+          path: nextPath,
+          value: buildJsonRenderNode(value[key], nextPath),
+        }
+      }),
+    }
   }
-  return `<span style="color:var(--json-fallback)">${escapeHtml(String(value))}</span>`
+  return { kind: 'fallback', text: String(value) }
 }
 
 export function formatPathLabel(path: Array<string | number>): string {
@@ -249,6 +290,22 @@ export function formatCopyValue(value: unknown): string {
     return JSON.stringify(value, null, 1)
   } catch {
     return String(value)
+  }
+}
+
+export interface MetadataPathCopyPayload {
+  pathLabel: string
+  copyText: string
+}
+
+export function buildMetadataPathCopyPayload(
+  root: unknown,
+  path: MetadataPathSegment[],
+): MetadataPathCopyPayload {
+  const value = getValueAtPath(root, path)
+  return {
+    pathLabel: formatPathLabel(path),
+    copyText: formatCopyValue(value),
   }
 }
 

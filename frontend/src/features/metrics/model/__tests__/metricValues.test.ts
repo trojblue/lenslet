@@ -46,4 +46,19 @@ describe('metrics value map utilities', () => {
     expect(getMetricValues(valuesByKey, 'quality')).toEqual([5, 6])
     expect(getMetricValues(valuesByKey, 'score')).toEqual([])
   })
+
+  it('collects one scoped key with finite-value filtering', () => {
+    const valuesByKey = collectMetricValuesByKey(
+      [
+        makeItem({ score: 1.2 }),
+        makeItem({ score: null }),
+        makeItem({ score: Number.NaN }),
+        makeItem({ score: 4 }),
+        makeItem(),
+      ],
+      ['score']
+    )
+
+    expect(getMetricValues(valuesByKey, 'score')).toEqual([1.2, 4])
+  })
 })

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildMetadataPathCopyPayload,
+  buildJsonRenderNode,
   buildCompareMetadataDiffFromNormalized,
   buildCompareMetadataDiff,
   buildDisplayMetadataFromNormalized,
@@ -10,7 +12,6 @@ import {
   hasPilInfoMetadata,
   normalizeMetadataRecord,
   normalizeMetadata,
-  renderJsonValue,
 } from '../metadataCompare'
 
 describe('inspector metadata model utilities', () => {
@@ -69,19 +70,36 @@ describe('inspector metadata model utilities', () => {
     )
   })
 
-  it('renders html-safe JSON with clickable path markers', () => {
-    const html = renderJsonValue(
-      {
-        nested: {
-          title: '<unsafe>',
-        },
+  it('builds typed render nodes with stable key-path metadata', () => {
+    const node = buildJsonRenderNode({
+      nested: {
+        title: '<unsafe>',
       },
-      [],
-      0,
-    )
+      list: [{ score: 2 }],
+    })
 
-    expect(html).toContain('data-json-path=\'[&quot;nested&quot;,&quot;title&quot;]\'')
-    expect(html).toContain('&lt;unsafe&gt;')
+    expect(node.kind).toBe('object')
+    if (node.kind !== 'object') return
+
+    const nested = node.entries.find((entry) => entry.key === 'nested')
+    expect(nested?.path).toEqual(['nested'])
+    expect(nested?.value.kind).toBe('object')
+    if (!nested || nested.value.kind !== 'object') return
+
+    const title = nested.value.entries.find((entry) => entry.key === 'title')
+    expect(title?.path).toEqual(['nested', 'title'])
+    expect(title?.value).toEqual({ kind: 'string', text: '"<unsafe>"' })
+
+    const list = node.entries.find((entry) => entry.key === 'list')
+    expect(list?.value.kind).toBe('array')
+    if (!list || list.value.kind !== 'array') return
+    expect(list.value.items).toHaveLength(1)
+    const firstItem = list.value.items[0]
+    expect(firstItem.kind).toBe('object')
+    if (firstItem.kind !== 'object') return
+    const score = firstItem.entries.find((entry) => entry.key === 'score')
+    expect(score?.path).toEqual(['list', 0, 'score'])
+    expect(score?.value).toEqual({ kind: 'number', text: '2' })
   })
 
   it('formats and resolves metadata paths', () => {
@@ -103,6 +121,32 @@ describe('inspector metadata model utilities', () => {
     expect(formatCopyValue(null)).toBe('null')
     expect(formatCopyValue('raw')).toBe('raw')
     expect(formatCopyValue({ a: 1 })).toContain('"a": 1')
+  })
+
+  it('builds stable metadata path-copy payloads for nested and missing paths', () => {
+    const root = {
+      prompt: {
+        values: [{ score: 0.72 }],
+        'needs space': { mode: 'RGB' },
+      },
+    }
+
+    expect(buildMetadataPathCopyPayload(root, ['prompt', 'values', 0, 'score'])).toEqual({
+      pathLabel: 'prompt.values[0].score',
+      copyText: '0.72',
+    })
+    expect(buildMetadataPathCopyPayload(root, ['prompt', 'needs space', 'mode'])).toEqual({
+      pathLabel: 'prompt["needs space"].mode',
+      copyText: 'RGB',
+    })
+    expect(buildMetadataPathCopyPayload(root, ['prompt', 'missing'])).toEqual({
+      pathLabel: 'prompt.missing',
+      copyText: 'undefined',
+    })
+
+    const rootPayload = buildMetadataPathCopyPayload(root, [])
+    expect(rootPayload.pathLabel).toBe('(root)')
+    expect(rootPayload.copyText).toContain('"prompt"')
   })
 
   it('detects PIL info presence for top-level metadata objects', () => {

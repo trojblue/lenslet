@@ -3,6 +3,10 @@ import type { FilterAST, Item } from '../../lib/types'
 import AttributesPanel from './components/AttributesPanel'
 import MetricRangePanel from './components/MetricRangePanel'
 import { formatNumber, type Range } from './model/histogram'
+import {
+  collectMetricValuesByKey,
+  type MetricValuesByKey,
+} from './model/metricValues'
 
 // S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
 // - T20 component split: MetricsPanel composition + features/metrics/components/*.
@@ -23,7 +27,8 @@ interface MetricsPanelProps {
 }
 
 interface SelectedMetricsPanelProps {
-  selectedItems: Item[]
+  selectedValuesByKey: MetricValuesByKey
+  totalItems: number
   metricKeys: string[]
 }
 
@@ -40,10 +45,14 @@ export default function MetricsPanel({
   onChangeRange,
   onChangeFilters,
 }: MetricsPanelProps) {
-  const metricsSummary = selectedItems && selectedItems.length
+  const selectedValuesByKey = useMemo(() => (
+    selectedItems?.length ? collectMetricValuesByKey(selectedItems, metricKeys) : null
+  ), [selectedItems, metricKeys])
+  const metricsSummary = selectedValuesByKey && selectedItems && selectedItems.length
     ? (
       <SelectedMetricsPanel
-        selectedItems={selectedItems}
+        selectedValuesByKey={selectedValuesByKey}
+        totalItems={selectedItems.length}
         metricKeys={metricKeys}
       />
     )
@@ -74,7 +83,7 @@ export default function MetricsPanel({
         items={items}
         filteredItems={filteredItems}
         metricKeys={metricKeys}
-        selectedItems={selectedItems}
+        selectedValuesByKey={selectedValuesByKey}
         selectedMetric={selectedMetric}
         onSelectMetric={onSelectMetric}
         filters={filters}
@@ -85,46 +94,34 @@ export default function MetricsPanel({
   )
 }
 
-function SelectedMetricsPanel({ selectedItems, metricKeys }: SelectedMetricsPanelProps) {
+function SelectedMetricsPanel({ selectedValuesByKey, totalItems, metricKeys }: SelectedMetricsPanelProps) {
   const summary = useMemo(() => {
-    if (!selectedItems.length) return null
-    const valuesByKey = new Map<string, number[]>()
-    for (const it of selectedItems) {
-      const metrics = it.metrics
-      if (!metrics) continue
-      for (const [key, raw] of Object.entries(metrics)) {
-        if (raw == null || Number.isNaN(raw)) continue
-        const existing = valuesByKey.get(key)
-        if (existing) existing.push(raw)
-        else valuesByKey.set(key, [raw])
-      }
-    }
-    if (!valuesByKey.size) return null
+    if (!selectedValuesByKey.size) return null
     const keys = metricKeys.length
-      ? metricKeys.filter((key) => valuesByKey.has(key))
-      : Array.from(valuesByKey.keys()).sort()
+      ? metricKeys.filter((key) => selectedValuesByKey.has(key))
+      : Array.from(selectedValuesByKey.keys()).sort()
     const entries = keys.map((key) => {
-      const values = valuesByKey.get(key) ?? []
+      const values = selectedValuesByKey.get(key) ?? []
       const min = Math.min(...values)
       const max = Math.max(...values)
       const avg = values.reduce((sum, v) => sum + v, 0) / Math.max(1, values.length)
       return { key, value: values[0], min, max, avg, count: values.length }
     })
-    return { entries, totalItems: selectedItems.length }
-  }, [selectedItems, metricKeys])
+    return { entries, totalItems }
+  }, [selectedValuesByKey, metricKeys, totalItems])
 
   if (!summary) return null
 
-  const { entries, totalItems } = summary
+  const { entries, totalItems: summaryTotalItems } = summary
   const show = entries.slice(0, MAX_SELECTED_METRICS)
   const remaining = entries.length - show.length
-  const isMulti = totalItems > 1
+  const isMulti = summaryTotalItems > 1
 
   return (
     <div className="ui-card">
       <div className="ui-card-header">
         <div className="ui-section-title">Selected metrics</div>
-        <div className="text-[11px] text-muted">{totalItems} item{totalItems === 1 ? '' : 's'}</div>
+        <div className="text-[11px] text-muted">{summaryTotalItems} item{summaryTotalItems === 1 ? '' : 's'}</div>
       </div>
       <div className="space-y-1 text-[12px]">
         {show.map((entry) => (
@@ -135,7 +132,7 @@ function SelectedMetricsPanel({ selectedItems, metricKeys }: SelectedMetricsPane
               {isMulti && (
                 <span className="text-[11px] text-muted ml-2">
                   avg {formatNumber(entry.avg)}
-                  {entry.count !== totalItems ? ` · ${entry.count}/${totalItems}` : ''}
+                  {entry.count !== summaryTotalItems ? ` · ${entry.count}/${summaryTotalItems}` : ''}
                 </span>
               )}
             </span>

@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import type { FilterAST, Item } from '../../../lib/types'
+import type { FilterAST } from '../../../lib/types'
 import { getMetricRangeFilter } from '../../browse/model/filters'
 import { useMetricHistogramInteraction } from '../hooks/useMetricHistogramInteraction'
 import {
   clamp,
   clamp01,
-  collectMetricValues,
   computeHistogramFromValues,
   formatInputValue,
   formatNumber,
@@ -18,10 +17,10 @@ import {
 export type { Range } from '../model/histogram'
 
 export interface MetricHistogramCardProps {
-  items: Item[]
-  filteredItems: Item[]
   metricKey: string
-  selectedItems?: Item[]
+  populationValues: number[]
+  filteredValues: number[]
+  selectedValues?: number[]
   filters: FilterAST
   onChangeRange: (key: string, range: Range | null) => void
   showTitle?: boolean
@@ -30,19 +29,17 @@ export interface MetricHistogramCardProps {
 const BIN_COUNT = 40
 
 export default function MetricHistogramCard({
-  items,
-  filteredItems,
   metricKey,
-  selectedItems,
+  populationValues,
+  filteredValues,
+  selectedValues = [],
   filters,
   onChangeRange,
   showTitle = false,
 }: MetricHistogramCardProps) {
-  const populationValues = useMemo(() => collectMetricValues(items, metricKey), [items, metricKey])
   const population = useMemo(() => (
     computeHistogramFromValues(populationValues, BIN_COUNT)
   ), [populationValues])
-  const filteredValues = useMemo(() => collectMetricValues(filteredItems, metricKey), [filteredItems, metricKey])
   const filtered = useMemo(() => (
     population ? computeHistogramFromValues(filteredValues, BIN_COUNT, population) : null
   ), [filteredValues, population])
@@ -66,17 +63,6 @@ export default function MetricHistogramCard({
   const [minInput, setMinInput] = useState('')
   const [maxInput, setMaxInput] = useState('')
   const [editingField, setEditingField] = useState<'min' | 'max' | null>(null)
-
-  const selectedValues = useMemo(() => {
-    if (!selectedItems?.length) return []
-    const values: number[] = []
-    for (const it of selectedItems) {
-      const raw = it.metrics?.[metricKey]
-      if (raw == null || Number.isNaN(raw)) continue
-      values.push(raw)
-    }
-    return values
-  }, [selectedItems, metricKey])
   const selectedValue = selectedValues.length === 1 ? selectedValues[0] : null
   const selectedHistogram = useMemo(() => {
     if (!population || selectedValues.length < 2) return null

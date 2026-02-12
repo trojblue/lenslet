@@ -1,24 +1,31 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import type { FilterAST, Item } from '../../../lib/types'
 import type { Range } from '../model/histogram'
+import {
+  collectMetricValuesByKey,
+  getMetricValues,
+  type MetricValuesByKey,
+} from '../model/metricValues'
 import MetricHistogramCard from './MetricHistogramCard'
 
 interface MetricRangePanelProps {
   items: Item[]
   filteredItems: Item[]
   metricKeys: string[]
-  selectedItems?: Item[]
+  selectedValuesByKey?: MetricValuesByKey | null
   selectedMetric?: string
   onSelectMetric: (key: string) => void
   filters: FilterAST
   onChangeRange: (key: string, range: Range | null) => void
 }
 
+const EMPTY_VALUES_BY_KEY: MetricValuesByKey = new Map()
+
 export default function MetricRangePanel({
   items,
   filteredItems,
   metricKeys,
-  selectedItems,
+  selectedValuesByKey,
   selectedMetric,
   onSelectMetric,
   filters,
@@ -26,6 +33,18 @@ export default function MetricRangePanel({
 }: MetricRangePanelProps) {
   const [showAll, setShowAll] = useState(false)
   const activeMetric = selectedMetric && metricKeys.includes(selectedMetric) ? selectedMetric : metricKeys[0]
+  const scopedMetricKeys = useMemo(() => (
+    showAll ? metricKeys : activeMetric ? [activeMetric] : []
+  ), [showAll, metricKeys, activeMetric])
+  const populationValuesByKey = useMemo(
+    () => collectMetricValuesByKey(items, scopedMetricKeys),
+    [items, scopedMetricKeys]
+  )
+  const filteredValuesByKey = useMemo(
+    () => collectMetricValuesByKey(filteredItems, scopedMetricKeys),
+    [filteredItems, scopedMetricKeys]
+  )
+  const selectedValues = selectedValuesByKey ?? EMPTY_VALUES_BY_KEY
 
   return (
     <>
@@ -63,9 +82,9 @@ export default function MetricRangePanel({
             <MetricHistogramCard
               key={key}
               metricKey={key}
-              items={items}
-              filteredItems={filteredItems}
-              selectedItems={selectedItems}
+              populationValues={getMetricValues(populationValuesByKey, key)}
+              filteredValues={getMetricValues(filteredValuesByKey, key)}
+              selectedValues={getMetricValues(selectedValues, key)}
               filters={filters}
               onChangeRange={onChangeRange}
               showTitle
@@ -76,9 +95,9 @@ export default function MetricRangePanel({
         activeMetric ? (
           <MetricHistogramCard
             metricKey={activeMetric}
-            items={items}
-            filteredItems={filteredItems}
-            selectedItems={selectedItems}
+            populationValues={getMetricValues(populationValuesByKey, activeMetric)}
+            filteredValues={getMetricValues(filteredValuesByKey, activeMetric)}
+            selectedValues={getMetricValues(selectedValues, activeMetric)}
             filters={filters}
             onChangeRange={onChangeRange}
           />

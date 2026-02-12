@@ -440,3 +440,37 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260211_foundational_long_file_refactor_pla
   - `npx tsc --noEmit` -> known pre-existing failures unchanged in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
 - Blockers: none.
 - Next step: execute `S6 / T23` by optimizing metrics histogram/filter computation reuse (memoized shared value extraction and histogram reuse across selected/filtered overlays) while preserving filter outcomes.
+
+## Iteration 30 - 2026-02-12T01:26:58Z
+- Completed ticket: `S6 / T23` (optimize metrics computation reuse).
+- Implemented artifacts:
+  - Added `frontend/src/features/metrics/model/metricValues.ts` with keyed metric-value cache helpers (`collectMetricValuesByKey`, `getMetricValues`).
+  - Added `frontend/src/features/metrics/model/__tests__/metricValues.test.ts` for value-map parity coverage (null/NaN filtering and keyed-scope collection).
+  - Updated `frontend/src/features/metrics/MetricsPanel.tsx` to reuse selected metric value maps for both selected-summary rendering and downstream histogram consumers.
+  - Updated `frontend/src/features/metrics/components/MetricRangePanel.tsx` to build shared population/filtered caches once per render scope and narrow collection to visible metrics (`show all` vs active metric only).
+  - Updated `frontend/src/features/metrics/components/MetricHistogramCard.tsx` to consume precomputed population/filtered/selected value slices instead of per-card rescans.
+  - Added profiling note `docs/dev_notes/20260212_s6_t23_metrics_computation_reuse.md` with checksum-locked synthetic before/after snapshots.
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, `T23` status, and `S6 handover`).
+- Validation run:
+  - `npm run test -- src/features/metrics/model/__tests__/metricValues.test.ts src/features/metrics/model/__tests__/histogram.test.ts src/features/metrics/hooks/__tests__/useMetricHistogramInteraction.test.ts` -> `14 passed`.
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `45 passed`.
+  - `npm run build` -> success.
+  - Synthetic profiling note: show-all recomputation improved (`median 18.12ms` -> `9.33ms`, `mean 18.23ms` -> `9.87ms`) with matching checksum; show-one path remained sub-millisecond (`median +0.11ms`).
+- Blockers: none.
+- Next step: execute `S7 / T24a` by running the fixed full validation matrix exactly as documented and recording failing domains before any regression-fix edits.
+
+## Iteration 31 - 2026-02-12T01:28:22Z
+- Completed ticket: `S7 / T24a` (execute fixed validation matrix only, no fixes).
+- Implemented artifacts:
+  - Updated `docs/20260211_foundational_long_file_refactor_plan.md` (`Progress`, `Surprises & Discoveries`, `Decision Log`, and `T24a` status) with matrix outcomes and explicit failing-domain tags.
+- Validation run:
+  - `pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py` -> `64 passed in 4.63s`.
+  - `python - <<'PY' ...` import contract probe -> `import-contract-ok`.
+  - `npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts` -> `45 passed`.
+  - `npx tsc --noEmit` -> failed (`[frontend-typecheck]`): type errors in `src/api/__tests__/client.presence.test.ts`, `src/app/AppShell.tsx`, `src/app/components/StatusBar.tsx`, and `src/features/inspector/Inspector.tsx`.
+  - `npm run build` -> success.
+  - `python -m build` -> failed (`[packaging-tooling]`): `No module named build`.
+- Blockers:
+  - `[frontend-typecheck]` repo typecheck is still red and blocks S7 full-matrix acceptance.
+  - `[packaging-tooling]` packaging command cannot run in current environment until `build` module is available.
+- Next step: execute `S7 / T24b` by resolving failing domains in scoped ownership lanes (frontend typecheck fixes and packaging toolchain availability), then rerun failed checks.

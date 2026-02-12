@@ -11,6 +11,7 @@ from threading import Lock
 from urllib.parse import urlparse
 from PIL import Image
 from .progress import ProgressBar
+from .search_text import build_search_haystack, normalize_search_path, path_in_scope
 from .s3 import S3_DEPENDENCY_ERROR, create_s3_client
 
 
@@ -229,6 +230,9 @@ class DatasetStorage:
 
     def _progress(self, done: int, total: int, label: str) -> None:
         self._progress_bar.update(done, total, label)
+
+    def indexing_progress(self) -> dict[str, int | str | bool | None]:
+        return self._progress_bar.snapshot()
 
     def _effective_remote_workers(self, total: int) -> int:
         if total <= 0:
@@ -542,28 +546,23 @@ class DatasetStorage:
     def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[CachedItem]:
         """Simple in-memory search."""
         q = (query or "").lower()
-        norm = self._normalize_path(path)
+        scope_norm = normalize_search_path(path)
         
         results = []
         for item in self._items.values():
-            # Filter by path scope
-            if norm != "/" and not item.path.startswith(norm + "/"):
+            if not path_in_scope(logical_path=item.path, scope_norm=scope_norm):
                 continue
-            
-            # Search in name and metadata
             meta = self.get_metadata(item.path)
-            parts = [
-                item.name,
-                " ".join(meta.get("tags", [])),
-                meta.get("notes", ""),
-            ]
-            if self._include_source_in_search:
-                source = self._source_paths.get(item.path, "")
-                if source:
-                    parts.append(source)
-                if item.url:
-                    parts.append(item.url)
-            haystack = " ".join(parts).lower()
+            source = self._source_paths.get(item.path) if self._include_source_in_search else None
+            haystack = build_search_haystack(
+                logical_path=item.path,
+                name=item.name,
+                tags=meta.get("tags", []),
+                notes=meta.get("notes", ""),
+                source=source,
+                url=item.url,
+                include_source_fields=self._include_source_in_search,
+            )
             
             if q in haystack:
                 results.append(item)

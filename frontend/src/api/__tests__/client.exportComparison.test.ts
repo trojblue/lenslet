@@ -58,4 +58,27 @@ describe('exportComparison api contract', () => {
     expect(parsed.paths).toEqual(['/a.png', '/b.png'])
     expect(parsed.labels).toEqual(['A label', 'B label'])
   })
+
+  it('supports posting v2 export payloads', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Blob([new Uint8Array([9, 8])], { type: 'image/png' }), {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      }),
+    )
+
+    await api.exportComparison({
+      v: 2,
+      paths: ['/a.png', '/b.png', '/c.png'],
+      labels: ['A label', 'B label', 'C label'],
+      embed_metadata: true,
+      reverse_order: false,
+    })
+
+    const [, init] = fetchSpy.mock.calls[0]
+    const parsed = JSON.parse(String(init?.body)) as ExportComparisonRequest
+    expect(parsed.v).toBe(2)
+    expect(parsed.paths).toEqual(['/a.png', '/b.png', '/c.png'])
+    expect(parsed.labels).toEqual(['A label', 'B label', 'C label'])
+  })
 })

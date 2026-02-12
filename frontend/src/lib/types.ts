@@ -89,6 +89,15 @@ export type HealthResponse = {
     log?: string | null
     snapshot?: string | null
   }
+  indexing?: {
+    state: 'idle' | 'running' | 'ready' | 'error'
+    scope?: string
+    done?: number
+    total?: number
+    started_at?: string
+    finished_at?: string
+    error?: string
+  }
   presence?: {
     lifecycle_v2_enabled?: boolean
     active_clients?: number
@@ -155,13 +164,25 @@ export type ImageMetadataResponse = {
   meta: Record<string, unknown>
 }
 
-export type ExportComparisonRequest = {
+export type ExportComparisonLabelsV1 = [string] | [string, string]
+
+export type ExportComparisonRequestV1 = {
   v: 1
   paths: [string, string]
+  labels?: ExportComparisonLabelsV1
+  embed_metadata?: boolean
+  reverse_order?: boolean
+}
+
+export type ExportComparisonRequestV2 = {
+  v: 2
+  paths: [string, string, ...string[]]
   labels?: string[]
   embed_metadata?: boolean
   reverse_order?: boolean
 }
+
+export type ExportComparisonRequest = ExportComparisonRequestV1 | ExportComparisonRequestV2
 
 export type ViewMode = 'grid' | 'adaptive'
 

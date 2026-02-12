@@ -28,6 +28,13 @@ import {
   type RecentSummary,
   type RecentTouchDisplay,
 } from '../presenceActivity'
+import {
+  indexingEquals,
+  nextIndexingPollDelayMs,
+  normalizeHealthIndexing,
+  shouldContinueIndexingPoll,
+  type HealthIndexing,
+} from './healthIndexing'
 
 type ItemCacheUpdatePayload = {
   path: string
@@ -55,12 +62,16 @@ type UseAppPresenceSyncResult = {
   hasEdits: boolean
   lastEditedLabel: string
   persistenceEnabled: boolean
+  indexing: HealthIndexing | null
   highlightedPaths: Map<string, string>
   onVisiblePathsChange: (paths: Set<string>) => void
   offViewSummary: RecentSummary | null
   recentTouchesDisplay: RecentTouchDisplay[]
   clearOffViewActivity: () => void
 }
+
+const HEALTH_POLL_RUNNING_MS = 1_200
+const HEALTH_POLL_RETRY_MS = 3_000
 
 function getConnectionLabel(status: ConnectionStatus): string {
   switch (status) {
@@ -116,6 +127,7 @@ export function useAppPresenceSync({
   const [recentEditActive, setRecentEditActive] = useState(false)
   const [lastEditedNow, setLastEditedNow] = useState(() => Date.now())
   const [persistenceEnabled, setPersistenceEnabled] = useState(true)
+  const [indexing, setIndexing] = useState<HealthIndexing | null>(null)
 
   useEffect(() => {
     if (recentEditAt == null) {
@@ -426,15 +438,43 @@ export function useAppPresenceSync({
 
   useEffect(() => {
     let cancelled = false
-    api.getHealth()
-      .then((res) => {
+    let timerId: number | null = null
+
+    const clearPollTimer = () => {
+      if (timerId == null) return
+      window.clearTimeout(timerId)
+      timerId = null
+    }
+
+    const schedulePoll = (ms: number) => {
+      clearPollTimer()
+      timerId = window.setTimeout(() => {
+        void pollHealth()
+      }, ms)
+    }
+
+    const pollHealth = async () => {
+      try {
+        const health = await api.getHealth()
         if (cancelled) return
-        const enabled = res?.labels?.enabled ?? true
-        setPersistenceEnabled(enabled)
-      })
-      .catch(() => {})
+
+        setPersistenceEnabled(health?.labels?.enabled ?? true)
+        const nextIndexing = normalizeHealthIndexing(health?.indexing)
+        setIndexing((prev) => (indexingEquals(prev, nextIndexing) ? prev : nextIndexing))
+
+        if (shouldContinueIndexingPoll(nextIndexing)) {
+          schedulePoll(nextIndexingPollDelayMs(nextIndexing, HEALTH_POLL_RUNNING_MS, HEALTH_POLL_RETRY_MS))
+        }
+      } catch {
+        if (cancelled) return
+        schedulePoll(HEALTH_POLL_RETRY_MS)
+      }
+    }
+
+    void pollHealth()
     return () => {
       cancelled = true
+      clearPollTimer()
     }
   }, [])
 
@@ -465,6 +505,7 @@ export function useAppPresenceSync({
     hasEdits,
     lastEditedLabel,
     persistenceEnabled,
+    indexing,
     highlightedPaths,
     onVisiblePathsChange,
     offViewSummary,

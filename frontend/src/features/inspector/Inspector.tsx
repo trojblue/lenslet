@@ -46,6 +46,7 @@ interface InspectorProps {
   compareActive?: boolean
   compareA?: Item | null
   compareB?: Item | null
+  onOpenCompare?: () => void
   onResize?: (e: React.PointerEvent<HTMLDivElement>) => void
   onStarChanged?: (paths: string[], val: StarRating) => void
   sortSpec?: SortSpec
@@ -67,6 +68,7 @@ export default function Inspector({
   compareActive = false,
   compareA = null,
   compareB = null,
+  onOpenCompare,
   onResize,
   onStarChanged,
   sortSpec,
@@ -445,7 +447,7 @@ export default function Inspector({
   const showNotesConflictBanner = !multi && !!conflict && (conflictFields.tags || conflictFields.notes)
   const hasStarConflict = !multi && !!conflict && conflictFields.star
 
-  const resizeHandleClass = 'toolbar-offset sidebar-resize-handle absolute bottom-0 left-0'
+  const resizeHandleClass = 'toolbar-offset sidebar-resize-handle sidebar-resize-handle-right absolute bottom-0'
 
   if (!enabled) return (
     <div className="app-right-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
@@ -470,6 +472,17 @@ export default function Inspector({
         selectedCount={selectedPaths.length}
         totalSize={totalSize}
         filename={filename}
+        compareActive={compareActive}
+        compareReady={compareReady}
+        onOpenCompare={onOpenCompare}
+        compareExportLabelsText={compareExportLabelsText}
+        onCompareExportLabelsTextChange={handleCompareExportLabelsTextChange}
+        compareExportEmbedMetadata={compareExportEmbedMetadata}
+        onCompareExportEmbedMetadataChange={handleCompareExportEmbedMetadataChange}
+        compareExportBusy={compareExportBusy}
+        compareExportMode={compareExportMode}
+        onComparisonExport={handleComparisonExport}
+        compareExportError={compareExportError}
         onFindSimilar={onFindSimilar}
         canFindSimilar={canFindSimilar}
         findSimilarDisabledReason={findSimilarDisabledReason}
@@ -502,15 +515,6 @@ export default function Inspector({
           compareMetaContent={compareMetaContent}
           onCompareMetaPathCopyA={handleCompareMetaPathCopyA}
           onCompareMetaPathCopyB={handleCompareMetaPathCopyB}
-          compareExportLabelsText={compareExportLabelsText}
-          onCompareExportLabelsTextChange={handleCompareExportLabelsTextChange}
-          compareExportEmbedMetadata={compareExportEmbedMetadata}
-          onCompareExportEmbedMetadataChange={handleCompareExportEmbedMetadataChange}
-          compareExportBusy={compareExportBusy}
-          compareReady={compareReady}
-          compareExportMode={compareExportMode}
-          onComparisonExport={handleComparisonExport}
-          compareExportError={compareExportError}
         />
       )}
 

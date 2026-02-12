@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 Mime = Literal["image/webp", "image/jpeg", "image/png"]
 
@@ -93,14 +93,65 @@ class ImageMetadataResponse(BaseModel):
     meta: dict
 
 
-class ExportComparisonRequest(BaseModel):
+MAX_EXPORT_COMPARISON_PATHS_V2 = 12
+
+
+class _ExportComparisonRequestBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    v: Literal[1]
-    paths: list[str] = Field(min_length=2, max_length=2)
-    labels: list[str] | None = Field(default=None, max_length=2)
+    paths: list[str]
+    labels: list[str] | None = None
     embed_metadata: bool = True
     reverse_order: bool = False
+
+
+class ExportComparisonRequestV1(_ExportComparisonRequestBase):
+    v: Literal[1]
+
+    @field_validator("paths")
+    @classmethod
+    def validate_pair_paths(cls, value: list[str]) -> list[str]:
+        if len(value) != 2:
+            raise ValueError("comparison export v1 requires exactly 2 paths")
+        return value
+
+    @field_validator("labels")
+    @classmethod
+    def validate_labels(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        if len(value) > 2:
+            raise ValueError("comparison export v1 accepts at most 2 labels")
+        return value
+
+
+class ExportComparisonRequestV2(_ExportComparisonRequestBase):
+    v: Literal[2]
+    paths: list[str]
+
+    @field_validator("paths")
+    @classmethod
+    def validate_path_count(cls, value: list[str]) -> list[str]:
+        if len(value) < 2 or len(value) > MAX_EXPORT_COMPARISON_PATHS_V2:
+            raise ValueError(
+                f"comparison export v2 requires between 2 and {MAX_EXPORT_COMPARISON_PATHS_V2} paths",
+            )
+        return value
+
+    @model_validator(mode="after")
+    def validate_labels(self) -> "ExportComparisonRequestV2":
+        if self.labels is None:
+            return self
+        if len(self.labels) > len(self.paths):
+            raise ValueError("comparison export v2 accepts at most one label per path")
+        return self
+
+
+ExportComparisonRequest = Annotated[
+    ExportComparisonRequestV1 | ExportComparisonRequestV2,
+    Field(discriminator="v"),
+]
+EXPORT_COMPARISON_REQUEST_ADAPTER = TypeAdapter(ExportComparisonRequest)
 
 
 class ViewsPayload(BaseModel):

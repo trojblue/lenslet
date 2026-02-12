@@ -7,6 +7,12 @@ import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 import type { AdaptiveRow } from '../model/adaptive'
 import { getVisibleThumbPrefetchPaths } from '../model/virtualGridPrefetch'
+import {
+  collectVisiblePaths,
+  getRestoreScrollTopForPath,
+  getTopAnchorPathForVisibleRows,
+  resolveVirtualGridRestoreDecision,
+} from '../model/virtualGridSession'
 import { LongPressController } from '../../../lib/touch'
 import { shouldOpenOnTap, toggleSelectedPath } from '../../../lib/mobileSelection'
 
@@ -35,29 +41,6 @@ function toLongPressEvent(ev: React.PointerEvent<HTMLDivElement>) {
   }
 }
 
-function findAdaptiveRowIndex(rows: AdaptiveRow[], itemIndex: number): number {
-  let low = 0
-  let high = rows.length - 1
-
-  while (low <= high) {
-    const mid = (low + high) >> 1
-    const row = rows[mid]
-    const firstIndex = row.items[0]?.originalIndex ?? -1
-    const lastIndex = row.items[row.items.length - 1]?.originalIndex ?? -1
-
-    if (itemIndex >= firstIndex && itemIndex <= lastIndex) {
-      return mid
-    }
-    if (itemIndex < firstIndex) {
-      high = mid - 1
-    } else {
-      low = mid + 1
-    }
-  }
-
-  return 0
-}
-
 function renderHighlightedName(name: string, highlight?: string): React.ReactNode {
   const query = (highlight ?? '').trim()
   if (!query) return name
@@ -82,6 +65,8 @@ interface VirtualGridProps {
   items: Item[]
   selected: string[]
   restoreToSelectionToken?: number
+  restoreToTopAnchorToken?: number
+  restoreToTopAnchorPath?: string | null
   multiSelectMode?: boolean
   onSelectionChange: (paths: string[]) => void
   onOpenViewer: (path: string) => void
@@ -90,6 +75,7 @@ interface VirtualGridProps {
   highlight?: string
   recentlyUpdated?: Map<string, string>
   onVisiblePathsChange?: (paths: Set<string>) => void
+  onTopAnchorPathChange?: (path: string | null) => void
   suppressSelectionHighlight?: boolean
   viewMode?: ViewMode
   targetCellSize?: number
@@ -101,6 +87,8 @@ export default function VirtualGrid({
   items,
   selected,
   restoreToSelectionToken,
+  restoreToTopAnchorToken,
+  restoreToTopAnchorPath,
   multiSelectMode = false,
   onSelectionChange,
   onOpenViewer,
@@ -109,6 +97,7 @@ export default function VirtualGrid({
   highlight,
   recentlyUpdated,
   onVisiblePathsChange,
+  onTopAnchorPathChange,
   suppressSelectionHighlight = false,
   viewMode = 'grid',
   targetCellSize = 220,
@@ -125,7 +114,10 @@ export default function VirtualGrid({
   const internalRef = useRef<HTMLDivElement | null>(null)
   const parentRef = scrollRef ?? internalRef
   const anchorRef = useRef<string | null>(null)
+  const appliedSelectionRestoreTokenRef = useRef(0)
+  const appliedTopAnchorRestoreTokenRef = useRef(0)
   const lastVisiblePathsRef = useRef<Set<string>>(new Set())
+  const lastTopAnchorPathRef = useRef<string | null>(null)
   const longPressControllerRef = useRef<LongPressController | null>(null)
   const longPressPathRef = useRef<string | null>(null)
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null)
@@ -502,21 +494,40 @@ export default function VirtualGrid({
   useLayoutEffect(() => {
     const el = parentRef.current
     if (!el) return
-    if (!restoreToSelectionToken) return
-    if (selected.length === 0) return
-    const first = selected[0]
-    const idx = pathToIndex.get(first)
-    if (idx == null || idx < 0) return
+    const restoreDecision = resolveVirtualGridRestoreDecision({
+      selectionToken: restoreToSelectionToken,
+      appliedSelectionToken: appliedSelectionRestoreTokenRef.current,
+      selectedPath: selected[0] ?? null,
+      topAnchorToken: restoreToTopAnchorToken,
+      appliedTopAnchorToken: appliedTopAnchorRestoreTokenRef.current,
+      topAnchorPath: restoreToTopAnchorPath ?? null,
+      hasPath: (path) => pathToIndex.has(path),
+    })
+    if (!restoreDecision) return
 
-    const rowIdx = layout.mode === 'grid'
-      ? Math.floor(idx / Math.max(1, layout.columns))
-      : findAdaptiveRowIndex(layout.rows, idx)
-    const targetTop = layout.mode === 'adaptive'
-      ? (adaptiveRowMeta?.[rowIdx]?.start ?? 0)
-      : (rowIdx * layout.rowH)
+    const targetTop = getRestoreScrollTopForPath({
+      path: restoreDecision.path,
+      pathToIndex,
+      layout,
+      adaptiveRowMeta,
+    })
+    if (targetTop == null) return
 
     try { el.scrollTop = targetTop } catch {}
-  }, [restoreToSelectionToken, layout, adaptiveRowMeta])
+    if (restoreDecision.source === 'selection') {
+      appliedSelectionRestoreTokenRef.current = restoreDecision.token
+      return
+    }
+    appliedTopAnchorRestoreTokenRef.current = restoreDecision.token
+  }, [
+    restoreToSelectionToken,
+    restoreToTopAnchorToken,
+    restoreToTopAnchorPath,
+    selected,
+    pathToIndex,
+    layout,
+    adaptiveRowMeta,
+  ])
 
   const selectedSet = useMemo(() => new Set(selected), [selected])
   const hasPreview = !!(previewFor && previewUrl && delayPassed)
@@ -544,26 +555,14 @@ export default function VirtualGrid({
     setFocused(null)
   }, [suppressSelectionHighlight])
 
-  const visiblePaths = useMemo(() => {
-    const next = new Set<string>()
-    for (const row of virtualRows) {
-      if (layout.mode === 'adaptive') {
-        const rowData = layout.rows[row.index]
-        if (!rowData) continue
-        for (const rowItem of rowData.items) {
-          next.add(rowItem.item.path)
-        }
-        continue
-      }
-      const start = row.index * layout.columns
-      const end = Math.min(items.length, start + layout.columns)
-      for (let index = start; index < end; index += 1) {
-        const item = items[index]
-        if (item) next.add(item.path)
-      }
-    }
-    return next
-  }, [items, layout, virtualRows])
+  const visiblePaths = useMemo(
+    () => collectVisiblePaths(items, layout, virtualRows),
+    [items, layout, virtualRows],
+  )
+  const topAnchorPath = useMemo(
+    () => getTopAnchorPathForVisibleRows(items, layout, virtualRows),
+    [items, layout, virtualRows],
+  )
 
   useEffect(() => {
     if (!onVisiblePathsChange) return
@@ -571,6 +570,13 @@ export default function VirtualGrid({
     lastVisiblePathsRef.current = visiblePaths
     onVisiblePathsChange(visiblePaths)
   }, [onVisiblePathsChange, visiblePaths])
+
+  useEffect(() => {
+    if (!onTopAnchorPathChange) return
+    if (lastTopAnchorPathRef.current === topAnchorPath) return
+    lastTopAnchorPathRef.current = topAnchorPath
+    onTopAnchorPathChange(topAnchorPath)
+  }, [onTopAnchorPathChange, topAnchorPath])
 
   const activeDescendantId = focused ? `cell-${encodeURIComponent(focused)}` : undefined
 

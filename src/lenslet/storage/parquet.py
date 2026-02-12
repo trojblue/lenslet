@@ -9,6 +9,7 @@ from typing import Any
 from PIL import Image
 
 from .local import LocalStorage
+from .search_text import build_search_haystack, normalize_search_path, path_in_scope
 
 
 @dataclass
@@ -477,20 +478,22 @@ class ParquetStorage:
 
     def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[CachedItem]:
         q = (query or "").lower()
-        norm = self._normalize_path(path)
-        scope_prefix = f"{norm}/" if norm else ""
+        scope_norm = normalize_search_path(path)
 
         results: list[CachedItem] = []
         for item in self._all_items():
-            logical_path = item.path.lstrip("/")
-            if norm and not (logical_path == norm or logical_path.startswith(scope_prefix)):
+            if not path_in_scope(logical_path=item.path, scope_norm=scope_norm):
                 continue
             meta = self.get_metadata(item.path)
-            haystack = " ".join([
-                item.name,
-                " ".join(meta.get("tags", [])),
-                meta.get("notes", ""),
-            ]).lower()
+            haystack = build_search_haystack(
+                logical_path=item.path,
+                name=item.name,
+                tags=meta.get("tags", []),
+                notes=meta.get("notes", ""),
+                source=None,
+                url=None,
+                include_source_fields=False,
+            )
             if q in haystack:
                 results.append(item)
                 if len(results) >= limit:

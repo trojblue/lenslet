@@ -14,6 +14,7 @@ from .embeddings.cache import EmbeddingCache
 from .embeddings.config import EmbeddingConfig
 from .embeddings.detect import columns_without_embeddings, detect_embeddings, EmbeddingDetection
 from .embeddings.index import EmbeddingManager
+from .indexing_status import IndexingLifecycle, IndexingListener, coerce_progress_count
 from .server_browse import (
     _build_item,
     _create_hotpath_metrics,
@@ -32,6 +33,7 @@ from .server_routes_presence import (
 from .server_routes_views import register_views_routes as _register_views_routes
 from .server_runtime import AppRuntime, build_app_runtime
 from .server_sync import _canonical_path, _sidecar_payload
+from .server_models import MAX_EXPORT_COMPARISON_PATHS_V2
 from .storage.dataset import DatasetStorage
 from .storage.memory import MemoryStorage
 from .storage.table import TableStorage, load_parquet_schema, load_parquet_table
@@ -189,6 +191,7 @@ def _base_health_payload(
         "ok": True,
         "mode": mode,
         "can_write": workspace.can_write,
+        "compare_export": _compare_export_health_payload(),
         "labels": _labels_health_payload(workspace),
         "presence": _presence_health_payload(
             app,
@@ -197,6 +200,13 @@ def _base_health_payload(
             prune_interval_fallback=prune_interval_fallback,
         ),
         "hotpath": runtime.hotpath_metrics.snapshot(storage),
+    }
+
+
+def _compare_export_health_payload() -> dict[str, Any]:
+    return {
+        "supported_versions": [1, 2],
+        "max_paths_v2": MAX_EXPORT_COMPARISON_PATHS_V2,
     }
 
 
@@ -240,6 +250,28 @@ def _warn_dataset_embedding_search_unavailable(embedding_parquet_path: str | Non
     )
 
 
+def _storage_indexing_progress(storage) -> tuple[int | None, int | None]:
+    snapshot_fn = getattr(storage, "indexing_progress", None)
+    if not callable(snapshot_fn):
+        return None, None
+    try:
+        snapshot = snapshot_fn()
+    except Exception:
+        return None, None
+    if not isinstance(snapshot, dict):
+        return None, None
+    done = coerce_progress_count(snapshot.get("done"))
+    total = coerce_progress_count(snapshot.get("total"))
+    if done is not None and total is not None and done > total:
+        done = total
+    return done, total
+
+
+def _indexing_health_payload(indexing: IndexingLifecycle, storage) -> dict[str, Any]:
+    done, total = _storage_indexing_progress(storage)
+    return indexing.snapshot(done=done, total=total)
+
+
 def create_app(
     root_path: str,
     thumb_size: int = 256,
@@ -257,6 +289,7 @@ def create_app(
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
     presence_lifecycle_v2: bool = True,
+    indexing_listener: IndexingListener | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
@@ -333,15 +366,23 @@ def create_app(
             preload=embedding_preload,
         )
 
+    indexing = IndexingLifecycle(scope="/")
+    if indexing_listener is not None:
+        indexing.subscribe(indexing_listener)
     if hasattr(storage, "get_index"):
+        indexing.start(scope="/")
 
         def _warm_index() -> None:
             try:
                 storage.get_index("/")  # type: ignore[call-arg]
+                indexing.mark_ready()
             except Exception as exc:
                 print(f"[lenslet] Warning: failed to build index: {exc}")
+                indexing.mark_error(str(exc) or "failed to build index")
 
         threading.Thread(target=_warm_index, daemon=True).start()
+    else:
+        indexing.mark_ready()
 
     def _to_item(storage, cached):
         meta = storage.get_metadata(cached.path)
@@ -374,6 +415,7 @@ def create_app(
                 prune_interval_fallback=presence_prune_interval,
             ),
             "root": root_path,
+            "indexing": _indexing_health_payload(indexing, storage),
         }
 
     @app.post("/refresh")
@@ -430,6 +472,7 @@ def create_app_from_datasets(
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
     presence_lifecycle_v2: bool = True,
+    indexing_listener: IndexingListener | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory dataset storage."""
 
@@ -453,6 +496,9 @@ def create_app_from_datasets(
         presence_prune_interval=presence_prune_interval,
         presence_lifecycle_v2=presence_lifecycle_v2,
     )
+    indexing = IndexingLifecycle.ready(scope="/")
+    if indexing_listener is not None:
+        indexing.subscribe(indexing_listener, emit_current=True)
     _warn_dataset_embedding_search_unavailable(embedding_parquet_path)
     embedding_manager: EmbeddingManager | None = None
 
@@ -496,6 +542,7 @@ def create_app_from_datasets(
             ),
             "datasets": dataset_names,
             "total_images": total_images,
+            "indexing": _indexing_health_payload(indexing, storage),
         }
 
     _register_static_refresh_route(app, note="dataset mode is static")
@@ -538,6 +585,7 @@ def create_app_from_table(
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
     presence_lifecycle_v2: bool = True,
+    indexing_listener: IndexingListener | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory table storage."""
     storage = TableStorage(
@@ -564,6 +612,7 @@ def create_app_from_table(
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
         presence_lifecycle_v2=presence_lifecycle_v2,
+        indexing_listener=indexing_listener,
     )
 
 
@@ -582,6 +631,7 @@ def create_app_from_storage(
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
     presence_lifecycle_v2: bool = True,
+    indexing_listener: IndexingListener | None = None,
 ) -> FastAPI:
     """Create FastAPI app using a pre-built TableStorage."""
 
@@ -599,6 +649,9 @@ def create_app_from_storage(
         presence_prune_interval=presence_prune_interval,
         presence_lifecycle_v2=presence_lifecycle_v2,
     )
+    indexing = IndexingLifecycle.ready(scope="/")
+    if indexing_listener is not None:
+        indexing.subscribe(indexing_listener, emit_current=True)
     embedding_manager: EmbeddingManager | None = None
     if embedding_parquet_path:
         detection = _resolve_embedding_detection(embedding_parquet_path, embedding_config)
@@ -644,6 +697,7 @@ def create_app_from_storage(
                 prune_interval_fallback=presence_prune_interval,
             ),
             "total_images": len(storage._items),
+            "indexing": _indexing_health_payload(indexing, storage),
         }
 
     _register_static_refresh_route(app, note="table mode is static")

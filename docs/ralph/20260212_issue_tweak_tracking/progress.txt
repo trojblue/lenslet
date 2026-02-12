@@ -1,0 +1,189 @@
+# Ralph Progress Log
+Started: 2026-02-12T15:57:18Z
+Branch: main
+Repo: /home/ubuntu/dev/lenslet
+Plan: /home/ubuntu/dev/lenslet/docs/20260212_issue_tweak_tracking.md
+---
+## Codebase Patterns
+- Keep backend/frontend contracts explicit across search, health, and export APIs.
+- Prefer composable primitives over route/component-local branching.
+- Preserve existing behavior unless the plan explicitly approves a contract change.
+
+## Iteration 1 - 2026-02-12T15:58:08Z
+- Completed Sprint S1 / T1: added shared search contract helpers in `src/lenslet/storage/search_text.py` and refactored backend search implementations in `src/lenslet/storage/memory.py`, `src/lenslet/storage/parquet.py`, `src/lenslet/storage/table_facade.py`, and `src/lenslet/storage/dataset.py` to use one scope/haystack contract.
+- Added `tests/test_search_text_contract.py` with parity coverage for name/path/tags/notes across memory/parquet/table/dataset, plus include-source toggle coverage for table/dataset source+URL fields.
+- Validation:
+  - `pytest -q tests/test_search_text_contract.py tests/test_dataset_http.py tests/test_parquet_ingestion.py` -> passed (11 passed).
+  - `pytest -q tests/test_import_contract.py` -> passed (2 passed).
+- Next step: execute Sprint S1 / T2 (memory-backed source/path search refinements and additional scope-token edge coverage).
+
+## Iteration 2 - 2026-02-12T16:05:56Z
+- Completed Sprint S1 / T2: refined `MemoryStorage.search` in `src/lenslet/storage/memory.py` to preserve logical-path matching and include optional metadata source/url fields (`source`, `source_path`, `url`, `source_url`) when present.
+- Added targeted memory regression tests in `tests/test_search_text_contract.py` for partial path-token matching under scoped search and out-of-scope exclusion, plus optional source-like metadata token matching.
+- Validation:
+  - `pytest -q tests/test_search_text_contract.py` -> passed (9 passed).
+  - `pytest -q tests/test_import_contract.py` -> passed (2 passed).
+- Next step: execute Sprint S1 / T4 (API-level `/search` regression coverage for source-token queries across include-source toggles).
+- Plan bookkeeping note: marked Sprint S1 `T3a` and `T3b` as complete in the plan because iteration 1 already shipped parquet/table/dataset shared-search wiring and parity tests.
+
+## Iteration 3 - 2026-02-12T16:10:30Z
+- Completed Sprint S1 / T4: added API-level `/search` regression coverage in `tests/test_search_source_contract.py` for source-token queries across table and dataset app modes, including include-source enabled/disabled behavior and scoped-search negative assertions.
+- Validation:
+  - `pytest -q tests/test_search_source_contract.py tests/test_search_text_contract.py` -> passed (11 passed).
+- Discovery: `create_app_from_table(..., show_source=...)` controls response field visibility but not table search indexing; include-source search behavior must be toggled at `TableStorage(include_source_in_search=...)` construction time for deterministic contract tests.
+- Next step: execute Sprint S1 / T4b (frontend search wiring/regression coverage against the canonical backend source-token contract).
+
+## Iteration 4 - 2026-02-12T16:15:35Z
+- Completed Sprint S1 / T4b: introduced a canonical frontend search contract in `frontend/src/api/search.ts` (`buildCanonicalSearchRequest`, normalized scope paths, and scope-aware placeholder retention) and wired `frontend/src/app/hooks/useAppDataScope.ts` + `frontend/src/shared/api/search.ts` to consume/export it.
+- Added frontend regression coverage in `frontend/src/api/__tests__/search.test.ts` for source-token normalization and stable placeholder behavior within the same scope while preventing stale cross-scope renders.
+- Validation:
+  - `npm run test -- src/api/__tests__/search.test.ts src/api/__tests__/folders.test.ts` -> passed (10 tests).
+  - `npm run test -- src/app/__tests__/appShellSelectors.test.ts` -> passed (6 tests).
+  - `npm run build` -> passed.
+- Discovery: React Query `placeholderData` reuses previous query rows across key changes by default, so search stability and correctness require explicit scope-path guarding to avoid brief stale-result flashes when switching folders.
+- Next step: start Sprint S2 / T5 (left sidebar resize-handle geometry redesign to remove scrollbar hitbox overlap while preserving right-pane resize behavior).
+
+## Iteration 5 - 2026-02-12T16:19:10Z
+- Completed Sprint S2 / T5: redesigned sidebar resize hitbox geometry with directional classes and shared CSS hitbox tokens in `frontend/src/styles.css`, then wired side-specific handle classes in `frontend/src/app/components/LeftSidebar.tsx` and `frontend/src/features/inspector/Inspector.tsx`.
+- Updated left panel layout shell/content overflow responsibilities so the left resize handle can sit fully outside the scrollbar lane without changing folder/metrics panel clipping.
+- Validation:
+  - `npm run test -- src/lib/__tests__/breakpoints.test.ts src/app/__tests__/appShellSelectors.test.ts` -> passed (9 tests).
+  - `npm run build` -> passed.
+- Manual validation note: desktop/coarse-pointer interaction checks are deferred to Sprint S2 / T6, where resize behavior and persistence semantics are verified together.
+- Discovery: outward handle placement is clipped when the left panel shell is `overflow-hidden`; the fix is to keep shell overflow visible and move clipping to the inner content container.
+- Next step: execute Sprint S2 / T6 (confirm resize behavior stability and persistence semantics under the new directional handle geometry).
+
+## Iteration 6 - 2026-02-12T16:25:24Z
+- Completed Sprint S2 / T6: extracted sidebar resize/persistence contracts into explicit helpers in `frontend/src/app/layout/useSidebars.ts` (`clampLeftSidebarWidth`, `clampRightSidebarWidth`, `readPersistedSidebarWidths`, `persistSidebarWidth`) and rewired the hook to consume those helpers.
+- Added `frontend/src/app/layout/__tests__/useSidebars.test.ts` with regression coverage for left/right clamp bounds, legacy `leftW` fallback loading, and per-side localStorage persistence key behavior.
+- Validation:
+  - `npm run test -- src/app/layout/__tests__/useSidebars.test.ts src/lib/__tests__/breakpoints.test.ts src/app/__tests__/appShellSelectors.test.ts` -> passed (14 tests).
+  - `npm run build` -> passed.
+- Discovery: codifying clamp/persistence as pure helpers gives deterministic regression coverage for T6 without introducing brittle pointer-event DOM harnesses.
+- Next step: start Sprint S3 / T7 (introduce `useFolderSessionState` and wire folder re-entry state into `useAppDataScope` + `AppShell`).
+
+## Iteration 7 - 2026-02-12T16:30:49Z
+- Completed Sprint S3 / T7: added `frontend/src/app/hooks/useFolderSessionState.ts` with explicit folder-session contracts for hydrated snapshot metadata, top-anchor persistence, and exact/subtree invalidation semantics.
+- Integrated the session contract into `frontend/src/app/hooks/useAppDataScope.ts` (persist hydrated snapshots during recursive hydration) and `frontend/src/app/AppShell.tsx` (capture top-anchor from visible-path callbacks alongside presence tracking).
+- Added lifecycle/invalidation regression tests in `frontend/src/app/hooks/__tests__/useFolderSessionState.test.ts`.
+- Validation:
+  - `npm run test -- src/app/hooks/__tests__/useFolderSessionState.test.ts src/app/layout/__tests__/useSidebars.test.ts src/app/__tests__/appShellSelectors.test.ts` -> passed (15 tests).
+  - `npm run build` -> passed.
+- Discovery: using the first path from `VirtualGrid` visible-path emission is a stable top-anchor signal because row/path insertion order already follows viewport order.
+- Next step: execute Sprint S3 / T8 (extend `VirtualGrid` with explicit top-anchor restore/report contracts decoupled from selection-token restore).
+
+## Iteration 8 - 2026-02-12T16:38:14Z
+- Completed Sprint S3 / T8: added explicit top-anchor restore/report contracts to `frontend/src/features/browse/components/VirtualGrid.tsx` (`restoreToTopAnchorToken`, `restoreToTopAnchorPath`, `onTopAnchorPathChange`) and wired `frontend/src/app/AppShell.tsx` to persist/report top-anchor paths per folder session.
+- Added foundational virtual-grid session helpers in `frontend/src/features/browse/model/virtualGridSession.ts` for visible-path collection, deterministic top-anchor extraction, restore arbitration, and scroll-target resolution.
+- Added focused regression coverage in `frontend/src/features/browse/model/__tests__/virtualGridSession.test.ts` for anchor emission/restore contracts and in `frontend/src/features/browse/hooks/__tests__/useKeyboardNav.test.ts` to verify keyboard navigation behavior remains stable.
+- Validation:
+  - `npm run test -- src/features/browse/model/__tests__/virtualGridSession.test.ts src/features/browse/hooks/__tests__/useKeyboardNav.test.ts src/app/hooks/__tests__/useFolderSessionState.test.ts` -> passed (10 tests).
+  - `npm run test -- src/app/__tests__/appShellSelectors.test.ts` -> passed (6 tests).
+  - `npm run build` -> passed.
+- Discovery: selection and top-anchor restores can be pending simultaneously during folder transitions; tokenizing them as independent channels enables deterministic precedence while allowing top-anchor fallback when a selection target is not yet available.
+- Next step: execute Sprint S3 / T9 (deterministic cached-snapshot-first hydration lifecycle on folder re-entry with stable viewport behavior during fresh-merge reconciliation).
+
+## Iteration 9 - 2026-02-12T16:43:15Z
+- Completed Sprint S3 / T9: wired `frontend/src/app/hooks/useAppDataScope.ts` to seed scope data from folder-session cached hydrated snapshots on scope change and to persist refreshed snapshots via `onFolderHydratedSnapshot` callbacks.
+- Updated `frontend/src/features/browse/model/pagedFolder.ts` with `skipInitialUpdateIfPaged` so cache-first re-entry hydration can suppress first-page-only emissions until fresh paged merges complete.
+- Wired `frontend/src/app/AppShell.tsx` to pass `getHydratedSnapshot` into `useAppDataScope`, enabling deterministic cache-first hydration behavior for folder re-entry.
+- Added targeted regression coverage in `frontend/src/features/browse/model/__tests__/pagedFolder.test.ts` for two-phase cache-then-fresh hydration and no-pagination fallback behavior.
+- Validation:
+  - `npm run test -- src/features/browse/model/__tests__/pagedFolder.test.ts` -> passed (8 tests).
+  - `npm run build` -> passed.
+- Discovery: first-page emissions during paged refresh can briefly contract a previously hydrated list and displace scroll context; explicit emission gating is required to keep the viewport stable while late pages reconcile.
+- Next step: execute Sprint S3 / T9b (delayed-hydration anti-jump verification with mocked late merge completion).
+
+## Iteration 10 - 2026-02-12T16:46:55Z
+- Completed Sprint S3 / T9b: added delayed-hydration anti-jump regression coverage in `frontend/src/features/browse/model/__tests__/pagedFolder.test.ts` using a deferred `fetchPage` resolution path to model late merge completion.
+- New regression assertion: saved anchor-path presence (`/set/c.jpg`) remains true in both the pre-merge cached snapshot and the final post-merge hydrated snapshot, proving no intermediate contraction update is emitted before delayed hydration completes.
+- Validation:
+  - `npm run test -- src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/virtualGridSession.test.ts` -> passed (13 tests).
+  - `npm run build` -> passed.
+- Discovery: deferred page-resolution tests provide deterministic anti-jump coverage for cache-first re-entry without relying on fragile browser scroll timing harnesses.
+- Next step: execute Sprint S3 / T10 (invalidate stored folder snapshot + top-anchor on explicit refresh and incompatible scope transitions).
+
+## Iteration 11 - 2026-02-12T16:52:18Z
+- Completed Sprint S3 / T10: added explicit incompatible-scope transition invalidation contracts in `frontend/src/app/hooks/useFolderSessionState.ts`, wired `AppShell` refresh flows to invalidate folder-session subtrees, and introduced `sessionResetToken` in `frontend/src/app/hooks/useAppDataScope.ts` so explicit same-scope refresh drops stale cached snapshots before rehydration.
+- Updated scope-transition wiring in `frontend/src/app/AppShell.tsx` so cross-branch scope changes invalidate destination session snapshot/top-anchor state while preserving ancestor/descendant re-entry behavior.
+- Added regression coverage in `frontend/src/app/hooks/__tests__/useFolderSessionState.test.ts` for transition compatibility classification and cross-branch invalidation behavior.
+- Validation:
+  - `npm run test -- src/app/hooks/__tests__/useFolderSessionState.test.ts src/app/__tests__/appShellHelpers.test.ts` -> passed (11 tests).
+  - `npm run test -- src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/virtualGridSession.test.ts` -> passed (13 tests).
+  - `npm run build` -> passed.
+- Discovery: invalidating folder-session cache alone is insufficient for explicit refresh when scope path is unchanged; a separate refresh token is required to force `useAppDataScope` to reset currently rendered cached data.
+- Remaining follow-up: manual refresh + folder re-entry smoke workflow is still recommended by the plan validation note.
+- Next step: start Sprint S4 / T11 (backend indexing status contract in `/health` with deterministic state transitions and API tests).
+
+## Iteration 12 - 2026-02-12T16:53:47Z
+- Completed Sprint S4 / T11: introduced `src/lenslet/indexing_status.py` and wired app-factory indexing lifecycle ownership into all `/health` routes in `src/lenslet/server_factory.py` so responses now expose deterministic `running`, `ready`, or `error` startup-indexing states.
+- Added optional progress plumbing with `ProgressBar.snapshot()` in `src/lenslet/storage/progress.py` and storage adapters (`indexing_progress()`) in `src/lenslet/storage/memory.py`, `src/lenslet/storage/table.py`, and `src/lenslet/storage/dataset.py` so `/health` can include `done`/`total` counters when available.
+- Added new backend contract tests in `tests/test_indexing_health_contract.py` for memory warm-index lifecycle transitions (`running -> ready`), warm-index failure (`error`), and table/dataset static `ready` states.
+- Validation:
+  - `pytest -q tests/test_indexing_health_contract.py` -> passed (4 passed).
+  - `pytest -q tests/test_hotpath_sprint_s3.py::test_health_exposes_hotpath_metrics tests/test_parquet_ingestion.py::test_parquet_items_and_metrics_inline` -> passed (2 passed).
+- Discovery: warm-index exceptions previously only emitted logs from background threads; without explicit lifecycle state the API could not report startup indexing failures to clients.
+- Next step: execute Sprint S4 / T12 (frontend indexing banner + polling lifecycle against the new `/health.indexing` contract).
+
+## Iteration 13 - 2026-02-12T17:04:34Z
+- Completed Sprint S4 / T12: extended frontend `HealthResponse` typing in `frontend/src/lib/types.ts` with `indexing` lifecycle fields and updated `frontend/src/app/hooks/useAppPresenceSync.ts` to poll `/health` immediately, continue polling while `indexing.state` is `running`, and stop recurring polls once indexing reaches `ready` or `error`.
+- Updated `frontend/src/app/components/StatusBar.tsx` and `frontend/src/app/AppShell.tsx` to show startup indexing progress and failure banners from shared health state while preserving existing persistence, zoom, and off-view update banners.
+- Added frontend regression coverage in `frontend/src/app/components/__tests__/StatusBar.test.tsx` for banner visibility transitions (`running` visible, `ready` hidden, `error` visible).
+- Validation:
+  - `npm run test -- src/app/components/__tests__/StatusBar.test.tsx src/app/__tests__/appShellSelectors.test.ts` -> passed (10 tests).
+  - `npm run build` -> passed.
+- Discovery: frontend health polling only needs an active interval while indexing is `running`; continuing high-frequency polling after terminal states creates avoidable banner churn without improving user signal.
+- Next step: execute Sprint S4 / T13 (unify indexing lifecycle ownership across `/health`, CLI messaging, and frontend consumers).
+
+## Iteration 14 - 2026-02-12T17:13:36Z
+- Completed Sprint S4 / T13: extended `src/lenslet/indexing_status.py` with lifecycle listener subscriptions plus `CliIndexingReporter`, wired `indexing_listener` plumbing through `src/lenslet/server_factory.py`, and connected `src/lenslet/cli.py` startup messaging directly to lifecycle callbacks so CLI output and `/health.indexing` use the same source of truth.
+- Refactored frontend indexing-health contracts into `frontend/src/app/hooks/healthIndexing.ts` and rewired `frontend/src/app/hooks/useAppPresenceSync.ts` to use shared normalize/equality/poll helpers, keeping polling active only for non-terminal states (`idle`/`running`).
+- Added regression coverage in `tests/test_indexing_status_contract.py`, expanded listener contract checks in `tests/test_indexing_health_contract.py`, and added frontend helper tests in `frontend/src/app/hooks/__tests__/healthIndexing.test.ts`.
+- Validation:
+  - `pytest -q tests/test_indexing_health_contract.py tests/test_indexing_status_contract.py` -> passed (11 passed).
+  - `npm run test -- src/app/hooks/__tests__/healthIndexing.test.ts src/app/components/__tests__/StatusBar.test.tsx src/app/__tests__/appShellSelectors.test.ts` -> passed (15 tests).
+  - `npm run build` -> passed.
+- Discovery: app-factory lifecycle callbacks are more reliable than a separate CLI `/health` polling thread for startup reporting because fast warm-index transitions can complete before a poller observes `running`.
+- Sprint handover: Sprint S4 is now complete (T11-T13) with backend/frontend/CLI lifecycle contracts unified and validated.
+- Next step: start Sprint S5 / T14 (inspector multi-select action redesign for side-by-side and export affordances).
+
+## Iteration 15 - 2026-02-12T17:20:26Z
+- Completed Sprint S5 / T14: added `frontend/src/features/inspector/sections/SelectionActionsSection.tsx` and wired it through `frontend/src/features/inspector/sections/OverviewSection.tsx` so multi-select inspector context now exposes explicit `Side by side view` and `Export comparison` entry actions.
+- Threaded compare-open action wiring from `frontend/src/app/AppShell.tsx` into `frontend/src/features/inspector/Inspector.tsx` and `OverviewSection`, preserving compare-viewer behavior while enforcing exact-two enablement for side-by-side affordances.
+- Added section-level regression coverage in `frontend/src/features/inspector/sections/__tests__/metadataSections.test.tsx` for exact-two enabled action state and explicit `>2` disabled-reason messaging.
+- Validation:
+  - `npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx src/features/inspector/__tests__/exportComparison.test.tsx src/app/__tests__/appShellSelectors.test.ts` -> passed (17 tests).
+  - `npm run build` -> passed.
+- Discovery: exposing selection actions in inspector context avoids reliance on left-sidebar icon memory and makes pair-only constraints discoverable before compare mode is opened.
+- Next step: execute Sprint S5 / T15 (move export controls out of compare-metadata-only section into multi-select inspector context).
+
+## Iteration 16 - 2026-02-12T17:26:03Z
+- Completed Sprint S5 / T15: moved export form controls out of `frontend/src/features/inspector/sections/CompareMetadataSection.tsx` into new `frontend/src/features/inspector/sections/SelectionExportSection.tsx`, and rendered that section from multi-select `frontend/src/features/inspector/sections/OverviewSection.tsx` so export affordances stay visible in inspector selection context.
+- Rewired `frontend/src/features/inspector/Inspector.tsx` to pass existing compare-export workflow state/handlers into `OverviewSection` and preserved compare-export execution ownership in `frontend/src/features/inspector/hooks/useInspectorCompareExport.ts`.
+- Updated section regression coverage in `frontend/src/features/inspector/sections/__tests__/metadataSections.test.tsx` for active compare export controls, compare-closed export guidance, and explicit `>2` export disabled messaging.
+- Validation:
+  - `npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx src/features/inspector/__tests__/exportComparison.test.tsx src/app/__tests__/appShellSelectors.test.ts` -> passed (18 tests).
+  - `npm run build` -> passed.
+- Discovery: export control visibility can move independently of export contract logic as long as the compare-export hook remains the single owner of payload validation and request execution.
+- Next step: execute Sprint S5 / T16 (lock pair-only `v: 1` export contract with explicit >2 UX/backend messaging).
+
+## Iteration 17 - 2026-02-12T17:32:48Z
+- Completed Sprint S5 / T16: locked the pair-only `v: 1` export contract with explicit backend validator messaging in `src/lenslet/server_models.py`, tightened frontend request typing in `frontend/src/lib/types.ts`, and aligned inspector export messaging/constants across `frontend/src/features/inspector/exportComparison.ts`, `frontend/src/features/inspector/hooks/useInspectorCompareExport.ts`, and `frontend/src/features/inspector/sections/SelectionExportSection.tsx`.
+- Added explicit regression coverage for pair-only guardrails in `tests/test_compare_export_endpoint.py` (`>2` paths and `>2` labels), plus frontend messaging assertions in `frontend/src/features/inspector/__tests__/exportComparison.test.tsx` and `frontend/src/features/inspector/sections/__tests__/metadataSections.test.tsx`.
+- Validation:
+  - `pytest -q tests/test_compare_export_endpoint.py` -> passed (12 passed).
+  - `npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/features/inspector/sections/__tests__/metadataSections.test.tsx src/api/__tests__/client.exportComparison.test.ts` -> passed (15 tests).
+  - `npm run build` -> passed.
+- Discovery: explicit pydantic field validators are required to keep pair-only `v: 1` error text deterministic; tuple conversion helpers are also needed in TS payload builders to avoid widening labels to unconstrained `string[]`.
+- Next step: execute Sprint S5 / T17 (optional Phase B capability-gated >2 export API).
+
+## Iteration 18 - 2026-02-12T17:39:41Z
+- Completed Sprint S5 / T17: introduced a versioned comparison-export API contract in `src/lenslet/server_models.py` with discriminated `v: 1` (pair-only) and `v: 2` (2..N paths) request validation, switched route parsing in `src/lenslet/server_routes_common.py` to `EXPORT_COMPARISON_REQUEST_ADAPTER`, and generalized shared export label/path resolution in `src/lenslet/server.py` so reverse-order/default-label behavior works across multi-path payloads.
+- Extended frontend contract support without enabling capability-gated UX yet: added `v: 1`/`v: 2` union request typing in `frontend/src/lib/types.ts`, implemented `buildExportComparisonPayloadV2` plus shared label/path validation helpers in `frontend/src/features/inspector/exportComparison.ts`, and added v2 API payload regression coverage in `frontend/src/api/__tests__/client.exportComparison.test.ts`.
+- Added/updated backend and frontend regressions for the new contract surface in `tests/test_compare_export_endpoint.py` and `frontend/src/features/inspector/__tests__/exportComparison.test.tsx`, including v2 2..N success and invalid path/label count behavior while preserving v1 compatibility checks.
+- Validation:
+  - `pytest -q tests/test_compare_export_endpoint.py` -> passed (15 passed).
+  - `npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/api/__tests__/client.exportComparison.test.ts src/features/inspector/sections/__tests__/metadataSections.test.tsx` -> passed (19 tests).
+  - `npm run build` -> passed.
+- Discovery: discriminated-union validation locations include branch prefixes (`1.paths`, `2`), so stable regression assertions should lock semantic error fragments instead of strict location prefixes.
+- Next step: execute Sprint S5 / T17b by adding `/health` compare-export capability negotiation and gating inspector >2 export affordances/fallbacks on discovered server support.

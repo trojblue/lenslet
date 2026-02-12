@@ -31,15 +31,6 @@ interface CompareMetadataSectionProps {
   compareMetaContent: string
   onCompareMetaPathCopyA: (path: MetadataPathSegment[]) => void
   onCompareMetaPathCopyB: (path: MetadataPathSegment[]) => void
-  compareExportLabelsText: string
-  onCompareExportLabelsTextChange: (value: string) => void
-  compareExportEmbedMetadata: boolean
-  onCompareExportEmbedMetadataChange: (checked: boolean) => void
-  compareExportBusy: boolean
-  compareReady: boolean
-  compareExportMode: 'normal' | 'reverse' | null
-  onComparisonExport: (reverseOrder: boolean) => void
-  compareExportError: string | null
 }
 
 interface CompareDiffTableProps {
@@ -212,15 +203,6 @@ function CompareMetadataSectionComponent({
   compareMetaContent,
   onCompareMetaPathCopyA,
   onCompareMetaPathCopyB,
-  compareExportLabelsText,
-  onCompareExportLabelsTextChange,
-  compareExportEmbedMetadata,
-  onCompareExportEmbedMetadataChange,
-  compareExportBusy,
-  compareReady,
-  compareExportMode,
-  onComparisonExport,
-  compareExportError,
 }: CompareMetadataSectionProps): JSX.Element {
   const compareMetaLoaded = compareMetaState === 'loaded'
 
@@ -300,48 +282,6 @@ function CompareMetadataSectionComponent({
             compareMetaContent={compareMetaContent}
             onMetaPathCopy={onCompareMetaPathCopyB}
           />
-        </div>
-
-        <div className="space-y-2 rounded-md border border-border/60 bg-surface-inset/40 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Export Comparison</div>
-          <textarea
-            className="ui-textarea inspector-input w-full h-20 scrollbar-thin"
-            placeholder={'Label for A\nLabel for B'}
-            value={compareExportLabelsText}
-            onChange={(e) => onCompareExportLabelsTextChange(e.target.value)}
-            disabled={compareExportBusy}
-            aria-label="Comparison export labels"
-          />
-          <label className="inline-flex items-center gap-2 text-[11px] text-muted">
-            <input
-              type="checkbox"
-              checked={compareExportEmbedMetadata}
-              onChange={(e) => onCompareExportEmbedMetadataChange(e.target.checked)}
-              disabled={compareExportBusy}
-            />
-            <span>Embed metadata</span>
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => onComparisonExport(false)}
-              disabled={!compareReady || compareExportBusy}
-            >
-              {compareExportMode === 'normal' ? 'Exporting…' : 'Export comparison'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm btn-ghost"
-              onClick={() => onComparisonExport(true)}
-              disabled={!compareReady || compareExportBusy}
-            >
-              {compareExportMode === 'reverse' ? 'Exporting…' : 'Export (reverse order)'}
-            </button>
-          </div>
-          {compareExportError && (
-            <div className="text-danger break-words">{compareExportError}</div>
-          )}
         </div>
       </div>
     </InspectorSection>

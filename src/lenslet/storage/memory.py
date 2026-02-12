@@ -9,6 +9,7 @@ from io import BytesIO
 from PIL import Image
 from .local import LocalStorage
 from .progress import LeafBatchTracker, ProgressBar
+from .search_text import build_search_haystack, normalize_search_path, path_in_scope
 
 
 @dataclass
@@ -184,6 +185,9 @@ class MemoryStorage:
 
     def _progress(self, done: int, total: int, label: str) -> None:
         self._progress_bar.update(done, total, label)
+
+    def indexing_progress(self) -> dict[str, int | str | bool | None]:
+        return self._progress_bar.snapshot()
 
     def _effective_workers(self, total: int) -> int:
         if total <= 0:
@@ -384,23 +388,40 @@ class MemoryStorage:
         except Exception:
             return []
 
+    def _metadata_source_fields(self, meta: dict) -> tuple[str | None, str | None]:
+        """Extract optional source-like search fields from metadata."""
+        source = meta.get("source")
+        if source is None:
+            source = meta.get("source_path")
+
+        url = meta.get("url")
+        if url is None:
+            url = meta.get("source_url")
+
+        source_text = str(source).strip() if source is not None else ""
+        url_text = str(url).strip() if url is not None else ""
+        return (source_text or None, url_text or None)
+
     def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[CachedItem]:
         """Simple in-memory search over cached indexes."""
         q = (query or "").lower()
-        norm = self._normalize_path(path)
-        scope_prefix = f"{norm}/" if norm else ""
+        scope_norm = normalize_search_path(path)
 
         results: list[CachedItem] = []
         for item in self._all_items():
-            logical_path = item.path.lstrip("/")
-            if norm and not (logical_path == norm or logical_path.startswith(scope_prefix)):
+            if not path_in_scope(logical_path=item.path, scope_norm=scope_norm):
                 continue
             meta = self.get_metadata(item.path)
-            haystack = " ".join([
-                item.name,
-                " ".join(meta.get("tags", [])),
-                meta.get("notes", ""),
-            ]).lower()
+            source, url = self._metadata_source_fields(meta)
+            haystack = build_search_haystack(
+                logical_path=item.path,
+                name=item.name,
+                tags=meta.get("tags", []),
+                notes=meta.get("notes", ""),
+                source=source,
+                url=url,
+                include_source_fields=bool(source or url),
+            )
             if q in haystack:
                 results.append(item)
                 if len(results) >= limit:

@@ -3,6 +3,7 @@ import { downloadBlob } from '../../../app/utils/appShellHelpers'
 import { api } from '../../../shared/api/client'
 import {
   DEFAULT_EXPORT_COMPARISON_EMBED_METADATA,
+  EXPORT_COMPARISON_PAIR_ONLY_MESSAGE,
   buildComparisonExportFilename,
   buildExportComparisonPayload,
 } from '../exportComparison'
@@ -61,7 +62,7 @@ export function useInspectorCompareExport({
   const runComparisonExport = useCallback(
     async (reverseOrder: boolean) => {
       if (!comparePathA || !comparePathB) {
-        setCompareExportError('Comparison export requires two selected images.')
+        setCompareExportError(EXPORT_COMPARISON_PAIR_ONLY_MESSAGE)
         return
       }
       if (compareExportBusy) return

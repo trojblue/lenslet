@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { buildJsonRenderNode, type CompareMetadataDiffResult } from '../../model/metadataCompare'
 import { CompareMetadataSection } from '../CompareMetadataSection'
 import { MetadataSection } from '../MetadataSection'
+import { OverviewSection } from '../OverviewSection'
 
 const noop = (..._args: unknown[]) => {}
 const noopPath = (_path: Array<string | number>) => {}
@@ -25,6 +26,99 @@ function buildCompareDiff(): CompareMetadataDiffResult {
 }
 
 describe('inspector metadata section rendering', () => {
+  it('renders enabled selection actions and export controls for an active compare pair', () => {
+    const html = renderToStaticMarkup(
+      <OverviewSection
+        open
+        onToggle={noop}
+        multi
+        selectedCount={2}
+        totalSize={2048}
+        filename=""
+        compareActive
+        compareReady
+        onOpenCompare={noop}
+        compareExportLabelsText={'Prompt A\nPrompt B'}
+        onCompareExportLabelsTextChange={noop}
+        compareExportEmbedMetadata
+        onCompareExportEmbedMetadataChange={noop}
+        compareExportBusy={false}
+        compareExportMode={null}
+        onComparisonExport={noop}
+        compareExportError={null}
+        canFindSimilar={false}
+        findSimilarDisabledReason={null}
+      />,
+    )
+
+    expect(html).toContain('Selection Actions')
+    expect(html).toContain('Selection Export')
+    expect(html).toContain('Side by side view')
+    expect(html).toContain('Export comparison')
+    expect(html).toContain('Side-by-side viewer is already open.')
+    expect((html.match(/disabled=\"\"/g) ?? [])).toHaveLength(2)
+  })
+
+  it('keeps selection export visible when compare is closed and shows enablement guidance', () => {
+    const html = renderToStaticMarkup(
+      <OverviewSection
+        open
+        onToggle={noop}
+        multi
+        selectedCount={2}
+        totalSize={4096}
+        filename=""
+        compareActive={false}
+        compareReady={false}
+        onOpenCompare={noop}
+        compareExportLabelsText=""
+        onCompareExportLabelsTextChange={noop}
+        compareExportEmbedMetadata
+        onCompareExportEmbedMetadataChange={noop}
+        compareExportBusy={false}
+        compareExportMode={null}
+        onComparisonExport={noop}
+        compareExportError={null}
+        canFindSimilar={false}
+        findSimilarDisabledReason={null}
+      />,
+    )
+
+    expect(html).toContain('Selection Export')
+    expect(html).toContain('Open side-by-side view to enable comparison export.')
+    expect((html.match(/disabled=\"\"/g) ?? []).length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('shows explicit side-by-side and export disabled reasons for selections above two', () => {
+    const html = renderToStaticMarkup(
+      <OverviewSection
+        open
+        onToggle={noop}
+        multi
+        selectedCount={3}
+        totalSize={4096}
+        filename=""
+        compareActive={false}
+        compareReady={false}
+        onOpenCompare={noop}
+        compareExportLabelsText=""
+        onCompareExportLabelsTextChange={noop}
+        compareExportEmbedMetadata
+        onCompareExportEmbedMetadataChange={noop}
+        compareExportBusy={false}
+        compareExportMode={null}
+        onComparisonExport={noop}
+        compareExportError={null}
+        canFindSimilar={false}
+        findSimilarDisabledReason={null}
+      />,
+    )
+
+    expect(html).toContain('Side-by-side view supports exactly 2 selections (selected 3).')
+    expect(html).toContain('Comparison export (v1) supports exactly 2 selections (selected 3).')
+    expect((html.match(/disabled=\"\"/g) ?? []).length).toBeGreaterThanOrEqual(4)
+  })
+
   it('renders metadata copy status with typed metadata output', () => {
     const html = renderToStaticMarkup(
       <MetadataSection
@@ -83,15 +177,6 @@ describe('inspector metadata section rendering', () => {
         compareMetaContent=""
         onCompareMetaPathCopyA={noopPath}
         onCompareMetaPathCopyB={noopPath}
-        compareExportLabelsText={'A\nB'}
-        onCompareExportLabelsTextChange={noop}
-        compareExportEmbedMetadata
-        onCompareExportEmbedMetadataChange={noop}
-        compareExportBusy={false}
-        compareReady
-        compareExportMode={null}
-        onComparisonExport={noop}
-        compareExportError={null}
       />,
     )
 
@@ -103,8 +188,6 @@ describe('inspector metadata section rendering', () => {
     expect(html).toContain('1 different')
     expect((html.match(/>Copied</g) ?? [])).toHaveLength(1)
     expect((html.match(/>Copy</g) ?? []).length).toBeGreaterThanOrEqual(1)
-    expect(html).toContain('Export comparison')
-    expect(html).toContain('Export (reverse order)')
   })
 
   it('renders compare metadata errors when compare loading fails', () => {
@@ -135,15 +218,6 @@ describe('inspector metadata section rendering', () => {
         compareMetaContent="Metadata not loaded yet."
         onCompareMetaPathCopyA={noopPath}
         onCompareMetaPathCopyB={noopPath}
-        compareExportLabelsText=""
-        onCompareExportLabelsTextChange={noop}
-        compareExportEmbedMetadata
-        onCompareExportEmbedMetadataChange={noop}
-        compareExportBusy={false}
-        compareReady
-        compareExportMode={null}
-        onComparisonExport={noop}
-        compareExportError={null}
       />,
     )
 

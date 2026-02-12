@@ -613,8 +613,10 @@ def main():
 
     # Start server
     import uvicorn
+    from .indexing_status import CliIndexingReporter
     from .server import create_app, create_app_from_storage, create_app_from_table
     from .workspace import Workspace
+    indexing_reporter = CliIndexingReporter()
     if is_remote_table:
         try:
             table = _load_remote_table(remote_uri or raw_target)
@@ -638,6 +640,7 @@ def main():
             embedding_preload=args.embedding_preload,
             presence_lifecycle_v2=args.presence_lifecycle_v2,
             allow_local=False,
+            indexing_listener=indexing_reporter.handle_update,
         )
     elif is_table_file:
         base_dir = args.base_dir or str(target.parent)
@@ -662,6 +665,7 @@ def main():
             embedding_cache_dir=args.embedding_cache_dir,
             embedding_preload=args.embedding_preload,
             presence_lifecycle_v2=args.presence_lifecycle_v2,
+            indexing_listener=indexing_reporter.handle_update,
         )
     else:
         items_path = target / "items.parquet"
@@ -689,6 +693,7 @@ def main():
             embedding_cache_dir=args.embedding_cache_dir,
             embedding_preload=args.embedding_preload,
             presence_lifecycle_v2=args.presence_lifecycle_v2,
+            indexing_listener=indexing_reporter.handle_update,
         )
 
     share_tunnel = None

@@ -12,7 +12,7 @@ from PIL import Image
 from pydantic import ValidationError
 
 from .server_models import (
-    ExportComparisonRequest,
+    EXPORT_COMPARISON_REQUEST_ADAPTER,
     FolderIndex,
     ImageMetadataResponse,
     SearchResult,
@@ -121,7 +121,7 @@ def register_common_api_routes(
             return _server._error_response(400, "invalid_json", "request body must be valid JSON")
 
         try:
-            body = ExportComparisonRequest.model_validate(payload)
+            body = EXPORT_COMPARISON_REQUEST_ADAPTER.validate_python(payload)
         except ValidationError as exc:
             return _server._error_response(400, "invalid_request", _server._first_validation_error_detail(exc))
 
@@ -133,7 +133,10 @@ def register_common_api_routes(
                 return _server._path_validation_error_response(exc)
 
         try:
-            normalized_labels = _server._normalize_export_labels(body.labels)
+            normalized_labels = _server._normalize_export_labels(
+                body.labels,
+                max_labels=len(canonical_paths),
+            )
         except ValueError as exc:
             return _server._error_response(400, "invalid_labels", str(exc))
 

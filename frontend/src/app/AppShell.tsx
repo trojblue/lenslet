@@ -64,6 +64,7 @@ import { useAppDataScope, type SimilarityState } from './hooks/useAppDataScope'
 import { useAppSelectionViewerCompare } from './hooks/useAppSelectionViewerCompare'
 import { useAppPresenceSync } from './hooks/useAppPresenceSync'
 import { useAppActions } from './hooks/useAppActions'
+import { useFolderSessionState } from './hooks/useFolderSessionState'
 import { buildFilterChips } from './model/filterChips'
 
 // S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
@@ -142,6 +143,16 @@ export default function AppShell() {
   const initialHashSyncRef = useRef(false)
 
   const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool)
+  const {
+    getHydratedSnapshot: getFolderHydratedSnapshot,
+    getTopAnchorPath,
+    saveHydratedSnapshot: saveFolderHydratedSnapshot,
+    saveTopAnchorPath,
+    invalidateSubtree: invalidateFolderSessionSubtree,
+    invalidateForScopeTransition,
+  } = useFolderSessionState()
+  const [restoreGridToTopAnchorToken, setRestoreGridToTopAnchorToken] = useState(0)
+  const [scopeSessionResetToken, setScopeSessionResetToken] = useState(0)
 
   const queryClient = useQueryClient()
   const syncStatus = useSyncStatus()
@@ -176,6 +187,9 @@ export default function AppShell() {
     viewState,
     randomSeed,
     localStarOverrides,
+    onFolderHydratedSnapshot: saveFolderHydratedSnapshot,
+    getCachedHydratedSnapshot: getFolderHydratedSnapshot,
+    sessionResetToken: scopeSessionResetToken,
   })
   const currentGalleryId = useMemo(() => sanitizePath(current || '/'), [current])
   const starFilters = useMemo(() => getStarFilter(viewState.filters), [viewState.filters])
@@ -243,6 +257,7 @@ export default function AppShell() {
           isInitialHashSync,
         )
         if (prev === nextScope) return prev
+        invalidateForScopeTransition(prev, nextScope)
         bumpRestoreGridToSelectionTokenRef.current()
         return nextScope
       })
@@ -252,7 +267,7 @@ export default function AppShell() {
     const onHash = () => applyHash(readHash())
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [bumpRestoreGridToSelectionTokenRef, syncHashImageSelectionRef])
+  }, [bumpRestoreGridToSelectionTokenRef, invalidateForScopeTransition, syncHashImageSelectionRef])
   const metricsBaseItems = selectionPool
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
   const hasMetricScrollbar = useMemo(
@@ -310,6 +325,7 @@ export default function AppShell() {
     hasEdits,
     lastEditedLabel,
     persistenceEnabled,
+    indexing,
     highlightedPaths,
     onVisiblePathsChange: handleVisiblePathsChange,
     offViewSummary,
@@ -324,6 +340,21 @@ export default function AppShell() {
     updateItemCaches,
     setLocalStarOverrides,
   })
+  const handleGridVisiblePathsChange = useCallback((paths: Set<string>) => {
+    handleVisiblePathsChange(paths)
+  }, [handleVisiblePathsChange])
+  const handleGridTopAnchorPathChange = useCallback((topAnchorPath: string | null) => {
+    if (!topAnchorPath) return
+    saveTopAnchorPath(current, topAnchorPath)
+  }, [current, saveTopAnchorPath])
+  const restoreGridTopAnchorPath = useMemo(
+    () => getTopAnchorPath(current),
+    [current, getTopAnchorPath],
+  )
+
+  useEffect(() => {
+    setRestoreGridToTopAnchorToken((token) => token + 1)
+  }, [current])
 
   const invalidateDerivedCounts = useCallback(() => {
     setFolderCountsVersion((prev) => prev + 1)
@@ -355,14 +386,23 @@ export default function AppShell() {
     await api.refreshFolder(target)
     invalidateFolderSubtree(target)
     invalidateDerivedCounts()
+    invalidateFolderSessionSubtree(target)
 
     if (current === target || current.startsWith(target === '/' ? '/' : `${target}/`)) {
+      setScopeSessionResetToken((token) => token + 1)
       await refetch()
     }
 
     thumbCache.evictPrefix(target)
     fileCache.evictPrefix(target)
-  }, [current, invalidateDerivedCounts, invalidateFolderSubtree, normalizeRefreshPath, refetch])
+  }, [
+    current,
+    invalidateDerivedCounts,
+    invalidateFolderSessionSubtree,
+    invalidateFolderSubtree,
+    normalizeRefreshPath,
+    refetch,
+  ])
 
   const handlePullRefreshFolders = useCallback(async () => {
     try {
@@ -853,9 +893,10 @@ export default function AppShell() {
   const openFolder = useCallback((p: string) => {
     resetViewerState()
     const safe = sanitizePath(p)
+    invalidateForScopeTransition(current, safe)
     setCurrent(safe)
     writeHash(safe)
-  }, [resetViewerState])
+  }, [current, invalidateForScopeTransition, resetViewerState])
 
   const {
     uploading,
@@ -1103,6 +1144,7 @@ export default function AppShell() {
         </div>
         <StatusBar
           persistenceEnabled={persistenceEnabled}
+          indexing={indexing}
           offViewSummary={offViewSummary}
           canRevealOffView={showFilteredCounts}
           onRevealOffView={handleRevealOffView}
@@ -1164,12 +1206,15 @@ export default function AppShell() {
             items={items}
             selected={selectedPaths}
             restoreToSelectionToken={restoreGridToSelectionToken}
+            restoreToTopAnchorToken={restoreGridToTopAnchorToken}
+            restoreToTopAnchorPath={restoreGridTopAnchorPath}
             multiSelectMode={mobileSelectEnabled && mobileSelectMode}
             onSelectionChange={setSelectedPaths}
             onOpenViewer={(p) => { rememberFocusedPath(p); openViewer(p); setSelectedPaths([p]) }}
             highlight={searching ? normalizedQ : ''}
             recentlyUpdated={highlightedPaths}
-            onVisiblePathsChange={handleVisiblePathsChange}
+            onVisiblePathsChange={handleGridVisiblePathsChange}
+            onTopAnchorPathChange={handleGridTopAnchorPathChange}
             suppressSelectionHighlight={overlayActive}
             viewMode={viewMode}
             targetCellSize={gridItemSize}
@@ -1200,6 +1245,7 @@ export default function AppShell() {
           compareActive={compareOpen}
           compareA={compareA}
           compareB={compareB}
+          onOpenCompare={openCompare}
           sortSpec={viewState.sort}
           onResize={onResizeRight}
           onStarChanged={(paths, val)=>{

@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 from PIL import Image
 
+from .search_text import build_search_haystack, normalize_search_path, path_in_scope
 from .s3 import S3_DEPENDENCY_ERROR, create_s3_client
 
 
@@ -181,27 +182,25 @@ def set_metadata(storage: Any, path: str, meta: dict) -> None:
 
 def search_items(storage: Any, query: str = "", path: str = "/", limit: int = 100) -> list[Any]:
     q = (query or "").lower()
-    norm = storage._normalize_path(path)
-    scope_prefix = f"{norm}/" if norm else ""
+    scope_norm = normalize_search_path(path)
 
     results: list[Any] = []
     for item in storage._items.values():
-        logical_path = item.path.lstrip("/")
-        if norm and not (logical_path == norm or logical_path.startswith(scope_prefix)):
+        if not path_in_scope(logical_path=item.path, scope_norm=scope_norm):
             continue
         meta = storage.get_metadata(item.path)
-        parts = [
-            item.name,
-            " ".join(meta.get("tags", [])),
-            meta.get("notes", ""),
-        ]
+        source = None
         if storage._include_source_in_search:
-            source = storage._source_paths.get(item.path, "")
-            if source:
-                parts.append(source)
-            if item.url:
-                parts.append(item.url)
-        haystack = " ".join(parts).lower()
+            source = getattr(item, "source", None) or storage._source_paths.get(item.path)
+        haystack = build_search_haystack(
+            logical_path=item.path,
+            name=item.name,
+            tags=meta.get("tags", []),
+            notes=meta.get("notes", ""),
+            source=source,
+            url=getattr(item, "url", None),
+            include_source_fields=storage._include_source_in_search,
+        )
         if q in haystack:
             results.append(item)
             if len(results) >= limit:

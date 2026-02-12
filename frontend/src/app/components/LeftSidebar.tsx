@@ -75,7 +75,7 @@ export default function LeftSidebar({
   const githubButtonClass = `${getSidebarIconButtonClass(false)} cursor-pointer`
 
   return (
-    <div className="app-left-panel col-start-1 row-start-2 relative border-r border-border bg-panel overflow-hidden">
+    <div className="app-left-panel col-start-1 row-start-2 relative border-r border-border bg-panel overflow-visible">
       <div className="absolute inset-y-0 left-0 w-12 border-r border-border flex flex-col items-center gap-2 py-3 bg-surface-overlay">
         <button
           className={folderButtonClass}
@@ -131,7 +131,7 @@ export default function LeftSidebar({
           </svg>
         </a>
       </div>
-      <div className="ml-12 h-full">
+      <div className="ml-12 h-full overflow-hidden">
         {leftTool === 'folders' ? (
           <div className="h-full flex flex-col">
             <div className="px-2 py-2 border-b border-border">
@@ -192,7 +192,7 @@ export default function LeftSidebar({
         )}
       </div>
       <div
-        className="toolbar-offset sidebar-resize-handle absolute bottom-0 right-0"
+        className="toolbar-offset sidebar-resize-handle sidebar-resize-handle-left absolute bottom-0"
         onPointerDown={onResize}
       />
     </div>

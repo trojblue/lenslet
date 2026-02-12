@@ -94,7 +94,6 @@ from .workspace import Workspace
 MAX_EXPORT_SOURCE_PIXELS = 64_000_000
 MAX_EXPORT_STITCHED_PIXELS = 120_000_000
 MAX_EXPORT_METADATA_BYTES = 32 * 1024
-MAX_EXPORT_LABELS = 2
 MAX_EXPORT_LABEL_CHARS = 120
 EXPORT_COMPARISON_METADATA_KEY = "lenslet:comparison"
 _UNIBOX_IMAGE_UTILS: tuple[Callable[..., Any], Callable[..., Any]] | None = None
@@ -158,11 +157,11 @@ def _sanitize_export_label(raw: str) -> str:
     return cleaned
 
 
-def _normalize_export_labels(labels: list[str] | None) -> list[str]:
+def _normalize_export_labels(labels: list[str] | None, *, max_labels: int) -> list[str]:
     if labels is None:
         return []
-    if len(labels) > MAX_EXPORT_LABELS:
-        raise ValueError(f"expected at most {MAX_EXPORT_LABELS} labels")
+    if len(labels) > max_labels:
+        raise ValueError(f"expected at most {max_labels} labels")
     return [_sanitize_export_label(value) for value in labels]
 
 
@@ -170,7 +169,9 @@ def _default_export_label(path: str, idx: int) -> str:
     name = Path(path).name.strip()
     if name:
         return name[:MAX_EXPORT_LABEL_CHARS]
-    return "A" if idx == 0 else "B"
+    if idx < 26:
+        return chr(ord("A") + idx)
+    return f"Image {idx + 1}"
 
 
 def _resolve_export_paths_and_labels(
@@ -178,9 +179,10 @@ def _resolve_export_paths_and_labels(
     labels: list[str],
     reverse_order: bool,
 ) -> tuple[list[str], list[str]]:
+    path_count = len(paths)
     ordered_paths = list(paths)
-    label_slots = list(labels[:MAX_EXPORT_LABELS])
-    label_slots.extend([""] * (MAX_EXPORT_LABELS - len(label_slots)))
+    label_slots = list(labels[:path_count])
+    label_slots.extend([""] * (path_count - len(label_slots)))
     if reverse_order:
         ordered_paths.reverse()
         label_slots.reverse()

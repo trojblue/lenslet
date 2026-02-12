@@ -45,6 +45,16 @@ class ProgressBar:
                 self._bar.close()
                 self._bar = None
 
+    def snapshot(self) -> dict[str, int | str | bool | None]:
+        with self._lock:
+            done = self._last_done if self._last_total is not None else None
+            return {
+                "active": self._bar is not None,
+                "done": done,
+                "total": self._last_total,
+                "label": self._last_label,
+            }
+
 
 @dataclass
 class LeafBatch:

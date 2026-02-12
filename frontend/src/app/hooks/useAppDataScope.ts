@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { DEFAULT_RECURSIVE_PAGE_SIZE, shouldRemoveRecursiveFolderQuery, useFolder } from '../../shared/api/folders'
-import { useSearch } from '../../shared/api/search'
+import { buildCanonicalSearchRequest, useSearch } from '../../shared/api/search'
 import { useEmbeddings } from '../../shared/api/embeddings'
 import { api } from '../../shared/api/client'
 import { useDebounced } from '../../shared/hooks/useDebounced'
@@ -36,6 +36,9 @@ type UseAppDataScopeParams = {
   viewState: ViewState
   randomSeed: number
   localStarOverrides: Record<string, StarRating>
+  sessionResetToken?: number
+  onFolderHydratedSnapshot?: (path: string, snapshot: FolderIndex) => void
+  getCachedHydratedSnapshot?: (path: string) => FolderIndex | null
 }
 
 type UseAppDataScopeResult = {
@@ -74,6 +77,9 @@ export function useAppDataScope({
   viewState,
   randomSeed,
   localStarOverrides,
+  sessionResetToken = 0,
+  onFolderHydratedSnapshot,
+  getCachedHydratedSnapshot,
 }: UseAppDataScopeParams): UseAppDataScopeResult {
   const queryClient = useQueryClient()
   const {
@@ -99,13 +105,19 @@ export function useAppDataScope({
 
   useEffect(() => {
     recursiveLoadTokenRef.current += 1
-    setData(undefined)
-  }, [current])
+    const cachedSnapshot = getCachedHydratedSnapshot?.(current) ?? null
+    setData(cachedSnapshot ?? undefined)
+  }, [current, getCachedHydratedSnapshot, sessionResetToken])
 
   useEffect(() => {
     if (!recursiveFirstPage) return
     const requestId = ++recursiveLoadTokenRef.current
     let cancelled = false
+    const hasCachedSnapshot = (getCachedHydratedSnapshot?.(recursiveFirstPage.path) ?? null) !== null
+    const onHydrationUpdate = (snapshot: FolderIndex) => {
+      setData(snapshot)
+      onFolderHydratedSnapshot?.(snapshot.path, snapshot)
+    }
     void hydrateFolderPages(recursiveFirstPage, {
       defaultPageSize: DEFAULT_RECURSIVE_PAGE_SIZE,
       fetchPage: (page, pageSize) => api.getFolder(recursiveFirstPage.path, {
@@ -113,20 +125,24 @@ export function useAppDataScope({
         page,
         pageSize,
       }),
-      onUpdate: setData,
+      onUpdate: onHydrationUpdate,
       shouldContinue: () => !cancelled && recursiveLoadTokenRef.current === requestId,
       progressiveUpdates: false,
+      skipInitialUpdateIfPaged: hasCachedSnapshot,
     })
     return () => {
       cancelled = true
     }
-  }, [recursiveFirstPage])
+  }, [getCachedHydratedSnapshot, onFolderHydratedSnapshot, recursiveFirstPage])
 
   const similarityActive = similarityState !== null
-  const searching = !similarityActive && query.trim().length > 0
   const debouncedQ = useDebounced(query, 250)
-  const normalizedQ = useMemo(() => debouncedQ.trim().replace(/\s+/g, ' '), [debouncedQ])
-  const search = useSearch(searching ? normalizedQ : '', current)
+  const searchRequest = useMemo(() => (
+    similarityActive ? null : buildCanonicalSearchRequest(debouncedQ, current)
+  ), [similarityActive, debouncedQ, current])
+  const searching = searchRequest !== null
+  const normalizedQ = searchRequest?.q ?? ''
+  const search = useSearch(searchRequest?.q ?? '', searchRequest?.path ?? current)
   const embeddingsQuery = useEmbeddings()
   const embeddings = embeddingsQuery.data?.embeddings ?? []
   const embeddingsRejected = embeddingsQuery.data?.rejected ?? []

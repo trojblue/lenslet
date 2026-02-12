@@ -1,6 +1,8 @@
 import React from 'react'
 import { fmtBytes } from '../../../lib/util'
 import { InspectorSection } from './InspectorSection'
+import { SelectionActionsSection } from './SelectionActionsSection'
+import { SelectionExportSection } from './SelectionExportSection'
 
 interface OverviewSectionProps {
   open: boolean
@@ -9,6 +11,17 @@ interface OverviewSectionProps {
   selectedCount: number
   totalSize: number
   filename: string
+  compareActive: boolean
+  compareReady: boolean
+  onOpenCompare?: () => void
+  compareExportLabelsText: string
+  onCompareExportLabelsTextChange: (value: string) => void
+  compareExportEmbedMetadata: boolean
+  onCompareExportEmbedMetadataChange: (checked: boolean) => void
+  compareExportBusy: boolean
+  compareExportMode: 'normal' | 'reverse' | null
+  onComparisonExport: (reverseOrder: boolean) => void
+  compareExportError: string | null
   onFindSimilar?: () => void
   canFindSimilar: boolean
   findSimilarDisabledReason: string | null
@@ -21,6 +34,17 @@ export function OverviewSection({
   selectedCount,
   totalSize,
   filename,
+  compareActive,
+  compareReady,
+  onOpenCompare,
+  compareExportLabelsText,
+  onCompareExportLabelsTextChange,
+  compareExportEmbedMetadata,
+  onCompareExportEmbedMetadataChange,
+  compareExportBusy,
+  compareExportMode,
+  onComparisonExport,
+  compareExportError,
   onFindSimilar,
   canFindSimilar,
   findSimilarDisabledReason,
@@ -44,15 +68,35 @@ export function OverviewSection({
       )}
     >
       {multi ? (
-        <div className="grid grid-cols-2 gap-2">
-          <div className="inspector-field">
-            <div className="inspector-field-label">Selected</div>
-            <div className="inspector-field-value">{selectedCount} files</div>
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="inspector-field">
+              <div className="inspector-field-label">Selected</div>
+              <div className="inspector-field-value">{selectedCount} files</div>
+            </div>
+            <div className="inspector-field">
+              <div className="inspector-field-label">Total size</div>
+              <div className="inspector-field-value">{fmtBytes(totalSize)}</div>
+            </div>
           </div>
-          <div className="inspector-field">
-            <div className="inspector-field-label">Total size</div>
-            <div className="inspector-field-value">{fmtBytes(totalSize)}</div>
-          </div>
+          <SelectionActionsSection
+            selectedCount={selectedCount}
+            compareActive={compareActive}
+            onOpenCompare={onOpenCompare}
+          />
+          <SelectionExportSection
+            selectedCount={selectedCount}
+            compareActive={compareActive}
+            compareReady={compareReady}
+            compareExportLabelsText={compareExportLabelsText}
+            onCompareExportLabelsTextChange={onCompareExportLabelsTextChange}
+            compareExportEmbedMetadata={compareExportEmbedMetadata}
+            onCompareExportEmbedMetadataChange={onCompareExportEmbedMetadataChange}
+            compareExportBusy={compareExportBusy}
+            compareExportMode={compareExportMode}
+            onComparisonExport={onComparisonExport}
+            compareExportError={compareExportError}
+          />
         </div>
       ) : (
         <div className="inspector-field">

@@ -27,6 +27,16 @@ function makeFolder(path: string, itemPaths: string[], overrides?: Partial<Folde
   }
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
 describe('paged folder merge', () => {
   it('normalizes duplicate items within a page', () => {
     const page = makeFolder('/set', ['/set/a.jpg', '/set/a.jpg', '/set/b.jpg'])
@@ -151,5 +161,129 @@ describe('paged folder merge', () => {
     expect(snapshots).toHaveLength(2)
     expect(snapshots[0].items.map((item) => item.path)).toEqual(['/set/a.jpg'])
     expect(snapshots[1].items.map((item) => item.path)).toEqual(['/set/a.jpg', '/set/b.jpg', '/set/c.jpg'])
+  })
+
+  it('supports cache-first two-phase hydration when paged data is still loading', async () => {
+    const cached = makeFolder('/set', ['/set/a.jpg', '/set/b.jpg', '/set/c.jpg'], {
+      page: 2,
+      pageSize: 2,
+      pageCount: 2,
+      totalItems: 3,
+      generatedAt: '2026-02-06T00:00:00Z',
+    })
+    const first = makeFolder('/set', ['/set/new.jpg', '/set/a.jpg'], {
+      page: 1,
+      pageSize: 2,
+      pageCount: 2,
+      totalItems: 4,
+      generatedAt: '2026-02-06T00:01:00Z',
+    })
+    const second = makeFolder('/set', ['/set/b.jpg', '/set/d.jpg'], {
+      page: 2,
+      pageSize: 2,
+      pageCount: 2,
+      totalItems: 4,
+      generatedAt: '2026-02-06T00:01:00Z',
+    })
+
+    const snapshots: FolderIndex[] = [cached]
+    await hydrateFolderPages(first, {
+      defaultPageSize: 200,
+      progressiveUpdates: false,
+      skipInitialUpdateIfPaged: true,
+      fetchPage: async (page) => {
+        if (page === 2) return second
+        throw new Error(`unexpected page: ${page}`)
+      },
+      onUpdate: (value) => {
+        snapshots.push(value)
+      },
+    })
+
+    expect(snapshots).toHaveLength(2)
+    expect(snapshots[0].items.map((item) => item.path)).toEqual(['/set/a.jpg', '/set/b.jpg', '/set/c.jpg'])
+    expect(snapshots[1].items.map((item) => item.path)).toEqual([
+      '/set/new.jpg',
+      '/set/a.jpg',
+      '/set/b.jpg',
+      '/set/d.jpg',
+    ])
+  })
+
+  it('still emits first page when cache-first mode is enabled without extra pages', async () => {
+    const first = makeFolder('/set', ['/set/a.jpg', '/set/b.jpg'], {
+      page: 1,
+      pageSize: 2,
+      pageCount: 1,
+      totalItems: 2,
+    })
+
+    const snapshots: FolderIndex[] = []
+    await hydrateFolderPages(first, {
+      defaultPageSize: 200,
+      progressiveUpdates: false,
+      skipInitialUpdateIfPaged: true,
+      fetchPage: async () => {
+        throw new Error('unexpected fetchPage call')
+      },
+      onUpdate: (value) => {
+        snapshots.push(value)
+      },
+    })
+
+    expect(snapshots).toHaveLength(1)
+    expect(snapshots[0].items.map((item) => item.path)).toEqual(['/set/a.jpg', '/set/b.jpg'])
+  })
+
+  it('keeps cached anchor items stable while late pages hydrate', async () => {
+    const anchorPath = '/set/c.jpg'
+    const cached = makeFolder('/set', ['/set/a.jpg', '/set/b.jpg', anchorPath], {
+      page: 2,
+      pageSize: 2,
+      pageCount: 2,
+      totalItems: 3,
+      generatedAt: '2026-02-06T00:00:00Z',
+    })
+    const first = makeFolder('/set', ['/set/new.jpg', '/set/a.jpg'], {
+      page: 1,
+      pageSize: 2,
+      pageCount: 2,
+      totalItems: 4,
+      generatedAt: '2026-02-06T00:01:00Z',
+    })
+    const second = makeFolder('/set', ['/set/b.jpg', anchorPath, '/set/d.jpg'], {
+      page: 2,
+      pageSize: 2,
+      pageCount: 2,
+      totalItems: 4,
+      generatedAt: '2026-02-06T00:01:00Z',
+    })
+
+    const delayedPage = createDeferred<FolderIndex>()
+    const snapshots: FolderIndex[] = [cached]
+    const hydration = hydrateFolderPages(first, {
+      defaultPageSize: 200,
+      progressiveUpdates: false,
+      skipInitialUpdateIfPaged: true,
+      fetchPage: async (page) => {
+        if (page !== 2) throw new Error(`unexpected page: ${page}`)
+        return delayedPage.promise
+      },
+      onUpdate: (value) => {
+        snapshots.push(value)
+      },
+    })
+
+    await Promise.resolve()
+    expect(snapshots).toHaveLength(1)
+    expect(snapshots[0].items.some((item) => item.path === anchorPath)).toBe(true)
+
+    delayedPage.resolve(second)
+    await hydration
+
+    expect(snapshots).toHaveLength(2)
+    expect(
+      snapshots.map((snapshot) => snapshot.items.some((item) => item.path === anchorPath)),
+    ).toEqual([true, true])
   })
 })

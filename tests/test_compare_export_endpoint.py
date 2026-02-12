@@ -10,6 +10,7 @@ from PIL import Image
 import lenslet.server as server_mod
 from lenslet.metadata import read_png_info
 from lenslet.server import create_app
+from lenslet.server_models import MAX_EXPORT_COMPARISON_PATHS_V2
 
 
 def _make_png(path: Path, *, size: tuple[int, int] = (12, 8), color=(64, 64, 64), mode: str = "RGB") -> None:
@@ -22,6 +23,18 @@ def _export_payload(**overrides):
         "v": 1,
         "paths": ["/a.png", "/b.png"],
         "labels": ["Prompt A", "Prompt B"],
+        "embed_metadata": True,
+        "reverse_order": False,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _export_payload_v2(**overrides):
+    payload = {
+        "v": 2,
+        "paths": ["/a.png", "/b.png", "/c.png"],
+        "labels": ["Prompt A", "Prompt B", "Prompt C"],
         "embed_metadata": True,
         "reverse_order": False,
     }
@@ -109,6 +122,102 @@ def test_export_comparison_rejects_invalid_paths_with_parity_checks(tmp_path: Pa
     assert response.status_code == 400
     payload = response.json()
     assert payload["error"] == "invalid_path"
+
+
+def test_export_comparison_rejects_more_than_two_paths_for_v1(tmp_path: Path) -> None:
+    _make_png(tmp_path / "a.png")
+    _make_png(tmp_path / "b.png")
+    _make_png(tmp_path / "c.png")
+
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.post(
+        "/export-comparison",
+        json=_export_payload(paths=["/a.png", "/b.png", "/c.png"]),
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"] == "invalid_request"
+    assert "paths:" in payload["message"]
+    assert "comparison export v1 requires exactly 2 paths" in payload["message"]
+
+
+def test_export_comparison_rejects_more_than_two_labels_for_v1(tmp_path: Path) -> None:
+    _make_png(tmp_path / "a.png")
+    _make_png(tmp_path / "b.png")
+
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.post(
+        "/export-comparison",
+        json=_export_payload(labels=["A", "B", "C"]),
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"] == "invalid_request"
+    assert "labels:" in payload["message"]
+    assert "comparison export v1 accepts at most 2 labels" in payload["message"]
+
+
+def test_export_comparison_v2_supports_multi_path_exports(tmp_path: Path) -> None:
+    _make_png(tmp_path / "a.png", size=(10, 8), color=(255, 0, 0))
+    _make_png(tmp_path / "b.png", size=(14, 8), color=(0, 255, 0))
+    _make_png(tmp_path / "c.png", size=(18, 8), color=(0, 0, 255))
+
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.post("/export-comparison", json=_export_payload_v2())
+
+    assert response.status_code == 200
+    with Image.open(io.BytesIO(response.content)) as exported:
+        assert exported.width == 42
+        assert exported.height > 8
+
+    metadata_payload = _read_comparison_metadata(response.content)
+    assert metadata_payload is not None
+    assert metadata_payload["paths"] == ["/a.png", "/b.png", "/c.png"]
+    assert metadata_payload["labels"] == ["Prompt A", "Prompt B", "Prompt C"]
+    assert metadata_payload["reversed"] is False
+
+
+def test_export_comparison_v2_rejects_invalid_path_count(tmp_path: Path) -> None:
+    _make_png(tmp_path / "a.png")
+    _make_png(tmp_path / "b.png")
+    _make_png(tmp_path / "c.png")
+
+    client = TestClient(create_app(str(tmp_path)))
+
+    too_few = client.post(
+        "/export-comparison",
+        json=_export_payload_v2(paths=["/a.png"]),
+    )
+    assert too_few.status_code == 400
+    assert too_few.json()["error"] == "invalid_request"
+    assert "between 2 and" in too_few.json()["message"]
+
+    too_many = client.post(
+        "/export-comparison",
+        json=_export_payload_v2(paths=["/a.png"] * (MAX_EXPORT_COMPARISON_PATHS_V2 + 1)),
+    )
+    assert too_many.status_code == 400
+    assert too_many.json()["error"] == "invalid_request"
+    assert f"{MAX_EXPORT_COMPARISON_PATHS_V2}" in too_many.json()["message"]
+
+
+def test_export_comparison_v2_rejects_more_labels_than_paths(tmp_path: Path) -> None:
+    _make_png(tmp_path / "a.png")
+    _make_png(tmp_path / "b.png")
+    _make_png(tmp_path / "c.png")
+
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.post(
+        "/export-comparison",
+        json=_export_payload_v2(labels=["A", "B", "C", "D"]),
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"] == "invalid_request"
+    assert "comparison export v2 accepts at most one label per path" in payload["message"]
 
 
 def test_export_comparison_returns_404_for_missing_source(tmp_path: Path) -> None:

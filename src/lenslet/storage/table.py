@@ -444,6 +444,9 @@ class TableStorage:
     def _progress(self, done: int, total: int, label: str) -> None:
         self._progress_bar.update(done, total, label)
 
+    def indexing_progress(self) -> dict[str, int | str | bool | None]:
+        return self._progress_bar.snapshot()
+
     def row_dimensions(self) -> list[tuple[int, int] | None]:
         return list(self._row_dimensions)
 

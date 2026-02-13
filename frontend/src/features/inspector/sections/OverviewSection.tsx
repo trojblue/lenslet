@@ -88,21 +88,22 @@ export function OverviewSection({
             compareActive={compareActive}
             onOpenCompare={onOpenCompare}
           />
-          <SelectionExportSection
-            selectedCount={selectedCount}
-            compareActive={compareActive}
-            compareReady={compareReady}
-            compareExportSupportsV2={compareExportSupportsV2}
-            compareExportMaxPathsV2={compareExportMaxPathsV2}
-            compareExportLabelsText={compareExportLabelsText}
-            onCompareExportLabelsTextChange={onCompareExportLabelsTextChange}
-            compareExportEmbedMetadata={compareExportEmbedMetadata}
-            onCompareExportEmbedMetadataChange={onCompareExportEmbedMetadataChange}
-            compareExportBusy={compareExportBusy}
-            compareExportMode={compareExportMode}
-            onComparisonExport={onComparisonExport}
-            compareExportError={compareExportError}
-          />
+          {!compareActive && (
+            <SelectionExportSection
+              selectedCount={selectedCount}
+              compareReady={compareReady}
+              compareExportSupportsV2={compareExportSupportsV2}
+              compareExportMaxPathsV2={compareExportMaxPathsV2}
+              compareExportLabelsText={compareExportLabelsText}
+              onCompareExportLabelsTextChange={onCompareExportLabelsTextChange}
+              compareExportEmbedMetadata={compareExportEmbedMetadata}
+              onCompareExportEmbedMetadataChange={onCompareExportEmbedMetadataChange}
+              compareExportBusy={compareExportBusy}
+              compareExportMode={compareExportMode}
+              onComparisonExport={onComparisonExport}
+              compareExportError={compareExportError}
+            />
+          )}
         </div>
       ) : (
         <div className="inspector-field">

@@ -67,7 +67,6 @@ export function useInspectorMetadataWorkflow({
 
   const compareExport = useInspectorCompareExport({
     selectedPaths,
-    compareReady,
     comparePathA,
     comparePathB,
     compareExportSupportsV2,

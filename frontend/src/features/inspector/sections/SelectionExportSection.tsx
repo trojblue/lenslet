@@ -1,12 +1,12 @@
 import React from 'react'
 import {
   buildExportComparisonV2MaxPathsMessage,
+  EXPORT_COMPARISON_PAIR_ONLY_MESSAGE,
   EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE,
 } from '../exportComparison'
 
 interface SelectionExportSectionProps {
   selectedCount: number
-  compareActive: boolean
   compareReady: boolean
   compareExportSupportsV2: boolean
   compareExportMaxPathsV2: number | null
@@ -22,12 +22,12 @@ interface SelectionExportSectionProps {
 
 export function getSelectionExportDisabledReason({
   selectedCount,
-  compareActive,
+  compareReady,
   compareExportSupportsV2,
   compareExportMaxPathsV2,
 }: {
   selectedCount: number
-  compareActive: boolean
+  compareReady: boolean
   compareExportSupportsV2: boolean
   compareExportMaxPathsV2: number | null
 }): string | null {
@@ -35,9 +35,7 @@ export function getSelectionExportDisabledReason({
     return `Comparison export requires at least 2 selections (selected ${selectedCount}).`
   }
   if (selectedCount === 2) {
-    if (!compareActive) {
-      return 'Open side-by-side view to enable comparison export.'
-    }
+    if (!compareReady) return EXPORT_COMPARISON_PAIR_ONLY_MESSAGE
     return null
   }
   if (!compareExportSupportsV2 || compareExportMaxPathsV2 === null) {
@@ -51,7 +49,6 @@ export function getSelectionExportDisabledReason({
 
 export function SelectionExportSection({
   selectedCount,
-  compareActive,
   compareReady,
   compareExportSupportsV2,
   compareExportMaxPathsV2,
@@ -66,13 +63,11 @@ export function SelectionExportSection({
 }: SelectionExportSectionProps): JSX.Element {
   const disabledReason = getSelectionExportDisabledReason({
     selectedCount,
-    compareActive,
+    compareReady,
     compareExportSupportsV2,
     compareExportMaxPathsV2,
   })
-  const pairSelectionRequiresCompareReady = selectedCount === 2
-  const exportDisabled =
-    compareExportBusy || disabledReason !== null || (pairSelectionRequiresCompareReady && !compareReady)
+  const exportDisabled = compareExportBusy || disabledReason !== null
   const labelsPlaceholder = selectedCount > 2
     ? 'Label for image 1\nLabel for image 2\n...'
     : 'Label for A\nLabel for B'

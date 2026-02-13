@@ -26,7 +26,7 @@ function buildCompareDiff(): CompareMetadataDiffResult {
 }
 
 describe('inspector metadata section rendering', () => {
-  it('renders enabled selection actions and export controls for an active compare pair', () => {
+  it('keeps compare mode focused on side-by-side actions only', () => {
     const html = renderToStaticMarkup(
       <OverviewSection
         open
@@ -54,14 +54,46 @@ describe('inspector metadata section rendering', () => {
     )
 
     expect(html).toContain('Selection Actions')
-    expect(html).toContain('Selection Export')
+    expect(html).not.toContain('Selection Export')
     expect(html).toContain('Side by side view')
-    expect(html).toContain('Export comparison')
+    expect(html).not.toContain('Export comparison')
     expect(html).toContain('Side-by-side viewer is already open.')
-    expect((html.match(/disabled=\"\"/g) ?? [])).toHaveLength(2)
+    expect((html.match(/disabled=\"\"/g) ?? [])).toHaveLength(1)
   })
 
-  it('keeps selection export visible when compare is closed and shows enablement guidance', () => {
+  it('keeps selection export enabled when compare is closed and pair paths are ready', () => {
+    const html = renderToStaticMarkup(
+      <OverviewSection
+        open
+        onToggle={noop}
+        multi
+        selectedCount={2}
+        totalSize={4096}
+        filename=""
+        compareActive={false}
+        compareReady
+        onOpenCompare={noop}
+        compareExportSupportsV2={false}
+        compareExportMaxPathsV2={null}
+        compareExportLabelsText=""
+        onCompareExportLabelsTextChange={noop}
+        compareExportEmbedMetadata
+        onCompareExportEmbedMetadataChange={noop}
+        compareExportBusy={false}
+        compareExportMode={null}
+        onComparisonExport={noop}
+        compareExportError={null}
+        canFindSimilar={false}
+        findSimilarDisabledReason={null}
+      />,
+    )
+
+    expect(html).toContain('Selection Export')
+    expect(html).not.toContain('Open side-by-side view to enable comparison export.')
+    expect((html.match(/disabled=\"\"/g) ?? [])).toHaveLength(0)
+  })
+
+  it('shows pair-only guidance when exactly two selections do not resolve to exportable paths', () => {
     const html = renderToStaticMarkup(
       <OverviewSection
         open
@@ -88,9 +120,9 @@ describe('inspector metadata section rendering', () => {
       />,
     )
 
-    expect(html).toContain('Selection Export')
-    expect(html).toContain('Open side-by-side view to enable comparison export.')
-    expect((html.match(/disabled=\"\"/g) ?? []).length).toBeGreaterThanOrEqual(3)
+    expect(html).toContain('Comparison export (v1) requires exactly 2 selected images.')
+    expect(html).not.toContain('Open side-by-side view to enable comparison export.')
+    expect((html.match(/disabled=\"\"/g) ?? []).length).toBeGreaterThanOrEqual(4)
   })
 
   it('shows explicit side-by-side and export capability guidance for selections above two', () => {
@@ -155,7 +187,7 @@ describe('inspector metadata section rendering', () => {
     expect(html).toContain('Side-by-side view supports exactly 2 selections (selected 3).')
     expect(html).not.toContain('Comparison export for more than 2 selections is unavailable on this server.')
     expect(html).toContain('Label for image 1')
-    expect((html.match(/disabled=\"\"/g) ?? [])).toHaveLength(2)
+    expect((html.match(/disabled=\"\"/g) ?? [])).toHaveLength(1)
   })
 
   it('renders metadata copy status with typed metadata output', () => {

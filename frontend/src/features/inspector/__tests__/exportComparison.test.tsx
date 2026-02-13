@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_EXPORT_COMPARISON_EMBED_METADATA,
   EXPORT_COMPARISON_PAIR_ONLY_MESSAGE,
+  EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE,
   EXPORT_COMPARISON_V2_PATH_RANGE_MESSAGE,
   buildComparisonExportFilename,
   buildExportComparisonPayload,
   buildExportComparisonPayloadV2,
 } from '../exportComparison'
+import { buildInspectorComparisonExportPayload } from '../hooks/useInspectorCompareExport'
+import { getSelectionExportDisabledReason } from '../sections/SelectionExportSection'
 
 describe('comparison export helpers', () => {
   it('keeps metadata embedding enabled by default', () => {
@@ -144,5 +147,62 @@ describe('comparison export helpers', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.message).toContain('at most 3 label lines')
+  })
+
+  it('keeps 2-item export enabled when compare overlay is closed but pair paths are ready', () => {
+    const reason = getSelectionExportDisabledReason({
+      selectedCount: 2,
+      compareReady: true,
+      compareExportSupportsV2: false,
+      compareExportMaxPathsV2: null,
+    })
+
+    expect(reason).toBeNull()
+  })
+
+  it('returns pair-only guidance when 2-item export pair paths are unavailable', () => {
+    const reason = getSelectionExportDisabledReason({
+      selectedCount: 2,
+      compareReady: false,
+      compareExportSupportsV2: false,
+      compareExportMaxPathsV2: null,
+    })
+
+    expect(reason).toBe(EXPORT_COMPARISON_PAIR_ONLY_MESSAGE)
+  })
+
+  it('builds 2-item export payloads from selected paths even when compare pair inputs are missing', () => {
+    const result = buildInspectorComparisonExportPayload({
+      selectedPaths: ['/a.png', '/b.png'],
+      comparePathA: null,
+      comparePathB: null,
+      compareExportSupportsV2: false,
+      compareExportMaxPathsV2: null,
+      labelsText: '',
+      embedMetadata: true,
+      reverseOrder: false,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.payload.v).toBe(1)
+    expect(result.payload.paths).toEqual(['/a.png', '/b.png'])
+  })
+
+  it('keeps v2 capability checks for selections above two', () => {
+    const result = buildInspectorComparisonExportPayload({
+      selectedPaths: ['/a.png', '/b.png', '/c.png'],
+      comparePathA: '/a.png',
+      comparePathB: '/b.png',
+      compareExportSupportsV2: false,
+      compareExportMaxPathsV2: null,
+      labelsText: '',
+      embedMetadata: true,
+      reverseOrder: false,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.message).toBe(EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE)
   })
 })

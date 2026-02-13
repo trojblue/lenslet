@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { downloadBlob } from '../../../app/utils/appShellHelpers'
 import { api } from '../../../shared/api/client'
 import {
+  type ExportComparisonPayloadResult,
   buildExportComparisonV2MaxPathsMessage,
   DEFAULT_EXPORT_COMPARISON_EMBED_METADATA,
   EXPORT_COMPARISON_PAIR_ONLY_MESSAGE,
@@ -13,7 +14,6 @@ import {
 
 type UseInspectorCompareExportParams = {
   selectedPaths: string[]
-  compareReady: boolean
   comparePathA: string | null
   comparePathB: string | null
   compareExportSupportsV2: boolean
@@ -31,9 +31,87 @@ type UseInspectorCompareExportResult = {
   runComparisonExport: (reverseOrder: boolean) => Promise<void>
 }
 
+type BuildInspectorComparisonExportPayloadArgs = {
+  selectedPaths: string[]
+  comparePathA: string | null
+  comparePathB: string | null
+  compareExportSupportsV2: boolean
+  compareExportMaxPathsV2: number | null
+  labelsText: string
+  embedMetadata: boolean
+  reverseOrder: boolean
+}
+
+function resolveComparisonPairPaths({
+  selectedPaths,
+  comparePathA,
+  comparePathB,
+}: {
+  selectedPaths: string[]
+  comparePathA: string | null
+  comparePathB: string | null
+}): [string, string] | null {
+  if (selectedPaths.length !== 2) return null
+  if (comparePathA && comparePathB) return [comparePathA, comparePathB]
+
+  const [pathA, pathB] = selectedPaths
+  if (!pathA || !pathB) return null
+  return [pathA, pathB]
+}
+
+export function buildInspectorComparisonExportPayload({
+  selectedPaths,
+  comparePathA,
+  comparePathB,
+  compareExportSupportsV2,
+  compareExportMaxPathsV2,
+  labelsText,
+  embedMetadata,
+  reverseOrder,
+}: BuildInspectorComparisonExportPayloadArgs): ExportComparisonPayloadResult {
+  const selectedCount = selectedPaths.length
+  if (selectedCount < 2) {
+    return { ok: false, message: EXPORT_COMPARISON_PAIR_ONLY_MESSAGE }
+  }
+
+  if (selectedCount === 2) {
+    const pairPaths = resolveComparisonPairPaths({
+      selectedPaths,
+      comparePathA,
+      comparePathB,
+    })
+    if (!pairPaths) {
+      return { ok: false, message: EXPORT_COMPARISON_PAIR_ONLY_MESSAGE }
+    }
+    const [pathA, pathB] = pairPaths
+    return buildExportComparisonPayload({
+      pathA,
+      pathB,
+      labelsText,
+      embedMetadata,
+      reverseOrder,
+    })
+  }
+
+  if (!compareExportSupportsV2) {
+    return { ok: false, message: EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE }
+  }
+  if (compareExportMaxPathsV2 !== null && selectedCount > compareExportMaxPathsV2) {
+    return {
+      ok: false,
+      message: buildExportComparisonV2MaxPathsMessage(compareExportMaxPathsV2, selectedCount),
+    }
+  }
+  return buildExportComparisonPayloadV2({
+    paths: selectedPaths,
+    labelsText,
+    embedMetadata,
+    reverseOrder,
+  })
+}
+
 export function useInspectorCompareExport({
   selectedPaths,
-  compareReady,
   comparePathA,
   comparePathB,
   compareExportSupportsV2,
@@ -55,13 +133,9 @@ export function useInspectorCompareExport({
       setCompareExportError(null)
       return
     }
-    if (selectedPaths.length === 2 && (!compareReady || !comparePathA || !comparePathB)) {
-      setCompareExportLabelsText('')
-      setCompareExportEmbedMetadata(DEFAULT_EXPORT_COMPARISON_EMBED_METADATA)
-    }
     setCompareExportMode(null)
     setCompareExportError(null)
-  }, [comparePathA, comparePathB, compareReady, selectedPaths.length])
+  }, [comparePathA, comparePathB, selectedPaths])
 
   const handleCompareExportLabelsTextChange = useCallback((value: string) => {
     setCompareExportLabelsText(value)
@@ -82,40 +156,16 @@ export function useInspectorCompareExport({
         return
       }
 
-      let payloadResult:
-        | ReturnType<typeof buildExportComparisonPayload>
-        | ReturnType<typeof buildExportComparisonPayloadV2>
-
-      if (selectedCount === 2) {
-        if (!compareReady || !comparePathA || !comparePathB) {
-          setCompareExportError(EXPORT_COMPARISON_PAIR_ONLY_MESSAGE)
-          return
-        }
-        payloadResult = buildExportComparisonPayload({
-          pathA: comparePathA,
-          pathB: comparePathB,
-          labelsText: compareExportLabelsText,
-          embedMetadata: compareExportEmbedMetadata,
-          reverseOrder,
-        })
-      } else {
-        if (!compareExportSupportsV2) {
-          setCompareExportError(EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE)
-          return
-        }
-        if (compareExportMaxPathsV2 !== null && selectedCount > compareExportMaxPathsV2) {
-          setCompareExportError(
-            buildExportComparisonV2MaxPathsMessage(compareExportMaxPathsV2, selectedCount),
-          )
-          return
-        }
-        payloadResult = buildExportComparisonPayloadV2({
-          paths: selectedPaths,
-          labelsText: compareExportLabelsText,
-          embedMetadata: compareExportEmbedMetadata,
-          reverseOrder,
-        })
-      }
+      const payloadResult = buildInspectorComparisonExportPayload({
+        selectedPaths,
+        comparePathA,
+        comparePathB,
+        compareExportSupportsV2,
+        compareExportMaxPathsV2,
+        labelsText: compareExportLabelsText,
+        embedMetadata: compareExportEmbedMetadata,
+        reverseOrder,
+      })
       if (!payloadResult.ok) {
         setCompareExportError(payloadResult.message)
         return
@@ -141,7 +191,6 @@ export function useInspectorCompareExport({
       compareExportSupportsV2,
       comparePathA,
       comparePathB,
-      compareReady,
       selectedPaths,
     ],
   )

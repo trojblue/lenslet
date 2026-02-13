@@ -23,7 +23,7 @@ export function SelectionActionsSection({
   const openDisabled = !onOpenCompare || compareActive || disabledReason !== null
   const helperText = compareActive
     ? 'Side-by-side viewer is already open.'
-    : (disabledReason ?? 'Open side by side to enable comparison export controls.')
+    : (disabledReason ?? 'Open side by side to compare selected images.')
 
   return (
     <div className="space-y-2 rounded-md border border-border/60 bg-surface-inset/40 p-3">
@@ -36,14 +36,6 @@ export function SelectionActionsSection({
           disabled={openDisabled}
         >
           Side by side view
-        </button>
-        <button
-          type="button"
-          className="btn btn-sm btn-ghost"
-          onClick={() => onOpenCompare?.()}
-          disabled={openDisabled}
-        >
-          Export comparison
         </button>
       </div>
       <div className="text-[11px] text-muted">{helperText}</div>

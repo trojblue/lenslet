@@ -107,7 +107,9 @@ export default function Inspector({
 
   const comparePathA = compareA?.path ?? null
   const comparePathB = compareB?.path ?? null
-  const compareReady = compareActive && !!comparePathA && !!comparePathB
+  const selectedPairReady = selectedPaths.length === 2 && !!selectedPaths[0] && !!selectedPaths[1]
+  const comparePairReady = !!comparePathA && !!comparePathB
+  const compareReady = compareActive && comparePairReady
   const {
     openSections,
     toggleOverviewSection,
@@ -480,7 +482,7 @@ export default function Inspector({
         totalSize={totalSize}
         filename={filename}
         compareActive={compareActive}
-        compareReady={compareReady}
+        compareReady={selectedPairReady}
         onOpenCompare={onOpenCompare}
         compareExportSupportsV2={compareExportSupportsV2}
         compareExportMaxPathsV2={compareExportMaxPathsV2}

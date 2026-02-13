@@ -10,6 +10,12 @@ For each proposed change, examine the existing system and redesign it into the m
 - `docs/` and `notebooks/` are for lightweight design notes and experiments.
 - `dist/` is build output (safe to delete locally).
 
+## Documentation Scope
+- `docs/` contains active design/execution docs.
+- `docs/agents_archive/` is historical context only; do not treat it as current source-of-truth unless explicitly asked.
+- For routine text searches, prefer excluding `docs/agents_archive/` to reduce noise.
+- New Ralph loop workspaces should default to `docs/ralph/<YYYYMMDD_slug>/` unless overridden.
+
 ## Build, Test, and Development Commands
 - `pip install -e . && pip install -e ".[dev]"` — editable install with dev tools.
 - `lenslet /path/to/images --reload --port 7070` — run the gallery with auto-reload.

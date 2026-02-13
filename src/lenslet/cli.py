@@ -10,8 +10,11 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 from urllib.parse import urlparse
+
+if TYPE_CHECKING:
+    from .storage.table import TableStorage
 
 
 _CLOUDFLARED_URL = (
@@ -707,7 +710,7 @@ def _prepare_table_cache(
     skip_indexing: bool,
     quiet: bool = False,
     embedding_config=None,
-) -> "TableStorage":
+) -> TableStorage:
     from .storage.table import TableStorage, load_parquet_table
     columns = None
     if embedding_config is not None:

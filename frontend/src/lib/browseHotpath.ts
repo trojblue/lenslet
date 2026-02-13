@@ -22,6 +22,8 @@ export type BrowseHydrationSnapshot = {
 }
 
 export type BrowseHotpathSnapshot = {
+  firstGridItemLatencyMs: number | null
+  firstGridItemPath: string | null
   firstThumbnailLatencyMs: number | null
   firstThumbnailPath: string | null
   requestBudget: BrowseRequestBudgetSnapshot | null
@@ -37,6 +39,8 @@ declare global {
 const MARKERS = {
   hydrationStart: (requestId: number) => `lenslet:browse:hydration:start:${requestId}`,
   hydrationComplete: (requestId: number) => `lenslet:browse:hydration:complete:${requestId}`,
+  firstGrid: (requestId: number) => `lenslet:browse:first-grid:${requestId}`,
+  firstGridLatency: (requestId: number) => `lenslet:browse:first-grid-latency:${requestId}`,
   firstThumb: (requestId: number) => `lenslet:browse:first-thumb:${requestId}`,
   firstThumbLatency: (requestId: number) => `lenslet:browse:first-thumb-latency:${requestId}`,
 } as const
@@ -44,6 +48,8 @@ const MARKERS = {
 type TelemetryState = {
   activeRequestId: number | null
   activeHydrationStartedAtMs: number | null
+  firstGridItemLatencyMs: number | null
+  firstGridItemPath: string | null
   firstThumbnailLatencyMs: number | null
   firstThumbnailPath: string | null
   requestBudget: BrowseRequestBudgetSnapshot | null
@@ -53,6 +59,8 @@ type TelemetryState = {
 const telemetryState: TelemetryState = {
   activeRequestId: null,
   activeHydrationStartedAtMs: null,
+  firstGridItemLatencyMs: null,
+  firstGridItemPath: null,
   firstThumbnailLatencyMs: null,
   firstThumbnailPath: null,
   requestBudget: null,
@@ -91,6 +99,8 @@ function publish(): void {
 
 export function getBrowseHotpathSnapshot(): BrowseHotpathSnapshot {
   return {
+    firstGridItemLatencyMs: telemetryState.firstGridItemLatencyMs,
+    firstGridItemPath: telemetryState.firstGridItemPath,
     firstThumbnailLatencyMs: telemetryState.firstThumbnailLatencyMs,
     firstThumbnailPath: telemetryState.firstThumbnailPath,
     requestBudget: telemetryState.requestBudget ? { ...telemetryState.requestBudget } : null,
@@ -115,6 +125,8 @@ type HydrationProgressInput = {
 export function startBrowseHydration(input: HydrationProgressInput): void {
   telemetryState.activeRequestId = input.requestId
   telemetryState.activeHydrationStartedAtMs = nowMs()
+  telemetryState.firstGridItemLatencyMs = null
+  telemetryState.firstGridItemPath = null
   telemetryState.firstThumbnailLatencyMs = null
   telemetryState.firstThumbnailPath = null
   telemetryState.hydration = {
@@ -149,6 +161,20 @@ export function completeBrowseHydration(requestId: number): void {
   publish()
 }
 
+export function markFirstGridItemVisible(path: string): void {
+  const requestId = telemetryState.activeRequestId
+  const startMs = telemetryState.activeHydrationStartedAtMs
+  if (requestId == null || startMs == null) return
+  if (telemetryState.firstGridItemLatencyMs != null) return
+  const latency = Math.max(0, nowMs() - startMs)
+  telemetryState.firstGridItemLatencyMs = Math.round(latency)
+  telemetryState.firstGridItemPath = path
+  const endMarker = MARKERS.firstGrid(requestId)
+  mark(endMarker)
+  measure(MARKERS.firstGridLatency(requestId), MARKERS.hydrationStart(requestId), endMarker)
+  publish()
+}
+
 export function markFirstThumbnailRendered(path: string): void {
   const requestId = telemetryState.activeRequestId
   const startMs = telemetryState.activeHydrationStartedAtMs
@@ -166,6 +192,8 @@ export function markFirstThumbnailRendered(path: string): void {
 export function resetBrowseHotpathForTests(): void {
   telemetryState.activeRequestId = null
   telemetryState.activeHydrationStartedAtMs = null
+  telemetryState.firstGridItemLatencyMs = null
+  telemetryState.firstGridItemPath = null
   telemetryState.firstThumbnailLatencyMs = null
   telemetryState.firstThumbnailPath = null
   telemetryState.requestBudget = null

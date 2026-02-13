@@ -1,0 +1,39 @@
+# Ralph Progress Log
+Started: 2026-02-13T20:00:21Z
+Mode: plan
+Tool: codex
+Repo: /home/ubuntu/dev/lenslet
+Plan: /home/ubuntu/dev/lenslet/docs/20260213_browse_responsiveness_reimpl_plan.md
+---
+## Iteration 1 (2026-02-13T20:12Z)
+- Completed task IDs: T1, T2, T3, T4, T5
+- Files changed:
+  - frontend/src/app/AppShell.tsx
+  - frontend/src/app/hooks/useAppDataScope.ts
+  - frontend/src/app/model/indexingBrowseMode.ts
+  - frontend/src/app/model/__tests__/indexingBrowseMode.test.ts
+  - frontend/src/features/browse/components/VirtualGrid.tsx
+  - frontend/src/lib/browseHotpath.ts
+  - frontend/src/lib/__tests__/browseHotpath.test.ts
+  - scripts/playwright_large_tree_smoke.py
+  - scripts/playwright_large_tree_smoke_baselines.json
+  - tests/test_playwright_large_tree_smoke.py
+  - src/lenslet/frontend/index.html
+  - src/lenslet/frontend/assets/index-rxjHtGmw.css
+  - src/lenslet/frontend/assets/index-Dy9cgsBM.js
+  - docs/20260213_browse_responsiveness_reimpl_plan.md
+- Validations run:
+  - `npm --prefix frontend test -- src/lib/__tests__/browseHotpath.test.ts src/app/model/__tests__/indexingBrowseMode.test.ts` (pass)
+  - `pytest -q tests/test_playwright_large_tree_smoke.py` (pass)
+  - `npm --prefix frontend test` (pass)
+  - `pytest -q tests/test_folder_pagination.py tests/test_hotpath_sprint_s4.py tests/test_playwright_large_tree_smoke.py` (pass)
+  - `python scripts/playwright_large_tree_smoke.py --baseline-profile secondary_tiny_fast --output-json data/fixtures/large_tree_smoke_tiny_result.json` (pass; first-grid hotpath=56ms)
+  - `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` (fail: first grid visible 5.11s > 5.00s threshold)
+  - `python scripts/lint_repo.py` (pass)
+- Blockers:
+  - Primary strict large-fixture gate still fails by a narrow margin (5.11s first-grid).
+- Next step:
+  - Sprint 2 backend cold first-page fast path (T6-T9) to remove residual cold-start blocking and close the strict primary gate.
+- Post-sprint routines:
+  - `code-simplifier` subagent pass completed (conservative non-semantic cleanup only).
+  - `code-review` subagent rerun completed (no unresolved high/medium findings).

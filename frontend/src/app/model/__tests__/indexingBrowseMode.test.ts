@@ -39,6 +39,19 @@ describe('indexing browse mode', () => {
     })
   })
 
+  it('keeps scan-stable mode active when ready transition omits generation', () => {
+    const state: IndexingBrowseModeState = {
+      scanGeneration: 'g3',
+      recentGeneration: null,
+    }
+
+    expect(deriveIndexingBrowseMode({ state: 'ready' }, state)).toMatchObject({
+      scanStableActive: true,
+      sortLocked: true,
+      showSwitchToMostRecentBanner: true,
+    })
+  })
+
   it('resets deterministically for a new generation after switching to most recent', () => {
     const switched: IndexingBrowseModeState = {
       scanGeneration: 'g1',

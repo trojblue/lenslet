@@ -36,7 +36,8 @@ export function deriveIndexingBrowseMode(
   indexing: IndexingSignal,
   state: IndexingBrowseModeState,
 ): IndexingBrowseMode {
-  const generation = normalizeIndexingGeneration(indexing?.generation)
+  const indexedGeneration = normalizeIndexingGeneration(indexing?.generation)
+  const generation = indexedGeneration ?? (indexing?.state === 'ready' ? state.scanGeneration : null)
   const scanStableActive = (
     generation !== null
     && state.scanGeneration === generation

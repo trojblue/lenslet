@@ -215,6 +215,8 @@ export default function AppShell() {
     filteredCount,
     scopeTotal,
     rootTotal,
+    browseHydrationPending,
+    browseHydrationProgress,
   } = useAppDataScope({
     current,
     query,
@@ -400,7 +402,7 @@ export default function AppShell() {
   }, [indexingBrowseMode.scanStableActive])
 
   const handleSwitchToMostRecent = useCallback(() => {
-    const generation = normalizeIndexingGeneration(indexing?.generation)
+    const generation = normalizeIndexingGeneration(indexing?.generation) ?? scanGeneration
     if (!generation) return
     if (recentGeneration !== generation) {
       setRecentGeneration(generation)
@@ -415,11 +417,8 @@ export default function AppShell() {
         sort: { kind: 'builtin', key: 'added', dir: 'desc' },
       }
     })
-  }, [indexing?.generation, recentGeneration])
+  }, [indexing?.generation, recentGeneration, scanGeneration])
 
-  const handleGridVisiblePathsChange = useCallback((paths: Set<string>) => {
-    handleVisiblePathsChange(paths)
-  }, [handleVisiblePathsChange])
   const handleGridTopAnchorPathChange = useCallback((topAnchorPath: string | null) => {
     if (!topAnchorPath) return
     saveTopAnchorPath(current, topAnchorPath)
@@ -560,6 +559,12 @@ export default function AppShell() {
   const similarityCountLabel = useMemo(
     () => getSimilarityCountLabel(similarityState !== null, activeFilterCount, filteredCount, totalCount),
     [similarityState, activeFilterCount, filteredCount, totalCount],
+  )
+  const showGridHydrationLoading = (
+    !similarityActive
+    && !searching
+    && items.length === 0
+    && (isLoading || browseHydrationPending)
   )
 
   const updateFilters = useCallback((updater: (filters: FilterAST) => FilterAST) => {
@@ -1291,7 +1296,7 @@ export default function AppShell() {
             onOpenViewer={(p) => { rememberFocusedPath(p); openViewer(p); setSelectedPaths([p]) }}
             highlight={searching ? normalizedQ : ''}
             recentlyUpdated={highlightedPaths}
-            onVisiblePathsChange={handleGridVisiblePathsChange}
+            onVisiblePathsChange={handleVisiblePathsChange}
             onTopAnchorPathChange={handleGridTopAnchorPathChange}
             suppressSelectionHighlight={overlayActive}
             viewMode={viewMode}
@@ -1303,6 +1308,8 @@ export default function AppShell() {
             onOpenItemActions={openGridActions}
             scrollRef={gridScrollRef}
             hideScrollbar={hasMetricScrollbar}
+            isHydrationLoading={showGridHydrationLoading}
+            hydrationProgress={browseHydrationProgress}
           />
           {hasMetricScrollbar && metricSortKey && (
             <MetricScrollbar

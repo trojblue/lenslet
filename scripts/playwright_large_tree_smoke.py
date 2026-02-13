@@ -28,6 +28,9 @@ from PIL import Image
 
 FIXTURE_VERSION = 1
 BROWSE_ENDPOINTS = ("folders", "thumb", "file")
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_BASELINE_FILE = SCRIPT_DIR / "playwright_large_tree_smoke_baselines.json"
+DEFAULT_BASELINE_PROFILE = "primary_large_no_write"
 
 
 class SmokeFailure(RuntimeError):
@@ -44,12 +47,37 @@ class FixtureSpec:
 
 
 @dataclass(frozen=True)
+class SmokeBaselineProfile:
+    name: str
+    gate_tier: str
+    dataset_dir: Path
+    total_images: int
+    total_folders: int
+    image_width: int
+    image_height: int
+    jpeg_quality: int
+    first_grid_threshold_seconds: float
+    first_grid_hotpath_threshold_ms: float
+    first_thumbnail_threshold_ms: float
+    interaction_seconds: float
+    max_frame_gap_ms: float
+    write_mode: bool
+    expectations: str | None
+
+
+@dataclass(frozen=True)
 class SmokeResult:
+    baseline_file: str
+    baseline_profile: str
+    gate_tier: str
+    write_mode: bool
     dataset_dir: str
     total_images: int
     total_folders: int
     first_grid_visible_seconds: float
     first_grid_threshold_seconds: float
+    first_grid_hotpath_latency_ms: int | None
+    first_grid_hotpath_threshold_ms: float
     first_thumbnail_latency_ms: int | None
     first_thumbnail_threshold_ms: float
     max_frame_gap_ms: float
@@ -70,18 +98,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dataset-dir",
         type=Path,
-        default=Path("data/fixtures/large_tree_40k"),
-        help="Dataset fixture directory (default: data/fixtures/large_tree_40k).",
+        default=None,
+        help="Dataset fixture directory (defaults to selected baseline profile value).",
     )
-    parser.add_argument("--total-images", type=int, default=40_000, help="Total fixture images.")
-    parser.add_argument("--total-folders", type=int, default=10_000, help="Total fixture folders.")
-    parser.add_argument("--image-width", type=int, default=100, help="Fixture image width.")
-    parser.add_argument("--image-height", type=int, default=200, help="Fixture image height.")
-    parser.add_argument("--jpeg-quality", type=int, default=70, help="Fixture JPEG quality.")
+    parser.add_argument("--total-images", type=int, default=None, help="Total fixture images.")
+    parser.add_argument("--total-folders", type=int, default=None, help="Total fixture folders.")
+    parser.add_argument("--image-width", type=int, default=None, help="Fixture image width.")
+    parser.add_argument("--image-height", type=int, default=None, help="Fixture image height.")
+    parser.add_argument("--jpeg-quality", type=int, default=None, help="Fixture JPEG quality.")
     parser.add_argument(
         "--regenerate-fixture",
         action="store_true",
         help="Delete and rebuild fixture directory before running smoke checks.",
+    )
+    parser.add_argument(
+        "--baseline-file",
+        type=Path,
+        default=DEFAULT_BASELINE_FILE,
+        help=f"Baseline profile configuration file (default: {DEFAULT_BASELINE_FILE}).",
+    )
+    parser.add_argument(
+        "--baseline-profile",
+        default=DEFAULT_BASELINE_PROFILE,
+        help=f"Baseline profile name (default: {DEFAULT_BASELINE_PROFILE}).",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Host for Lenslet server.")
     parser.add_argument("--port", type=int, default=7070, help="Preferred Lenslet port.")
@@ -100,26 +139,37 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--first-grid-threshold-seconds",
         type=float,
-        default=5.0,
+        default=None,
         help="Fail if first visible grid cell takes longer than this threshold.",
+    )
+    parser.add_argument(
+        "--first-grid-hotpath-threshold-ms",
+        type=float,
+        default=None,
+        help="Fail if first-grid telemetry exceeds this threshold.",
     )
     parser.add_argument(
         "--first-thumbnail-threshold-ms",
         type=float,
-        default=5_000.0,
+        default=None,
         help="Fail if first thumbnail telemetry exceeds this threshold.",
     )
     parser.add_argument(
         "--interaction-seconds",
         type=float,
-        default=5.0,
+        default=None,
         help="Duration to run scroll responsiveness probe.",
     )
     parser.add_argument(
         "--max-frame-gap-ms",
         type=float,
-        default=700.0,
+        default=None,
         help="Fail if UI frame gap exceeds this threshold during scroll probe.",
+    )
+    parser.add_argument(
+        "--write-mode",
+        action="store_true",
+        help="Run Lenslet in write mode for dual-mode validation evidence.",
     )
     parser.add_argument(
         "--output-json",
@@ -127,7 +177,120 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path to write machine-readable smoke summary JSON.",
     )
-    return parser.parse_args()
+    return resolve_args_with_baseline(parser.parse_args())
+
+
+def _profile_value(raw_profile: dict[str, Any], key: str) -> Any:
+    if key not in raw_profile:
+        raise SmokeFailure(f"baseline profile is missing required field: {key}")
+    return raw_profile[key]
+
+
+def _profile_int(raw_profile: dict[str, Any], key: str) -> int:
+    raw = _profile_value(raw_profile, key)
+    if isinstance(raw, bool):
+        raise SmokeFailure(f"baseline profile field '{key}' must be an integer")
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    if isinstance(raw, str):
+        try:
+            return int(float(raw.strip()))
+        except ValueError as exc:
+            raise SmokeFailure(f"baseline profile field '{key}' must be an integer") from exc
+    raise SmokeFailure(f"baseline profile field '{key}' must be an integer")
+
+
+def _profile_float(raw_profile: dict[str, Any], key: str) -> float:
+    raw = _profile_value(raw_profile, key)
+    if isinstance(raw, bool):
+        raise SmokeFailure(f"baseline profile field '{key}' must be a float")
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    if isinstance(raw, str):
+        try:
+            return float(raw.strip())
+        except ValueError as exc:
+            raise SmokeFailure(f"baseline profile field '{key}' must be a float") from exc
+    raise SmokeFailure(f"baseline profile field '{key}' must be a float")
+
+
+def load_baseline_profile(path: Path, name: str) -> SmokeBaselineProfile:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise SmokeFailure(f"unable to read baseline file: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise SmokeFailure(f"invalid baseline JSON: {path}") from exc
+
+    if not isinstance(payload, dict):
+        raise SmokeFailure(f"baseline file payload must be an object: {path}")
+    profiles = payload.get("profiles")
+    if not isinstance(profiles, dict):
+        raise SmokeFailure(f"baseline file is missing 'profiles': {path}")
+    raw_profile = profiles.get(name)
+    if not isinstance(raw_profile, dict):
+        available = ", ".join(sorted(str(key) for key in profiles.keys()))
+        raise SmokeFailure(
+            f"baseline profile '{name}' not found in {path}. Available profiles: {available or '(none)'}"
+        )
+
+    dataset_dir_raw = _profile_value(raw_profile, "dataset_dir")
+    if not isinstance(dataset_dir_raw, str) or not dataset_dir_raw.strip():
+        raise SmokeFailure("baseline profile field 'dataset_dir' must be a non-empty string")
+    write_mode_raw = _profile_value(raw_profile, "write_mode")
+    if not isinstance(write_mode_raw, bool):
+        raise SmokeFailure("baseline profile field 'write_mode' must be a boolean")
+    gate_tier_raw = raw_profile.get("gate_tier", "custom")
+    gate_tier = gate_tier_raw if isinstance(gate_tier_raw, str) and gate_tier_raw.strip() else "custom"
+    expectations_raw = raw_profile.get("expectations")
+    expectations = expectations_raw if isinstance(expectations_raw, str) and expectations_raw.strip() else None
+
+    return SmokeBaselineProfile(
+        name=name,
+        gate_tier=gate_tier,
+        dataset_dir=Path(dataset_dir_raw),
+        total_images=_profile_int(raw_profile, "total_images"),
+        total_folders=_profile_int(raw_profile, "total_folders"),
+        image_width=_profile_int(raw_profile, "image_width"),
+        image_height=_profile_int(raw_profile, "image_height"),
+        jpeg_quality=_profile_int(raw_profile, "jpeg_quality"),
+        first_grid_threshold_seconds=_profile_float(raw_profile, "first_grid_threshold_seconds"),
+        first_grid_hotpath_threshold_ms=_profile_float(raw_profile, "first_grid_hotpath_threshold_ms"),
+        first_thumbnail_threshold_ms=_profile_float(raw_profile, "first_thumbnail_threshold_ms"),
+        interaction_seconds=_profile_float(raw_profile, "interaction_seconds"),
+        max_frame_gap_ms=_profile_float(raw_profile, "max_frame_gap_ms"),
+        write_mode=write_mode_raw,
+        expectations=expectations,
+    )
+
+
+def resolve_args_with_baseline(args: argparse.Namespace) -> argparse.Namespace:
+    baseline_profile = load_baseline_profile(args.baseline_file, args.baseline_profile)
+
+    def choose(override: Any, baseline_value: Any) -> Any:
+        return baseline_value if override is None else override
+
+    args.dataset_dir = choose(args.dataset_dir, baseline_profile.dataset_dir)
+    args.total_images = choose(args.total_images, baseline_profile.total_images)
+    args.total_folders = choose(args.total_folders, baseline_profile.total_folders)
+    args.image_width = choose(args.image_width, baseline_profile.image_width)
+    args.image_height = choose(args.image_height, baseline_profile.image_height)
+    args.jpeg_quality = choose(args.jpeg_quality, baseline_profile.jpeg_quality)
+    args.first_grid_threshold_seconds = choose(
+        args.first_grid_threshold_seconds, baseline_profile.first_grid_threshold_seconds
+    )
+    args.first_grid_hotpath_threshold_ms = choose(
+        args.first_grid_hotpath_threshold_ms, baseline_profile.first_grid_hotpath_threshold_ms
+    )
+    args.first_thumbnail_threshold_ms = choose(
+        args.first_thumbnail_threshold_ms, baseline_profile.first_thumbnail_threshold_ms
+    )
+    args.interaction_seconds = choose(args.interaction_seconds, baseline_profile.interaction_seconds)
+    args.max_frame_gap_ms = choose(args.max_frame_gap_ms, baseline_profile.max_frame_gap_ms)
+    args.baseline_gate_tier = baseline_profile.gate_tier
+    args.baseline_expectations = baseline_profile.expectations
+    args.write_mode = bool(args.write_mode or baseline_profile.write_mode)
+    return args
 
 
 def choose_port(host: str, preferred: int) -> int:
@@ -254,8 +417,7 @@ def _coerce_int(value: Any) -> int:
 def _coerce_optional_int(value: Any) -> int | None:
     if value is None:
         return None
-    coerced = _coerce_int(value)
-    return coerced
+    return _coerce_int(value)
 
 
 def assert_request_budget_compliance(hotpath_snapshot: dict[str, Any] | None) -> tuple[dict[str, int], dict[str, int]]:
@@ -290,6 +452,8 @@ def assert_responsiveness_thresholds(
     *,
     first_grid_visible_seconds: float,
     first_grid_threshold_seconds: float,
+    first_grid_hotpath_latency_ms: int | None,
+    first_grid_hotpath_threshold_ms: float,
     max_frame_gap_ms: float,
     max_frame_gap_threshold_ms: float,
     first_thumbnail_latency_ms: int | None,
@@ -304,6 +468,13 @@ def assert_responsiveness_thresholds(
         raise SmokeFailure(
             f"UI freeze threshold exceeded: max frame gap {max_frame_gap_ms:.1f}ms "
             f"(threshold {max_frame_gap_threshold_ms:.1f}ms)"
+        )
+    if first_grid_hotpath_latency_ms is None:
+        raise SmokeFailure("first-grid telemetry is unavailable")
+    if float(first_grid_hotpath_latency_ms) > first_grid_hotpath_threshold_ms:
+        raise SmokeFailure(
+            f"first grid telemetry latency exceeded threshold: {first_grid_hotpath_latency_ms}ms "
+            f"(threshold {first_grid_hotpath_threshold_ms:.0f}ms)"
         )
     if first_thumbnail_latency_ms is None:
         raise SmokeFailure("first-thumbnail telemetry is unavailable")
@@ -359,13 +530,13 @@ def run_playwright_probe(
                     """() => {
                       const hotpath = window.__lensletBrowseHotpath;
                       if (!hotpath || !hotpath.requestBudget) return false;
-                      return hotpath.firstThumbnailLatencyMs !== null;
+                      return hotpath.firstGridItemLatencyMs !== null && hotpath.firstThumbnailLatencyMs !== null;
                     }""",
                     timeout=max(1, int(first_grid_threshold_seconds * 1_000)),
                 )
             except playwright_timeout_error as exc:
                 raise SmokeFailure(
-                    "timed out waiting for hotpath request-budget and first-thumbnail telemetry"
+                    "timed out waiting for hotpath request-budget, first-grid, and first-thumbnail telemetry"
                 ) from exc
 
             probe_raw = page.evaluate(
@@ -454,7 +625,12 @@ def run_playwright_probe(
 
 
 def main() -> int:
-    args = parse_args()
+    try:
+        args = parse_args()
+    except SmokeFailure as exc:
+        print(f"[smoke:error] {exc}")
+        return 1
+
     if args.total_images <= 0:
         print("[smoke:error] --total-images must be > 0")
         return 1
@@ -486,8 +662,15 @@ def main() -> int:
         args.host,
         "--port",
         str(port),
-        "--no-write",
     ]
+    if not args.write_mode:
+        command.append("--no-write")
+    print(
+        f"[smoke] baseline={args.baseline_profile} tier={args.baseline_gate_tier} "
+        f"write_mode={args.write_mode} dataset={dataset_dir}"
+    )
+    if args.baseline_expectations:
+        print(f"[smoke] baseline expectation: {args.baseline_expectations}")
     print(f"[smoke] starting lenslet: {' '.join(command)}")
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -502,12 +685,17 @@ def main() -> int:
             interaction_seconds=args.interaction_seconds,
         )
         request_budget_limits, request_budget_peaks = assert_request_budget_compliance(hotpath_snapshot)
+        first_grid_hotpath_latency_ms = _coerce_optional_int(
+            hotpath_snapshot.get("firstGridItemLatencyMs") if isinstance(hotpath_snapshot, dict) else None
+        )
         first_thumbnail_latency_ms = _coerce_optional_int(
             hotpath_snapshot.get("firstThumbnailLatencyMs") if isinstance(hotpath_snapshot, dict) else None
         )
         assert_responsiveness_thresholds(
             first_grid_visible_seconds=first_visible,
             first_grid_threshold_seconds=args.first_grid_threshold_seconds,
+            first_grid_hotpath_latency_ms=first_grid_hotpath_latency_ms,
+            first_grid_hotpath_threshold_ms=args.first_grid_hotpath_threshold_ms,
             max_frame_gap_ms=float(probe_result["maxGapMs"]),
             max_frame_gap_threshold_ms=args.max_frame_gap_ms,
             first_thumbnail_latency_ms=first_thumbnail_latency_ms,
@@ -517,11 +705,17 @@ def main() -> int:
         health_after = wait_for_health(base_url, timeout_seconds=10.0)
         indexing = health_after.get("indexing", {}) if isinstance(health_after, dict) else {}
         result = SmokeResult(
+            baseline_file=str(args.baseline_file.resolve()),
+            baseline_profile=args.baseline_profile,
+            gate_tier=args.baseline_gate_tier,
+            write_mode=bool(args.write_mode),
             dataset_dir=str(dataset_dir),
             total_images=args.total_images,
             total_folders=args.total_folders,
             first_grid_visible_seconds=first_visible,
             first_grid_threshold_seconds=args.first_grid_threshold_seconds,
+            first_grid_hotpath_latency_ms=first_grid_hotpath_latency_ms,
+            first_grid_hotpath_threshold_ms=args.first_grid_hotpath_threshold_ms,
             first_thumbnail_latency_ms=first_thumbnail_latency_ms,
             first_thumbnail_threshold_ms=args.first_thumbnail_threshold_ms,
             max_frame_gap_ms=float(probe_result["maxGapMs"]),
@@ -539,7 +733,8 @@ def main() -> int:
 
         print(
             "[smoke] pass: first-grid="
-            f"{result.first_grid_visible_seconds:.2f}s, first-thumb={result.first_thumbnail_latency_ms}ms, "
+            f"{result.first_grid_visible_seconds:.2f}s (hotpath={result.first_grid_hotpath_latency_ms}ms), "
+            f"first-thumb={result.first_thumbnail_latency_ms}ms, "
             f"max-frame-gap={result.max_frame_gap_ms:.1f}ms, peaks={result.request_budget_peak_inflight}, "
             f"frames={result.sampled_frames}"
         )

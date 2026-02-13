@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "notes": {
+    "primary_gate": "Primary acceptance uses the large-tree fixture and strict thresholds. Passing this gate is required for browse responsiveness sign-off.",
+    "secondary_gate": "Secondary acceptance is a fast tiny-fixture sanity check and cannot replace the primary large-fixture gate."
+  },
+  "policy": {
+    "write_mode": "Primary profile defaults to no-write mode. Capture an additional --write-mode run for dual-mode evidence before final release sign-off."
+  },
+  "profiles": {
+    "primary_large_no_write": {
+      "gate_tier": "primary",
+      "dataset_dir": "data/fixtures/large_tree_40k",
+      "total_images": 40000,
+      "total_folders": 10000,
+      "image_width": 100,
+      "image_height": 200,
+      "jpeg_quality": 70,
+      "first_grid_threshold_seconds": 5.0,
+      "first_grid_hotpath_threshold_ms": 5000.0,
+      "first_thumbnail_threshold_ms": 5000.0,
+      "interaction_seconds": 5.0,
+      "max_frame_gap_ms": 700.0,
+      "write_mode": false,
+      "expectations": "Run both cold and warm checks on this profile. Cold validation should start from a non-hydrated browse path."
+    },
+    "secondary_tiny_fast": {
+      "gate_tier": "secondary",
+      "dataset_dir": "data/fixtures/large_tree_smoke_tiny",
+      "total_images": 400,
+      "total_folders": 100,
+      "image_width": 100,
+      "image_height": 200,
+      "jpeg_quality": 70,
+      "first_grid_threshold_seconds": 10.0,
+      "first_grid_hotpath_threshold_ms": 10000.0,
+      "first_thumbnail_threshold_ms": 10000.0,
+      "interaction_seconds": 1.0,
+      "max_frame_gap_ms": 1200.0,
+      "write_mode": false,
+      "expectations": "Use this profile for fast local/CI checks only. Do not use it as final evidence for root-flow closure."
+    }
+  }
+}

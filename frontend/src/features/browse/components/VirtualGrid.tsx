@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { Item, ViewMode } from '../../../lib/types'
 import ThumbCard from './ThumbCard'
 import { api } from '../../../shared/api/client'
+import { getBrowseHotpathSnapshot, markFirstGridItemVisible } from '../../../lib/browseHotpath'
 import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 import type { AdaptiveRow } from '../model/adaptive'
@@ -22,6 +23,13 @@ const CAPTION_H = 44
 const DEFAULT_ASPECT = { w: 4, h: 3 }
 const PREVIEW_DELAY_MS = 350
 const SCROLL_IDLE_MS = 120
+
+type GridHydrationProgress = {
+  loadedPages: number
+  totalPages: number
+  loadedItems: number
+  totalItems: number
+}
 
 function arePathSetsEqual(a: Set<string>, b: Set<string>): boolean {
   if (a === b) return true
@@ -104,6 +112,8 @@ interface VirtualGridProps {
   targetCellSize?: number
   scrollRef?: React.RefObject<HTMLDivElement>
   hideScrollbar?: boolean
+  isHydrationLoading?: boolean
+  hydrationProgress?: GridHydrationProgress | null
 }
 
 export default function VirtualGrid({
@@ -126,6 +136,8 @@ export default function VirtualGrid({
   targetCellSize = 220,
   scrollRef,
   hideScrollbar = false,
+  isHydrationLoading = false,
+  hydrationProgress = null,
 }: VirtualGridProps) {
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -603,6 +615,41 @@ export default function VirtualGrid({
   }, [onTopAnchorPathChange, topAnchorPath])
 
   const activeDescendantId = focused ? `cell-${encodeURIComponent(focused)}` : undefined
+  const hydrationProgressPercent = useMemo(() => {
+    const total = hydrationProgress?.totalItems ?? 0
+    const loaded = hydrationProgress?.loadedItems ?? 0
+    if (total <= 0 || loaded <= 0) return 0
+    return Math.min(100, Math.max(0, (loaded / total) * 100))
+  }, [hydrationProgress])
+  const showHydrationProgress = (hydrationProgress?.totalItems ?? 0) > 0
+  const hydrationLoadedItems = Math.max(0, hydrationProgress?.loadedItems ?? 0)
+  const hydrationTotalItems = Math.max(0, hydrationProgress?.totalItems ?? 0)
+  const hydrationLoadedPages = Math.max(0, hydrationProgress?.loadedPages ?? 0)
+  const hydrationTotalPages = Math.max(0, hydrationProgress?.totalPages ?? 0)
+  const hydrationProgressWidth = `${hydrationProgressPercent.toFixed(2)}%`
+
+  useEffect(() => {
+    if (!items.length) return
+    if (getBrowseHotpathSnapshot().firstGridItemLatencyMs != null) return
+    const container = parentRef.current
+    if (!container) return
+    const firstCell = container.querySelector<HTMLElement>('[role="gridcell"][id^="cell-"]')
+    if (!firstCell) return
+    const viewport = container.getBoundingClientRect()
+    const rect = firstCell.getBoundingClientRect()
+    const visible = rect.bottom >= viewport.top && rect.top <= viewport.bottom
+    if (!visible) return
+    const encodedPath = firstCell.id.startsWith('cell-') ? firstCell.id.slice(5) : ''
+    let path = items[0].path
+    if (encodedPath) {
+      try {
+        path = decodeURIComponent(encodedPath)
+      } catch {
+        path = items[0].path
+      }
+    }
+    markFirstGridItemVisible(path)
+  }, [items, parentRef])
 
   return (
     <div 
@@ -612,6 +659,7 @@ export default function VirtualGrid({
       ref={parentRef} 
       tabIndex={0} 
       aria-activedescendant={activeDescendantId} 
+      aria-busy={isHydrationLoading || undefined}
       onMouseDown={() => parentRef.current?.focus()} 
       style={{ ['--gap' as any]: `${GAP}px` }}
     >
@@ -778,6 +826,39 @@ export default function VirtualGrid({
           document.body
         )}
       </div>
+      {isHydrationLoading && items.length === 0 && (
+        <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center">
+          <div className="w-full max-w-[580px] rounded-lg border border-border bg-panel/95 px-4 py-3 shadow-lg">
+            <div className="flex items-center justify-between gap-3 text-xs text-text">
+              <span className="font-semibold">Loading gallery…</span>
+              {showHydrationProgress && (
+                <span className="font-mono text-muted">
+                  {hydrationLoadedItems.toLocaleString()}
+                  {' / '}
+                  {hydrationTotalItems.toLocaleString()} items
+                </span>
+              )}
+            </div>
+            {showHydrationProgress ? (
+              <>
+                <div className="mt-2 h-1.5 overflow-hidden rounded bg-surface-inset">
+                  <div
+                    className="h-full rounded bg-accent transition-[width] duration-150"
+                    style={{ width: hydrationProgressWidth }}
+                  />
+                </div>
+                <div className="mt-2 text-[11px] text-muted">
+                  Page {hydrationLoadedPages.toLocaleString()}
+                  {' of '}
+                  {hydrationTotalPages.toLocaleString()}
+                </div>
+              </>
+            ) : (
+              <div className="mt-2 text-[11px] text-muted">Preparing first recursive page…</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

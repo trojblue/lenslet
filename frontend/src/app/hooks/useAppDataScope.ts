@@ -6,7 +6,7 @@ import { useEmbeddings } from '../../shared/api/embeddings'
 import { api, cancelBrowseRequests } from '../../shared/api/client'
 import { useDebounced } from '../../shared/hooks/useDebounced'
 import { applyFilters, applySort } from '../../features/browse/model/apply'
-import { hydrateFolderPages } from '../../features/browse/model/pagedFolder'
+import { hydrateFolderPages, type FolderHydrationProgress } from '../../features/browse/model/pagedFolder'
 import { FetchError } from '../../lib/fetcher'
 import {
   completeBrowseHydration,
@@ -33,6 +33,8 @@ export type SimilarityState = {
   items: EmbeddingSearchItem[]
   createdAt: number
 }
+
+export type BrowseHydrationProgressState = FolderHydrationProgress
 
 type UseAppDataScopeParams = {
   current: string
@@ -67,6 +69,8 @@ type UseAppDataScopeResult = {
   filteredCount: number
   scopeTotal: number
   rootTotal: number
+  browseHydrationPending: boolean
+  browseHydrationProgress: BrowseHydrationProgressState | null
 }
 
 function getEmbeddingsError(isError: boolean, error: unknown): string | null {
@@ -96,6 +100,7 @@ export function useAppDataScope({
     isError,
   } = useFolder(current, true, { page: 1, pageSize: DEFAULT_RECURSIVE_PAGE_SIZE })
   const [data, setData] = useState<FolderIndex | undefined>()
+  const [browseHydrationProgress, setBrowseHydrationProgress] = useState<BrowseHydrationProgressState | null>(null)
   const recursiveLoadTokenRef = useRef(0)
   const refetch = useCallback(() => refetchFirstPage(), [refetchFirstPage])
   const { data: cachedRootRecursive } = useFolder('/', true, {
@@ -114,6 +119,7 @@ export function useAppDataScope({
     recursiveLoadTokenRef.current += 1
     const cachedSnapshot = getCachedHydratedSnapshot?.(current) ?? null
     setData(cachedSnapshot ?? undefined)
+    setBrowseHydrationProgress(null)
   }, [current, getCachedHydratedSnapshot, sessionResetToken])
 
   useEffect(() => {
@@ -131,14 +137,22 @@ export function useAppDataScope({
       setData(snapshot)
       onFolderHydratedSnapshot?.(snapshot.path, snapshot)
     }
-    startBrowseHydration({
-      requestId,
-      path: recursiveFirstPage.path,
+    const initialHydrationProgress: BrowseHydrationProgressState = {
       loadedPages: recursiveFirstPage.page ?? 1,
       totalPages: recursiveFirstPage.pageCount ?? 1,
       loadedItems: recursiveFirstPage.items.length,
       totalItems: recursiveFirstPage.totalItems ?? recursiveFirstPage.items.length,
+      completed: false,
+    }
+    startBrowseHydration({
+      requestId,
+      path: recursiveFirstPage.path,
+      loadedPages: initialHydrationProgress.loadedPages,
+      totalPages: initialHydrationProgress.totalPages,
+      loadedItems: initialHydrationProgress.loadedItems,
+      totalItems: initialHydrationProgress.totalItems,
     })
+    setBrowseHydrationProgress(initialHydrationProgress)
     void hydrateFolderPages(recursiveFirstPage, {
       defaultPageSize: DEFAULT_RECURSIVE_PAGE_SIZE,
       fetchPage: (page, pageSize) => api.getFolder(recursiveFirstPage.path, {
@@ -148,6 +162,8 @@ export function useAppDataScope({
       }),
       onUpdate: onHydrationUpdate,
       onProgress: (progress) => {
+        if (cancelled || recursiveLoadTokenRef.current !== requestId) return
+        setBrowseHydrationProgress(progress)
         updateBrowseHydration({
           requestId,
           path: recursiveFirstPage.path,
@@ -162,9 +178,9 @@ export function useAppDataScope({
       interPageDelayMs: recursiveFirstPage.path === '/' ? 40 : 12,
       skipInitialUpdateIfPaged: hasCachedSnapshot,
     }).finally(() => {
-      if (cancelled) return
-      if (recursiveLoadTokenRef.current !== requestId) return
+      if (cancelled || recursiveLoadTokenRef.current !== requestId) return
       completeBrowseHydration(requestId)
+      setBrowseHydrationProgress((prev) => (prev ? { ...prev, completed: true } : null))
     })
     return () => {
       cancelled = true
@@ -232,6 +248,7 @@ export function useAppDataScope({
   const rootTotal = current === '/'
     ? scopeTotal
     : (cachedRootRecursive?.totalItems ?? cachedRootRecursive?.items.length ?? scopeTotal)
+  const browseHydrationPending = !!browseHydrationProgress && !browseHydrationProgress.completed
 
   return {
     data,
@@ -253,5 +270,7 @@ export function useAppDataScope({
     filteredCount,
     scopeTotal,
     rootTotal,
+    browseHydrationPending,
+    browseHydrationProgress,
   }
 }

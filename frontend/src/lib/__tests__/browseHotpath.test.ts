@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   completeBrowseHydration,
   getBrowseHotpathSnapshot,
+  markFirstGridItemVisible,
   markFirstThumbnailRendered,
   reportBrowseRequestBudget,
   resetBrowseHotpathForTests,
@@ -73,6 +74,25 @@ describe('browse hotpath instrumentation', () => {
     expect(snapshot.firstThumbnailPath).toBe('/gallery/a.jpg')
     expect(snapshot.firstThumbnailLatencyMs).not.toBeNull()
     expect((snapshot.firstThumbnailLatencyMs ?? -1) >= 0).toBe(true)
+  })
+
+  it('captures first-grid-item latency once per hydration request', () => {
+    startBrowseHydration({
+      requestId: 12,
+      path: '/',
+      loadedPages: 1,
+      totalPages: 5,
+      loadedItems: 200,
+      totalItems: 1_000,
+    })
+
+    markFirstGridItemVisible('/root/a.jpg')
+    markFirstGridItemVisible('/root/b.jpg')
+
+    const snapshot = getBrowseHotpathSnapshot()
+    expect(snapshot.firstGridItemPath).toBe('/root/a.jpg')
+    expect(snapshot.firstGridItemLatencyMs).not.toBeNull()
+    expect((snapshot.firstGridItemLatencyMs ?? -1) >= 0).toBe(true)
   })
 
   it('stores in-flight request budget counters', () => {

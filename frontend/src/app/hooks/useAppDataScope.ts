@@ -3,11 +3,16 @@ import { useQueryClient } from '@tanstack/react-query'
 import { DEFAULT_RECURSIVE_PAGE_SIZE, shouldRemoveRecursiveFolderQuery, useFolder } from '../../shared/api/folders'
 import { buildCanonicalSearchRequest, useSearch } from '../../shared/api/search'
 import { useEmbeddings } from '../../shared/api/embeddings'
-import { api } from '../../shared/api/client'
+import { api, cancelBrowseRequests } from '../../shared/api/client'
 import { useDebounced } from '../../shared/hooks/useDebounced'
 import { applyFilters, applySort } from '../../features/browse/model/apply'
 import { hydrateFolderPages } from '../../features/browse/model/pagedFolder'
 import { FetchError } from '../../lib/fetcher'
+import {
+  completeBrowseHydration,
+  startBrowseHydration,
+  updateBrowseHydration,
+} from '../../lib/browseHotpath'
 import type {
   EmbeddingRejected,
   EmbeddingSearchItem,
@@ -110,6 +115,12 @@ export function useAppDataScope({
   }, [current, getCachedHydratedSnapshot, sessionResetToken])
 
   useEffect(() => {
+    return () => {
+      cancelBrowseRequests()
+    }
+  }, [current])
+
+  useEffect(() => {
     if (!recursiveFirstPage) return
     const requestId = ++recursiveLoadTokenRef.current
     let cancelled = false
@@ -118,6 +129,14 @@ export function useAppDataScope({
       setData(snapshot)
       onFolderHydratedSnapshot?.(snapshot.path, snapshot)
     }
+    startBrowseHydration({
+      requestId,
+      path: recursiveFirstPage.path,
+      loadedPages: recursiveFirstPage.page ?? 1,
+      totalPages: recursiveFirstPage.pageCount ?? 1,
+      loadedItems: recursiveFirstPage.items.length,
+      totalItems: recursiveFirstPage.totalItems ?? recursiveFirstPage.items.length,
+    })
     void hydrateFolderPages(recursiveFirstPage, {
       defaultPageSize: DEFAULT_RECURSIVE_PAGE_SIZE,
       fetchPage: (page, pageSize) => api.getFolder(recursiveFirstPage.path, {
@@ -126,12 +145,28 @@ export function useAppDataScope({
         pageSize,
       }),
       onUpdate: onHydrationUpdate,
+      onProgress: (progress) => {
+        updateBrowseHydration({
+          requestId,
+          path: recursiveFirstPage.path,
+          loadedPages: progress.loadedPages,
+          totalPages: progress.totalPages,
+          loadedItems: progress.loadedItems,
+          totalItems: progress.totalItems,
+        })
+      },
       shouldContinue: () => !cancelled && recursiveLoadTokenRef.current === requestId,
-      progressiveUpdates: false,
+      progressiveUpdates: true,
+      interPageDelayMs: recursiveFirstPage.path === '/' ? 40 : 12,
       skipInitialUpdateIfPaged: hasCachedSnapshot,
+    }).finally(() => {
+      if (cancelled) return
+      if (recursiveLoadTokenRef.current !== requestId) return
+      completeBrowseHydration(requestId)
     })
     return () => {
       cancelled = true
+      cancelBrowseRequests(['folders'])
     }
   }, [getCachedHydratedSnapshot, onFolderHydratedSnapshot, recursiveFirstPage])
 

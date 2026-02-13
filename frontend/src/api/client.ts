@@ -1,5 +1,11 @@
 import { fetchJSON, fetchBlob } from '../lib/fetcher'
 import { fileCache, thumbCache } from '../lib/blobCache'
+import type { BrowseEndpoint } from '../lib/browseHotpath'
+import {
+  cancelBrowseRequests as cancelBudgetedBrowseRequests,
+  runWithRequestBudget,
+  resetBrowseRequestBudgetForTests,
+} from './requestBudget'
 import type {
   FolderIndex,
   Sidecar,
@@ -403,6 +409,11 @@ export function __resetClientStateForTests(): void {
     eventSource = null
   }
   connectionStatus = 'idle'
+  resetBrowseRequestBudgetForTests()
+}
+
+export function cancelBrowseRequests(endpoints?: readonly BrowseEndpoint[]): void {
+  cancelBudgetedBrowseRequests(endpoints)
 }
 
 function postPresenceKeepalive(path: string, payload: unknown): boolean {
@@ -479,7 +490,9 @@ export const api = {
    * @param options - Recursive/pagination options
    */
   getFolder: (path: string, options?: GetFolderOptions): Promise<FolderIndex> => {
-    return fetchJSON<FolderIndex>(`${BASE}/folders?${buildFolderQuery(path, options)}`).promise
+    return runWithRequestBudget('folders', () =>
+      fetchJSON<FolderIndex>(`${BASE}/folders?${buildFolderQuery(path, options)}`),
+    ).promise
   },
 
   /**
@@ -636,7 +649,9 @@ export const api = {
    */
   getThumb: (path: string): Promise<Blob> => {
     return thumbCache.getOrFetch(path, () =>
-      fetchBlob(thumbUrl(path))
+      runWithRequestBudget('thumb', () =>
+        fetchBlob(thumbUrl(path)),
+      )
     )
   },
 
@@ -645,7 +660,9 @@ export const api = {
    */
   prefetchThumb: (path: string): void => {
     thumbCache.prefetch(path, () =>
-      fetchBlob(thumbUrl(path))
+      runWithRequestBudget('thumb', () =>
+        fetchBlob(thumbUrl(path)),
+      )
     )
   },
 
@@ -654,7 +671,9 @@ export const api = {
    */
   getFile: (path: string): Promise<Blob> => {
     return fileCache.getOrFetch(path, () =>
-      fetchBlob(fileUrl(path))
+      runWithRequestBudget('file', () =>
+        fetchBlob(fileUrl(path)),
+      )
     )
   },
 
@@ -679,9 +698,11 @@ export const api = {
     if (fileCache.has(path) || fileCache.isInflight(path)) return
 
     try {
-      const blob = await fetchBlob(fileUrl(path), {
-        headers: { 'x-lenslet-prefetch': context },
-      }).promise
+      const blob = await runWithRequestBudget('file', () =>
+        fetchBlob(fileUrl(path), {
+          headers: { 'x-lenslet-prefetch': context },
+        }),
+      ).promise
       if (blob.size <= MAX_PREFETCH_SIZE) {
         fileCache.set(path, blob)
       }

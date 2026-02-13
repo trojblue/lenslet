@@ -16,22 +16,39 @@ type GridLayoutLike = {
 
 type LayoutLike = AdaptiveLayoutLike | GridLayoutLike
 
-export function getVisibleThumbPrefetchPaths(
+export function getAdjacentThumbPrefetchPaths(
   virtualRows: readonly VirtualRowLike[],
   layout: LayoutLike,
   items: readonly Pick<Item, 'path'>[],
 ): string[] {
-  const paths: string[] = []
-  for (const row of virtualRows) {
+  if (virtualRows.length === 0) return []
+  const visibleRows = Array.from(new Set(virtualRows.map((row) => row.index))).sort((a, b) => a - b)
+  const minVisible = visibleRows[0]
+  const maxVisible = visibleRows[visibleRows.length - 1]
+
+  const maxRowIndex = (() => {
     if (layout.mode === 'adaptive') {
-      const rowData = layout.rows[row.index]
+      return Math.max(0, layout.rows.length - 1)
+    }
+    return Math.max(0, Math.ceil(items.length / Math.max(1, layout.columns)) - 1)
+  })()
+
+  const candidateRows = [minVisible - 1, maxVisible + 1].filter((rowIndex) => (
+    rowIndex >= 0 && rowIndex <= maxRowIndex
+  ))
+  if (candidateRows.length === 0) return []
+
+  const paths: string[] = []
+  for (const rowIndex of candidateRows) {
+    if (layout.mode === 'adaptive') {
+      const rowData = layout.rows[rowIndex]
       if (!rowData) continue
       for (const rowItem of rowData.items) {
         paths.push(rowItem.item.path)
       }
       continue
     }
-    const start = row.index * layout.columns
+    const start = rowIndex * layout.columns
     const slice = items.slice(start, start + layout.columns)
     for (const item of slice) {
       paths.push(item.path)

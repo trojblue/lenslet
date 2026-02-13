@@ -18,12 +18,22 @@ type RemainingPagesPlan = {
   pageSize: number
 }
 
+export type FolderHydrationProgress = {
+  loadedPages: number
+  totalPages: number
+  loadedItems: number
+  totalItems: number
+  completed: boolean
+}
+
 type HydrateFolderPagesOptions = {
   defaultPageSize: number
   fetchPage: (page: number, pageSize: number) => Promise<FolderIndex>
   onUpdate: (value: FolderIndex) => void
+  onProgress?: (progress: FolderHydrationProgress) => void
   shouldContinue?: () => boolean
   progressiveUpdates?: boolean
+  interPageDelayMs?: number
   skipInitialUpdateIfPaged?: boolean
 }
 
@@ -65,21 +75,34 @@ export function mergeFolderPages(base: FolderIndex, next: FolderIndex): FolderIn
 export async function hydrateFolderPages(firstPage: FolderIndex, options: HydrateFolderPagesOptions): Promise<void> {
   const shouldContinue = options.shouldContinue ?? (() => true)
   const progressiveUpdates = options.progressiveUpdates ?? true
+  const interPageDelayMs = Math.max(0, options.interPageDelayMs ?? 0)
   const plan = getRemainingPagesPlan(firstPage, options.defaultPageSize)
   const skipInitialUpdate = options.skipInitialUpdateIfPaged === true && plan !== null
   let merged = normalizeFolderPage(firstPage)
+  const publishProgress = (completed: boolean) => {
+    options.onProgress?.({
+      loadedPages: merged.page ?? (plan ? plan.startPage - 1 : 1),
+      totalPages: merged.pageCount ?? plan?.endPage ?? 1,
+      loadedItems: merged.items.length,
+      totalItems: merged.totalItems ?? merged.items.length,
+      completed,
+    })
+  }
   if (!skipInitialUpdate) {
     options.onUpdate(merged)
   }
+  publishProgress(false)
   if (!plan) {
     if (skipInitialUpdate) {
       options.onUpdate(merged)
     }
+    publishProgress(true)
     return
   }
 
   let hasMergedAdditionalPage = false
   for (let page = plan.startPage; page <= plan.endPage; page += 1) {
+    if (!shouldContinue()) return
     let nextPage: FolderIndex
     try {
       nextPage = await options.fetchPage(page, plan.pageSize)
@@ -92,9 +115,17 @@ export async function hydrateFolderPages(firstPage: FolderIndex, options: Hydrat
     if (progressiveUpdates) {
       options.onUpdate(merged)
     }
+    publishProgress(false)
+    if (page < plan.endPage && interPageDelayMs > 0) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, interPageDelayMs)
+      })
+      if (!shouldContinue()) return
+    }
   }
 
   if (!progressiveUpdates && hasMergedAdditionalPage) {
     options.onUpdate(merged)
   }
+  publishProgress(true)
 }

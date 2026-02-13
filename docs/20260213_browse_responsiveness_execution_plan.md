@@ -40,10 +40,10 @@ Sprint Plan:
    Goal: Make root browse interactive quickly and stop request storms before backend work scales up.
    Demo outcome: First thumbnails appear within target window and scroll remains responsive while background loading continues.
    Tasks:
-   - T1. Implement progressive root hydration in `useAppDataScope` and `pagedFolder` so page 1 renders first and subsequent pages are scheduled incrementally.
-   - T2. Add strict client-side in-flight request budgets for `/folders`, `/thumb`, and preview `/file`, including cancellation on scope changes.
-   - T3. Consolidate thumbnail trigger paths so visible-load and prefetch do not duplicate fetch issuance for the same asset.
-   - T4. Add instrumentation markers and counters for first-thumbnail latency, in-flight request counts, and hydration progress so acceptance criteria are machine-checkable.
+   - T1. Implement progressive root hydration in `useAppDataScope` and `pagedFolder` so page 1 renders first and subsequent pages are scheduled incrementally. (Completed 2026-02-13)
+   - T2. Add strict client-side in-flight request budgets for `/folders`, `/thumb`, and preview `/file`, including cancellation on scope changes. (Completed 2026-02-13)
+   - T3. Consolidate thumbnail trigger paths so visible-load and prefetch do not duplicate fetch issuance for the same asset. (Completed 2026-02-13)
+   - T4. Add instrumentation markers and counters for first-thumbnail latency, in-flight request counts, and hydration progress so acceptance criteria are machine-checkable. (Completed 2026-02-13)
 
 2. Sprint 2: Backend Recursive Caching and Deterministic Paging
    Goal: Remove repeated recursive recomputation and support fast repeat browsing on the same dataset.
@@ -89,6 +89,7 @@ Each sprint has concrete behavior validation and expected outcomes.
 1. Sprint 1 validation
    - Validate progressive render path and request budgets with automated assertions and manual large-tree scenario.
    - Expected outcome: first thumbnails visible within 5 seconds on local no-throttle run, no freeze during initial scroll, and no `ERR_INSUFFICIENT_RESOURCES`.
+   - Iteration 1 evidence (2026-02-13): `npm --prefix frontend test` passed (38 test files / 180 tests) and `pytest -q tests/test_folder_pagination.py tests/test_hotpath_sprint_s4.py` passed (15 tests).
 
       npm --prefix frontend test
       pytest -q tests/test_folder_pagination.py tests/test_hotpath_sprint_s4.py
@@ -137,7 +138,9 @@ Idempotent retry strategy is required for cache/index refresh. Rebuild operation
 - [x] 2026-02-13 00:00Z Scope lock confirmed with user: chunking approved, 200 MB cache cap approved, staged legacy recursive retirement approved, minimal mobile hardening approved, responsiveness targets defined.
 - [x] 2026-02-13 00:00Z Initial plan drafted with 4-sprint scope and explicit guardrails.
 - [x] 2026-02-13 00:00Z Required subagent review completed; plan updated to split oversized cache work, add instrumentation, define completion-signal contract, and add explicit compatibility retirement steps.
-- [ ] 2026-02-13 00:00Z Sprint 1 handoff notes appended after implementation.
+- [x] 2026-02-13 18:29Z Sprint 1 tasks T1-T4 implemented: incremental recursive hydration pacing, endpoint request budgets/cancellation, adjacent-row-only thumb prefetch, and machine-checkable browse hotpath telemetry.
+- [x] 2026-02-13 18:30Z Sprint 1 validation completed: frontend vitest suite and targeted backend pytest hotpath/pagination checks passed.
+- [x] 2026-02-13 18:31Z Sprint 1 handoff notes appended after implementation.
 - [ ] 2026-02-13 00:00Z Sprint 2 handoff notes appended after implementation.
 - [ ] 2026-02-13 00:00Z Sprint 3 handoff notes appended after implementation.
 - [ ] 2026-02-13 00:00Z Sprint 4 handoff notes appended after implementation.
@@ -158,3 +161,9 @@ Investigation baseline snippet for large synthetic recursive tree:
 Handoff guidance for implementation is to execute sprints in order, keep edits constrained to listed modules, and update this plan continuously as implementation evidence is collected.
 
 Revision note (2026-02-13): Updated after required subagent review to reduce scope-creep risk, split oversized backend tasks, add explicit measurement tasks, and harden compatibility/removal sequencing for `legacy_recursive=1`.
+
+Sprint 1 handoff notes (2026-02-13):
+- Progressive hydration now updates incrementally with inter-page pacing and emits progress snapshots from `hydrateFolderPages`.
+- Request backpressure now routes `/folders`, `/thumb`, and `/file` through endpoint budgets with explicit queueing and abort-on-scope-change wiring.
+- Thumbnail prefetch was narrowed to rows adjacent to the viewport so visible cards and prefetchers no longer compete for the same thumbnail paths.
+- Machine-checkable telemetry is now exposed via `window.__lensletBrowseHotpath` and performance markers for hydration start/complete and first-thumbnail latency.

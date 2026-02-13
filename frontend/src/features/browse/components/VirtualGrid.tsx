@@ -6,7 +6,7 @@ import { api } from '../../../shared/api/client'
 import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 import type { AdaptiveRow } from '../model/adaptive'
-import { getVisibleThumbPrefetchPaths } from '../model/virtualGridPrefetch'
+import { getAdjacentThumbPrefetchPaths } from '../model/virtualGridPrefetch'
 import {
   collectVisiblePaths,
   getRestoreScrollTopForPath,
@@ -554,17 +554,17 @@ export default function VirtualGrid({
 
   const selectedSet = useMemo(() => new Set(selected), [selected])
   const hasPreview = !!(previewFor && previewUrl && delayPassed)
-  const visibleThumbPrefetchPaths = useMemo(
-    () => getVisibleThumbPrefetchPaths(virtualRows, layout, items),
+  const adjacentThumbPrefetchPaths = useMemo(
+    () => getAdjacentThumbPrefetchPaths(virtualRows, layout, items),
     [items, layout, virtualRows],
   )
 
   useEffect(() => {
-    if (isScrolling || visibleThumbPrefetchPaths.length === 0) return
-    for (const path of visibleThumbPrefetchPaths) {
+    if (isScrolling || adjacentThumbPrefetchPaths.length === 0) return
+    for (const path of adjacentThumbPrefetchPaths) {
       prefetchThumbSafely(path)
     }
-  }, [isScrolling, visibleThumbPrefetchPaths, prefetchThumbSafely])
+  }, [isScrolling, adjacentThumbPrefetchPaths, prefetchThumbSafely])
 
   useEffect(() => {
     parentRef.current?.focus()

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../../../shared/api/client'
+import { markFirstThumbnailRendered } from '../../../lib/browseHotpath'
 
 /**
  * LRU cache for blob URLs to prevent memory leaks.
@@ -150,6 +151,7 @@ export default function ThumbCard({
     const imgEl = hostRef.current?.querySelector('img') as HTMLImageElement | null
     if (imgEl && imgEl.complete && imgEl.naturalWidth > 0) {
       setLoaded(true)
+      markFirstThumbnailRendered(path)
     } else {
       setLoaded(false)
     }
@@ -181,7 +183,10 @@ export default function ThumbCard({
           alt={name}
           loading="lazy"
           decoding="async"
-          onLoad={()=> setLoaded(true)}
+          onLoad={() => {
+            setLoaded(true)
+            markFirstThumbnailRendered(path)
+          }}
           width={displayW ? Math.round(displayW) : undefined}
           height={displayH ? Math.round(displayH) : undefined}
         />

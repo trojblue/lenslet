@@ -286,4 +286,55 @@ describe('paged folder merge', () => {
       snapshots.map((snapshot) => snapshot.items.some((item) => item.path === anchorPath)),
     ).toEqual([true, true])
   })
+
+  it('reports hydration progress for machine-checkable instrumentation', async () => {
+    const first = makeFolder('/set', ['/set/a.jpg'], {
+      page: 1,
+      pageSize: 1,
+      pageCount: 2,
+      totalItems: 2,
+    })
+    const second = makeFolder('/set', ['/set/b.jpg'], {
+      page: 2,
+      pageSize: 1,
+      pageCount: 2,
+      totalItems: 2,
+    })
+
+    const progress: Array<{
+      loadedPages: number
+      totalPages: number
+      loadedItems: number
+      totalItems: number
+      completed: boolean
+    }> = []
+
+    await hydrateFolderPages(first, {
+      defaultPageSize: 200,
+      fetchPage: async (page) => {
+        if (page !== 2) throw new Error(`unexpected page: ${page}`)
+        return second
+      },
+      onUpdate: () => {},
+      onProgress: (value) => {
+        progress.push(value)
+      },
+    })
+
+    expect(progress.length).toBeGreaterThan(1)
+    expect(progress[0]).toMatchObject({
+      loadedPages: 1,
+      totalPages: 2,
+      loadedItems: 1,
+      totalItems: 2,
+      completed: false,
+    })
+    expect(progress[progress.length - 1]).toMatchObject({
+      loadedPages: 2,
+      totalPages: 2,
+      loadedItems: 2,
+      totalItems: 2,
+      completed: true,
+    })
+  })
 })

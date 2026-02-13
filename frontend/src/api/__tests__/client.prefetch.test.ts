@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../client'
 import { fileCache } from '../../lib/blobCache'
+import { resetBrowseRequestBudgetForTests } from '../requestBudget'
 
 function resetPrefetchTestState(): void {
   fileCache.clear()
+  resetBrowseRequestBudgetForTests()
   vi.restoreAllMocks()
 }
 

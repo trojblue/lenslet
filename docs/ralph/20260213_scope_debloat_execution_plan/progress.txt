@@ -1,0 +1,16 @@
+# Ralph Progress Log
+Started: 2026-02-13T16:55:06Z
+Mode: plan
+Tool: codex
+Repo: /home/ubuntu/dev/lenslet
+Plan: /home/ubuntu/dev/lenslet/docs/20260213_scope_debloat_execution_plan.md
+---
+## Iteration 1 - 2026-02-13T16:56:39Z
+- Completed task IDs: `T1`, `T2`, `T3` (Sprint `S1` complete).
+- Files changed: `src/lenslet/storage/parquet.py` (deleted), `tests/test_search_text_contract.py`, `docs/20260213_scope_debloat_execution_plan.md`, `docs/ralph/20260213_scope_debloat_execution_plan/progress.txt`.
+- Validations run:
+  - `rg -n "ParquetStorage|storage\.parquet" src tests` -> no matches.
+  - `pytest -q tests/test_search_text_contract.py` -> passed (`9 passed in 0.35s`).
+  - `python -m lenslet.cli --help` -> passed.
+- Blockers: none.
+- Next step: begin Sprint `S2` with `T4` (remove lifecycle-v2 CLI flags while preserving `--share`).

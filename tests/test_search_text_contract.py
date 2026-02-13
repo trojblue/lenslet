@@ -8,13 +8,12 @@ from PIL import Image
 
 from lenslet.storage.dataset import DatasetStorage
 from lenslet.storage.memory import MemoryStorage
-from lenslet.storage.parquet import ParquetStorage
 from lenslet.storage.search_text import (
     build_search_haystack,
     normalize_search_path,
     path_in_scope,
 )
-from lenslet.storage.table import TableStorage
+from lenslet.storage.table import TableStorage, load_parquet_table
 
 
 def _make_image(path: Path) -> None:
@@ -47,7 +46,7 @@ def _build_memory_storage(root: Path) -> tuple[MemoryStorage, str]:
     return storage, cat_path
 
 
-def _build_parquet_storage(root: Path) -> tuple[ParquetStorage, str]:
+def _build_table_storage_from_parquet(root: Path) -> tuple[TableStorage, str]:
     pa = pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
 
@@ -59,13 +58,15 @@ def _build_parquet_storage(root: Path) -> tuple[ParquetStorage, str]:
     table = pa.table(
         {
             "image_id": [1, 2],
-            "path": ["source-token/cat.jpg", "source-token/dog.jpg"],
+            "path": ["gallery/cat.jpg", "gallery/dog.jpg"],
+            "source": [str(local_cat), str(local_dog)],
         }
     )
     pq.write_table(table, root / "items.parquet")
 
-    storage = ParquetStorage(str(root))
-    cat_path = "source-token/cat.jpg"
+    table_loaded = load_parquet_table(str(root / "items.parquet"))
+    storage = TableStorage(table_loaded, root=None, skip_indexing=True)
+    cat_path = "gallery/cat.jpg"
     _set_search_meta(storage, cat_path)
     return storage, cat_path
 
@@ -105,7 +106,7 @@ StorageFactory = Callable[[Path], tuple[object, str]]
     "factory",
     [
         pytest.param(_build_memory_storage, id="memory"),
-        pytest.param(_build_parquet_storage, id="parquet"),
+        pytest.param(_build_table_storage_from_parquet, id="table-parquet"),
         pytest.param(_build_table_storage, id="table"),
         pytest.param(_build_dataset_storage, id="dataset"),
     ],

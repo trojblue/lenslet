@@ -27,6 +27,44 @@ afterEach(() => {
 })
 
 describe('browse request budget', () => {
+  it('keeps endpoint peaks within configured limits', async () => {
+    const endpoints = [
+      { name: 'folders' as const, limit: 2 },
+      { name: 'thumb' as const, limit: 8 },
+      { name: 'file' as const, limit: 3 },
+    ]
+    const runs: Array<{ endpoint: 'folders' | 'thumb' | 'file', deferred: ReturnType<typeof createDeferred<number>>, task: ReturnType<typeof runWithRequestBudget<number>> }> = []
+
+    for (const endpoint of endpoints) {
+      for (let idx = 0; idx < endpoint.limit + 1; idx += 1) {
+        const deferred = createDeferred<number>()
+        const task = runWithRequestBudget(endpoint.name, () => ({ promise: deferred.promise }))
+        runs.push({ endpoint: endpoint.name, deferred, task })
+      }
+    }
+
+    const queuedSnapshot = getBrowseRequestBudgetSnapshot()
+    expect(queuedSnapshot.inflight).toEqual({ folders: 2, thumb: 8, file: 3 })
+    expect(queuedSnapshot.queued).toEqual({ folders: 1, thumb: 1, file: 1 })
+
+    for (const endpoint of endpoints) {
+      const endpointRuns = runs.filter((run) => run.endpoint === endpoint.name)
+      endpointRuns[0].deferred.resolve(1)
+      await expect(endpointRuns[0].task.promise).resolves.toBe(1)
+    }
+    await Promise.resolve()
+
+    for (const run of runs.slice(1)) {
+      run.deferred.resolve(2)
+    }
+    await Promise.all(runs.slice(1).map((run) => run.task.promise))
+
+    const snapshot = getBrowseRequestBudgetSnapshot()
+    expect(snapshot.peakInflight).toEqual({ folders: 2, thumb: 8, file: 3 })
+    expect(snapshot.inflight).toEqual({ folders: 0, thumb: 0, file: 0 })
+    expect(snapshot.queued).toEqual({ folders: 0, thumb: 0, file: 0 })
+  })
+
   it('enforces endpoint in-flight caps and queues overflow', async () => {
     const started: number[] = []
     const d1 = createDeferred<number>()

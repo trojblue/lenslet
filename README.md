@@ -213,6 +213,7 @@ Frontend decomposition seams:
 Run the fixed acceptance matrix from repo root:
 
 ```bash
+python scripts/lint_repo.py
 pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py
 python - <<'PY'
 import lenslet.server as server
@@ -235,6 +236,15 @@ npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/pres
 npx tsc --noEmit
 cd ..
 python -m build
+```
+
+For browser-level large-tree performance checks (40k images across 10k folders), install Chromium once and run:
+
+```bash
+python -m playwright install chromium
+python scripts/playwright_large_tree_smoke.py \
+  --dataset-dir data/fixtures/large_tree_40k \
+  --output-json data/fixtures/large_tree_40k_smoke_result.json
 ```
 
 After frontend changes, ship deterministic packaged assets:

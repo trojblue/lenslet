@@ -65,8 +65,8 @@ Sprint Plan:
    Goal: Keep mobile workflow usable without broad redesign and lock in regression protection.
    Demo outcome: Mobile root browse no longer hits major blocking behavior for this flow, and perf regressions are catchable.
    Tasks:
-   - T11. Apply only highest-impact mobile tweaks for this workflow: targeted render-blocker reduction and minimal legacy mobile asset removal that has direct measured benefit.
-   - T12. Add a focused large-tree perf smoke harness and targeted regression tests that assert request-budget compliance, cache-cap compliance, and responsiveness thresholds.
+   - T11. Apply only highest-impact mobile tweaks for this workflow: targeted render-blocker reduction and minimal legacy mobile asset removal that has direct measured benefit. (Completed 2026-02-13)
+   - T12. Add a focused large-tree perf smoke harness and targeted regression tests that assert request-budget compliance, cache-cap compliance, and responsiveness thresholds. (Completed 2026-02-13)
 
 Implementation instructions are mandatory during execution. While implementing each sprint, update this plan continuously, especially `Progress Log` and all affected sections, and append clear handoff notes immediately after each sprint completes. For minor script-level uncertainties such as exact helper placement, proceed per approved scope to maintain momentum, then ask for clarification after the sprint and apply follow-up adjustments.
 
@@ -117,8 +117,13 @@ Each sprint has concrete behavior validation and expected outcomes.
    - Validate minimal mobile hardening outcomes against the root browse flow only.
    - Validate perf smoke harness and regression checks for request-budget and cache-cap constraints.
    - Expected outcome: mobile flow is usable and major regressions are caught before release.
+   - Iteration 5 evidence (2026-02-13): mobile render-blocker guardrail test, request-budget regression assertions, large-tree smoke harness checks, repo lint guardrails, frontend build, and full backend pytest suite all passed.
 
       npm --prefix frontend run build
+      npm --prefix frontend test -- src/api/__tests__/requestBudget.test.ts src/app/__tests__/stylesPerformance.test.ts
+      pytest -q tests/test_browse_cache.py tests/test_hotpath_sprint_s4.py
+      python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_smoke_tiny --total-images 400 --total-folders 100 --first-grid-threshold-seconds 10 --first-thumbnail-threshold-ms 10000 --interaction-seconds 1 --max-frame-gap-ms 1200 --output-json data/fixtures/large_tree_smoke_tiny_result.json
+      python scripts/lint_repo.py
       pytest -q
 
 Overall acceptance is achieved when all sprint validations pass, first useful browse on large recursive roots is consistently within 5 seconds, scroll remains responsive during background hydration, and prior freeze/error symptoms are no longer reproducible in the target scenario.
@@ -151,7 +156,9 @@ Idempotent retry strategy is required for cache/index refresh. Rebuild operation
 - [x] 2026-02-13 18:50Z Sprint 3 tasks T8-T10 implemented: indexing health payload now includes deterministic generation IDs, scan-stable ordering stays active until explicit switch, and UI legacy recursive requests were removed.
 - [x] 2026-02-13 18:50Z Sprint 3 validation completed: frontend indexing/legacy query tests and backend recursive compatibility checks passed.
 - [x] 2026-02-13 18:50Z Sprint 3 handoff notes appended after implementation.
-- [ ] 2026-02-13 00:00Z Sprint 4 handoff notes appended after implementation.
+- [x] 2026-02-13 19:01Z Sprint 4 tasks T11-T12 implemented: removed external font CSS render blocker from startup styles, added request-budget peak regression checks, and landed large-tree Playwright smoke automation with telemetry thresholds.
+- [x] 2026-02-13 19:01Z Sprint 4 validation completed: frontend build/tests, targeted cache+hotpath pytest checks, smoke harness run, lint guardrails, and full pytest suite passed.
+- [x] 2026-02-13 19:01Z Sprint 4 handoff notes appended after implementation.
 
 
 ## Artifacts and Handoff
@@ -188,3 +195,10 @@ Sprint 3 handoff notes (2026-02-13):
 - Scan-stable dismissal now persists by generation in local storage and resets deterministically when a new generation starts indexing.
 - UI folder fetch paths no longer emit `legacy_recursive=1`; metadata export now drains recursive pages through paginated requests.
 - Server legacy recursive mode is now retired by default with a clear 400 response and a temporary rollback gate via `LENSLET_ENABLE_LEGACY_RECURSIVE_ROLLBACK=1` for explicit non-UI callers.
+
+Sprint 4 handoff notes (2026-02-13):
+- Mobile critical CSS no longer imports Google Fonts at startup, removing a known render-blocking request from this flow.
+- Frontend regression coverage now includes request-budget peak assertions across `/folders`, `/thumb`, and `/file`, plus a style guardrail test that blocks reintroduction of external font CSS imports.
+- `scripts/playwright_large_tree_smoke.py` now generates/reuses large-tree fixtures, asserts first-grid/first-thumbnail/frame-gap responsiveness thresholds, and enforces request-budget peak compliance from browser telemetry.
+- `scripts/lint_repo.py` now provides a single post-change check entrypoint (`ruff` + file-size guardrails), and docs were updated with the sprint-4 validation commands.
+- Packaged frontend assets in `src/lenslet/frontend/` were regenerated from the updated source build.

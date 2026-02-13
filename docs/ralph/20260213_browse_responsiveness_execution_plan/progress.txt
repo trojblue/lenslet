@@ -79,3 +79,30 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260213_browse_responsiveness_execution_pla
   - `pytest -q tests/test_folder_pagination.py tests/test_refresh.py tests/test_hotpath_sprint_s4.py tests/test_indexing_health_contract.py` -> passed (36 tests)
 - Blockers: none
 - Next step: start Sprint 4 (`T11`) minimal mobile hardening and keep changes scoped to measured blockers only.
+## Iteration 5 - 2026-02-13T19:01:00Z
+- Completed task IDs: T11, T12
+- Files changed:
+  - frontend/src/styles.css
+  - frontend/src/app/__tests__/stylesPerformance.test.ts
+  - frontend/src/api/__tests__/requestBudget.test.ts
+  - scripts/playwright_large_tree_smoke.py
+  - scripts/lint_repo.py
+  - pyproject.toml
+  - README.md
+  - AGENTS.md
+  - src/lenslet/frontend/index.html
+  - src/lenslet/frontend/assets/index-Bd5-6_u9.css
+  - src/lenslet/frontend/assets/index-D9TUBKF-.js
+  - src/lenslet/frontend/assets/index-CjvC5vhW.css (removed)
+  - src/lenslet/frontend/assets/index-EQMvviTI.js (removed)
+  - docs/20260213_browse_responsiveness_execution_plan.md
+  - docs/ralph/20260213_browse_responsiveness_execution_plan/progress.txt
+- Validations run + outcomes:
+  - `npm --prefix frontend test -- src/api/__tests__/requestBudget.test.ts src/app/__tests__/stylesPerformance.test.ts` -> passed (2 files, 4 tests)
+  - `pytest -q tests/test_browse_cache.py tests/test_hotpath_sprint_s4.py` -> passed (15 tests)
+  - `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_smoke_tiny --total-images 400 --total-folders 100 --first-grid-threshold-seconds 10 --first-thumbnail-threshold-ms 10000 --interaction-seconds 1 --max-frame-gap-ms 1200 --output-json data/fixtures/large_tree_smoke_tiny_result.json` -> passed (first-grid 0.42s, first-thumb 495ms, frame-gap 49.9ms)
+  - `python scripts/lint_repo.py` -> passed
+  - `npm --prefix frontend run build` -> passed
+  - `pytest -q` -> passed (111 tests, 4 warnings)
+- Blockers: none
+- Next step: sprint plan complete; proceed to release handoff.

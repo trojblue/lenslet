@@ -60,12 +60,14 @@ def test_memory_health_reports_running_then_ready_indexing_state(
         running = client.get("/health").json()["indexing"]
         assert running["state"] == "running"
         assert running["scope"] == "/"
+        assert running.get("generation")
         assert running.get("started_at")
         assert "finished_at" not in running
 
         release.set()
         ready = _wait_for_indexing_state(client, "ready")
         assert ready["scope"] == "/"
+        assert ready.get("generation") == running.get("generation")
         assert ready.get("started_at")
         assert ready.get("finished_at")
         assert "error" not in ready
@@ -106,6 +108,7 @@ def test_memory_health_reports_error_when_warm_index_fails(
         errored = _wait_for_indexing_state(client, "error")
 
     assert errored["scope"] == "/"
+    assert errored.get("generation")
     assert "forced warm index failure" in errored.get("error", "")
     assert errored.get("started_at")
     assert errored.get("finished_at")
@@ -164,6 +167,7 @@ def test_static_modes_health_report_ready_indexing_state(
     indexing = health.json().get("indexing", {})
     assert indexing["state"] == "ready"
     assert indexing["scope"] == "/"
+    assert indexing.get("generation")
     assert indexing.get("started_at")
     assert indexing.get("finished_at")
 

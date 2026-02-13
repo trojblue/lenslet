@@ -38,6 +38,7 @@ type UseAppDataScopeParams = {
   current: string
   query: string
   similarityState: SimilarityState | null
+  scanStableMode?: boolean
   viewState: ViewState
   randomSeed: number
   localStarOverrides: Record<string, StarRating>
@@ -79,6 +80,7 @@ export function useAppDataScope({
   current,
   query,
   similarityState,
+  scanStableMode = false,
   viewState,
   randomSeed,
   localStarOverrides,
@@ -220,8 +222,9 @@ export function useAppDataScope({
       return applyFilters(similarityItems, viewState.filters)
     }
     const filtered = applyFilters(poolItems, viewState.filters)
+    if (scanStableMode) return filtered
     return applySort(filtered, viewState.sort, randomSeed)
-  }, [similarityState, similarityItems, poolItems, viewState.filters, viewState.sort, randomSeed])
+  }, [similarityState, similarityItems, poolItems, scanStableMode, viewState.filters, viewState.sort, randomSeed])
 
   const totalCount = similarityState ? similarityItems.length : poolItems.length
   const filteredCount = items.length

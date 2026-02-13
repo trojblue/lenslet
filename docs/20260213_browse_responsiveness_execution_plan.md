@@ -57,9 +57,9 @@ Sprint Plan:
    Goal: Keep ordering stable during progressive discovery and remove problematic legacy recursive path safely.
    Demo outcome: Users browse in scan-stable mode during indexing and are prompted to switch to “Most recent” only after completion.
    Tasks:
-   - T8. Define and implement indexing-complete signal contract from backend to UI, including generation ID so completion state is deterministic across reloads.
-   - T9. Implement scan-stable mode plus completion banner behavior with explicit user action to switch to “Most recent,” including persistence of banner dismissal and deterministic reset behavior after mode switch.
-   - T10. Inventory `legacy_recursive=1` consumers, remove UI emission, run compatibility validation for explicit non-UI callers, and then hard-restrict/remove server legacy path behind a rollback flag.
+   - T8. Define and implement indexing-complete signal contract from backend to UI, including generation ID so completion state is deterministic across reloads. (Completed 2026-02-13)
+   - T9. Implement scan-stable mode plus completion banner behavior with explicit user action to switch to “Most recent,” including persistence of banner dismissal and deterministic reset behavior after mode switch. (Completed 2026-02-13)
+   - T10. Inventory `legacy_recursive=1` consumers, remove UI emission, run compatibility validation for explicit non-UI callers, and then hard-restrict/remove server legacy path behind a rollback flag. (Completed 2026-02-13)
 
 4. Sprint 4: Minimal Mobile Hardening and Final Regression Lock
    Goal: Keep mobile workflow usable without broad redesign and lock in regression protection.
@@ -108,8 +108,10 @@ Each sprint has concrete behavior validation and expected outcomes.
    - Validate indexing-complete signal and banner lifecycle across reloads.
    - Validate scan-stable mode does not reorder already loaded windows mid-indexing.
    - Validate `legacy_recursive=1` is absent from UI path and server restriction/removal behavior is covered.
+   - Iteration 4 evidence (2026-02-13): generation-aware health + scan-stable mode contract tests passed in frontend vitest slice and backend pagination/refresh/indexing contract checks passed.
 
-      pytest -q tests/test_folder_pagination.py tests/test_refresh.py tests/test_hotpath_sprint_s4.py
+      npm --prefix frontend test -- src/app/model/__tests__/indexingBrowseMode.test.ts src/app/components/__tests__/StatusBar.test.tsx src/api/__tests__/folders.test.ts src/app/hooks/__tests__/healthIndexing.test.ts
+      pytest -q tests/test_folder_pagination.py tests/test_refresh.py tests/test_hotpath_sprint_s4.py tests/test_indexing_health_contract.py
 
 4. Sprint 4 validation
    - Validate minimal mobile hardening outcomes against the root browse flow only.
@@ -146,7 +148,9 @@ Idempotent retry strategy is required for cache/index refresh. Rebuild operation
 - [x] 2026-02-13 18:40Z Sprint 2 tasks T5-T7 implemented: recursive window cache now serves deterministic slices from in-memory snapshots with persisted relaunch reuse, workspace-owned browse cache location, and 200 MB eviction guardrails.
 - [x] 2026-02-13 18:40Z Sprint 2 validation completed: targeted recursive pagination, refresh invalidation, and hotpath regression checks passed.
 - [x] 2026-02-13 18:41Z Sprint 2 handoff notes appended after implementation.
-- [ ] 2026-02-13 00:00Z Sprint 3 handoff notes appended after implementation.
+- [x] 2026-02-13 18:50Z Sprint 3 tasks T8-T10 implemented: indexing health payload now includes deterministic generation IDs, scan-stable ordering stays active until explicit switch, and UI legacy recursive requests were removed.
+- [x] 2026-02-13 18:50Z Sprint 3 validation completed: frontend indexing/legacy query tests and backend recursive compatibility checks passed.
+- [x] 2026-02-13 18:50Z Sprint 3 handoff notes appended after implementation.
 - [ ] 2026-02-13 00:00Z Sprint 4 handoff notes appended after implementation.
 
 
@@ -177,3 +181,10 @@ Sprint 2 handoff notes (2026-02-13):
 - Persisted browse cache entries now live in workspace-owned `browse-cache` directories with schema-version validation and permission-safe fallback to memory-only mode.
 - Persisted cache eviction now enforces the 200 MB cap by pruning oldest cache artifacts after writes.
 - Refresh now invalidates recursive browse cache state and storage generation tokens so ancestor scopes rebuild deterministically after subtree changes.
+
+Sprint 3 handoff notes (2026-02-13):
+- `/health` indexing payloads now include a generation token derived from storage cache signature + browse generation so UI completion state is deterministic across reloads and refreshes.
+- Scan-stable ordering now pins loaded windows while generation indexing is active and shows an explicit completion banner that requires a user click to switch back to “Most recent.”
+- Scan-stable dismissal now persists by generation in local storage and resets deterministically when a new generation starts indexing.
+- UI folder fetch paths no longer emit `legacy_recursive=1`; metadata export now drains recursive pages through paginated requests.
+- Server legacy recursive mode is now retired by default with a clear 400 response and a temporary rollback gate via `LENSLET_ENABLE_LEGACY_RECURSIVE_ROLLBACK=1` for explicit non-UI callers.

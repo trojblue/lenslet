@@ -85,7 +85,6 @@ export function useFolder(path: string, recursive = false, options?: UseFolderOp
     recursive,
     page: options?.page,
     pageSize: options?.pageSize,
-    legacyRecursive: options?.legacyRecursive,
   }
   const recursiveQuery = !!folderOptions.recursive
   return useQuery({

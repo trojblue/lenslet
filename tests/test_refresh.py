@@ -115,6 +115,27 @@ def test_refresh_endpoint_reindexes_folder(tmp_path: Path):
     assert len(updated.json()["items"]) == 2
 
 
+def test_refresh_updates_indexing_generation_contract(tmp_path: Path):
+    root = tmp_path
+    shots = root / "shots"
+    _make_image(shots / "first.jpg")
+
+    app = create_app(str(root))
+    client = TestClient(app)
+
+    before = client.get("/health").json()["indexing"]["generation"]
+
+    _make_image(shots / "second.jpg")
+    refresh = client.post("/refresh", params={"path": "/shots"})
+    assert refresh.status_code == 200
+    assert refresh.json()["ok"] is True
+
+    after = client.get("/health").json()["indexing"]["generation"]
+    assert isinstance(before, str) and before
+    assert isinstance(after, str) and after
+    assert after != before
+
+
 def test_refresh_endpoint_preserves_sidecar_annotations(tmp_path: Path):
     root = tmp_path
     shots = root / "shots"

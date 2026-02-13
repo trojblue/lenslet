@@ -8,6 +8,12 @@ function coerceProgressCount(value: unknown): number | undefined {
   return whole < 0 ? 0 : whole
 }
 
+function coerceGeneration(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : undefined
+}
+
 export function normalizeHealthIndexing(indexing: HealthResponse['indexing']): HealthIndexing | null {
   if (!indexing) return null
   const state = indexing.state
@@ -26,6 +32,7 @@ export function normalizeHealthIndexing(indexing: HealthResponse['indexing']): H
     scope: typeof indexing.scope === 'string' ? indexing.scope : undefined,
     done,
     total,
+    generation: coerceGeneration(indexing.generation),
     started_at: typeof indexing.started_at === 'string' ? indexing.started_at : undefined,
     finished_at: typeof indexing.finished_at === 'string' ? indexing.finished_at : undefined,
     error: typeof indexing.error === 'string' ? indexing.error : undefined,
@@ -40,6 +47,7 @@ export function indexingEquals(a: HealthIndexing | null, b: HealthIndexing | nul
     a.scope === b.scope &&
     a.done === b.done &&
     a.total === b.total &&
+    a.generation === b.generation &&
     a.started_at === b.started_at &&
     a.finished_at === b.finished_at &&
     a.error === b.error

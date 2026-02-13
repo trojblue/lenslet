@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import math
+import os
 import threading
 import time
 from collections import deque
@@ -98,6 +99,8 @@ RECURSIVE_PAGE_SIZE_MAX = 500
 RECURSIVE_WINDOW_INSERT_MAX = 4096
 RECURSIVE_SORT_MODE_SCAN = "scan"
 RECURSIVE_CACHE_BUILD_MAX_RETRIES = 2
+LEGACY_RECURSIVE_ROLLBACK_ENV = "LENSLET_ENABLE_LEGACY_RECURSIVE_ROLLBACK"
+_LEGACY_RECURSIVE_ROLLBACK_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
 @dataclass(frozen=True)
@@ -202,6 +205,11 @@ def _resolve_recursive_pagination(page: str | None, page_size: str | None) -> tu
     if resolved_page_size > RECURSIVE_PAGE_SIZE_MAX:
         resolved_page_size = RECURSIVE_PAGE_SIZE_MAX
     return resolved_page, resolved_page_size
+
+
+def _legacy_recursive_rollbacks_enabled() -> bool:
+    raw = os.getenv(LEGACY_RECURSIVE_ROLLBACK_ENV, "").strip().lower()
+    return raw in _LEGACY_RECURSIVE_ROLLBACK_TRUE_VALUES
 
 
 def _recursive_window_from_values(
@@ -416,6 +424,14 @@ def _build_folder_index(
 
     page_window: _RecursivePaginationWindow | None = None
     if recursive:
+        if legacy_recursive and not _legacy_recursive_rollbacks_enabled():
+            raise HTTPException(
+                400,
+                (
+                    "legacy_recursive=1 is retired for UI stability. "
+                    f"Set {LEGACY_RECURSIVE_ROLLBACK_ENV}=1 to temporarily re-enable."
+                ),
+            )
         if hotpath_metrics is not None:
             hotpath_metrics.increment("folders_recursive_requests_total")
         traversal_started = time.perf_counter()

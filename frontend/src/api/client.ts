@@ -467,7 +467,6 @@ export type GetFolderOptions = {
   recursive?: boolean
   page?: number
   pageSize?: number
-  legacyRecursive?: boolean
 }
 
 export function buildFolderQuery(path: string, options?: GetFolderOptions): string {
@@ -475,7 +474,6 @@ export function buildFolderQuery(path: string, options?: GetFolderOptions): stri
   if (options?.page != null) params.set('page', String(options.page))
   if (options?.pageSize != null) params.set('page_size', String(options.pageSize))
   if (options?.recursive) params.set('recursive', '1')
-  if (options?.legacyRecursive) params.set('legacy_recursive', '1')
   return params.toString()
 }
 

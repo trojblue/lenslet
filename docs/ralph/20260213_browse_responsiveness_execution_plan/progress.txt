@@ -51,3 +51,31 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260213_browse_responsiveness_execution_pla
   - `pytest -q tests/test_indexing_health_contract.py tests/test_hotpath_sprint_s3.py` -> passed (12 tests)
 - Blockers: none
 - Next step: start Sprint 3 (`T8`) by defining backend indexing-complete generation contract and wiring deterministic UI completion state.
+## Iteration 4 - 2026-02-13T18:50:00Z
+- Completed task IDs: T8, T9, T10
+- Files changed:
+  - src/lenslet/server_factory.py
+  - src/lenslet/server_browse.py
+  - frontend/src/lib/types.ts
+  - frontend/src/app/hooks/healthIndexing.ts
+  - frontend/src/app/hooks/__tests__/healthIndexing.test.ts
+  - frontend/src/app/model/indexingBrowseMode.ts
+  - frontend/src/app/model/__tests__/indexingBrowseMode.test.ts
+  - frontend/src/app/AppShell.tsx
+  - frontend/src/app/components/StatusBar.tsx
+  - frontend/src/app/components/__tests__/StatusBar.test.tsx
+  - frontend/src/api/client.ts
+  - frontend/src/api/folders.ts
+  - frontend/src/api/__tests__/folders.test.ts
+  - frontend/src/app/menu/AppContextMenuItems.tsx
+  - tests/test_folder_pagination.py
+  - tests/test_refresh.py
+  - tests/test_hotpath_sprint_s4.py
+  - tests/test_indexing_health_contract.py
+  - docs/20260213_browse_responsiveness_execution_plan.md
+  - docs/ralph/20260213_browse_responsiveness_execution_plan/progress.txt
+- Validations run + outcomes:
+  - `npm --prefix frontend test -- src/app/model/__tests__/indexingBrowseMode.test.ts src/app/components/__tests__/StatusBar.test.tsx src/api/__tests__/folders.test.ts src/app/hooks/__tests__/healthIndexing.test.ts` -> passed (4 files, 19 tests)
+  - `pytest -q tests/test_folder_pagination.py tests/test_refresh.py tests/test_hotpath_sprint_s4.py tests/test_indexing_health_contract.py` -> passed (36 tests)
+- Blockers: none
+- Next step: start Sprint 4 (`T11`) minimal mobile hardening and keep changes scoped to measured blockers only.

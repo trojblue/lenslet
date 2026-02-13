@@ -102,7 +102,7 @@ def test_recursive_page_size_is_clamped(tmp_path: Path):
     assert len(payload["items"]) == 2
 
 
-def test_recursive_legacy_mode_returns_full_payload(tmp_path: Path):
+def test_recursive_legacy_mode_is_restricted_by_default(tmp_path: Path):
     root = tmp_path
     for idx in range(12):
         _make_image(root / f"gallery/set/img_{idx:03d}.jpg")
@@ -110,13 +110,33 @@ def test_recursive_legacy_mode_returns_full_payload(tmp_path: Path):
     client = TestClient(create_app(str(root)))
 
     paged = _recursive(client, "/gallery", page_size="5")
-    legacy = _recursive(client, "/gallery", page_size="5", legacy_recursive="1")
+    legacy = client.get(
+        "/folders",
+        params={"path": "/gallery", "recursive": "1", "page_size": "5", "legacy_recursive": "1"},
+    )
 
     assert len(paged["items"]) == 5
     assert paged["page"] == 1
     assert paged["pageSize"] == 5
     assert paged["pageCount"] == 3
     assert paged["totalItems"] == 12
+
+    assert legacy.status_code == 400
+    assert "legacy_recursive=1 is retired" in legacy.json()["detail"]
+
+
+def test_recursive_legacy_mode_can_be_reenabled_with_rollback_flag(
+    tmp_path: Path,
+    monkeypatch,
+):
+    root = tmp_path
+    for idx in range(12):
+        _make_image(root / f"gallery/set/img_{idx:03d}.jpg")
+
+    monkeypatch.setenv("LENSLET_ENABLE_LEGACY_RECURSIVE_ROLLBACK", "1")
+    client = TestClient(create_app(str(root)))
+
+    legacy = _recursive(client, "/gallery", page_size="5", legacy_recursive="1")
 
     assert len(legacy["items"]) == 12
     assert legacy["page"] is None

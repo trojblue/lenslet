@@ -21,6 +21,7 @@ describe('health indexing contracts', () => {
       scope: '/shots',
       done: 9,
       total: 9,
+      generation: undefined,
       started_at: '2026-02-12T00:00:00Z',
       finished_at: undefined,
       error: undefined,
@@ -58,12 +59,14 @@ describe('health indexing contracts', () => {
   })
 
   it('compares normalized lifecycle payloads deterministically', () => {
-    const a: HealthIndexing = { state: 'running', scope: '/', done: 2, total: 5 }
-    const b: HealthIndexing = { state: 'running', scope: '/', done: 2, total: 5 }
-    const c: HealthIndexing = { state: 'running', scope: '/', done: 3, total: 5 }
+    const a: HealthIndexing = { state: 'running', scope: '/', done: 2, total: 5, generation: 'g1' }
+    const b: HealthIndexing = { state: 'running', scope: '/', done: 2, total: 5, generation: 'g1' }
+    const c: HealthIndexing = { state: 'running', scope: '/', done: 3, total: 5, generation: 'g1' }
+    const d: HealthIndexing = { state: 'running', scope: '/', done: 2, total: 5, generation: 'g2' }
 
     expect(indexingEquals(a, b)).toBe(true)
     expect(indexingEquals(a, c)).toBe(false)
+    expect(indexingEquals(a, d)).toBe(false)
     expect(indexingEquals(a, null)).toBe(false)
     expect(indexingEquals(null, null)).toBe(true)
   })

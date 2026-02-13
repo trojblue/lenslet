@@ -279,9 +279,36 @@ def _storage_indexing_progress(storage) -> tuple[int | None, int | None]:
     return done, total
 
 
+def _storage_indexing_generation(storage) -> str:
+    parts: list[str] = []
+    signature_fn = getattr(storage, "browse_cache_signature", None)
+    if callable(signature_fn):
+        try:
+            signature = str(signature_fn()).strip()
+        except Exception:
+            signature = ""
+        if signature:
+            parts.append(signature)
+
+    generation_fn = getattr(storage, "browse_generation", None)
+    if callable(generation_fn):
+        try:
+            generation = str(generation_fn()).strip()
+        except Exception:
+            generation = ""
+        if generation:
+            parts.append(generation)
+
+    if not parts:
+        return "default"
+    return "|".join(parts)
+
+
 def _indexing_health_payload(indexing: IndexingLifecycle, storage) -> dict[str, Any]:
     done, total = _storage_indexing_progress(storage)
-    return indexing.snapshot(done=done, total=total)
+    payload = indexing.snapshot(done=done, total=total)
+    payload["generation"] = _storage_indexing_generation(storage)
+    return payload
 
 
 def create_app(

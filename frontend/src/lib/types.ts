@@ -98,6 +98,7 @@ export type HealthResponse = {
     scope?: string
     done?: number
     total?: number
+    generation?: string
     started_at?: string
     finished_at?: string
     error?: string

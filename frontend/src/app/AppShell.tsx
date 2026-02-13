@@ -66,6 +66,11 @@ import { useAppPresenceSync } from './hooks/useAppPresenceSync'
 import { useAppActions } from './hooks/useAppActions'
 import { useFolderSessionState } from './hooks/useFolderSessionState'
 import { buildFilterChips } from './model/filterChips'
+import {
+  captureScanGeneration,
+  deriveIndexingBrowseMode,
+  normalizeIndexingGeneration,
+} from './model/indexingBrowseMode'
 
 // S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
 // - T13a data scope: folder/search/similarity loading + derived pools.
@@ -87,6 +92,30 @@ const STORAGE_KEYS = {
   leftOpen: 'leftOpen',
   rightOpen: 'rightOpen',
 } as const
+
+const INDEXING_MODE_STORAGE_KEYS = {
+  scanGeneration: 'indexingScanGeneration',
+  recentGeneration: 'indexingMostRecentGeneration',
+} as const
+
+function readStoredGeneration(key: string): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(key)
+    return normalizeIndexingGeneration(raw)
+  } catch {
+    return null
+  }
+}
+
+function writeStoredGeneration(key: string, generation: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(key, generation)
+  } catch {
+    // Ignore storage failures.
+  }
+}
 
 function prefetchFilesAndThumbs(paths: readonly string[], context: FullFilePrefetchContext): void {
   for (const path of paths) {
@@ -129,6 +158,13 @@ export default function AppShell() {
   const [views, setViews] = useState<SavedView[]>([])
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
   const [folderCountsVersion, setFolderCountsVersion] = useState(0)
+  const [scanGeneration, setScanGeneration] = useState<string | null>(() => (
+    readStoredGeneration(INDEXING_MODE_STORAGE_KEYS.scanGeneration)
+  ))
+  const [recentGeneration, setRecentGeneration] = useState<string | null>(() => (
+    readStoredGeneration(INDEXING_MODE_STORAGE_KEYS.recentGeneration)
+  ))
+  const [scanStableMode, setScanStableMode] = useState(false)
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
@@ -183,6 +219,7 @@ export default function AppShell() {
     current,
     query,
     similarityState,
+    scanStableMode,
     viewState,
     randomSeed,
     localStarOverrides,
@@ -339,6 +376,47 @@ export default function AppShell() {
     updateItemCaches,
     setLocalStarOverrides,
   })
+
+  useEffect(() => {
+    const nextScanGeneration = captureScanGeneration(scanGeneration, indexing)
+    if (!nextScanGeneration || nextScanGeneration === scanGeneration) return
+    setScanGeneration(nextScanGeneration)
+    writeStoredGeneration(INDEXING_MODE_STORAGE_KEYS.scanGeneration, nextScanGeneration)
+  }, [indexing, scanGeneration])
+
+  const indexingBrowseMode = useMemo(() => {
+    return deriveIndexingBrowseMode(indexing, {
+      scanGeneration,
+      recentGeneration,
+    })
+  }, [indexing, recentGeneration, scanGeneration])
+
+  useEffect(() => {
+    setScanStableMode((prev) => (
+      prev === indexingBrowseMode.scanStableActive
+        ? prev
+        : indexingBrowseMode.scanStableActive
+    ))
+  }, [indexingBrowseMode.scanStableActive])
+
+  const handleSwitchToMostRecent = useCallback(() => {
+    const generation = normalizeIndexingGeneration(indexing?.generation)
+    if (!generation) return
+    if (recentGeneration !== generation) {
+      setRecentGeneration(generation)
+      writeStoredGeneration(INDEXING_MODE_STORAGE_KEYS.recentGeneration, generation)
+    }
+    setViewState((prev) => {
+      if (prev.sort.kind === 'builtin' && prev.sort.key === 'added' && prev.sort.dir === 'desc') {
+        return prev
+      }
+      return {
+        ...prev,
+        sort: { kind: 'builtin', key: 'added', dir: 'desc' },
+      }
+    })
+  }, [indexing?.generation, recentGeneration])
+
   const handleGridVisiblePathsChange = useCallback((paths: Set<string>) => {
     handleVisiblePathsChange(paths)
   }, [handleVisiblePathsChange])
@@ -1051,7 +1129,7 @@ export default function AppShell() {
         sortSpec={viewState.sort}
         metricKeys={metricKeys}
         onSortChange={handleSortChange}
-        sortDisabled={similarityActive}
+        sortDisabled={similarityActive || indexingBrowseMode.sortLocked}
         filterCount={activeFilterCount}
         onOpenFilters={openMetricsPanel}
         starFilters={starFilters}
@@ -1143,6 +1221,8 @@ export default function AppShell() {
         <StatusBar
           persistenceEnabled={persistenceEnabled}
           indexing={indexing}
+          showSwitchToMostRecentBanner={indexingBrowseMode.showSwitchToMostRecentBanner}
+          onSwitchToMostRecent={handleSwitchToMostRecent}
           offViewSummary={offViewSummary}
           canRevealOffView={showFilteredCounts}
           onRevealOffView={handleRevealOffView}

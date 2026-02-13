@@ -110,7 +110,7 @@ def test_recursive_pagination_contract_across_app_modes(tmp_path: Path, build_ap
 
     assert page1_resp.status_code == 200
     assert page2_resp.status_code == 200
-    assert legacy_resp.status_code == 200
+    assert legacy_resp.status_code == 400
 
     page1 = page1_resp.json()
     page2 = page2_resp.json()
@@ -126,6 +126,27 @@ def test_recursive_pagination_contract_across_app_modes(tmp_path: Path, build_ap
     assert set(page1_paths).isdisjoint(set(page2_paths))
     assert len(set(page1_paths + page2_paths)) == 3
 
+    assert "legacy_recursive=1 is retired" in legacy["detail"]
+
+
+@pytest.mark.parametrize("build_app", APP_BUILDERS)
+def test_recursive_legacy_rollback_flag_preserves_non_ui_callers(
+    tmp_path: Path,
+    build_app: AppBuilder,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_gallery(tmp_path)
+    app, folder_path, _ = build_app(tmp_path)
+    monkeypatch.setenv("LENSLET_ENABLE_LEGACY_RECURSIVE_ROLLBACK", "1")
+
+    with TestClient(app) as client:
+        legacy_resp = client.get(
+            "/folders",
+            params={"path": folder_path, "recursive": "1", "page_size": "2", "legacy_recursive": "1"},
+        )
+
+    assert legacy_resp.status_code == 200
+    legacy = legacy_resp.json()
     assert len(legacy["items"]) == 3
     assert legacy["page"] is None
     assert legacy["pageSize"] is None

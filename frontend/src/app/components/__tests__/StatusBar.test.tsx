@@ -61,4 +61,14 @@ describe('StatusBar indexing banner lifecycle', () => {
     expect(html).toContain('Indexing failed.')
     expect(html).toContain('forced warm index failure')
   })
+
+  it('shows explicit switch action when scan-stable completion banner is active', () => {
+    const html = renderStatusBar({
+      showSwitchToMostRecentBanner: true,
+      onSwitchToMostRecent: noop,
+    })
+
+    expect(html).toContain('Indexing complete.')
+    expect(html).toContain('Switch to Most recent')
+  })
 })

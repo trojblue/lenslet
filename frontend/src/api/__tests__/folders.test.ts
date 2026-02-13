@@ -17,12 +17,12 @@ describe('folder api query helpers', () => {
     expect(params.get('page_size')).toBe('250')
   })
 
-  it('adds legacy recursive mode when requested', () => {
-    const query = buildFolderQuery('/shots', { recursive: true, legacyRecursive: true })
+  it('does not emit retired legacy recursive params', () => {
+    const query = buildFolderQuery('/shots', { recursive: true })
     const params = new URLSearchParams(query)
 
     expect(params.get('recursive')).toBe('1')
-    expect(params.get('legacy_recursive')).toBe('1')
+    expect(params.get('legacy_recursive')).toBeNull()
   })
 
   it('separates recursive cache keys by page and page size', () => {

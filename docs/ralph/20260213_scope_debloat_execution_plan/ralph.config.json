@@ -1,0 +1,9 @@
+{
+  "mode": "plan",
+  "tool": "codex",
+  "maxIterations": 20,
+  "maxTasksPerIteration": 6,
+  "planFile": "/home/ubuntu/dev/lenslet/docs/20260213_scope_debloat_execution_plan.md",
+  "prdFile": "prd.json",
+  "progressFile": "progress.txt"
+}

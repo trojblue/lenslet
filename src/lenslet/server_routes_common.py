@@ -65,6 +65,7 @@ def register_folder_route(
         legacy_recursive: bool = False,
     ):
         storage = _server._storage_from_request(request)
+        browse_cache = getattr(app.state, "recursive_browse_cache", None)
         return _server._build_folder_index(
             storage,
             _server._canonical_path(path),
@@ -73,6 +74,7 @@ def register_folder_route(
             page=page,
             page_size=page_size,
             legacy_recursive=legacy_recursive,
+            browse_cache=browse_cache,
             hotpath_metrics=hotpath_metrics,
         )
 

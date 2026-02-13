@@ -49,9 +49,9 @@ Sprint Plan:
    Goal: Remove repeated recursive recomputation and support fast repeat browsing on the same dataset.
    Demo outcome: Recursive pages are served from deterministic bounded cache/index windows with measurable latency reduction.
    Tasks:
-   - T5. Implement in-memory recursive window cache keyed by scope plus sort mode, with deterministic slicing semantics for page windows.
-   - T6. Add optional persisted browse cache for relaunch reuse with explicit location, schema/version marker, permission-safe fallback, and enforced 200 MB cap plus eviction policy.
-   - T7. Add invalidation/rebuild rules tied to refresh/index changes and stale generation detection to avoid mixed-window corruption.
+   - T5. Implement in-memory recursive window cache keyed by scope plus sort mode, with deterministic slicing semantics for page windows. (Completed 2026-02-13)
+   - T6. Add optional persisted browse cache for relaunch reuse with explicit location, schema/version marker, permission-safe fallback, and enforced 200 MB cap plus eviction policy. (Completed 2026-02-13)
+   - T7. Add invalidation/rebuild rules tied to refresh/index changes and stale generation detection to avoid mixed-window corruption. (Completed 2026-02-13)
 
 3. Sprint 3: Stable Ordering UX and Legacy Recursive Retirement
    Goal: Keep ordering stable during progressive discovery and remove problematic legacy recursive path safely.
@@ -98,9 +98,11 @@ Each sprint has concrete behavior validation and expected outcomes.
    - Validate deterministic recursive page windows before/after cache and measure repeat-page latency improvement.
    - Validate persisted cache restart behavior and hard 200 MB cap with enforced eviction.
    - Expected outcome: repeated recursive paging avoids prior cumulative stall behavior and cache never exceeds budget.
+   - Iteration 2 evidence (2026-02-13): recursive cache regression slice passed across pagination, refresh invalidation, and cap enforcement checks.
 
       pytest -q tests/test_folder_pagination.py tests/test_memory_index_performance.py
       pytest -q --durations=10 tests/test_folder_pagination.py tests/test_hotpath_sprint_s4.py
+      pytest -q tests/test_refresh.py tests/test_browse_cache.py
 
 3. Sprint 3 validation
    - Validate indexing-complete signal and banner lifecycle across reloads.
@@ -141,7 +143,9 @@ Idempotent retry strategy is required for cache/index refresh. Rebuild operation
 - [x] 2026-02-13 18:29Z Sprint 1 tasks T1-T4 implemented: incremental recursive hydration pacing, endpoint request budgets/cancellation, adjacent-row-only thumb prefetch, and machine-checkable browse hotpath telemetry.
 - [x] 2026-02-13 18:30Z Sprint 1 validation completed: frontend vitest suite and targeted backend pytest hotpath/pagination checks passed.
 - [x] 2026-02-13 18:31Z Sprint 1 handoff notes appended after implementation.
-- [ ] 2026-02-13 00:00Z Sprint 2 handoff notes appended after implementation.
+- [x] 2026-02-13 18:40Z Sprint 2 tasks T5-T7 implemented: recursive window cache now serves deterministic slices from in-memory snapshots with persisted relaunch reuse, workspace-owned browse cache location, and 200 MB eviction guardrails.
+- [x] 2026-02-13 18:40Z Sprint 2 validation completed: targeted recursive pagination, refresh invalidation, and hotpath regression checks passed.
+- [x] 2026-02-13 18:41Z Sprint 2 handoff notes appended after implementation.
 - [ ] 2026-02-13 00:00Z Sprint 3 handoff notes appended after implementation.
 - [ ] 2026-02-13 00:00Z Sprint 4 handoff notes appended after implementation.
 
@@ -167,3 +171,9 @@ Sprint 1 handoff notes (2026-02-13):
 - Request backpressure now routes `/folders`, `/thumb`, and `/file` through endpoint budgets with explicit queueing and abort-on-scope-change wiring.
 - Thumbnail prefetch was narrowed to rows adjacent to the viewport so visible cards and prefetchers no longer compete for the same thumbnail paths.
 - Machine-checkable telemetry is now exposed via `window.__lensletBrowseHotpath` and performance markers for hydration start/complete and first-thumbnail latency.
+
+Sprint 2 handoff notes (2026-02-13):
+- Recursive `/folders` responses now route through `RecursiveBrowseCache` snapshots keyed by scope, sort mode, and storage generation token, so adjacent page requests avoid repeated subtree recomputation.
+- Persisted browse cache entries now live in workspace-owned `browse-cache` directories with schema-version validation and permission-safe fallback to memory-only mode.
+- Persisted cache eviction now enforces the 200 MB cap by pruning oldest cache artifacts after writes.
+- Refresh now invalidates recursive browse cache state and storage generation tokens so ancestor scopes rebuild deterministically after subtree changes.

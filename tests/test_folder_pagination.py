@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from lenslet import server_browse
 from lenslet.server import create_app
 
 
@@ -122,3 +123,64 @@ def test_recursive_legacy_mode_returns_full_payload(tmp_path: Path):
     assert legacy["pageSize"] is None
     assert legacy["pageCount"] is None
     assert legacy["totalItems"] is None
+
+
+def test_recursive_pagination_reuses_cached_snapshot_between_pages(
+    tmp_path: Path,
+    monkeypatch,
+):
+    root = tmp_path
+    for idx in range(30):
+        branch = "alpha" if idx % 2 == 0 else "beta"
+        _make_image(root / f"gallery/{branch}/img_{idx:03d}.jpg")
+
+    collect_calls = {"count": 0}
+    original = server_browse._collect_recursive_cached_items
+
+    def _counting_collect(*args, **kwargs):
+        collect_calls["count"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(server_browse, "_collect_recursive_cached_items", _counting_collect)
+
+    client = TestClient(create_app(str(root)))
+
+    first = _recursive(client, "/gallery", page_size="10")
+    second = _recursive(client, "/gallery", page="2", page_size="10")
+
+    assert first["totalItems"] == 30
+    assert second["totalItems"] == 30
+    assert len(first["items"]) == 10
+    assert len(second["items"]) == 10
+    assert collect_calls["count"] == 1
+
+
+def test_recursive_pagination_reuses_persisted_cache_after_restart(
+    tmp_path: Path,
+    monkeypatch,
+):
+    root = tmp_path
+    for idx in range(24):
+        branch = "north" if idx % 2 == 0 else "south"
+        _make_image(root / f"dataset/{branch}/img_{idx:03d}.jpg")
+
+    first_app = create_app(str(root))
+    with TestClient(first_app) as client:
+        first_payload = _recursive(client, "/dataset", page_size="12")
+    assert first_payload["totalItems"] == 24
+
+    collect_calls = {"count": 0}
+    original = server_browse._collect_recursive_cached_items
+
+    def _counting_collect(*args, **kwargs):
+        collect_calls["count"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(server_browse, "_collect_recursive_cached_items", _counting_collect)
+
+    second_app = create_app(str(root))
+    with TestClient(second_app) as client:
+        second_payload = _recursive(client, "/dataset", page_size="12")
+
+    assert second_payload["totalItems"] == 24
+    assert collect_calls["count"] == 0

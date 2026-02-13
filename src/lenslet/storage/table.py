@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from threading import Lock
 from dataclasses import dataclass, field
@@ -254,6 +255,15 @@ class TableStorage:
                 break
 
         self._build_indexes()
+        self._browse_signature = self._compute_browse_signature()
+
+    def _compute_browse_signature(self) -> str:
+        digest = hashlib.sha256()
+        digest.update(str(self.root or "").encode("utf-8"))
+        digest.update(str(self._row_count).encode("utf-8"))
+        for path in self._items.keys():
+            digest.update(path.encode("utf-8"))
+        return digest.hexdigest()
 
     def _table_to_columns(self, table: Any) -> tuple[list[str], dict[str, list[Any]], int]:
         return table_to_columns(table)
@@ -446,6 +456,12 @@ class TableStorage:
 
     def indexing_progress(self) -> dict[str, int | str | bool | None]:
         return self._progress_bar.snapshot()
+
+    def browse_generation(self) -> int:
+        return 0
+
+    def browse_cache_signature(self) -> str:
+        return self._browse_signature
 
     def row_dimensions(self) -> list[tuple[int, int] | None]:
         return list(self._row_dimensions)

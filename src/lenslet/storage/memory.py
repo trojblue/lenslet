@@ -1,4 +1,5 @@
 from __future__ import annotations
+import hashlib
 import os
 import struct
 import time
@@ -67,6 +68,8 @@ class MemoryStorage:
         self._thumbnails: dict[str, bytes] = {}  # path -> thumbnail bytes
         self._metadata: dict[str, dict] = {}  # path -> sidecar-like metadata
         self._dimensions: dict[str, tuple[int, int]] = {}  # path -> (w, h)
+        self._browse_generation = 0
+        self._browse_signature = self._compute_browse_signature()
 
     def _normalize_path(self, path: str) -> str:
         """Normalize path for consistent cache keys."""
@@ -87,6 +90,30 @@ class MemoryStorage:
 
     def _index_exists(self, norm: str) -> bool:
         return norm in self._indexes
+
+    def _compute_browse_signature(self) -> str:
+        root = self.local.root_real
+        try:
+            entries: list[str] = []
+            with os.scandir(root) as iterator:
+                for entry in iterator:
+                    if entry.name.startswith("."):
+                        continue
+                    try:
+                        stat = entry.stat(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    kind = "d" if entry.is_dir(follow_symlinks=False) else "f"
+                    entries.append(f"{kind}:{entry.name}:{stat.st_mtime_ns}:{stat.st_size}")
+            entries.sort()
+            payload = "|".join([root, *entries]).encode("utf-8")
+            return hashlib.sha256(payload).hexdigest()
+        except Exception:
+            return root
+
+    def _bump_browse_generation(self) -> None:
+        self._browse_generation += 1
+        self._browse_signature = self._compute_browse_signature()
 
     def _abs_path(self, path: str) -> str:
         """Fast, safe absolute path resolution via LocalStorage."""
@@ -188,6 +215,12 @@ class MemoryStorage:
 
     def indexing_progress(self) -> dict[str, int | str | bool | None]:
         return self._progress_bar.snapshot()
+
+    def browse_generation(self) -> int:
+        return self._browse_generation
+
+    def browse_cache_signature(self) -> str:
+        return self._browse_signature
 
     def _effective_workers(self, total: int) -> int:
         if total <= 0:
@@ -488,6 +521,7 @@ class MemoryStorage:
 
     def invalidate_cache(self, path: str | None = None) -> None:
         """Clear cached data. If path is None, clear everything."""
+        self._bump_browse_generation()
         if path is None:
             self._leaf_batch.clear()
             self._indexes.clear()
@@ -508,6 +542,7 @@ class MemoryStorage:
         clear_metadata=False to preserve in-memory annotations while rebuilding
         folder indexes and thumbnails.
         """
+        self._bump_browse_generation()
         norm = self._normalize_path(path)
         self._leaf_batch.clear()
 

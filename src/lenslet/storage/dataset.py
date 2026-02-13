@@ -1,5 +1,6 @@
 """In-memory dataset storage for programmatic API."""
 from __future__ import annotations
+import hashlib
 import os
 import struct
 import time
@@ -82,6 +83,15 @@ class DatasetStorage:
         
         # Build initial index
         self._build_all_indexes()
+        self._browse_signature = self._compute_browse_signature()
+
+    def _compute_browse_signature(self) -> str:
+        digest = hashlib.sha256()
+        for dataset in sorted(self.datasets.keys()):
+            digest.update(dataset.encode("utf-8"))
+            for source in sorted(self.datasets[dataset]):
+                digest.update(source.encode("utf-8"))
+        return digest.hexdigest()
 
     def _is_s3_uri(self, path: str) -> bool:
         """Check if path is an S3 URI."""
@@ -233,6 +243,12 @@ class DatasetStorage:
 
     def indexing_progress(self) -> dict[str, int | str | bool | None]:
         return self._progress_bar.snapshot()
+
+    def browse_generation(self) -> int:
+        return 0
+
+    def browse_cache_signature(self) -> str:
+        return self._browse_signature
 
     def _effective_remote_workers(self, total: int) -> int:
         if total <= 0:

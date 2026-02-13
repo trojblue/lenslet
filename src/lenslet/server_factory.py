@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from .browse_cache import RecursiveBrowseCache
 from .embeddings.cache import EmbeddingCache
 from .embeddings.config import EmbeddingConfig
 from .embeddings.detect import columns_without_embeddings, detect_embeddings, EmbeddingDetection
@@ -186,6 +187,7 @@ def _base_health_payload(
         "ok": True,
         "mode": mode,
         "can_write": workspace.can_write,
+        "browse_cache": _browse_cache_health_payload(app),
         "compare_export": _compare_export_health_payload(),
         "labels": _labels_health_payload(workspace),
         "presence": _presence_health_payload(
@@ -201,6 +203,24 @@ def _compare_export_health_payload() -> dict[str, Any]:
     return {
         "supported_versions": [1, 2],
         "max_paths_v2": MAX_EXPORT_COMPARISON_PATHS_V2,
+    }
+
+
+def _browse_cache_health_payload(app: FastAPI) -> dict[str, Any]:
+    cache = getattr(app.state, "recursive_browse_cache", None)
+    if cache is None:
+        return {
+            "enabled": False,
+            "persisted": False,
+            "path": None,
+            "max_bytes": 0,
+        }
+    cache_dir = getattr(cache, "cache_dir", None)
+    return {
+        "enabled": True,
+        "persisted": bool(getattr(cache, "persistence_enabled", False)),
+        "path": str(cache_dir) if cache_dir is not None else None,
+        "max_bytes": int(getattr(cache, "max_disk_bytes", 0)),
     }
 
 
@@ -340,6 +360,7 @@ def create_app(
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
     )
+    app.state.recursive_browse_cache = _recursive_browse_cache_from_workspace(workspace)
 
     embedding_manager: EmbeddingManager | None = None
     if storage_mode == "table" and items_path.is_file() and isinstance(storage, TableStorage):
@@ -424,6 +445,9 @@ def create_app(
 
         # Keep in-memory sidecar metadata so annotations survive refresh.
         storage.invalidate_subtree(path, clear_metadata=False)
+        browse_cache = getattr(app.state, "recursive_browse_cache", None)
+        if browse_cache is not None:
+            browse_cache.invalidate_path(path)
         return {"ok": True}
 
     _register_common_routes(
@@ -482,6 +506,7 @@ def create_app_from_datasets(
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
     )
+    app.state.recursive_browse_cache = _recursive_browse_cache_from_workspace(workspace)
     indexing = IndexingLifecycle.ready(scope="/")
     if indexing_listener is not None:
         indexing.subscribe(indexing_listener, emit_current=True)
@@ -629,6 +654,7 @@ def create_app_from_storage(
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
     )
+    app.state.recursive_browse_cache = _recursive_browse_cache_from_workspace(workspace)
     indexing = IndexingLifecycle.ready(scope="/")
     if indexing_listener is not None:
         indexing.subscribe(indexing_listener, emit_current=True)
@@ -704,6 +730,11 @@ def _thumb_cache_from_workspace(workspace: Workspace, enabled: bool) -> ThumbCac
     if cache_dir is None:
         return None
     return ThumbCache(cache_dir)
+
+
+def _recursive_browse_cache_from_workspace(workspace: Workspace) -> RecursiveBrowseCache:
+    cache_dir = workspace.browse_cache_dir()
+    return RecursiveBrowseCache(cache_dir=cache_dir)
 
 
 def _embedding_cache_from_workspace(

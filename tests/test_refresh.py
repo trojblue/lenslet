@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from lenslet import server_browse
 from lenslet.server import create_app, create_app_from_datasets
 from lenslet.storage.memory import MemoryStorage
 
@@ -186,3 +187,45 @@ def test_folders_recursive_includes_descendants(tmp_path: Path):
         "/parent/child/grand/deep.jpg",
     }
     assert {entry["name"] for entry in recursive_payload["dirs"]} == {"child"}
+
+
+def test_refresh_invalidates_recursive_cache_for_ancestor_scope(
+    tmp_path: Path,
+    monkeypatch,
+):
+    root = tmp_path
+    _make_image(root / "gallery" / "child" / "a.jpg")
+    _make_image(root / "gallery" / "child" / "b.jpg")
+
+    collect_calls = {"count": 0}
+    original = server_browse._collect_recursive_cached_items
+
+    def _counting_collect(*args, **kwargs):
+        collect_calls["count"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(server_browse, "_collect_recursive_cached_items", _counting_collect)
+
+    app = create_app(str(root))
+    client = TestClient(app)
+
+    first = client.get(
+        "/folders",
+        params={"path": "/gallery", "recursive": "1", "page_size": "1"},
+    )
+    assert first.status_code == 200
+    assert first.json()["totalItems"] == 2
+    assert collect_calls["count"] == 1
+
+    _make_image(root / "gallery" / "child" / "c.jpg")
+    refresh = client.post("/refresh", params={"path": "/gallery/child"})
+    assert refresh.status_code == 200
+    assert refresh.json()["ok"] is True
+
+    second = client.get(
+        "/folders",
+        params={"path": "/gallery", "recursive": "1", "page_size": "1"},
+    )
+    assert second.status_code == 200
+    assert second.json()["totalItems"] == 3
+    assert collect_calls["count"] == 2

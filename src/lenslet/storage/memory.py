@@ -65,6 +65,7 @@ class MemoryStorage:
 
         # In-memory caches
         self._indexes: dict[str, CachedIndex] = {}
+        self._recursive_indexes: dict[str, CachedIndex] = {}
         self._thumbnails: dict[str, bytes] = {}  # path -> thumbnail bytes
         self._metadata: dict[str, dict] = {}  # path -> sidecar-like metadata
         self._dimensions: dict[str, tuple[int, int]] = {}  # path -> (w, h)
@@ -89,7 +90,7 @@ class MemoryStorage:
         return f"/{norm}" if norm else "/"
 
     def _index_exists(self, norm: str) -> bool:
-        return norm in self._indexes
+        return norm in self._indexes or norm in self._recursive_indexes
 
     def _compute_browse_signature(self) -> str:
         root = self.local.root_real
@@ -164,7 +165,16 @@ class MemoryStorage:
         norm = self._normalize_path(path)
         if norm in self._indexes:
             return self._indexes[norm]
-        return self._build_index(path)
+        return self._build_index(path, lightweight=False)
+
+    def get_index_for_recursive(self, path: str) -> CachedIndex | None:
+        """Get an index optimized for recursive traversal hot paths."""
+        norm = self._normalize_path(path)
+        if norm in self._indexes:
+            return self._indexes[norm]
+        if norm in self._recursive_indexes:
+            return self._recursive_indexes[norm]
+        return self._build_index(path, lightweight=True)
 
     def validate_image_path(self, path: str) -> None:
         """Ensure path is a supported image and exists on disk."""
@@ -177,19 +187,33 @@ class MemoryStorage:
         if not self.exists(path):
             raise FileNotFoundError(path)
 
-    def _build_item(self, path: str, name: str, idx: int) -> tuple[int, CachedItem | None, tuple[int, int] | None]:
+    def _build_item(
+        self,
+        path: str,
+        name: str,
+        idx: int,
+        *,
+        include_dimensions: bool,
+        include_file_stat: bool,
+    ) -> tuple[int, CachedItem | None, tuple[int, int] | None]:
         """Build a CachedItem for a single image file."""
         try:
             full = self.join(path, name)
-            abs_path = self._abs_path(full)
-            stat = os.stat(abs_path)
-            size = stat.st_size
-            mtime = stat.st_mtime
+            abs_path = None
+            if include_dimensions or include_file_stat:
+                abs_path = self._abs_path(full)
+
+            size = 0
+            mtime = 0.0
+            if include_file_stat and abs_path is not None:
+                stat = os.stat(abs_path)
+                size = stat.st_size
+                mtime = stat.st_mtime
             mime = self._guess_mime(name)
 
             w, h = self._dimensions.get(full, (0, 0))
             dims = None
-            if w == 0 or h == 0:
+            if include_dimensions and (w == 0 or h == 0) and abs_path is not None:
                 try:
                     dims = self._read_dimensions_fast(abs_path)
                     if dims:
@@ -228,7 +252,7 @@ class MemoryStorage:
         cpu = os.cpu_count() or 1
         return max(1, min(self.LOCAL_INDEX_WORKERS, cpu, total))
 
-    def _build_index(self, path: str) -> CachedIndex:
+    def _build_index(self, path: str, *, lightweight: bool) -> CachedIndex:
         """Build and cache folder index. Fast - no image reading."""
         norm = self._normalize_path(path)
         files, dirs = self.list_dir(path)
@@ -254,7 +278,14 @@ class MemoryStorage:
         if workers:
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = [
-                    executor.submit(self._build_item, path, name, i)
+                    executor.submit(
+                        self._build_item,
+                        path,
+                        name,
+                        i,
+                        include_dimensions=not lightweight,
+                        include_file_stat=not lightweight,
+                    )
                     for i, name in enumerate(image_files)
                 ]
                 for future in as_completed(futures):
@@ -270,7 +301,13 @@ class MemoryStorage:
                         last_print = now
         elif total:
             for i, name in enumerate(image_files):
-                idx, item, dims = self._build_item(path, name, i)
+                idx, item, dims = self._build_item(
+                    path,
+                    name,
+                    i,
+                    include_dimensions=not lightweight,
+                    include_file_stat=not lightweight,
+                )
                 if item is not None:
                     items[idx] = item
                     if dims:
@@ -289,10 +326,39 @@ class MemoryStorage:
             items=[it for it in items if it is not None],
             dirs=dirs,
         )
-        self._indexes[norm] = index
+        if lightweight:
+            self._recursive_indexes[norm] = index
+        else:
+            self._indexes[norm] = index
+            self._recursive_indexes.pop(norm, None)
         if use_leaf_batch:
             self._leaf_batch.update(norm)
         return index
+
+    def hydrate_recursive_items(self, items: list[CachedItem]) -> list[CachedItem]:
+        """Hydrate lightweight recursive items with file stat fields for response payloads."""
+        hydrated: list[CachedItem] = []
+        for item in items:
+            if item.size > 0 and item.mtime > 0:
+                hydrated.append(item)
+                continue
+            try:
+                stat = os.stat(self._abs_path(item.path))
+            except Exception:
+                hydrated.append(item)
+                continue
+            hydrated.append(
+                CachedItem(
+                    path=item.path,
+                    name=item.name,
+                    mime=item.mime,
+                    width=item.width,
+                    height=item.height,
+                    size=stat.st_size,
+                    mtime=stat.st_mtime,
+                )
+            )
+        return hydrated
 
     def get_dimensions(self, path: str) -> tuple[int, int]:
         """Get image dimensions, loading lazily if needed."""
@@ -353,7 +419,7 @@ class MemoryStorage:
                 return None
             if 0xc0 <= marker[1] <= 0xcf and marker[1] not in (0xc4, 0xc8, 0xcc):
                 # SOF marker
-                length = struct.unpack(">H", f.read(2))[0]
+                f.read(2)  # segment length (unused)
                 f.read(1)  # precision
                 h, w = struct.unpack(">HH", f.read(4))
                 return w, h
@@ -525,12 +591,14 @@ class MemoryStorage:
         if path is None:
             self._leaf_batch.clear()
             self._indexes.clear()
+            self._recursive_indexes.clear()
             self._thumbnails.clear()
             self._metadata.clear()
             self._dimensions.clear()
         else:
             norm = self._normalize_path(path)
             self._indexes.pop(norm, None)
+            self._recursive_indexes.pop(norm, None)
             self._thumbnails.pop(path, None)
             self._metadata.pop(self._canonical_meta_key(path), None)
             self._dimensions.pop(path, None)
@@ -558,11 +626,15 @@ class MemoryStorage:
         # Invalidate folder indexes at or below the target
         if not norm:  # root => clear everything fast
             self._indexes.clear()
+            self._recursive_indexes.clear()
         else:
             prefix = f"{norm}/"
             for key in list(self._indexes.keys()):
                 if key == norm or key.startswith(prefix):
                     self._indexes.pop(key, None)
+            for key in list(self._recursive_indexes.keys()):
+                if key == norm or key.startswith(prefix):
+                    self._recursive_indexes.pop(key, None)
 
         # Invalidate per-item caches (thumbs, dimensions, and optionally metadata)
         def _matches(item_path: str) -> bool:

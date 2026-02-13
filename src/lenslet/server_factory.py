@@ -57,6 +57,8 @@ def _create_base_app(*, description: str) -> FastAPI:
 
 
 def _attach_storage(app: FastAPI, storage) -> None:
+    app.state.storage = storage
+
     @app.middleware("http")
     async def attach_storage(request: Request, call_next):
         request.state.storage = storage
@@ -214,13 +216,22 @@ def _browse_cache_health_payload(app: FastAPI) -> dict[str, Any]:
             "persisted": False,
             "path": None,
             "max_bytes": 0,
+            "pending_warms": 0,
         }
     cache_dir = getattr(cache, "cache_dir", None)
+    pending_warms = getattr(cache, "pending_warm_count", None)
+    pending_count = 0
+    if callable(pending_warms):
+        try:
+            pending_count = int(pending_warms())
+        except Exception:
+            pending_count = 0
     return {
         "enabled": True,
         "persisted": bool(getattr(cache, "persistence_enabled", False)),
         "path": str(cache_dir) if cache_dir is not None else None,
         "max_bytes": int(getattr(cache, "max_disk_bytes", 0)),
+        "pending_warms": pending_count,
     }
 
 

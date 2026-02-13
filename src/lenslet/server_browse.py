@@ -10,7 +10,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException, Request
 
@@ -99,6 +99,7 @@ RECURSIVE_PAGE_SIZE_MAX = 500
 RECURSIVE_WINDOW_INSERT_MAX = 4096
 RECURSIVE_SORT_MODE_SCAN = "scan"
 RECURSIVE_CACHE_BUILD_MAX_RETRIES = 2
+RECURSIVE_CACHE_WARM_DELAY_SECONDS = 8.0
 LEGACY_RECURSIVE_ROLLBACK_ENV = "LENSLET_ENABLE_LEGACY_RECURSIVE_ROLLBACK"
 _LEGACY_RECURSIVE_ROLLBACK_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
@@ -255,12 +256,34 @@ def _insert_recursive_window_item(
         sorted_items.pop()
 
 
+def _storage_recursive_index(storage, path: str):
+    getter = getattr(storage, "get_index_for_recursive", None)
+    if callable(getter):
+        return getter(path)
+    return storage.get_index(path)
+
+
+def _hydrate_recursive_page_items(storage, items: list[Any]) -> list[Any]:
+    hydrate_fn = getattr(storage, "hydrate_recursive_items", None)
+    if not callable(hydrate_fn):
+        return items
+    try:
+        hydrated = hydrate_fn(items)
+    except Exception:
+        return items
+    if isinstance(hydrated, list):
+        return hydrated
+    return items
+
+
 def _collect_recursive_cached_items(
     storage,
     root_path: str,
     root_index: Any,
     *,
     limit: int | None = None,
+    cancelled: Callable[[], bool] | None = None,
+    use_recursive_index: bool = False,
 ) -> tuple[list[Any], int]:
     queue: deque[tuple[str, Any]] = deque([(_canonical_path(root_path), root_index)])
     seen_folders: set[str] = set()
@@ -270,12 +293,16 @@ def _collect_recursive_cached_items(
     total_items = 0
 
     while queue:
+        if cancelled is not None and cancelled():
+            break
         folder_path, folder_index = queue.popleft()
         if folder_path in seen_folders:
             continue
         seen_folders.add(folder_path)
 
         for cached in folder_index.items:
+            if cancelled is not None and cancelled():
+                break
             item_path = _canonical_path(getattr(cached, "path", ""))
             if item_path in seen_items:
                 continue
@@ -294,11 +321,16 @@ def _collect_recursive_cached_items(
                 items.append((item_path, cached))
 
         for child_name in folder_index.dirs:
+            if cancelled is not None and cancelled():
+                break
             child_path = _child_folder_path(folder_path, child_name)
             if child_path in seen_folders:
                 continue
             try:
-                child_index = storage.get_index(child_path)
+                if use_recursive_index:
+                    child_index = _storage_recursive_index(storage, child_path)
+                else:
+                    child_index = storage.get_index(child_path)
             except (FileNotFoundError, ValueError):
                 continue
             queue.append((child_path, child_index))
@@ -365,6 +397,7 @@ def _load_or_build_recursive_snapshots(
             storage,
             canonical_path,
             root_index,
+            use_recursive_index=False,
         )
         snapshots = tuple(
             RecursiveCachedItemSnapshot.from_cached_item(cached)
@@ -396,12 +429,153 @@ def _load_or_build_recursive_snapshots(
         storage,
         canonical_path,
         root_index,
+        use_recursive_index=False,
     )
     snapshots = tuple(
         RecursiveCachedItemSnapshot.from_cached_item(cached)
         for cached in cached_items
     )
     return snapshots, total_items
+
+
+def _load_or_build_recursive_page_snapshots(
+    storage,
+    canonical_path: str,
+    root_index: Any,
+    *,
+    page: int,
+    page_size: int,
+    sort_mode: str,
+    browse_cache: RecursiveBrowseCache,
+    hotpath_metrics: HotpathTelemetry | None = None,
+) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
+    window_start = (page - 1) * page_size
+    window_end = window_start + page_size
+    generation_token = _recursive_cache_generation_token(storage)
+
+    for _attempt in range(RECURSIVE_CACHE_BUILD_MAX_RETRIES):
+        cached_window = browse_cache.load(canonical_path, sort_mode, generation_token)
+        if cached_window is not None:
+            window, source = cached_window
+            if hotpath_metrics is not None:
+                hotpath_metrics.increment("folders_recursive_cache_hit_total")
+                if source == "disk":
+                    hotpath_metrics.increment("folders_recursive_cache_hit_disk_total")
+                else:
+                    hotpath_metrics.increment("folders_recursive_cache_hit_memory_total")
+            return window.items[window_start:window_end], window.total_items
+
+        if hotpath_metrics is not None:
+            hotpath_metrics.increment("folders_recursive_cache_miss_total")
+
+        cached_items, total_items = _collect_recursive_cached_items(
+            storage,
+            canonical_path,
+            root_index,
+            limit=window_end,
+            use_recursive_index=True,
+        )
+        page_items = cached_items[window_start:window_end]
+        page_items = _hydrate_recursive_page_items(storage, page_items)
+        page_snapshots = tuple(
+            RecursiveCachedItemSnapshot.from_cached_item(cached)
+            for cached in page_items
+        )
+
+        latest_generation = _recursive_cache_generation_token(storage)
+        if latest_generation != generation_token:
+            if hotpath_metrics is not None:
+                hotpath_metrics.increment("folders_recursive_cache_stale_generation_total")
+            generation_token = latest_generation
+            try:
+                root_index = _storage_recursive_index(storage, canonical_path)
+            except (FileNotFoundError, ValueError):
+                break
+            continue
+
+        if total_items <= len(cached_items):
+            cached_items = _hydrate_recursive_page_items(storage, cached_items)
+            snapshots = tuple(
+                RecursiveCachedItemSnapshot.from_cached_item(cached)
+                for cached in cached_items
+            )
+            _, wrote_persisted = browse_cache.save(
+                canonical_path,
+                sort_mode,
+                generation_token,
+                snapshots,
+            )
+            if hotpath_metrics is not None and wrote_persisted:
+                hotpath_metrics.increment("folders_recursive_cache_persist_write_total")
+            return page_snapshots, total_items
+
+        expected_generation = generation_token
+
+        def _warm_producer(cancel_event: threading.Event):
+            if cancel_event.is_set():
+                if hotpath_metrics is not None:
+                    hotpath_metrics.increment("folders_recursive_cache_warm_cancel_total")
+                return None
+            try:
+                warm_root = _storage_recursive_index(storage, canonical_path)
+            except (FileNotFoundError, ValueError):
+                return None
+            warm_items, _ = _collect_recursive_cached_items(
+                storage,
+                canonical_path,
+                warm_root,
+                cancelled=cancel_event.is_set,
+                use_recursive_index=True,
+            )
+            if cancel_event.is_set():
+                if hotpath_metrics is not None:
+                    hotpath_metrics.increment("folders_recursive_cache_warm_cancel_total")
+                return None
+            latest = _recursive_cache_generation_token(storage)
+            if latest != expected_generation:
+                if hotpath_metrics is not None:
+                    hotpath_metrics.increment("folders_recursive_cache_stale_generation_total")
+                return None
+            return tuple(
+                RecursiveCachedItemSnapshot.from_cached_item(cached)
+                for cached in warm_items
+            )
+
+        def _on_saved(wrote_persisted: bool) -> None:
+            if hotpath_metrics is not None:
+                hotpath_metrics.increment("folders_recursive_cache_warm_complete_total")
+                if wrote_persisted:
+                    hotpath_metrics.increment("folders_recursive_cache_persist_write_total")
+
+        scheduled = browse_cache.schedule_warm(
+            canonical_path,
+            sort_mode,
+            expected_generation,
+            _warm_producer,
+            delay_seconds=RECURSIVE_CACHE_WARM_DELAY_SECONDS,
+            on_saved=_on_saved,
+        )
+        if hotpath_metrics is not None:
+            if scheduled:
+                hotpath_metrics.increment("folders_recursive_cache_warm_schedule_total")
+            else:
+                hotpath_metrics.increment("folders_recursive_cache_warm_skip_total")
+        return page_snapshots, total_items
+
+    cached_items, total_items = _collect_recursive_cached_items(
+        storage,
+        canonical_path,
+        root_index,
+        limit=window_end,
+        use_recursive_index=True,
+    )
+    page_items = cached_items[window_start:window_end]
+    page_items = _hydrate_recursive_page_items(storage, page_items)
+    page_snapshots = tuple(
+        RecursiveCachedItemSnapshot.from_cached_item(cached)
+        for cached in page_items
+    )
+    return page_snapshots, total_items
 
 
 def _build_folder_index(
@@ -415,8 +589,20 @@ def _build_folder_index(
     browse_cache: RecursiveBrowseCache | None = None,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> FolderIndex:
+    if recursive and legacy_recursive and not _legacy_recursive_rollbacks_enabled():
+        raise HTTPException(
+            400,
+            (
+                "legacy_recursive=1 is retired for UI stability. "
+                f"Set {LEGACY_RECURSIVE_ROLLBACK_ENV}=1 to temporarily re-enable."
+            ),
+        )
+
     try:
-        index = storage.get_index(path)
+        if recursive and not legacy_recursive:
+            index = _storage_recursive_index(storage, path)
+        else:
+            index = storage.get_index(path)
     except ValueError:
         raise HTTPException(400, "invalid path")
     except FileNotFoundError:
@@ -424,37 +610,43 @@ def _build_folder_index(
 
     page_window: _RecursivePaginationWindow | None = None
     if recursive:
-        if legacy_recursive and not _legacy_recursive_rollbacks_enabled():
-            raise HTTPException(
-                400,
-                (
-                    "legacy_recursive=1 is retired for UI stability. "
-                    f"Set {LEGACY_RECURSIVE_ROLLBACK_ENV}=1 to temporarily re-enable."
-                ),
-            )
         if hotpath_metrics is not None:
             hotpath_metrics.increment("folders_recursive_requests_total")
         traversal_started = time.perf_counter()
         canonical_path = _canonical_path(path)
+        resolved_page: int | None = None
+        resolved_page_size: int | None = None
+        if not legacy_recursive:
+            resolved_page, resolved_page_size = _resolve_recursive_pagination(page, page_size)
         if browse_cache is not None:
-            snapshots, total_items = _load_or_build_recursive_snapshots(
-                storage,
-                canonical_path,
-                index,
-                sort_mode=RECURSIVE_SORT_MODE_SCAN,
-                browse_cache=browse_cache,
-                hotpath_metrics=hotpath_metrics,
-            )
             if legacy_recursive:
+                snapshots, total_items = _load_or_build_recursive_snapshots(
+                    storage,
+                    canonical_path,
+                    index,
+                    sort_mode=RECURSIVE_SORT_MODE_SCAN,
+                    browse_cache=browse_cache,
+                    hotpath_metrics=hotpath_metrics,
+                )
                 snapshots_for_page = snapshots
             else:
-                resolved_page, resolved_page_size = _resolve_recursive_pagination(page, page_size)
+                assert resolved_page is not None and resolved_page_size is not None
+                snapshots_for_page, total_items = _load_or_build_recursive_page_snapshots(
+                    storage,
+                    canonical_path,
+                    index,
+                    page=resolved_page,
+                    page_size=resolved_page_size,
+                    sort_mode=RECURSIVE_SORT_MODE_SCAN,
+                    browse_cache=browse_cache,
+                    hotpath_metrics=hotpath_metrics,
+                )
                 page_window = _recursive_window_from_values(
                     total_items=total_items,
                     page=resolved_page,
                     page_size=resolved_page_size,
                 )
-                snapshots_for_page = snapshots[page_window.start:page_window.end]
+                snapshots_for_page = _hydrate_recursive_page_items(storage, list(snapshots_for_page))
             items = [to_item(storage, snapshot) for snapshot in snapshots_for_page]
         else:
             if legacy_recursive:
@@ -462,16 +654,18 @@ def _build_folder_index(
                     storage,
                     canonical_path,
                     index,
+                    use_recursive_index=False,
                 )
                 items = [to_item(storage, it) for it in cached_items]
             else:
-                resolved_page, resolved_page_size = _resolve_recursive_pagination(page, page_size)
+                assert resolved_page is not None and resolved_page_size is not None
                 window_end = resolved_page * resolved_page_size
                 cached_items, total_items = _collect_recursive_cached_items(
                     storage,
                     canonical_path,
                     index,
                     limit=window_end,
+                    use_recursive_index=True,
                 )
                 page_window = _recursive_window_from_values(
                     total_items=total_items,
@@ -479,6 +673,7 @@ def _build_folder_index(
                     page_size=resolved_page_size,
                 )
                 page_items = cached_items[page_window.start:page_window.end]
+                page_items = _hydrate_recursive_page_items(storage, page_items)
                 items = [to_item(storage, it) for it in page_items]
         if hotpath_metrics is not None:
             hotpath_metrics.observe_ms(

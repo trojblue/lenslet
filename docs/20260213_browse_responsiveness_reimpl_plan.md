@@ -52,10 +52,10 @@ Sprint Plan:
    Goal: return first recursive page quickly on cold start without waiting for full recursive snapshot completion.
    Demo outcome: cold page-1 response avoids full subtree blocking work on request path while preserving deterministic paging behavior.
    Tasks:
-   - T6. Refactor recursive cold miss path to build and return page-1 window first, rather than materializing full recursive snapshot before response.
-   - T7. Move full snapshot persistence/warming off the immediate first-page response path, with safe background completion and explicit cancellation/invalidation handling.
-   - T8. Add lightweight recursive item collection mode for memory storage hot path that avoids eager expensive per-item metadata work not needed for first render.
-   - T9. Preserve existing endpoint contract for non-UI callers in the default path; add explicit non-UI compatibility checks and de-scope exotic non-default pagination/sort combinations to a deferred phase unless needed for primary scenario closure.
+   - T6. Refactor recursive cold miss path to build and return page-1 window first, rather than materializing full recursive snapshot before response. (Completed 2026-02-13)
+   - T7. Move full snapshot persistence/warming off the immediate first-page response path, with safe background completion and explicit cancellation/invalidation handling. (Completed 2026-02-13)
+   - T8. Add lightweight recursive item collection mode for memory storage hot path that avoids eager expensive per-item metadata work not needed for first render. (Completed 2026-02-13)
+   - T9. Preserve existing endpoint contract for non-UI callers in the default path; add explicit non-UI compatibility checks and de-scope exotic non-default pagination/sort combinations to a deferred phase unless needed for primary scenario closure. (Completed 2026-02-13)
 
 3. Sprint 3: Hardening, Regression Coverage, and Release Gate
    Goal: prove closure in user-realistic conditions and lock against regression.
@@ -118,6 +118,15 @@ Validation uses explicit primary and secondary gates. Primary gates prove user o
       pytest -q tests/test_folder_pagination.py tests/test_browse_cache.py tests/test_memory_index_performance.py
       pytest -q --durations=10 tests/test_folder_pagination.py tests/test_hotpath_sprint_s4.py
 
+   Iteration 2 evidence (2026-02-13):
+   - Cold recursive miss path now returns the requested page window directly and schedules full snapshot warm/persist asynchronously; request-path full-snapshot materialization is removed from default non-legacy flow.
+   - Large fixture no-write smoke with strict profile shows first-grid closure on cold load (`first-grid=3.31s`, `first-grid hotpath=310ms`), confirming first-page blocking work was removed; strict gate remains open on scroll frame-gap (`716.6ms` vs `700.0ms` threshold).
+   - Large fixture no-write smoke with relaxed frame-gap threshold (`--max-frame-gap-ms 2000`) confirms same cold-start gains while recording residual jitter (`max-frame-gap=733.4ms`, `first-thumb=1938ms`).
+   - Non-UI compatibility checks remain green via recursive pagination contract tests across memory/table/dataset app modes and legacy rollback compatibility assertions.
+   - Secondary Sprint 2 checks passed:
+      pytest -q tests/test_folder_pagination.py tests/test_browse_cache.py tests/test_memory_index_performance.py
+      pytest -q --durations=10 tests/test_folder_pagination.py tests/test_hotpath_sprint_s4.py
+
 3. Sprint 3 validation
    Primary checks:
    - Run large-tree smoke in target mode and confirm no freeze, no blank-state ambiguity, and first useful browse within five seconds in the agreed scenario.
@@ -158,7 +167,9 @@ A fourth risk is environment drift between no-write and write-enabled runs. Reco
 - [x] 2026-02-13 20:12Z Sprint 1 handoff notes appended after implementation.
 - [x] 2026-02-13 20:20Z Sprint 1 required code-simplifier pass completed with conservative non-semantic cleanup only.
 - [x] 2026-02-13 20:21Z Sprint 1 required code-review rerun completed with no unresolved high/medium findings.
-- [ ] 2026-02-13 00:00Z Sprint 2 handoff notes appended after implementation.
+- [x] 2026-02-13 21:05Z Sprint 2 tasks T6-T9 implemented: recursive page-window cold miss path, deferred background cache warm/persist with cancellation on invalidation, lightweight recursive memory indexing mode, and explicit non-UI compatibility regression checks.
+- [x] 2026-02-13 21:18Z Sprint 2 validation completed: targeted recursive/cache/memory pytest slices and cross-mode pagination contract tests passed; strict large-fixture smoke shows first-grid latency closure but residual frame-gap over threshold.
+- [x] 2026-02-13 21:19Z Sprint 2 handoff notes appended after implementation.
 - [ ] 2026-02-13 00:00Z Sprint 3 handoff notes appended after implementation.
 
 
@@ -181,6 +192,12 @@ Current Sprint 1 smoke evidence demonstrates unresolved large-root gap while pre
     secondary profile (tiny, fast): first_grid_visible_seconds: 0.39, first_grid_hotpath_latency_ms: 56, first_thumbnail_latency_ms: 482
     request_budget_peak_inflight: {folders: 2, thumb: 8, file: 0}
 
+Sprint 2 smoke evidence (2026-02-13):
+
+    primary profile (large, strict): first_grid_visible_seconds: 3.31 (threshold 5.00, pass), max_frame_gap_ms: 716.6 (threshold 700.0, fail)
+    primary profile (large, relaxed frame gap): first_grid_visible_seconds: 3.31, first_grid_hotpath_latency_ms: 310, first_thumbnail_latency_ms: 1938, max_frame_gap_ms: 733.4
+    request_budget_peak_inflight: {folders: 2, thumb: 8, file: 0}
+
 Handoff guidance is to execute sprints in order, keep changes bounded to root-path closure, and do not mark completion until primary acceptance gates pass in the real scenario.
 
 Revision note (2026-02-13): Updated after required subagent review to split overloaded Sprint 1 tasks, bind telemetry to primary gate outputs, add explicit non-UI compatibility validation, clarify dual-mode write/no-write acceptance, and de-scope non-primary pagination combinations from initial closure scope.
@@ -190,3 +207,10 @@ Sprint 1 handoff notes (2026-02-13):
 - Scan-stable mode now stays active through `ready` transitions even when health polling briefly omits generation, preventing silent fallback to reorder-prone sort behavior mid-hydration.
 - Browse hotpath telemetry now tracks `firstGridItemLatencyMs` separately from `firstThumbnailLatencyMs` and exposes both via `window.__lensletBrowseHotpath` and smoke JSON outputs.
 - Smoke baselines are now explicit and versioned in-repo with primary (`primary_large_no_write`) vs secondary (`secondary_tiny_fast`) profile hierarchy, warm/cold expectation notes, and write-mode policy.
+
+Sprint 2 handoff notes (2026-02-13):
+- Recursive cold cache misses now build only the requested page window for immediate response and defer full-snapshot warm/persist to a background cache worker.
+- Background warm work is generation-aware, deduplicated, and cancellation-aware: `invalidate_path` now cancels overlapping in-flight warm jobs before disk/memory invalidation.
+- Memory storage now exposes `get_index_for_recursive` and lightweight recursive index caches that skip eager stat/dimension probing during deep traversal, plus response-path hydration for page items to preserve default `/folders` field contract.
+- Non-UI compatibility remains covered by explicit regression tests for recursive pagination metadata (`page`, `pageSize`, `pageCount`, `totalItems`), legacy rollback behavior, persisted cache reuse, and cross-mode contract checks.
+- Strict primary gate no-write run still has a small residual frame-gap miss (`716.6ms` vs `700ms`), so Sprint 3 remains responsible for final interaction-jank closure and dual-mode release evidence.

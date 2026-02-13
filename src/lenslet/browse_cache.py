@@ -8,9 +8,10 @@ import json
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 CACHE_SCHEMA_VERSION = 1
 DEFAULT_BROWSE_CACHE_CAP_BYTES = 200 * 1024 * 1024
@@ -163,6 +164,11 @@ class RecursiveBrowseCache:
         self._max_disk_bytes = max(0, int(max_disk_bytes))
         self._cache_dir = Path(cache_dir) if cache_dir is not None else None
         self._persistence_enabled = self._enable_persistence()
+        self._warm_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="lenslet-recursive-cache-warm",
+        )
+        self._warm_jobs: dict[tuple[str, str, str], threading.Event] = {}
         if self._persistence_enabled:
             self._evict_disk_to_cap()
 
@@ -177,6 +183,10 @@ class RecursiveBrowseCache:
     @property
     def max_disk_bytes(self) -> int:
         return self._max_disk_bytes
+
+    def pending_warm_count(self) -> int:
+        with self._lock:
+            return len(self._warm_jobs)
 
     def load(
         self,
@@ -226,6 +236,7 @@ class RecursiveBrowseCache:
     def invalidate_path(self, path: str | None = None) -> None:
         if path is None:
             with self._lock:
+                self._cancel_pending_warms_locked(None)
                 self._memory.clear()
                 self._memory_access.clear()
             self._clear_disk()
@@ -238,6 +249,7 @@ class RecursiveBrowseCache:
                 if _scopes_overlap(scope, canonical):
                     self._memory.pop(key, None)
                     self._memory_access.pop(key, None)
+            self._cancel_pending_warms_locked(canonical)
 
         # Path-scoped disk invalidation would require parsing full entry payloads.
         # For now we clear persisted entries to avoid stale ancestor/descendant reuse.
@@ -245,6 +257,51 @@ class RecursiveBrowseCache:
 
     def clear(self) -> None:
         self.invalidate_path(None)
+
+    def schedule_warm(
+        self,
+        scope_path: str,
+        sort_mode: str,
+        generation: str,
+        producer: Callable[[threading.Event], Iterable[RecursiveCachedItemSnapshot] | None],
+        *,
+        delay_seconds: float = 0.0,
+        on_saved: Callable[[bool], None] | None = None,
+    ) -> bool:
+        key = self._cache_key(scope_path, sort_mode, generation)
+        with self._lock:
+            if key in self._memory or key in self._warm_jobs:
+                return False
+            cancel_event = threading.Event()
+            self._warm_jobs[key] = cancel_event
+
+        def _run() -> None:
+            wrote_persisted = False
+            try:
+                if delay_seconds > 0 and cancel_event.wait(timeout=delay_seconds):
+                    return
+                snapshots = producer(cancel_event)
+                if snapshots is None or cancel_event.is_set():
+                    return
+                _window, wrote_persisted = self.save(scope_path, sort_mode, generation, snapshots)
+            except Exception:
+                return
+            finally:
+                if on_saved is not None:
+                    try:
+                        on_saved(wrote_persisted)
+                    except Exception:
+                        pass
+                with self._lock:
+                    self._warm_jobs.pop(key, None)
+
+        try:
+            self._warm_executor.submit(_run)
+            return True
+        except Exception:
+            with self._lock:
+                self._warm_jobs.pop(key, None)
+            return False
 
     def disk_usage_bytes(self) -> int:
         if not self._persistence_enabled:
@@ -271,6 +328,17 @@ class RecursiveBrowseCache:
             oldest_key = min(self._memory_access, key=self._memory_access.get)
             self._memory.pop(oldest_key, None)
             self._memory_access.pop(oldest_key, None)
+
+    def _cancel_pending_warms_locked(self, path: str | None) -> None:
+        if path is None:
+            keys = list(self._warm_jobs.keys())
+        else:
+            canonical = _canonical_scope(path)
+            keys = [key for key in self._warm_jobs.keys() if _scopes_overlap(key[0], canonical)]
+        for key in keys:
+            event = self._warm_jobs.pop(key, None)
+            if event is not None:
+                event.set()
 
     def _enable_persistence(self) -> bool:
         if self._cache_dir is None:

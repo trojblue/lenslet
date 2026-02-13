@@ -37,3 +37,27 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260213_browse_responsiveness_reimpl_plan.m
 - Post-sprint routines:
   - `code-simplifier` subagent pass completed (conservative non-semantic cleanup only).
   - `code-review` subagent rerun completed (no unresolved high/medium findings).
+## Iteration 2 (2026-02-13T21:22Z)
+- Completed task IDs: T6, T7, T8, T9
+- Files changed:
+  - src/lenslet/server_browse.py
+  - src/lenslet/browse_cache.py
+  - src/lenslet/storage/memory.py
+  - src/lenslet/server_factory.py
+  - tests/test_folder_pagination.py
+  - tests/test_browse_cache.py
+  - tests/test_memory_index_performance.py
+  - docs/20260213_browse_responsiveness_reimpl_plan.md
+- Validations run:
+  - `pytest -q tests/test_folder_pagination.py tests/test_browse_cache.py tests/test_memory_index_performance.py` (pass)
+  - `pytest -q --durations=10 tests/test_folder_pagination.py tests/test_hotpath_sprint_s4.py` (pass)
+  - `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` (fail: max frame gap 716.6ms > 700.0ms threshold; first-grid latency now passes)
+  - `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --max-frame-gap-ms 2000 --output-json data/fixtures/large_tree_40k_smoke_result_relaxed_frame_gap.json` (pass; first-grid=3.31s, hotpath=310ms)
+  - `python scripts/lint_repo.py` (pass)
+- Blockers:
+  - Primary strict no-write smoke gate still has residual scroll-jitter failure (`max_frame_gap_ms=716.6` vs `700.0`).
+- Next step:
+  - Sprint 3 hardening (T10/T11): close remaining frame-gap regression and complete strict dual-mode primary gate evidence.
+- Post-sprint routines:
+  - `code-simplifier` subagent pass completed (conservative non-semantic cleanup only).
+  - `code-review` subagent rerun completed (no unresolved high/medium findings).

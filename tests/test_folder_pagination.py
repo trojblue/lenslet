@@ -1,8 +1,10 @@
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from lenslet.browse_cache import RecursiveBrowseCache
 from lenslet import server_browse
 from lenslet.server import create_app
 
@@ -17,6 +19,22 @@ def _recursive(client: TestClient, path: str, **params) -> dict:
     resp = client.get("/folders", params=query)
     assert resp.status_code == 200
     return resp.json()
+
+
+def _wait_for_recursive_cache(app, path: str, timeout_seconds: float = 12.0) -> bool:
+    cache = getattr(app.state, "recursive_browse_cache", None)
+    storage = getattr(app.state, "storage", None)
+    if cache is None or storage is None:
+        return False
+    canonical_path = server_browse._canonical_path(path)
+    generation = server_browse._recursive_cache_generation_token(storage)
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        cached = cache.load(canonical_path, server_browse.RECURSIVE_SORT_MODE_SCAN, generation)
+        if cached is not None:
+            return True
+        time.sleep(0.02)
+    return False
 
 
 def test_recursive_pagination_defaults_and_adjacent_windows(tmp_path: Path):
@@ -163,16 +181,19 @@ def test_recursive_pagination_reuses_cached_snapshot_between_pages(
 
     monkeypatch.setattr(server_browse, "_collect_recursive_cached_items", _counting_collect)
 
-    client = TestClient(create_app(str(root)))
-
-    first = _recursive(client, "/gallery", page_size="10")
-    second = _recursive(client, "/gallery", page="2", page_size="10")
+    app = create_app(str(root))
+    with TestClient(app) as client:
+        first = _recursive(client, "/gallery", page_size="10")
+        assert _wait_for_recursive_cache(app, "/gallery")
+        collect_after_warm = collect_calls["count"]
+        second = _recursive(client, "/gallery", page="2", page_size="10")
 
     assert first["totalItems"] == 30
     assert second["totalItems"] == 30
     assert len(first["items"]) == 10
     assert len(second["items"]) == 10
-    assert collect_calls["count"] == 1
+    assert collect_after_warm >= 1
+    assert collect_calls["count"] == collect_after_warm
 
 
 def test_recursive_pagination_reuses_persisted_cache_after_restart(
@@ -187,6 +208,7 @@ def test_recursive_pagination_reuses_persisted_cache_after_restart(
     first_app = create_app(str(root))
     with TestClient(first_app) as client:
         first_payload = _recursive(client, "/dataset", page_size="12")
+        assert _wait_for_recursive_cache(first_app, "/dataset")
     assert first_payload["totalItems"] == 24
 
     collect_calls = {"count": 0}
@@ -204,3 +226,37 @@ def test_recursive_pagination_reuses_persisted_cache_after_restart(
 
     assert second_payload["totalItems"] == 24
     assert collect_calls["count"] == 0
+
+
+def test_recursive_cold_miss_builds_page_window_without_contract_regression(
+    tmp_path: Path,
+    monkeypatch,
+):
+    root = tmp_path
+    for idx in range(45):
+        branch = "x" if idx % 2 == 0 else "y"
+        _make_image(root / f"gallery/{branch}/img_{idx:03d}.jpg")
+
+    collect_limits: list[int | None] = []
+    original = server_browse._collect_recursive_cached_items
+
+    def _counting_collect(*args, **kwargs):
+        collect_limits.append(kwargs.get("limit"))
+        return original(*args, **kwargs)
+
+    def _disable_warm(self, *args, **kwargs):
+        return False
+
+    monkeypatch.setattr(server_browse, "_collect_recursive_cached_items", _counting_collect)
+    monkeypatch.setattr(RecursiveBrowseCache, "schedule_warm", _disable_warm)
+
+    app = create_app(str(root))
+    with TestClient(app) as client:
+        payload = _recursive(client, "/gallery", page="2", page_size="10")
+
+    assert payload["page"] == 2
+    assert payload["pageSize"] == 10
+    assert payload["pageCount"] == 5
+    assert payload["totalItems"] == 45
+    assert len(payload["items"]) == 10
+    assert 20 in collect_limits

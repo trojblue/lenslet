@@ -7,7 +7,7 @@ import {
   buildComparisonExportFilename,
   buildExportComparisonPayload,
   buildExportComparisonPayloadV2,
-} from '../exportComparison'
+} from '../compareExportBoundary'
 import { buildInspectorComparisonExportPayload } from '../hooks/useInspectorCompareExport'
 import { getSelectionExportDisabledReason } from '../sections/SelectionExportSection'
 

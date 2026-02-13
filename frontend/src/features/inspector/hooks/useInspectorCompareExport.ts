@@ -10,7 +10,7 @@ import {
   buildComparisonExportFilename,
   buildExportComparisonPayload,
   buildExportComparisonPayloadV2,
-} from '../exportComparison'
+} from '../compareExportBoundary'
 
 type UseInspectorCompareExportParams = {
   selectedPaths: string[]

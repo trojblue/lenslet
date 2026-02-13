@@ -3,7 +3,7 @@ import {
   buildExportComparisonV2MaxPathsMessage,
   EXPORT_COMPARISON_PAIR_ONLY_MESSAGE,
   EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE,
-} from '../exportComparison'
+} from '../compareExportBoundary'
 
 interface SelectionExportSectionProps {
   selectedCount: number

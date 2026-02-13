@@ -119,6 +119,14 @@ Sprint S2 execution evidence (2026-02-13 iteration 2):
     cd frontend && npm run test -- src/api/__tests__/client.presence.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/api/__tests__/client.exportComparison.test.ts  # 20 passed
     cd frontend && npx tsc --noEmit  # fails in pre-existing typed health check (`src/app/hooks/healthCompareExport.ts`)
 
+Sprint S3 execution evidence (2026-02-13 iteration 3):
+
+    cd frontend && npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/api/__tests__/client.exportComparison.test.ts  # 17 passed
+    cd frontend && npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx  # 8 passed
+    rg -n "from '../exportComparison'" frontend/src/features/inspector  # no matches
+    rg -n "compareExportInternal" frontend/src/features/inspector  # matches only compareExportBoundary import/re-export
+    cd frontend && npx tsc --noEmit  # fails on pre-existing `src/app/hooks/healthCompareExport.ts` (`TS2322`, `TS2345`)
+
 Overall acceptance means approved capabilities are preserved (`--share`, compare export), approved legacy behavior is removed (presence v1), deferred touch/mobile scope remains untouched, and deletion KPI is achieved.
 
 
@@ -150,7 +158,10 @@ Use non-destructive rollback patterns. Prefer `git revert <commit>` for failed s
 - [x] 2026-02-13T17:00:49Z Sprint S2 T6 completed: updated presence tests and active docs (`README.md`) to v2-only lifecycle expectations.
 - [x] 2026-02-13T17:01:12Z Sprint S2 validation run completed (`presence` backend/frontend tests green; CLI help smoke green; lifecycle-flag scan clean outside archives/plan; frontend `tsc` has pre-existing failure noted).
 - [x] 2026-02-13T17:01:12Z Sprint S2 completed and handoff note added.
-- [ ] Sprint S3 completed and handoff note added.
+- [x] 2026-02-13T17:04:07Z Sprint S3 T7 completed: added explicit `compareExportBoundary` module and moved compare-export helpers behind `compareExportInternal`.
+- [x] 2026-02-13T17:04:17Z Sprint S3 T8 completed: rewired inspector compare-export hook/section/tests to boundary-only imports.
+- [x] 2026-02-13T17:04:29Z Sprint S3 validation run completed (compare-export inspector/api tests green; legacy import path scan clean).
+- [x] 2026-02-13T17:04:29Z Sprint S3 completed and handoff note added.
 - [ ] Sprint S4 completed and final handoff note added.
 
 
@@ -189,6 +200,13 @@ Sprint S2 handoff (completed 2026-02-13T17:01:12Z):
 - Files changed: `src/lenslet/cli.py`, `src/lenslet/server_runtime.py`, `src/lenslet/server_factory.py`, `src/lenslet/server_routes_common.py`, `src/lenslet/server_routes_presence.py`, `tests/test_presence_lifecycle.py`, `README.md`.
 - Validation outcomes: `pytest -q tests/test_presence_lifecycle.py` passed (`7 passed`); `python -m lenslet.cli --help` passed with lifecycle flags removed; frontend presence/export test subset passed (`20 passed`); lifecycle-flag scan clean for `src/tests/frontend/README` and only historical hits in `docs/agents_archive` plus this plan; `frontend npx tsc --noEmit` failed on pre-existing `frontend/src/app/hooks/healthCompareExport.ts` typing mismatch.
 - Assumption used: removing `lifecycle_v2_enabled` diagnostics key is acceptable under approved lifecycle-v1 compatibility removal because no active client imports rely on that key.
+
+Sprint S3 handoff (completed 2026-02-13T17:04:29Z):
+
+- Completed tasks: `T7`, `T8`.
+- Files changed: added `frontend/src/features/inspector/compareExportBoundary.ts`; renamed `frontend/src/features/inspector/exportComparison.ts` to `frontend/src/features/inspector/compareExportInternal.ts`; updated `frontend/src/features/inspector/hooks/useInspectorCompareExport.ts`, `frontend/src/features/inspector/sections/SelectionExportSection.tsx`, `frontend/src/features/inspector/__tests__/exportComparison.test.tsx`.
+- Validation outcomes: frontend compare-export tests passed (`17 passed`) and metadata section tests passed (`8 passed`); `rg -n "from '../exportComparison'" frontend/src/features/inspector` returned no matches; `rg -n "compareExportInternal" frontend/src/features/inspector` confirmed only boundary-level internal imports; `frontend npx tsc --noEmit` failed on pre-existing `frontend/src/app/hooks/healthCompareExport.ts` typing mismatch.
+- Assumption used: boundary-first import rewiring is behavior-preserving because compare-export payload/message builders were moved without semantic changes and existing contract tests remained green.
 
 
 ## Interfaces and Dependencies (Conditional)

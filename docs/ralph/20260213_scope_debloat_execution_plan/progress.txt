@@ -26,3 +26,14 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260213_scope_debloat_execution_plan.md
   - `cd frontend && npx tsc --noEmit` -> failed with existing errors in `frontend/src/app/hooks/healthCompareExport.ts` (`TS2322`, `TS2345`).
 - Blockers: none for Sprint `S2`; residual pre-existing frontend type-check issue recorded for later consolidated validation handling.
 - Next step: start Sprint `S3` at `T7` (explicit compare-export boundary module) in iteration 3.
+## Iteration 3 - 2026-02-13T17:04:29Z
+- Completed task IDs: `T7`, `T8` (Sprint `S3` complete).
+- Files changed: `frontend/src/features/inspector/compareExportBoundary.ts` (added), `frontend/src/features/inspector/exportComparison.ts` (renamed to `frontend/src/features/inspector/compareExportInternal.ts`), `frontend/src/features/inspector/hooks/useInspectorCompareExport.ts`, `frontend/src/features/inspector/sections/SelectionExportSection.tsx`, `frontend/src/features/inspector/__tests__/exportComparison.test.tsx`, `docs/20260213_scope_debloat_execution_plan.md`, `docs/ralph/20260213_scope_debloat_execution_plan/progress.txt`.
+- Validations run:
+  - `cd frontend && npm run test -- src/features/inspector/__tests__/exportComparison.test.tsx src/api/__tests__/client.exportComparison.test.ts` -> passed (`17 passed`).
+  - `cd frontend && npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx` -> passed (`8 passed`).
+  - `rg -n "from '../exportComparison'" frontend/src/features/inspector` -> no matches.
+  - `rg -n "compareExportInternal" frontend/src/features/inspector` -> matches only `compareExportBoundary` imports.
+  - `cd frontend && npx tsc --noEmit` -> failed with existing errors in `frontend/src/app/hooks/healthCompareExport.ts` (`TS2322`, `TS2345`).
+- Blockers: none.
+- Next step: begin Sprint `S4` with `T9` (consolidated acceptance validation) and then `T10` (LOC/accounting + final handoff).

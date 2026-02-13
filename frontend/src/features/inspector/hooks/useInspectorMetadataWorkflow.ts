@@ -7,9 +7,12 @@ import type { MetadataRecord, MetadataState } from './useInspectorMetadataTypes'
 type UseInspectorMetadataWorkflowParams = {
   path: string | null
   sidecarUpdatedAt: string | undefined
+  selectedPaths: string[]
   compareReady: boolean
   comparePathA: string | null
   comparePathB: string | null
+  compareExportSupportsV2: boolean
+  compareExportMaxPathsV2: number | null
 }
 
 type UseInspectorMetadataWorkflowResult = {
@@ -44,9 +47,12 @@ type UseInspectorMetadataWorkflowResult = {
 export function useInspectorMetadataWorkflow({
   path,
   sidecarUpdatedAt,
+  selectedPaths,
   compareReady,
   comparePathA,
   comparePathB,
+  compareExportSupportsV2,
+  compareExportMaxPathsV2,
 }: UseInspectorMetadataWorkflowParams): UseInspectorMetadataWorkflowResult {
   const singleMetadata = useInspectorSingleMetadata({
     path,
@@ -60,9 +66,12 @@ export function useInspectorMetadataWorkflow({
   })
 
   const compareExport = useInspectorCompareExport({
+    selectedPaths,
     compareReady,
     comparePathA,
     comparePathB,
+    compareExportSupportsV2,
+    compareExportMaxPathsV2,
   })
 
   return {

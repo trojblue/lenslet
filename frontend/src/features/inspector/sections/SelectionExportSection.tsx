@@ -1,9 +1,15 @@
 import React from 'react'
+import {
+  buildExportComparisonV2MaxPathsMessage,
+  EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE,
+} from '../exportComparison'
 
 interface SelectionExportSectionProps {
   selectedCount: number
   compareActive: boolean
   compareReady: boolean
+  compareExportSupportsV2: boolean
+  compareExportMaxPathsV2: number | null
   compareExportLabelsText: string
   onCompareExportLabelsTextChange: (value: string) => void
   compareExportEmbedMetadata: boolean
@@ -17,15 +23,28 @@ interface SelectionExportSectionProps {
 export function getSelectionExportDisabledReason({
   selectedCount,
   compareActive,
+  compareExportSupportsV2,
+  compareExportMaxPathsV2,
 }: {
   selectedCount: number
   compareActive: boolean
+  compareExportSupportsV2: boolean
+  compareExportMaxPathsV2: number | null
 }): string | null {
-  if (selectedCount !== 2) {
-    return `Comparison export (v1) supports exactly 2 selections (selected ${selectedCount}).`
+  if (selectedCount < 2) {
+    return `Comparison export requires at least 2 selections (selected ${selectedCount}).`
   }
-  if (!compareActive) {
-    return 'Open side-by-side view to enable comparison export.'
+  if (selectedCount === 2) {
+    if (!compareActive) {
+      return 'Open side-by-side view to enable comparison export.'
+    }
+    return null
+  }
+  if (!compareExportSupportsV2 || compareExportMaxPathsV2 === null) {
+    return EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE
+  }
+  if (selectedCount > compareExportMaxPathsV2) {
+    return buildExportComparisonV2MaxPathsMessage(compareExportMaxPathsV2, selectedCount)
   }
   return null
 }
@@ -34,6 +53,8 @@ export function SelectionExportSection({
   selectedCount,
   compareActive,
   compareReady,
+  compareExportSupportsV2,
+  compareExportMaxPathsV2,
   compareExportLabelsText,
   onCompareExportLabelsTextChange,
   compareExportEmbedMetadata,
@@ -46,15 +67,22 @@ export function SelectionExportSection({
   const disabledReason = getSelectionExportDisabledReason({
     selectedCount,
     compareActive,
+    compareExportSupportsV2,
+    compareExportMaxPathsV2,
   })
-  const exportDisabled = !compareReady || compareExportBusy
+  const pairSelectionRequiresCompareReady = selectedCount === 2
+  const exportDisabled =
+    compareExportBusy || disabledReason !== null || (pairSelectionRequiresCompareReady && !compareReady)
+  const labelsPlaceholder = selectedCount > 2
+    ? 'Label for image 1\nLabel for image 2\n...'
+    : 'Label for A\nLabel for B'
 
   return (
     <div className="space-y-2 rounded-md border border-border/60 bg-surface-inset/40 p-3">
       <div className="text-[10px] uppercase tracking-wide text-muted">Selection Export</div>
       <textarea
         className="ui-textarea inspector-input w-full h-20 scrollbar-thin"
-        placeholder={'Label for A\nLabel for B'}
+        placeholder={labelsPlaceholder}
         value={compareExportLabelsText}
         onChange={(e) => onCompareExportLabelsTextChange(e.target.value)}
         disabled={exportDisabled}

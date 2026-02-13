@@ -23,11 +23,21 @@ type AdaptiveLayoutLike = {
 export type VirtualGridLayoutLike = GridLayoutLike | AdaptiveLayoutLike
 export type VirtualRowLike = {
   index: number
+  start?: number
+  end?: number
+  size?: number
 }
 
 export type AdaptiveRowMetric = {
   start: number
   height: number
+}
+
+export type VisibleGridCellLike = {
+  path: string
+  top: number
+  left: number
+  bottom: number
 }
 
 export type VirtualGridRestoreDecision = {
@@ -91,8 +101,9 @@ export function getTopAnchorPathForVisibleRows(
   items: Item[],
   layout: VirtualGridLayoutLike,
   virtualRows: readonly VirtualRowLike[],
+  scrollTop: number,
 ): string | null {
-  const topRow = virtualRows[0]
+  const topRow = resolveTopVisibleRow(virtualRows, scrollTop)
   if (!topRow) return null
 
   if (layout.mode === 'adaptive') {
@@ -101,6 +112,46 @@ export function getTopAnchorPathForVisibleRows(
 
   const itemIndex = topRow.index * layout.columns
   return items[itemIndex]?.path ?? null
+}
+
+export function getTopAnchorPathForVisibleCells(
+  cells: readonly VisibleGridCellLike[],
+  viewportTop: number,
+  viewportBottom: number,
+): string | null {
+  let topPath: string | null = null
+  let top = Number.POSITIVE_INFINITY
+  let left = Number.POSITIVE_INFINITY
+
+  for (const cell of cells) {
+    if (!cell.path) continue
+    if (cell.bottom <= viewportTop || cell.top >= viewportBottom) continue
+    if (cell.top > top) continue
+    if (cell.top === top && cell.left >= left) continue
+    topPath = cell.path
+    top = cell.top
+    left = cell.left
+  }
+
+  return topPath
+}
+
+function resolveTopVisibleRow(
+  virtualRows: readonly VirtualRowLike[],
+  scrollTop: number,
+): VirtualRowLike | null {
+  if (virtualRows.length === 0) return null
+
+  const targetTop = Math.max(0, scrollTop)
+  for (const row of virtualRows) {
+    const rowStart = row.start ?? 0
+    const rowEnd = row.end ?? (rowStart + (row.size ?? 0))
+    if (rowEnd > targetTop) {
+      return row
+    }
+  }
+
+  return virtualRows[0]
 }
 
 type ResolveRestoreDecisionParams = {

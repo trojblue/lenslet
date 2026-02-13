@@ -53,6 +53,8 @@ interface InspectorProps {
   onFindSimilar?: () => void
   embeddingsAvailable?: boolean
   embeddingsLoading?: boolean
+  compareExportSupportsV2?: boolean
+  compareExportMaxPathsV2?: number | null
   onLocalTypingChange?: (active: boolean) => void
 }
 
@@ -75,6 +77,8 @@ export default function Inspector({
   onFindSimilar,
   embeddingsAvailable = false,
   embeddingsLoading = false,
+  compareExportSupportsV2 = false,
+  compareExportMaxPathsV2 = null,
   onLocalTypingChange,
 }: InspectorProps) {
   const enabled = !!path
@@ -197,9 +201,12 @@ export default function Inspector({
   } = useInspectorMetadataWorkflow({
     path,
     sidecarUpdatedAt: data?.updated_at,
+    selectedPaths,
     compareReady,
     comparePathA,
     comparePathB,
+    compareExportSupportsV2,
+    compareExportMaxPathsV2,
   })
   
   const selectedItems = useMemo(() => {
@@ -475,6 +482,8 @@ export default function Inspector({
         compareActive={compareActive}
         compareReady={compareReady}
         onOpenCompare={onOpenCompare}
+        compareExportSupportsV2={compareExportSupportsV2}
+        compareExportMaxPathsV2={compareExportMaxPathsV2}
         compareExportLabelsText={compareExportLabelsText}
         onCompareExportLabelsTextChange={handleCompareExportLabelsTextChange}
         compareExportEmbedMetadata={compareExportEmbedMetadata}

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from lenslet.server import create_app, create_app_from_datasets, create_app_from_table
+from lenslet.server_models import MAX_EXPORT_COMPARISON_PATHS_V2
 from lenslet.storage.memory import MemoryStorage
 
 
@@ -165,3 +166,16 @@ def test_static_modes_health_report_ready_indexing_state(
     assert indexing["scope"] == "/"
     assert indexing.get("started_at")
     assert indexing.get("finished_at")
+
+
+def test_health_reports_compare_export_capability_contract(tmp_path: Path) -> None:
+    _make_image(tmp_path / "gallery" / "a.jpg")
+    app = create_app(str(tmp_path))
+
+    with TestClient(app) as client:
+        health = client.get("/health")
+
+    assert health.status_code == 200
+    compare_export = health.json().get("compare_export", {})
+    assert compare_export.get("supported_versions") == [1, 2]
+    assert compare_export.get("max_paths_v2") == MAX_EXPORT_COMPARISON_PATHS_V2

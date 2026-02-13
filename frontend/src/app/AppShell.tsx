@@ -149,7 +149,6 @@ export default function AppShell() {
     saveHydratedSnapshot: saveFolderHydratedSnapshot,
     saveTopAnchorPath,
     invalidateSubtree: invalidateFolderSessionSubtree,
-    invalidateForScopeTransition,
   } = useFolderSessionState()
   const [restoreGridToTopAnchorToken, setRestoreGridToTopAnchorToken] = useState(0)
   const [scopeSessionResetToken, setScopeSessionResetToken] = useState(0)
@@ -257,7 +256,6 @@ export default function AppShell() {
           isInitialHashSync,
         )
         if (prev === nextScope) return prev
-        invalidateForScopeTransition(prev, nextScope)
         bumpRestoreGridToSelectionTokenRef.current()
         return nextScope
       })
@@ -267,7 +265,7 @@ export default function AppShell() {
     const onHash = () => applyHash(readHash())
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [bumpRestoreGridToSelectionTokenRef, invalidateForScopeTransition, syncHashImageSelectionRef])
+  }, [bumpRestoreGridToSelectionTokenRef, syncHashImageSelectionRef])
   const metricsBaseItems = selectionPool
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
   const hasMetricScrollbar = useMemo(
@@ -326,6 +324,7 @@ export default function AppShell() {
     lastEditedLabel,
     persistenceEnabled,
     indexing,
+    compareExportCapability,
     highlightedPaths,
     onVisiblePathsChange: handleVisiblePathsChange,
     offViewSummary,
@@ -893,10 +892,9 @@ export default function AppShell() {
   const openFolder = useCallback((p: string) => {
     resetViewerState()
     const safe = sanitizePath(p)
-    invalidateForScopeTransition(current, safe)
     setCurrent(safe)
     writeHash(safe)
-  }, [current, invalidateForScopeTransition, resetViewerState])
+  }, [resetViewerState])
 
   const {
     uploading,
@@ -1254,6 +1252,8 @@ export default function AppShell() {
           onFindSimilar={() => setSimilarityOpen(true)}
           embeddingsAvailable={embeddingsAvailable}
           embeddingsLoading={embeddingsLoading}
+          compareExportSupportsV2={compareExportCapability.supportsV2}
+          compareExportMaxPathsV2={compareExportCapability.maxPathsV2}
           onLocalTypingChange={setLocalTypingActive}
         />
       )}

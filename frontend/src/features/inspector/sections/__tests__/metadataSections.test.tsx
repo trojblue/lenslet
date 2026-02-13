@@ -38,6 +38,8 @@ describe('inspector metadata section rendering', () => {
         compareActive
         compareReady
         onOpenCompare={noop}
+        compareExportSupportsV2={false}
+        compareExportMaxPathsV2={null}
         compareExportLabelsText={'Prompt A\nPrompt B'}
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -71,6 +73,8 @@ describe('inspector metadata section rendering', () => {
         compareActive={false}
         compareReady={false}
         onOpenCompare={noop}
+        compareExportSupportsV2={false}
+        compareExportMaxPathsV2={null}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -89,7 +93,7 @@ describe('inspector metadata section rendering', () => {
     expect((html.match(/disabled=\"\"/g) ?? []).length).toBeGreaterThanOrEqual(3)
   })
 
-  it('shows explicit side-by-side and export disabled reasons for selections above two', () => {
+  it('shows explicit side-by-side and export capability guidance for selections above two', () => {
     const html = renderToStaticMarkup(
       <OverviewSection
         open
@@ -101,6 +105,8 @@ describe('inspector metadata section rendering', () => {
         compareActive={false}
         compareReady={false}
         onOpenCompare={noop}
+        compareExportSupportsV2={false}
+        compareExportMaxPathsV2={null}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -115,8 +121,41 @@ describe('inspector metadata section rendering', () => {
     )
 
     expect(html).toContain('Side-by-side view supports exactly 2 selections (selected 3).')
-    expect(html).toContain('Comparison export (v1) supports exactly 2 selections (selected 3).')
+    expect(html).toContain('Comparison export for more than 2 selections is unavailable on this server.')
     expect((html.match(/disabled=\"\"/g) ?? []).length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('enables selection export for >2 selections when server advertises v2 capability', () => {
+    const html = renderToStaticMarkup(
+      <OverviewSection
+        open
+        onToggle={noop}
+        multi
+        selectedCount={3}
+        totalSize={8192}
+        filename=""
+        compareActive={false}
+        compareReady={false}
+        onOpenCompare={noop}
+        compareExportSupportsV2
+        compareExportMaxPathsV2={12}
+        compareExportLabelsText=""
+        onCompareExportLabelsTextChange={noop}
+        compareExportEmbedMetadata
+        onCompareExportEmbedMetadataChange={noop}
+        compareExportBusy={false}
+        compareExportMode={null}
+        onComparisonExport={noop}
+        compareExportError={null}
+        canFindSimilar={false}
+        findSimilarDisabledReason={null}
+      />,
+    )
+
+    expect(html).toContain('Side-by-side view supports exactly 2 selections (selected 3).')
+    expect(html).not.toContain('Comparison export for more than 2 selections is unavailable on this server.')
+    expect(html).toContain('Label for image 1')
+    expect((html.match(/disabled=\"\"/g) ?? [])).toHaveLength(2)
   })
 
   it('renders metadata copy status with typed metadata output', () => {

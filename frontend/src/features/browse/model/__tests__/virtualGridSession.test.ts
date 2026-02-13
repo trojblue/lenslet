@@ -3,6 +3,7 @@ import type { Item } from '../../../../lib/types'
 import {
   collectVisiblePaths,
   getRestoreScrollTopForPath,
+  getTopAnchorPathForVisibleCells,
   getTopAnchorPathForVisibleRows,
   resolveVirtualGridRestoreDecision,
   type VirtualGridLayoutLike,
@@ -52,7 +53,7 @@ describe('virtual grid session contracts', () => {
       '/set/4.jpg',
       '/set/5.jpg',
     ])
-    expect(getTopAnchorPathForVisibleRows(items, layout, virtualRows)).toBe('/set/3.jpg')
+    expect(getTopAnchorPathForVisibleRows(items, layout, virtualRows, 0)).toBe('/set/3.jpg')
   })
 
   it('collects visible paths and top-anchor for adaptive rows', () => {
@@ -80,7 +81,44 @@ describe('virtual grid session contracts', () => {
     const virtualRows = [{ index: 1 }]
 
     expect(Array.from(collectVisiblePaths(items, layout, virtualRows))).toEqual(['/adaptive/c.jpg'])
-    expect(getTopAnchorPathForVisibleRows(items, layout, virtualRows)).toBe('/adaptive/c.jpg')
+    expect(getTopAnchorPathForVisibleRows(items, layout, virtualRows, 0)).toBe('/adaptive/c.jpg')
+  })
+
+  it('derives top-anchor from the first truly visible row when virtual rows include overscan', () => {
+    const items = [
+      makeItem('/set/0.jpg'),
+      makeItem('/set/1.jpg'),
+      makeItem('/set/2.jpg'),
+      makeItem('/set/3.jpg'),
+      makeItem('/set/4.jpg'),
+      makeItem('/set/5.jpg'),
+      makeItem('/set/6.jpg'),
+      makeItem('/set/7.jpg'),
+      makeItem('/set/8.jpg'),
+    ]
+    const layout: VirtualGridLayoutLike = {
+      mode: 'grid',
+      columns: 3,
+      rowH: 120,
+    }
+    const virtualRows = [
+      { index: 0, start: 0, end: 120, size: 120 },
+      { index: 1, start: 120, end: 240, size: 120 },
+      { index: 2, start: 240, end: 360, size: 120 },
+    ]
+
+    expect(getTopAnchorPathForVisibleRows(items, layout, virtualRows, 145)).toBe('/set/3.jpg')
+  })
+
+  it('derives top-anchor from visible cells in viewport order', () => {
+    const cells = [
+      { path: '/set/offscreen.jpg', top: -120, left: 0, bottom: -10 },
+      { path: '/set/c.jpg', top: 140, left: 140, bottom: 240 },
+      { path: '/set/a.jpg', top: 120, left: 20, bottom: 220 },
+      { path: '/set/b.jpg', top: 120, left: 90, bottom: 220 },
+    ]
+
+    expect(getTopAnchorPathForVisibleCells(cells, 0, 500)).toBe('/set/a.jpg')
   })
 
   it('prioritizes selection restore token but falls back to top-anchor token when selection path is unavailable', () => {

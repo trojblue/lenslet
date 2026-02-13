@@ -84,6 +84,10 @@ export type PresenceEvent = {
 
 export type HealthResponse = {
   ok: boolean
+  compare_export?: {
+    supported_versions?: number[]
+    max_paths_v2?: number | null
+  }
   labels?: {
     enabled: boolean
     log?: string | null

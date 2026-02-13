@@ -14,6 +14,8 @@ interface OverviewSectionProps {
   compareActive: boolean
   compareReady: boolean
   onOpenCompare?: () => void
+  compareExportSupportsV2: boolean
+  compareExportMaxPathsV2: number | null
   compareExportLabelsText: string
   onCompareExportLabelsTextChange: (value: string) => void
   compareExportEmbedMetadata: boolean
@@ -37,6 +39,8 @@ export function OverviewSection({
   compareActive,
   compareReady,
   onOpenCompare,
+  compareExportSupportsV2,
+  compareExportMaxPathsV2,
   compareExportLabelsText,
   onCompareExportLabelsTextChange,
   compareExportEmbedMetadata,
@@ -88,6 +92,8 @@ export function OverviewSection({
             selectedCount={selectedCount}
             compareActive={compareActive}
             compareReady={compareReady}
+            compareExportSupportsV2={compareExportSupportsV2}
+            compareExportMaxPathsV2={compareExportMaxPathsV2}
             compareExportLabelsText={compareExportLabelsText}
             onCompareExportLabelsTextChange={onCompareExportLabelsTextChange}
             compareExportEmbedMetadata={compareExportEmbedMetadata}

@@ -11,6 +11,12 @@ export const MAX_EXPORT_COMPARISON_LABEL_CHARS = 120
 export const DEFAULT_EXPORT_COMPARISON_EMBED_METADATA = true
 export const EXPORT_COMPARISON_PAIR_ONLY_MESSAGE = 'Comparison export (v1) requires exactly 2 selected images.'
 export const EXPORT_COMPARISON_V2_PATH_RANGE_MESSAGE = `Comparison export (v2) requires between 2 and ${MAX_EXPORT_COMPARISON_PATHS_V2} selected images.`
+export const EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE =
+  'Comparison export for more than 2 selections is unavailable on this server.'
+
+export function buildExportComparisonV2MaxPathsMessage(maxPaths: number, selectedCount: number): string {
+  return `Comparison export (v2) supports up to ${maxPaths} selections (selected ${selectedCount}).`
+}
 
 export type ExportComparisonPayloadArgs = {
   pathA: string

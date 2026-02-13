@@ -35,6 +35,12 @@ import {
   shouldContinueIndexingPoll,
   type HealthIndexing,
 } from './healthIndexing'
+import {
+  compareExportCapabilityEquals,
+  DEFAULT_COMPARE_EXPORT_CAPABILITY,
+  normalizeHealthCompareExport,
+  type CompareExportCapability,
+} from './healthCompareExport'
 
 type ItemCacheUpdatePayload = {
   path: string
@@ -63,6 +69,7 @@ type UseAppPresenceSyncResult = {
   lastEditedLabel: string
   persistenceEnabled: boolean
   indexing: HealthIndexing | null
+  compareExportCapability: CompareExportCapability
   highlightedPaths: Map<string, string>
   onVisiblePathsChange: (paths: Set<string>) => void
   offViewSummary: RecentSummary | null
@@ -128,6 +135,9 @@ export function useAppPresenceSync({
   const [lastEditedNow, setLastEditedNow] = useState(() => Date.now())
   const [persistenceEnabled, setPersistenceEnabled] = useState(true)
   const [indexing, setIndexing] = useState<HealthIndexing | null>(null)
+  const [compareExportCapability, setCompareExportCapability] = useState<CompareExportCapability>(
+    DEFAULT_COMPARE_EXPORT_CAPABILITY,
+  )
 
   useEffect(() => {
     if (recentEditAt == null) {
@@ -461,6 +471,12 @@ export function useAppPresenceSync({
         setPersistenceEnabled(health?.labels?.enabled ?? true)
         const nextIndexing = normalizeHealthIndexing(health?.indexing)
         setIndexing((prev) => (indexingEquals(prev, nextIndexing) ? prev : nextIndexing))
+        const nextCompareExportCapability = normalizeHealthCompareExport(health?.compare_export)
+        setCompareExportCapability((prev) => (
+          compareExportCapabilityEquals(prev, nextCompareExportCapability)
+            ? prev
+            : nextCompareExportCapability
+        ))
 
         if (shouldContinueIndexingPoll(nextIndexing)) {
           schedulePoll(nextIndexingPollDelayMs(nextIndexing, HEALTH_POLL_RUNNING_MS, HEALTH_POLL_RETRY_MS))
@@ -506,6 +522,7 @@ export function useAppPresenceSync({
     lastEditedLabel,
     persistenceEnabled,
     indexing,
+    compareExportCapability,
     highlightedPaths,
     onVisiblePathsChange,
     offViewSummary,

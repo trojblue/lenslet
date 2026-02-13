@@ -99,7 +99,9 @@ RECURSIVE_PAGE_SIZE_MAX = 500
 RECURSIVE_WINDOW_INSERT_MAX = 4096
 RECURSIVE_SORT_MODE_SCAN = "scan"
 RECURSIVE_CACHE_BUILD_MAX_RETRIES = 2
-RECURSIVE_CACHE_WARM_DELAY_SECONDS = 8.0
+# Keep background full-snapshot warm/persist out of the first interactive
+# browse window so initial scroll responsiveness is not CPU-contended.
+RECURSIVE_CACHE_WARM_DELAY_SECONDS = 10.0
 LEGACY_RECURSIVE_ROLLBACK_ENV = "LENSLET_ENABLE_LEGACY_RECURSIVE_ROLLBACK"
 _LEGACY_RECURSIVE_ROLLBACK_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 

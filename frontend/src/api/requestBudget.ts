@@ -8,14 +8,13 @@ type BudgetTask<T> = {
 
 type BudgetFactory<T> = () => BudgetTask<T>
 
-type QueueEntry<T> = {
+type QueueEntry = {
   id: number
   start: () => void
   reject: (reason?: unknown) => void
 }
 
 type ActiveEntry = {
-  id: number
   abort?: () => void
   reject: (reason?: unknown) => void
 }
@@ -23,7 +22,7 @@ type ActiveEntry = {
 type EndpointState = {
   limit: number
   inflight: Map<number, ActiveEntry>
-  queued: QueueEntry<unknown>[]
+  queued: QueueEntry[]
   peakInflight: number
 }
 
@@ -31,7 +30,7 @@ const ENDPOINTS: BrowseEndpoint[] = ['folders', 'thumb', 'file']
 
 const DEFAULT_LIMITS: Record<BrowseEndpoint, number> = {
   folders: 2,
-  thumb: 8,
+  thumb: 6,
   file: 3,
 }
 
@@ -125,7 +124,6 @@ export function runWithRequestBudget<T>(
       }
 
       activeEntry = {
-        id: taskId,
         abort: scheduled.abort,
         reject,
       }

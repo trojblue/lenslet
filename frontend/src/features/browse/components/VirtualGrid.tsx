@@ -11,7 +11,6 @@ import { getAdjacentThumbPrefetchPaths } from '../model/virtualGridPrefetch'
 import {
   collectVisiblePaths,
   getRestoreScrollTopForPath,
-  getTopAnchorPathForVisibleCells,
   getTopAnchorPathForVisibleRows,
   resolveVirtualGridRestoreDecision,
 } from '../model/virtualGridSession'
@@ -68,28 +67,6 @@ function renderHighlightedName(name: string, highlight?: string): React.ReactNod
       {after}
     </>
   )
-}
-
-function readTopAnchorPathFromGridDom(container: HTMLDivElement | null): string | null {
-  if (!container) return null
-  const viewport = container.getBoundingClientRect()
-  const cells = Array.from(container.querySelectorAll<HTMLElement>('[role="gridcell"][id^="cell-"]')).map((node) => {
-    const rect = node.getBoundingClientRect()
-    const encodedPath = node.id.startsWith('cell-') ? node.id.slice(5) : ''
-    let path = ''
-    try {
-      path = encodedPath ? decodeURIComponent(encodedPath) : ''
-    } catch {
-      path = ''
-    }
-    return {
-      path,
-      top: rect.top,
-      left: rect.left,
-      bottom: rect.bottom,
-    }
-  })
-  return getTopAnchorPathForVisibleCells(cells, viewport.top, viewport.bottom)
 }
 
 interface VirtualGridProps {
@@ -594,11 +571,10 @@ export default function VirtualGrid({
     () => collectVisiblePaths(items, layout, virtualRows),
     [items, layout, virtualRows],
   )
-  const topAnchorPath = useMemo(() => {
-    const domAnchor = readTopAnchorPathFromGridDom(parentRef.current)
-    if (domAnchor) return domAnchor
-    return getTopAnchorPathForVisibleRows(items, layout, virtualRows, parentRef.current?.scrollTop ?? 0)
-  }, [items, layout, virtualRows, parentRef])
+  const topAnchorPath = useMemo(
+    () => getTopAnchorPathForVisibleRows(items, layout, virtualRows, parentRef.current?.scrollTop ?? 0),
+    [items, layout, virtualRows, parentRef],
+  )
 
   useEffect(() => {
     if (!onVisiblePathsChange) return

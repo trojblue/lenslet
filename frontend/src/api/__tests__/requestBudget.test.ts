@@ -26,14 +26,21 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+type EndpointName = 'folders' | 'thumb' | 'file'
+type EndpointRun = {
+  endpoint: EndpointName
+  deferred: ReturnType<typeof createDeferred<number>>
+  task: ReturnType<typeof runWithRequestBudget<number>>
+}
+
 describe('browse request budget', () => {
   it('keeps endpoint peaks within configured limits', async () => {
     const endpoints = [
       { name: 'folders' as const, limit: 2 },
-      { name: 'thumb' as const, limit: 8 },
+      { name: 'thumb' as const, limit: 6 },
       { name: 'file' as const, limit: 3 },
     ]
-    const runs: Array<{ endpoint: 'folders' | 'thumb' | 'file', deferred: ReturnType<typeof createDeferred<number>>, task: ReturnType<typeof runWithRequestBudget<number>> }> = []
+    const runs: EndpointRun[] = []
 
     for (const endpoint of endpoints) {
       for (let idx = 0; idx < endpoint.limit + 1; idx += 1) {
@@ -44,7 +51,7 @@ describe('browse request budget', () => {
     }
 
     const queuedSnapshot = getBrowseRequestBudgetSnapshot()
-    expect(queuedSnapshot.inflight).toEqual({ folders: 2, thumb: 8, file: 3 })
+    expect(queuedSnapshot.inflight).toEqual({ folders: 2, thumb: 6, file: 3 })
     expect(queuedSnapshot.queued).toEqual({ folders: 1, thumb: 1, file: 1 })
 
     for (const endpoint of endpoints) {
@@ -60,7 +67,7 @@ describe('browse request budget', () => {
     await Promise.all(runs.slice(1).map((run) => run.task.promise))
 
     const snapshot = getBrowseRequestBudgetSnapshot()
-    expect(snapshot.peakInflight).toEqual({ folders: 2, thumb: 8, file: 3 })
+    expect(snapshot.peakInflight).toEqual({ folders: 2, thumb: 6, file: 3 })
     expect(snapshot.inflight).toEqual({ folders: 0, thumb: 0, file: 0 })
     expect(snapshot.queued).toEqual({ folders: 0, thumb: 0, file: 0 })
   })

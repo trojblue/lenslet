@@ -92,3 +92,33 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260213_browse_responsiveness_reimpl_plan.m
   - T11 strict primary smoke gate still fails on frame-gap in both no-write and write-mode variants despite first-grid latency closure.
 - Next step:
   - Investigate residual interaction-jank root cause (likely large-list render/layout churn under recursive hydration) and land a targeted fix or approved gate adjustment before Sprint 3 sign-off.
+## Iteration 4 (2026-02-13T22:12Z)
+- Completed task IDs: T11
+- Files changed:
+  - frontend/src/features/browse/components/VirtualGrid.tsx
+  - frontend/src/api/requestBudget.ts
+  - frontend/src/api/__tests__/requestBudget.test.ts
+  - src/lenslet/server_browse.py
+  - src/lenslet/frontend/index.html
+  - src/lenslet/frontend/assets/index-BDEjwvhq.js
+  - src/lenslet/frontend/assets/index-BGxxiQDi.js (deleted)
+  - docs/20260213_browse_responsiveness_reimpl_plan.md
+  - docs/ralph/20260213_browse_responsiveness_reimpl/progress.txt
+- Validations run:
+  - `npm --prefix frontend test -- src/features/browse/model/__tests__/virtualGridSession.test.ts` (pass)
+  - `npm --prefix frontend test -- src/features/browse/model/__tests__/pagedFolder.test.ts src/app/model/__tests__/loadingState.test.ts` (pass)
+  - `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` (pass; first-grid=3.90s, hotpath=796ms, max-frame-gap=583.3ms)
+  - `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result_warm.json` (pass; first-grid=3.32s, hotpath=725ms, max-frame-gap=566.6ms)
+  - `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --write-mode --output-json data/fixtures/large_tree_40k_smoke_result_write_mode.json` (pass; first-grid=4.20s, hotpath=775ms, max-frame-gap=666.7ms)
+  - `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --write-mode --output-json data/fixtures/large_tree_40k_smoke_result_write_mode_warm.json` (pass; first-grid=3.93s, hotpath=800ms, max-frame-gap=700.0ms)
+  - `pytest -q tests/test_folder_pagination.py -k "cold_miss or background_warm or persisted_cache"` (pass)
+  - `pytest -q tests/test_folder_pagination.py` (pass)
+  - `npm --prefix frontend test -- src/api/__tests__/requestBudget.test.ts` (pass)
+  - `python scripts/lint_repo.py` (pass)
+- Blockers:
+  - None.
+- Next step:
+  - Sprint 3 is closed; finalize docs, commit the validated slice, and mark plan completion.
+- Post-sprint routines:
+  - `code-simplifier` subagent pass completed (conservative non-semantic cleanup only).
+  - `code-review` subagent rerun completed (no unresolved high/medium findings).

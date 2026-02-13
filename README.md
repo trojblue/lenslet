@@ -69,8 +69,6 @@ Options:
   --no-thumb-cache             Disable thumbnail cache when a workspace is available
   --no-og-preview              Disable dataset-based social preview image
   --no-write                   Disable workspace writes (.lenslet/) for one-off sessions
-  --presence-lifecycle-v2      Enable lifecycle-v2 presence join/move/leave semantics (default)
-  --no-presence-lifecycle-v2   Rollback presence transitions to legacy heartbeat semantics
   --embedding-column NAME      Embedding column name (repeatable, comma-separated allowed)
   --embedding-metric NAME:METRIC
                                Embedding metric override (repeatable)

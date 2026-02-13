@@ -140,7 +140,6 @@ def _initialize_runtime(
     presence_view_ttl: float,
     presence_edit_ttl: float,
     presence_prune_interval: float,
-    presence_lifecycle_v2: bool,
 ) -> AppRuntime:
     return build_app_runtime(
         app,
@@ -149,7 +148,6 @@ def _initialize_runtime(
         presence_view_ttl=presence_view_ttl,
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
-        presence_lifecycle_v2=presence_lifecycle_v2,
         thumb_cache_enabled=thumb_cache,
         thumb_worker_count=_thumb_worker_count(),
         build_thumb_cache=_thumb_cache_from_workspace,
@@ -162,7 +160,6 @@ def _presence_health_payload(
     app: FastAPI,
     runtime: AppRuntime,
     *,
-    lifecycle_v2_enabled: bool,
     prune_interval_fallback: float,
 ) -> dict[str, Any]:
     prune_interval = float(
@@ -172,7 +169,6 @@ def _presence_health_payload(
         presence=runtime.presence,
         broker=runtime.broker,
         metrics=runtime.presence_metrics,
-        lifecycle_v2_enabled=lifecycle_v2_enabled,
         prune_interval_seconds=prune_interval,
     )
 
@@ -184,7 +180,6 @@ def _base_health_payload(
     storage,
     workspace: Workspace,
     runtime: AppRuntime,
-    lifecycle_v2_enabled: bool,
     prune_interval_fallback: float,
 ) -> dict[str, Any]:
     return {
@@ -196,7 +191,6 @@ def _base_health_payload(
         "presence": _presence_health_payload(
             app,
             runtime,
-            lifecycle_v2_enabled=lifecycle_v2_enabled,
             prune_interval_fallback=prune_interval_fallback,
         ),
         "hotpath": runtime.hotpath_metrics.snapshot(storage),
@@ -215,7 +209,6 @@ def _register_common_routes(
     to_item,
     *,
     runtime: AppRuntime,
-    lifecycle_v2_enabled: bool,
     record_update: RecordUpdateFn,
 ) -> None:
     _register_common_api_routes(
@@ -224,7 +217,6 @@ def _register_common_routes(
         meta_lock=runtime.meta_lock,
         presence=runtime.presence,
         broker=runtime.broker,
-        lifecycle_v2_enabled=lifecycle_v2_enabled,
         presence_metrics=runtime.presence_metrics,
         idempotency_cache=runtime.idempotency_cache,
         record_update=record_update,
@@ -288,7 +280,6 @@ def create_app(
     presence_view_ttl: float = 75.0,
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
-    presence_lifecycle_v2: bool = True,
     indexing_listener: IndexingListener | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
@@ -348,7 +339,6 @@ def create_app(
         presence_view_ttl=presence_view_ttl,
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
-        presence_lifecycle_v2=presence_lifecycle_v2,
     )
 
     embedding_manager: EmbeddingManager | None = None
@@ -411,7 +401,6 @@ def create_app(
                 storage=storage,
                 workspace=workspace,
                 runtime=runtime,
-                lifecycle_v2_enabled=presence_lifecycle_v2,
                 prune_interval_fallback=presence_prune_interval,
             ),
             "root": root_path,
@@ -441,7 +430,6 @@ def create_app(
         app,
         _to_item,
         runtime=runtime,
-        lifecycle_v2_enabled=presence_lifecycle_v2,
         record_update=record_update,
     )
 
@@ -471,7 +459,6 @@ def create_app_from_datasets(
     presence_view_ttl: float = 75.0,
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
-    presence_lifecycle_v2: bool = True,
     indexing_listener: IndexingListener | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory dataset storage."""
@@ -494,7 +481,6 @@ def create_app_from_datasets(
         presence_view_ttl=presence_view_ttl,
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
-        presence_lifecycle_v2=presence_lifecycle_v2,
     )
     indexing = IndexingLifecycle.ready(scope="/")
     if indexing_listener is not None:
@@ -537,7 +523,6 @@ def create_app_from_datasets(
                 storage=storage,
                 workspace=workspace,
                 runtime=runtime,
-                lifecycle_v2_enabled=presence_lifecycle_v2,
                 prune_interval_fallback=presence_prune_interval,
             ),
             "datasets": dataset_names,
@@ -551,7 +536,6 @@ def create_app_from_datasets(
         app,
         _to_item,
         runtime=runtime,
-        lifecycle_v2_enabled=presence_lifecycle_v2,
         record_update=record_update,
     )
 
@@ -584,7 +568,6 @@ def create_app_from_table(
     presence_view_ttl: float = 75.0,
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
-    presence_lifecycle_v2: bool = True,
     indexing_listener: IndexingListener | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory table storage."""
@@ -611,7 +594,6 @@ def create_app_from_table(
         presence_view_ttl=presence_view_ttl,
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
-        presence_lifecycle_v2=presence_lifecycle_v2,
         indexing_listener=indexing_listener,
     )
 
@@ -630,7 +612,6 @@ def create_app_from_storage(
     presence_view_ttl: float = 75.0,
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
-    presence_lifecycle_v2: bool = True,
     indexing_listener: IndexingListener | None = None,
 ) -> FastAPI:
     """Create FastAPI app using a pre-built TableStorage."""
@@ -647,7 +628,6 @@ def create_app_from_storage(
         presence_view_ttl=presence_view_ttl,
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
-        presence_lifecycle_v2=presence_lifecycle_v2,
     )
     indexing = IndexingLifecycle.ready(scope="/")
     if indexing_listener is not None:
@@ -693,7 +673,6 @@ def create_app_from_storage(
                 storage=storage,
                 workspace=workspace,
                 runtime=runtime,
-                lifecycle_v2_enabled=presence_lifecycle_v2,
                 prune_interval_fallback=presence_prune_interval,
             ),
             "total_images": len(storage._items),
@@ -706,7 +685,6 @@ def create_app_from_storage(
         app,
         _to_item,
         runtime=runtime,
-        lifecycle_v2_enabled=presence_lifecycle_v2,
         record_update=record_update,
     )
 

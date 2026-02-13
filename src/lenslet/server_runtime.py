@@ -48,7 +48,6 @@ def build_app_runtime(
     presence_view_ttl: float,
     presence_edit_ttl: float,
     presence_prune_interval: float,
-    presence_lifecycle_v2: bool,
     thumb_cache_enabled: bool,
     thumb_worker_count: int,
     build_thumb_cache: Callable[[Workspace, bool], Any],
@@ -67,7 +66,6 @@ def build_app_runtime(
     presence = PresenceTracker(view_ttl=presence_view_ttl, edit_ttl=presence_edit_ttl)
     presence_metrics = PresenceMetrics()
     app.state.sync_broker = broker
-    app.state.presence_lifecycle_v2_enabled = presence_lifecycle_v2
     install_presence_prune_loop(app, presence, broker, presence_prune_interval)
     thumb_queue = ThumbnailScheduler(max_workers=thumb_worker_count)
     thumb_cache = build_thumb_cache(workspace, thumb_cache_enabled)

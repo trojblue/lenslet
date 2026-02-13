@@ -110,6 +110,15 @@ Sprint S1 execution evidence (2026-02-13 iteration 1):
     python -m lenslet.cli --help                  # passed
     rg -n "ParquetStorage|storage\.parquet" src tests  # no matches
 
+Sprint S2 execution evidence (2026-02-13 iteration 2):
+
+    pytest -q tests/test_presence_lifecycle.py  # 7 passed in 1.66s
+    python -m lenslet.cli --help                # passed; lifecycle flags removed from help text
+    rg -n -e "presence-lifecycle-v2" -e "presence_lifecycle_v2" src tests frontend README.md  # no matches
+    rg -n -e "presence-lifecycle-v2" -e "presence_lifecycle_v2" docs scripts README.md  # matches only docs/agents_archive and this execution plan
+    cd frontend && npm run test -- src/api/__tests__/client.presence.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/api/__tests__/client.exportComparison.test.ts  # 20 passed
+    cd frontend && npx tsc --noEmit  # fails in pre-existing typed health check (`src/app/hooks/healthCompareExport.ts`)
+
 Overall acceptance means approved capabilities are preserved (`--share`, compare export), approved legacy behavior is removed (presence v1), deferred touch/mobile scope remains untouched, and deletion KPI is achieved.
 
 
@@ -119,6 +128,8 @@ Overall acceptance means approved capabilities are preserved (`--share`, compare
 Main risks are hidden lifecycle-flag dependencies in scripts/docs, accidental compare-export behavior drift during modularization, and over-broad edits that exceed budget.
 
 Mitigations are evidence-based scans, sprint-level test gates, and narrow file targeting per task. If a sprint fails, revert only that sprint’s commit range and re-run validation before proceeding.
+
+Current execution note: frontend `npx tsc --noEmit` fails on a pre-existing compare-export health typing mismatch (`frontend/src/app/hooks/healthCompareExport.ts`) outside Sprint S2 edits. Track this as a Sprint S4 consolidated-validation item unless separately prioritized.
 
 Use non-destructive rollback patterns. Prefer `git revert <commit>` for failed sprint slices. Keep commits small and scoped so retries are straightforward.
 
@@ -134,7 +145,11 @@ Use non-destructive rollback patterns. Prefer `git revert <commit>` for failed s
 - [x] 2026-02-13T16:57:20Z Sprint S1 T2 completed: rewired `tests/test_search_text_contract.py` from `ParquetStorage` to `TableStorage` loaded via parquet fixture.
 - [x] 2026-02-13T16:57:41Z Sprint S1 T3 completed: dead-reference scan clean (`src/tests`), search contract tests green, and CLI help smoke passes.
 - [x] 2026-02-13T16:57:55Z Sprint S1 completed and handoff note added.
-- [ ] Sprint S2 completed and handoff note added.
+- [x] 2026-02-13T17:00:04Z Sprint S2 T4 completed: removed lifecycle-v2 CLI rollout flags while preserving `--share`.
+- [x] 2026-02-13T17:00:28Z Sprint S2 T5 completed: removed lifecycle-v1 branches/flag plumbing from runtime, factory, and presence routing.
+- [x] 2026-02-13T17:00:49Z Sprint S2 T6 completed: updated presence tests and active docs (`README.md`) to v2-only lifecycle expectations.
+- [x] 2026-02-13T17:01:12Z Sprint S2 validation run completed (`presence` backend/frontend tests green; CLI help smoke green; lifecycle-flag scan clean outside archives/plan; frontend `tsc` has pre-existing failure noted).
+- [x] 2026-02-13T17:01:12Z Sprint S2 completed and handoff note added.
 - [ ] Sprint S3 completed and handoff note added.
 - [ ] Sprint S4 completed and final handoff note added.
 
@@ -168,11 +183,19 @@ Sprint S1 handoff (completed 2026-02-13T16:57:55Z):
 - Validation outcomes: `pytest -q tests/test_search_text_contract.py` passed (`9 passed`); `python -m lenslet.cli --help` passed; `rg -n "ParquetStorage|storage\.parquet" src tests` returned no matches.
 - Assumption used: legacy parquet-only storage path is dead and safe to delete because active app paths use `TableStorage`; no runtime references remained in `src/tests`.
 
+Sprint S2 handoff (completed 2026-02-13T17:01:12Z):
+
+- Completed tasks: `T4`, `T5`, `T6`.
+- Files changed: `src/lenslet/cli.py`, `src/lenslet/server_runtime.py`, `src/lenslet/server_factory.py`, `src/lenslet/server_routes_common.py`, `src/lenslet/server_routes_presence.py`, `tests/test_presence_lifecycle.py`, `README.md`.
+- Validation outcomes: `pytest -q tests/test_presence_lifecycle.py` passed (`7 passed`); `python -m lenslet.cli --help` passed with lifecycle flags removed; frontend presence/export test subset passed (`20 passed`); lifecycle-flag scan clean for `src/tests/frontend/README` and only historical hits in `docs/agents_archive` plus this plan; `frontend npx tsc --noEmit` failed on pre-existing `frontend/src/app/hooks/healthCompareExport.ts` typing mismatch.
+- Assumption used: removing `lifecycle_v2_enabled` diagnostics key is acceptable under approved lifecycle-v1 compatibility removal because no active client imports rely on that key.
+
 
 ## Interfaces and Dependencies (Conditional)
 
 
 Presence contract changes are expected to remove lifecycle-v1 compatibility branches and flags. Active client behavior for v2 presence paths must remain stable and validated by backend and frontend presence tests.
+Presence diagnostics payload no longer carries `lifecycle_v2_enabled`; v2 lifecycle semantics are now foundational and unconditional.
 
 Compare-export contract should remain centered on existing `POST /export-comparison` behavior and current client/test payloads. Modularization must not alter endpoint semantics.
 

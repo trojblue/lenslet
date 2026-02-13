@@ -84,7 +84,6 @@ def register_common_api_routes(
     meta_lock: threading.Lock,
     presence: PresenceTracker,
     broker,
-    lifecycle_v2_enabled: bool,
     presence_metrics,
     idempotency_cache,
     record_update: RecordUpdateFn,
@@ -254,7 +253,6 @@ def register_common_api_routes(
         app,
         presence,
         broker,
-        lifecycle_v2_enabled=lifecycle_v2_enabled,
         metrics=presence_metrics,
     )
 

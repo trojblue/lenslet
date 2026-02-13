@@ -343,19 +343,6 @@ def main():
         help="Disable workspace writes (.lenslet/) for one-off sessions",
     )
     parser.add_argument(
-        "--presence-lifecycle-v2",
-        action="store_true",
-        dest="presence_lifecycle_v2",
-        default=True,
-        help="Enable lifecycle-v2 presence join/move/leave semantics (default)",
-    )
-    parser.add_argument(
-        "--no-presence-lifecycle-v2",
-        action="store_false",
-        dest="presence_lifecycle_v2",
-        help="Rollback presence transitions to legacy heartbeat semantics",
-    )
-    parser.add_argument(
         "--embedding-column",
         action="append",
         default=None,
@@ -638,7 +625,6 @@ def main():
             embedding_cache=args.embedding_cache and not effective_no_write,
             embedding_cache_dir=args.embedding_cache_dir,
             embedding_preload=args.embedding_preload,
-            presence_lifecycle_v2=args.presence_lifecycle_v2,
             allow_local=False,
             indexing_listener=indexing_reporter.handle_update,
         )
@@ -664,7 +650,6 @@ def main():
             embedding_cache=args.embedding_cache and not effective_no_write,
             embedding_cache_dir=args.embedding_cache_dir,
             embedding_preload=args.embedding_preload,
-            presence_lifecycle_v2=args.presence_lifecycle_v2,
             indexing_listener=indexing_reporter.handle_update,
         )
     else:
@@ -692,7 +677,6 @@ def main():
             embedding_cache=args.embedding_cache and not effective_no_write,
             embedding_cache_dir=args.embedding_cache_dir,
             embedding_preload=args.embedding_preload,
-            presence_lifecycle_v2=args.presence_lifecycle_v2,
             indexing_listener=indexing_reporter.handle_update,
         )
 

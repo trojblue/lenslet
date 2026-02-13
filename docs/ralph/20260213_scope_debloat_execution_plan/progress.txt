@@ -14,3 +14,15 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260213_scope_debloat_execution_plan.md
   - `python -m lenslet.cli --help` -> passed.
 - Blockers: none.
 - Next step: begin Sprint `S2` with `T4` (remove lifecycle-v2 CLI flags while preserving `--share`).
+## Iteration 2 - 2026-02-13T17:01:12Z
+- Completed task IDs: `T4`, `T5`, `T6` (Sprint `S2` complete).
+- Files changed: `README.md`, `src/lenslet/cli.py`, `src/lenslet/server_runtime.py`, `src/lenslet/server_factory.py`, `src/lenslet/server_routes_common.py`, `src/lenslet/server_routes_presence.py`, `tests/test_presence_lifecycle.py`, `docs/20260213_scope_debloat_execution_plan.md`, `docs/ralph/20260213_scope_debloat_execution_plan/progress.txt`.
+- Validations run:
+  - `pytest -q tests/test_presence_lifecycle.py` -> passed (`7 passed in 1.66s`).
+  - `python -m lenslet.cli --help` -> passed (no lifecycle flag options).
+  - `rg -n -e "presence-lifecycle-v2" -e "presence_lifecycle_v2" src tests frontend README.md` -> no matches.
+  - `rg -n -e "presence-lifecycle-v2" -e "presence_lifecycle_v2" docs scripts README.md` -> matches only `docs/agents_archive/*` and this execution plan.
+  - `cd frontend && npm run test -- src/api/__tests__/client.presence.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/api/__tests__/client.exportComparison.test.ts` -> passed (`20 passed`).
+  - `cd frontend && npx tsc --noEmit` -> failed with existing errors in `frontend/src/app/hooks/healthCompareExport.ts` (`TS2322`, `TS2345`).
+- Blockers: none for Sprint `S2`; residual pre-existing frontend type-check issue recorded for later consolidated validation handling.
+- Next step: start Sprint `S3` at `T7` (explicit compare-export boundary module) in iteration 3.

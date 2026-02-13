@@ -45,7 +45,6 @@ def _build_test_app(
     presence_view_ttl: float = 1.0,
     presence_edit_ttl: float = 1.0,
     presence_prune_interval: float = 0.2,
-    presence_lifecycle_v2: bool = True,
 ):
     _make_image(root / "sample.jpg")
     return create_app(
@@ -53,7 +52,6 @@ def _build_test_app(
         presence_view_ttl=presence_view_ttl,
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
-        presence_lifecycle_v2=presence_lifecycle_v2,
     )
 
 
@@ -182,43 +180,6 @@ async def _run_presence_lifecycle_api(app) -> None:
 def test_presence_lifecycle_routes(tmp_path: Path) -> None:
     app = _build_test_app(tmp_path)
     asyncio.run(_run_presence_lifecycle_api(app))
-
-
-async def _run_legacy_presence_compatibility(app) -> None:
-    async with _test_client(app) as client:
-        hb_1 = await client.post("/presence", json={"gallery_id": "/a", "client_id": "legacy-tab"})
-        assert hb_1.status_code == 200
-        lease_id = hb_1.json()["lease_id"]
-        assert hb_1.json()["viewing"] == 1
-
-        hb_2 = await client.post(
-            "/presence",
-            json={"gallery_id": "/b", "client_id": "legacy-tab", "lease_id": lease_id},
-        )
-        assert hb_2.status_code == 200
-        assert hb_2.json()["gallery_id"] == "/b"
-        assert hb_2.json()["viewing"] == 1
-
-        hb_bad = await client.post(
-            "/presence",
-            json={"gallery_id": "/b", "client_id": "legacy-tab", "lease_id": "invalid"},
-        )
-        assert hb_bad.status_code == 409
-        assert hb_bad.json()["error"] == "invalid_lease"
-
-        broker = app.state.sync_broker
-        replay = broker.replay(0)
-        a_presence = _latest_presence_for_gallery(replay, "/a")
-        b_presence = _latest_presence_for_gallery(replay, "/b")
-        assert a_presence is not None
-        assert a_presence["viewing"] == 0
-        assert b_presence is not None
-        assert b_presence["viewing"] == 1
-
-
-def test_legacy_presence_heartbeat_compatibility(tmp_path: Path) -> None:
-    app = _build_test_app(tmp_path)
-    asyncio.run(_run_legacy_presence_compatibility(app))
 
 
 async def _run_idle_prune(app) -> None:
@@ -376,7 +337,7 @@ async def _run_presence_diagnostics_counters(app) -> None:
         health_presence = health.json().get("presence", {})
         assert health_presence.get("invalid_lease_total", 0) >= 1
         assert health_presence.get("replay_miss_total", 0) >= 1
-        assert health_presence.get("lifecycle_v2_enabled") is True
+        assert "lifecycle_v2_enabled" not in health_presence
 
         leave = await client.post(
             "/presence/leave",
@@ -458,38 +419,3 @@ def test_presence_multi_client_refresh_move_reconnect_convergence(tmp_path: Path
     app = _build_test_app(tmp_path, presence_view_ttl=0.2, presence_edit_ttl=0.2, presence_prune_interval=0.1)
     asyncio.run(_run_presence_multi_client_convergence(app))
 
-
-async def _run_presence_lifecycle_gate_legacy_mode(app) -> None:
-    async with _test_client(app) as client:
-        join = await client.post("/presence/join", json={"gallery_id": "/legacy", "client_id": "legacy-tab"})
-        assert join.status_code == 200
-        lease_id = join.json()["lease_id"]
-
-        move = await client.post(
-            "/presence/move",
-            json={
-                "from_gallery_id": "/wrong",
-                "to_gallery_id": "/legacy/next",
-                "client_id": "legacy-tab",
-                "lease_id": lease_id,
-            },
-        )
-        assert move.status_code == 200
-        assert move.json()["to_scope"]["gallery_id"] == "/legacy/next"
-
-        leave = await client.post(
-            "/presence/leave",
-            json={"gallery_id": "/legacy/next", "client_id": "legacy-tab", "lease_id": lease_id},
-        )
-        assert leave.status_code == 200
-        assert leave.json()["removed"] is False
-        assert leave.json()["mode"] == "legacy_heartbeat"
-
-        health = await client.get("/health")
-        assert health.status_code == 200
-        assert health.json().get("presence", {}).get("lifecycle_v2_enabled") is False
-
-
-def test_presence_lifecycle_gate_legacy_mode(tmp_path: Path) -> None:
-    app = _build_test_app(tmp_path, presence_lifecycle_v2=False)
-    asyncio.run(_run_presence_lifecycle_gate_legacy_mode(app))

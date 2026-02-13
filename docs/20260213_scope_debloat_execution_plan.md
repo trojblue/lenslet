@@ -127,6 +127,18 @@ Sprint S3 execution evidence (2026-02-13 iteration 3):
     rg -n "compareExportInternal" frontend/src/features/inspector  # matches only compareExportBoundary import/re-export
     cd frontend && npx tsc --noEmit  # fails on pre-existing `src/app/hooks/healthCompareExport.ts` (`TS2322`, `TS2345`)
 
+Sprint S4 execution evidence (2026-02-13 iteration 4):
+
+    pytest -q tests/test_search_text_contract.py  # 9 passed in 0.34s
+    pytest -q tests/test_presence_lifecycle.py  # 7 passed in 1.65s
+    python -m lenslet.cli --help  # passed; `--share` still present
+    rg -n "ParquetStorage|storage\.parquet" src tests  # no matches
+    rg -n -e "presence-lifecycle-v2" -e "presence_lifecycle_v2" src tests frontend README.md  # no matches
+    rg -n -e "presence-lifecycle-v2" -e "presence_lifecycle_v2" docs scripts README.md  # matches only docs/agents_archive, this plan, and progress log notes
+    cd frontend && npm run test -- src/api/__tests__/client.presence.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/api/__tests__/client.exportComparison.test.ts  # 20 passed
+    cd frontend && npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx  # 8 passed
+    cd frontend && npx tsc --noEmit  # passed after widening `DEFAULT_SUPPORTED_VERSIONS` typing in `frontend/src/app/hooks/healthCompareExport.ts`
+
 Overall acceptance means approved capabilities are preserved (`--share`, compare export), approved legacy behavior is removed (presence v1), deferred touch/mobile scope remains untouched, and deletion KPI is achieved.
 
 
@@ -137,7 +149,7 @@ Main risks are hidden lifecycle-flag dependencies in scripts/docs, accidental co
 
 Mitigations are evidence-based scans, sprint-level test gates, and narrow file targeting per task. If a sprint fails, revert only that sprint’s commit range and re-run validation before proceeding.
 
-Current execution note: frontend `npx tsc --noEmit` fails on a pre-existing compare-export health typing mismatch (`frontend/src/app/hooks/healthCompareExport.ts`) outside Sprint S2 edits. Track this as a Sprint S4 consolidated-validation item unless separately prioritized.
+Current execution note: previously failing frontend `npx tsc --noEmit` health typing mismatch in `frontend/src/app/hooks/healthCompareExport.ts` was resolved during Sprint S4 consolidated validation with a behavior-preserving type narrowing fix.
 
 Use non-destructive rollback patterns. Prefer `git revert <commit>` for failed sprint slices. Keep commits small and scoped so retries are straightforward.
 
@@ -162,7 +174,9 @@ Use non-destructive rollback patterns. Prefer `git revert <commit>` for failed s
 - [x] 2026-02-13T17:04:17Z Sprint S3 T8 completed: rewired inspector compare-export hook/section/tests to boundary-only imports.
 - [x] 2026-02-13T17:04:29Z Sprint S3 validation run completed (compare-export inspector/api tests green; legacy import path scan clean).
 - [x] 2026-02-13T17:04:29Z Sprint S3 completed and handoff note added.
-- [ ] Sprint S4 completed and final handoff note added.
+- [x] 2026-02-13T17:07:02Z Sprint S4 T9 completed: ran consolidated acceptance checks across backend/frontend/smoke paths and resolved the pre-existing frontend `tsc` typing failure.
+- [x] 2026-02-13T17:07:02Z Sprint S4 T10 completed: recorded LOC accounting (`src/frontend/tests/README` net `-619` lines) and per-area deletion totals.
+- [x] 2026-02-13T17:07:02Z Sprint S4 completed and final handoff note added.
 
 
 ## Artifacts and Handoff
@@ -207,6 +221,14 @@ Sprint S3 handoff (completed 2026-02-13T17:04:29Z):
 - Files changed: added `frontend/src/features/inspector/compareExportBoundary.ts`; renamed `frontend/src/features/inspector/exportComparison.ts` to `frontend/src/features/inspector/compareExportInternal.ts`; updated `frontend/src/features/inspector/hooks/useInspectorCompareExport.ts`, `frontend/src/features/inspector/sections/SelectionExportSection.tsx`, `frontend/src/features/inspector/__tests__/exportComparison.test.tsx`.
 - Validation outcomes: frontend compare-export tests passed (`17 passed`) and metadata section tests passed (`8 passed`); `rg -n "from '../exportComparison'" frontend/src/features/inspector` returned no matches; `rg -n "compareExportInternal" frontend/src/features/inspector` confirmed only boundary-level internal imports; `frontend npx tsc --noEmit` failed on pre-existing `frontend/src/app/hooks/healthCompareExport.ts` typing mismatch.
 - Assumption used: boundary-first import rewiring is behavior-preserving because compare-export payload/message builders were moved without semantic changes and existing contract tests remained green.
+
+Sprint S4 handoff (completed 2026-02-13T17:07:02Z):
+
+- Completed tasks: `T9`, `T10`.
+- Files changed: `frontend/src/app/hooks/healthCompareExport.ts`, `docs/20260213_scope_debloat_execution_plan.md`, `docs/ralph/20260213_scope_debloat_execution_plan/progress.txt`.
+- Validation outcomes: `pytest -q tests/test_search_text_contract.py` passed (`9 passed`); `pytest -q tests/test_presence_lifecycle.py` passed (`7 passed`); `python -m lenslet.cli --help` passed and still advertises `--share`; presence/parquet scans were clean in active code paths; frontend presence/export and metadata tests passed (`20 + 8 passed`); `frontend npx tsc --noEmit` passed after the health hook typing fix.
+- LOC accounting (against pre-plan baseline `b69b604`): scoped code surface (`src frontend tests README.md`) is `40 insertions / 659 deletions`, net `-619` lines, exceeding the `>=500` KPI. Per-area deletions: backend storage `501`, backend core `70`, tests `82`, frontend (`app + inspector`) `4`, README `2`.
+- Assumption used: KPI accounting excludes execution-log documentation growth in `docs/` and uses product code/test/docs-in-use surfaces (`src`, `frontend`, `tests`, `README.md`), which aligns with the debloat objective.
 
 
 ## Interfaces and Dependencies (Conditional)

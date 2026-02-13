@@ -37,3 +37,19 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260213_scope_debloat_execution_plan.md
   - `cd frontend && npx tsc --noEmit` -> failed with existing errors in `frontend/src/app/hooks/healthCompareExport.ts` (`TS2322`, `TS2345`).
 - Blockers: none.
 - Next step: begin Sprint `S4` with `T9` (consolidated acceptance validation) and then `T10` (LOC/accounting + final handoff).
+## Iteration 4 - 2026-02-13T17:07:02Z
+- Completed task IDs: `T9`, `T10` (Sprint `S4` complete; full plan complete).
+- Files changed: `frontend/src/app/hooks/healthCompareExport.ts`, `docs/20260213_scope_debloat_execution_plan.md`, `docs/ralph/20260213_scope_debloat_execution_plan/progress.txt`.
+- Validations run:
+  - `pytest -q tests/test_search_text_contract.py` -> passed (`9 passed in 0.34s`).
+  - `pytest -q tests/test_presence_lifecycle.py` -> passed (`7 passed in 1.65s`).
+  - `python -m lenslet.cli --help` -> passed (`--share` retained).
+  - `rg -n "ParquetStorage|storage\.parquet" src tests` -> no matches.
+  - `rg -n -e "presence-lifecycle-v2" -e "presence_lifecycle_v2" src tests frontend README.md` -> no matches.
+  - `rg -n -e "presence-lifecycle-v2" -e "presence_lifecycle_v2" docs scripts README.md` -> matches only historical archives + execution docs.
+  - `cd frontend && npm run test -- src/api/__tests__/client.presence.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/api/__tests__/client.exportComparison.test.ts` -> passed (`20 passed`).
+  - `cd frontend && npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx` -> passed (`8 passed`).
+  - `cd frontend && npx tsc --noEmit` -> passed after type-safe fix in `frontend/src/app/hooks/healthCompareExport.ts`.
+  - `git diff --numstat b69b604 -- src frontend tests README.md | awk ...` -> `insertions=40 deletions=659 net=619` (KPI met).
+- Blockers: none.
+- Next step: none; all planned sprints/tasks completed with acceptance evidence.

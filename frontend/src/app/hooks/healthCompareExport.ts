@@ -6,7 +6,7 @@ export type CompareExportCapability = {
   supportsV2: boolean
 }
 
-const DEFAULT_SUPPORTED_VERSIONS = [1] as const
+const DEFAULT_SUPPORTED_VERSIONS: number[] = [1]
 
 export const DEFAULT_COMPARE_EXPORT_CAPABILITY: CompareExportCapability = {
   supportedVersions: [...DEFAULT_SUPPORTED_VERSIONS],

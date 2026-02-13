@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useCallback } from 'react'
+import React, { Fragment, useEffect, useMemo, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict } from '../../shared/api/items'
 import { api, makeIdempotencyKey } from '../../shared/api/client'
@@ -13,11 +13,7 @@ import {
   hasPilInfoMetadata,
   normalizeMetadataRecord,
 } from './model/metadataCompare'
-import { BasicsSection } from './sections/BasicsSection'
-import { CompareMetadataSection } from './sections/CompareMetadataSection'
-import { MetadataSection } from './sections/MetadataSection'
-import { NotesSection } from './sections/NotesSection'
-import { OverviewSection } from './sections/OverviewSection'
+import { INSPECTOR_WIDGETS, type InspectorWidgetContext } from './inspectorWidgets'
 import { useInspectorMetadataWorkflow } from './hooks/useInspectorMetadataWorkflow'
 import { useInspectorSidecarWorkflow } from './hooks/useInspectorSidecarWorkflow'
 import { useInspectorUiState } from './hooks/useInspectorUiState'
@@ -464,6 +460,113 @@ export default function Inspector({
     </div>
   )
 
+  const widgetContext: InspectorWidgetContext = {
+    multi,
+    compareActive,
+    compareReady,
+    overviewProps: {
+      open: openSections.overview,
+      onToggle: toggleOverviewSection,
+      multi,
+      selectedCount: selectedPaths.length,
+      totalSize,
+      filename,
+      compareActive,
+      compareReady: selectedPairReady,
+      onOpenCompare,
+      compareExportSupportsV2,
+      compareExportMaxPathsV2,
+      compareExportLabelsText,
+      onCompareExportLabelsTextChange: handleCompareExportLabelsTextChange,
+      compareExportEmbedMetadata,
+      onCompareExportEmbedMetadataChange: handleCompareExportEmbedMetadataChange,
+      compareExportBusy,
+      compareExportMode,
+      onComparisonExport: handleComparisonExport,
+      compareExportError,
+      onFindSimilar,
+      canFindSimilar,
+      findSimilarDisabledReason,
+    },
+    compareMetadataProps: {
+      open: openSections.compare,
+      onToggle: toggleCompareSection,
+      compareMetaState,
+      compareMetaError,
+      compareLabelA,
+      compareLabelB,
+      compareIncludePilInfo,
+      onToggleCompareIncludePilInfo: handleToggleCompareIncludePilInfo,
+      onReload: reloadCompareMetadata,
+      compareDiff,
+      compareHasPilInfoA,
+      compareHasPilInfoB,
+      compareShowPilInfoA,
+      compareShowPilInfoB,
+      onToggleCompareShowPilInfoA: handleToggleCompareShowPilInfoA,
+      onToggleCompareShowPilInfoB: handleToggleCompareShowPilInfoB,
+      compareMetaCopied,
+      onCopyCompareMetadata: copyCompareMetadata,
+      compareValueCopiedPathA,
+      compareValueCopiedPathB,
+      compareDisplayNodeA,
+      compareDisplayNodeB,
+      compareMetaContent,
+      onCompareMetaPathCopyA: handleCompareMetaPathCopyA,
+      onCompareMetaPathCopyB: handleCompareMetaPathCopyB,
+    },
+    basicsProps: {
+      open: openSections.basics,
+      onToggle: toggleBasicsSection,
+      multi,
+      star,
+      onSelectStar: handleSelectStar,
+      hasStarConflict,
+      onApplyConflict: applyConflict,
+      onKeepTheirs: keepTheirs,
+      currentItem: currentItem ?? null,
+      sourceValue,
+      sortSpec,
+      copiedField,
+      onCopyInfo: copyInfo,
+      metricsExpanded,
+      onToggleMetricsExpanded: toggleMetricsExpanded,
+      metricsPreviewLimit: METRICS_PREVIEW_LIMIT,
+    },
+    metadataProps: {
+      open: openSections.metadata,
+      onToggle: toggleMetadataSection,
+      metadataLoading,
+      metadataActionLabel,
+      onMetadataAction: handleMetadataAction,
+      metadataActionDisabled: !path,
+      hasPilInfo,
+      showPilInfo,
+      onToggleShowPilInfo: handleToggleShowPilInfo,
+      metaValueCopiedPath,
+      metaHeightClass,
+      metaLoaded,
+      metaDisplayNode,
+      metaContent,
+      metaError,
+      onMetaPathCopy: handleMetaPathCopy,
+    },
+    notesProps: {
+      open: openSections.notes,
+      onToggle: toggleNotesSection,
+      multi,
+      showConflictBanner: showNotesConflictBanner,
+      onApplyConflict: applyConflict,
+      onKeepTheirs: keepTheirs,
+      notes,
+      onNotesChange: handleNotesChange,
+      onNotesBlur: handleNotesBlur,
+      tags,
+      onTagsChange: handleTagsChange,
+      onTagsBlur: handleTagsBlur,
+    },
+  }
+
   return (
     <div className="app-right-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
       {!multi && (
@@ -474,115 +577,9 @@ export default function Inspector({
           </div>
         </div>
       )}
-      <OverviewSection
-        open={openSections.overview}
-        onToggle={toggleOverviewSection}
-        multi={multi}
-        selectedCount={selectedPaths.length}
-        totalSize={totalSize}
-        filename={filename}
-        compareActive={compareActive}
-        compareReady={selectedPairReady}
-        onOpenCompare={onOpenCompare}
-        compareExportSupportsV2={compareExportSupportsV2}
-        compareExportMaxPathsV2={compareExportMaxPathsV2}
-        compareExportLabelsText={compareExportLabelsText}
-        onCompareExportLabelsTextChange={handleCompareExportLabelsTextChange}
-        compareExportEmbedMetadata={compareExportEmbedMetadata}
-        onCompareExportEmbedMetadataChange={handleCompareExportEmbedMetadataChange}
-        compareExportBusy={compareExportBusy}
-        compareExportMode={compareExportMode}
-        onComparisonExport={handleComparisonExport}
-        compareExportError={compareExportError}
-        onFindSimilar={onFindSimilar}
-        canFindSimilar={canFindSimilar}
-        findSimilarDisabledReason={findSimilarDisabledReason}
-      />
-
-      {compareActive && compareReady && (
-        <CompareMetadataSection
-          open={openSections.compare}
-          onToggle={toggleCompareSection}
-          compareMetaState={compareMetaState}
-          compareMetaError={compareMetaError}
-          compareLabelA={compareLabelA}
-          compareLabelB={compareLabelB}
-          compareIncludePilInfo={compareIncludePilInfo}
-          onToggleCompareIncludePilInfo={handleToggleCompareIncludePilInfo}
-          onReload={reloadCompareMetadata}
-          compareDiff={compareDiff}
-          compareHasPilInfoA={compareHasPilInfoA}
-          compareHasPilInfoB={compareHasPilInfoB}
-          compareShowPilInfoA={compareShowPilInfoA}
-          compareShowPilInfoB={compareShowPilInfoB}
-          onToggleCompareShowPilInfoA={handleToggleCompareShowPilInfoA}
-          onToggleCompareShowPilInfoB={handleToggleCompareShowPilInfoB}
-          compareMetaCopied={compareMetaCopied}
-          onCopyCompareMetadata={copyCompareMetadata}
-          compareValueCopiedPathA={compareValueCopiedPathA}
-          compareValueCopiedPathB={compareValueCopiedPathB}
-          compareDisplayNodeA={compareDisplayNodeA}
-          compareDisplayNodeB={compareDisplayNodeB}
-          compareMetaContent={compareMetaContent}
-          onCompareMetaPathCopyA={handleCompareMetaPathCopyA}
-          onCompareMetaPathCopyB={handleCompareMetaPathCopyB}
-        />
-      )}
-
-      <BasicsSection
-        open={openSections.basics}
-        onToggle={toggleBasicsSection}
-        multi={multi}
-        star={star}
-        onSelectStar={handleSelectStar}
-        hasStarConflict={hasStarConflict}
-        onApplyConflict={applyConflict}
-        onKeepTheirs={keepTheirs}
-        currentItem={currentItem ?? null}
-        sourceValue={sourceValue}
-        sortSpec={sortSpec}
-        copiedField={copiedField}
-        onCopyInfo={copyInfo}
-        metricsExpanded={metricsExpanded}
-        onToggleMetricsExpanded={toggleMetricsExpanded}
-        metricsPreviewLimit={METRICS_PREVIEW_LIMIT}
-      />
-
-      {!multi && (
-        <MetadataSection
-          open={openSections.metadata}
-          onToggle={toggleMetadataSection}
-          metadataLoading={metadataLoading}
-          metadataActionLabel={metadataActionLabel}
-          onMetadataAction={handleMetadataAction}
-          metadataActionDisabled={!path}
-          hasPilInfo={hasPilInfo}
-          showPilInfo={showPilInfo}
-          onToggleShowPilInfo={handleToggleShowPilInfo}
-          metaValueCopiedPath={metaValueCopiedPath}
-          metaHeightClass={metaHeightClass}
-          metaLoaded={metaLoaded}
-          metaDisplayNode={metaDisplayNode}
-          metaContent={metaContent}
-          metaError={metaError}
-          onMetaPathCopy={handleMetaPathCopy}
-        />
-      )}
-
-      <NotesSection
-        open={openSections.notes}
-        onToggle={toggleNotesSection}
-        multi={multi}
-        showConflictBanner={showNotesConflictBanner}
-        onApplyConflict={applyConflict}
-        onKeepTheirs={keepTheirs}
-        notes={notes}
-        onNotesChange={handleNotesChange}
-        onNotesBlur={handleNotesBlur}
-        tags={tags}
-        onTagsChange={handleTagsChange}
-        onTagsBlur={handleTagsBlur}
-      />
+      {INSPECTOR_WIDGETS.filter((widget) => widget.isVisible(widgetContext)).map((widget) => (
+        <Fragment key={widget.id}>{widget.render(widgetContext)}</Fragment>
+      ))}
       <div className={resizeHandleClass} onPointerDown={onResize} />
     </div>
   )

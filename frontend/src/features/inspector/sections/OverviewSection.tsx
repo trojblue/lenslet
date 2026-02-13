@@ -1,4 +1,4 @@
-import React from 'react'
+import { Fragment, type ComponentProps, type JSX } from 'react'
 import { fmtBytes } from '../../../lib/util'
 import { InspectorSection } from './InspectorSection'
 import { SelectionActionsSection } from './SelectionActionsSection'
@@ -29,6 +29,33 @@ interface OverviewSectionProps {
   findSimilarDisabledReason: string | null
 }
 
+type OverviewWidgetId = 'selectionActions' | 'selectionExport'
+
+interface OverviewWidgetContext {
+  compareActive: boolean
+  selectionActionsProps: ComponentProps<typeof SelectionActionsSection>
+  selectionExportProps: ComponentProps<typeof SelectionExportSection>
+}
+
+interface OverviewWidgetDefinition {
+  id: OverviewWidgetId
+  isVisible: (ctx: OverviewWidgetContext) => boolean
+  render: (ctx: OverviewWidgetContext) => JSX.Element
+}
+
+const OVERVIEW_WIDGETS: readonly OverviewWidgetDefinition[] = [
+  {
+    id: 'selectionActions',
+    isVisible: () => true,
+    render: ({ selectionActionsProps }) => <SelectionActionsSection {...selectionActionsProps} />,
+  },
+  {
+    id: 'selectionExport',
+    isVisible: ({ compareActive }) => !compareActive,
+    render: ({ selectionExportProps }) => <SelectionExportSection {...selectionExportProps} />,
+  },
+]
+
 export function OverviewSection({
   open,
   onToggle,
@@ -53,6 +80,29 @@ export function OverviewSection({
   canFindSimilar,
   findSimilarDisabledReason,
 }: OverviewSectionProps): JSX.Element {
+  const widgetContext: OverviewWidgetContext = {
+    compareActive,
+    selectionActionsProps: {
+      selectedCount,
+      compareActive,
+      onOpenCompare,
+    },
+    selectionExportProps: {
+      selectedCount,
+      compareReady,
+      compareExportSupportsV2,
+      compareExportMaxPathsV2,
+      compareExportLabelsText,
+      onCompareExportLabelsTextChange,
+      compareExportEmbedMetadata,
+      onCompareExportEmbedMetadataChange,
+      compareExportBusy,
+      compareExportMode,
+      onComparisonExport,
+      compareExportError,
+    },
+  }
+
   return (
     <InspectorSection
       title={multi ? 'Selection' : 'Item'}
@@ -83,27 +133,9 @@ export function OverviewSection({
               <div className="inspector-field-value">{fmtBytes(totalSize)}</div>
             </div>
           </div>
-          <SelectionActionsSection
-            selectedCount={selectedCount}
-            compareActive={compareActive}
-            onOpenCompare={onOpenCompare}
-          />
-          {!compareActive && (
-            <SelectionExportSection
-              selectedCount={selectedCount}
-              compareReady={compareReady}
-              compareExportSupportsV2={compareExportSupportsV2}
-              compareExportMaxPathsV2={compareExportMaxPathsV2}
-              compareExportLabelsText={compareExportLabelsText}
-              onCompareExportLabelsTextChange={onCompareExportLabelsTextChange}
-              compareExportEmbedMetadata={compareExportEmbedMetadata}
-              onCompareExportEmbedMetadataChange={onCompareExportEmbedMetadataChange}
-              compareExportBusy={compareExportBusy}
-              compareExportMode={compareExportMode}
-              onComparisonExport={onComparisonExport}
-              compareExportError={compareExportError}
-            />
-          )}
+          {OVERVIEW_WIDGETS.filter((widget) => widget.isVisible(widgetContext)).map((widget) => (
+            <Fragment key={widget.id}>{widget.render(widgetContext)}</Fragment>
+          ))}
         </div>
       ) : (
         <div className="inspector-field">

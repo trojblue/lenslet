@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { FolderIndex, Item } from '../../../../lib/types'
-import { getRemainingPagesPlan, hydrateFolderPages, mergeFolderPages, normalizeFolderPage } from '../pagedFolder'
+import {
+  getRemainingPagesPlan,
+  hydrateFolderPages,
+  mergeFolderPages,
+  normalizeFolderPage,
+  type FolderHydrationProgress,
+} from '../pagedFolder'
 
 function makeItem(path: string): Item {
   const name = path.split('/').pop() || path
@@ -161,6 +167,58 @@ describe('paged folder merge', () => {
     expect(snapshots).toHaveLength(2)
     expect(snapshots[0].items.map((item) => item.path)).toEqual(['/set/a.jpg'])
     expect(snapshots[1].items.map((item) => item.path)).toEqual(['/set/a.jpg', '/set/b.jpg', '/set/c.jpg'])
+  })
+
+  it('throttles progressive updates while preserving the final merged snapshot', async () => {
+    const first = makeFolder('/set', ['/set/a.jpg'], {
+      page: 1,
+      pageSize: 1,
+      pageCount: 4,
+      totalItems: 4,
+    })
+    const second = makeFolder('/set', ['/set/b.jpg'], {
+      page: 2,
+      pageSize: 1,
+      pageCount: 4,
+      totalItems: 4,
+    })
+    const third = makeFolder('/set', ['/set/c.jpg'], {
+      page: 3,
+      pageSize: 1,
+      pageCount: 4,
+      totalItems: 4,
+    })
+    const fourth = makeFolder('/set', ['/set/d.jpg'], {
+      page: 4,
+      pageSize: 1,
+      pageCount: 4,
+      totalItems: 4,
+    })
+
+    const snapshots: FolderIndex[] = []
+    await hydrateFolderPages(first, {
+      defaultPageSize: 200,
+      progressiveUpdates: true,
+      progressiveUpdateIntervalMs: 60_000,
+      fetchPage: async (page) => {
+        if (page === 2) return second
+        if (page === 3) return third
+        if (page === 4) return fourth
+        throw new Error(`unexpected page: ${page}`)
+      },
+      onUpdate: (value) => {
+        snapshots.push(value)
+      },
+    })
+
+    expect(snapshots).toHaveLength(2)
+    expect(snapshots[0].items.map((item) => item.path)).toEqual(['/set/a.jpg'])
+    expect(snapshots[1].items.map((item) => item.path)).toEqual([
+      '/set/a.jpg',
+      '/set/b.jpg',
+      '/set/c.jpg',
+      '/set/d.jpg',
+    ])
   })
 
   it('supports cache-first two-phase hydration when paged data is still loading', async () => {
@@ -334,6 +392,60 @@ describe('paged folder merge', () => {
       totalPages: 2,
       loadedItems: 2,
       totalItems: 2,
+      completed: true,
+    })
+  })
+
+  it('throttles hydration progress updates while preserving completion signal', async () => {
+    const first = makeFolder('/set', ['/set/a.jpg'], {
+      page: 1,
+      pageSize: 1,
+      pageCount: 4,
+      totalItems: 4,
+    })
+    const second = makeFolder('/set', ['/set/b.jpg'], {
+      page: 2,
+      pageSize: 1,
+      pageCount: 4,
+      totalItems: 4,
+    })
+    const third = makeFolder('/set', ['/set/c.jpg'], {
+      page: 3,
+      pageSize: 1,
+      pageCount: 4,
+      totalItems: 4,
+    })
+    const fourth = makeFolder('/set', ['/set/d.jpg'], {
+      page: 4,
+      pageSize: 1,
+      pageCount: 4,
+      totalItems: 4,
+    })
+
+    const progress: FolderHydrationProgress[] = []
+
+    await hydrateFolderPages(first, {
+      defaultPageSize: 200,
+      progressUpdateIntervalMs: 60_000,
+      fetchPage: async (page) => {
+        if (page === 2) return second
+        if (page === 3) return third
+        if (page === 4) return fourth
+        throw new Error(`unexpected page: ${page}`)
+      },
+      onUpdate: () => {},
+      onProgress: (value) => {
+        progress.push(value)
+      },
+    })
+
+    expect(progress).toHaveLength(2)
+    expect(progress[0]).toMatchObject({
+      loadedPages: 1,
+      completed: false,
+    })
+    expect(progress[1]).toMatchObject({
+      loadedPages: 4,
       completed: true,
     })
   })

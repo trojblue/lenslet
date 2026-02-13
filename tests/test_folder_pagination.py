@@ -1,4 +1,5 @@
 import time
+import threading
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -260,3 +261,60 @@ def test_recursive_cold_miss_builds_page_window_without_contract_regression(
     assert payload["totalItems"] == 45
     assert len(payload["items"]) == 10
     assert 20 in collect_limits
+
+
+def test_recursive_cold_miss_returns_before_background_warm_finishes(
+    tmp_path: Path,
+    monkeypatch,
+):
+    root = tmp_path
+    for idx in range(45):
+        branch = "x" if idx % 2 == 0 else "y"
+        _make_image(root / f"gallery/{branch}/img_{idx:03d}.jpg")
+
+    warm_started = threading.Event()
+    warm_release = threading.Event()
+    original_schedule_warm = RecursiveBrowseCache.schedule_warm
+
+    def _schedule_blocking_warm(self, scope_path, sort_mode, generation, producer, **kwargs):
+        def _blocked_producer(cancel_event):
+            warm_started.set()
+            if not warm_release.wait(timeout=3.0):
+                return None
+            return producer(cancel_event)
+
+        return original_schedule_warm(
+            self,
+            scope_path,
+            sort_mode,
+            generation,
+            _blocked_producer,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(server_browse, "RECURSIVE_CACHE_WARM_DELAY_SECONDS", 0.0)
+    monkeypatch.setattr(RecursiveBrowseCache, "schedule_warm", _schedule_blocking_warm)
+
+    app = create_app(str(root))
+    with TestClient(app) as client:
+        started = time.perf_counter()
+        payload = _recursive(client, "/gallery", page="1", page_size="10")
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+
+        assert payload["page"] == 1
+        assert payload["pageSize"] == 10
+        assert payload["pageCount"] == 5
+        assert payload["totalItems"] == 45
+        assert len(payload["items"]) == 10
+        assert elapsed_ms < 1_500.0
+        assert warm_started.wait(timeout=1.0) is True
+
+        cache = getattr(app.state, "recursive_browse_cache", None)
+        assert cache is not None
+        assert cache.pending_warm_count() >= 1
+
+    warm_release.set()
+    deadline = time.monotonic() + 3.0
+    while cache.pending_warm_count() > 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert cache.pending_warm_count() == 0

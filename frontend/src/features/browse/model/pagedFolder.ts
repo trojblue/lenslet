@@ -33,6 +33,8 @@ type HydrateFolderPagesOptions = {
   onProgress?: (progress: FolderHydrationProgress) => void
   shouldContinue?: () => boolean
   progressiveUpdates?: boolean
+  progressiveUpdateIntervalMs?: number
+  progressUpdateIntervalMs?: number
   interPageDelayMs?: number
   skipInitialUpdateIfPaged?: boolean
 }
@@ -75,11 +77,23 @@ export function mergeFolderPages(base: FolderIndex, next: FolderIndex): FolderIn
 export async function hydrateFolderPages(firstPage: FolderIndex, options: HydrateFolderPagesOptions): Promise<void> {
   const shouldContinue = options.shouldContinue ?? (() => true)
   const progressiveUpdates = options.progressiveUpdates ?? true
+  const progressiveUpdateIntervalMs = Math.max(0, options.progressiveUpdateIntervalMs ?? 0)
+  const progressUpdateIntervalMs = Math.max(0, options.progressUpdateIntervalMs ?? 0)
   const interPageDelayMs = Math.max(0, options.interPageDelayMs ?? 0)
   const plan = getRemainingPagesPlan(firstPage, options.defaultPageSize)
   const skipInitialUpdate = options.skipInitialUpdateIfPaged === true && plan !== null
   let merged = normalizeFolderPage(firstPage)
+  let lastProgressiveUpdateAt = skipInitialUpdate ? 0 : Date.now()
+  let lastProgressUpdateAt = 0
   const publishProgress = (completed: boolean) => {
+    const now = Date.now()
+    const shouldPublish =
+      completed
+      || progressUpdateIntervalMs <= 0
+      || lastProgressUpdateAt <= 0
+      || (now - lastProgressUpdateAt) >= progressUpdateIntervalMs
+    if (!shouldPublish) return
+    lastProgressUpdateAt = now
     options.onProgress?.({
       loadedPages: merged.page ?? (plan ? plan.startPage - 1 : 1),
       totalPages: merged.pageCount ?? plan?.endPage ?? 1,
@@ -113,7 +127,17 @@ export async function hydrateFolderPages(firstPage: FolderIndex, options: Hydrat
     merged = mergeFolderPages(merged, nextPage)
     hasMergedAdditionalPage = true
     if (progressiveUpdates) {
-      options.onUpdate(merged)
+      const now = Date.now()
+      const isFinalPage = page >= plan.endPage
+      const shouldPublish =
+        isFinalPage
+        || progressiveUpdateIntervalMs <= 0
+        || lastProgressiveUpdateAt <= 0
+        || (now - lastProgressiveUpdateAt) >= progressiveUpdateIntervalMs
+      if (shouldPublish) {
+        options.onUpdate(merged)
+        lastProgressiveUpdateAt = now
+      }
     }
     publishProgress(false)
     if (page < plan.endPage && interPageDelayMs > 0) {

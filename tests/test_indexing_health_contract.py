@@ -46,11 +46,11 @@ def test_memory_health_reports_running_then_ready_indexing_state(
     started = threading.Event()
     release = threading.Event()
 
-    def _blocked_build_index(self: MemoryStorage, path: str):
+    def _blocked_build_index(self: MemoryStorage, path: str, *, lightweight: bool = False):
         started.set()
         if not release.wait(timeout=2.0):
             raise RuntimeError("test timeout waiting to release index build")
-        return original_build_index(self, path)
+        return original_build_index(self, path, lightweight=lightweight)
 
     monkeypatch.setattr(MemoryStorage, "_build_index", _blocked_build_index)
 
@@ -96,9 +96,10 @@ def test_memory_health_reports_error_when_warm_index_fails(
 ) -> None:
     _make_image(tmp_path / "broken.jpg")
 
-    def _failing_build_index(self: MemoryStorage, path: str):
+    def _failing_build_index(self: MemoryStorage, path: str, *, lightweight: bool = False):
         _ = self
         _ = path
+        _ = lightweight
         raise RuntimeError("forced warm index failure")
 
     monkeypatch.setattr(MemoryStorage, "_build_index", _failing_build_index)
@@ -120,9 +121,10 @@ def test_memory_indexing_listener_receives_error_state(
 ) -> None:
     _make_image(tmp_path / "broken.jpg")
 
-    def _failing_build_index(self: MemoryStorage, path: str):
+    def _failing_build_index(self: MemoryStorage, path: str, *, lightweight: bool = False):
         _ = self
         _ = path
+        _ = lightweight
         raise RuntimeError("forced warm index failure")
 
     monkeypatch.setattr(MemoryStorage, "_build_index", _failing_build_index)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { DEFAULT_RECURSIVE_PAGE_SIZE, shouldRemoveRecursiveFolderQuery, useFolder } from '../../shared/api/folders'
 import { buildCanonicalSearchRequest, useSearch } from '../../shared/api/search'
@@ -134,8 +134,10 @@ export function useAppDataScope({
     let cancelled = false
     const hasCachedSnapshot = (getCachedHydratedSnapshot?.(recursiveFirstPage.path) ?? null) !== null
     const onHydrationUpdate = (snapshot: FolderIndex) => {
-      setData(snapshot)
-      onFolderHydratedSnapshot?.(snapshot.path, snapshot)
+      startTransition(() => {
+        setData(snapshot)
+        onFolderHydratedSnapshot?.(snapshot.path, snapshot)
+      })
     }
     const initialHydrationProgress: BrowseHydrationProgressState = {
       loadedPages: recursiveFirstPage.page ?? 1,
@@ -163,7 +165,9 @@ export function useAppDataScope({
       onUpdate: onHydrationUpdate,
       onProgress: (progress) => {
         if (cancelled || recursiveLoadTokenRef.current !== requestId) return
-        setBrowseHydrationProgress(progress)
+        startTransition(() => {
+          setBrowseHydrationProgress(progress)
+        })
         updateBrowseHydration({
           requestId,
           path: recursiveFirstPage.path,
@@ -175,12 +179,16 @@ export function useAppDataScope({
       },
       shouldContinue: () => !cancelled && recursiveLoadTokenRef.current === requestId,
       progressiveUpdates: true,
+      progressiveUpdateIntervalMs: recursiveFirstPage.path === '/' ? 60 : 0,
+      progressUpdateIntervalMs: recursiveFirstPage.path === '/' ? 60 : 0,
       interPageDelayMs: recursiveFirstPage.path === '/' ? 40 : 12,
       skipInitialUpdateIfPaged: hasCachedSnapshot,
     }).finally(() => {
       if (cancelled || recursiveLoadTokenRef.current !== requestId) return
       completeBrowseHydration(requestId)
-      setBrowseHydrationProgress((prev) => (prev ? { ...prev, completed: true } : null))
+      startTransition(() => {
+        setBrowseHydrationProgress((prev) => (prev ? { ...prev, completed: true } : null))
+      })
     })
     return () => {
       cancelled = true

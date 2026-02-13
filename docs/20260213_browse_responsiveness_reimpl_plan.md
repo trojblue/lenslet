@@ -61,8 +61,8 @@ Sprint Plan:
    Goal: prove closure in user-realistic conditions and lock against regression.
    Demo outcome: large-root primary gates pass in both cold and warm runs, with no freeze and no blank-state ambiguity.
    Tasks:
-   - T10. Add backend and frontend regression tests for cold first-page latency path, background cache warm behavior, loading-state visibility semantics, and non-UI contract safety.
-   - T11. Run full primary acceptance gate suite and document results in this plan before declaring completion.
+   - T10. Add backend and frontend regression tests for cold first-page latency path, background cache warm behavior, loading-state visibility semantics, and non-UI contract safety. (Completed 2026-02-13)
+   - T11. Run full primary acceptance gate suite and document results in this plan before declaring completion. (In Progress: strict primary frame-gap gate still failing as of 2026-02-13)
 
 ### code-simplifier routine
 
@@ -141,6 +141,18 @@ Validation uses explicit primary and secondary gates. Primary gates prove user o
       python scripts/lint_repo.py
       pytest -q
 
+   Iteration 3 evidence (2026-02-13):
+   - New regression coverage landed for Sprint 3 scope: throttled recursive hydration update model coverage, explicit loading-state visibility semantics, first-page background warm non-blocking behavior, and indexing-health monkeypatch compatibility for lightweight recursive index builds.
+   - Strict primary no-write gate remains red with stable first-grid closure but residual frame-gap miss (`max-frame-gap=733.2ms` and `733.3ms` on repeated runs vs `700.0ms` threshold).
+   - Strict primary write-mode gate also remains red (`max-frame-gap=816.6ms` cold, `833.3ms` follow-up) while first-grid target remains green.
+   - Relaxed diagnostic runs confirm cold-start latency remains closed while isolating residual jank:
+      no-write relaxed: `first-grid=3.34s`, `first-grid hotpath=316ms`, `first-thumb=1996ms`, `max-frame-gap=716.6ms`
+      write-mode relaxed: `first-grid=3.21s`, `first-grid hotpath=306ms`, `first-thumb=1946ms`, `max-frame-gap=783.3ms`
+   - Sprint 3 secondary checks passed:
+      npm --prefix frontend run build
+      python scripts/lint_repo.py
+      pytest -q
+
 Overall acceptance requires all primary gates to pass. Passing only secondary proxy checks is insufficient for completion.
 
 
@@ -172,6 +184,9 @@ A fourth risk is environment drift between no-write and write-enabled runs. Reco
 - [x] 2026-02-13 21:19Z Sprint 2 handoff notes appended after implementation.
 - [x] 2026-02-13 21:21Z Sprint 2 required code-simplifier pass completed with conservative non-semantic cleanup only.
 - [x] 2026-02-13 21:22Z Sprint 2 required code-review rerun completed with no unresolved high/medium findings.
+- [x] 2026-02-13 21:40Z Sprint 3 task T10 implemented: frontend regression coverage for hydration update cadence + loading-state semantics, backend regression for non-blocking background warm, and indexing-health contract patch updates for lightweight build hooks.
+- [x] 2026-02-13 22:02Z Sprint 3 secondary validation completed: frontend production build, repo lint, and full pytest suite all green.
+- [ ] 2026-02-13 22:02Z Sprint 3 task T11 remains open: strict primary large-fixture smoke gate still fails on frame-gap in both no-write and write-mode runs despite first-grid latency closure.
 - [ ] 2026-02-13 00:00Z Sprint 3 handoff notes appended after implementation.
 
 
@@ -198,6 +213,14 @@ Sprint 2 smoke evidence (2026-02-13):
 
     primary profile (large, strict): first_grid_visible_seconds: 3.31 (threshold 5.00, pass), max_frame_gap_ms: 716.6 (threshold 700.0, fail)
     primary profile (large, relaxed frame gap): first_grid_visible_seconds: 3.31, first_grid_hotpath_latency_ms: 310, first_thumbnail_latency_ms: 1938, max_frame_gap_ms: 733.4
+    request_budget_peak_inflight: {folders: 2, thumb: 8, file: 0}
+
+Sprint 3 smoke evidence (2026-02-13):
+
+    primary profile (large, strict, no-write): first_grid_visible_seconds: 3.34 (pass), max_frame_gap_ms: 733.2-733.3 (threshold 700.0, fail)
+    primary profile (large, strict, write-mode): first_grid_visible_seconds: 3.21 (pass), max_frame_gap_ms: 816.6-833.3 (threshold 700.0, fail)
+    diagnostic profile (no-write, relaxed frame gap): first_grid_hotpath_latency_ms: 316, first_thumbnail_latency_ms: 1996, max_frame_gap_ms: 716.6
+    diagnostic profile (write-mode, relaxed frame gap): first_grid_hotpath_latency_ms: 306, first_thumbnail_latency_ms: 1946, max_frame_gap_ms: 783.3
     request_budget_peak_inflight: {folders: 2, thumb: 8, file: 0}
 
 Handoff guidance is to execute sprints in order, keep changes bounded to root-path closure, and do not mark completion until primary acceptance gates pass in the real scenario.

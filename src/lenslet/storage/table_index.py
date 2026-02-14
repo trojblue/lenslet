@@ -147,6 +147,7 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
     local_prefix = storage._local_prefix
     allow_local = storage._allow_local
     skip_indexing = storage._skip_indexing
+    skip_local_realpath_validation = getattr(storage, "_skip_local_realpath_validation", False)
 
     extract_name = storage._extract_name
     is_supported_image = storage._is_supported_image
@@ -161,6 +162,7 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
     coerce_timestamp = storage._coerce_timestamp
     coerce_float = storage._coerce_float
     resolve_local_source = storage._resolve_local_source
+    resolve_local_source_lexical = getattr(storage, "_resolve_local_source_lexical", None)
     read_dimensions_fast = storage._read_dimensions_fast
 
     metric_columns = columns.metric_columns
@@ -231,12 +233,15 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
                 progress.step()
                 continue
             try:
-                resolved_local_source = resolve_local_source(source)
+                if skip_local_realpath_validation and callable(resolve_local_source_lexical):
+                    resolved_local_source = resolve_local_source_lexical(source)
+                else:
+                    resolved_local_source = resolve_local_source(source)
             except ValueError:
                 skipped_local += 1
                 progress.step()
                 continue
-            if not os.path.exists(resolved_local_source):
+            if (not skip_local_realpath_validation) and (not os.path.exists(resolved_local_source)):
                 print(f"[lenslet] Warning: File not found: {resolved_local_source}")
                 progress.step()
                 continue
@@ -252,7 +257,12 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
         if mtime is None:
             if is_local:
                 try:
-                    local_source = resolved_local_source or resolve_local_source(source)
+                    if resolved_local_source is not None:
+                        local_source = resolved_local_source
+                    elif skip_local_realpath_validation and callable(resolve_local_source_lexical):
+                        local_source = resolve_local_source_lexical(source)
+                    else:
+                        local_source = resolve_local_source(source)
                     mtime = os.path.getmtime(local_source)
                 except Exception:
                     mtime = time.time()
@@ -264,7 +274,12 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
         h = height or 0
         if (w == 0 or h == 0) and is_local and not skip_indexing:
             try:
-                local_source = resolved_local_source or resolve_local_source(source)
+                if resolved_local_source is not None:
+                    local_source = resolved_local_source
+                elif skip_local_realpath_validation and callable(resolve_local_source_lexical):
+                    local_source = resolve_local_source_lexical(source)
+                else:
+                    local_source = resolve_local_source(source)
                 dims = read_dimensions_fast(local_source)
                 if dims:
                     w, h = dims

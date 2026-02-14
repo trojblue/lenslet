@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from lenslet.storage.table import TableStorage
@@ -55,3 +56,87 @@ def test_duplicate_logical_paths_keep_stable_row_mappings(tmp_path: Path) -> Non
 
     root_index = storage.get_index("/")
     assert [item.path for item in root_index.items] == ["dup.jpg", "dup-2.jpg"]
+
+
+def test_local_resolution_uses_realpath_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    image_path = tmp_path / "one.jpg"
+    _make_image(image_path)
+    stat = image_path.stat()
+    rows = [
+        {
+            "source": "one.jpg",
+            "path": "one.jpg",
+            "size": int(stat.st_size),
+            "mtime": float(stat.st_mtime),
+            "width": 12,
+            "height": 9,
+        }
+    ]
+
+    def _boom(self: TableStorage, source: str) -> str:
+        raise AssertionError("strict local resolver called")
+
+    monkeypatch.setattr(TableStorage, "_resolve_local_source", _boom)
+    with pytest.raises(AssertionError, match="strict local resolver called"):
+        TableStorage(
+            rows,
+            root=str(tmp_path),
+            source_column="source",
+            path_column="path",
+            skip_indexing=True,
+        )
+
+
+def test_skip_local_realpath_validation_bypasses_strict_resolver(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image_path = tmp_path / "one.jpg"
+    _make_image(image_path)
+    stat = image_path.stat()
+    rows = [
+        {
+            "source": "one.jpg",
+            "path": "one.jpg",
+            "size": int(stat.st_size),
+            "mtime": float(stat.st_mtime),
+            "width": 12,
+            "height": 9,
+        }
+    ]
+
+    def _boom(self: TableStorage, source: str) -> str:
+        raise AssertionError("strict local resolver called")
+
+    monkeypatch.setattr(TableStorage, "_resolve_local_source", _boom)
+    storage = TableStorage(
+        rows,
+        root=str(tmp_path),
+        source_column="source",
+        path_column="path",
+        skip_indexing=True,
+        skip_local_realpath_validation=True,
+    )
+    assert "one.jpg" in storage._items
+
+
+def test_skip_local_realpath_validation_still_blocks_lexical_escape(tmp_path: Path) -> None:
+    rows = [
+        {
+            "source": "../outside.jpg",
+            "path": "outside.jpg",
+            "size": 0,
+            "mtime": 0.0,
+            "width": 0,
+            "height": 0,
+        }
+    ]
+    storage = TableStorage(
+        rows,
+        root=str(tmp_path),
+        source_column="source",
+        path_column="path",
+        skip_indexing=True,
+        skip_local_realpath_validation=True,
+    )
+    assert "outside.jpg" not in storage._items

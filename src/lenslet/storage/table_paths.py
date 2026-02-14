@@ -204,3 +204,28 @@ def resolve_local_source(
     if common != resolved_root_real:
         raise ValueError("path escapes base_dir")
     return real
+
+
+def resolve_local_source_lexical(
+    source: str,
+    *,
+    root: str | None,
+    allow_local: bool,
+) -> str:
+    """Resolve local source path without symlink canonicalization.
+
+    This is a fast lexical guard: it blocks ``..`` traversal outside ``root``,
+    but does not resolve symlinks.
+    """
+    if not allow_local:
+        raise ValueError("local sources are disabled")
+    if os.path.isabs(source) or not root:
+        return source
+    candidate = os.path.abspath(os.path.join(root, source))
+    try:
+        common = os.path.commonpath([root, candidate])
+    except Exception:
+        raise ValueError("invalid path")
+    if common != root:
+        raise ValueError("path escapes base_dir")
+    return candidate

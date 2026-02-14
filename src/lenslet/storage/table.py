@@ -46,6 +46,7 @@ from .table_paths import (
     normalize_item_path,
     normalize_path,
     resolve_local_source,
+    resolve_local_source_lexical,
 )
 from .table_schema import (
     coerce_float,
@@ -201,10 +202,12 @@ class TableStorage:
         include_source_in_search: bool = True,
         skip_indexing: bool = False,
         allow_local: bool = True,
+        skip_local_realpath_validation: bool = False,
     ):
         self.root = os.path.abspath(root) if root else None
         self._root_real = os.path.realpath(self.root) if self.root else None
         self._allow_local = allow_local
+        self._skip_local_realpath_validation = bool(skip_local_realpath_validation)
         self.thumb_size = thumb_size
         self.thumb_quality = thumb_quality
         self.sample_size = sample_size
@@ -398,6 +401,13 @@ class TableStorage:
             source,
             root=self.root,
             root_real=self._root_real,
+            allow_local=self._allow_local,
+        )
+
+    def _resolve_local_source_lexical(self, source: str) -> str:
+        return resolve_local_source_lexical(
+            source,
+            root=self.root,
             allow_local=self._allow_local,
         )
 

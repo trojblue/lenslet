@@ -343,7 +343,7 @@ def main():
     parser.add_argument(
         "--no-write",
         action="store_true",
-        help="Disable workspace writes (.lenslet/) for one-off sessions",
+        help="Use a temp workspace under /tmp/lenslet (keeps the source dataset read-only)",
     )
     parser.add_argument(
         "--embedding-column",
@@ -539,19 +539,10 @@ def main():
         if port != 7070:
             print(f"[lenslet] Port 7070 is in use; using {port} instead.")
 
-    effective_no_write = args.no_write or is_remote_table
     if args.no_write:
         if args.cache_wh:
             print("[lenslet] --no-write disables parquet caching; use --no-cache-wh to silence.")
             args.cache_wh = False
-        if args.thumb_cache:
-            print("[lenslet] --no-write disables thumbnail cache; use --no-thumb-cache to silence.")
-            args.thumb_cache = False
-        if args.og_preview:
-            print("[lenslet] --no-write disables OG cache; previews will be generated on-demand.")
-        if args.embedding_cache:
-            print("[lenslet] --no-write disables embedding cache; use --no-embedding-cache to silence.")
-            args.embedding_cache = False
 
     # Print startup banner
     if is_remote_table:
@@ -575,10 +566,13 @@ def main():
     ]
     if args.share:
         banner_lines.append("│  Share:     starting...                         │")
+    no_write_label = (
+        "temp cache" if args.no_write else ("remote" if is_remote_table else "off")
+    )
     banner_lines.extend(
         [
             f"│  Mode:      {mode_label:<35} │",
-        f"│  No-write:  {'ON' if effective_no_write else 'off':<35} │",
+        f"│  No-write:  {no_write_label:<35} │",
             "└─────────────────────────────────────────────────┘",
             "",
         ]
@@ -607,7 +601,10 @@ def main():
     if (not is_remote_table) and (not is_table_file):
         from .workspace import Workspace
 
-        dataset_workspace = Workspace.for_dataset(str(target), can_write=not args.no_write)
+        if args.no_write:
+            dataset_workspace = Workspace.for_temp_dataset(str(target))
+        else:
+            dataset_workspace = Workspace.for_dataset(str(target), can_write=True)
         if args.share:
             from .preindex import ensure_local_preindex
 
@@ -628,11 +625,11 @@ def main():
                     print(f"[lenslet] Preindex ready: {preindex_result.image_count} images.")
                 preindex_signature = preindex_result.signature
                 dataset_workspace = preindex_result.workspace
-                if args.no_write:
-                    dataset_workspace = Workspace(
-                        root=dataset_workspace.root,
-                        can_write=False,
-                    )
+        if args.no_write and dataset_workspace is not None:
+            print(
+                f"[lenslet] No-write: using temp workspace {dataset_workspace.root} "
+                "(thumb cache cap 200 MB)."
+            )
 
     # Start server
     import uvicorn
@@ -656,9 +653,9 @@ def main():
             skip_indexing=args.skip_indexing,
             og_preview=args.og_preview,
             workspace=workspace,
-            thumb_cache=args.thumb_cache and not effective_no_write,
+            thumb_cache=args.thumb_cache,
             embedding_config=embedding_config,
-            embedding_cache=args.embedding_cache and not effective_no_write,
+            embedding_cache=args.embedding_cache,
             embedding_cache_dir=args.embedding_cache_dir,
             embedding_preload=args.embedding_preload,
             allow_local=False,
@@ -674,7 +671,10 @@ def main():
             skip_indexing=args.skip_indexing,
             embedding_config=embedding_config,
         )
-        workspace = Workspace.for_parquet(target, can_write=not args.no_write)
+        if args.no_write:
+            workspace = Workspace.for_temp_dataset(str(target))
+        else:
+            workspace = Workspace.for_parquet(target, can_write=True)
         app = create_app_from_storage(
             storage,
             show_source=True,
@@ -683,7 +683,7 @@ def main():
             og_preview=args.og_preview,
             embedding_parquet_path=str(target),
             embedding_config=embedding_config,
-            embedding_cache=args.embedding_cache and not effective_no_write,
+            embedding_cache=args.embedding_cache,
             embedding_cache_dir=args.embedding_cache_dir,
             embedding_preload=args.embedding_preload,
             indexing_listener=indexing_reporter.handle_update,
@@ -710,7 +710,7 @@ def main():
             thumb_cache=args.thumb_cache,
             og_preview=args.og_preview,
             embedding_config=embedding_config,
-            embedding_cache=args.embedding_cache and not effective_no_write,
+            embedding_cache=args.embedding_cache,
             embedding_cache_dir=args.embedding_cache_dir,
             embedding_preload=args.embedding_preload,
             indexing_listener=indexing_reporter.handle_update,

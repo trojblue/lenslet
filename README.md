@@ -68,7 +68,7 @@ Options:
   --no-skip-indexing           Probe image dimensions during table load
   --no-thumb-cache             Disable thumbnail cache when a workspace is available
   --no-og-preview              Disable dataset-based social preview image
-  --no-write                   Disable workspace writes (.lenslet/) for one-off sessions
+  --no-write                   Use a temp workspace under /tmp/lenslet (keeps source read-only)
   --embedding-column NAME      Embedding column name (repeatable, comma-separated allowed)
   --embedding-metric NAME:METRIC
                                Embedding metric override (repeatable)
@@ -232,7 +232,7 @@ assert hasattr(table, 'load_parquet_schema')
 print('import-contract-ok')
 PY
 cd frontend
-npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts
+npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts
 npx tsc --noEmit
 cd ..
 python -m build
@@ -256,9 +256,8 @@ rsync -a --delete frontend/dist/ src/lenslet/frontend/
 
 ## Hotpath API Notes (2026-02)
 
-- `GET /folders` recursive mode is paged by default with `recursive=1&page=<n>&page_size=<n>`.
-  Defaults: `page=1`, `page_size=200`; `page_size` is clamped to `500`.
-- Use `legacy_recursive=1` with `recursive=1` to return the full legacy recursive payload shape while rolling out paged callers.
+- `GET /folders?recursive=1` returns the full list in a single response; pagination params are ignored and page metadata is `null`.
+- `legacy_recursive=1` is accepted but no longer changes the recursive response shape.
 - `GET /file` now streams local file-backed sources and falls back to byte responses for non-local/remote sources.
 - Full-file prefetch is restricted to viewer/compare contexts and sends `x-lenslet-prefetch: viewer|compare`.
 - `GET /health` exposes hotpath runtime counters/timers under `hotpath.counters` and `hotpath.timers_ms`.
@@ -274,10 +273,11 @@ The following items are intentionally deferred from the hotpath sprint:
 
 - **Workspace files**: `.lenslet/views.json` stores Smart Folders; optional thumbnail cache lives under `.lenslet/thumbs/`
   - For Parquet, views live at `<table>.lenslet.json` and thumbs at `<table>.cache/thumbs/`
+  - With `--no-write`, workspace files go under `/tmp/lenslet/<dataset-hash>/` instead
 - **Embedding cache**: `.lenslet/embeddings_cache/` (or `<table>.cache/embeddings_cache/`) stores cached embedding indexes
 - **Read-only sources**: The server never writes into your image directories or S3 buckets
 - **Labels**: Tags/notes/ratings are editable in the UI (session-only) and exportable as JSON/CSV
-- **No-write mode**: Pass `--no-write` to keep the session fully ephemeral (no `.lenslet/` or `.lenslet.json`)
+- **No-write mode**: Pass `--no-write` to keep the dataset read-only; caches and views are stored under `/tmp/lenslet/<dataset-hash>/` (thumbnail cache capped at 200 MB)
 - **Formats**: Supports JPEG, PNG, and WebP
 - **Hidden files**: Files/folders starting with `.` are ignored
 

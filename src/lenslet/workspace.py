@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,24 @@ class Workspace:
     can_write: bool
     memory_views: dict[str, Any] | None = None
     views_override: Path | None = None
+    is_temp: bool = False
+
+    TEMP_ROOT = Path("/tmp/lenslet")
+
+    @staticmethod
+    def dataset_cache_key(dataset_root: str | Path) -> str:
+        root = Path(dataset_root).resolve()
+        digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()
+        return digest
+
+    @classmethod
+    def for_temp_dataset(cls, dataset_root: str | Path) -> "Workspace":
+        key = cls.dataset_cache_key(dataset_root)
+        root = cls.TEMP_ROOT / key
+        return cls(root=root, can_write=True, is_temp=True)
+
+    def is_temp_workspace(self) -> bool:
+        return self.is_temp
 
     @classmethod
     def for_dataset(cls, dataset_root: str | None, can_write: bool) -> "Workspace":

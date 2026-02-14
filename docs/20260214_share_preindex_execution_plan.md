@@ -123,6 +123,8 @@ A third risk is cache eviction policy complexity. Recovery is to implement a sim
 - [x] 2026-02-14 01:20Z Sprint 2 T4-T6: `/folders?recursive=1` now returns the full list (no pagination), frontend recursive hydration removed in favor of single fetch + simple loading state, and hotpath telemetry updated; related tests rewritten.
 - [x] 2026-02-14 01:30Z Sprint 2 validation: `python scripts/lint_repo.py` and `pytest` (warnings only, same as baseline).
 - [x] 2026-02-14 02:05Z Share readiness fix: gzip enabled for large JSON responses, share startup now pre-warms recursive browse cache, and preindex signature reuse avoids re-scan mismatches. Validation: `python scripts/lint_repo.py` and `pytest` (warnings only, same as baseline).
+- [x] 2026-02-14 02:45Z Sprint 3 T7-T9: `--no-write` now routes to a temp workspace under `/tmp/lenslet/<dataset-hash>/` with normal caches enabled, thumbnail cache capped at 200 MB, and CLI/README docs updated.
+- [x] 2026-02-14 02:55Z Sprint 3 validation: `python scripts/lint_repo.py` and `pytest` (warnings only, same as baseline).
 
 
 ## Artifacts and Handoff
@@ -136,5 +138,6 @@ Current implementation notes:
 - Signature is SHA-256 over the dataset root path plus sorted `(relative_path, size, mtime_ns)` tuples.
 - Recursive browsing now returns the full list in one response; pagination metadata (`page`, `pageSize`, `pageCount`, `totalItems`) is always `null` for recursive requests, and the UI no longer hydrates additional pages.
 - Share startup now warms the recursive browse cache before printing the share URL; large JSON responses are gzip-compressed to reduce initial load time.
+- `--no-write` uses a temp workspace at `/tmp/lenslet/<dataset-hash>/` with full cache support; thumbnail cache is capped at 200 MB (oldest-first eviction).
 
 Plan revision note: this plan supersedes the previous browse-responsiveness approach by making preindex mandatory before share URLs, removing recursive pagination, and unifying “no-write” into temp workspace caching.

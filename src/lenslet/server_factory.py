@@ -416,7 +416,10 @@ def create_app(
 
     app = _create_base_app(description="Lightweight image gallery server")
     if workspace is None:
-        workspace = Workspace.for_dataset(root_path, can_write=not no_write)
+        if no_write:
+            workspace = Workspace.for_temp_dataset(root_path)
+        else:
+            workspace = Workspace.for_dataset(root_path, can_write=True)
 
     # Create storage (prefer table dataset if present)
     items_path = Path(root_path) / "items.parquet"
@@ -851,7 +854,10 @@ def _thumb_cache_from_workspace(workspace: Workspace, enabled: bool) -> ThumbCac
     cache_dir = workspace.thumb_cache_dir()
     if cache_dir is None:
         return None
-    return ThumbCache(cache_dir)
+    max_disk_bytes = None
+    if workspace.is_temp_workspace():
+        max_disk_bytes = 200 * 1024 * 1024
+    return ThumbCache(cache_dir, max_disk_bytes=max_disk_bytes)
 
 
 def _recursive_browse_cache_from_workspace(workspace: Workspace) -> RecursiveBrowseCache:

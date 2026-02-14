@@ -338,8 +338,8 @@ def _resolve_preindex_workspace(root: Path, workspace: Workspace, signature: str
         except Exception:
             workspace.can_write = False
 
-    temp_root = Path("/tmp/lenslet") / signature
-    temp_workspace = Workspace(root=temp_root, can_write=True)
+    temp_root = Workspace.TEMP_ROOT / signature
+    temp_workspace = Workspace(root=temp_root, can_write=True, is_temp=True)
     temp_workspace.ensure()
     return temp_workspace
 

@@ -12,9 +12,13 @@ def _make_image(path: Path) -> None:
     Image.new("RGB", (4, 4), color=(32, 64, 128)).save(path, format="JPEG")
 
 
-def _recursive(client: TestClient, path: str, **params) -> dict:
-    query = {"path": path, "recursive": "1", **params}
-    resp = client.get("/folders", params=query)
+def _folders_request(client: TestClient, path: str, **params):
+    query = {"path": path, **params}
+    return client.get("/folders", params=query)
+
+
+def _recursive(client: TestClient, path: str) -> dict:
+    resp = _folders_request(client, path, recursive="1")
     assert resp.status_code == 200
     return resp.json()
 
@@ -42,19 +46,26 @@ def test_recursive_returns_full_sorted_list(tmp_path: Path) -> None:
     }
 
 
-def test_recursive_ignores_paging_params_and_legacy_flag(tmp_path: Path) -> None:
+def test_recursive_rejects_paging_params_and_legacy_flag(tmp_path: Path) -> None:
     root = tmp_path
     for idx in range(6):
         _make_image(root / f"shots/img_{idx:03d}.jpg")
 
     client = TestClient(create_app(str(root)))
-    payload = _recursive(client, "/shots", page="2", page_size="1", legacy_recursive="1")
+    resp = _folders_request(
+        client,
+        "/shots",
+        recursive="1",
+        page="2",
+        page_size="1",
+        legacy_recursive="1",
+    )
 
-    assert payload["page"] is None
-    assert payload["pageSize"] is None
-    assert payload["pageCount"] is None
-    assert payload["totalItems"] is None
-    assert len(payload["items"]) == 6
+    assert resp.status_code == 400
+    payload = resp.json()
+    assert payload["error"] == "unsupported_query_params"
+    for key in ("page", "page_size", "legacy_recursive"):
+        assert key in payload["message"]
 
 
 def test_recursive_cache_reuses_snapshot_between_calls(

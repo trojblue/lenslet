@@ -1,0 +1,25 @@
+# Ralph Progress Log
+Started: 2026-02-14T10:44:53Z
+Mode: plan
+Tool: codex
+Repo: /home/ubuntu/dev/lenslet
+Plan: /home/ubuntu/dev/lenslet/docs/20260214_medium_tier_simplification_plan.md
+---
+
+## Iteration 1 (2026-02-14)
+Completed: T1, T2 (Sprint S1)
+Files changed:
+- docs/20260213_browse_responsiveness_execution_plan.md
+- docs/20260214_medium_tier_simplification_plan.md
+- src/lenslet/server_browse.py
+- src/lenslet/server_routes_common.py
+- tests/test_folder_recursive.py
+- tests/test_hotpath_sprint_s4.py
+Validations:
+- pytest tests/test_folder_recursive.py (pass)
+- rg -n "legacy_recursive.*rollback" docs/20260213_browse_responsiveness_execution_plan.md (no matches)
+- python scripts/lint_repo.py (pass; warns about long files)
+Blockers:
+- code-review subagent unresponsive; manual review performed (no issues found).
+Next step:
+- Sprint S2: wire `health.mode` to UI state and disable/annotate refresh in dataset/table modes (T3/T4).

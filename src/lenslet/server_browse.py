@@ -336,9 +336,6 @@ def _build_folder_index(
     path: str,
     to_item,
     recursive: bool = False,
-    page: str | None = None,
-    page_size: str | None = None,
-    legacy_recursive: bool = False,
     browse_cache: RecursiveBrowseCache | None = None,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> FolderIndex:

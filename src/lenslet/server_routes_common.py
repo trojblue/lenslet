@@ -60,10 +60,21 @@ def register_folder_route(
         request: Request,
         path: str = "/",
         recursive: bool = False,
-        page: str | None = None,
-        page_size: str | None = None,
-        legacy_recursive: bool = False,
     ):
+        unsupported = [
+            name
+            for name in ("page", "page_size", "legacy_recursive")
+            if name in request.query_params
+        ]
+        if unsupported:
+            unsupported_list = ", ".join(unsupported)
+            supported_list = ", ".join(("path", "recursive"))
+            return _server._error_response(
+                400,
+                "unsupported_query_params",
+                f"unsupported query parameters: {unsupported_list}; "
+                f"supported parameters: {supported_list}",
+            )
         storage = _server._storage_from_request(request)
         browse_cache = getattr(app.state, "recursive_browse_cache", None)
         return _server._build_folder_index(
@@ -71,9 +82,6 @@ def register_folder_route(
             _server._canonical_path(path),
             to_item,
             recursive=recursive,
-            page=page,
-            page_size=page_size,
-            legacy_recursive=legacy_recursive,
             browse_cache=browse_cache,
             hotpath_metrics=hotpath_metrics,
         )

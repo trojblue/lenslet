@@ -1,0 +1,9 @@
+{
+  "mode": "plan",
+  "tool": "codex",
+  "maxIterations": 6,
+  "maxTasksPerIteration": 6,
+  "planFile": "/home/ubuntu/dev/lenslet/docs/20260214_medium_tier_simplification_plan.md",
+  "prdFile": "prd.json",
+  "progressFile": "progress.txt"
+}

@@ -59,7 +59,7 @@ Sprint Plan:
    Tasks:
    - T8. Define and implement indexing-complete signal contract from backend to UI, including generation ID so completion state is deterministic across reloads. (Completed 2026-02-13)
    - T9. Implement scan-stable mode plus completion banner behavior with explicit user action to switch to “Most recent,” including persistence of banner dismissal and deterministic reset behavior after mode switch. (Completed 2026-02-13)
-   - T10. Inventory `legacy_recursive=1` consumers, remove UI emission, run compatibility validation for explicit non-UI callers, and then hard-restrict/remove server legacy path behind a rollback flag. (Completed 2026-02-13)
+   - T10. Inventory `legacy_recursive=1` consumers, remove UI emission, run compatibility validation for explicit non-UI callers, and then hard-restrict/remove the server legacy path with explicit 400 rejection for legacy params. (Completed 2026-02-13)
 
 4. Sprint 4: Minimal Mobile Hardening and Final Regression Lock
    Goal: Keep mobile workflow usable without broad redesign and lock in regression protection.
@@ -78,7 +78,7 @@ The `/folders` recursive API remains paginated and deterministic, but backend in
 
 Persisted browse cache dependency is local writable workspace storage. The implementation must define cache path ownership, permissions fallback when write is unavailable, schema/version invalidation on format changes, and strict 200 MB size enforcement.
 
-`legacy_recursive=1` retirement has compatibility dependencies. The plan requires explicit consumer inventory, staged restriction/removal, and rollback gating so non-UI callers are not silently broken.
+`legacy_recursive=1` retirement has compatibility dependencies. The plan requires explicit consumer inventory and staged restriction/removal with clear errors so non-UI callers are not silently broken.
 
 
 ## Validation and Acceptance
@@ -134,7 +134,7 @@ Overall acceptance is achieved when all sprint validations pass, first useful br
 
 The highest risk is cache invalidation errors that can create missing or duplicated page windows. Recovery is feature-gated fallback to the current traversal path, targeted cache clear, and generation-aware rebuild.
 
-Another risk is compatibility breakage from `legacy_recursive=1` retirement. Recovery is staged rollout with explicit consumer validation and a short-lived rollback flag.
+Another risk is compatibility breakage from `legacy_recursive=1` retirement. Recovery is explicit consumer validation and, if needed, a follow-on compatibility toggle with explicit approval.
 
 A third risk is over-throttling that slows perceived scrolling. Recovery is bounded tuning via config constants and rollback of only throttle values, not the progressive architecture.
 
@@ -194,7 +194,7 @@ Sprint 3 handoff notes (2026-02-13):
 - Scan-stable ordering now pins loaded windows while generation indexing is active and shows an explicit completion banner that requires a user click to switch back to “Most recent.”
 - Scan-stable dismissal now persists by generation in local storage and resets deterministically when a new generation starts indexing.
 - UI folder fetch paths no longer emit `legacy_recursive=1`; metadata export now drains recursive pages through paginated requests.
-- Server legacy recursive mode is now retired by default with a clear 400 response and a temporary rollback gate via `LENSLET_ENABLE_LEGACY_RECURSIVE_ROLLBACK=1` for explicit non-UI callers.
+- Server legacy recursive mode now rejects `legacy_recursive`, `page`, and `page_size` with a clear 400 response; callers must use only `path` and `recursive`.
 
 Sprint 4 handoff notes (2026-02-13):
 - Mobile critical CSS no longer imports Google Fonts at startup, removing a known render-blocking request from this flow.

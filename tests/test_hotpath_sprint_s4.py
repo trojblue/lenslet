@@ -79,30 +79,16 @@ def test_recursive_full_response_across_app_modes(tmp_path: Path, build_app: App
     app, folder_path, _ = build_app(tmp_path)
 
     with TestClient(app) as client:
-        resp = client.get(
-            "/folders",
-            params={"path": folder_path, "recursive": "1", "page": "2", "page_size": "2"},
-        )
-        legacy_resp = client.get(
-            "/folders",
-            params={"path": folder_path, "recursive": "1", "legacy_recursive": "1"},
-        )
+        resp = client.get("/folders", params={"path": folder_path, "recursive": "1"})
 
     assert resp.status_code == 200
-    assert legacy_resp.status_code == 200
 
     payload = resp.json()
-    legacy = legacy_resp.json()
     assert len(payload["items"]) == 3
-    assert len(legacy["items"]) == 3
     assert payload["page"] is None
     assert payload["pageSize"] is None
     assert payload["pageCount"] is None
     assert payload["totalItems"] is None
-    assert legacy["page"] is None
-    assert legacy["pageSize"] is None
-    assert legacy["pageCount"] is None
-    assert legacy["totalItems"] is None
 
     paths = [item["path"] for item in payload["items"]]
     assert paths == sorted(paths)

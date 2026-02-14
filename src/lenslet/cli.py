@@ -601,6 +601,37 @@ def main():
             )
             break
 
+    dataset_workspace = None
+    preindex_result = None
+    if (not is_remote_table) and (not is_table_file):
+        from .workspace import Workspace
+
+        dataset_workspace = Workspace.for_dataset(str(target), can_write=not args.no_write)
+        if args.share:
+            from .preindex import ensure_local_preindex
+
+            try:
+                preindex_result = ensure_local_preindex(target, dataset_workspace)
+            except Exception as exc:
+                print(f"Error: preindex failed: {exc}", file=sys.stderr)
+                sys.exit(1)
+
+            if preindex_result is None:
+                print("[lenslet] Preindex skipped: no images found.")
+            else:
+                if preindex_result.workspace.root != dataset_workspace.root:
+                    print(f"[lenslet] Preindex workspace: {preindex_result.workspace.root}")
+                if preindex_result.reused:
+                    print(f"[lenslet] Preindex cache hit: {preindex_result.image_count} images.")
+                else:
+                    print(f"[lenslet] Preindex ready: {preindex_result.image_count} images.")
+                dataset_workspace = preindex_result.workspace
+                if args.no_write:
+                    dataset_workspace = Workspace(
+                        root=dataset_workspace.root,
+                        can_write=False,
+                    )
+
     # Start server
     import uvicorn
     from .indexing_status import CliIndexingReporter
@@ -681,6 +712,7 @@ def main():
             embedding_cache_dir=args.embedding_cache_dir,
             embedding_preload=args.embedding_preload,
             indexing_listener=indexing_reporter.handle_update,
+            workspace=dataset_workspace,
         )
 
     share_tunnel = None

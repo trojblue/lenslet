@@ -34,6 +34,11 @@ class Workspace:
             return
         self.root.mkdir(parents=True, exist_ok=True)
 
+    def preindex_dir(self) -> Path | None:
+        if self.root is None:
+            return None
+        return self.root / "preindex"
+
     @property
     def views_path(self) -> Path | None:
         if self.views_override is not None:

@@ -16,6 +16,15 @@ from .embeddings.config import EmbeddingConfig
 from .embeddings.detect import columns_without_embeddings, detect_embeddings, EmbeddingDetection
 from .embeddings.index import EmbeddingManager
 from .indexing_status import IndexingLifecycle, IndexingListener, coerce_progress_count
+from .preindex import (
+    PREINDEX_PATH_COLUMN,
+    PREINDEX_SOURCE_COLUMN,
+    compute_signature,
+    load_preindex_meta,
+    load_preindex_table,
+    preindex_paths,
+    scan_local_images,
+)
 from .server_browse import (
     _build_item,
     _create_hotpath_metrics,
@@ -322,6 +331,60 @@ def _indexing_health_payload(indexing: IndexingLifecycle, storage) -> dict[str, 
     return payload
 
 
+def _load_preindex_storage(
+    root_path: str,
+    workspace: Workspace,
+    *,
+    thumb_size: int,
+    thumb_quality: int,
+    skip_indexing: bool,
+) -> TableStorage | None:
+    paths = preindex_paths(workspace)
+    if paths is None:
+        return None
+    meta = load_preindex_meta(paths.meta_path)
+    if meta is None:
+        return None
+    expected_root = str(Path(root_path).resolve())
+    meta_root = str(meta.get("root", "")).strip()
+    if meta_root and meta_root != expected_root:
+        print("[lenslet] Warning: preindex root mismatch; rebuilding.")
+        return None
+    signature = str(meta.get("signature", "")).strip()
+    if signature:
+        try:
+            entries = scan_local_images(Path(root_path))
+            entries.sort(key=lambda entry: entry.rel_path)
+            current = compute_signature(Path(root_path), entries)
+        except Exception as exc:
+            print(f"[lenslet] Warning: failed to validate preindex signature: {exc}")
+            return None
+        if current != signature:
+            print("[lenslet] Warning: preindex signature mismatch; rebuilding.")
+            return None
+    try:
+        table, _ = load_preindex_table(paths)
+    except FileNotFoundError:
+        return None
+    except Exception as exc:
+        print(f"[lenslet] Warning: failed to load preindex data: {exc}")
+        return None
+
+    try:
+        return TableStorage(
+            table=table,
+            root=root_path,
+            thumb_size=thumb_size,
+            thumb_quality=thumb_quality,
+            source_column=PREINDEX_SOURCE_COLUMN,
+            path_column=PREINDEX_PATH_COLUMN,
+            skip_indexing=skip_indexing,
+        )
+    except Exception as exc:
+        print(f"[lenslet] Warning: failed to initialize preindex storage: {exc}")
+        return None
+
+
 def create_app(
     root_path: str,
     thumb_size: int = 256,
@@ -339,10 +402,13 @@ def create_app(
     presence_edit_ttl: float = 60.0,
     presence_prune_interval: float = 5.0,
     indexing_listener: IndexingListener | None = None,
+    workspace: Workspace | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
     app = _create_base_app(description="Lightweight image gallery server")
+    if workspace is None:
+        workspace = Workspace.for_dataset(root_path, can_write=not no_write)
 
     # Create storage (prefer table dataset if present)
     items_path = Path(root_path) / "items.parquet"
@@ -376,13 +442,22 @@ def create_app(
             )
             storage_mode = "memory"
     else:
-        storage = MemoryStorage(
-            root=root_path,
+        storage = _load_preindex_storage(
+            root_path,
+            workspace,
             thumb_size=thumb_size,
             thumb_quality=thumb_quality,
+            skip_indexing=skip_indexing,
         )
+        if storage is None:
+            storage = MemoryStorage(
+                root=root_path,
+                thumb_size=thumb_size,
+                thumb_quality=thumb_quality,
+            )
+        else:
+            storage_mode = "table"
 
-    workspace = Workspace.for_dataset(root_path, can_write=not no_write)
     try:
         workspace.ensure()
     except Exception as exc:

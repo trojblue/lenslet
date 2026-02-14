@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from .browse_cache import RecursiveBrowseCache
 from .embeddings.cache import EmbeddingCache
@@ -62,6 +63,7 @@ def _create_base_app(*, description: str) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
     return app
 
 
@@ -338,6 +340,7 @@ def _load_preindex_storage(
     thumb_size: int,
     thumb_quality: int,
     skip_indexing: bool,
+    preindex_signature: str | None = None,
 ) -> TableStorage | None:
     paths = preindex_paths(workspace)
     if paths is None:
@@ -351,7 +354,11 @@ def _load_preindex_storage(
         print("[lenslet] Warning: preindex root mismatch; rebuilding.")
         return None
     signature = str(meta.get("signature", "")).strip()
-    if signature:
+    if preindex_signature:
+        if signature != preindex_signature:
+            print("[lenslet] Warning: preindex signature mismatch; rebuilding.")
+            return None
+    elif signature:
         try:
             entries = scan_local_images(Path(root_path))
             entries.sort(key=lambda entry: entry.rel_path)
@@ -403,6 +410,7 @@ def create_app(
     presence_prune_interval: float = 5.0,
     indexing_listener: IndexingListener | None = None,
     workspace: Workspace | None = None,
+    preindex_signature: str | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
 
@@ -448,6 +456,7 @@ def create_app(
             thumb_size=thumb_size,
             thumb_quality=thumb_quality,
             skip_indexing=skip_indexing,
+            preindex_signature=preindex_signature,
         )
         if storage is None:
             storage = MemoryStorage(

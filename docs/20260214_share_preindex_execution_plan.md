@@ -122,6 +122,7 @@ A third risk is cache eviction policy complexity. Recovery is to implement a sim
 - [x] 2026-02-14 00:40Z Sprint 1 validation: `python scripts/lint_repo.py` and `pytest -q` (warnings only).
 - [x] 2026-02-14 01:20Z Sprint 2 T4-T6: `/folders?recursive=1` now returns the full list (no pagination), frontend recursive hydration removed in favor of single fetch + simple loading state, and hotpath telemetry updated; related tests rewritten.
 - [x] 2026-02-14 01:30Z Sprint 2 validation: `python scripts/lint_repo.py` and `pytest` (warnings only, same as baseline).
+- [x] 2026-02-14 02:05Z Share readiness fix: gzip enabled for large JSON responses, share startup now pre-warms recursive browse cache, and preindex signature reuse avoids re-scan mismatches. Validation: `python scripts/lint_repo.py` and `pytest` (warnings only, same as baseline).
 
 
 ## Artifacts and Handoff
@@ -134,5 +135,6 @@ Current implementation notes:
 - Payload files: `items.parquet` when `pyarrow` is available, otherwise `items.json`; metadata stored in `meta.json` with signature/version/row count.
 - Signature is SHA-256 over the dataset root path plus sorted `(relative_path, size, mtime_ns)` tuples.
 - Recursive browsing now returns the full list in one response; pagination metadata (`page`, `pageSize`, `pageCount`, `totalItems`) is always `null` for recursive requests, and the UI no longer hydrates additional pages.
+- Share startup now warms the recursive browse cache before printing the share URL; large JSON responses are gzip-compressed to reduce initial load time.
 
 Plan revision note: this plan supersedes the previous browse-responsiveness approach by making preindex mandatory before share URLs, removing recursive pagination, and unifying “no-write” into temp workspace caching.

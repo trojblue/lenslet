@@ -603,6 +603,7 @@ def main():
 
     dataset_workspace = None
     preindex_result = None
+    preindex_signature = None
     if (not is_remote_table) and (not is_table_file):
         from .workspace import Workspace
 
@@ -625,6 +626,7 @@ def main():
                     print(f"[lenslet] Preindex cache hit: {preindex_result.image_count} images.")
                 else:
                     print(f"[lenslet] Preindex ready: {preindex_result.image_count} images.")
+                preindex_signature = preindex_result.signature
                 dataset_workspace = preindex_result.workspace
                 if args.no_write:
                     dataset_workspace = Workspace(
@@ -713,11 +715,28 @@ def main():
             embedding_preload=args.embedding_preload,
             indexing_listener=indexing_reporter.handle_update,
             workspace=dataset_workspace,
+            preindex_signature=preindex_signature,
         )
 
     share_tunnel = None
     try:
         if args.share:
+            try:
+                from .server_browse import warm_recursive_cache
+                storage = getattr(app.state, "storage", None)
+                browse_cache = getattr(app.state, "recursive_browse_cache", None)
+                if storage is not None:
+                    print("[lenslet] Warming recursive browse cache...")
+                    warmed = warm_recursive_cache(
+                        storage,
+                        "/",
+                        browse_cache,
+                        hotpath_metrics=getattr(app.state, "hotpath_metrics", None),
+                    )
+                    if warmed:
+                        print(f"[lenslet] Recursive browse cache ready: {warmed} items.")
+            except Exception as exc:
+                print(f"[lenslet] Warning: failed to warm recursive browse cache: {exc}")
             try:
                 share_tunnel = _start_share_tunnel(port, args.host, args.verbose)
             except Exception as exc:

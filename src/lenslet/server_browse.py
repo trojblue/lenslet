@@ -306,6 +306,31 @@ def _load_or_build_recursive_snapshots(
     return snapshots, total_items
 
 
+def warm_recursive_cache(
+    storage,
+    path: str,
+    browse_cache: RecursiveBrowseCache | None,
+    *,
+    hotpath_metrics: HotpathTelemetry | None = None,
+) -> int:
+    if browse_cache is None:
+        return 0
+    try:
+        root_index = storage.get_index(path)
+    except (FileNotFoundError, ValueError):
+        return 0
+    canonical_path = _canonical_path(path)
+    _snapshots, total_items = _load_or_build_recursive_snapshots(
+        storage,
+        canonical_path,
+        root_index,
+        sort_mode=RECURSIVE_SORT_MODE_SCAN,
+        browse_cache=browse_cache,
+        hotpath_metrics=hotpath_metrics,
+    )
+    return total_items
+
+
 def _build_folder_index(
     storage,
     path: str,

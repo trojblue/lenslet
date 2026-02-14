@@ -81,6 +81,7 @@ def ensure_local_preindex(
     *,
     progress: ProgressBar | None = None,
 ) -> PreindexResult | None:
+    print("[lenslet] Scanning files...", flush=True)
     entries = scan_local_images(root)
     if not entries:
         return None

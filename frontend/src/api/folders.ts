@@ -92,6 +92,26 @@ export function useFolder(path: string, recursive = false, options?: UseFolderOp
   })
 }
 
+type UseFolderCountOptions = {
+  enabled?: boolean
+}
+
+export function useFolderCount(path: string, options?: UseFolderCountOptions) {
+  const pollingEnabled = usePollingEnabled()
+  return useQuery({
+    queryKey: ['folder-count', path] as const,
+    queryFn: () => api.getFolderCount(path),
+    enabled: options?.enabled ?? true,
+    staleTime: 10_000,
+    gcTime: DEFAULT_FOLDER_GC_TIME_MS,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 5000),
+    refetchOnWindowFocus: false,
+    refetchInterval: pollingEnabled ? FALLBACK_REFETCH_INTERVAL : false,
+    refetchIntervalInBackground: pollingEnabled,
+  })
+}
+
 /**
  * Hook to prefetch a folder's contents.
  * Useful for prefetching when hovering over folder tree items.

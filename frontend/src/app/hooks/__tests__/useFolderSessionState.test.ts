@@ -56,6 +56,22 @@ describe('folder session state contracts', () => {
     })
   })
 
+  it('stores metadata but skips oversized hydrated snapshots', () => {
+    const itemPaths = Array.from({ length: 10_001 }, (_, index) => `/set/${index}.jpg`)
+    const snapshot = makeFolder('/set', itemPaths, '2026-02-12T00:02:00Z')
+
+    const state = upsertFolderSessionSnapshot({}, '/set', snapshot, 300)
+
+    expect(state['/set']).toEqual({
+      path: '/set',
+      hydratedSnapshot: null,
+      hydratedGeneratedAt: '2026-02-12T00:02:00Z',
+      hydratedItemCount: 10_001,
+      hydratedAtMs: 300,
+      topAnchorPath: null,
+    })
+  })
+
   it('extracts the first visible path as top anchor', () => {
     const visiblePaths = new Set<string>(['/set/first.jpg', '/set/second.jpg'])
     expect(extractTopAnchorPath(visiblePaths)).toBe('/set/first.jpg')

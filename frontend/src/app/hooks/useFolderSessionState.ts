@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useRef } from 'react'
 import type { FolderIndex } from '../../lib/types'
 
+const MAX_HYDRATED_SNAPSHOT_ITEMS = 10_000
+
 export type FolderSessionEntry = {
   path: string
   hydratedSnapshot: FolderIndex | null
@@ -51,10 +53,11 @@ export function upsertFolderSessionSnapshot(
   nowMs: number,
 ): FolderSessionState {
   const existing = getOrCreateSession(state, path)
+  const hydratedSnapshot = snapshot.items.length <= MAX_HYDRATED_SNAPSHOT_ITEMS ? snapshot : null
   const next: FolderSessionEntry = {
     ...existing,
     path: normalizePath(path),
-    hydratedSnapshot: snapshot,
+    hydratedSnapshot,
     hydratedGeneratedAt: snapshot.generatedAt ?? null,
     hydratedItemCount: snapshot.totalItems ?? snapshot.items.length,
     hydratedAtMs: nowMs,

@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { shouldRemoveRecursiveFolderQuery, useFolder } from '../../shared/api/folders'
+import { shouldRemoveRecursiveFolderQuery, useFolder, useFolderCount } from '../../shared/api/folders'
 import { buildCanonicalSearchRequest, useSearch } from '../../shared/api/search'
 import { useEmbeddings } from '../../shared/api/embeddings'
 import { cancelBrowseRequests } from '../../shared/api/client'
@@ -88,19 +88,19 @@ export function useAppDataScope({
 }: UseAppDataScopeParams): UseAppDataScopeResult {
   const queryClient = useQueryClient()
   const {
-    data: recursiveFirstPage,
-    refetch: refetchFirstPage,
+    data: recursiveFolderData,
+    refetch: refetchRecursiveFolder,
     isLoading,
     isError,
   } = useFolder(current, true)
+  const { data: rootCount } = useFolderCount('/', { enabled: current !== '/' })
   const [data, setData] = useState<FolderIndex | undefined>()
   const loadTokenRef = useRef(0)
-  const refetch = useCallback(() => refetchFirstPage(), [refetchFirstPage])
-  const { data: cachedRootRecursive } = useFolder('/', true, { enabled: false })
+  const refetch = useCallback(() => refetchRecursiveFolder(), [refetchRecursiveFolder])
 
   useEffect(() => {
     queryClient.removeQueries({
-      predicate: ({ queryKey }) => shouldRemoveRecursiveFolderQuery(queryKey, current, true),
+      predicate: ({ queryKey }) => shouldRemoveRecursiveFolderQuery(queryKey, current, false),
     })
   }, [current, queryClient])
 
@@ -118,14 +118,14 @@ export function useAppDataScope({
   }, [current])
 
   useEffect(() => {
-    if (!recursiveFirstPage) return
+    if (!recursiveFolderData) return
     const requestId = loadTokenRef.current
     startTransition(() => {
-      setData(recursiveFirstPage)
-      onFolderHydratedSnapshot?.(recursiveFirstPage.path, recursiveFirstPage)
+      setData(recursiveFolderData)
+      onFolderHydratedSnapshot?.(recursiveFolderData.path, recursiveFolderData)
     })
     completeBrowseLoad(requestId)
-  }, [onFolderHydratedSnapshot, recursiveFirstPage])
+  }, [onFolderHydratedSnapshot, recursiveFolderData])
 
   const similarityActive = similarityState !== null
   const debouncedQ = useDebounced(query, 250)
@@ -186,7 +186,7 @@ export function useAppDataScope({
   const scopeTotal = data?.totalItems ?? data?.items.length ?? totalCount
   const rootTotal = current === '/'
     ? scopeTotal
-    : (cachedRootRecursive?.totalItems ?? cachedRootRecursive?.items.length ?? scopeTotal)
+    : (rootCount?.totalItems ?? rootCount?.items.length ?? scopeTotal)
   return {
     data,
     refetch,

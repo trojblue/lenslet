@@ -70,3 +70,21 @@ def test_create_app_folder_items_parquet_uses_fast_local_validation(
     app = server_factory.create_app(str(root))
     assert app is not None
     assert captured.get("skip_local_realpath_validation") is True
+
+
+def test_preindex_reports_scan_phase(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    root = tmp_path / "gallery"
+    _make_image(root / "a.jpg")
+    workspace = Workspace.for_dataset(str(root), can_write=True)
+
+    class SilentProgress:
+        def update(self, done: int, total: int, label: str) -> None:
+            _ = (done, total, label)
+
+    result = ensure_local_preindex(root, workspace, progress=SilentProgress())
+    assert result is not None
+    captured = capsys.readouterr()
+    assert "[lenslet] Scanning files..." in captured.out

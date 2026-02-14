@@ -13,8 +13,9 @@ describe('indexing browse mode', () => {
     expect(normalizeIndexingGeneration(undefined)).toBeNull()
   })
 
-  it('captures scan generation only while indexing is active', () => {
+  it('captures scan generation for startup and active indexing windows', () => {
     expect(captureScanGeneration(null, { state: 'running', generation: 'g1' })).toBe('g1')
+    expect(captureScanGeneration(null, { state: 'ready', generation: 'g1' })).toBe('g1')
     expect(captureScanGeneration('g1', { state: 'idle', generation: 'g2' })).toBe('g2')
     expect(captureScanGeneration('g2', { state: 'ready', generation: 'g3' })).toBe('g2')
     expect(captureScanGeneration('g2', { state: 'error', generation: 'g4' })).toBe('g2')

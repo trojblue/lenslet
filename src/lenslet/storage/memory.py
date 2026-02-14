@@ -258,21 +258,21 @@ class MemoryStorage:
         files, dirs = self.list_dir(path)
         # Avoid expensive eager probing when a folder has very high fanout.
         # The probe only drives progress-bar grouping and should not block indexing.
-        if len(dirs) <= self.LEAF_BATCH_MAX_DIRS:
+        if (not lightweight) and len(dirs) <= self.LEAF_BATCH_MAX_DIRS:
             self._leaf_batch.maybe_prepare(path, dirs)
-        use_leaf_batch = self._leaf_batch.use_batch(norm, dirs)
+        use_leaf_batch = (not lightweight) and self._leaf_batch.use_batch(norm, dirs)
 
         image_files = [f for f in files if self._is_supported_image(f)]
         items: list[CachedItem | None] = [None] * len(image_files)
 
         total = len(image_files)
-        show_progress = total >= self.LOCAL_PROGRESS_MIN_IMAGES and not use_leaf_batch
+        show_progress = (not lightweight) and total >= self.LOCAL_PROGRESS_MIN_IMAGES and not use_leaf_batch
         if show_progress:
             self._progress(0, total, "local")
 
         done = 0
         workers = 0
-        if total >= self.LOCAL_INDEX_PARALLEL_MIN_IMAGES:
+        if (not lightweight) and total >= self.LOCAL_INDEX_PARALLEL_MIN_IMAGES:
             workers = self._effective_workers(total)
         last_print = 0.0
         if workers:

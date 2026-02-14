@@ -169,6 +169,7 @@ class RecursiveBrowseCache:
             thread_name_prefix="lenslet-recursive-cache-warm",
         )
         self._warm_jobs: dict[tuple[str, str, str], threading.Event] = {}
+        self._persist_jobs: set[tuple[str, str, str]] = set()
         if self._persistence_enabled:
             self._evict_disk_to_cap()
 
@@ -218,6 +219,8 @@ class RecursiveBrowseCache:
         sort_mode: str,
         generation: str,
         items: Iterable[RecursiveCachedItemSnapshot],
+        *,
+        defer_persist: bool = False,
     ) -> tuple[RecursiveSnapshotWindow, bool]:
         scope = _canonical_scope(scope_path)
         snapshots = tuple(items)
@@ -230,7 +233,11 @@ class RecursiveBrowseCache:
         key = self._cache_key(scope_path, sort_mode, generation)
         with self._lock:
             self._insert_memory_locked(key, window)
-        wrote_disk = self._save_disk_window(window)
+        wrote_disk = False
+        if defer_persist and self._persistence_enabled:
+            wrote_disk = self._schedule_persist_write(key, window)
+        else:
+            wrote_disk = self._save_disk_window(window)
         return window, wrote_disk
 
     def invalidate_path(self, path: str | None = None) -> None:
@@ -339,6 +346,31 @@ class RecursiveBrowseCache:
             event = self._warm_jobs.pop(key, None)
             if event is not None:
                 event.set()
+
+    def _schedule_persist_write(
+        self,
+        key: tuple[str, str, str],
+        window: RecursiveSnapshotWindow,
+    ) -> bool:
+        with self._lock:
+            if key in self._persist_jobs:
+                return False
+            self._persist_jobs.add(key)
+
+        def _run() -> None:
+            try:
+                self._save_disk_window(window)
+            finally:
+                with self._lock:
+                    self._persist_jobs.discard(key)
+
+        try:
+            self._warm_executor.submit(_run)
+            return False
+        except Exception:
+            with self._lock:
+                self._persist_jobs.discard(key)
+            return False
 
     def _enable_persistence(self) -> bool:
         if self._cache_dir is None:

@@ -26,10 +26,13 @@ export function captureScanGeneration(
 ): string | null {
   const generation = normalizeIndexingGeneration(indexing?.generation)
   if (!generation) return currentScanGeneration
-  if (indexing?.state !== 'idle' && indexing?.state !== 'running') {
-    return currentScanGeneration
+  if (currentScanGeneration === null) {
+    return generation
   }
-  return generation
+  if (indexing?.state === 'idle' || indexing?.state === 'running') {
+    return generation
+  }
+  return currentScanGeneration
 }
 
 export function deriveIndexingBrowseMode(

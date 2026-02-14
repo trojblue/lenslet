@@ -1,11 +1,9 @@
 import time
-import threading
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from lenslet.browse_cache import RecursiveBrowseCache
 from lenslet import server_browse
 from lenslet.server import create_app
 
@@ -245,11 +243,7 @@ def test_recursive_cold_miss_builds_page_window_without_contract_regression(
         collect_limits.append(kwargs.get("limit"))
         return original(*args, **kwargs)
 
-    def _disable_warm(self, *args, **kwargs):
-        return False
-
     monkeypatch.setattr(server_browse, "_collect_recursive_cached_items", _counting_collect)
-    monkeypatch.setattr(RecursiveBrowseCache, "schedule_warm", _disable_warm)
 
     app = create_app(str(root))
     with TestClient(app) as client:
@@ -260,10 +254,19 @@ def test_recursive_cold_miss_builds_page_window_without_contract_regression(
     assert payload["pageCount"] == 5
     assert payload["totalItems"] == 45
     assert len(payload["items"]) == 10
-    assert 20 in collect_limits
+    assert None in collect_limits
+
+    cache = getattr(app.state, "recursive_browse_cache", None)
+    storage = getattr(app.state, "storage", None)
+    assert cache is not None
+    assert storage is not None
+    generation = server_browse._recursive_cache_generation_token(storage)
+    cached = cache.load("/gallery", server_browse.RECURSIVE_SORT_MODE_SCAN, generation)
+    assert cached is not None
+    assert cached[0].total_items == 45
 
 
-def test_recursive_cold_miss_returns_before_background_warm_finishes(
+def test_recursive_cold_miss_returns_fast_without_background_warm_dependency(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -272,28 +275,14 @@ def test_recursive_cold_miss_returns_before_background_warm_finishes(
         branch = "x" if idx % 2 == 0 else "y"
         _make_image(root / f"gallery/{branch}/img_{idx:03d}.jpg")
 
-    warm_started = threading.Event()
-    warm_release = threading.Event()
-    original_schedule_warm = RecursiveBrowseCache.schedule_warm
+    collect_calls = {"count": 0}
+    original = server_browse._collect_recursive_cached_items
 
-    def _schedule_blocking_warm(self, scope_path, sort_mode, generation, producer, **kwargs):
-        def _blocked_producer(cancel_event):
-            warm_started.set()
-            if not warm_release.wait(timeout=3.0):
-                return None
-            return producer(cancel_event)
+    def _counting_collect(*args, **kwargs):
+        collect_calls["count"] += 1
+        return original(*args, **kwargs)
 
-        return original_schedule_warm(
-            self,
-            scope_path,
-            sort_mode,
-            generation,
-            _blocked_producer,
-            **kwargs,
-        )
-
-    monkeypatch.setattr(server_browse, "RECURSIVE_CACHE_WARM_DELAY_SECONDS", 0.0)
-    monkeypatch.setattr(RecursiveBrowseCache, "schedule_warm", _schedule_blocking_warm)
+    monkeypatch.setattr(server_browse, "_collect_recursive_cached_items", _counting_collect)
 
     app = create_app(str(root))
     with TestClient(app) as client:
@@ -307,14 +296,17 @@ def test_recursive_cold_miss_returns_before_background_warm_finishes(
         assert payload["totalItems"] == 45
         assert len(payload["items"]) == 10
         assert elapsed_ms < 1_500.0
-        assert warm_started.wait(timeout=1.0) is True
+        assert collect_calls["count"] == 1
+
+        second_started = time.perf_counter()
+        second = _recursive(client, "/gallery", page="2", page_size="10")
+        second_elapsed_ms = (time.perf_counter() - second_started) * 1000.0
+        assert second["page"] == 2
+        assert second["totalItems"] == 45
+        assert len(second["items"]) == 10
+        assert second_elapsed_ms < 500.0
+        assert collect_calls["count"] == 1
 
         cache = getattr(app.state, "recursive_browse_cache", None)
         assert cache is not None
-        assert cache.pending_warm_count() >= 1
-
-    warm_release.set()
-    deadline = time.monotonic() + 3.0
-    while cache.pending_warm_count() > 0 and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert cache.pending_warm_count() == 0
+        assert cache.pending_warm_count() == 0

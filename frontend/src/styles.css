@@ -482,10 +482,12 @@
 }
 
 .app-shell {
-  grid-template-rows: var(--toolbar-h) 1fr;
+  /* Prevent row-2 min-content expansion from forcing a giant scrollable grid track. */
+  grid-template-rows: var(--toolbar-h) minmax(0, 1fr);
 }
 
 .grid-shell {
+  min-height: 0;
   padding-bottom: var(--mobile-drawer-h);
 }
 

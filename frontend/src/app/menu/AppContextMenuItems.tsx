@@ -17,7 +17,6 @@ interface AppContextMenuItemsProps {
 }
 
 type ExportFormat = 'csv' | 'json'
-const EXPORT_RECURSIVE_PAGE_SIZE = 500
 
 function getExportMime(format: ExportFormat): string {
   return format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8'
@@ -33,27 +32,8 @@ function timestampLabel(): string {
 }
 
 async function fetchRecursiveFolderItems(path: string): Promise<Item[]> {
-  const first = await api.getFolder(path, {
-    recursive: true,
-    page: 1,
-    pageSize: EXPORT_RECURSIVE_PAGE_SIZE,
-  })
-  const byPath = new Map(first.items.map((item) => [item.path, item]))
-  const pageCount = first.pageCount ?? 1
-
-  for (let page = 2; page <= pageCount; page += 1) {
-    const payload = await api.getFolder(path, {
-      recursive: true,
-      page,
-      pageSize: EXPORT_RECURSIVE_PAGE_SIZE,
-    })
-    for (const item of payload.items) {
-      if (byPath.has(item.path)) continue
-      byPath.set(item.path, item)
-    }
-  }
-
-  return Array.from(byPath.values())
+  const payload = await api.getFolder(path, { recursive: true })
+  return payload.items
 }
 
 export default function AppContextMenuItems({

@@ -4,24 +4,20 @@ import { usePollingEnabled } from './polling'
 import type { FolderIndex } from '../lib/types'
 import type { GetFolderOptions } from './client'
 
-export const DEFAULT_RECURSIVE_PAGE = 1
-export const DEFAULT_RECURSIVE_PAGE_SIZE = 200
 export const DEFAULT_FOLDER_GC_TIME_MS = 5 * 60_000
 export const RECURSIVE_FOLDER_GC_TIME_MS = 60_000
-type RecursiveFolderQueryKey = readonly ['folder', string, 'recursive', number, number]
+type RecursiveFolderQueryKey = readonly ['folder', string, 'recursive']
 
 /** Query key for folder data */
 export const folderQueryKey = (
   path: string,
-  options?: Pick<GetFolderOptions, 'recursive' | 'page' | 'pageSize'>,
+  options?: Pick<GetFolderOptions, 'recursive'>,
 ) => (
   options?.recursive
     ? [
       'folder',
       path,
       'recursive',
-      options.page ?? DEFAULT_RECURSIVE_PAGE,
-      options.pageSize ?? DEFAULT_RECURSIVE_PAGE_SIZE,
     ] as const
     : ['folder', path] as const
 )
@@ -29,8 +25,6 @@ export const folderQueryKey = (
 function parseRecursiveFolderQueryKey(queryKey: readonly unknown[]): RecursiveFolderQueryKey | null {
   if (queryKey[0] !== 'folder' || queryKey[2] !== 'recursive') return null
   if (typeof queryKey[1] !== 'string') return null
-  if (typeof queryKey[3] !== 'number') return null
-  if (typeof queryKey[4] !== 'number') return null
   return queryKey as RecursiveFolderQueryKey
 }
 
@@ -46,8 +40,7 @@ export function shouldRetainRecursiveFolderQuery(
   if (!isRecursiveFolderQueryKey(queryKey)) return true
   const recursiveKey = parseRecursiveFolderQueryKey(queryKey)
   if (recursiveKey == null) return false
-  const [, keyPath, , keyPage] = recursiveKey
-  if (keyPage !== DEFAULT_RECURSIVE_PAGE) return false
+  const [, keyPath] = recursiveKey
   if (keyPath === currentPath) return true
   if (keepRoot && keyPath === '/') return true
   return false
@@ -83,8 +76,6 @@ export function useFolder(path: string, recursive = false, options?: UseFolderOp
   const pollingEnabled = usePollingEnabled()
   const folderOptions: GetFolderOptions = {
     recursive,
-    page: options?.page,
-    pageSize: options?.pageSize,
   }
   const recursiveQuery = !!folderOptions.recursive
   return useQuery({
@@ -108,8 +99,8 @@ export function useFolder(path: string, recursive = false, options?: UseFolderOp
 export function usePrefetchFolder() {
   const queryClient = useQueryClient()
   
-  return (path: string, recursive = false, page?: number, pageSize?: number) => {
-    const folderOptions: GetFolderOptions = { recursive, page, pageSize }
+  return (path: string, recursive = false) => {
+    const folderOptions: GetFolderOptions = { recursive }
     queryClient.prefetchQuery({
       queryKey: folderQueryKey(path, folderOptions),
       queryFn: () => fetchFolder(path, folderOptions),

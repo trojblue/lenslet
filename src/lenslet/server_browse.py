@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import io
-import math
-import os
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -93,27 +90,8 @@ def _child_folder_path(parent: str, child: str) -> str:
     return _canonical_path(f"{parent_path.rstrip('/')}/{child}")
 
 
-RECURSIVE_PAGE_DEFAULT = 1
-RECURSIVE_PAGE_SIZE_DEFAULT = 200
-RECURSIVE_PAGE_SIZE_MAX = 500
-RECURSIVE_WINDOW_INSERT_MAX = 4096
 RECURSIVE_SORT_MODE_SCAN = "scan"
 RECURSIVE_CACHE_BUILD_MAX_RETRIES = 2
-# Keep background full-snapshot warm/persist out of the first interactive
-# browse window so initial scroll responsiveness is not CPU-contended.
-RECURSIVE_CACHE_WARM_DELAY_SECONDS = 10.0
-LEGACY_RECURSIVE_ROLLBACK_ENV = "LENSLET_ENABLE_LEGACY_RECURSIVE_ROLLBACK"
-_LEGACY_RECURSIVE_ROLLBACK_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
-
-
-@dataclass(frozen=True)
-class _RecursivePaginationWindow:
-    page: int
-    page_size: int
-    page_count: int
-    total_items: int
-    start: int
-    end: int
 
 
 class HotpathTelemetry:
@@ -186,150 +164,6 @@ def _storage_s3_client_creations(storage) -> int | None:
     return None
 
 
-def _parse_recursive_pagination_value(name: str, raw: str | None, default: int) -> int:
-    if raw is None or raw == "":
-        return default
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        raise HTTPException(400, f"{name} must be an integer")
-    if value <= 0:
-        raise HTTPException(400, f"{name} must be >= 1")
-    return value
-
-
-def _resolve_recursive_pagination(page: str | None, page_size: str | None) -> tuple[int, int]:
-    resolved_page = _parse_recursive_pagination_value("page", page, RECURSIVE_PAGE_DEFAULT)
-    resolved_page_size = _parse_recursive_pagination_value(
-        "page_size",
-        page_size,
-        RECURSIVE_PAGE_SIZE_DEFAULT,
-    )
-    if resolved_page_size > RECURSIVE_PAGE_SIZE_MAX:
-        resolved_page_size = RECURSIVE_PAGE_SIZE_MAX
-    return resolved_page, resolved_page_size
-
-
-def _legacy_recursive_rollbacks_enabled() -> bool:
-    raw = os.getenv(LEGACY_RECURSIVE_ROLLBACK_ENV, "").strip().lower()
-    return raw in _LEGACY_RECURSIVE_ROLLBACK_TRUE_VALUES
-
-
-def _recursive_window_from_values(
-    total_items: int,
-    page: int,
-    page_size: int,
-) -> _RecursivePaginationWindow:
-    page_count = max(1, math.ceil(total_items / page_size))
-    start = (page - 1) * page_size
-    end = start + page_size
-    return _RecursivePaginationWindow(
-        page=page,
-        page_size=page_size,
-        page_count=page_count,
-        total_items=total_items,
-        start=start,
-        end=end,
-    )
-
-
-def _insert_recursive_window_item(
-    sorted_items: list[tuple[str, Any]],
-    *,
-    path: str,
-    cached: Any,
-    limit: int,
-) -> None:
-    if limit <= 0:
-        return
-    if len(sorted_items) >= limit and path >= sorted_items[-1][0]:
-        return
-
-    lo = 0
-    hi = len(sorted_items)
-    while lo < hi:
-        mid = (lo + hi) // 2
-        if sorted_items[mid][0] <= path:
-            lo = mid + 1
-        else:
-            hi = mid
-    sorted_items.insert(lo, (path, cached))
-    if len(sorted_items) > limit:
-        sorted_items.pop()
-
-
-def _storage_recursive_index(storage, path: str):
-    getter = getattr(storage, "get_index_for_recursive", None)
-    if callable(getter):
-        return getter(path)
-    return storage.get_index(path)
-
-
-def _clone_cached_with_dimensions(cached: Any, width: int, height: int) -> RecursiveCachedItemSnapshot:
-    metrics = getattr(cached, "metrics", None)
-    normalized_metrics = metrics if isinstance(metrics, dict) else None
-    url = getattr(cached, "url", None)
-    source = getattr(cached, "source", None)
-    return RecursiveCachedItemSnapshot(
-        path=_canonical_path(str(getattr(cached, "path", ""))),
-        name=str(getattr(cached, "name", "")),
-        mime=str(getattr(cached, "mime", "image/jpeg")),
-        width=max(0, int(width)),
-        height=max(0, int(height)),
-        size=max(0, int(getattr(cached, "size", 0) or 0)),
-        mtime=max(0.0, float(getattr(cached, "mtime", 0) or 0.0)),
-        url=str(url).strip() if isinstance(url, str) and url.strip() else None,
-        source=str(source).strip() if isinstance(source, str) and source.strip() else None,
-        metrics=normalized_metrics,
-    )
-
-
-def _hydrate_recursive_page_items(storage, items: list[Any]) -> list[Any]:
-    hydrate_fn = getattr(storage, "hydrate_recursive_items", None)
-    hydrated_items = items
-    if callable(hydrate_fn):
-        try:
-            hydrated = hydrate_fn(items)
-            if isinstance(hydrated, list):
-                hydrated_items = hydrated
-        except Exception:
-            hydrated_items = items
-
-    get_dimensions = getattr(storage, "get_dimensions", None)
-    if not callable(get_dimensions):
-        return hydrated_items
-
-    resolved: list[Any] = []
-    for cached in hydrated_items:
-        width = int(getattr(cached, "width", 0) or 0)
-        height = int(getattr(cached, "height", 0) or 0)
-        if width > 0 and height > 0:
-            resolved.append(cached)
-            continue
-
-        path = _canonical_path(str(getattr(cached, "path", "")))
-        if not path:
-            resolved.append(cached)
-            continue
-
-        try:
-            dims = get_dimensions(path)
-        except Exception:
-            resolved.append(cached)
-            continue
-        if not isinstance(dims, tuple) or len(dims) != 2:
-            resolved.append(cached)
-            continue
-
-        dim_w = int(dims[0] or 0)
-        dim_h = int(dims[1] or 0)
-        if dim_w <= 0 or dim_h <= 0:
-            resolved.append(cached)
-            continue
-
-        resolved.append(_clone_cached_with_dimensions(cached, dim_w, dim_h))
-
-    return resolved
 
 
 def _collect_recursive_cached_items(
@@ -337,15 +171,12 @@ def _collect_recursive_cached_items(
     root_path: str,
     root_index: Any,
     *,
-    limit: int | None = None,
     cancelled: Callable[[], bool] | None = None,
-    use_recursive_index: bool = False,
 ) -> tuple[list[Any], int]:
     queue: deque[tuple[str, Any]] = deque([(_canonical_path(root_path), root_index)])
     seen_folders: set[str] = set()
     seen_items: set[str] = set()
     items: list[tuple[str, Any]] = []
-    use_window_insert = limit is not None and limit <= RECURSIVE_WINDOW_INSERT_MAX
     total_items = 0
 
     while queue:
@@ -364,17 +195,7 @@ def _collect_recursive_cached_items(
                 continue
             seen_items.add(item_path)
             total_items += 1
-            if limit is None:
-                items.append((item_path, cached))
-            elif use_window_insert:
-                _insert_recursive_window_item(
-                    items,
-                    path=item_path,
-                    cached=cached,
-                    limit=limit,
-                )
-            else:
-                items.append((item_path, cached))
+            items.append((item_path, cached))
 
         for child_name in folder_index.dirs:
             if cancelled is not None and cancelled():
@@ -383,19 +204,12 @@ def _collect_recursive_cached_items(
             if child_path in seen_folders:
                 continue
             try:
-                if use_recursive_index:
-                    child_index = _storage_recursive_index(storage, child_path)
-                else:
-                    child_index = storage.get_index(child_path)
+                child_index = storage.get_index(child_path)
             except (FileNotFoundError, ValueError):
                 continue
             queue.append((child_path, child_index))
 
-    if limit is None:
-        items.sort(key=lambda pair: pair[0])
-    elif not use_window_insert:
-        items.sort(key=lambda pair: pair[0])
-        items = items[:limit]
+    items.sort(key=lambda pair: pair[0])
     return [cached for _, cached in items], total_items
 
 
@@ -431,8 +245,6 @@ def _load_or_build_recursive_snapshots(
     *,
     sort_mode: str,
     browse_cache: RecursiveBrowseCache,
-    use_recursive_index: bool = False,
-    defer_persist: bool = False,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
     generation_token = _recursive_cache_generation_token(storage)
@@ -455,7 +267,6 @@ def _load_or_build_recursive_snapshots(
             storage,
             canonical_path,
             root_index,
-            use_recursive_index=use_recursive_index,
         )
         snapshots = tuple(
             RecursiveCachedItemSnapshot.from_cached_item(cached)
@@ -468,10 +279,7 @@ def _load_or_build_recursive_snapshots(
                 hotpath_metrics.increment("folders_recursive_cache_stale_generation_total")
             generation_token = latest_generation
             try:
-                if use_recursive_index:
-                    root_index = _storage_recursive_index(storage, canonical_path)
-                else:
-                    root_index = storage.get_index(canonical_path)
+                root_index = storage.get_index(canonical_path)
             except (FileNotFoundError, ValueError):
                 break
             continue
@@ -481,7 +289,6 @@ def _load_or_build_recursive_snapshots(
             sort_mode,
             generation_token,
             snapshots,
-            defer_persist=defer_persist,
         )
         if hotpath_metrics is not None and wrote_persisted:
             hotpath_metrics.increment("folders_recursive_cache_persist_write_total")
@@ -491,45 +298,12 @@ def _load_or_build_recursive_snapshots(
         storage,
         canonical_path,
         root_index,
-        use_recursive_index=use_recursive_index,
     )
     snapshots = tuple(
         RecursiveCachedItemSnapshot.from_cached_item(cached)
         for cached in cached_items
     )
     return snapshots, total_items
-
-
-def _load_or_build_recursive_page_snapshots(
-    storage,
-    canonical_path: str,
-    root_index: Any,
-    *,
-    page: int,
-    page_size: int,
-    sort_mode: str,
-    browse_cache: RecursiveBrowseCache,
-    hotpath_metrics: HotpathTelemetry | None = None,
-) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
-    window_start = (page - 1) * page_size
-    window_end = window_start + page_size
-    snapshots, total_items = _load_or_build_recursive_snapshots(
-        storage,
-        canonical_path,
-        root_index,
-        sort_mode=sort_mode,
-        browse_cache=browse_cache,
-        use_recursive_index=True,
-        defer_persist=True,
-        hotpath_metrics=hotpath_metrics,
-    )
-    page_items = list(snapshots[window_start:window_end])
-    page_items = _hydrate_recursive_page_items(storage, page_items)
-    page_snapshots = tuple(
-        RecursiveCachedItemSnapshot.from_cached_item(cached)
-        for cached in page_items
-    )
-    return page_snapshots, total_items
 
 
 def _build_folder_index(
@@ -543,91 +317,35 @@ def _build_folder_index(
     browse_cache: RecursiveBrowseCache | None = None,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> FolderIndex:
-    if recursive and legacy_recursive and not _legacy_recursive_rollbacks_enabled():
-        raise HTTPException(
-            400,
-            (
-                "legacy_recursive=1 is retired for UI stability. "
-                f"Set {LEGACY_RECURSIVE_ROLLBACK_ENV}=1 to temporarily re-enable."
-            ),
-        )
-
     try:
-        if recursive and not legacy_recursive:
-            index = _storage_recursive_index(storage, path)
-        else:
-            index = storage.get_index(path)
+        index = storage.get_index(path)
     except ValueError:
         raise HTTPException(400, "invalid path")
     except FileNotFoundError:
         raise HTTPException(404, "folder not found")
 
-    page_window: _RecursivePaginationWindow | None = None
     if recursive:
         if hotpath_metrics is not None:
             hotpath_metrics.increment("folders_recursive_requests_total")
         traversal_started = time.perf_counter()
         canonical_path = _canonical_path(path)
-        resolved_page: int | None = None
-        resolved_page_size: int | None = None
-        if not legacy_recursive:
-            resolved_page, resolved_page_size = _resolve_recursive_pagination(page, page_size)
         if browse_cache is not None:
-            if legacy_recursive:
-                snapshots, total_items = _load_or_build_recursive_snapshots(
-                    storage,
-                    canonical_path,
-                    index,
-                    sort_mode=RECURSIVE_SORT_MODE_SCAN,
-                    browse_cache=browse_cache,
-                    hotpath_metrics=hotpath_metrics,
-                )
-                snapshots_for_page = snapshots
-            else:
-                assert resolved_page is not None and resolved_page_size is not None
-                snapshots_for_page, total_items = _load_or_build_recursive_page_snapshots(
-                    storage,
-                    canonical_path,
-                    index,
-                    page=resolved_page,
-                    page_size=resolved_page_size,
-                    sort_mode=RECURSIVE_SORT_MODE_SCAN,
-                    browse_cache=browse_cache,
-                    hotpath_metrics=hotpath_metrics,
-                )
-                page_window = _recursive_window_from_values(
-                    total_items=total_items,
-                    page=resolved_page,
-                    page_size=resolved_page_size,
-                )
-            items = [to_item(storage, snapshot) for snapshot in snapshots_for_page]
+            snapshots, total_items = _load_or_build_recursive_snapshots(
+                storage,
+                canonical_path,
+                index,
+                sort_mode=RECURSIVE_SORT_MODE_SCAN,
+                browse_cache=browse_cache,
+                hotpath_metrics=hotpath_metrics,
+            )
+            items = [to_item(storage, snapshot) for snapshot in snapshots]
         else:
-            if legacy_recursive:
-                cached_items, total_items = _collect_recursive_cached_items(
-                    storage,
-                    canonical_path,
-                    index,
-                    use_recursive_index=False,
-                )
-                items = [to_item(storage, it) for it in cached_items]
-            else:
-                assert resolved_page is not None and resolved_page_size is not None
-                window_end = resolved_page * resolved_page_size
-                cached_items, total_items = _collect_recursive_cached_items(
-                    storage,
-                    canonical_path,
-                    index,
-                    limit=window_end,
-                    use_recursive_index=True,
-                )
-                page_window = _recursive_window_from_values(
-                    total_items=total_items,
-                    page=resolved_page,
-                    page_size=resolved_page_size,
-                )
-                page_items = cached_items[page_window.start:page_window.end]
-                page_items = _hydrate_recursive_page_items(storage, page_items)
-                items = [to_item(storage, it) for it in page_items]
+            cached_items, total_items = _collect_recursive_cached_items(
+                storage,
+                canonical_path,
+                index,
+            )
+            items = [to_item(storage, it) for it in cached_items]
         if hotpath_metrics is not None:
             hotpath_metrics.observe_ms(
                 "folders_recursive_traversal_ms",
@@ -644,10 +362,10 @@ def _build_folder_index(
         generatedAt=index.generated_at,
         items=items,
         dirs=dirs,
-        page=page_window.page if page_window else None,
-        pageSize=page_window.page_size if page_window else None,
-        pageCount=page_window.page_count if page_window else None,
-        totalItems=page_window.total_items if page_window else None,
+        page=None,
+        pageSize=None,
+        pageCount=None,
+        totalItems=None,
     )
 
 

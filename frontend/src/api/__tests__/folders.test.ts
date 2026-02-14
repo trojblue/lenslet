@@ -7,14 +7,14 @@ import {
 } from '../folders'
 
 describe('folder api query helpers', () => {
-  it('builds recursive query params with pagination', () => {
-    const query = buildFolderQuery('/shots', { recursive: true, page: 2, pageSize: 250 })
+  it('builds recursive query params', () => {
+    const query = buildFolderQuery('/shots', { recursive: true })
     const params = new URLSearchParams(query)
 
     expect(params.get('path')).toBe('/shots')
     expect(params.get('recursive')).toBe('1')
-    expect(params.get('page')).toBe('2')
-    expect(params.get('page_size')).toBe('250')
+    expect(params.get('page')).toBeNull()
+    expect(params.get('page_size')).toBeNull()
   })
 
   it('does not emit retired legacy recursive params', () => {
@@ -25,23 +25,21 @@ describe('folder api query helpers', () => {
     expect(params.get('legacy_recursive')).toBeNull()
   })
 
-  it('separates recursive cache keys by page and page size', () => {
-    expect(folderQueryKey('/shots', { recursive: true, page: 1, pageSize: 200 })).toEqual(['folder', '/shots', 'recursive', 1, 200])
-    expect(folderQueryKey('/shots', { recursive: true, page: 2, pageSize: 200 })).toEqual(['folder', '/shots', 'recursive', 2, 200])
-    expect(folderQueryKey('/shots', { recursive: true, page: 1, pageSize: 300 })).toEqual(['folder', '/shots', 'recursive', 1, 300])
+  it('separates recursive cache keys from non-recursive', () => {
+    expect(folderQueryKey('/shots', { recursive: true })).toEqual(['folder', '/shots', 'recursive'])
+    expect(folderQueryKey('/shots', { recursive: false })).toEqual(['folder', '/shots'])
   })
 
-  it('retains only current/root first-page recursive queries', () => {
-    expect(shouldRetainRecursiveFolderQuery(['folder', '/shots', 'recursive', 1, 200], '/shots')).toBe(true)
-    expect(shouldRetainRecursiveFolderQuery(['folder', '/', 'recursive', 1, 200], '/shots')).toBe(true)
-    expect(shouldRetainRecursiveFolderQuery(['folder', '/other', 'recursive', 1, 200], '/shots')).toBe(false)
-    expect(shouldRetainRecursiveFolderQuery(['folder', '/shots', 'recursive', 2, 200], '/shots')).toBe(false)
-    expect(shouldRetainRecursiveFolderQuery(['folder', '/', 'recursive', 1, 200], '/shots', false)).toBe(false)
+  it('retains only current/root recursive queries', () => {
+    expect(shouldRetainRecursiveFolderQuery(['folder', '/shots', 'recursive'], '/shots')).toBe(true)
+    expect(shouldRetainRecursiveFolderQuery(['folder', '/', 'recursive'], '/shots')).toBe(true)
+    expect(shouldRetainRecursiveFolderQuery(['folder', '/other', 'recursive'], '/shots')).toBe(false)
+    expect(shouldRetainRecursiveFolderQuery(['folder', '/', 'recursive'], '/shots', false)).toBe(false)
   })
 
   it('removes only stale recursive folder queries', () => {
-    expect(shouldRemoveRecursiveFolderQuery(['folder', '/shots', 'recursive', 1, 200], '/shots')).toBe(false)
-    expect(shouldRemoveRecursiveFolderQuery(['folder', '/other', 'recursive', 1, 200], '/shots')).toBe(true)
+    expect(shouldRemoveRecursiveFolderQuery(['folder', '/shots', 'recursive'], '/shots')).toBe(false)
+    expect(shouldRemoveRecursiveFolderQuery(['folder', '/other', 'recursive'], '/shots')).toBe(true)
     expect(shouldRemoveRecursiveFolderQuery(['folder', '/shots'], '/shots')).toBe(false)
     expect(shouldRemoveRecursiveFolderQuery(['search', '/shots'], '/shots')).toBe(false)
     expect(shouldRemoveRecursiveFolderQuery('folder', '/shots')).toBe(false)

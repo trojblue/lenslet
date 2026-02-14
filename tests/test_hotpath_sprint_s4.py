@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 import pytest
 from fastapi.testclient import TestClient
@@ -66,22 +66,6 @@ APP_BUILDERS = [
 ]
 
 
-def _assert_recursive_page(
-    payload: dict[str, Any],
-    *,
-    page: int,
-    page_size: int,
-    page_count: int,
-    total_items: int,
-    item_count: int,
-) -> None:
-    assert payload["page"] == page
-    assert payload["pageSize"] == page_size
-    assert payload["pageCount"] == page_count
-    assert payload["totalItems"] == total_items
-    assert len(payload["items"]) == item_count
-
-
 def _assert_local_file_stream_response(response) -> None:
     assert response.status_code == 200
     assert response.headers.get("accept-ranges") == "bytes"
@@ -90,68 +74,38 @@ def _assert_local_file_stream_response(response) -> None:
 
 
 @pytest.mark.parametrize("build_app", APP_BUILDERS)
-def test_recursive_pagination_contract_across_app_modes(tmp_path: Path, build_app: AppBuilder) -> None:
+def test_recursive_full_response_across_app_modes(tmp_path: Path, build_app: AppBuilder) -> None:
     _seed_gallery(tmp_path)
     app, folder_path, _ = build_app(tmp_path)
 
     with TestClient(app) as client:
-        page1_resp = client.get(
-            "/folders",
-            params={"path": folder_path, "recursive": "1", "page": "1", "page_size": "2"},
-        )
-        page2_resp = client.get(
+        resp = client.get(
             "/folders",
             params={"path": folder_path, "recursive": "1", "page": "2", "page_size": "2"},
         )
         legacy_resp = client.get(
             "/folders",
-            params={"path": folder_path, "recursive": "1", "page_size": "2", "legacy_recursive": "1"},
+            params={"path": folder_path, "recursive": "1", "legacy_recursive": "1"},
         )
 
-    assert page1_resp.status_code == 200
-    assert page2_resp.status_code == 200
-    assert legacy_resp.status_code == 400
-
-    page1 = page1_resp.json()
-    page2 = page2_resp.json()
-    legacy = legacy_resp.json()
-
-    _assert_recursive_page(page1, page=1, page_size=2, page_count=2, total_items=3, item_count=2)
-    _assert_recursive_page(page2, page=2, page_size=2, page_count=2, total_items=3, item_count=1)
-
-    page1_paths = [item["path"] for item in page1["items"]]
-    page2_paths = [item["path"] for item in page2["items"]]
-    assert page1_paths == sorted(page1_paths)
-    assert page2_paths == sorted(page2_paths)
-    assert set(page1_paths).isdisjoint(set(page2_paths))
-    assert len(set(page1_paths + page2_paths)) == 3
-
-    assert "legacy_recursive=1 is retired" in legacy["detail"]
-
-
-@pytest.mark.parametrize("build_app", APP_BUILDERS)
-def test_recursive_legacy_rollback_flag_preserves_non_ui_callers(
-    tmp_path: Path,
-    build_app: AppBuilder,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _seed_gallery(tmp_path)
-    app, folder_path, _ = build_app(tmp_path)
-    monkeypatch.setenv("LENSLET_ENABLE_LEGACY_RECURSIVE_ROLLBACK", "1")
-
-    with TestClient(app) as client:
-        legacy_resp = client.get(
-            "/folders",
-            params={"path": folder_path, "recursive": "1", "page_size": "2", "legacy_recursive": "1"},
-        )
-
+    assert resp.status_code == 200
     assert legacy_resp.status_code == 200
+
+    payload = resp.json()
     legacy = legacy_resp.json()
+    assert len(payload["items"]) == 3
     assert len(legacy["items"]) == 3
+    assert payload["page"] is None
+    assert payload["pageSize"] is None
+    assert payload["pageCount"] is None
+    assert payload["totalItems"] is None
     assert legacy["page"] is None
     assert legacy["pageSize"] is None
     assert legacy["pageCount"] is None
     assert legacy["totalItems"] is None
+
+    paths = [item["path"] for item in payload["items"]]
+    assert paths == sorted(paths)
 
 
 @pytest.mark.parametrize("build_app", APP_BUILDERS)

@@ -1,17 +1,15 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { DEFAULT_RECURSIVE_PAGE_SIZE, shouldRemoveRecursiveFolderQuery, useFolder } from '../../shared/api/folders'
+import { shouldRemoveRecursiveFolderQuery, useFolder } from '../../shared/api/folders'
 import { buildCanonicalSearchRequest, useSearch } from '../../shared/api/search'
 import { useEmbeddings } from '../../shared/api/embeddings'
-import { api, cancelBrowseRequests } from '../../shared/api/client'
+import { cancelBrowseRequests } from '../../shared/api/client'
 import { useDebounced } from '../../shared/hooks/useDebounced'
 import { applyFilters, applySort } from '../../features/browse/model/apply'
-import { hydrateFolderPages, type FolderHydrationProgress } from '../../features/browse/model/pagedFolder'
 import { FetchError } from '../../lib/fetcher'
 import {
-  completeBrowseHydration,
-  startBrowseHydration,
-  updateBrowseHydration,
+  completeBrowseLoad,
+  startBrowseLoad,
 } from '../../lib/browseHotpath'
 import type {
   EmbeddingRejected,
@@ -33,8 +31,6 @@ export type SimilarityState = {
   items: EmbeddingSearchItem[]
   createdAt: number
 }
-
-export type BrowseHydrationProgressState = FolderHydrationProgress
 
 type UseAppDataScopeParams = {
   current: string
@@ -69,8 +65,6 @@ type UseAppDataScopeResult = {
   filteredCount: number
   scopeTotal: number
   rootTotal: number
-  browseHydrationPending: boolean
-  browseHydrationProgress: BrowseHydrationProgressState | null
 }
 
 function getEmbeddingsError(isError: boolean, error: unknown): string | null {
@@ -98,16 +92,11 @@ export function useAppDataScope({
     refetch: refetchFirstPage,
     isLoading,
     isError,
-  } = useFolder(current, true, { page: 1, pageSize: DEFAULT_RECURSIVE_PAGE_SIZE })
+  } = useFolder(current, true)
   const [data, setData] = useState<FolderIndex | undefined>()
-  const [browseHydrationProgress, setBrowseHydrationProgress] = useState<BrowseHydrationProgressState | null>(null)
-  const recursiveLoadTokenRef = useRef(0)
+  const loadTokenRef = useRef(0)
   const refetch = useCallback(() => refetchFirstPage(), [refetchFirstPage])
-  const { data: cachedRootRecursive } = useFolder('/', true, {
-    enabled: false,
-    page: 1,
-    pageSize: DEFAULT_RECURSIVE_PAGE_SIZE,
-  })
+  const { data: cachedRootRecursive } = useFolder('/', true, { enabled: false })
 
   useEffect(() => {
     queryClient.removeQueries({
@@ -116,10 +105,10 @@ export function useAppDataScope({
   }, [current, queryClient])
 
   useEffect(() => {
-    recursiveLoadTokenRef.current += 1
+    loadTokenRef.current += 1
+    startBrowseLoad({ requestId: loadTokenRef.current, path: current })
     const cachedSnapshot = getCachedHydratedSnapshot?.(current) ?? null
     setData(cachedSnapshot ?? undefined)
-    setBrowseHydrationProgress(null)
   }, [current, getCachedHydratedSnapshot, sessionResetToken])
 
   useEffect(() => {
@@ -130,71 +119,13 @@ export function useAppDataScope({
 
   useEffect(() => {
     if (!recursiveFirstPage) return
-    const requestId = ++recursiveLoadTokenRef.current
-    let cancelled = false
-    const hasCachedSnapshot = (getCachedHydratedSnapshot?.(recursiveFirstPage.path) ?? null) !== null
-    const onHydrationUpdate = (snapshot: FolderIndex) => {
-      startTransition(() => {
-        setData(snapshot)
-        onFolderHydratedSnapshot?.(snapshot.path, snapshot)
-      })
-    }
-    const initialHydrationProgress: BrowseHydrationProgressState = {
-      loadedPages: recursiveFirstPage.page ?? 1,
-      totalPages: recursiveFirstPage.pageCount ?? 1,
-      loadedItems: recursiveFirstPage.items.length,
-      totalItems: recursiveFirstPage.totalItems ?? recursiveFirstPage.items.length,
-      completed: false,
-    }
-    startBrowseHydration({
-      requestId,
-      path: recursiveFirstPage.path,
-      loadedPages: initialHydrationProgress.loadedPages,
-      totalPages: initialHydrationProgress.totalPages,
-      loadedItems: initialHydrationProgress.loadedItems,
-      totalItems: initialHydrationProgress.totalItems,
+    const requestId = loadTokenRef.current
+    startTransition(() => {
+      setData(recursiveFirstPage)
+      onFolderHydratedSnapshot?.(recursiveFirstPage.path, recursiveFirstPage)
     })
-    setBrowseHydrationProgress(initialHydrationProgress)
-    void hydrateFolderPages(recursiveFirstPage, {
-      defaultPageSize: DEFAULT_RECURSIVE_PAGE_SIZE,
-      fetchPage: (page, pageSize) => api.getFolder(recursiveFirstPage.path, {
-        recursive: true,
-        page,
-        pageSize,
-      }),
-      onUpdate: onHydrationUpdate,
-      onProgress: (progress) => {
-        if (cancelled || recursiveLoadTokenRef.current !== requestId) return
-        startTransition(() => {
-          setBrowseHydrationProgress(progress)
-        })
-        updateBrowseHydration({
-          requestId,
-          path: recursiveFirstPage.path,
-          loadedPages: progress.loadedPages,
-          totalPages: progress.totalPages,
-          loadedItems: progress.loadedItems,
-          totalItems: progress.totalItems,
-        })
-      },
-      shouldContinue: () => !cancelled && recursiveLoadTokenRef.current === requestId,
-      progressiveUpdates: true,
-      progressiveUpdateIntervalMs: recursiveFirstPage.path === '/' ? 60 : 0,
-      progressUpdateIntervalMs: recursiveFirstPage.path === '/' ? 60 : 0,
-      interPageDelayMs: recursiveFirstPage.path === '/' ? 40 : 12,
-      skipInitialUpdateIfPaged: hasCachedSnapshot,
-    }).finally(() => {
-      if (cancelled || recursiveLoadTokenRef.current !== requestId) return
-      completeBrowseHydration(requestId)
-      startTransition(() => {
-        setBrowseHydrationProgress((prev) => (prev ? { ...prev, completed: true } : null))
-      })
-    })
-    return () => {
-      cancelled = true
-      cancelBrowseRequests(['folders'])
-    }
-  }, [getCachedHydratedSnapshot, onFolderHydratedSnapshot, recursiveFirstPage])
+    completeBrowseLoad(requestId)
+  }, [onFolderHydratedSnapshot, recursiveFirstPage])
 
   const similarityActive = similarityState !== null
   const debouncedQ = useDebounced(query, 250)
@@ -256,8 +187,6 @@ export function useAppDataScope({
   const rootTotal = current === '/'
     ? scopeTotal
     : (cachedRootRecursive?.totalItems ?? cachedRootRecursive?.items.length ?? scopeTotal)
-  const browseHydrationPending = !!browseHydrationProgress && !browseHydrationProgress.completed
-
   return {
     data,
     refetch,
@@ -278,7 +207,5 @@ export function useAppDataScope({
     filteredCount,
     scopeTotal,
     rootTotal,
-    browseHydrationPending,
-    browseHydrationProgress,
   }
 }

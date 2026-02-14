@@ -120,6 +120,8 @@ A third risk is cache eviction policy complexity. Recovery is to implement a sim
 - [x] 2026-02-14 00:00Z Plan drafted with explicit preindex-first share requirement, full recursive list response, and temp workspace cache policy based on user confirmation.
 - [x] 2026-02-14 00:30Z Sprint 1 T1-T3: added local preindex builder with signature + Parquet/JSON outputs, gated share startup on preindex completion, and loaded preindex data into table storage when present.
 - [x] 2026-02-14 00:40Z Sprint 1 validation: `python scripts/lint_repo.py` and `pytest -q` (warnings only).
+- [x] 2026-02-14 01:20Z Sprint 2 T4-T6: `/folders?recursive=1` now returns the full list (no pagination), frontend recursive hydration removed in favor of single fetch + simple loading state, and hotpath telemetry updated; related tests rewritten.
+- [x] 2026-02-14 01:30Z Sprint 2 validation: `python scripts/lint_repo.py` and `pytest` (warnings only, same as baseline).
 
 
 ## Artifacts and Handoff
@@ -131,5 +133,6 @@ Current implementation notes:
 - Preindex outputs live under `<dataset>/.lenslet/preindex/` (or `/tmp/lenslet/<dataset-signature>/preindex/` when the dataset workspace is not writable).
 - Payload files: `items.parquet` when `pyarrow` is available, otherwise `items.json`; metadata stored in `meta.json` with signature/version/row count.
 - Signature is SHA-256 over the dataset root path plus sorted `(relative_path, size, mtime_ns)` tuples.
+- Recursive browsing now returns the full list in one response; pagination metadata (`page`, `pageSize`, `pageCount`, `totalItems`) is always `null` for recursive requests, and the UI no longer hydrates additional pages.
 
 Plan revision note: this plan supersedes the previous browse-responsiveness approach by making preindex mandatory before share URLs, removing recursive pagination, and unifying “no-write” into temp workspace caching.

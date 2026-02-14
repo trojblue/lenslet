@@ -230,12 +230,9 @@ def test_refresh_invalidates_recursive_cache_for_ancestor_scope(
     app = create_app(str(root))
     client = TestClient(app)
 
-    first = client.get(
-        "/folders",
-        params={"path": "/gallery", "recursive": "1", "page_size": "1"},
-    )
+    first = client.get("/folders", params={"path": "/gallery", "recursive": "1"})
     assert first.status_code == 200
-    assert first.json()["totalItems"] == 2
+    assert len(first.json()["items"]) == 2
     assert collect_calls["count"] == 1
 
     _make_image(root / "gallery" / "child" / "c.jpg")
@@ -243,10 +240,7 @@ def test_refresh_invalidates_recursive_cache_for_ancestor_scope(
     assert refresh.status_code == 200
     assert refresh.json()["ok"] is True
 
-    second = client.get(
-        "/folders",
-        params={"path": "/gallery", "recursive": "1", "page_size": "1"},
-    )
+    second = client.get("/folders", params={"path": "/gallery", "recursive": "1"})
     assert second.status_code == 200
-    assert second.json()["totalItems"] == 3
+    assert len(second.json()["items"]) == 3
     assert collect_calls["count"] == 2

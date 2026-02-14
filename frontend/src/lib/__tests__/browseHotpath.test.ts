@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  completeBrowseHydration,
   getBrowseHotpathSnapshot,
   markFirstGridItemVisible,
   markFirstThumbnailRendered,
   reportBrowseRequestBudget,
   resetBrowseHotpathForTests,
-  startBrowseHydration,
-  updateBrowseHydration,
+  startBrowseLoad,
 } from '../browseHotpath'
 
 beforeEach(() => {
@@ -15,56 +13,10 @@ beforeEach(() => {
 })
 
 describe('browse hotpath instrumentation', () => {
-  it('records hydration progress and completion', () => {
-    startBrowseHydration({
-      requestId: 7,
-      path: '/',
-      loadedPages: 1,
-      totalPages: 4,
-      loadedItems: 200,
-      totalItems: 800,
-    })
-
-    let snapshot = getBrowseHotpathSnapshot()
-    expect(snapshot.hydration).toMatchObject({
-      requestId: 7,
-      path: '/',
-      loadedPages: 1,
-      totalPages: 4,
-      loadedItems: 200,
-      totalItems: 800,
-      completed: false,
-    })
-
-    updateBrowseHydration({
-      requestId: 7,
-      path: '/',
-      loadedPages: 2,
-      totalPages: 4,
-      loadedItems: 400,
-      totalItems: 800,
-    })
-    completeBrowseHydration(7)
-
-    snapshot = getBrowseHotpathSnapshot()
-    expect(snapshot.hydration).toMatchObject({
-      requestId: 7,
-      loadedPages: 2,
-      totalPages: 4,
-      loadedItems: 400,
-      totalItems: 800,
-      completed: true,
-    })
-  })
-
-  it('captures first-thumbnail latency once per hydration request', () => {
-    startBrowseHydration({
+  it('captures first-thumbnail latency once per browse request', () => {
+    startBrowseLoad({
       requestId: 9,
       path: '/gallery',
-      loadedPages: 1,
-      totalPages: 1,
-      loadedItems: 20,
-      totalItems: 20,
     })
 
     markFirstThumbnailRendered('/gallery/a.jpg')
@@ -76,14 +28,10 @@ describe('browse hotpath instrumentation', () => {
     expect((snapshot.firstThumbnailLatencyMs ?? -1) >= 0).toBe(true)
   })
 
-  it('captures first-grid-item latency once per hydration request', () => {
-    startBrowseHydration({
+  it('captures first-grid-item latency once per browse request', () => {
+    startBrowseLoad({
       requestId: 12,
       path: '/',
-      loadedPages: 1,
-      totalPages: 5,
-      loadedItems: 200,
-      totalItems: 1_000,
     })
 
     markFirstGridItemVisible('/root/a.jpg')

@@ -54,7 +54,7 @@ import {
   getSimilarityQueryLabel,
   hasMetricSortValues,
 } from './model/appShellSelectors'
-import { shouldShowGridHydrationLoading } from './model/loadingState'
+import { shouldShowGridLoading } from './model/loadingState'
 import {
   downloadBlob,
   formatScopeLabel,
@@ -216,8 +216,6 @@ export default function AppShell() {
     filteredCount,
     scopeTotal,
     rootTotal,
-    browseHydrationPending,
-    browseHydrationProgress,
   } = useAppDataScope({
     current,
     query,
@@ -561,12 +559,11 @@ export default function AppShell() {
     () => getSimilarityCountLabel(similarityState !== null, activeFilterCount, filteredCount, totalCount),
     [similarityState, activeFilterCount, filteredCount, totalCount],
   )
-  const showGridHydrationLoading = shouldShowGridHydrationLoading({
+  const showGridLoading = shouldShowGridLoading({
     similarityActive,
     searching,
     itemCount: items.length,
     isLoading,
-    browseHydrationPending,
   })
 
   const updateFilters = useCallback((updater: (filters: FilterAST) => FilterAST) => {
@@ -1310,8 +1307,7 @@ export default function AppShell() {
             onOpenItemActions={openGridActions}
             scrollRef={gridScrollRef}
             hideScrollbar={hasMetricScrollbar}
-            isHydrationLoading={showGridHydrationLoading}
-            hydrationProgress={browseHydrationProgress}
+            isLoading={showGridLoading}
           />
           {hasMetricScrollbar && metricSortKey && (
             <MetricScrollbar

@@ -465,14 +465,10 @@ function postPresenceJSON<TResponse>(path: string, payload: unknown): Promise<TR
 
 export type GetFolderOptions = {
   recursive?: boolean
-  page?: number
-  pageSize?: number
 }
 
 export function buildFolderQuery(path: string, options?: GetFolderOptions): string {
   const params = new URLSearchParams({ path })
-  if (options?.page != null) params.set('page', String(options.page))
-  if (options?.pageSize != null) params.set('page_size', String(options.pageSize))
   if (options?.recursive) params.set('recursive', '1')
   return params.toString()
 }
@@ -485,7 +481,7 @@ export const api = {
   /**
    * Fetch folder contents by path.
    * @param path - Folder path
-   * @param options - Recursive/pagination options
+   * @param options - Recursive options
    */
   getFolder: (path: string, options?: GetFolderOptions): Promise<FolderIndex> => {
     return runWithRequestBudget('folders', () =>

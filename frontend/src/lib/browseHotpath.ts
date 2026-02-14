@@ -10,24 +10,12 @@ export type BrowseRequestBudgetSnapshot = {
   updatedAtMs: number
 }
 
-export type BrowseHydrationSnapshot = {
-  requestId: number
-  path: string
-  loadedPages: number
-  totalPages: number
-  loadedItems: number
-  totalItems: number
-  completed: boolean
-  updatedAtMs: number
-}
-
 export type BrowseHotpathSnapshot = {
   firstGridItemLatencyMs: number | null
   firstGridItemPath: string | null
   firstThumbnailLatencyMs: number | null
   firstThumbnailPath: string | null
   requestBudget: BrowseRequestBudgetSnapshot | null
-  hydration: BrowseHydrationSnapshot | null
 }
 
 declare global {
@@ -37,8 +25,8 @@ declare global {
 }
 
 const MARKERS = {
-  hydrationStart: (requestId: number) => `lenslet:browse:hydration:start:${requestId}`,
-  hydrationComplete: (requestId: number) => `lenslet:browse:hydration:complete:${requestId}`,
+  browseStart: (requestId: number) => `lenslet:browse:load:start:${requestId}`,
+  browseComplete: (requestId: number) => `lenslet:browse:load:complete:${requestId}`,
   firstGrid: (requestId: number) => `lenslet:browse:first-grid:${requestId}`,
   firstGridLatency: (requestId: number) => `lenslet:browse:first-grid-latency:${requestId}`,
   firstThumb: (requestId: number) => `lenslet:browse:first-thumb:${requestId}`,
@@ -47,24 +35,22 @@ const MARKERS = {
 
 type TelemetryState = {
   activeRequestId: number | null
-  activeHydrationStartedAtMs: number | null
+  activeLoadStartedAtMs: number | null
   firstGridItemLatencyMs: number | null
   firstGridItemPath: string | null
   firstThumbnailLatencyMs: number | null
   firstThumbnailPath: string | null
   requestBudget: BrowseRequestBudgetSnapshot | null
-  hydration: BrowseHydrationSnapshot | null
 }
 
 const telemetryState: TelemetryState = {
   activeRequestId: null,
-  activeHydrationStartedAtMs: null,
+  activeLoadStartedAtMs: null,
   firstGridItemLatencyMs: null,
   firstGridItemPath: null,
   firstThumbnailLatencyMs: null,
   firstThumbnailPath: null,
   requestBudget: null,
-  hydration: null,
 }
 
 function nowMs(): number {
@@ -104,7 +90,6 @@ export function getBrowseHotpathSnapshot(): BrowseHotpathSnapshot {
     firstThumbnailLatencyMs: telemetryState.firstThumbnailLatencyMs,
     firstThumbnailPath: telemetryState.firstThumbnailPath,
     requestBudget: telemetryState.requestBudget ? { ...telemetryState.requestBudget } : null,
-    hydration: telemetryState.hydration ? { ...telemetryState.hydration } : null,
   }
 }
 
@@ -113,57 +98,31 @@ export function reportBrowseRequestBudget(snapshot: BrowseRequestBudgetSnapshot)
   publish()
 }
 
-type HydrationProgressInput = {
+type BrowseLoadInput = {
   requestId: number
   path: string
-  loadedPages: number
-  totalPages: number
-  loadedItems: number
-  totalItems: number
 }
 
-export function startBrowseHydration(input: HydrationProgressInput): void {
+export function startBrowseLoad(input: BrowseLoadInput): void {
   telemetryState.activeRequestId = input.requestId
-  telemetryState.activeHydrationStartedAtMs = nowMs()
+  telemetryState.activeLoadStartedAtMs = nowMs()
   telemetryState.firstGridItemLatencyMs = null
   telemetryState.firstGridItemPath = null
   telemetryState.firstThumbnailLatencyMs = null
   telemetryState.firstThumbnailPath = null
-  telemetryState.hydration = {
-    ...input,
-    completed: false,
-    updatedAtMs: nowMs(),
-  }
-  mark(MARKERS.hydrationStart(input.requestId))
+  mark(MARKERS.browseStart(input.requestId))
   publish()
 }
 
-export function updateBrowseHydration(input: HydrationProgressInput): void {
-  if (telemetryState.activeRequestId !== input.requestId) return
-  telemetryState.hydration = {
-    ...input,
-    completed: false,
-    updatedAtMs: nowMs(),
-  }
-  publish()
-}
-
-export function completeBrowseHydration(requestId: number): void {
+export function completeBrowseLoad(requestId: number): void {
   if (telemetryState.activeRequestId !== requestId) return
-  if (telemetryState.hydration) {
-    telemetryState.hydration = {
-      ...telemetryState.hydration,
-      completed: true,
-      updatedAtMs: nowMs(),
-    }
-  }
-  mark(MARKERS.hydrationComplete(requestId))
+  mark(MARKERS.browseComplete(requestId))
   publish()
 }
 
 export function markFirstGridItemVisible(path: string): void {
   const requestId = telemetryState.activeRequestId
-  const startMs = telemetryState.activeHydrationStartedAtMs
+  const startMs = telemetryState.activeLoadStartedAtMs
   if (requestId == null || startMs == null) return
   if (telemetryState.firstGridItemLatencyMs != null) return
   const latency = Math.max(0, nowMs() - startMs)
@@ -171,13 +130,13 @@ export function markFirstGridItemVisible(path: string): void {
   telemetryState.firstGridItemPath = path
   const endMarker = MARKERS.firstGrid(requestId)
   mark(endMarker)
-  measure(MARKERS.firstGridLatency(requestId), MARKERS.hydrationStart(requestId), endMarker)
+  measure(MARKERS.firstGridLatency(requestId), MARKERS.browseStart(requestId), endMarker)
   publish()
 }
 
 export function markFirstThumbnailRendered(path: string): void {
   const requestId = telemetryState.activeRequestId
-  const startMs = telemetryState.activeHydrationStartedAtMs
+  const startMs = telemetryState.activeLoadStartedAtMs
   if (requestId == null || startMs == null) return
   if (telemetryState.firstThumbnailLatencyMs != null) return
   const latency = Math.max(0, nowMs() - startMs)
@@ -185,19 +144,18 @@ export function markFirstThumbnailRendered(path: string): void {
   telemetryState.firstThumbnailPath = path
   const endMarker = MARKERS.firstThumb(requestId)
   mark(endMarker)
-  measure(MARKERS.firstThumbLatency(requestId), MARKERS.hydrationStart(requestId), endMarker)
+  measure(MARKERS.firstThumbLatency(requestId), MARKERS.browseStart(requestId), endMarker)
   publish()
 }
 
 export function resetBrowseHotpathForTests(): void {
   telemetryState.activeRequestId = null
-  telemetryState.activeHydrationStartedAtMs = null
+  telemetryState.activeLoadStartedAtMs = null
   telemetryState.firstGridItemLatencyMs = null
   telemetryState.firstGridItemPath = null
   telemetryState.firstThumbnailLatencyMs = null
   telemetryState.firstThumbnailPath = null
   telemetryState.requestBudget = null
-  telemetryState.hydration = null
   publish()
 }
 

@@ -12,7 +12,7 @@ import {
 } from '../../shared/api/client'
 import type { ConnectionStatus, SyncEvent } from '../../shared/api/client'
 import { sidecarQueryKey, updateConflictFromServer } from '../../shared/api/items'
-import type { Item, PresenceEvent, Sidecar, StarRating } from '../../lib/types'
+import type { HealthMode, Item, PresenceEvent, Sidecar, StarRating } from '../../lib/types'
 import { FetchError } from '../../lib/fetcher'
 import { formatAbsoluteTime, formatRelativeTime, parseTimestampMs } from '../../lib/util'
 import {
@@ -68,6 +68,7 @@ type UseAppPresenceSyncResult = {
   hasEdits: boolean
   lastEditedLabel: string
   persistenceEnabled: boolean
+  healthMode: HealthMode | null
   indexing: HealthIndexing | null
   compareExportCapability: CompareExportCapability
   highlightedPaths: Map<string, string>
@@ -134,6 +135,7 @@ export function useAppPresenceSync({
   const [recentEditActive, setRecentEditActive] = useState(false)
   const [lastEditedNow, setLastEditedNow] = useState(() => Date.now())
   const [persistenceEnabled, setPersistenceEnabled] = useState(true)
+  const [healthMode, setHealthMode] = useState<HealthMode | null>(null)
   const [indexing, setIndexing] = useState<HealthIndexing | null>(null)
   const [compareExportCapability, setCompareExportCapability] = useState<CompareExportCapability>(
     DEFAULT_COMPARE_EXPORT_CAPABILITY,
@@ -469,6 +471,8 @@ export function useAppPresenceSync({
         if (cancelled) return
 
         setPersistenceEnabled(health?.labels?.enabled ?? true)
+        const nextMode = health?.mode ?? null
+        setHealthMode(nextMode)
         const nextIndexing = normalizeHealthIndexing(health?.indexing)
         setIndexing((prev) => (indexingEquals(prev, nextIndexing) ? prev : nextIndexing))
         const nextCompareExportCapability = normalizeHealthCompareExport(health?.compare_export)
@@ -521,6 +525,7 @@ export function useAppPresenceSync({
     hasEdits,
     lastEditedLabel,
     persistenceEnabled,
+    healthMode,
     indexing,
     compareExportCapability,
     highlightedPaths,

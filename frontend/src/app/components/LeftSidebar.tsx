@@ -17,7 +17,7 @@ type LeftSidebarProps = {
   data?: FolderIndex
   onOpenFolder: (path: string) => void
   onOpenFolderActions: (path: string, anchor: { x: number; y: number }) => void
-  onPullRefreshFolders: () => Promise<void>
+  onPullRefreshFolders?: () => Promise<void>
   onContextMenu: (event: MouseEvent, path: string) => void
   countVersion: number
   items: Item[]

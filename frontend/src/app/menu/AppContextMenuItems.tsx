@@ -11,12 +11,36 @@ interface AppContextMenuItemsProps {
   current: string
   items: Item[]
   setCtx: (ctx: ContextMenuState | null) => void
+  refreshEnabled: boolean
   onRefetch: () => Promise<unknown>
   onOpenMoveDialog: (paths: string[]) => void
   onRefreshFolder: (path: string) => Promise<void>
 }
 
 type ExportFormat = 'csv' | 'json'
+
+export const READONLY_REFRESH_LABEL = 'Refresh unavailable in read-only mode'
+
+type RefreshMenuItemParams = {
+  refreshing: boolean
+  refreshEnabled: boolean
+  onRefresh: () => void
+}
+
+export function buildRefreshMenuItem({
+  refreshing,
+  refreshEnabled,
+  onRefresh,
+}: RefreshMenuItemParams): MenuItem {
+  const label = refreshEnabled
+    ? (refreshing ? 'Refreshing…' : 'Refresh')
+    : READONLY_REFRESH_LABEL
+  return {
+    label,
+    disabled: !refreshEnabled || refreshing,
+    onClick: onRefresh,
+  }
+}
 
 function getExportMime(format: ExportFormat): string {
   return format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8'
@@ -41,6 +65,7 @@ export default function AppContextMenuItems({
   current,
   items,
   setCtx,
+  refreshEnabled,
   onRefetch,
   onOpenMoveDialog,
   onRefreshFolder,
@@ -166,11 +191,7 @@ export default function AppContextMenuItems({
 
   const menuItems: MenuItem[] = ctx.kind === 'tree'
     ? [
-        {
-          label: refreshing ? 'Refreshing…' : 'Refresh',
-          disabled: refreshing,
-          onClick: handleRefresh,
-        },
+        buildRefreshMenuItem({ refreshing, refreshEnabled, onRefresh: handleRefresh }),
         {
           label: exporting === 'csv' ? 'Exporting CSV…' : 'Export metadata (CSV)',
           disabled: Boolean(exporting) || refreshing,

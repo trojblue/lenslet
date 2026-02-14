@@ -102,7 +102,7 @@ Rejecting previously accepted query params may break external callers that depen
 
 - [x] 2026-02-14: Plan drafted; approvals for `/folders` rejection assumed per execution request (refresh UX changes still pending for S2).
 - [x] 2026-02-14: Sprint S1 complete (T1-T2) — `/folders` rejects unsupported params, tests/docs updated. Validation: `pytest tests/test_folder_recursive.py`, `rg -n "legacy_recursive.*rollback" docs/20260213_browse_responsiveness_execution_plan.md`, `python scripts/lint_repo.py`.
-- [ ] 2026-02-14: Sprint S2 start placeholder and handoff notes.
+- [x] 2026-02-14: Sprint S2 complete (T3-T4) — UI refresh actions reflect `health.mode`, disabled in dataset/table modes with read-only label, pull-to-refresh gated, unit test added. Validation: `cd frontend && npm run test -- src/app/menu/__tests__/AppContextMenuItems.test.tsx`, `pytest tests/test_refresh.py`. Diffstat: `git diff --stat`.
 
 Sprint S1 handoff notes (2026-02-14):
 - `/folders` now rejects `page`, `page_size`, and `legacy_recursive` with `unsupported_query_params`; recursive responses remain full-list with null pagination fields.
@@ -111,8 +111,14 @@ Sprint S1 handoff notes (2026-02-14):
 - Code-simplifier scan (Tier 1) found no must-apply cleanup; no changes applied.
 - Code-review subagent was unresponsive; manual review found no actionable issues.
 
+Sprint S2 handoff notes (2026-02-14):
+- `health.mode` is surfaced via `useAppPresenceSync` and used in `AppShell` to gate refresh availability (enabled for `memory`, disabled for `dataset`/`table`).
+- Folder tree pull-to-refresh is disabled in static modes; context menu refresh action now shows “Refresh unavailable in read-only mode”.
+- Added `frontend/src/app/menu/__tests__/AppContextMenuItems.test.tsx` to lock refresh menu labeling/disabled behavior.
+- Code-simplifier Tier 1 cleanup applied (refresh menu helper/health mode setter simplification). Code-review found no actionable issues.
+
 
 ## Artifacts and Handoff
 
 
-Primary artifact is this plan at `docs/20260214_medium_tier_simplification_plan.md`. Key files likely to change include `src/lenslet/server_routes_common.py`, `src/lenslet/server_browse.py`, `src/lenslet/server_factory.py`, `frontend/src/app/hooks/useAppPresenceSync.ts`, `frontend/src/app/AppShell.tsx`, `frontend/src/app/menu/AppContextMenuItems.tsx`, `tests/test_folder_recursive.py`, `tests/test_refresh.py`, and `docs/20260213_browse_responsiveness_execution_plan.md`.
+Primary artifact is this plan at `docs/20260214_medium_tier_simplification_plan.md`. Key files likely to change include `src/lenslet/server_routes_common.py`, `src/lenslet/server_browse.py`, `src/lenslet/server_factory.py`, `frontend/src/app/hooks/useAppPresenceSync.ts`, `frontend/src/app/AppShell.tsx`, `frontend/src/app/components/LeftSidebar.tsx`, `frontend/src/app/menu/AppContextMenuItems.tsx`, `frontend/src/app/menu/__tests__/AppContextMenuItems.test.tsx`, `frontend/src/lib/types.ts`, `tests/test_folder_recursive.py`, `tests/test_refresh.py`, and `docs/20260213_browse_responsiveness_execution_plan.md`.

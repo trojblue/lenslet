@@ -23,3 +23,21 @@ Blockers:
 - code-review subagent unresponsive; manual review performed (no issues found).
 Next step:
 - Sprint S2: wire `health.mode` to UI state and disable/annotate refresh in dataset/table modes (T3/T4).
+
+## Iteration 2 (2026-02-14)
+Completed: T3, T4 (Sprint S2)
+Files changed:
+- docs/20260214_medium_tier_simplification_plan.md
+- frontend/src/app/AppShell.tsx
+- frontend/src/app/components/LeftSidebar.tsx
+- frontend/src/app/hooks/useAppPresenceSync.ts
+- frontend/src/app/menu/AppContextMenuItems.tsx
+- frontend/src/app/menu/__tests__/AppContextMenuItems.test.tsx
+- frontend/src/lib/types.ts
+Validations:
+- cd frontend && npm run test -- src/app/menu/__tests__/AppContextMenuItems.test.tsx (pass)
+- pytest tests/test_refresh.py (pass)
+Blockers:
+- None.
+Next step:
+- All sprints complete. Run final acceptance checks if desired, then close out the plan.

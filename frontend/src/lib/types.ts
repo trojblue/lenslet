@@ -82,8 +82,11 @@ export type PresenceEvent = {
   editing: number
 }
 
+export type HealthMode = 'memory' | 'table' | 'dataset'
+
 export type HealthResponse = {
   ok: boolean
+  mode?: HealthMode
   compare_export?: {
     supported_versions?: number[]
     max_paths_v2?: number | null

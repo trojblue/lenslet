@@ -361,6 +361,7 @@ export default function AppShell() {
     hasEdits,
     lastEditedLabel,
     persistenceEnabled,
+    healthMode,
     indexing,
     compareExportCapability,
     highlightedPaths,
@@ -377,6 +378,8 @@ export default function AppShell() {
     updateItemCaches,
     setLocalStarOverrides,
   })
+
+  const refreshEnabled = healthMode !== 'dataset' && healthMode !== 'table'
 
   useEffect(() => {
     const nextScanGeneration = captureScanGeneration(scanGeneration, indexing)
@@ -457,6 +460,7 @@ export default function AppShell() {
   }, [queryClient])
 
   const refreshFolderPath = useCallback(async (path: string) => {
+    if (!refreshEnabled) return
     const target = normalizeRefreshPath(path)
     await api.refreshFolder(target)
     invalidateFolderSubtree(target)
@@ -477,15 +481,17 @@ export default function AppShell() {
     invalidateFolderSubtree,
     normalizeRefreshPath,
     refetch,
+    refreshEnabled,
   ])
 
   const handlePullRefreshFolders = useCallback(async () => {
+    if (!refreshEnabled) return
     try {
       await refreshFolderPath(current)
     } catch (err) {
       console.error('Failed to refresh folder:', err)
     }
-  }, [current, refreshFolderPath])
+  }, [current, refreshEnabled, refreshFolderPath])
 
   // Compute star counts for the filter UI
   const starCounts = useMemo(() => {
@@ -1200,7 +1206,7 @@ export default function AppShell() {
           data={data}
           onOpenFolder={(p) => { setActiveViewId(null); openFolder(p) }}
           onOpenFolderActions={openFolderActions}
-          onPullRefreshFolders={handlePullRefreshFolders}
+          onPullRefreshFolders={refreshEnabled ? handlePullRefreshFolders : undefined}
           onContextMenu={(e, p) => {
             e.preventDefault()
             openFolderActions(p, { x: e.clientX, y: e.clientY })
@@ -1399,6 +1405,7 @@ export default function AppShell() {
           current={current}
           items={items}
           setCtx={setCtx}
+          refreshEnabled={refreshEnabled}
           onRefetch={refetch}
           onOpenMoveDialog={openMoveDialogForPaths}
           onRefreshFolder={refreshFolderPath}

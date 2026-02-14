@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from bisect import bisect_left, bisect_right
 from threading import Lock
 from dataclasses import dataclass, field
 from typing import Any
@@ -64,6 +65,7 @@ from .table_probe import (
     parse_content_range,
     probe_remote_dimensions,
 )
+from .search_text import normalize_search_path
 
 # S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
 # - T9 schema/path extraction: _resolve_source_column/_compute_s3_prefixes/_compute_local_prefix.
@@ -224,6 +226,8 @@ class TableStorage:
         self._s3_session: Any | None = None
         self._s3_client: Any | None = None
         self._s3_client_creations = 0
+        self._sorted_paths: list[str] = []
+        self._sorted_items: list[CachedItem] = []
 
         columns, data, row_count = self._table_to_columns(table)
         if row_count == 0:
@@ -255,6 +259,7 @@ class TableStorage:
                 break
 
         self._build_indexes()
+        self._build_path_index()
         self._browse_signature = self._compute_browse_signature()
 
     def _compute_browse_signature(self) -> str:
@@ -377,6 +382,11 @@ class TableStorage:
     def _build_indexes(self) -> None:
         build_table_indexes(self, item_factory=CachedItem, index_factory=CachedIndex)
 
+    def _build_path_index(self) -> None:
+        paths = sorted(self._items.keys())
+        self._sorted_paths = paths
+        self._sorted_items = [self._items[path] for path in paths]
+
     def _extract_metrics(self, row_idx: int) -> dict[str, float]:
         return extract_row_metrics(self, row_idx)
 
@@ -462,6 +472,24 @@ class TableStorage:
 
     def browse_cache_signature(self) -> str:
         return self._browse_signature
+
+    def items_in_scope(self, path: str) -> list[CachedItem]:
+        scope_norm = normalize_search_path(path)
+        if not scope_norm:
+            return list(self._sorted_items)
+        prefix = f"{scope_norm}/"
+        start = bisect_left(self._sorted_paths, prefix)
+        end = bisect_right(self._sorted_paths, prefix + "\uffff")
+        return list(self._sorted_items[start:end])
+
+    def count_in_scope(self, path: str) -> int:
+        scope_norm = normalize_search_path(path)
+        if not scope_norm:
+            return len(self._sorted_items)
+        prefix = f"{scope_norm}/"
+        start = bisect_left(self._sorted_paths, prefix)
+        end = bisect_right(self._sorted_paths, prefix + "\uffff")
+        return max(0, end - start)
 
     def row_dimensions(self) -> list[tuple[int, int] | None]:
         return list(self._row_dimensions)

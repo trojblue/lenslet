@@ -213,6 +213,60 @@ def _collect_recursive_cached_items(
     return [cached for _, cached in items], total_items
 
 
+def _recursive_index_getter(storage) -> Callable[[str], Any]:
+    getter = getattr(storage, "get_index_for_recursive", None)
+    if callable(getter):
+        return getter
+    return storage.get_index
+
+
+def _collect_recursive_count(
+    storage,
+    root_path: str,
+    root_index: Any,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+) -> int:
+    queue: deque[tuple[str, Any]] = deque([(_canonical_path(root_path), root_index)])
+    seen_folders: set[str] = set()
+    seen_items: set[str] = set()
+    total_items = 0
+    get_index = _recursive_index_getter(storage)
+
+    while queue:
+        if cancelled is not None and cancelled():
+            break
+        folder_path, folder_index = queue.popleft()
+        if folder_path in seen_folders:
+            continue
+        seen_folders.add(folder_path)
+
+        for cached in folder_index.items:
+            if cancelled is not None and cancelled():
+                break
+            item_path = _canonical_path(getattr(cached, "path", ""))
+            if item_path in seen_items:
+                continue
+            seen_items.add(item_path)
+            total_items += 1
+
+        for child_name in folder_index.dirs:
+            if cancelled is not None and cancelled():
+                break
+            child_path = _child_folder_path(folder_path, child_name)
+            if child_path in seen_folders:
+                continue
+            try:
+                child_index = get_index(child_path)
+            except (FileNotFoundError, ValueError):
+                continue
+            if child_index is None:
+                continue
+            queue.append((child_path, child_index))
+
+    return total_items
+
+
 def _recursive_cache_generation_token(storage) -> str:
     parts: list[str] = []
     signature_fn = getattr(storage, "browse_cache_signature", None)
@@ -245,6 +299,7 @@ def _load_or_build_recursive_snapshots(
     *,
     sort_mode: str,
     browse_cache: RecursiveBrowseCache,
+    defer_persist: bool = False,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
     generation_token = _recursive_cache_generation_token(storage)
@@ -289,6 +344,7 @@ def _load_or_build_recursive_snapshots(
             sort_mode,
             generation_token,
             snapshots,
+            defer_persist=defer_persist,
         )
         if hotpath_metrics is not None and wrote_persisted:
             hotpath_metrics.increment("folders_recursive_cache_persist_write_total")
@@ -315,6 +371,9 @@ def warm_recursive_cache(
 ) -> int:
     if browse_cache is None:
         return 0
+    scope_count = getattr(storage, "count_in_scope", None)
+    if callable(scope_count):
+        return int(scope_count(path))
     try:
         root_index = storage.get_index(path)
     except (FileNotFoundError, ValueError):
@@ -326,6 +385,7 @@ def warm_recursive_cache(
         root_index,
         sort_mode=RECURSIVE_SORT_MODE_SCAN,
         browse_cache=browse_cache,
+        defer_persist=False,
         hotpath_metrics=hotpath_metrics,
     )
     return total_items
@@ -336,11 +396,18 @@ def _build_folder_index(
     path: str,
     to_item,
     recursive: bool = False,
+    count_only: bool = False,
     browse_cache: RecursiveBrowseCache | None = None,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> FolderIndex:
     try:
-        index = storage.get_index(path)
+        if count_only:
+            getter = _recursive_index_getter(storage)
+            index = getter(path)
+            if index is None:
+                raise FileNotFoundError(path)
+        else:
+            index = storage.get_index(path)
     except ValueError:
         raise HTTPException(400, "invalid path")
     except FileNotFoundError:
@@ -351,13 +418,31 @@ def _build_folder_index(
             hotpath_metrics.increment("folders_recursive_requests_total")
         traversal_started = time.perf_counter()
         canonical_path = _canonical_path(path)
-        if browse_cache is not None:
+        scope_items = getattr(storage, "items_in_scope", None)
+        scope_count = getattr(storage, "count_in_scope", None)
+        if callable(scope_items):
+            if count_only and callable(scope_count):
+                total_items = int(scope_count(canonical_path))
+                items = []
+            else:
+                cached_items = scope_items(canonical_path)
+                total_items = len(cached_items)
+                items = [] if count_only else [to_item(storage, it) for it in cached_items]
+        elif count_only:
+            total_items = _collect_recursive_count(
+                storage,
+                canonical_path,
+                index,
+            )
+            items = []
+        elif browse_cache is not None:
             snapshots, total_items = _load_or_build_recursive_snapshots(
                 storage,
                 canonical_path,
                 index,
                 sort_mode=RECURSIVE_SORT_MODE_SCAN,
                 browse_cache=browse_cache,
+                defer_persist=True,
                 hotpath_metrics=hotpath_metrics,
             )
             items = [to_item(storage, snapshot) for snapshot in snapshots]
@@ -375,7 +460,12 @@ def _build_folder_index(
             )
             hotpath_metrics.increment("folders_recursive_items_total", total_items)
     else:
-        items = [to_item(storage, it) for it in index.items]
+        if count_only:
+            total_items = len(getattr(index, "items", []) or [])
+            items = []
+        else:
+            items = [to_item(storage, it) for it in index.items]
+            total_items = None
 
     dirs = [DirEntry(name=d, kind="branch") for d in sorted(index.dirs)]
 
@@ -387,7 +477,7 @@ def _build_folder_index(
         page=None,
         pageSize=None,
         pageCount=None,
-        totalItems=None,
+        totalItems=total_items if count_only else None,
     )
 
 

@@ -465,11 +465,13 @@ function postPresenceJSON<TResponse>(path: string, payload: unknown): Promise<TR
 
 export type GetFolderOptions = {
   recursive?: boolean
+  countOnly?: boolean
 }
 
 export function buildFolderQuery(path: string, options?: GetFolderOptions): string {
   const params = new URLSearchParams({ path })
   if (options?.recursive) params.set('recursive', '1')
+  if (options?.countOnly) params.set('count_only', '1')
   return params.toString()
 }
 
@@ -486,6 +488,17 @@ export const api = {
   getFolder: (path: string, options?: GetFolderOptions): Promise<FolderIndex> => {
     return runWithRequestBudget('folders', () =>
       fetchJSON<FolderIndex>(`${BASE}/folders?${buildFolderQuery(path, options)}`),
+    ).promise
+  },
+
+  /**
+   * Fetch recursive folder count only (no items payload).
+   */
+  getFolderCount: (path: string): Promise<FolderIndex> => {
+    return runWithRequestBudget('folders', () =>
+      fetchJSON<FolderIndex>(
+        `${BASE}/folders?${buildFolderQuery(path, { recursive: true, countOnly: true })}`,
+      ),
     ).promise
   },
 

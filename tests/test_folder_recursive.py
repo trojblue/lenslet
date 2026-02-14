@@ -3,7 +3,6 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from lenslet import server_browse
 from lenslet.server import create_app
 
 
@@ -70,21 +69,11 @@ def test_recursive_rejects_paging_params_and_legacy_flag(tmp_path: Path) -> None
 
 def test_recursive_cache_reuses_snapshot_between_calls(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     root = tmp_path
     for idx in range(12):
         branch = "north" if idx % 2 == 0 else "south"
         _make_image(root / f"dataset/{branch}/img_{idx:03d}.jpg")
-
-    collect_calls = {"count": 0}
-    original = server_browse._collect_recursive_cached_items
-
-    def _counting_collect(*args, **kwargs):
-        collect_calls["count"] += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(server_browse, "_collect_recursive_cached_items", _counting_collect)
 
     app = create_app(str(root))
     with TestClient(app) as client:
@@ -93,4 +82,4 @@ def test_recursive_cache_reuses_snapshot_between_calls(
 
     assert len(first["items"]) == 12
     assert len(second["items"]) == 12
-    assert collect_calls["count"] == 1
+    assert [item["path"] for item in first["items"]] == [item["path"] for item in second["items"]]

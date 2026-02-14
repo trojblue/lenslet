@@ -60,6 +60,7 @@ def register_folder_route(
         request: Request,
         path: str = "/",
         recursive: bool = False,
+        count_only: bool = False,
     ):
         unsupported = [
             name
@@ -68,7 +69,7 @@ def register_folder_route(
         ]
         if unsupported:
             unsupported_list = ", ".join(unsupported)
-            supported_list = ", ".join(("path", "recursive"))
+            supported_list = ", ".join(("path", "recursive", "count_only"))
             return _server._error_response(
                 400,
                 "unsupported_query_params",
@@ -82,6 +83,7 @@ def register_folder_route(
             _server._canonical_path(path),
             to_item,
             recursive=recursive,
+            count_only=count_only,
             browse_cache=browse_cache,
             hotpath_metrics=hotpath_metrics,
         )

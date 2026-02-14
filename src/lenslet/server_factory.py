@@ -21,6 +21,7 @@ from .preindex import (
     PREINDEX_PATH_COLUMN,
     PREINDEX_SOURCE_COLUMN,
     compute_signature,
+    ensure_local_preindex,
     load_preindex_meta,
     load_preindex_table,
     preindex_paths,
@@ -52,6 +53,22 @@ from .thumb_cache import ThumbCache
 from .workspace import Workspace
 
 
+class StorageProxy:
+    """Mutable storage wrapper to allow hot-swapping the backing storage."""
+
+    def __init__(self, storage):
+        self._storage = storage
+
+    def swap(self, storage) -> None:
+        self._storage = storage
+
+    def current(self):
+        return self._storage
+
+    def __getattr__(self, name: str):
+        return getattr(self._storage, name)
+
+
 def _create_base_app(*, description: str) -> FastAPI:
     app = FastAPI(
         title="Lenslet",
@@ -72,7 +89,7 @@ def _attach_storage(app: FastAPI, storage) -> None:
 
     @app.middleware("http")
     async def attach_storage(request: Request, call_next):
-        request.state.storage = storage
+        request.state.storage = app.state.storage
         return await call_next(request)
 
 
@@ -392,6 +409,50 @@ def _load_preindex_storage(
         return None
 
 
+def _ensure_preindex_storage(
+    root_path: str,
+    workspace: Workspace,
+    *,
+    thumb_size: int,
+    thumb_quality: int,
+    skip_indexing: bool,
+    preindex_signature: str | None = None,
+) -> tuple[TableStorage | None, Workspace, str | None]:
+    if preindex_signature:
+        storage = _load_preindex_storage(
+            root_path,
+            workspace,
+            thumb_size=thumb_size,
+            thumb_quality=thumb_quality,
+            skip_indexing=skip_indexing,
+            preindex_signature=preindex_signature,
+        )
+        if storage is not None:
+            return storage, workspace, preindex_signature
+
+    try:
+        preindex_result = ensure_local_preindex(Path(root_path), workspace)
+    except Exception as exc:
+        print(f"[lenslet] Warning: preindex failed: {exc}")
+        return None, workspace, preindex_signature
+
+    if preindex_result is None:
+        return None, workspace, preindex_signature
+
+    if preindex_result.workspace.root != workspace.root:
+        workspace = preindex_result.workspace
+
+    storage = _load_preindex_storage(
+        root_path,
+        workspace,
+        thumb_size=thumb_size,
+        thumb_quality=thumb_quality,
+        skip_indexing=skip_indexing,
+        preindex_signature=preindex_result.signature,
+    )
+    return storage, workspace, preindex_result.signature
+
+
 def create_app(
     root_path: str,
     thumb_size: int = 256,
@@ -424,6 +485,7 @@ def create_app(
     # Create storage (prefer table dataset if present)
     items_path = Path(root_path) / "items.parquet"
     storage_mode = "memory"
+    storage_origin = "memory"
     embedding_detection = EmbeddingDetection.empty()
     if items_path.is_file():
         columns = None
@@ -444,6 +506,7 @@ def create_app(
                 skip_indexing=skip_indexing,
             )
             storage_mode = "table"
+            storage_origin = "parquet"
         except Exception as exc:
             print(f"[lenslet] Warning: Failed to load table dataset: {exc}")
             storage = MemoryStorage(
@@ -453,7 +516,7 @@ def create_app(
             )
             storage_mode = "memory"
     else:
-        storage = _load_preindex_storage(
+        storage, workspace, preindex_signature = _ensure_preindex_storage(
             root_path,
             workspace,
             thumb_size=thumb_size,
@@ -467,8 +530,11 @@ def create_app(
                 thumb_size=thumb_size,
                 thumb_quality=thumb_quality,
             )
+            storage_mode = "memory"
+            storage_origin = "memory"
         else:
             storage_mode = "table"
+            storage_origin = "preindex"
 
     try:
         workspace.ensure()
@@ -476,9 +542,11 @@ def create_app(
         print(f"[lenslet] Warning: failed to initialize workspace: {exc}")
         workspace.can_write = False
 
+    storage_proxy = StorageProxy(storage)
+
     runtime = _initialize_runtime(
         app,
-        storage=storage,
+        storage=storage_proxy,
         workspace=workspace,
         thumb_cache=thumb_cache,
         presence_view_ttl=presence_view_ttl,
@@ -486,6 +554,9 @@ def create_app(
         presence_prune_interval=presence_prune_interval,
     )
     app.state.recursive_browse_cache = _recursive_browse_cache_from_workspace(workspace)
+    app.state.storage_origin = storage_origin
+    app.state.storage_mode = storage_mode
+    app.state.workspace = workspace
 
     embedding_manager: EmbeddingManager | None = None
     if storage_mode == "table" and items_path.is_file() and isinstance(storage, TableStorage):
@@ -525,7 +596,7 @@ def create_app(
         return _build_item(cached, meta)
 
     record_update = _build_record_update(
-        storage,
+        storage_proxy,
         broker=runtime.broker,
         workspace=workspace,
         log_lock=runtime.log_lock,
@@ -534,7 +605,7 @@ def create_app(
     )
 
     # Inject storage via middleware
-    _attach_storage(app, storage)
+    _attach_storage(app, storage_proxy)
 
     # --- Routes ---
 
@@ -544,22 +615,57 @@ def create_app(
             **_base_health_payload(
                 app,
                 mode=storage_mode,
-                storage=storage,
+                storage=storage_proxy,
                 workspace=workspace,
                 runtime=runtime,
                 prune_interval_fallback=presence_prune_interval,
             ),
             "root": root_path,
-            "indexing": _indexing_health_payload(indexing, storage),
+            "indexing": _indexing_health_payload(indexing, storage_proxy),
         }
 
     @app.post("/refresh")
     def refresh(request: Request, path: str = "/"):
-        if storage_mode != "memory":
+        if storage_mode == "table" and getattr(app.state, "storage_origin", "") != "preindex":
             return {"ok": True, "note": f"{storage_mode} mode is static"}
 
         storage = _storage_from_request(request)
         path = _canonical_path(path)
+
+        if storage_mode == "table":
+            if not workspace.can_write:
+                return {"ok": True, "note": "preindex refresh disabled (no-write workspace)"}
+            preindex_storage, updated_workspace, _signature = _ensure_preindex_storage(
+                root_path,
+                workspace,
+                thumb_size=thumb_size,
+                thumb_quality=thumb_quality,
+                skip_indexing=skip_indexing,
+            )
+            if preindex_storage is None:
+                raise HTTPException(500, "failed to rebuild preindex table")
+            if updated_workspace.root != workspace.root:
+                app.state.workspace = updated_workspace
+            old_storage = storage.current() if isinstance(storage, StorageProxy) else storage
+            if isinstance(old_storage, TableStorage) and isinstance(preindex_storage, TableStorage):
+                valid_keys = {
+                    preindex_storage._canonical_meta_key(path)
+                    for path in preindex_storage._items.keys()
+                }
+                preindex_storage._metadata = {
+                    key: value
+                    for key, value in old_storage._metadata.items()
+                    if key in valid_keys
+                }
+            if isinstance(storage, StorageProxy):
+                storage.swap(preindex_storage)
+            else:
+                app.state.storage = preindex_storage
+            browse_cache = getattr(app.state, "recursive_browse_cache", None)
+            if browse_cache is not None:
+                browse_cache.invalidate_path(path)
+            return {"ok": True}
+
         try:
             target = storage._abs_path(path)
         except ValueError:

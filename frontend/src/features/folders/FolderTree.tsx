@@ -75,7 +75,8 @@ export default function FolderTree({
     const cached = cache.get(target)
     if (cached !== undefined) return cached
 
-    const cachedRecursive = queryClient.getQueryData<FolderIndex>(folderQueryKey(target, { recursive: true }))
+    const recursiveKey = folderQueryKey(target, { recursive: true })
+    const cachedRecursive = queryClient.getQueryData<FolderIndex>(recursiveKey)
     if (cachedRecursive) {
       const count = cachedRecursive.totalItems ?? cachedRecursive.items.length
       cache.set(target, count)
@@ -87,7 +88,17 @@ export default function FolderTree({
 
     const promise = (async () => {
       try {
-        const folder = await api.getFolder(target, { recursive: true })
+        const state = queryClient.getQueryState(recursiveKey)
+        if (state?.fetchStatus === 'fetching') {
+          const folder = await queryClient.fetchQuery({
+            queryKey: recursiveKey,
+            queryFn: () => api.getFolder(target, { recursive: true }),
+          })
+          const count = folder.totalItems ?? folder.items.length
+          cache.set(target, count)
+          return count
+        }
+        const folder = await api.getFolderCount(target)
         const count = folder.totalItems ?? folder.items.length
         cache.set(target, count)
         return count

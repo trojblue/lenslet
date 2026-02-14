@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 import threading
+from pathlib import Path
 
 
 class ThumbCache:
@@ -12,16 +12,15 @@ class ThumbCache:
         self.root = Path(root)
         self.max_disk_bytes = max(0, int(max_disk_bytes or 0))
         self._lock = threading.Lock()
+        self._current_size_bytes: int | None = None
         if self.max_disk_bytes > 0:
-            self._evict_to_cap()
+            self._current_size_bytes = self._evict_to_cap()
 
-    def _evict_to_cap(self) -> None:
-        if self.max_disk_bytes <= 0:
-            return
+    def _scan_cache_entries(self) -> tuple[int, list[tuple[float, int, Path]]]:
         try:
             paths = list(self.root.rglob("*.webp"))
         except Exception:
-            return
+            return 0, []
         total = 0
         entries: list[tuple[float, int, Path]] = []
         for path in paths:
@@ -31,8 +30,15 @@ class ThumbCache:
                 continue
             total += stat.st_size
             entries.append((stat.st_mtime, stat.st_size, path))
+        return total, entries
+
+    def _evict_to_cap(self) -> int:
+        if self.max_disk_bytes <= 0:
+            return self._current_size_bytes or 0
+        total, entries = self._scan_cache_entries()
         if total <= self.max_disk_bytes:
-            return
+            self._current_size_bytes = total
+            return total
         entries.sort(key=lambda entry: entry[0])
         for _mtime, size, path in entries:
             if total <= self.max_disk_bytes:
@@ -42,6 +48,8 @@ class ThumbCache:
             except Exception:
                 continue
             total -= size
+        self._current_size_bytes = total
+        return total
 
     def _path_for(self, key: str) -> Path:
         digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
@@ -61,10 +69,26 @@ class ThumbCache:
         path = self._path_for(key)
         try:
             with self._lock:
+                old_size = 0
+                if self.max_disk_bytes > 0:
+                    try:
+                        old_size = path.stat().st_size if path.exists() else 0
+                    except Exception:
+                        old_size = 0
                 path.parent.mkdir(parents=True, exist_ok=True)
                 tmp = path.with_suffix(".tmp")
                 tmp.write_bytes(data)
                 tmp.replace(path)
-                self._evict_to_cap()
+                if self.max_disk_bytes <= 0:
+                    return
+                if self._current_size_bytes is None:
+                    self._current_size_bytes = self._evict_to_cap()
+                    return
+                self._current_size_bytes = max(
+                    0,
+                    self._current_size_bytes - old_size + len(data),
+                )
+                if self._current_size_bytes > self.max_disk_bytes:
+                    self._current_size_bytes = self._evict_to_cap()
         except Exception:
             pass

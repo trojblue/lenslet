@@ -125,6 +125,7 @@ A third risk is cache eviction policy complexity. Recovery is to implement a sim
 - [x] 2026-02-14 02:05Z Share readiness fix: gzip enabled for large JSON responses, share startup now pre-warms recursive browse cache, and preindex signature reuse avoids re-scan mismatches. Validation: `python scripts/lint_repo.py` and `pytest` (warnings only, same as baseline).
 - [x] 2026-02-14 02:45Z Sprint 3 T7-T9: `--no-write` now routes to a temp workspace under `/tmp/lenslet/<dataset-hash>/` with normal caches enabled, thumbnail cache capped at 200 MB, and CLI/README docs updated.
 - [x] 2026-02-14 02:55Z Sprint 3 validation: `python scripts/lint_repo.py` and `pytest` (warnings only, same as baseline).
+- [x] 2026-02-14 03:10Z Post-review cleanup: factor workspace override cache paths, and avoid full cache directory scans on every thumbnail write (scan only when cap exceeded).
 
 
 ## Artifacts and Handoff

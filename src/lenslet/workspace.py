@@ -58,6 +58,20 @@ class Workspace:
             return None
         return self.root / "preindex"
 
+    def _views_override_cache_base(self) -> Path | None:
+        if self.views_override is None:
+            return None
+        name = self.views_override.name
+        if name.endswith(".lenslet.json"):
+            name = name[: -len(".lenslet.json")]
+        return self.views_override.with_name(name)
+
+    def _views_override_cache_dir(self, suffix: str) -> Path | None:
+        base = self._views_override_cache_base()
+        if base is None:
+            return None
+        return Path(f"{base}.cache") / suffix
+
     @property
     def views_path(self) -> Path | None:
         if self.views_override is not None:
@@ -112,12 +126,9 @@ class Workspace:
     def thumb_cache_dir(self) -> Path | None:
         if not self.can_write:
             return None
-        if self.views_override is not None:
-            name = self.views_override.name
-            if name.endswith(".lenslet.json"):
-                name = name[: -len(".lenslet.json")]
-            base = self.views_override.with_name(name)
-            return Path(f"{base}.cache") / "thumbs"
+        override_dir = self._views_override_cache_dir("thumbs")
+        if override_dir is not None:
+            return override_dir
         if self.root is None:
             return None
         return self.root / "thumbs"
@@ -125,12 +136,9 @@ class Workspace:
     def browse_cache_dir(self) -> Path | None:
         if not self.can_write:
             return None
-        if self.views_override is not None:
-            name = self.views_override.name
-            if name.endswith(".lenslet.json"):
-                name = name[: -len(".lenslet.json")]
-            base = self.views_override.with_name(name)
-            return Path(f"{base}.cache") / "browse-cache"
+        override_dir = self._views_override_cache_dir("browse-cache")
+        if override_dir is not None:
+            return override_dir
         if self.root is None:
             return None
         return self.root / "browse-cache"
@@ -138,12 +146,9 @@ class Workspace:
     def embedding_cache_dir(self) -> Path | None:
         if not self.can_write:
             return None
-        if self.views_override is not None:
-            name = self.views_override.name
-            if name.endswith(".lenslet.json"):
-                name = name[: -len(".lenslet.json")]
-            base = self.views_override.with_name(name)
-            return Path(f"{base}.cache") / "embeddings_cache"
+        override_dir = self._views_override_cache_dir("embeddings_cache")
+        if override_dir is not None:
+            return override_dir
         if self.root is None:
             return None
         return self.root / "embeddings_cache"
@@ -151,12 +156,9 @@ class Workspace:
     def og_cache_dir(self) -> Path | None:
         if not self.can_write:
             return None
-        if self.views_override is not None:
-            name = self.views_override.name
-            if name.endswith(".lenslet.json"):
-                name = name[: -len(".lenslet.json")]
-            base = self.views_override.with_name(name)
-            return Path(f"{base}.cache") / "og-cache"
+        override_dir = self._views_override_cache_dir("og-cache")
+        if override_dir is not None:
+            return override_dir
         if self.root is None:
             return None
         return self.root / "og-cache"

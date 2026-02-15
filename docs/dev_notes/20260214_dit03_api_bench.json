@@ -1,0 +1,172 @@
+{
+  "dataset": "/data/yada/data/dit03_hps_csway",
+  "base": "http://127.0.0.1:7097",
+  "server_pid": 2451020,
+  "startup": {
+    "ready_s": 67.118,
+    "indexing": {
+      "state": "ready",
+      "scope": "/",
+      "done": 73835,
+      "total": 73835,
+      "started_at": "2026-02-14T18:54:08.931045+00:00",
+      "finished_at": "2026-02-14T18:54:08.931299+00:00",
+      "generation": "d45420b383166dd760a9161f836302903bf8984b9aa7a81e98563ed232eb8b9b|0"
+    }
+  },
+  "folders_bench": {
+    "root_non_recursive": {
+      "times_ms": [
+        1.952,
+        1.774,
+        6.249,
+        4.85,
+        0.878
+      ],
+      "p50_ms": 1.952,
+      "p90_ms": 6.249,
+      "max_ms": 6.249,
+      "avg_ms": 3.14,
+      "bytes": 225,
+      "items": 0,
+      "dirs": 2,
+      "totalItems": null
+    },
+    "root_recursive": {
+      "times_ms": [
+        2144.869,
+        1969.649,
+        1469.764,
+        1721.276,
+        1706.193
+      ],
+      "p50_ms": 1721.276,
+      "p90_ms": 2144.869,
+      "max_ms": 2144.869,
+      "avg_ms": 1802.35,
+      "bytes": 30029226,
+      "items": 73835,
+      "dirs": 2,
+      "totalItems": null
+    },
+    "root_recursive_count": {
+      "times_ms": [
+        2.652,
+        1.324,
+        1.073,
+        1.015,
+        1.039
+      ],
+      "p50_ms": 1.073,
+      "p90_ms": 2.652,
+      "max_ms": 2.652,
+      "avg_ms": 1.421,
+      "bytes": 226,
+      "items": 0,
+      "dirs": 2,
+      "totalItems": 73835
+    },
+    "base_non_recursive": {
+      "times_ms": [
+        239.524,
+        30.389,
+        29.924,
+        29.056,
+        38.5
+      ],
+      "p50_ms": 30.389,
+      "p90_ms": 239.524,
+      "max_ms": 239.524,
+      "avg_ms": 73.478,
+      "bytes": 360160,
+      "items": 0,
+      "dirs": 8000,
+      "totalItems": null
+    },
+    "base_recursive": {
+      "times_ms": [
+        923.303,
+        986.77,
+        943.727,
+        757.801,
+        917.761
+      ],
+      "p50_ms": 923.303,
+      "p90_ms": 986.77,
+      "max_ms": 986.77,
+      "avg_ms": 905.872,
+      "bytes": 19951262,
+      "items": 48004,
+      "dirs": 8000,
+      "totalItems": null
+    },
+    "base_recursive_count": {
+      "times_ms": [
+        25.682,
+        25.342,
+        22.247,
+        19.343,
+        18.519
+      ],
+      "p50_ms": 22.247,
+      "p90_ms": 25.682,
+      "max_ms": 25.682,
+      "avg_ms": 22.227,
+      "bytes": 360161,
+      "items": 0,
+      "dirs": 8000,
+      "totalItems": 48004
+    }
+  },
+  "thumb_seq": {
+    "count": 40,
+    "p50_ms": 69.503,
+    "p90_ms": 94.647,
+    "max_ms": 107.954,
+    "avg_ms": 72.487,
+    "avg_size_bytes": 14472.8
+  },
+  "thumb_concurrent_6": {
+    "count": 80,
+    "p50_ms": 27.913,
+    "p90_ms": 93.171,
+    "p99_ms": 138.917,
+    "max_ms": 657.923,
+    "avg_ms": 47.743,
+    "avg_size_bytes": 14193.3
+  },
+  "thumb_concurrent_24": {
+    "count": 80,
+    "p50_ms": 6.897,
+    "p90_ms": 8.721,
+    "p99_ms": 9.022,
+    "max_ms": 9.477,
+    "avg_ms": 6.724,
+    "avg_size_bytes": 14193.3
+  },
+  "health_after": {
+    "hotpath": {
+      "counters": {
+        "folders_recursive_requests_total": 20,
+        "folders_recursive_items_total": 1218390,
+        "s3_client_create_total": 0
+      },
+      "timers_ms": {
+        "folders_recursive_traversal_ms": {
+          "count": 20,
+          "total_ms": 7426.329,
+          "avg_ms": 371.316
+        }
+      }
+    },
+    "indexing": {
+      "state": "ready",
+      "scope": "/",
+      "done": 73835,
+      "total": 73835,
+      "started_at": "2026-02-14T18:54:08.931045+00:00",
+      "finished_at": "2026-02-14T18:54:08.931299+00:00",
+      "generation": "d45420b383166dd760a9161f836302903bf8984b9aa7a81e98563ed232eb8b9b|0"
+    }
+  }
+}

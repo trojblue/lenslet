@@ -3,6 +3,7 @@ import { fileCache, thumbCache } from '../lib/blobCache'
 import type { BrowseEndpoint } from '../lib/browseHotpath'
 import {
   cancelBrowseRequests as cancelBudgetedBrowseRequests,
+  getBrowseRequestBudgetSnapshot,
   runWithRequestBudget,
   resetBrowseRequestBudgetForTests,
 } from './requestBudget'
@@ -28,6 +29,7 @@ import { BASE } from './base'
 
 /** Maximum file size to cache in prefetch (40MB) */
 const MAX_PREFETCH_SIZE = 40 * 1024 * 1024
+const THUMB_PREFETCH_MAX_QUEUED = 256
 export type FullFilePrefetchContext = 'viewer' | 'compare'
 
 function isFullFilePrefetchContext(value: unknown): value is FullFilePrefetchContext {
@@ -666,6 +668,8 @@ export const api = {
    * Prefetch a thumbnail in the background.
    */
   prefetchThumb: (path: string): void => {
+    const budget = getBrowseRequestBudgetSnapshot()
+    if (budget.queued.thumb >= THUMB_PREFETCH_MAX_QUEUED) return
     thumbCache.prefetch(path, () =>
       runWithRequestBudget('thumb', () =>
         fetchBlob(thumbUrl(path)),

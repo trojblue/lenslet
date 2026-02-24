@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buildRefreshMenuItem, READONLY_REFRESH_LABEL } from '../AppContextMenuItems'
+import { buildRefreshMenuItem, REFRESH_UNAVAILABLE_LABEL } from '../AppContextMenuItems'
 
 describe('buildRefreshMenuItem', () => {
-  it('disables refresh when in read-only mode', () => {
+  it('disables refresh when unavailable', () => {
     const item = buildRefreshMenuItem({
       refreshEnabled: false,
       refreshing: false,
@@ -10,7 +10,19 @@ describe('buildRefreshMenuItem', () => {
     })
 
     expect(item.disabled).toBe(true)
-    expect(item.label).toBe(READONLY_REFRESH_LABEL)
+    expect(item.label).toBe(REFRESH_UNAVAILABLE_LABEL)
+  })
+
+  it('prefers backend-provided refresh disabled reason', () => {
+    const item = buildRefreshMenuItem({
+      refreshEnabled: false,
+      refreshDisabledReason: 'table mode is static',
+      refreshing: false,
+      onRefresh: () => {},
+    })
+
+    expect(item.disabled).toBe(true)
+    expect(item.label).toBe('table mode is static')
   })
 
   it('shows refreshing label when active', () => {

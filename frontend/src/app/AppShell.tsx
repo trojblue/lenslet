@@ -361,7 +361,8 @@ export default function AppShell() {
     hasEdits,
     lastEditedLabel,
     persistenceEnabled,
-    healthMode,
+    refreshEnabled,
+    refreshDisabledReason,
     indexing,
     compareExportCapability,
     highlightedPaths,
@@ -378,8 +379,6 @@ export default function AppShell() {
     updateItemCaches,
     setLocalStarOverrides,
   })
-
-  const refreshEnabled = healthMode !== 'dataset' && healthMode !== 'table'
 
   useEffect(() => {
     const nextScanGeneration = captureScanGeneration(scanGeneration, indexing)
@@ -1406,6 +1405,7 @@ export default function AppShell() {
           items={items}
           setCtx={setCtx}
           refreshEnabled={refreshEnabled}
+          refreshDisabledReason={refreshDisabledReason}
           onRefetch={refetch}
           onOpenMoveDialog={openMoveDialogForPaths}
           onRefreshFolder={refreshFolderPath}

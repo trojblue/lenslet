@@ -122,7 +122,9 @@ def test_refresh_updates_indexing_generation_contract(tmp_path: Path):
     app = create_app(str(root))
     client = TestClient(app)
 
-    before = client.get("/health").json()["indexing"]["generation"]
+    health_before = client.get("/health").json()
+    assert health_before["refresh"]["enabled"] is True
+    before = health_before["indexing"]["generation"]
 
     _make_image(shots / "second.jpg")
     refresh = client.post("/refresh", params={"path": "/shots"})
@@ -173,6 +175,12 @@ def test_refresh_endpoint_preserves_sidecar_annotations(tmp_path: Path):
 def test_refresh_endpoint_dataset_mode_is_noop():
     app = create_app_from_datasets({"demo": []})
     client = TestClient(app)
+
+    health = client.get("/health")
+    assert health.status_code == 200
+    refresh_health = health.json().get("refresh", {})
+    assert refresh_health.get("enabled") is False
+    assert "static" in str(refresh_health.get("note", ""))
 
     resp = client.post("/refresh", params={"path": "/demo"})
     assert resp.status_code == 200

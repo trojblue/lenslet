@@ -12,7 +12,7 @@ import {
 } from '../../shared/api/client'
 import type { ConnectionStatus, SyncEvent } from '../../shared/api/client'
 import { sidecarQueryKey, updateConflictFromServer } from '../../shared/api/items'
-import type { HealthMode, Item, PresenceEvent, Sidecar, StarRating } from '../../lib/types'
+import type { HealthMode, HealthResponse, Item, PresenceEvent, Sidecar, StarRating } from '../../lib/types'
 import { FetchError } from '../../lib/fetcher'
 import { formatAbsoluteTime, formatRelativeTime, parseTimestampMs } from '../../lib/util'
 import {
@@ -69,6 +69,8 @@ type UseAppPresenceSyncResult = {
   lastEditedLabel: string
   persistenceEnabled: boolean
   healthMode: HealthMode | null
+  refreshEnabled: boolean
+  refreshDisabledReason: string | null
   indexing: HealthIndexing | null
   compareExportCapability: CompareExportCapability
   highlightedPaths: Map<string, string>
@@ -80,6 +82,12 @@ type UseAppPresenceSyncResult = {
 
 const HEALTH_POLL_RUNNING_MS = 1_200
 const HEALTH_POLL_RETRY_MS = 3_000
+const REFRESH_UNAVAILABLE_FALLBACK = 'Refresh unavailable in current mode'
+
+type RefreshCapability = {
+  enabled: boolean
+  note: string | null
+}
 
 function getConnectionLabel(status: ConnectionStatus): string {
   switch (status) {
@@ -94,6 +102,26 @@ function getConnectionLabel(status: ConnectionStatus): string {
     default:
       return 'Connecting…'
   }
+}
+
+function normalizeHealthRefresh(health: HealthResponse | null | undefined): RefreshCapability {
+  const refresh = health?.refresh
+  if (refresh && typeof refresh.enabled === 'boolean') {
+    if (refresh.enabled) return { enabled: true, note: null }
+    const note = typeof refresh.note === 'string' && refresh.note.trim()
+      ? refresh.note
+      : REFRESH_UNAVAILABLE_FALLBACK
+    return { enabled: false, note }
+  }
+
+  const mode = health?.mode ?? null
+  if (mode === 'table' && health?.can_write === true) {
+    return { enabled: true, note: null }
+  }
+  if (mode === 'dataset' || mode === 'table') {
+    return { enabled: false, note: REFRESH_UNAVAILABLE_FALLBACK }
+  }
+  return { enabled: true, note: null }
 }
 
 function getPresenceErrorCode(error: unknown): string | null {
@@ -136,6 +164,8 @@ export function useAppPresenceSync({
   const [lastEditedNow, setLastEditedNow] = useState(() => Date.now())
   const [persistenceEnabled, setPersistenceEnabled] = useState(true)
   const [healthMode, setHealthMode] = useState<HealthMode | null>(null)
+  const [refreshEnabled, setRefreshEnabled] = useState(true)
+  const [refreshDisabledReason, setRefreshDisabledReason] = useState<string | null>(null)
   const [indexing, setIndexing] = useState<HealthIndexing | null>(null)
   const [compareExportCapability, setCompareExportCapability] = useState<CompareExportCapability>(
     DEFAULT_COMPARE_EXPORT_CAPABILITY,
@@ -473,6 +503,9 @@ export function useAppPresenceSync({
         setPersistenceEnabled(health?.labels?.enabled ?? true)
         const nextMode = health?.mode ?? null
         setHealthMode(nextMode)
+        const refreshCapability = normalizeHealthRefresh(health)
+        setRefreshEnabled(refreshCapability.enabled)
+        setRefreshDisabledReason(refreshCapability.note)
         const nextIndexing = normalizeHealthIndexing(health?.indexing)
         setIndexing((prev) => (indexingEquals(prev, nextIndexing) ? prev : nextIndexing))
         const nextCompareExportCapability = normalizeHealthCompareExport(health?.compare_export)
@@ -526,6 +559,8 @@ export function useAppPresenceSync({
     lastEditedLabel,
     persistenceEnabled,
     healthMode,
+    refreshEnabled,
+    refreshDisabledReason,
     indexing,
     compareExportCapability,
     highlightedPaths,

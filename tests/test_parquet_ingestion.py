@@ -36,6 +36,7 @@ def test_parquet_items_and_metrics_inline(tmp_path: Path):
     health = client.get("/health")
     assert health.status_code == 200
     assert health.json()["mode"] == "table"
+    assert health.json().get("refresh", {}).get("enabled") is False
 
     resp = client.get("/folders", params={"path": "/"})
     assert resp.status_code == 200

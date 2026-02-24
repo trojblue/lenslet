@@ -87,6 +87,11 @@ export type HealthMode = 'memory' | 'table' | 'dataset'
 export type HealthResponse = {
   ok: boolean
   mode?: HealthMode
+  can_write?: boolean
+  refresh?: {
+    enabled?: boolean
+    note?: string | null
+  }
   compare_export?: {
     supported_versions?: number[]
     max_paths_v2?: number | null

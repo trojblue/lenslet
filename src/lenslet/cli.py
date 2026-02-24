@@ -546,15 +546,24 @@ def main():
 
     # Print startup banner
     if is_remote_table:
-        mode_label = "Table (hf dataset)" if remote_kind == "hf" else "Table (remote)"
+        storage_label = "Table index (hf dataset)" if remote_kind == "hf" else "Table index (remote)"
         display_target = remote_uri or raw_target
     elif is_table_file:
-        mode_label = "Table (parquet)"
+        storage_label = "Table index (parquet file)"
         display_target = str(target)
     else:
         has_parquet = (target / "items.parquet").is_file()
-        mode_label = "Table (items.parquet)" if has_parquet else "In-memory (no files written)"
+        storage_label = "Table index (items.parquet)" if has_parquet else "Filesystem dataset (auto index)"
         display_target = str(target)
+
+    if is_remote_table:
+        workspace_label = "read-only (remote table)"
+    elif args.no_write:
+        workspace_label = "temp cache (--no-write)"
+    elif is_table_file:
+        workspace_label = "writable (parquet sidecar)"
+    else:
+        workspace_label = "writable (.lenslet workspace)"
 
     banner_lines = [
         "┌─────────────────────────────────────────────────┐",
@@ -566,13 +575,10 @@ def main():
     ]
     if args.share:
         banner_lines.append("│  Share:     starting...                         │")
-    no_write_label = (
-        "temp cache" if args.no_write else ("remote" if is_remote_table else "off")
-    )
     banner_lines.extend(
         [
-            f"│  Mode:      {mode_label:<35} │",
-        f"│  No-write:  {no_write_label:<35} │",
+            f"│  Storage:   {storage_label:<35} │",
+            f"│  Workspace: {workspace_label:<35} │",
             "└─────────────────────────────────────────────────┘",
             "",
         ]

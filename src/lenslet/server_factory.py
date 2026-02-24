@@ -52,6 +52,10 @@ from .storage.table import TableStorage, load_parquet_schema, load_parquet_table
 from .thumb_cache import ThumbCache
 from .workspace import Workspace
 
+REFRESH_NOTE_DATASET_STATIC = "dataset mode is static"
+REFRESH_NOTE_TABLE_STATIC = "table mode is static"
+REFRESH_NOTE_PREINDEX_NO_WRITE = "preindex refresh disabled (no-write workspace)"
+
 
 class StorageProxy:
     """Mutable storage wrapper to allow hot-swapping the backing storage."""
@@ -208,6 +212,7 @@ def _base_health_payload(
     app: FastAPI,
     *,
     mode: str,
+    storage_origin: str | None,
     storage,
     workspace: Workspace,
     runtime: AppRuntime,
@@ -217,6 +222,11 @@ def _base_health_payload(
         "ok": True,
         "mode": mode,
         "can_write": workspace.can_write,
+        "refresh": _refresh_health_payload(
+            mode=mode,
+            storage_origin=storage_origin,
+            workspace=workspace,
+        ),
         "browse_cache": _browse_cache_health_payload(app),
         "compare_export": _compare_export_health_payload(),
         "labels": _labels_health_payload(workspace),
@@ -227,6 +237,22 @@ def _base_health_payload(
         ),
         "hotpath": runtime.hotpath_metrics.snapshot(storage),
     }
+
+
+def _refresh_health_payload(
+    *,
+    mode: str,
+    storage_origin: str | None,
+    workspace: Workspace,
+) -> dict[str, Any]:
+    if mode == "dataset":
+        return {"enabled": False, "note": REFRESH_NOTE_DATASET_STATIC}
+    if mode == "table":
+        if storage_origin != "preindex":
+            return {"enabled": False, "note": REFRESH_NOTE_TABLE_STATIC}
+        if not workspace.can_write:
+            return {"enabled": False, "note": REFRESH_NOTE_PREINDEX_NO_WRITE}
+    return {"enabled": True}
 
 
 def _compare_export_health_payload() -> dict[str, Any]:
@@ -617,6 +643,7 @@ def create_app(
             **_base_health_payload(
                 app,
                 mode=storage_mode,
+                storage_origin=storage_origin,
                 storage=storage_proxy,
                 workspace=workspace,
                 runtime=runtime,
@@ -629,14 +656,14 @@ def create_app(
     @app.post("/refresh")
     def refresh(request: Request, path: str = "/"):
         if storage_mode == "table" and getattr(app.state, "storage_origin", "") != "preindex":
-            return {"ok": True, "note": f"{storage_mode} mode is static"}
+            return {"ok": True, "note": REFRESH_NOTE_TABLE_STATIC}
 
         storage = _storage_from_request(request)
         path = _canonical_path(path)
 
         if storage_mode == "table":
             if not workspace.can_write:
-                return {"ok": True, "note": "preindex refresh disabled (no-write workspace)"}
+                return {"ok": True, "note": REFRESH_NOTE_PREINDEX_NO_WRITE}
             preindex_storage, updated_workspace, _signature = _ensure_preindex_storage(
                 root_path,
                 workspace,
@@ -778,6 +805,7 @@ def create_app_from_datasets(
             **_base_health_payload(
                 app,
                 mode="dataset",
+                storage_origin="dataset",
                 storage=storage,
                 workspace=workspace,
                 runtime=runtime,
@@ -788,7 +816,7 @@ def create_app_from_datasets(
             "indexing": _indexing_health_payload(indexing, storage),
         }
 
-    _register_static_refresh_route(app, note="dataset mode is static")
+    _register_static_refresh_route(app, note=REFRESH_NOTE_DATASET_STATIC)
 
     _register_common_routes(
         app,
@@ -929,6 +957,7 @@ def create_app_from_storage(
             **_base_health_payload(
                 app,
                 mode="table",
+                storage_origin="table",
                 storage=storage,
                 workspace=workspace,
                 runtime=runtime,
@@ -938,7 +967,7 @@ def create_app_from_storage(
             "indexing": _indexing_health_payload(indexing, storage),
         }
 
-    _register_static_refresh_route(app, note="table mode is static")
+    _register_static_refresh_route(app, note=REFRESH_NOTE_TABLE_STATIC)
 
     _register_common_routes(
         app,

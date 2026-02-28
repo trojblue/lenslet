@@ -53,13 +53,14 @@ Implementation follows three sprints so each sprint is independently demoable an
 
 
 1. Sprint 1 builds ranking backend foundations and CLI launch compatibility.
+   Status: completed in iteration 1 (2026-02-28).
    Sprint goal: produce a runnable ranking backend with validated persistence and explicit app factory entrypoint.
    Demo outcome: `lenslet rank <dataset.json>` starts cleanly, ranking endpoints respond, append-only saves survive reload, and existing `lenslet <directory>` behavior remains unchanged.
    Tasks:
-   1. T1: Add `src/lenslet/ranking/` domain modules for dataset parsing, ranking payload validation, and deterministic resume/progress derivation.
-   2. T2: Add ranking persistence module for append-only JSONL writes with file lock, malformed-tail tolerance, latest-entry collapse, and safe results-path validation.
-   3. T3: Add ranking app factory and ranking routes under `/rank/*`, plus ranking-mode health payload.
-   4. T4: Migrate CLI parser to include `rank` subcommand with minimal V1 flags (`--host`, `--port`, `--reload`, `--results-path`) and add compatibility tests for existing browse invocation.
+   1. [x] T1: Add `src/lenslet/ranking/` domain modules for dataset parsing, ranking payload validation, and deterministic resume/progress derivation.
+   2. [x] T2: Add ranking persistence module for append-only JSONL writes with file lock, malformed-tail tolerance, latest-entry collapse, and safe results-path validation.
+   3. [x] T3: Add ranking app factory and ranking routes under `/rank/*`, plus ranking-mode health payload.
+   4. [x] T4: Migrate CLI parser to include `rank` subcommand with minimal V1 flags (`--host`, `--port`, `--reload`, `--results-path`) and add compatibility tests for existing browse invocation.
 
 2. Sprint 2 builds ranking frontend mode and interaction flow.
    Sprint goal: deliver a focused ranking UI branch isolated from browse shell internals.
@@ -164,6 +165,12 @@ Planned command checks are:
     python scripts/lint_repo.py
     lenslet rank data/fixtures/ranking_dataset.json --port 7071
 
+Sprint 1 execution evidence (2026-02-28):
+1. `pytest tests/test_ranking_*.py -q` -> pass (10 tests).
+2. `pytest tests/test_import_contract.py -q` -> pass.
+3. `python scripts/lint_repo.py` -> pass (`ruff` clean; existing frontend file-size warnings unchanged).
+4. `lenslet rank data/fixtures/ranking_dataset.json --port 7071` -> deferred in this iteration because no checked-in ranking fixture exists yet; API behavior is covered by `tests/test_ranking_backend.py`.
+
 Expected outcomes are:
 1. Ranking tests pass and browse canary tests confirm no regression in existing entrypoints/contracts.
 2. Ranking session is resumable and autosave is non-blocking with stale-write protection.
@@ -190,7 +197,9 @@ Hidden dependency risk exists around image serving assumptions. Mitigation is to
 - [x] 2026-02-28 04:52:07Z Scope lock confirmed with user decisions for CLI shape, frontend shape, reuse boundary, export behavior, and anti-overengineering constraint.
 - [x] 2026-02-28 04:52:07Z Initial implementation plan drafted with three sprints.
 - [x] 2026-02-28 04:56:49Z Mandatory subagent review completed and feedback incorporated.
-- [ ] 2026-02-28 00:00:00Z Sprint 1 handoff notes added after implementation.
+- [x] 2026-02-28 05:36:00Z Sprint 1 T1-T4 implemented: ranking domain/persistence/app/routes/CLI delivered with targeted backend and CLI tests.
+- [x] 2026-02-28 05:36:00Z Sprint 1 cleanup + review gates completed: code-simplifier pass, independent reviews, and follow-up fixes for malformed-tail append boundary and `rank` path compatibility edge cases.
+- [x] 2026-02-28 05:36:00Z Sprint 1 handoff notes added after implementation.
 - [ ] 2026-02-28 00:00:00Z Sprint 2 handoff notes added after implementation.
 - [ ] 2026-02-28 00:00:00Z Sprint 3 handoff notes and final retrospective added.
 
@@ -212,3 +221,16 @@ Initial operator command transcript template is:
     lenslet rank <dataset.json> --port 7071
 
 Revision note: updated after mandatory subagent review to tighten API contracts, de-scope speculative work, add explicit browse regression gates, correct frontend validation commands, and add results-path safety plus autosave race-closure requirements.
+
+Sprint 1 handoff notes (2026-02-28):
+1. Shipped backend-only ranking mode foundations:
+   - New package `src/lenslet/ranking/` with dataset loading/validation, save payload validation + progress derivation, append-only JSONL persistence with file lock, and `/rank/*` route bundle.
+   - New app factory `create_ranking_app(...)` with ranking-mode health payload (`mode: "ranking"`).
+   - CLI dispatch now supports `lenslet rank <dataset.json> [--host --port --reload --results-path]` while keeping existing browse invocation behavior and compatibility for local directories named `rank`.
+2. Validation executed:
+   - `pytest tests/test_ranking_*.py -q`
+   - `pytest tests/test_import_contract.py -q`
+   - `python scripts/lint_repo.py`
+3. Remaining open scope:
+   - Sprint 2 frontend ranking mode implementation (`T5-T7`).
+   - Manual CLI smoke with a checked-in ranking fixture (fixture creation is currently pending).

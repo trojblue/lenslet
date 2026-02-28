@@ -259,7 +259,99 @@ def _print_share_url(url: str) -> None:
     print(f"Share URL: {url}", file=sys.stderr, flush=True)
 
 
-def main():
+def _main_rank(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="lenslet rank",
+        description="Lenslet ranking mode server",
+        epilog="Example: lenslet rank ./ranking_dataset.json --port 7070",
+    )
+    parser.add_argument(
+        "dataset_json",
+        type=str,
+        help="Path to ranking dataset JSON",
+    )
+    parser.add_argument(
+        "-p", "--port",
+        type=int,
+        default=None,
+        help="Port to listen on (default: 7070; auto-increment if in use)",
+    )
+    parser.add_argument(
+        "-H", "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host to bind to (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable auto-reload for development",
+    )
+    parser.add_argument(
+        "--results-path",
+        type=str,
+        default=None,
+        help="Optional results JSONL path. Relative values resolve from the dataset JSON directory.",
+    )
+    args = parser.parse_args(argv)
+
+    dataset_path = Path(args.dataset_json).expanduser()
+    if not dataset_path.exists():
+        print(f"Error: dataset file does not exist: {args.dataset_json}", file=sys.stderr)
+        sys.exit(1)
+    if not dataset_path.is_file():
+        print(f"Error: dataset path must be a file: {args.dataset_json}", file=sys.stderr)
+        sys.exit(1)
+    dataset_path = dataset_path.resolve()
+
+    port = args.port
+    if port is None:
+        try:
+            port = _find_available_port(args.host, 7070)
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        if port != 7070:
+            print(f"[lenslet] Port 7070 is in use; using {port} instead.")
+
+    import uvicorn
+    from .ranking.app import create_ranking_app
+
+    try:
+        app = create_ranking_app(
+            dataset_path,
+            results_path=args.results_path,
+        )
+    except Exception as exc:
+        print(f"Error: failed to initialize ranking mode: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    results_path = getattr(app.state, "ranking_results_path", None)
+    dataset_label = str(dataset_path)
+    display_results = str(results_path) if results_path is not None else "unknown"
+    banner_lines = [
+        "┌─────────────────────────────────────────────────┐",
+        "│                   🔍 Lenslet                    │",
+        "│               Ranking Mode Server               │",
+        "├─────────────────────────────────────────────────┤",
+        f"│  Dataset:   {dataset_label[:35]:<35} │",
+        f"│  Server:    http://{args.host}:{port:<24} │",
+        f"│  Results:   {display_results[:35]:<35} │",
+        "└─────────────────────────────────────────────────┘",
+        "",
+    ]
+    print("\n".join(banner_lines))
+
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=port,
+        reload=args.reload,
+        log_level="warning",
+    )
+
+
+def _main_browse(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="lenslet",
         description="Lenslet - Lightweight image gallery server",
@@ -420,7 +512,7 @@ def main():
         help="Show version and exit",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.version:
         from . import __version__
@@ -964,6 +1056,43 @@ def _is_loadable_value(value: str, base_dir: str | None) -> bool:
         return os.path.exists(value)
     if base_dir:
         return os.path.exists(os.path.join(base_dir, value))
+    return False
+
+
+def main(argv: list[str] | None = None) -> None:
+    argv_list = list(sys.argv[1:] if argv is None else argv)
+    if argv_list and argv_list[0] == "rank":
+        rank_path_exists = Path("rank").expanduser().exists()
+        rank_args = argv_list[1:]
+        if rank_path_exists and not _has_rank_dataset_arg(rank_args):
+            _main_browse(argv_list)
+            return
+        _main_rank(rank_args)
+        return
+    _main_browse(argv_list)
+
+
+def _has_rank_dataset_arg(args: list[str]) -> bool:
+    value_flags = {"-p", "--port", "-H", "--host", "--results-path"}
+    long_flags_with_value = ("--port=", "--host=", "--results-path=")
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in {"-h", "--help"}:
+            return True
+        if token in {"--reload"}:
+            i += 1
+            continue
+        if token in value_flags:
+            i += 2
+            continue
+        if token.startswith(long_flags_with_value):
+            i += 1
+            continue
+        if token.startswith("-"):
+            i += 1
+            continue
+        return True
     return False
 
 

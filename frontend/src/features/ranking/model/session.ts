@@ -1,5 +1,4 @@
 import { buildBoardState, isBoardComplete, type RankingBoardState } from './board'
-import { sanitizeSaveSeq } from './saveSeq'
 import type {
   RankingDatasetResponse,
   RankingExportEntry,
@@ -10,8 +9,6 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 export type InstanceSession = {
   board: RankingBoardState
   startedAt: string | null
-  latestIssuedSeq: number
-  latestAckSeq: number
   saveStatus: SaveStatus
   saveError: string | null
 }
@@ -77,12 +74,9 @@ export function buildInitialSessions(
       normalizeSavedRanks(saved),
     )
     const startedAt = isValidIsoTimestamp(saved?.started_at) ? saved.started_at : null
-    const seq = sanitizeSaveSeq(saved?.save_seq)
     sessions[instance.instance_id] = {
       board,
       startedAt,
-      latestIssuedSeq: seq,
-      latestAckSeq: seq,
       saveStatus: 'idle',
       saveError: null,
     }

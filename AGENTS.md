@@ -23,8 +23,9 @@ For each proposed change, examine the existing system and redesign it into the m
 - `cd frontend && npm install && npm run dev` — run the UI dev server (proxies to `:7070`).
 - `cd frontend && npm run build && cp -r dist/* ../src/lenslet/frontend/` — build UI bundle.
 - `python scripts/lint_repo.py` — run post-change lint checks (`ruff` + file-size guardrails: warn >1200 lines, fail >2000 lines).
-- `python -m playwright install chromium` — one-time browser install for Playwright smoke checks.
-- `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` — large-tree browse smoke test (40k images across 10k folders, auto-generates fixture if missing).
+- `python -m playwright install chromium` — one-time browser install for real browser validation.
+- `python scripts/gui_smoke_acceptance.py` — run Playwright-based end-to-end acceptance checks against a live Lenslet server.
+- `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` — optional large-tree performance probe (40k images across 10k folders).
 - `python -m build` — build wheels into `dist/`.
 - `pytest` — run tests.
 
@@ -39,9 +40,12 @@ For each proposed change, examine the existing system and redesign it into the m
 ## Testing Guidelines
 - Framework: `pytest`. Name tests `tests/test_*.py`.
 - For API tests, use `httpx.AsyncClient` against the FastAPI app.
-- Use small, temporary image fixtures; keep runtime under 30s.
+- Prefer real-environment validation (live server + Playwright/user flows) over adding many tiny, isolated tests for one change.
+- Keep smoke checks lean and scenario-driven; avoid bloated smoke-only suites that duplicate low-level unit coverage.
+- Use small, temporary image fixtures for focused unit/integration tests; keep runtime under 30s where practical.
 - After feature completion, run `python scripts/lint_repo.py` before handoff.
-- For browse/perf/hydration changes, run `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k`.
+- For frontend/browse behavior changes, run `python scripts/gui_smoke_acceptance.py`.
+- For large-tree performance or hydration regressions, run `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k`.
 
 ## Commit & Pull Request Guidelines
 - Commit messages: Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`), imperative mood.
@@ -49,6 +53,10 @@ For each proposed change, examine the existing system and redesign it into the m
 - If you touch UI assets, note whether `src/lenslet/frontend/` was regenerated and how.
 
 ## Security & Configuration Tips
-- The server must never write into the served image directory; keep it read-only.
+- Source datasets stay read-only (no writes into image directories or S3 sources), but Lenslet may write workspace state/caches under `.lenslet/`, `<table>.lenslet.json`, `<table>.cache/`, or `/tmp/lenslet` when using `--no-write`.
 - Avoid sensitive paths and real user data; use small placeholders in tests/docs.
 - Default host/port is `127.0.0.1:7070`; document any changes in `README.md`.
+
+## Additional Notes
+- You are working on a pre-release alpha version, which means no backwards compatibility for existing users is required.
+- This project is under active development. Use a hard cutover approach and never implement backward compatibility.

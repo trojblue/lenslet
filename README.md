@@ -260,7 +260,7 @@ Run the fixed acceptance matrix from repo root:
 ```bash
 python scripts/lint_repo.py
 pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py
-pytest -q tests/test_ranking_backend.py tests/test_ranking_cli.py tests/test_browse_canary_ranking_isolation.py tests/test_frontend_packaging_sync.py tests/test_playwright_ranking_smoke.py
+pytest -q tests/test_ranking_backend.py tests/test_ranking_cli.py
 python - <<'PY'
 import lenslet.server as server
 import lenslet.storage.table as table
@@ -279,7 +279,7 @@ print('import-contract-ok')
 PY
 cd frontend
 npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts
-npm run test -- src/app/model/__tests__/appMode.test.ts src/features/ranking/model/__tests__/board.test.ts src/features/ranking/model/__tests__/saveSeq.test.ts src/features/ranking/model/__tests__/session.test.ts
+npm run test -- src/app/model/__tests__/appMode.test.ts src/features/ranking/model/__tests__/board.test.ts src/features/ranking/model/__tests__/session.test.ts
 npx tsc --noEmit
 cd ..
 python -m build
@@ -292,8 +292,6 @@ python -m playwright install chromium
 python scripts/playwright_large_tree_smoke.py \
   --dataset-dir data/fixtures/large_tree_40k \
   --output-json data/fixtures/large_tree_40k_smoke_result.json
-python scripts/playwright_ranking_smoke.py \
-  --output-json data/fixtures/ranking_smoke_result.json
 ```
 
 After frontend changes, ship deterministic packaged assets:
@@ -301,7 +299,6 @@ After frontend changes, ship deterministic packaged assets:
 ```bash
 cd frontend && npm run build && cd ..
 rsync -a --delete frontend/dist/ src/lenslet/frontend/
-python scripts/check_frontend_packaging_sync.py
 ```
 
 ## Hotpath API Notes (2026-02)

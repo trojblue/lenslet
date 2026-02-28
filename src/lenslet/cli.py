@@ -1062,38 +1062,9 @@ def _is_loadable_value(value: str, base_dir: str | None) -> bool:
 def main(argv: list[str] | None = None) -> None:
     argv_list = list(sys.argv[1:] if argv is None else argv)
     if argv_list and argv_list[0] == "rank":
-        rank_path_exists = Path("rank").expanduser().exists()
-        rank_args = argv_list[1:]
-        if rank_path_exists and not _has_rank_dataset_arg(rank_args):
-            _main_browse(argv_list)
-            return
-        _main_rank(rank_args)
+        _main_rank(argv_list[1:])
         return
     _main_browse(argv_list)
-
-
-def _has_rank_dataset_arg(args: list[str]) -> bool:
-    value_flags = {"-p", "--port", "-H", "--host", "--results-path"}
-    long_flags_with_value = ("--port=", "--host=", "--results-path=")
-    i = 0
-    while i < len(args):
-        token = args[i]
-        if token in {"-h", "--help"}:
-            return True
-        if token in {"--reload"}:
-            i += 1
-            continue
-        if token in value_flags:
-            i += 2
-            continue
-        if token.startswith(long_flags_with_value):
-            i += 1
-            continue
-        if token.startswith("-"):
-            i += 1
-            continue
-        return True
-    return False
 
 
 if __name__ == "__main__":

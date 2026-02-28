@@ -10,7 +10,6 @@ import {
   selectNeighborImage,
   type RankingBoardState,
 } from './model/board'
-import { isStaleSaveResponse, nextSaveSeq } from './model/saveSeq'
 import {
   buildInitialSessions,
   canNavigateNext,
@@ -26,6 +25,11 @@ import type {
   RankingSaveRequest,
 } from './types'
 
+type ImageView = {
+  url: string
+  sourcePath: string
+}
+
 function nowIso(): string {
   return new Date().toISOString()
 }
@@ -33,6 +37,15 @@ function nowIso(): string {
 function cardLabel(sourcePath: string): string {
   const name = sourcePath.split('/').filter(Boolean).pop()
   return name || sourcePath
+}
+
+function saveStateLabel(session: InstanceSession): string {
+  if (session.saveStatus === 'saving') return 'Saving...'
+  if (session.saveStatus === 'saved') return 'Saved'
+  if (session.saveStatus === 'error') {
+    return `Save failed: ${session.saveError ?? 'unknown error'}`
+  }
+  return 'Idle'
 }
 
 export default function RankingApp() {
@@ -45,10 +58,24 @@ export default function RankingApp() {
   const [dragOverRank, setDragOverRank] = useState<number | null>(null)
 
   const sessionsRef = useRef<Record<string, InstanceSession>>(sessions)
-  const issuedSeqRef = useRef<Record<string, number>>({})
+  const saveRequestRef = useRef<Record<string, number>>({})
   useEffect(() => {
     sessionsRef.current = sessions
   }, [sessions])
+
+  const updateSession = useCallback(
+    (instanceId: string, updater: (session: InstanceSession) => InstanceSession) => {
+      setSessions((prev) => {
+        const session = prev[instanceId]
+        if (!session) return prev
+        return {
+          ...prev,
+          [instanceId]: updater(session),
+        }
+      })
+    },
+    [],
+  )
 
   useEffect(() => {
     let active = true
@@ -61,14 +88,8 @@ export default function RankingApp() {
     ])
       .then(([datasetPayload, progressPayload, exportPayload]) => {
         if (!active) return
-        const initialSessions = buildInitialSessions(datasetPayload, exportPayload.results)
-        const initialSeq: Record<string, number> = {}
-        for (const [instanceId, session] of Object.entries(initialSessions)) {
-          initialSeq[instanceId] = session.latestIssuedSeq
-        }
         setDataset(datasetPayload)
-        setSessions(initialSessions)
-        issuedSeqRef.current = initialSeq
+        setSessions(buildInitialSessions(datasetPayload, exportPayload.results))
         setCurrentIndex(
           clampInstanceIndex(progressPayload.resume_instance_index, datasetPayload.instances.length),
         )
@@ -91,7 +112,7 @@ export default function RankingApp() {
   const canGoNext = canNavigateNext(currentIndex, instances.length, currentSession)
 
   const imageById = useMemo(() => {
-    const map = new Map<string, { url: string; sourcePath: string }>()
+    const map = new Map<string, ImageView>()
     if (!currentInstance) return map
     for (const image of currentInstance.images) {
       map.set(image.image_id, { url: image.url, sourcePath: image.source_path })
@@ -109,105 +130,67 @@ export default function RankingApp() {
     }
   }, [dataset, currentIndex])
 
-  const ensureStartedAt = useCallback((instanceId: string): string => {
-    const existing = sessionsRef.current[instanceId]?.startedAt
-    if (isValidIsoTimestamp(existing)) {
-      return existing
-    }
-    const startedAt = nowIso()
-    setSessions((prev) => {
-      const session = prev[instanceId]
-      if (!session || isValidIsoTimestamp(session.startedAt)) return prev
-      return {
-        ...prev,
-        [instanceId]: {
+  const ensureStartedAt = useCallback(
+    (instanceId: string): string => {
+      const existing = sessionsRef.current[instanceId]?.startedAt
+      if (isValidIsoTimestamp(existing)) {
+        return existing
+      }
+      const startedAt = nowIso()
+      updateSession(instanceId, (session) => {
+        if (isValidIsoTimestamp(session.startedAt)) return session
+        return {
           ...session,
           startedAt,
-        },
-      }
-    })
-    return startedAt
-  }, [])
+        }
+      })
+      return startedAt
+    },
+    [updateSession],
+  )
 
   const persistSnapshot = useCallback(
     (instance: RankingInstance, board: RankingBoardState, startedAtInput: string | null = null) => {
+      const instanceId = instance.instance_id
       const startedAt = isValidIsoTimestamp(startedAtInput)
         ? startedAtInput
-        : ensureStartedAt(instance.instance_id)
-      const issuedSeq = nextSaveSeq(issuedSeqRef.current[instance.instance_id] ?? 0)
-      issuedSeqRef.current[instance.instance_id] = issuedSeq
-      setSessions((prev) => {
-        const session = prev[instance.instance_id]
-        if (!session) return prev
-        return {
-          ...prev,
-          [instance.instance_id]: {
-            ...session,
-            latestIssuedSeq: Math.max(session.latestIssuedSeq, issuedSeq),
-            saveStatus: 'saving',
-            saveError: null,
-          },
-        }
-      })
-
+        : ensureStartedAt(instanceId)
       const payload: RankingSaveRequest = {
-        instance_id: instance.instance_id,
+        instance_id: instanceId,
         final_ranks: finalRanksFromBoard(board),
         started_at: startedAt,
         duration_ms: computeDurationMs(startedAt),
         completed: isBoardComplete(board),
-        save_seq: issuedSeq,
       }
 
-      const attemptSave = async (attempt: number): Promise<void> => {
-        try {
-          await rankingApi.save(payload)
-          setSessions((prev) => {
-            const session = prev[instance.instance_id]
-            if (!session) return prev
-            if (isStaleSaveResponse(issuedSeq, issuedSeqRef.current[instance.instance_id] ?? 0)) {
-              return prev
-            }
-            return {
-              ...prev,
-              [instance.instance_id]: {
-                ...session,
-                latestAckSeq: Math.max(session.latestAckSeq, issuedSeq),
-                saveStatus: 'saved',
-                saveError: null,
-              },
-            }
-          })
-        } catch (error) {
+      const requestId = (saveRequestRef.current[instanceId] ?? 0) + 1
+      saveRequestRef.current[instanceId] = requestId
+      updateSession(instanceId, (session) => ({
+        ...session,
+        saveStatus: 'saving',
+        saveError: null,
+      }))
+
+      void rankingApi.save(payload)
+        .then(() => {
+          if (saveRequestRef.current[instanceId] !== requestId) return
+          updateSession(instanceId, (session) => ({
+            ...session,
+            saveStatus: 'saved',
+            saveError: null,
+          }))
+        })
+        .catch((error) => {
+          if (saveRequestRef.current[instanceId] !== requestId) return
           const message = error instanceof Error ? error.message : 'failed to save ranking'
-          setSessions((prev) => {
-            const session = prev[instance.instance_id]
-            if (!session) return prev
-            if (isStaleSaveResponse(issuedSeq, issuedSeqRef.current[instance.instance_id] ?? 0)) {
-              return prev
-            }
-            return {
-              ...prev,
-              [instance.instance_id]: {
-                ...session,
-                saveStatus: 'error',
-                saveError: message,
-              },
-            }
-          })
-          if (attempt > 0) return
-          window.setTimeout(() => {
-            if (isStaleSaveResponse(issuedSeq, issuedSeqRef.current[instance.instance_id] ?? 0)) {
-              return
-            }
-            void attemptSave(1)
-          }, 900)
-        }
-      }
-
-      void attemptSave(0)
+          updateSession(instanceId, (session) => ({
+            ...session,
+            saveStatus: 'error',
+            saveError: message,
+          }))
+        })
     },
-    [ensureStartedAt],
+    [ensureStartedAt, updateSession],
   )
 
   const moveCurrentImageToRank = useCallback(
@@ -217,41 +200,27 @@ export default function RankingApp() {
       if (!current) return
       const boardSnapshot = moveImageToRank(current.board, imageId, rankIndex)
       if (boardSnapshot === current.board) return
-      setSessions((prev) => {
-        const session = prev[currentInstance.instance_id]
-        if (!session) return prev
-        return {
-          ...prev,
-          [currentInstance.instance_id]: {
-            ...session,
-            board: boardSnapshot,
-          },
-        }
-      })
+      updateSession(currentInstance.instance_id, (session) => ({
+        ...session,
+        board: boardSnapshot,
+      }))
       persistSnapshot(currentInstance, boardSnapshot, current.startedAt)
     },
-    [currentInstance, persistSnapshot],
+    [currentInstance, persistSnapshot, updateSession],
   )
 
   const selectCurrentImage = useCallback(
     (imageId: string) => {
       if (!currentInstance) return
-      setSessions((prev) => {
-        const session = prev[currentInstance.instance_id]
-        if (!session) return prev
-        return {
-          ...prev,
-          [currentInstance.instance_id]: {
-            ...session,
-            board: {
-              ...session.board,
-              selectedImageId: imageId,
-            },
-          },
-        }
-      })
+      updateSession(currentInstance.instance_id, (session) => ({
+        ...session,
+        board: {
+          ...session.board,
+          selectedImageId: imageId,
+        },
+      }))
     },
-    [currentInstance],
+    [currentInstance, updateSession],
   )
 
   const navigateTo = useCallback(
@@ -331,16 +300,26 @@ export default function RankingApp() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [canGoNext, canGoPrev, currentInstance, currentSession, goNext, goPrev, moveCurrentImageToRank, selectCurrentImage])
 
+  const clearDragState = useCallback(() => {
+    setDragOverRank(null)
+    setDraggingImageId(null)
+  }, [])
+
+  const startDrag = useCallback((event: DragEvent<HTMLElement>, imageId: string) => {
+    event.dataTransfer.setData('text/plain', imageId)
+    event.dataTransfer.effectAllowed = 'move'
+    setDraggingImageId(imageId)
+  }, [])
+
   const dropOnRank = useCallback(
     (event: DragEvent<HTMLElement>, rankIndex: number | null) => {
       event.preventDefault()
       const imageId = event.dataTransfer.getData('text/plain') || draggingImageId
-      setDragOverRank(null)
-      setDraggingImageId(null)
+      clearDragState()
       if (!imageId) return
       moveCurrentImageToRank(imageId, rankIndex)
     },
-    [draggingImageId, moveCurrentImageToRank],
+    [clearDragState, draggingImageId, moveCurrentImageToRank],
   )
 
   if (loading) {
@@ -357,14 +336,48 @@ export default function RankingApp() {
   }
 
   const ordered = orderedImageIds(currentSession.board)
-  const saveStateLabel = (
-    currentSession.saveStatus === 'saving' ? 'Saving...'
-      : currentSession.saveStatus === 'saved' ? 'Saved'
-        : currentSession.saveStatus === 'error' ? `Save failed: ${currentSession.saveError ?? 'unknown error'}`
-          : 'Idle'
-  )
-
   const exportHref = `${BASE}/rank/export?completed_only=true`
+
+  const renderCard = (imageId: string) => {
+    const image = imageById.get(imageId)
+    if (!image) return null
+    const isSelected = currentSession.board.selectedImageId === imageId
+    return (
+      <article
+        key={imageId}
+        className={`ranking-card ${isSelected ? 'is-selected' : ''}`}
+        draggable
+        onDragStart={(event) => startDrag(event, imageId)}
+        onDragEnd={clearDragState}
+        onClick={() => selectCurrentImage(imageId)}
+      >
+        <img src={image.url} alt={image.sourcePath} loading="lazy" draggable={false} />
+        <div className="ranking-card-label">{cardLabel(image.sourcePath)}</div>
+      </article>
+    )
+  }
+
+  const renderColumn = (
+    title: string,
+    imageIds: string[],
+    dragValue: number,
+    targetRank: number | null,
+    key: string,
+  ) => (
+    <section
+      key={key}
+      className={`ranking-column ${dragOverRank === dragValue ? 'is-drag-over' : ''}`}
+      onDragOver={(event) => {
+        event.preventDefault()
+        setDragOverRank(dragValue)
+      }}
+      onDragLeave={() => setDragOverRank(null)}
+      onDrop={(event) => dropOnRank(event, targetRank)}
+    >
+      <header className="ranking-column-header">{title}</header>
+      <div className="ranking-column-cards">{imageIds.map(renderCard)}</div>
+    </section>
+  )
 
   return (
     <div className="ranking-root">
@@ -392,7 +405,7 @@ export default function RankingApp() {
             {currentIndex + 1} / {dataset.instances.length}
           </strong>
           <span className="ranking-instance-id">instance: {currentInstance.instance_id}</span>
-          <span className="ranking-save-status">{saveStateLabel}</span>
+          <span className="ranking-save-status">{saveStateLabel(currentSession)}</span>
         </div>
         <a className="ranking-button" href={exportHref} target="_blank" rel="noreferrer">
           Export
@@ -406,85 +419,15 @@ export default function RankingApp() {
       </div>
 
       <div className="ranking-board">
-        <section
-          className={`ranking-column ${dragOverRank === -1 ? 'is-drag-over' : ''}`}
-          onDragOver={(event) => {
-            event.preventDefault()
-            setDragOverRank(-1)
-          }}
-          onDragLeave={() => setDragOverRank(null)}
-          onDrop={(event) => dropOnRank(event, null)}
-        >
-          <header className="ranking-column-header">Unranked</header>
-          <div className="ranking-column-cards">
-            {currentSession.board.unranked.map((imageId) => {
-              const image = imageById.get(imageId)
-              if (!image) return null
-              const isSelected = currentSession.board.selectedImageId === imageId
-              return (
-                <article
-                  key={imageId}
-                  className={`ranking-card ${isSelected ? 'is-selected' : ''}`}
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData('text/plain', imageId)
-                    event.dataTransfer.effectAllowed = 'move'
-                    setDraggingImageId(imageId)
-                  }}
-                  onDragEnd={() => {
-                    setDraggingImageId(null)
-                    setDragOverRank(null)
-                  }}
-                  onClick={() => selectCurrentImage(imageId)}
-                >
-                  <img src={image.url} alt={image.sourcePath} loading="lazy" draggable={false} />
-                  <div className="ranking-card-label">{cardLabel(image.sourcePath)}</div>
-                </article>
-              )
-            })}
-          </div>
-        </section>
-
+        {renderColumn('Unranked', currentSession.board.unranked, -1, null, 'unranked')}
         {currentSession.board.rankColumns.map((column, rankIdx) => (
-          <section
-            key={`rank-${rankIdx}`}
-            className={`ranking-column ${dragOverRank === rankIdx ? 'is-drag-over' : ''}`}
-            onDragOver={(event) => {
-              event.preventDefault()
-              setDragOverRank(rankIdx)
-            }}
-            onDragLeave={() => setDragOverRank(null)}
-            onDrop={(event) => dropOnRank(event, rankIdx)}
-          >
-            <header className="ranking-column-header">Rank {rankIdx + 1}</header>
-            <div className="ranking-column-cards">
-              {column.map((imageId) => {
-                const image = imageById.get(imageId)
-                if (!image) return null
-                const isSelected = currentSession.board.selectedImageId === imageId
-                return (
-                  <article
-                    key={imageId}
-                    className={`ranking-card ${isSelected ? 'is-selected' : ''}`}
-                    draggable
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData('text/plain', imageId)
-                      event.dataTransfer.effectAllowed = 'move'
-                      setDraggingImageId(imageId)
-                    }}
-                    onDragEnd={() => {
-                      setDraggingImageId(null)
-                      setDragOverRank(null)
-                    }}
-                    onClick={() => selectCurrentImage(imageId)}
-                  >
-                    <img src={image.url} alt={image.sourcePath} loading="lazy" draggable={false} />
-                    <div className="ranking-card-label">{cardLabel(image.sourcePath)}</div>
-                  </article>
-                )
-              })}
-            </div>
-          </section>
+          renderColumn(
+            `Rank ${rankIdx + 1}`,
+            column,
+            rankIdx,
+            rankIdx,
+            `rank-${rankIdx}`,
+          )
         ))}
       </div>
 

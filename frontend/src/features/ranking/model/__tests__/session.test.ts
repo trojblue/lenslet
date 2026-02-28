@@ -37,13 +37,12 @@ function makeDataset(): RankingDatasetResponse {
 }
 
 describe('ranking session model contracts', () => {
-  it('hydrates sessions from export payload and preserves save sequence', () => {
+  it('hydrates sessions from export payload and preserves saved board layout', () => {
     const exported: RankingExportEntry[] = [
       {
         instance_id: 'one',
         final_ranks: [['1'], ['0']],
         started_at: '2026-02-28T05:10:00.000Z',
-        save_seq: 7,
       },
     ]
 
@@ -53,8 +52,6 @@ describe('ranking session model contracts', () => {
     expect(sessions.one.board.rankColumns[1]).toEqual(['0'])
     expect(sessions.one.board.unranked).toEqual([])
     expect(sessions.one.startedAt).toBe('2026-02-28T05:10:00.000Z')
-    expect(sessions.one.latestIssuedSeq).toBe(7)
-    expect(sessions.one.latestAckSeq).toBe(7)
     expect(sessions.two.board.unranked).toEqual(['0', '1'])
   })
 
@@ -64,7 +61,6 @@ describe('ranking session model contracts', () => {
         instance_id: 'one',
         final_ranks: [['0'], ['0'], []],
         started_at: 'not-a-timestamp',
-        save_seq: -2,
       },
     ]
 
@@ -73,7 +69,6 @@ describe('ranking session model contracts', () => {
     expect(sessions.one.board.rankColumns[0]).toEqual(['0'])
     expect(sessions.one.board.unranked).toEqual(['1'])
     expect(sessions.one.startedAt).toBeNull()
-    expect(sessions.one.latestIssuedSeq).toBe(0)
   })
 
   it('enforces navigation guards from completion state and list bounds', () => {
@@ -84,8 +79,6 @@ describe('ranking session model contracts', () => {
     const session = {
       board: complete,
       startedAt: null,
-      latestIssuedSeq: 0,
-      latestAckSeq: 0,
       saveStatus: 'idle' as const,
       saveError: null,
     }

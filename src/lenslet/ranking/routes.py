@@ -23,13 +23,10 @@ def build_ranking_router(
 
     @router.get("/image")
     def get_image(instance_id: str, image_id: str):
-        instance = dataset.get_instance(instance_id)
-        if instance is None:
-            raise HTTPException(404, f"unknown instance_id: {instance_id}")
-        for image in instance.images:
-            if image.image_id == image_id:
-                return FileResponse(str(image.abs_path))
-        raise HTTPException(404, f"unknown image_id for instance '{instance_id}': {image_id}")
+        image = dataset.get_image(instance_id, image_id)
+        if image is None:
+            raise HTTPException(404, f"unknown image_id for instance '{instance_id}': {image_id}")
+        return FileResponse(str(image.abs_path))
 
     @router.post("/save")
     def save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:

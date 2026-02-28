@@ -21,10 +21,16 @@ import {
   type RankingBoardState,
 } from './model/board'
 import {
+  RANKING_MIN_RANKS_HEIGHT_PX,
+  RANKING_SPLITTER_HEIGHT_PX,
+  clampUnrankedHeightPx,
+} from './model/layout'
+import {
   getBoardKeyAction,
   getFullscreenKeyAction,
   shouldIgnoreRankingHotkey,
 } from './model/keyboard'
+import { RANKING_DOT_COLORS, buildDotColorByImageId } from './model/palette'
 import {
   buildInitialSessions,
   canNavigateNext,
@@ -63,6 +69,8 @@ type PanState = {
 const MIN_FULLSCREEN_ZOOM = 1
 const MAX_FULLSCREEN_ZOOM = 4
 const FULLSCREEN_ZOOM_STEP = 0.18
+const INTERACTIVE_CONTROL_SELECTOR = 'button, a, [role="button"]'
+const DEFAULT_DOT_COLOR = RANKING_DOT_COLORS[0]
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -115,6 +123,9 @@ export default function RankingApp() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [draggingImageId, setDraggingImageId] = useState<string | null>(null)
   const [dragOverRank, setDragOverRank] = useState<number | null>(null)
+  const [unrankedHeightPx, setUnrankedHeightPx] = useState<number | null>(null)
+  const [splitterEnabled, setSplitterEnabled] = useState(false)
+  const [isResizingSplit, setIsResizingSplit] = useState(false)
   const [fullscreenImageId, setFullscreenImageId] = useState<string | null>(null)
   const [fullscreenTransform, setFullscreenTransform] = useState<FullscreenTransform>(
     defaultFullscreenTransform,
@@ -123,10 +134,50 @@ export default function RankingApp() {
   const sessionsRef = useRef<Record<string, InstanceSession>>(sessions)
   const saveRequestRef = useRef<Record<string, number>>({})
   const cardRefs = useRef<Record<string, HTMLElement | null>>({})
+  const workspaceRef = useRef<HTMLDivElement | null>(null)
+  const splitterPointerIdRef = useRef<number | null>(null)
   const panStateRef = useRef<PanState>(defaultPanState())
   useEffect(() => {
     sessionsRef.current = sessions
   }, [sessions])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      setSplitterEnabled(true)
+      return
+    }
+
+    const coarseQuery = window.matchMedia('(pointer: coarse)')
+    const narrowQuery = window.matchMedia('(max-width: 980px)')
+
+    const apply = () => {
+      setSplitterEnabled(!(coarseQuery.matches || narrowQuery.matches))
+    }
+    apply()
+
+    const attachChangeListener = (query: MediaQueryList): (() => void) => {
+      if (typeof query.addEventListener === 'function') {
+        query.addEventListener('change', apply)
+        return () => query.removeEventListener('change', apply)
+      }
+      query.addListener(apply)
+      return () => query.removeListener(apply)
+    }
+
+    const cleanupCoarse = attachChangeListener(coarseQuery)
+    const cleanupNarrow = attachChangeListener(narrowQuery)
+    return () => {
+      cleanupCoarse()
+      cleanupNarrow()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (splitterEnabled) return
+    splitterPointerIdRef.current = null
+    setIsResizingSplit(false)
+    setUnrankedHeightPx(null)
+  }, [splitterEnabled])
 
   const updateSession = useCallback(
     (instanceId: string, updater: (session: InstanceSession) => InstanceSession) => {
@@ -189,6 +240,10 @@ export default function RankingApp() {
     [currentInstance],
   )
   const fullscreenImage = fullscreenImageId ? imageById.get(fullscreenImageId) ?? null : null
+  const dotColorByImageId = useMemo(
+    () => buildDotColorByImageId(currentImageOrder),
+    [currentImageOrder],
+  )
 
   useEffect(() => {
     if (typeof Image === 'undefined' || !dataset) return
@@ -340,6 +395,65 @@ export default function RankingApp() {
     resetFullscreenTransform()
   }, [resetFullscreenTransform])
 
+  const clearDragState = useCallback(() => {
+    setDragOverRank(null)
+    setDraggingImageId(null)
+  }, [])
+
+  const onSplitterPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!splitterEnabled) return
+    if ((event.pointerType ?? 'mouse') !== 'mouse') return
+    if (event.button !== 0) return
+    if (draggingImageId) return
+
+    const workspace = workspaceRef.current
+    if (!workspace) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    clearDragState()
+
+    const pointerId = event.pointerId
+    splitterPointerIdRef.current = pointerId
+    setIsResizingSplit(true)
+
+    const handle = event.currentTarget
+    try {
+      handle.setPointerCapture(pointerId)
+    } catch {
+      // Ignore unsupported capture attempts.
+    }
+
+    const rect = workspace.getBoundingClientRect()
+    const applyPointerTop = (clientY: number) => {
+      setUnrankedHeightPx(clampUnrankedHeightPx(clientY - rect.top, rect.height))
+    }
+    applyPointerTop(event.clientY)
+
+    const onPointerMove = (nextEvent: PointerEvent) => {
+      if (splitterPointerIdRef.current !== nextEvent.pointerId) return
+      applyPointerTop(nextEvent.clientY)
+    }
+
+    const onPointerUp = (nextEvent: PointerEvent) => {
+      if (splitterPointerIdRef.current !== nextEvent.pointerId) return
+      splitterPointerIdRef.current = null
+      setIsResizingSplit(false)
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
+      try {
+        handle.releasePointerCapture(pointerId)
+      } catch {
+        // Ignore unsupported release attempts.
+      }
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointercancel', onPointerUp)
+  }, [clearDragState, draggingImageId, splitterEnabled])
+
   const navigateFullscreenImage = useCallback(
     (direction: 'prev' | 'next') => {
       if (!fullscreenImageId || currentImageOrder.length === 0) return
@@ -439,7 +553,7 @@ export default function RankingApp() {
         shouldIgnoreRankingHotkey(event.key, {
           isContentEditable: Boolean(target?.isContentEditable),
           tagName: target?.tagName ?? null,
-          insideInteractiveControl: Boolean(target?.closest('button, a, [role="button"]')),
+          insideInteractiveControl: Boolean(target?.closest(INTERACTIVE_CONTROL_SELECTOR)),
         })
       ) {
         return
@@ -513,26 +627,30 @@ export default function RankingApp() {
     selectCurrentImage,
   ])
 
-  const clearDragState = useCallback(() => {
-    setDragOverRank(null)
-    setDraggingImageId(null)
-  }, [])
-
   const startDrag = useCallback((event: DragEvent<HTMLElement>, imageId: string) => {
+    if (isResizingSplit) {
+      event.preventDefault()
+      return
+    }
     event.dataTransfer.setData('text/plain', imageId)
     event.dataTransfer.effectAllowed = 'move'
     setDraggingImageId(imageId)
-  }, [])
+  }, [isResizingSplit])
 
   const dropOnRank = useCallback(
     (event: DragEvent<HTMLElement>, rankIndex: number | null) => {
+      if (isResizingSplit) {
+        event.preventDefault()
+        clearDragState()
+        return
+      }
       event.preventDefault()
       const imageId = event.dataTransfer.getData('text/plain') || draggingImageId
       clearDragState()
       if (!imageId) return
       moveCurrentImageToRank(imageId, rankIndex)
     },
-    [clearDragState, draggingImageId, moveCurrentImageToRank],
+    [clearDragState, draggingImageId, isResizingSplit, moveCurrentImageToRank],
   )
 
   if (loading) {
@@ -553,17 +671,33 @@ export default function RankingApp() {
   const fullscreenPosition = fullscreenImageId
     ? currentImageOrder.indexOf(fullscreenImageId) + 1
     : 0
+  const workspaceStyle = splitterEnabled && unrankedHeightPx != null
+    ? {
+      gridTemplateRows: `${unrankedHeightPx}px ${RANKING_SPLITTER_HEIGHT_PX}px minmax(${RANKING_MIN_RANKS_HEIGHT_PX}px, 1fr)`,
+    }
+    : undefined
+  const workspaceClassName = [
+    'ranking-workspace',
+    splitterEnabled ? 'is-splitter-enabled' : 'is-splitter-disabled',
+    isResizingSplit && 'is-resizing',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const splitterClassName = ['ranking-splitter', !splitterEnabled && 'is-disabled']
+    .filter(Boolean)
+    .join(' ')
 
   const renderCard = (imageId: string) => {
     const image = imageById.get(imageId)
     if (!image) return null
     const isSelected = currentSession.board.selectedImageId === imageId
     const label = cardLabel(image.sourcePath)
+    const dotColor = dotColorByImageId[imageId] ?? DEFAULT_DOT_COLOR
     return (
       <article
         key={imageId}
         className={`ranking-card ${isSelected ? 'is-selected' : ''}`}
-        draggable
+        draggable={!isResizingSplit}
         tabIndex={0}
         ref={(element) => registerCardRef(imageId, element)}
         onDragStart={(event) => startDrag(event, imageId)}
@@ -583,32 +717,58 @@ export default function RankingApp() {
           Fullscreen
         </button>
         <img src={image.url} alt={image.sourcePath} loading="lazy" draggable={false} />
-        <div className="ranking-card-label">{label}</div>
+        <div className="ranking-card-meta">
+          <span
+            className="ranking-card-dot"
+            style={{ backgroundColor: dotColor }}
+            aria-hidden="true"
+          />
+          <div className="ranking-card-label">{label}</div>
+        </div>
       </article>
     )
   }
 
-  const renderColumn = (
-    title: string,
-    imageIds: string[],
-    dragValue: number,
-    targetRank: number | null,
-    key: string,
-  ) => (
-    <section
-      key={key}
-      className={`ranking-column ${dragOverRank === dragValue ? 'is-drag-over' : ''}`}
-      onDragOver={(event) => {
-        event.preventDefault()
-        setDragOverRank(dragValue)
-      }}
-      onDragLeave={() => setDragOverRank(null)}
-      onDrop={(event) => dropOnRank(event, targetRank)}
-    >
-      <header className="ranking-column-header">{title}</header>
-      <div className="ranking-column-cards">{imageIds.map(renderCard)}</div>
-    </section>
-  )
+  const renderColumn = ({
+    title,
+    imageIds,
+    dragValue,
+    targetRank,
+    columnKey,
+    className,
+    cardsClassName,
+  }: {
+    title: string
+    imageIds: string[]
+    dragValue: number
+    targetRank: number | null
+    columnKey: string
+    className: string
+    cardsClassName: string
+  }) => {
+    const columnClassName = ['ranking-column', className, dragOverRank === dragValue && 'is-drag-over']
+      .filter(Boolean)
+      .join(' ')
+    return (
+      <section
+        key={columnKey}
+        className={columnClassName}
+        onDragOver={(event) => {
+          if (isResizingSplit) return
+          event.preventDefault()
+          setDragOverRank(dragValue)
+        }}
+        onDragLeave={() => {
+          if (isResizingSplit) return
+          setDragOverRank(null)
+        }}
+        onDrop={(event) => dropOnRank(event, targetRank)}
+      >
+        <header className="ranking-column-header">{title}</header>
+        <div className={`ranking-column-cards ${cardsClassName}`}>{imageIds.map(renderCard)}</div>
+      </section>
+    )
+  }
 
   return (
     <div className="ranking-root">
@@ -649,17 +809,41 @@ export default function RankingApp() {
           : 'Assign every image to a rank before continuing.'}
       </div>
 
-      <div className="ranking-board">
-        {renderColumn('Unranked', currentSession.board.unranked, -1, null, 'unranked')}
-        {currentSession.board.rankColumns.map((column, rankIdx) => (
-          renderColumn(
-            `${rankIdx + 1}`,
-            column,
-            rankIdx,
-            rankIdx,
-            `rank-${rankIdx}`,
-          )
-        ))}
+      <div className={workspaceClassName} ref={workspaceRef} style={workspaceStyle}>
+        {renderColumn({
+          title: 'Unranked',
+          imageIds: currentSession.board.unranked,
+          dragValue: -1,
+          targetRank: null,
+          columnKey: 'unranked',
+          className: 'ranking-column-unranked',
+          cardsClassName: 'ranking-column-cards-unranked',
+        })}
+        <div
+          className={splitterClassName}
+          onPointerDown={onSplitterPointerDown}
+          role={splitterEnabled ? 'separator' : undefined}
+          aria-hidden={!splitterEnabled}
+          aria-orientation={splitterEnabled ? 'horizontal' : undefined}
+        >
+          <span className="ranking-splitter-grip" />
+        </div>
+        <section className="ranking-ranks-panel">
+          <header className="ranking-ranks-header">Ranks</header>
+          <div className="ranking-ranks-board">
+            {currentSession.board.rankColumns.map((column, rankIdx) => (
+              renderColumn({
+                title: `${rankIdx + 1}`,
+                imageIds: column,
+                dragValue: rankIdx,
+                targetRank: rankIdx,
+                columnKey: `rank-${rankIdx}`,
+                className: 'ranking-column-rank',
+                cardsClassName: 'ranking-column-cards-rank',
+              })
+            ))}
+          </div>
+        </section>
       </div>
 
       <footer className="ranking-footer">

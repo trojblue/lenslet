@@ -62,6 +62,7 @@ Test strategy lock: keep Node-mode Vitest for ranking helper/state logic and use
 2. Sprint 2 delivers layout inversion, resizable split, and visual identity aids.
    Sprint goal: make unranked triage area dominant while preserving rank-drop usability and tie grouping.
    Demo outcome: unranked area appears at top with larger cards, bottom ranks remain actionable, split height can be dragged on desktop pointers, and each card has stable non-obtrusive color dot.
+   Sprint 2 status (2026-02-28 07:16:31Z): Closed in iteration `2/7` with `T5`-`T8` shipped; cleanup/review gates completed, while manual ranking browser acceptance and GUI smoke blocker follow-up are carried into Sprint 3 release-gate work.
    Tasks:
    1. T5: Rework ranking layout/CSS to vertical sections (`unranked` top, `ranks` bottom) with responsive behavior for narrow screens.
       Validation: manual desktop/mobile viewport pass and targeted style checks.
@@ -173,6 +174,15 @@ Sprint 1 command evidence (2026-02-28):
 Sprint 1 manual-acceptance note:
 1. Browser/manual acceptance steps for fullscreen pan/zoom and keyflow are not executed in this CLI iteration and remain queued for Sprint 2/3 gate runs.
 
+Sprint 2 command evidence (2026-02-28):
+1. `cd frontend && npm run test -- src/features/ranking/model src/features/ranking` -> pass (`5` files, `26` tests), including new splitter clamp + palette determinism suites.
+2. `cd frontend && npm run test -- src/features/ranking/model src/features/ranking src/app/model/__tests__/appMode.test.ts` -> pass (`6` files, `28` tests).
+3. `cd frontend && npx tsc --noEmit` -> pass.
+4. `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/` -> pass.
+5. `python scripts/lint_repo.py` -> pass.
+6. `python scripts/gui_smoke_acceptance.py` -> fail in this environment (`Compare images` dialog timeout after 45s in browse-mode path); captured as a Sprint 3 release-gate blocker for follow-up triage.
+7. Sprint 2 cleanup/review routines completed via subagents (`code-simplifier`, then `code-review`); cleanup applied conservative readability edits, follow-up review reported no actionable findings.
+
 Expected outcomes are:
 1. Rank assignment can proceed in a rapid `number -> number -> number` cadence after initial focus.
 2. Fullscreen interaction and board interaction remain behaviorally consistent for ranking actions.
@@ -203,8 +213,10 @@ If portability guardrails are threatened during implementation, fallback is to s
 - [x] 2026-02-28 06:45:41Z Sprint 1 implementation started (`T1`-`T4` scope lock confirmed).
 - [x] 2026-02-28 07:00:51Z Sprint 1 implementation completed (`T1`-`T4`): board auto-advance helper + tests, mode-aware keyboard routing, ranking-local fullscreen overlay with pan/zoom + `a/d` traversal, per-card fullscreen control, and rank header label cleanup.
 - [x] 2026-02-28 07:00:51Z Sprint 1 cleanup/review gates completed: `code-simplifier` cleanup pass applied, `code-review` pass run twice, Enter-key interactive-control regression fixed, and follow-up review returned no remaining actionable findings.
-- [ ] 2026-02-28T00:00:00Z Sprint 2 implementation started.
-- [ ] 2026-02-28T00:00:00Z Sprint 2 cleanup and review gates completed.
+- [x] 2026-02-28 07:07:03Z Sprint 2 implementation started (`T5`-`T8` scope lock confirmed).
+- [x] 2026-02-28 07:07:03Z Sprint 2 implementation completed (`T5`-`T8`): unranked-top / ranks-bottom workspace with responsive mobile fallback, desktop-pointer splitter with clamped bounds, deterministic card color-dot mapping from initial image order, and splitter/card drag boundary hardening.
+- [x] 2026-02-28 07:16:31Z Sprint 2 cleanup and review gates completed: `code-simplifier` and `code-review` subagent routines run on post-implementation diff, no actionable defects remained.
+- [x] 2026-02-28 07:16:31Z Sprint 2 validation sweep run: ranking/app-mode tests, TypeScript, frontend build, and repo lint passed; `gui_smoke_acceptance.py` failed with `Compare images` dialog timeout and is tracked for Sprint 3 release-gate triage.
 - [ ] 2026-02-28T00:00:00Z Sprint 3 implementation started.
 - [ ] 2026-02-28T00:00:00Z Sprint 3 cleanup and review gates completed.
 - [ ] 2026-02-28T00:00:00Z Final validation and handoff notes completed.
@@ -230,5 +242,12 @@ Sprint 1 handoff notes (closed 2026-02-28):
 3. UI updates delivered: per-card fullscreen trigger button, rank headers rendered as `1`, `2`, `3`, and footer hotkey text updated to new contract.
 4. Portability exceptions: none needed for Sprint 1.
 5. Remaining scope: Sprint 2 (`T5`-`T8`) layout inversion + splitter + color dots.
+
+Sprint 2 handoff notes (closed 2026-02-28):
+1. Layout inversion shipped in `RankingApp` + `ranking.css`: unranked cards now occupy a larger top workspace panel, rank buckets move to a dedicated bottom panel, and narrow/coarse-pointer layouts collapse to non-resizable stacked behavior.
+2. Splitter implementation is ranking-local: desktop mouse pointer only, min/max clamped by `frontend/src/features/ranking/model/layout.ts` constants (`RANKING_MIN_UNRANKED_HEIGHT_PX=220`, `RANKING_MIN_RANKS_HEIGHT_PX=180`, `RANKING_SPLITTER_HEIGHT_PX=10`) with dedicated model tests.
+3. Deterministic card identity dots shipped via `frontend/src/features/ranking/model/palette.ts`, mapping unique image IDs in initial dataset order onto a small curated palette; dot rendering is applied consistently in all card locations.
+4. Pointer-boundary hardening shipped: splitter resize mode suppresses card drag/drop interactions, splitter pointerdown ignores non-mouse pointers, and drag state is cleared when resizing begins to avoid interaction crossover.
+5. Portability exceptions: none. New logic is ranking-local and does not import browse-heavy modules.
 
 Revision note: this revision updates repository alignment after commit `c64ac3b`, removes outdated validation references, adds explicit mini-app lightweight/portable guardrails, explicitly references the committed layout sketch path, and incorporates mandatory second-pass review feedback.

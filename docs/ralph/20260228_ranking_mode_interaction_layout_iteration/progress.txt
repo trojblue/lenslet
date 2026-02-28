@@ -18,8 +18,30 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260228_ranking_mode_interaction_layout_ite
 - Validations run:
   - `cd frontend && npm run test -- src/features/ranking src/app/model/__tests__/appMode.test.ts` -> pass (`4` files, `20` tests).
   - `cd frontend && npx tsc --noEmit` -> pass.
-  - `cd frontend && npm run build` -> pass.
+  - `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/` -> pass.
   - `python scripts/lint_repo.py` -> pass.
   - Cleanup/review routines executed with subagents (`code-simplifier`, `code-review`) -> final review pass reported no remaining actionable findings.
 - Blockers: none.
 - Next step: start Sprint 2 (`T5` first: invert ranking layout to unranked-top / ranks-bottom structure).
+## Iteration 2 (2026-02-28T07:16:31Z)
+- Completed task IDs: `T5`, `T6`, `T7`, `T8` (Sprint 2 closed).
+- Files changed:
+  - `frontend/src/features/ranking/RankingApp.tsx`
+  - `frontend/src/features/ranking/ranking.css`
+  - `frontend/src/features/ranking/model/layout.ts` (new)
+  - `frontend/src/features/ranking/model/palette.ts` (new)
+  - `frontend/src/features/ranking/model/__tests__/layout.test.ts` (new)
+  - `frontend/src/features/ranking/model/__tests__/palette.test.ts` (new)
+  - `docs/20260228_ranking_mode_interaction_layout_iteration_plan.md`
+- Validations run:
+  - `cd frontend && npm run test -- src/features/ranking/model src/features/ranking` -> pass (`5` files, `26` tests).
+  - `cd frontend && npm run test -- src/features/ranking/model src/features/ranking src/app/model/__tests__/appMode.test.ts` -> pass (`6` files, `28` tests).
+  - `cd frontend && npx tsc --noEmit` -> pass.
+  - `cd frontend && npm run build` -> pass.
+  - `python scripts/lint_repo.py` -> pass.
+  - Cleanup/review routines executed with subagents (`code-simplifier`, `code-review`) -> cleanup applied conservative readability edits and final review reported no actionable findings.
+  - `python scripts/gui_smoke_acceptance.py` -> fail (`Compare images` dialog timeout waiting 45s in browse-mode smoke path).
+- Blockers:
+  - GUI smoke acceptance is currently red due browse dialog timeout unrelated to ranking screens; requires Sprint 3 release-gate triage.
+- Next step:
+  - Start Sprint 3 (`T9`) and resolve/triage the `gui_smoke_acceptance.py` failure while completing docs + final gate sweep (`T10`/`T11`).

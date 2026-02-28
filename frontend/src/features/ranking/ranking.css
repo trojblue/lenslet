@@ -105,17 +105,63 @@
   font-size: 13px;
 }
 
-.ranking-board {
+.ranking-workspace {
+  min-height: clamp(520px, calc(100vh - 220px), 940px);
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(180px, 1fr);
-  gap: 10px;
-  overflow-x: auto;
-  padding-bottom: 8px;
+  grid-template-rows: minmax(240px, 1.45fr) 10px minmax(180px, 1fr);
+  gap: 0;
+}
+
+.ranking-workspace.is-resizing {
+  user-select: none;
+  cursor: row-resize;
+}
+
+.ranking-workspace.is-resizing .ranking-column,
+.ranking-workspace.is-resizing .ranking-ranks-panel {
+  pointer-events: none;
+}
+
+.ranking-workspace.is-resizing .ranking-splitter {
+  pointer-events: auto;
+}
+
+.ranking-workspace.is-splitter-disabled {
+  min-height: 0;
+  grid-template-rows: auto 0 minmax(180px, auto);
+}
+
+.ranking-splitter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.ranking-splitter::before {
+  content: '';
+  position: absolute;
+  inset: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--border) 88%, transparent);
+}
+
+.ranking-splitter-grip {
+  position: relative;
+  width: 52px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent-muted) 70%, var(--border));
+}
+
+.ranking-splitter.is-disabled {
+  display: none;
 }
 
 .ranking-column {
-  min-height: 340px;
+  min-height: 0;
   border-radius: 12px;
   border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
   background: color-mix(in oklab, var(--surface-overlay) 85%, transparent);
@@ -138,10 +184,60 @@
 }
 
 .ranking-column-cards {
+  gap: 8px;
+  padding: 0 8px 10px;
+  min-height: 0;
+}
+
+.ranking-column-unranked {
+  overflow: auto;
+}
+
+.ranking-column-cards-unranked {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  align-content: start;
+}
+
+.ranking-ranks-panel {
+  min-height: 0;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: color-mix(in oklab, var(--surface-overlay) 78%, transparent);
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 0 8px 10px;
+  padding: 8px;
+}
+
+.ranking-ranks-header {
+  padding: 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.ranking-ranks-board {
+  min-height: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(160px, 1fr);
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
+}
+
+.ranking-column-rank {
+  min-height: 0;
+}
+
+.ranking-column-cards-rank {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
 }
 
 .ranking-card {
@@ -178,12 +274,31 @@
 .ranking-card img {
   display: block;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 16 / 10;
   object-fit: cover;
 }
 
-.ranking-card-label {
+.ranking-column-rank .ranking-card img {
+  aspect-ratio: 4 / 3;
+}
+
+.ranking-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 8px;
+}
+
+.ranking-card-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--surface) 25%, black);
+}
+
+.ranking-card-label {
+  min-width: 0;
   font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.4;
@@ -292,6 +407,24 @@
     width: 100%;
     justify-content: flex-start;
     text-align: left;
+  }
+
+  .ranking-workspace {
+    min-height: 0;
+    grid-template-rows: auto 0 minmax(180px, auto);
+    gap: 10px;
+  }
+
+  .ranking-splitter {
+    display: none;
+  }
+
+  .ranking-column-cards-unranked {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  }
+
+  .ranking-ranks-board {
+    grid-auto-columns: minmax(130px, 1fr);
   }
 
   .ranking-footer {

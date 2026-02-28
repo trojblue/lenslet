@@ -45,3 +45,24 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260228_ranking_mode_interaction_layout_ite
   - GUI smoke acceptance is currently red due browse dialog timeout unrelated to ranking screens; requires Sprint 3 release-gate triage.
 - Next step:
   - Start Sprint 3 (`T9`) and resolve/triage the `gui_smoke_acceptance.py` failure while completing docs + final gate sweep (`T10`/`T11`).
+## Iteration 3 (2026-02-28T07:29:34Z)
+- Completed task IDs: `T9`, `T10`.
+- In-progress/blocked task IDs: `T11` (validation sweep executed; GUI smoke gate still red).
+- Files changed:
+  - `tests/test_import_contract.py`
+  - `README.md`
+  - `docs/20260227_SPEC_ranking_tool.md`
+  - `docs/20260228_ranking_mode_interaction_layout_iteration_plan.md`
+- Validations run:
+  - `pytest tests/test_ranking_backend.py tests/test_ranking_cli.py -q` -> pass (`12` tests).
+  - `pytest tests/test_import_contract.py tests/test_dataset_http.py -q` -> pass (`4` tests).
+  - `cd frontend && npm run test -- src/features/ranking/model src/features/ranking src/app/model/__tests__/appMode.test.ts` -> pass (`6` files, `28` tests).
+  - `cd frontend && npx tsc --noEmit` -> pass.
+  - `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/` -> pass.
+  - `python scripts/gui_smoke_acceptance.py` -> fail twice (`Compare images` dialog timeout waiting 45000ms).
+  - `python scripts/lint_repo.py` -> pass (ruff + file-size guardrails; warn-only large-file notices unchanged).
+  - Cleanup/review routines executed with subagents (`code-simplifier`, `code-review`) -> cleanup no-op; two review findings in import-contract guard were fixed; follow-up review reported no actionable findings.
+- Blockers:
+  - GUI smoke acceptance remains red in browse compare-flow path (`Compare images` dialog visibility timeout).
+- Next step:
+  - Triage/fix browse compare-dialog path (script selector/interaction sequence vs UI behavior), rerun `python scripts/gui_smoke_acceptance.py`, and close `T11`/Sprint 3 once full gate set is green.

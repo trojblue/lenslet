@@ -76,6 +76,7 @@ Test strategy lock: keep Node-mode Vitest for ranking helper/state logic and use
 3. Sprint 3 delivers release-gate hardening and documentation alignment.
    Sprint goal: finish with a lean implementation that is easy to ship and maintain inside the mini-app model.
    Demo outcome: ranking changes pass current tests, compile/build cleanly, and docs match shipped behavior.
+   Sprint 3 status (2026-02-28 07:29:34Z): In progress in iteration `3/7`; `T9` and `T10` are complete, while `T11` is blocked by a persistent `python scripts/gui_smoke_acceptance.py` timeout waiting for the browse `Compare images` dialog.
    Tasks:
    1. T9: Enforce portability boundary as a concrete done-check: ranking feature imports are limited to ranking-local modules plus approved shared primitives (`api/base`, `lib/fetcher`) and do not pull browse-heavy viewer/file-path APIs.
       Validation: import diff review and targeted cleanup commit if any violations are found.
@@ -183,6 +184,17 @@ Sprint 2 command evidence (2026-02-28):
 6. `python scripts/gui_smoke_acceptance.py` -> fail in this environment (`Compare images` dialog timeout after 45s in browse-mode path); captured as a Sprint 3 release-gate blocker for follow-up triage.
 7. Sprint 2 cleanup/review routines completed via subagents (`code-simplifier`, then `code-review`); cleanup applied conservative readability edits, follow-up review reported no actionable findings.
 
+Sprint 3 command evidence (2026-02-28):
+1. `pytest tests/test_ranking_backend.py tests/test_ranking_cli.py -q` -> pass (`12` tests).
+2. `pytest tests/test_import_contract.py tests/test_dataset_http.py -q` -> pass (`4` tests).
+3. `cd frontend && npm run test -- src/features/ranking/model src/features/ranking src/app/model/__tests__/appMode.test.ts` -> pass (`6` files, `28` tests).
+4. `cd frontend && npx tsc --noEmit` -> pass.
+5. `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/` -> pass.
+6. `python scripts/gui_smoke_acceptance.py` -> fail (`Compare images` dialog visibility timeout after `45000ms`).
+7. `python scripts/gui_smoke_acceptance.py` (rerun) -> fail with same timeout/signature.
+8. `python scripts/lint_repo.py` -> pass (ruff + file-size guardrails).
+9. Sprint 3 cleanup/review routines completed via subagents (`code-simplifier` then `code-review`): cleanup was no-op, one review pass reported two issues in import-contract parsing/allowlist, fixes were applied, and follow-up review reported no actionable findings.
+
 Expected outcomes are:
 1. Rank assignment can proceed in a rapid `number -> number -> number` cadence after initial focus.
 2. Fullscreen interaction and board interaction remain behaviorally consistent for ranking actions.
@@ -201,6 +213,10 @@ Idempotent retry strategy remains the current autosave pattern and backend lates
 
 If portability guardrails are threatened during implementation, fallback is to ship a ranking-local fullscreen component with minimal dependencies and defer broader shared abstraction to a separate approved follow-up.
 
+Current Sprint 3 blocker:
+1. `python scripts/gui_smoke_acceptance.py` repeatedly times out waiting for the browse `Compare images` dialog (`Locator.wait_for` at `45000ms`) despite otherwise healthy API traffic in server logs.
+2. Proposed unblock: next iteration performs focused browse compare-flow triage (script selector/interaction sequence vs UI behavior), lands the minimal fix, and reruns the full T11 gate set until green.
+
 
 ## Progress Log
 
@@ -217,9 +233,11 @@ If portability guardrails are threatened during implementation, fallback is to s
 - [x] 2026-02-28 07:07:03Z Sprint 2 implementation completed (`T5`-`T8`): unranked-top / ranks-bottom workspace with responsive mobile fallback, desktop-pointer splitter with clamped bounds, deterministic card color-dot mapping from initial image order, and splitter/card drag boundary hardening.
 - [x] 2026-02-28 07:16:31Z Sprint 2 cleanup and review gates completed: `code-simplifier` and `code-review` subagent routines run on post-implementation diff, no actionable defects remained.
 - [x] 2026-02-28 07:16:31Z Sprint 2 validation sweep run: ranking/app-mode tests, TypeScript, frontend build, and repo lint passed; `gui_smoke_acceptance.py` failed with `Compare images` dialog timeout and is tracked for Sprint 3 release-gate triage.
-- [ ] 2026-02-28T00:00:00Z Sprint 3 implementation started.
-- [ ] 2026-02-28T00:00:00Z Sprint 3 cleanup and review gates completed.
-- [ ] 2026-02-28T00:00:00Z Final validation and handoff notes completed.
+- [x] 2026-02-28 07:20:00Z Sprint 3 implementation started (`T9`-`T11` scope lock confirmed).
+- [x] 2026-02-28 07:20:00Z Sprint 3 partial implementation completed (`T9`, `T10`): ranking import-boundary contract coverage added in `tests/test_import_contract.py`, and README + ranking specification docs now match shipped keymap/layout behavior.
+- [x] 2026-02-28 07:29:34Z Sprint 3 cleanup and review gates completed: `code-simplifier` subagent performed no-op cleanup pass; `code-review` found two import-contract issues, fixes were applied, and follow-up review returned no actionable findings.
+- [x] 2026-02-28 07:29:34Z Sprint 3 validation sweep executed: pytest ranking/backend + import/dataset gates, Vitest ranking/app-mode gates, TypeScript, frontend build+bundle sync, and lint passed; GUI smoke blocker reproduced on two runs.
+- [ ] 2026-02-28 07:29:34Z Final validation and handoff notes blocked pending browse `Compare images` dialog timeout triage/fix and a green rerun of `python scripts/gui_smoke_acceptance.py`.
 
 
 ## Artifacts and Handoff
@@ -249,5 +267,10 @@ Sprint 2 handoff notes (closed 2026-02-28):
 3. Deterministic card identity dots shipped via `frontend/src/features/ranking/model/palette.ts`, mapping unique image IDs in initial dataset order onto a small curated palette; dot rendering is applied consistently in all card locations.
 4. Pointer-boundary hardening shipped: splitter resize mode suppresses card drag/drop interactions, splitter pointerdown ignores non-mouse pointers, and drag state is cleared when resizing begins to avoid interaction crossover.
 5. Portability exceptions: none. New logic is ranking-local and does not import browse-heavy modules.
+
+Sprint 3 handoff notes (in progress 2026-02-28):
+1. Portability boundary is now enforced by automated import-contract coverage in `tests/test_import_contract.py`: ranking feature imports must resolve inside `frontend/src/features/ranking` unless explicitly allowlisted (`../../api/base`, `../../lib/fetcher`), and `vitest` imports are limited to ranking test files.
+2. Operator docs now match shipped interaction behavior in `README.md` and `docs/20260227_SPEC_ranking_tool.md` (unranked-top layout, desktop-only splitter drag, board/fullscreen keymaps, and `Backspace` no-op for instance navigation).
+3. Release-gate status: all Sprint 3 validations except GUI smoke are green; blocker remains the browse `Compare images` dialog timeout in `python scripts/gui_smoke_acceptance.py`, with follow-up triage queued for next iteration.
 
 Revision note: this revision updates repository alignment after commit `c64ac3b`, removes outdated validation references, adds explicit mini-app lightweight/portable guardrails, explicitly references the committed layout sketch path, and incorporates mandatory second-pass review feedback.

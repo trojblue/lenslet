@@ -138,10 +138,11 @@ Why JSONL:
 
 ### Body
 
-- Fixed rank columns: 1 → N
-- Each column is a drop zone
-- Images displayed as draggable cards
-- Optional: "Unassigned" column initially
+- Dominant top "Unranked" workspace with larger cards
+- Bottom fixed rank buckets: 1 → N (each bucket is a drop zone)
+- Images displayed as draggable cards in both sections
+- Desktop mouse pointers can resize top/bottom split with a drag handle
+- Narrow/coarse-pointer layouts use a fixed stacked layout (no splitter drag)
 
 Ranks are relative:
 Left = higher quality
@@ -163,17 +164,28 @@ No semantic labels like “Best” or “Worst”.
 
 ## 3.3 Keyboard Controls
 
-Minimum viable:
+Board mode:
 
 - 1–N → move selected image to rank
 - Arrow keys → move selection left/right
-- Enter → next instance
-- Backspace → previous instance
+- q/e → previous/next instance
+- Enter → open fullscreen on selected image
+
+Fullscreen mode:
+
+- a/d → previous/next image in initial order
+- 1–N → move current fullscreen image to rank
+- Escape → close fullscreen and restore board focus to the same image
+
+Deprecated behavior:
+
+- Backspace does not navigate instances.
 
 Behavior rules:
 
 - Selected image visually highlighted
-- After move, selection stays on moved image
+- Assigning an unranked image advances focus to next unranked image in initial dataset order
+- Reranking an already ranked image keeps focus on that image
 - Focus preserved across re-renders
 
 ------
@@ -384,12 +396,11 @@ Optional future:
 
 To avoid scope creep:
 
-- Fixed N rank columns
+- Top-unranked + bottom-rank layout
 - Drag-and-drop
-- 1–N hotkeys
+- Board + fullscreen hotkeys (`1-N`, `q/e`, `Enter`, `a/d`, `Escape`)
 - Autosave
 - JSONL append
 - Export
 
 Everything else is optional polish.
-

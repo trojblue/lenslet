@@ -162,6 +162,14 @@ Ranking mode constraints and semantics:
 - Resume index is deterministic: `last_completed_instance_index + 1`, wrapping to `0` when all are complete.
 - `GET /rank/export` collapses to latest-per-instance entries; `completed_only=true` filters to completed items only.
 
+Ranking mode interaction (current):
+
+- Layout is split into a larger top `Unranked` workspace and bottom rank buckets (`1`, `2`, `3`, ...).
+- Desktop mouse pointers can drag a splitter between top and bottom sections; narrow/coarse-pointer layouts use a fixed stacked layout.
+- Board hotkeys: `1-9` assign focused image to rank and auto-advance to next unranked image in initial dataset order, `ArrowLeft/ArrowRight` move selection, `q/e` navigate previous/next instance, and `Enter` opens fullscreen.
+- Fullscreen hotkeys: `a/d` navigate previous/next image in initial order, `1-9` assign rank for current fullscreen image, and `Escape` closes fullscreen while restoring board focus to that image.
+- `Backspace` no longer performs instance navigation.
+
 ### Embedding Similarity Search
 
 Lenslet auto-detects fixed-size list embedding columns in `items.parquet` (or you can force them with `--embedding-column`). The UI exposes a "Find similar" action, and the API supports path-based or base64 vector queries.

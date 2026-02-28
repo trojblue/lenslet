@@ -69,17 +69,18 @@ export default function CompareViewer({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isInputElement(e.target)) return
+      const normalized = e.key.toLowerCase()
       if (e.key === 'Escape') {
         e.preventDefault()
         onClose()
         return
       }
-      if ((e.key === 'ArrowRight' || e.key === 'd') && canNext) {
+      if ((e.key === 'ArrowRight' || normalized === 'd') && canNext) {
         e.preventDefault()
         onNavigate(1)
         return
       }
-      if ((e.key === 'ArrowLeft' || e.key === 'a') && canPrev) {
+      if ((e.key === 'ArrowLeft' || normalized === 'a') && canPrev) {
         e.preventDefault()
         onNavigate(-1)
       }

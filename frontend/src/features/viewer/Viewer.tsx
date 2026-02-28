@@ -66,11 +66,15 @@ export default function Viewer({
   // Keyboard navigation
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const normalized = e.key.toLowerCase()
       if (e.key === 'Escape') {
+        e.preventDefault()
         closeViewer()
-      } else if ((e.key === 'ArrowRight' || e.key === 'd') && onNavigate) {
+      } else if ((e.key === 'ArrowRight' || normalized === 'd') && onNavigate) {
+        e.preventDefault()
         onNavigate(1)
-      } else if ((e.key === 'ArrowLeft' || e.key === 'a') && onNavigate) {
+      } else if ((e.key === 'ArrowLeft' || normalized === 'a') && onNavigate) {
+        e.preventDefault()
         onNavigate(-1)
       }
     }

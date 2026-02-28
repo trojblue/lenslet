@@ -56,45 +56,60 @@
 }
 
 .ranking-header-shell {
-  min-height: 64px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  padding-block: 10px;
-}
-
-.ranking-header-side {
+  min-height: 34px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-block: 3px;
 }
 
-.ranking-header-side.is-left {
-  justify-content: flex-start;
+.ranking-header-leading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.ranking-header-side.is-right {
+.ranking-header-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.015em;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.ranking-header-trailing {
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
-.ranking-header-center {
-  display: flex;
+.ranking-nav-group {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
+  gap: 6px;
+}
+
+.ranking-header-trailing .ranking-nav-group {
+  margin-left: 4px;
 }
 
 .ranking-progress-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 32px;
-  min-width: 82px;
-  padding: 0 12px;
+  min-height: 22px;
+  min-width: 72px;
+  padding: 0 9px;
   border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
   background: color-mix(in oklab, var(--surface-overlay) 86%, transparent);
-  font-size: 12px;
+  font-size: 10.5px;
   line-height: 1;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
@@ -102,15 +117,25 @@
 .ranking-main {
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: auto;
-  padding-block: 16px 24px;
+  padding-block: 8px 14px;
+}
+
+.ranking-main-shell {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .ranking-workspace {
-  min-height: max(0px, calc(100vh - 130px));
+  min-height: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .ranking-workspace.is-resizing {
@@ -128,6 +153,7 @@
 }
 
 .ranking-unranked-panel {
+  position: relative;
   border-radius: 16px;
   border: 1px solid color-mix(in oklab, var(--border) 84%, transparent);
   background: color-mix(in oklab, var(--surface-overlay) 83%, transparent);
@@ -156,9 +182,46 @@
 
 .ranking-unranked-hint {
   margin: 0;
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-secondary);
   line-height: 1.35;
+  white-space: nowrap;
+}
+
+.ranking-thumb-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--surface) 90%, transparent);
+  padding: 2px 8px;
+  min-height: 25px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  flex: none;
+}
+
+.ranking-thumb-size-control-header {
+  margin-right: 2px;
+}
+
+.ranking-thumb-size-control > span:first-child {
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.ranking-thumb-size-control input[type='range'] {
+  width: 120px;
+  height: 14px;
+  accent-color: color-mix(in oklab, var(--accent) 72%, white 8%);
+}
+
+.ranking-thumb-size-value {
+  min-width: 36px;
+  text-align: right;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  color: var(--text);
 }
 
 .ranking-unranked-tray {
@@ -170,22 +233,55 @@
 }
 
 .ranking-unranked-resizer {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
   display: flex;
-  justify-content: center;
-  padding-top: 10px;
+  justify-content: flex-end;
 }
 
 .ranking-unranked-resize-handle {
-  width: 112px;
-  height: 8px;
-  border: 0;
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--border) 88%, transparent);
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--surface) 88%, transparent);
   cursor: row-resize;
+  padding: 0;
+  touch-action: none;
+}
+
+.ranking-unranked-resize-handle::before,
+.ranking-unranked-resize-handle::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 4px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent-muted) 66%, var(--border));
+  transform-origin: right center;
+}
+
+.ranking-unranked-resize-handle::before {
+  width: 9px;
+  transform: rotate(-45deg);
+}
+
+.ranking-unranked-resize-handle::after {
+  width: 6px;
+  bottom: 8px;
+  transform: rotate(-45deg);
 }
 
 .ranking-unranked-resize-handle:hover {
-  background: color-mix(in oklab, var(--accent-muted) 60%, var(--border));
+  border-color: color-mix(in oklab, var(--accent) 62%, var(--border));
+}
+
+.ranking-unranked-resize-handle:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent);
+  outline-offset: 1px;
 }
 
 .ranking-column {
@@ -227,6 +323,7 @@
 
 .ranking-ranks-panel {
   min-height: 180px;
+  flex: 1 1 auto;
   border-radius: 16px;
   border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
   background: color-mix(in oklab, var(--surface-overlay) 80%, transparent);
@@ -334,8 +431,17 @@
   background: color-mix(in oklab, var(--surface-overlay) 84%, transparent);
   color: var(--text);
   cursor: pointer;
+  display: grid;
+  place-items: center;
+  line-height: 0;
   opacity: 0;
   transition: opacity 0.12s ease;
+}
+
+.ranking-card-fullscreen svg {
+  width: 13px;
+  height: 13px;
+  display: block;
 }
 
 .ranking-card:hover .ranking-card-fullscreen,
@@ -408,13 +514,13 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 33px;
-  padding: 0 12px;
+  min-height: 27px;
+  padding: 0 10px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: color-mix(in oklab, var(--surface) 90%, transparent);
   color: var(--text);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.01em;
   text-decoration: none;
@@ -446,13 +552,13 @@
 }
 
 .ranking-button-icon {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   flex: none;
 }
 
 .ranking-export-button {
-  min-width: 84px;
+  min-width: 86px;
 }
 
 .ranking-fullscreen {
@@ -559,24 +665,28 @@
   }
 
   .ranking-header-shell {
-    grid-template-columns: 1fr;
-    gap: 8px;
-    padding-block: 10px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 6px;
+    padding-block: 4px;
   }
 
-  .ranking-header-side,
-  .ranking-header-center {
+  .ranking-header-leading {
     width: 100%;
-  }
-
-  .ranking-header-side.is-right {
-    justify-content: flex-end;
-  }
-
-  .ranking-header-center {
     justify-content: space-between;
   }
 
+  .ranking-header-trailing {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .ranking-header-trailing .ranking-nav-group {
+    margin-left: 0;
+  }
+
+  .ranking-main-shell,
   .ranking-workspace {
     min-height: auto;
   }
@@ -584,6 +694,14 @@
   .ranking-unranked-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .ranking-thumb-size-control input[type='range'] {
+    width: 136px;
+  }
+
+  .ranking-unranked-hint {
+    white-space: normal;
   }
 
   .ranking-ranks-board {

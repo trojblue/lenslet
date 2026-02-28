@@ -17,6 +17,14 @@ describe('ranking keyboard routing', () => {
       type: 'select-neighbor',
       direction: 'right',
     })
+    expect(getBoardKeyAction('a', 3)).toEqual({
+      type: 'select-neighbor',
+      direction: 'left',
+    })
+    expect(getBoardKeyAction('D', 3)).toEqual({
+      type: 'select-neighbor',
+      direction: 'right',
+    })
     expect(getBoardKeyAction('q', 3)).toEqual({ type: 'instance-nav', direction: 'prev' })
     expect(getBoardKeyAction('E', 3)).toEqual({ type: 'instance-nav', direction: 'next' })
     expect(getBoardKeyAction('Enter', 3)).toEqual({ type: 'fullscreen-open' })
@@ -26,6 +34,14 @@ describe('ranking keyboard routing', () => {
     expect(getFullscreenKeyAction('2', 3)).toEqual({ type: 'assign-rank', rankIndex: 1 })
     expect(getFullscreenKeyAction('a', 3)).toEqual({ type: 'fullscreen-nav', direction: 'prev' })
     expect(getFullscreenKeyAction('D', 3)).toEqual({ type: 'fullscreen-nav', direction: 'next' })
+    expect(getFullscreenKeyAction('ArrowLeft', 3)).toEqual({
+      type: 'fullscreen-nav',
+      direction: 'prev',
+    })
+    expect(getFullscreenKeyAction('ArrowRight', 3)).toEqual({
+      type: 'fullscreen-nav',
+      direction: 'next',
+    })
     expect(getFullscreenKeyAction('Escape', 3)).toEqual({ type: 'fullscreen-close' })
     expect(getFullscreenKeyAction('q', 3)).toEqual({ type: 'none' })
     expect(getFullscreenKeyAction('Backspace', 3)).toEqual({ type: 'none' })

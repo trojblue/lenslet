@@ -94,6 +94,12 @@ const MAX_FULLSCREEN_ZOOM = 4
 const FULLSCREEN_ZOOM_STEP = 0.18
 const INTERACTIVE_CONTROL_SELECTOR = 'button, a, [role="button"]'
 const DEFAULT_DOT_COLOR = RANKING_DOT_COLORS[0]
+const UNRANKED_HEIGHT_STORAGE_KEY = 'lenslet.ranking.unranked_height_px.v1'
+const UNRANKED_THUMB_SIZE_STORAGE_KEY = 'lenslet.ranking.unranked_thumb_size_px.v1'
+const UNRANKED_THUMB_SIZE_MIN_PX = 132
+const UNRANKED_THUMB_SIZE_MAX_PX = 1560
+const UNRANKED_THUMB_SIZE_STEP_PX = 4
+const UNRANKED_THUMB_SIZE_DEFAULT_PX = 208
 
 function FullscreenIcon() {
   return (
@@ -167,6 +173,38 @@ function pointerClientPosition(event: Event | null): { x: number; y: number } | 
     }
   }
   return null
+}
+
+function readStoredUnrankedHeightPx(): number | null {
+  if (typeof window === 'undefined') return null
+  let raw: string | null = null
+  try {
+    raw = window.localStorage.getItem(UNRANKED_HEIGHT_STORAGE_KEY)
+  } catch {
+    return null
+  }
+  if (!raw) return null
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) return null
+  return Math.trunc(parsed)
+}
+
+function clampUnrankedThumbSizePx(value: number): number {
+  if (!Number.isFinite(value)) return UNRANKED_THUMB_SIZE_DEFAULT_PX
+  const snapped = Math.round(value / UNRANKED_THUMB_SIZE_STEP_PX) * UNRANKED_THUMB_SIZE_STEP_PX
+  return Math.max(UNRANKED_THUMB_SIZE_MIN_PX, Math.min(UNRANKED_THUMB_SIZE_MAX_PX, snapped))
+}
+
+function readStoredUnrankedThumbSizePx(): number | null {
+  if (typeof window === 'undefined') return null
+  let raw: string | null = null
+  try {
+    raw = window.localStorage.getItem(UNRANKED_THUMB_SIZE_STORAGE_KEY)
+  } catch {
+    return null
+  }
+  if (!raw) return null
+  return clampUnrankedThumbSizePx(Number(raw))
 }
 
 type RankingContainerId = 'unranked' | `rank-${number}`
@@ -379,9 +417,17 @@ export default function RankingApp() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [activeDragImageId, setActiveDragImageId] = useState<string | null>(null)
   const [dragOverContainerId, setDragOverContainerId] = useState<RankingContainerId | null>(null)
-  const [unrankedHeightPx, setUnrankedHeightPx] = useState(
-    RANKING_DEFAULT_UNRANKED_HEIGHT_PX,
-  )
+  const [unrankedHeightPx, setUnrankedHeightPx] = useState<number>(() => {
+    const stored = readStoredUnrankedHeightPx()
+    if (stored != null) return stored
+    if (typeof window !== 'undefined' && Number.isFinite(window.innerHeight)) {
+      return Math.round(window.innerHeight * 0.5)
+    }
+    return RANKING_DEFAULT_UNRANKED_HEIGHT_PX
+  })
+  const [unrankedThumbSizePx, setUnrankedThumbSizePx] = useState<number>(() => {
+    return readStoredUnrankedThumbSizePx() ?? UNRANKED_THUMB_SIZE_DEFAULT_PX
+  })
   const [isResizingSplit, setIsResizingSplit] = useState(false)
   const [fullscreenImageId, setFullscreenImageId] = useState<string | null>(null)
   const [fullscreenTransform, setFullscreenTransform] = useState<FullscreenTransform>(
@@ -406,13 +452,14 @@ export default function RankingApp() {
       const workspace = workspaceRef.current
       if (!workspace) return
       const { height } = workspace.getBoundingClientRect()
-      setUnrankedHeightPx((prev) =>
-        clampUnrankedHeightPx(prev, height, {
+      setUnrankedHeightPx((prev) => {
+        const requested = prev ?? Math.round(height * 0.5)
+        return clampUnrankedHeightPx(requested, height, {
           minTopPx: RANKING_MIN_UNRANKED_HEIGHT_PX,
           minBottomPx: RANKING_MIN_RANKS_HEIGHT_PX,
           splitterPx: 0,
-        }),
-      )
+        })
+      })
     }
 
     clampToViewport()
@@ -424,14 +471,40 @@ export default function RankingApp() {
     const workspace = workspaceRef.current
     if (!workspace) return
     const { height } = workspace.getBoundingClientRect()
-    setUnrankedHeightPx((prev) =>
-      clampUnrankedHeightPx(prev, height, {
+    setUnrankedHeightPx((prev) => {
+      const requested = prev ?? Math.round(height * 0.5)
+      return clampUnrankedHeightPx(requested, height, {
         minTopPx: RANKING_MIN_UNRANKED_HEIGHT_PX,
         minBottomPx: RANKING_MIN_RANKS_HEIGHT_PX,
         splitterPx: 0,
-      }),
-    )
+      })
+    })
   }, [currentIndex])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!Number.isFinite(unrankedHeightPx) || unrankedHeightPx <= 0) return
+    try {
+      window.localStorage.setItem(
+        UNRANKED_HEIGHT_STORAGE_KEY,
+        String(Math.trunc(unrankedHeightPx)),
+      )
+    } catch {
+      // Ignore storage errors (e.g. privacy mode).
+    }
+  }, [unrankedHeightPx])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(
+        UNRANKED_THUMB_SIZE_STORAGE_KEY,
+        String(clampUnrankedThumbSizePx(unrankedThumbSizePx)),
+      )
+    } catch {
+      // Ignore storage errors (e.g. privacy mode).
+    }
+  }, [unrankedThumbSizePx])
 
   const updateSession = useCallback(
     (instanceId: string, updater: (session: InstanceSession) => InstanceSession) => {
@@ -1032,8 +1105,11 @@ export default function RankingApp() {
     .filter(Boolean)
     .join(' ')
   const unrankedTrayStyle: CSSProperties = {
-    height: `${unrankedHeightPx}px`,
+    height: `${Math.max(0, Math.trunc(unrankedHeightPx))}px`,
   }
+  const rootStyle = {
+    '--ranking-card-size-unranked': `${clampUnrankedThumbSizePx(unrankedThumbSizePx)}px`,
+  } as CSSProperties
 
   const renderCard = (imageId: string, containerId: RankingContainerId) => {
     const image = imageById.get(imageId)
@@ -1064,44 +1140,63 @@ export default function RankingApp() {
     : DEFAULT_DOT_COLOR
 
   return (
-    <div className="ranking-root">
+    <div className="ranking-root" style={rootStyle}>
       <header className="ranking-header ranking-unselectable">
         <div className="ranking-shell ranking-header-shell">
-          <div className="ranking-header-side is-left">
-            <button
-              type="button"
-              className="ranking-button"
-              onClick={goPrev}
-              disabled={!canGoPrev}
-            >
-              <ChevronLeft className="ranking-button-icon" aria-hidden="true" />
-              <span>{'Prev (Q)'}</span>
-            </button>
-          </div>
-          <div className="ranking-header-center">
+          <div className="ranking-header-leading">
+            <h1 className="ranking-header-title">Image Ranking</h1>
             <strong className="ranking-progress-pill">
               {currentIndex + 1} / {dataset.instances.length}
             </strong>
+          </div>
+
+          <div className="ranking-header-trailing">
+            <label className="ranking-thumb-size-control ranking-unselectable ranking-thumb-size-control-header">
+              <span>Thumbs</span>
+              <input
+                type="range"
+                min={UNRANKED_THUMB_SIZE_MIN_PX}
+                max={UNRANKED_THUMB_SIZE_MAX_PX}
+                step={UNRANKED_THUMB_SIZE_STEP_PX}
+                value={unrankedThumbSizePx}
+                onChange={(event) => {
+                  setUnrankedThumbSizePx(
+                    clampUnrankedThumbSizePx(Number(event.currentTarget.value)),
+                  )
+                }}
+                aria-label="Unassigned thumbnail size"
+              />
+              <span className="ranking-thumb-size-value">{unrankedThumbSizePx}px</span>
+            </label>
             <a className="ranking-button ranking-export-button" href={exportHref} target="_blank" rel="noreferrer">
               <Download className="ranking-button-icon" aria-hidden="true" />
               Export
             </a>
-          </div>
-          <div className="ranking-header-side is-right">
-            <span
-              className="ranking-next-tooltip"
-              title={!canGoNext ? 'Rank all images before continuing.' : undefined}
-            >
+            <div className="ranking-nav-group">
               <button
                 type="button"
-                className="ranking-button ranking-button-primary"
-                onClick={goNext}
-                disabled={!canGoNext}
+                className="ranking-button"
+                onClick={goPrev}
+                disabled={!canGoPrev}
               >
-                <span>{'Next (E)'}</span>
-                <ChevronRight className="ranking-button-icon" aria-hidden="true" />
+                <ChevronLeft className="ranking-button-icon" aria-hidden="true" />
+                <span>{'Prev (Q)'}</span>
               </button>
-            </span>
+              <span
+                className="ranking-next-tooltip"
+                title={!canGoNext ? 'Rank all images before continuing.' : undefined}
+              >
+                <button
+                  type="button"
+                  className="ranking-button ranking-button-primary"
+                  onClick={goNext}
+                  disabled={!canGoNext}
+                >
+                  <span>{'Next (E)'}</span>
+                  <ChevronRight className="ranking-button-icon" aria-hidden="true" />
+                </button>
+              </span>
+            </div>
           </div>
         </div>
       </header>
@@ -1118,7 +1213,7 @@ export default function RankingApp() {
         onDragCancel={clearDragState}
       >
         <main className="ranking-main">
-          <div className="ranking-shell">
+          <div className="ranking-shell ranking-main-shell">
             <div className={workspaceClassName} ref={workspaceRef}>
               <section className="ranking-unranked-panel">
                 <header className="ranking-unranked-head">

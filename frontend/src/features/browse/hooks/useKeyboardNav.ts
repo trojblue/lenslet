@@ -6,13 +6,13 @@ export function getNextIndexForKeyNav(items: Item[], columns: number, activePath
   const idx = activePath ? items.findIndex(i => i.path === activePath) : 0
   const col = Math.max(1, columns)
   let next = idx
-  if (e.key === 'ArrowRight' || e.key === 'd') next = Math.min(items.length - 1, idx + 1)
-  else if (e.key === 'ArrowLeft' || e.key === 'a') next = Math.max(0, idx - 1)
-  else if (e.key === 'ArrowDown' || e.key === 's') next = Math.min(items.length - 1, idx + col)
-  else if (e.key === 'ArrowUp' || e.key === 'w') next = Math.max(0, idx - col)
+  const normalized = e.key.toLowerCase()
+  if (e.key === 'ArrowRight' || normalized === 'd') next = Math.min(items.length - 1, idx + 1)
+  else if (e.key === 'ArrowLeft' || normalized === 'a') next = Math.max(0, idx - 1)
+  else if (e.key === 'ArrowDown' || normalized === 's') next = Math.min(items.length - 1, idx + col)
+  else if (e.key === 'ArrowUp' || normalized === 'w') next = Math.max(0, idx - col)
   else if (e.key === 'Enter') return activePath ? 'open' : null
   else return null
   return next
 }
-
 

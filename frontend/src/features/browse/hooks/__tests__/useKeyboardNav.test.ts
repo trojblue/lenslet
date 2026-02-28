@@ -33,6 +33,8 @@ describe('grid keyboard navigation', () => {
     expect(getNextIndexForKeyNav(items, 2, '/set/a.jpg', keyEvent('ArrowDown'))).toBe(2)
     expect(getNextIndexForKeyNav(items, 2, '/set/d.jpg', keyEvent('ArrowUp'))).toBe(1)
     expect(getNextIndexForKeyNav(items, 2, '/set/e.jpg', keyEvent('ArrowLeft'))).toBe(3)
+    expect(getNextIndexForKeyNav(items, 2, '/set/b.jpg', keyEvent('D'))).toBe(2)
+    expect(getNextIndexForKeyNav(items, 2, '/set/b.jpg', keyEvent('A'))).toBe(0)
   })
 
   it('clamps at bounds and only opens on Enter when an active path exists', () => {

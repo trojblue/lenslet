@@ -42,11 +42,16 @@ export function getBoardKeyAction(key: string, maxRanks: number): RankingKeyActi
     return { type: 'assign-rank', rankIndex }
   }
 
-  if (key === 'ArrowLeft') return { type: 'select-neighbor', direction: 'left' }
-  if (key === 'ArrowRight') return { type: 'select-neighbor', direction: 'right' }
+  const normalized = key.toLowerCase()
+
+  if (key === 'ArrowLeft' || normalized === 'a') {
+    return { type: 'select-neighbor', direction: 'left' }
+  }
+  if (key === 'ArrowRight' || normalized === 'd') {
+    return { type: 'select-neighbor', direction: 'right' }
+  }
   if (key === 'Enter') return { type: 'fullscreen-open' }
 
-  const normalized = key.toLowerCase()
   if (normalized === 'q') return { type: 'instance-nav', direction: 'prev' }
   if (normalized === 'e') return { type: 'instance-nav', direction: 'next' }
 
@@ -62,8 +67,12 @@ export function getFullscreenKeyAction(key: string, maxRanks: number): RankingKe
   if (key === 'Escape') return { type: 'fullscreen-close' }
 
   const normalized = key.toLowerCase()
-  if (normalized === 'a') return { type: 'fullscreen-nav', direction: 'prev' }
-  if (normalized === 'd') return { type: 'fullscreen-nav', direction: 'next' }
+  if (key === 'ArrowLeft' || normalized === 'a') {
+    return { type: 'fullscreen-nav', direction: 'prev' }
+  }
+  if (key === 'ArrowRight' || normalized === 'd') {
+    return { type: 'fullscreen-nav', direction: 'next' }
+  }
 
   return { type: 'none' }
 }

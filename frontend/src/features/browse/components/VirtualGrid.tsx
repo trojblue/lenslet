@@ -304,14 +304,23 @@ export default function VirtualGrid({
 
     const idx = pathToIndex.get(currentPath) ?? 0
     const key = e.key
+    const normalized = key.toLowerCase()
 
     if (key === 'Enter') return 'open'
 
     // Horizontal moves stay in reading order using the flat list
-    if (key === 'ArrowRight' || key === 'd') return items[Math.min(items.length - 1, idx + 1)]?.path ?? currentPath
-    if (key === 'ArrowLeft' || key === 'a') return items[Math.max(0, idx - 1)]?.path ?? currentPath
+    if (key === 'ArrowRight' || normalized === 'd') {
+      return items[Math.min(items.length - 1, idx + 1)]?.path ?? currentPath
+    }
+    if (key === 'ArrowLeft' || normalized === 'a') {
+      return items[Math.max(0, idx - 1)]?.path ?? currentPath
+    }
 
-    const delta = key === 'ArrowDown' || key === 's' ? 1 : key === 'ArrowUp' || key === 'w' ? -1 : 0
+    const delta = key === 'ArrowDown' || normalized === 's'
+      ? 1
+      : key === 'ArrowUp' || normalized === 'w'
+        ? -1
+        : 0
     if (delta === 0) return null
 
     const targetRow = info.row + delta

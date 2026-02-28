@@ -39,9 +39,11 @@
   --star-inactive: #6f6f6f;
   --star-hover: #e7c46a;
   
-  /* Semantic colors */
-  --danger: #ff6b6b;
-  --success: #9ad4b5;
+  /* Semantic colors (Monochrome Utility base tokens) */
+  --danger: #ff6d73;
+  --success: #35c88a;
+  --warning: #f0b660;
+  --info: #55b8ff;
   
   /* Border variants */
   --border-subtle: rgba(255, 255, 255, 0.04);

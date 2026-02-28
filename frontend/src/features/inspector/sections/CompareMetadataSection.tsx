@@ -90,11 +90,11 @@ const CompareDiffTable = React.memo(function CompareDiffTable({
               key={entry.key}
               className="grid grid-cols-[minmax(80px,_1fr)_minmax(0,_1fr)_minmax(0,_1fr)] gap-2"
             >
-              <div className="text-[11px] text-muted font-mono break-all">{entry.key}</div>
-              <div className="text-[11px] font-mono bg-surface-inset border border-border/60 rounded px-2 py-1 whitespace-pre-wrap break-words max-h-32 overflow-auto">
+              <div className="text-[11px] text-muted break-all">{entry.key}</div>
+              <div className="text-[11px] bg-surface-inset border border-border/60 rounded px-2 py-1 whitespace-pre-wrap break-words max-h-32 overflow-auto">
                 {entry.aText}
               </div>
-              <div className="text-[11px] font-mono bg-surface-inset border border-border/60 rounded px-2 py-1 whitespace-pre-wrap break-words max-h-32 overflow-auto">
+              <div className="text-[11px] bg-surface-inset border border-border/60 rounded px-2 py-1 whitespace-pre-wrap break-words max-h-32 overflow-auto">
                 {entry.bText}
               </div>
             </div>
@@ -168,7 +168,7 @@ const CompareMetadataPane = React.memo(function CompareMetadataPane({
         >
           {compareMetaLoaded && displayNode ? (
             <JsonRenderCode node={displayNode} onPathClick={onMetaPathCopy} />
-          ) : compareMetaContent}
+          ) : <span className="font-sans text-[12px]">{compareMetaContent}</span>}
         </pre>
       </div>
     </div>

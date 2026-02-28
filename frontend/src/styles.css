@@ -1417,6 +1417,7 @@
 .inspector-input {
   background: var(--surface-inset);
   border-color: var(--border-subtle);
+  font-size: 12px;
 }
 
 .inspector-input:focus {

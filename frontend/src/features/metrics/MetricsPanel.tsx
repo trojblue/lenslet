@@ -127,7 +127,7 @@ function SelectedMetricsPanel({ selectedValuesByKey, totalItems, metricKeys }: S
         {show.map((entry) => (
           <div key={entry.key} className="flex items-center justify-between gap-2">
             <span className="text-muted w-28 shrink-0 truncate" title={entry.key}>{entry.key}</span>
-            <span className="font-mono text-text text-right tabular-nums">
+            <span className="text-text text-right tabular-nums">
               {isMulti ? `${formatNumber(entry.min)} – ${formatNumber(entry.max)}` : formatNumber(entry.value)}
               {isMulti && (
                 <span className="text-[11px] text-muted ml-2">

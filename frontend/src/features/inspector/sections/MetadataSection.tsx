@@ -82,8 +82,8 @@ function MetadataSectionComponent({
           {metaLoaded ? (
             metaDisplayNode ? (
               <JsonRenderCode node={metaDisplayNode} onPathClick={onMetaPathCopy} />
-            ) : metaContent
-          ) : metaContent}
+            ) : <span className="font-sans text-[12px]">{metaContent}</span>
+          ) : <span className="font-sans text-[12px]">{metaContent}</span>}
         </pre>
       </div>
       {metaError && <div className="text-[11px] text-danger mt-1 break-words">{metaError}</div>}

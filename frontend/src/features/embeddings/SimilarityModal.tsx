@@ -257,7 +257,7 @@ export default function SimilarityModal({
               <label className="ui-label">Vector (base64 float32)</label>
               <textarea
                 ref={vectorInputRef}
-                className="ui-textarea w-full font-mono text-[11px]"
+                className="ui-textarea w-full text-[11px]"
                 rows={5}
                 value={queryVector}
                 onChange={(e) => setQueryVector(e.target.value)}

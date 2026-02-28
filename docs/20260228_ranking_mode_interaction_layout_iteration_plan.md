@@ -1,113 +1,123 @@
-# Ranking Mode Interaction and Layout Iteration Plan
+# Ranking Mode Interaction + Mini-App Slimming Plan
 
 
 ## Outcome + Scope Lock
 
 
-After this iteration, ranking mode supports a top-first workflow where unranked images are large and fast to triage, while rank buckets sit below for drop placement and tie grouping. Keyboard flow is optimized for speed: a user can assign with number keys continuously without re-clicking each image, navigate instances with `q` and `e`, open or close focused fullscreen with `Enter` and `Escape`, and navigate images inside fullscreen with `a` and `d` while still assigning ranks.
+After this iteration, ranking mode supports the requested top-first workflow: unranked images are shown larger on top, rank buckets sit at the bottom, and assignment can be done in a rapid keyboard cadence without repeated re-clicks. Fullscreen inspection supports pan and zoom, rank assignment, and image-to-image navigation.
 
-Goals for this iteration are to implement the requested layout inversion (unranked top, ranks bottom), add focus-preserving keyboard behavior, remove `RANK` text prefixes, add fullscreen entry points on image cards with pan/zoom parity, add draggable vertical resize for the unranked region, and add small stable color dots per image for quick visual identity.
+Goals for this plan are:
+1. Implement the layout and interaction changes from the user request, including `q/e` instance navigation, `Enter/Escape` fullscreen open and close, `a/d` navigation in fullscreen, and numeric rank assignment in both board and fullscreen contexts.
+2. Keep the mini-app implementation fast and portable by minimizing coupling to browse-only components and avoiding heavyweight framework additions.
+3. Keep ranking backend contracts stable (`/rank/*`, JSONL append-only persistence, resume/export semantics).
+4. Update validation gates so every command in this plan is valid against the current repository state after commit `c64ac3b`.
 
-Non-goals are backend contract changes, dataset format changes, autosave/persistence protocol changes, multi-user features, and browse-mode UX refactors.
+Non-goals are introducing a mini-app registry framework, changing ranking save payload schema or backend route signatures, adding new runtime dependencies, and broad browse-shell refactors.
 
-Explicit approvals in scope are all behavior changes listed in the user request, including remapping navigation hotkeys from `Enter` and `Backspace` to `q` and `e` for instance navigation, and enabling rank assignment while fullscreen is open. Items requiring sign-off are any change to save payload schema, `/rank/*` endpoint signatures, or browse-mode viewer behavior.
+Pre-approved behavior changes are the layout inversion, keymap updates, fullscreen button per card, drag-resizable split, small color identity dots, and removal of `Rank ` label prefixes. Changes requiring sign-off are modifications to backend APIs, CLI shape, or browse mode interaction contracts.
 
-Deferred or out-of-scope items are advanced per-user keybinding customization, configurable color palettes, persistent splitter height preferences, and rank-column reordering semantics beyond the current tie-group model.
+Out-of-scope and deferred items are persisted splitter position, custom keybinding configuration UI, and generalized cross-mini-app component extraction beyond what is needed for this ranking iteration.
 
 
 ## Context
 
 
-No `PLANS.md` exists in this repository; this document is the execution source of truth and follows the required plan-writer format.
+No `PLANS.md` exists in this repository, so this document is the execution source of truth and follows the required plan-writer format.
 
-Current ranking implementation lives primarily in `frontend/src/features/ranking/RankingApp.tsx` and `frontend/src/features/ranking/ranking.css`. It uses a column-first board with `Unranked` as the first column, selected-image key assignment (`1-9`), `Enter` for next instance, and `Backspace` for previous instance. There is already a mature pan/zoom viewer stack in browse mode (`frontend/src/features/viewer/Viewer.tsx` and `frontend/src/features/viewer/hooks/useZoomPan.ts`) that should be reused through a ranking-local adapter so ranking can operate on its existing URL-based image payloads without broad browse coupling.
+Current ranking UI remains in a column-first layout with `Unranked` as the first horizontal column and legacy keybindings (`Enter` next, `Backspace` previous) in `frontend/src/features/ranking/RankingApp.tsx`. Current ranking model tests are focused on pure state contracts in `frontend/src/features/ranking/model/__tests__/board.test.ts` and `session.test.ts` with Vitest running in Node mode.
 
-Keyboard contract for this iteration is locked as follows: after numeric assignment the focus moves to the next image in initial instance order that is not yet assigned, and when all are assigned it stays on the moved image; reranking an already-ranked image keeps focus on that image unless explicit left or right navigation is used; when fullscreen closes, focus returns to the same image card in board mode; `q/e` navigate instances only in board mode and do nothing while fullscreen is open; `Enter` in board mode opens fullscreen on the focused image and never advances instance; `Backspace` no longer performs previous-instance navigation.
+Repository cleanup in commit `c64ac3b` removed prior ranking smoke and packaging-sync scripts/tests (`scripts/playwright_ranking_smoke.py`, `scripts/check_frontend_packaging_sync.py`, and associated pytest files), so validation steps must not reference them.
+
+Layout reference for this implementation is the user-provided sketch committed at `docs/msedge_cPDvMjjYTr.png`. The plan uses this image as design intent for "unranked on top, ranks at bottom, larger preview area, and control placement."
+
+Keyboard and focus contract is locked as follows. Initial order means the order of `instance.images` in dataset payload and is not recomputed from current board positions. Numeric rank assignment moves focus to the next unranked image in that initial order; if no unranked image remains, focus stays on the moved image. Reranking a ranked image keeps focus on that image unless explicit left/right navigation is requested. `q/e` navigate previous/next instance only in board mode and are ignored in fullscreen mode. `a/d` in fullscreen traverses in initial order. `Enter` opens fullscreen on focused image, `Escape` closes fullscreen and restores focus to the same image card in board mode. `Backspace` no longer performs previous-instance navigation.
+
+Touch contract for this iteration is locked as: splitter drag is desktop-pointer only and is disabled on coarse-pointer/touch breakpoints to avoid drag gesture conflicts.
 
 
 ## Plan of Work
 
 
-Implementation proceeds in three sprints so each sprint is independently demoable and testable, with strict containment to ranking frontend files plus targeted tests and smoke updates.
+Implementation is split into three sprints so each sprint is demoable and testable, while preserving a strict complexity ceiling for mini-app portability.
 
-Test strategy lock for this plan is to keep Vitest in its current Node-mode usage for pure helpers and deterministic logic, and route viewport, pointer, and end-user interaction assertions through Playwright smoke coverage instead of introducing new frontend test infrastructure in this iteration.
+Test strategy lock: keep Node-mode Vitest for ranking helper/state logic and use manual browser acceptance for UI gesture paths in this iteration. Do not introduce jsdom/RTL or new browser automation infrastructure as part of this change.
 
 ### Sprint Plan
 
 
-1. Sprint 1: Interaction model and keyboard flow redesign.
-   Sprint goal: convert ranking from click-heavy selection flow to continuous keyboard-first assignment with explicit mode-aware shortcuts.
-   Demo outcome: user can press rank keys repeatedly without reselecting each image; `q/e` change instances; `Enter/Escape` open/close focused fullscreen; `a/d` navigate images in fullscreen.
+1. Sprint 1 delivers keyboard-first interaction and lightweight fullscreen behavior.
+   Sprint goal: remove click-heavy ranking cadence and implement mode-aware key handling.
+   Demo outcome: user can rank quickly with repeated number keys, navigate instances with `q/e`, and inspect/rank in fullscreen using `Enter/Escape/a/d`.
    Tasks:
-   1. T1: Update ranking board state helpers to support deterministic next-focus-after-assign behavior rooted in initial image order and current placement.
-      Validation: extend `frontend/src/features/ranking/model/__tests__/board.test.ts` for focus advancement, edge cases at tail image, rerank behavior, and no-unranked terminal behavior.
-   2. T2: Refactor `RankingApp` keyboard handler into mode-aware shortcuts and migrate instance navigation to `q/e` in board mode only.
-      Validation: add tests for shortcut routing, editable-target guards, and explicit assertion that `Enter` does not advance instance and `Backspace` does not navigate previous.
-   3. T3a: Implement ranking fullscreen modal lifecycle and focus restoration (`Enter` opens, `Escape` closes, return focus to same image).
-      Validation: add interaction tests for modal open/close and focus restoration semantics.
-   4. T3b: Add fullscreen keyboard routing (`a/d` image navigation, `1..N` rank assignment) while preserving autosave ordering and stale-response safety.
-      Validation: add tests for fullscreen key routing and save-sequence invariants under repeated assignments.
-   5. T4: Remove `Rank` label prefix in headers so columns display numeric labels only.
-      Validation: include UI assertion in ranking smoke and ranking component checks.
+   1. T1: Update ranking board helpers to support deterministic auto-advance targeting next unranked image in `instance.images` order.
+      Validation: extend `frontend/src/features/ranking/model/__tests__/board.test.ts` with auto-advance, rerank, unrank, and hydrated-session edge cases.
+   2. T2: Refactor ranking keyboard routing in `RankingApp` to separate board-mode and fullscreen-mode keymaps and remove legacy `Backspace` previous behavior.
+      Validation: add ranking key-routing helper tests and update in-app hotkey text assertions.
+   3. T3: Add a ranking-local fullscreen overlay that supports URL-based image rendering with pan/zoom and does not depend on browse-only file-path APIs.
+      Validation: manual acceptance verifies fullscreen open/close, pan/zoom, `a/d` traversal, and numeric rank assignment while fullscreen is open.
+   4. T4: Add per-card fullscreen trigger control and remove `Rank ` prefix from rank headers (display `1`, `2`, `3`, ...).
+      Validation: visual/manual check plus targeted ranking test assertions.
 
-2. Sprint 2: Layout and visual clarity upgrade.
-   Sprint goal: make unranked triage area visually dominant and adjustable, while retaining bottom rank drop zones for placement and ties.
-   Demo outcome: unranked region is on top with larger previews, bottom rank strip remains usable, drag handle resizes split, each card has fullscreen trigger, and color dots are visible but non-obstructive.
+2. Sprint 2 delivers layout inversion, resizable split, and visual identity aids.
+   Sprint goal: make unranked triage area dominant while preserving rank-drop usability and tie grouping.
+   Demo outcome: unranked area appears at top with larger cards, bottom ranks remain actionable, split height can be dragged on desktop pointers, and each card has stable non-obtrusive color dot.
    Tasks:
-   1. T5: Rework ranking layout and CSS into vertical split sections (`unranked` top, `ranks` bottom) with responsive fallback for narrow screens.
-      Validation: Playwright assertions verify desktop and mobile breakpoints render without overflow regressions.
-   2. T6: Add draggable splitter for unranked height with clamped min/max behavior and no persistence.
-      Validation: unit tests for clamp math plus Playwright assertion that splitter drag changes visible split height.
-   3. T7: Add per-card top-right fullscreen button and connect it to ranking fullscreen modal while preserving drag-and-drop behavior on card body.
-      Validation: Playwright asserts button opens modal and drag start still works from non-button card region.
-   4. T8: Add stable, small bottom-left color dots based on initial image order using a curated palette.
-      Validation: tests verify deterministic mapping and consistent color identity across rank moves.
-   5. T9: Add a regression test for pointer-gesture separation so splitter drag and card drag-and-drop do not steal each other’s events.
-      Validation: Playwright scenario drags splitter then drags cards and confirms both paths remain functional.
+   1. T5: Rework ranking layout/CSS to vertical sections (`unranked` top, `ranks` bottom) with responsive behavior for narrow screens.
+      Validation: manual desktop/mobile viewport pass and targeted style checks.
+   2. T6: Add draggable splitter with explicit min/max clamps between top and bottom sections for desktop pointers only.
+      Validation: add pure clamp utility tests and manual drag verification on desktop pointers.
+   3. T7: Add deterministic color-dot mapping based on initial image order using a small curated palette.
+      Validation: add deterministic mapping tests in ranking model scope.
+   4. T8: Harden pointer interaction boundaries so splitter drag and card drag-drop do not conflict.
+      Validation: manual regression scenario drags splitter then cards in same session without breakage.
 
-3. Sprint 3: Hardening, regression gates, and operator docs.
-   Sprint goal: prove the upgraded workflow is fast, stable, and isolated from browse behavior.
-   Demo outcome: smoke path exercises keyboard-only assignment, fullscreen interactions, splitter drag, and export path while existing browse isolation checks stay green.
+3. Sprint 3 delivers release-gate hardening and documentation alignment.
+   Sprint goal: finish with a lean implementation that is easy to ship and maintain inside the mini-app model.
+   Demo outcome: ranking changes pass current tests, compile/build cleanly, and docs match shipped behavior.
    Tasks:
-   1. T10: Update `scripts/playwright_ranking_smoke.py` to cover the new primary operator path (`1-5` assignment cadence, `q/e`, fullscreen `Enter/Escape`, fullscreen `a/d`, splitter drag, deprecated-key checks).
-       Validation: update `tests/test_playwright_ranking_smoke.py` contracts and run ranking smoke end-to-end.
-   2. T11: Add or refresh ranking frontend tests for layout semantics, key remap, fullscreen controls, and color-dot determinism.
-       Validation: targeted Vitest run for touched ranking suites plus `tsc --noEmit`.
-   3. T12: Update ranking usage docs and in-app hotkey hints to match the new workflow.
-       Validation: docs sanity check against rendered UI text and smoke script expectations.
+   1. T9: Enforce portability boundary as a concrete done-check: ranking feature imports are limited to ranking-local modules plus approved shared primitives (`api/base`, `lib/fetcher`) and do not pull browse-heavy viewer/file-path APIs.
+      Validation: import diff review and targeted cleanup commit if any violations are found.
+   2. T10: Update README and ranking docs with the new keymap/layout behavior.
+       Validation: doc text matches runtime UI labels and key behavior.
+   3. T11: Run repository-valid command gates and capture evidence in this plan’s progress log.
+       Validation: all listed commands execute successfully in the current repository state.
 
 ### Scope Budget and Guardrails
 
 
-Scope budget is 3 sprints and 12 tasks, matching the default maximum. File touch budget is limited to ranking frontend modules and styles, ranking model tests, ranking smoke scripts and tests, and ranking docs/help text, plus either reuse touch in `frontend/src/features/viewer/hooks/useZoomPan.ts` or a ranking-local viewer adapter component if that is cleaner.
+Scope budget is 3 sprints and 11 tasks, within the default cap.
 
-Quality floor: keyboard flow must never drop selection unexpectedly, fullscreen interactions must preserve rank assignment correctness, and drag/drop plus autosave behavior must remain stable.
+Quality floor: ranking assignment correctness, autosave stability, deterministic focus behavior, and consistent fullscreen/board key routing must be preserved.
 
-Maintainability floor: prefer extracting small ranking-local helpers/components over expanding `RankingApp.tsx` monolithically, and reuse existing zoom/pan primitives where possible through narrow interfaces.
+Maintainability floor: keep ranking changes within ranking feature modules and small helpers; avoid pushing ranking-specific complexity into global app shell structures.
 
-Complexity ceiling: no backend API changes, no app-mode router redesign, and no new frontend test framework introduction.
+Complexity ceiling: no new libraries, no new generic mini-app framework layer, and no replacement of current app-mode handshake.
 
-Debloat/removal list for this iteration is to delete obsolete `Enter-next` and `Backspace-prev` ranking shortcuts, remove redundant click-to-select dependency in the main keyboard path, and remove `Rank ` text prefix rendering.
+Debloat and portability targets are:
+1. Remove legacy key paths that contradict new UX (`Enter` as next and `Backspace` as previous).
+2. Avoid coupling ranking fullscreen to browse-specific file-path APIs.
+3. Keep validation lean by using existing test suites and deterministic manual acceptance rather than reintroducing removed heavy scripts.
+4. Keep frontend changes constrained to ranking feature files and minimal shared helpers only when unavoidable.
 
 ### Execution Instructions
 
 
-While implementing each sprint, update this plan continuously, especially the Progress Log and Validation sections. After each sprint is complete, add concise handoff notes describing shipped behavior, commands run, and remaining open items.
+While implementing each sprint, update this plan continuously, especially Progress Log and Validation sections. After each sprint, add concise handoff notes with what shipped, what was verified, and what remains.
 
-For minor script-level uncertainties such as exact helper file placement or naming, proceed according to this approved plan to maintain momentum. After each sprint, request clarification if needed and apply follow-up adjustments.
+For minor script-level uncertainties such as helper file placement or naming, proceed according to this approved plan to maintain momentum. After each sprint, request clarification if needed and apply follow-up adjustments.
 
-### Gate Routine (applies to every task T1-T12)
+### Gate Routine (applies to every task T1-T11)
 
 
-0. Plan gate (fast): restate task goal, acceptance criteria, and exact files to touch before implementation.
-1. Implement gate (correctness-first): implement the smallest coherent slice that satisfies the task and run minimal targeted verification.
-2. Cleanup gate (reduce noise before review): after each sprint, run a conservative cleanup pass before formal review.
-3. Review gate (review the ship diff): run independent review on post-cleanup diff, fix findings, and rerun review as needed.
+0. Plan gate (fast): restate goal, acceptance criteria, and exact files to touch before implementation.
+1. Implement gate (correctness-first): implement the smallest coherent slice satisfying the ticket and run targeted checks.
+2. Cleanup gate (reduce noise before review): after each sprint, run conservative cleanup of lint/style/dead-code noise without semantic expansion.
+3. Review gate (review the ship diff): run independent review of the post-cleanup sprint diff, fix findings, and rerun when needed.
 
 ### code-simplifier routine
 
 
-After each complete sprint, spawn a subagent and instruct it to use the `code-simplifier` skill to scan current sprint changes. Start with non-semantic cleanup first: formatting/lint autofixes, obvious dead code removal, small readability edits that do not change behavior, and doc/comments that reflect already-true behavior. Keep the pass conservative and do not expand into semantic refactors unless explicitly approved.
+After each complete sprint, spawn a subagent and instruct it to use the `code-simplifier` skill to scan current sprint changes. Start with non-semantic cleanup first: formatting/lint autofixes, obvious dead code removal, small readability edits that do not change behavior, and doc/comments that reflect already-true behavior. Keep this pass conservative and do not expand into semantic refactors unless explicitly approved.
 
 ### review routine
 
@@ -118,55 +128,67 @@ After each complete sprint and after the cleanup subagent finishes, spawn a fres
 ## Validation and Acceptance
 
 
-Validation hierarchy uses primary real-path checks first and secondary fast gates second.
+Validation hierarchy distinguishes primary real-user gates from secondary fast proxy gates.
 
 Primary acceptance gates are:
-1. Sprint 1 primary gate: with a real ranking fixture, assign all images for one instance using keyboard-only flow without additional clicks after first focus; confirm automatic focus progression and `q/e` instance navigation.
-2. Sprint 2 primary gate: verify top and bottom layout with larger unranked cards, drag splitter to change unranked height, and open fullscreen from card button for pan/zoom inspection and rank assignment.
-3. Sprint 3 primary gate: run the full browser smoke covering keyboard cadence, fullscreen controls, splitter drag, deprecated-key non-behavior, reload resume, and completed export collapse behavior.
+1. Keyboard-first ranking gate: launch ranking mode on fixture dataset and complete one instance using only keyboard assignments after initial focus, with no per-image re-click requirement.
+2. Fullscreen workflow gate: open fullscreen from a card, verify pan/zoom plus `a/d` navigation, assign ranks in fullscreen, and close with `Escape` while preserving focused image context.
+3. Layout gate: verify unranked-top layout, drag splitter on desktop pointer to resize top region, rank-drop remains functional, and color dots remain stable while cards move.
+
+Deterministic manual acceptance script is:
+1. Start server with fixture: `lenslet rank data/fixtures/ranking_demo_picsum_20260228/ranking_dataset.json --port 7071`.
+2. Click first unranked card once to seed focus.
+3. Press `1`, then `2`, then `3`; expected: each key moves previously focused image to that rank and focus advances to next unranked image in dataset order.
+4. Press `Enter`; expected: fullscreen opens for focused image.
+5. Press `d`; expected: fullscreen target advances to next dataset-order image.
+6. Press `1`; expected: current fullscreen image assigned to rank 1 and save status updates.
+7. Press `Escape`; expected: fullscreen closes and same image card is focused in board mode.
+8. Press `q` in board mode; expected: previous instance opens if available.
+9. Press `Backspace`; expected: no instance navigation occurs.
 
 Secondary acceptance gates are:
-1. Ranking helper and unit tests for focus advancement, split-size clamps, and color mapping determinism.
-2. Ranking keyboard and modal tests for key routing, modal lifecycle, and numeric-only rank labels.
-3. Type/lint and existing ranking backend smoke contracts to ensure no mode-boot regressions.
+1. Ranking backend and CLI test suites remain green.
+2. Ranking frontend model and key-routing tests remain green and include new auto-advance and palette determinism coverage.
+3. TypeScript compile, frontend build, repository lint, and GUI smoke checks pass.
+4. Browse baseline API/import checks remain green.
 
 Planned command checks are:
 
-    cd frontend && npm run test -- src/features/ranking/model/__tests__/board.test.ts src/features/ranking/model/__tests__/session.test.ts
-    cd frontend && npm run test -- src/features/ranking/model src/features/ranking
+    pytest tests/test_ranking_backend.py tests/test_ranking_cli.py -q
+    pytest tests/test_import_contract.py tests/test_dataset_http.py -q
+    cd frontend && npm run test -- src/features/ranking/model src/features/ranking src/app/model/__tests__/appMode.test.ts
     cd frontend && npx tsc --noEmit
-    pytest tests/test_playwright_ranking_smoke.py -q
-    python scripts/playwright_ranking_smoke.py --output-json data/fixtures/ranking_smoke_result.json
-    cd frontend && npm run build && cd ..
-    rsync -a --delete frontend/dist/ src/lenslet/frontend/
-    python scripts/check_frontend_packaging_sync.py
-    pytest tests/test_browse_canary_ranking_isolation.py tests/test_frontend_packaging_sync.py -q
+    cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/
+    python scripts/gui_smoke_acceptance.py
     python scripts/lint_repo.py
 
-Overall acceptance criteria are:
-1. The user can complete an instance in a continuous `rank-key -> rank-key` cadence without re-clicking each card.
-2. The user can inspect any card in fullscreen with pan/zoom and continue ranking from that mode.
-3. The user can resize the unranked region interactively and still drag images into rank columns.
-4. Deprecated ranking navigation keys are removed as intended (`Enter` does not advance; `Backspace` does not go previous).
-5. UI labels, hints, and smoke automation all reflect the new keymap and layout.
+Expected outcomes are:
+1. Rank assignment can proceed in a rapid `number -> number -> number` cadence after initial focus.
+2. Fullscreen interaction and board interaction remain behaviorally consistent for ranking actions.
+3. Top unranked area provides larger preview utility and is user-resizable on desktop pointers.
+4. Ranking mini-app remains lightweight and portable without introducing new heavy infrastructure.
 
 
 ## Risks and Recovery
 
 
-Primary risks are shortcut collisions after key remap, drag-resize interference with drag/drop gestures, and fullscreen focus traps causing stale keyboard routing.
+Primary risks are keyboard conflicts across board/fullscreen contexts, pointer conflicts between splitter and drag-drop, and accidental coupling to browse-specific viewer assumptions.
 
-Recovery path is to keep interaction logic behind ranking-local handlers and small pure helpers so regressions can be rolled back per sprint without touching backend contracts. If fullscreen integration destabilizes delivery, fallback is to ship modal lifecycle and rank-assignment support first, then stage additional viewer polish behind explicit follow-up approval.
+Recovery path is to keep changes isolated behind ranking-local helpers/components so regressions can be rolled back sprint-by-sprint without backend or browse disruptions.
 
-Idempotent retry strategy remains the existing save-sequence approach; this iteration must not alter save ordering semantics. Any transient UI error in modal or splitter state must be recoverable by reload without corrupting persisted ranking entries.
+Idempotent retry strategy remains the current autosave pattern and backend latest-entry collapse behavior. This plan does not change backend persistence semantics.
+
+If portability guardrails are threatened during implementation, fallback is to ship a ranking-local fullscreen component with minimal dependencies and defer broader shared abstraction to a separate approved follow-up.
 
 
 ## Progress Log
 
 
-- [x] 2026-02-28 06:23:15Z Investigated current ranking implementation, smoke tests, and existing viewer primitives.
-- [x] 2026-02-28 06:23:15Z Locked scope from requested behavior deltas and documented implementation assumptions.
-- [x] 2026-02-28 06:26:54Z Mandatory subagent review completed and feedback incorporated to tighten contracts and de-scope non-essential persistence.
+- [x] 2026-02-28 06:23:15Z Initial interaction/layout iteration plan drafted.
+- [x] 2026-02-28 06:26:54Z Mandatory review feedback integrated into first revision.
+- [x] 2026-02-28 06:36:40Z Revalidated plan against cleanup commit `c64ac3b` and removed stale references to deleted ranking smoke/packaging scripts.
+- [x] 2026-02-28 06:36:40Z Added explicit mini-app portability/debloat scope and layout-sketch path reference (`docs/msedge_cPDvMjjYTr.png`).
+- [x] 2026-02-28 06:42:05Z Integrated second review feedback: tightened key contracts, made portability boundary concrete, and added deterministic manual acceptance script.
 - [ ] 2026-02-28T00:00:00Z Sprint 1 implementation started.
 - [ ] 2026-02-28T00:00:00Z Sprint 1 cleanup and review gates completed.
 - [ ] 2026-02-28T00:00:00Z Sprint 2 implementation started.
@@ -181,21 +203,13 @@ Idempotent retry strategy remains the existing save-sequence approach; this iter
 
 Primary artifact is this plan at `docs/20260228_ranking_mode_interaction_layout_iteration_plan.md`.
 
-Expected implementation touch points are:
+Key implementation touch points are expected in:
 1. `frontend/src/features/ranking/RankingApp.tsx`
 2. `frontend/src/features/ranking/ranking.css`
 3. `frontend/src/features/ranking/model/board.ts`
-4. ranking frontend tests under `frontend/src/features/ranking/**/__tests__`
-5. `scripts/playwright_ranking_smoke.py` and `tests/test_playwright_ranking_smoke.py`
-6. ranking usage notes in docs and README where hotkeys and layout are documented
-7. optional ranking-local viewer adapter or scoped zoom-pan reuse module
+4. `frontend/src/features/ranking/model/session.ts` and ranking model tests
+5. ranking docs/README sections describing keybindings and layout behavior
 
-Initial operator command transcript template is:
+Operator handoff notes after each sprint should include the exact keymap behavior, fullscreen boundary decisions, splitter clamp constants, palette mapping rule, and whether any portability boundary exceptions were needed.
 
-    git status --short
-    cd frontend && npm run test -- src/features/ranking/model/__tests__/board.test.ts src/features/ranking/model/__tests__/session.test.ts
-    python scripts/playwright_ranking_smoke.py --output-json data/fixtures/ranking_smoke_result.json
-
-Handoff notes for the next operator should include the exact keymap implemented, fullscreen focus-restore rule, splitter clamp values, and palette mapping rule.
-
-Revision note: this version incorporates mandatory subagent review by adding explicit keyboard edge contracts, locking test strategy to existing tooling, splitting oversized fullscreen work into smaller tasks, adding real packaging-sync gates, adding deprecated-key removal acceptance, and de-scoping splitter persistence to keep scope tight.
+Revision note: this revision updates repository alignment after commit `c64ac3b`, removes outdated validation references, adds explicit mini-app lightweight/portable guardrails, explicitly references the committed layout sketch path, and incorporates mandatory second-pass review feedback.

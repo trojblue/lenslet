@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
+} from 'react'
 import { BASE } from '../../api/base'
 import { rankingApi } from './api'
 import './ranking.css'
@@ -6,10 +15,16 @@ import {
   finalRanksFromBoard,
   isBoardComplete,
   moveImageToRank,
+  moveImageToRankWithAutoAdvance,
   orderedImageIds,
   selectNeighborImage,
   type RankingBoardState,
 } from './model/board'
+import {
+  getBoardKeyAction,
+  getFullscreenKeyAction,
+  shouldIgnoreRankingHotkey,
+} from './model/keyboard'
 import {
   buildInitialSessions,
   canNavigateNext,
@@ -30,6 +45,25 @@ type ImageView = {
   sourcePath: string
 }
 
+type FullscreenTransform = {
+  zoom: number
+  offsetX: number
+  offsetY: number
+}
+
+type PanState = {
+  active: boolean
+  pointerId: number | null
+  startX: number
+  startY: number
+  originX: number
+  originY: number
+}
+
+const MIN_FULLSCREEN_ZOOM = 1
+const MAX_FULLSCREEN_ZOOM = 4
+const FULLSCREEN_ZOOM_STEP = 0.18
+
 function nowIso(): string {
   return new Date().toISOString()
 }
@@ -48,6 +82,31 @@ function saveStateLabel(session: InstanceSession): string {
   return 'Idle'
 }
 
+function defaultFullscreenTransform(): FullscreenTransform {
+  return {
+    zoom: MIN_FULLSCREEN_ZOOM,
+    offsetX: 0,
+    offsetY: 0,
+  }
+}
+
+function defaultPanState(): PanState {
+  return {
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    originX: 0,
+    originY: 0,
+  }
+}
+
+function clampZoom(zoom: number): number {
+  if (zoom < MIN_FULLSCREEN_ZOOM) return MIN_FULLSCREEN_ZOOM
+  if (zoom > MAX_FULLSCREEN_ZOOM) return MAX_FULLSCREEN_ZOOM
+  return zoom
+}
+
 export default function RankingApp() {
   const [dataset, setDataset] = useState<RankingDatasetResponse | null>(null)
   const [sessions, setSessions] = useState<Record<string, InstanceSession>>({})
@@ -56,9 +115,15 @@ export default function RankingApp() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [draggingImageId, setDraggingImageId] = useState<string | null>(null)
   const [dragOverRank, setDragOverRank] = useState<number | null>(null)
+  const [fullscreenImageId, setFullscreenImageId] = useState<string | null>(null)
+  const [fullscreenTransform, setFullscreenTransform] = useState<FullscreenTransform>(
+    defaultFullscreenTransform,
+  )
 
   const sessionsRef = useRef<Record<string, InstanceSession>>(sessions)
   const saveRequestRef = useRef<Record<string, number>>({})
+  const cardRefs = useRef<Record<string, HTMLElement | null>>({})
+  const panStateRef = useRef<PanState>(defaultPanState())
   useEffect(() => {
     sessionsRef.current = sessions
   }, [sessions])
@@ -119,6 +184,11 @@ export default function RankingApp() {
     }
     return map
   }, [currentInstance])
+  const currentImageOrder = useMemo(
+    () => currentInstance?.images.map((image) => image.image_id) ?? [],
+    [currentInstance],
+  )
+  const fullscreenImage = fullscreenImageId ? imageById.get(fullscreenImageId) ?? null : null
 
   useEffect(() => {
     if (typeof Image === 'undefined' || !dataset) return
@@ -129,6 +199,12 @@ export default function RankingApp() {
       preload.src = image.url
     }
   }, [dataset, currentIndex])
+
+  useEffect(() => {
+    setFullscreenImageId(null)
+    setFullscreenTransform(defaultFullscreenTransform())
+    panStateRef.current = defaultPanState()
+  }, [currentInstance?.instance_id])
 
   const ensureStartedAt = useCallback(
     (instanceId: string): string => {
@@ -194,11 +270,22 @@ export default function RankingApp() {
   )
 
   const moveCurrentImageToRank = useCallback(
-    (imageId: string, rankIndex: number | null) => {
+    (
+      imageId: string,
+      rankIndex: number | null,
+      options?: { autoAdvance: boolean },
+    ) => {
       if (!currentInstance) return
       const current = sessionsRef.current[currentInstance.instance_id]
       if (!current) return
-      const boardSnapshot = moveImageToRank(current.board, imageId, rankIndex)
+      const boardSnapshot = options?.autoAdvance
+        ? moveImageToRankWithAutoAdvance(
+          current.board,
+          imageId,
+          rankIndex,
+          currentImageOrder,
+        )
+        : moveImageToRank(current.board, imageId, rankIndex)
       if (boardSnapshot === current.board) return
       updateSession(currentInstance.instance_id, (session) => ({
         ...session,
@@ -206,7 +293,7 @@ export default function RankingApp() {
       }))
       persistSnapshot(currentInstance, boardSnapshot, current.startedAt)
     },
-    [currentInstance, persistSnapshot, updateSession],
+    [currentImageOrder, currentInstance, persistSnapshot, updateSession],
   )
 
   const selectCurrentImage = useCallback(
@@ -222,6 +309,103 @@ export default function RankingApp() {
     },
     [currentInstance, updateSession],
   )
+
+  const registerCardRef = useCallback((imageId: string, element: HTMLElement | null) => {
+    cardRefs.current[imageId] = element
+  }, [])
+
+  const resetFullscreenTransform = useCallback(() => {
+    panStateRef.current = defaultPanState()
+    setFullscreenTransform(defaultFullscreenTransform())
+  }, [])
+
+  const openFullscreenForImage = useCallback(
+    (imageId: string) => {
+      selectCurrentImage(imageId)
+      setFullscreenImageId(imageId)
+      resetFullscreenTransform()
+    },
+    [resetFullscreenTransform, selectCurrentImage],
+  )
+
+  const closeFullscreen = useCallback(() => {
+    setFullscreenImageId((openImageId) => {
+      if (openImageId && typeof window !== 'undefined') {
+        window.requestAnimationFrame(() => {
+          cardRefs.current[openImageId]?.focus()
+        })
+      }
+      return null
+    })
+    resetFullscreenTransform()
+  }, [resetFullscreenTransform])
+
+  const navigateFullscreenImage = useCallback(
+    (direction: 'prev' | 'next') => {
+      if (!fullscreenImageId || currentImageOrder.length === 0) return
+      const currentPos = currentImageOrder.indexOf(fullscreenImageId)
+      if (currentPos < 0) return
+      const targetPos = direction === 'prev' ? currentPos - 1 : currentPos + 1
+      const targetImageId = currentImageOrder[targetPos]
+      if (!targetImageId) return
+      setFullscreenImageId(targetImageId)
+      selectCurrentImage(targetImageId)
+      resetFullscreenTransform()
+    },
+    [currentImageOrder, fullscreenImageId, resetFullscreenTransform, selectCurrentImage],
+  )
+
+  const handleFullscreenWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const delta = event.deltaY < 0 ? FULLSCREEN_ZOOM_STEP : -FULLSCREEN_ZOOM_STEP
+    setFullscreenTransform((prev) => {
+      const zoom = clampZoom(prev.zoom + delta)
+      if (zoom === MIN_FULLSCREEN_ZOOM) {
+        return defaultFullscreenTransform()
+      }
+      return {
+        ...prev,
+        zoom,
+      }
+    })
+  }, [])
+
+  const handleFullscreenPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0 || fullscreenTransform.zoom <= MIN_FULLSCREEN_ZOOM) return
+      event.preventDefault()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      panStateRef.current = {
+        active: true,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: fullscreenTransform.offsetX,
+        originY: fullscreenTransform.offsetY,
+      }
+    },
+    [fullscreenTransform.offsetX, fullscreenTransform.offsetY, fullscreenTransform.zoom],
+  )
+
+  const handleFullscreenPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const panState = panStateRef.current
+    if (!panState.active || panState.pointerId !== event.pointerId) return
+    const nextOffsetX = panState.originX + (event.clientX - panState.startX)
+    const nextOffsetY = panState.originY + (event.clientY - panState.startY)
+    setFullscreenTransform((prev) => ({
+      ...prev,
+      offsetX: nextOffsetX,
+      offsetY: nextOffsetY,
+    }))
+  }, [])
+
+  const handleFullscreenPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    panStateRef.current.active = false
+    panStateRef.current.pointerId = null
+  }, [])
 
   const navigateTo = useCallback(
     (nextIndex: number) => {
@@ -250,55 +434,84 @@ export default function RankingApp() {
   useEffect(() => {
     if (!currentSession || !currentInstance) return
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null
-      const tag = target?.tagName?.toLowerCase() ?? ''
-      const isEditable = Boolean(
-        target?.isContentEditable ||
-        tag === 'input' ||
-        tag === 'textarea' ||
-        tag === 'select',
-      )
-      if (isEditable) return
+      const target = event.target instanceof HTMLElement ? event.target : null
+      if (
+        shouldIgnoreRankingHotkey(event.key, {
+          isContentEditable: Boolean(target?.isContentEditable),
+          tagName: target?.tagName ?? null,
+          insideInteractiveControl: Boolean(target?.closest('button, a, [role="button"]')),
+        })
+      ) {
+        return
+      }
 
-      if (event.key >= '1' && event.key <= '9') {
-        const rankIndex = Number(event.key) - 1
-        const selected = currentSession.board.selectedImageId
-        if (selected && rankIndex < currentInstance.max_ranks) {
+      if (fullscreenImageId) {
+        const fullscreenAction = getFullscreenKeyAction(event.key, currentInstance.max_ranks)
+        if (fullscreenAction.type === 'assign-rank') {
           event.preventDefault()
-          moveCurrentImageToRank(selected, rankIndex)
+          moveCurrentImageToRank(fullscreenImageId, fullscreenAction.rankIndex)
+          selectCurrentImage(fullscreenImageId)
+          return
+        }
+        if (fullscreenAction.type === 'fullscreen-nav') {
+          event.preventDefault()
+          navigateFullscreenImage(fullscreenAction.direction)
+          return
+        }
+        if (fullscreenAction.type === 'fullscreen-close') {
+          event.preventDefault()
+          closeFullscreen()
         }
         return
       }
 
-      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const boardAction = getBoardKeyAction(event.key, currentInstance.max_ranks)
+      if (boardAction.type === 'assign-rank') {
+        const selected = currentSession.board.selectedImageId
+        if (!selected) return
         event.preventDefault()
-        const direction = event.key === 'ArrowLeft' ? 'left' : 'right'
-        const nextSelected = selectNeighborImage(currentSession.board, direction)
+        moveCurrentImageToRank(selected, boardAction.rankIndex, { autoAdvance: true })
+        return
+      }
+      if (boardAction.type === 'select-neighbor') {
+        event.preventDefault()
+        const nextSelected = selectNeighborImage(currentSession.board, boardAction.direction)
         if (nextSelected) {
           selectCurrentImage(nextSelected)
         }
         return
       }
-
-      if (event.key === 'Enter') {
-        if (canGoNext) {
-          event.preventDefault()
+      if (boardAction.type === 'instance-nav') {
+        event.preventDefault()
+        if (boardAction.direction === 'prev') {
+          goPrev()
+        } else {
           goNext()
         }
         return
       }
-
-      if (event.key === 'Backspace') {
-        if (canGoPrev) {
-          event.preventDefault()
-          goPrev()
-        }
+      if (boardAction.type === 'fullscreen-open') {
+        const selected = currentSession.board.selectedImageId
+        if (!selected) return
+        event.preventDefault()
+        openFullscreenForImage(selected)
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [canGoNext, canGoPrev, currentInstance, currentSession, goNext, goPrev, moveCurrentImageToRank, selectCurrentImage])
+  }, [
+    closeFullscreen,
+    currentInstance,
+    currentSession,
+    fullscreenImageId,
+    goNext,
+    goPrev,
+    moveCurrentImageToRank,
+    navigateFullscreenImage,
+    openFullscreenForImage,
+    selectCurrentImage,
+  ])
 
   const clearDragState = useCallback(() => {
     setDragOverRank(null)
@@ -337,22 +550,40 @@ export default function RankingApp() {
 
   const ordered = orderedImageIds(currentSession.board)
   const exportHref = `${BASE}/rank/export?completed_only=true`
+  const fullscreenPosition = fullscreenImageId
+    ? currentImageOrder.indexOf(fullscreenImageId) + 1
+    : 0
 
   const renderCard = (imageId: string) => {
     const image = imageById.get(imageId)
     if (!image) return null
     const isSelected = currentSession.board.selectedImageId === imageId
+    const label = cardLabel(image.sourcePath)
     return (
       <article
         key={imageId}
         className={`ranking-card ${isSelected ? 'is-selected' : ''}`}
         draggable
+        tabIndex={0}
+        ref={(element) => registerCardRef(imageId, element)}
         onDragStart={(event) => startDrag(event, imageId)}
         onDragEnd={clearDragState}
         onClick={() => selectCurrentImage(imageId)}
       >
+        <button
+          type="button"
+          className="ranking-card-fullscreen"
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            openFullscreenForImage(imageId)
+          }}
+          aria-label={`Open ${label} fullscreen`}
+        >
+          Fullscreen
+        </button>
         <img src={image.url} alt={image.sourcePath} loading="lazy" draggable={false} />
-        <div className="ranking-card-label">{cardLabel(image.sourcePath)}</div>
+        <div className="ranking-card-label">{label}</div>
       </article>
     )
   }
@@ -422,7 +653,7 @@ export default function RankingApp() {
         {renderColumn('Unranked', currentSession.board.unranked, -1, null, 'unranked')}
         {currentSession.board.rankColumns.map((column, rankIdx) => (
           renderColumn(
-            `Rank ${rankIdx + 1}`,
+            `${rankIdx + 1}`,
             column,
             rankIdx,
             rankIdx,
@@ -433,8 +664,50 @@ export default function RankingApp() {
 
       <footer className="ranking-footer">
         <span>{ordered.length} images</span>
-        <span>Hotkeys: 1-9 rank selected, arrows move selection, Enter next, Backspace prev</span>
+        <span>Hotkeys: 1-9 rank, arrows move, q/e instance, Enter fullscreen, Esc close</span>
       </footer>
+
+      {fullscreenImageId && fullscreenImage ? (
+        <div className="ranking-fullscreen" role="dialog" aria-modal="true">
+          <header className="ranking-fullscreen-header">
+            <div className="ranking-fullscreen-meta">
+              <strong>
+                {fullscreenPosition} / {currentImageOrder.length}
+              </strong>
+              <span>{cardLabel(fullscreenImage.sourcePath)}</span>
+            </div>
+            <div className="ranking-fullscreen-hint">
+              Hotkeys: 1-9 rank, a/d image, Esc close
+            </div>
+            <button
+              type="button"
+              className="ranking-button"
+              onClick={closeFullscreen}
+            >
+              Close
+            </button>
+          </header>
+          <div
+            className={`ranking-fullscreen-stage ${fullscreenTransform.zoom > MIN_FULLSCREEN_ZOOM ? 'is-zoomed' : ''}`}
+            onWheel={handleFullscreenWheel}
+            onPointerDown={handleFullscreenPointerDown}
+            onPointerMove={handleFullscreenPointerMove}
+            onPointerUp={handleFullscreenPointerEnd}
+            onPointerCancel={handleFullscreenPointerEnd}
+            onDoubleClick={resetFullscreenTransform}
+          >
+            <img
+              src={fullscreenImage.url}
+              alt={fullscreenImage.sourcePath}
+              className="ranking-fullscreen-image"
+              draggable={false}
+              style={{
+                transform: `translate3d(${fullscreenTransform.offsetX}px, ${fullscreenTransform.offsetY}px, 0) scale(${fullscreenTransform.zoom})`,
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

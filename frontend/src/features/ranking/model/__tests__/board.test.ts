@@ -4,6 +4,7 @@ import {
   finalRanksFromBoard,
   isBoardComplete,
   moveImageToRank,
+  moveImageToRankWithAutoAdvance,
   orderedImageIds,
   selectNeighborImage,
 } from '../board'
@@ -69,5 +70,84 @@ describe('ranking board state contracts', () => {
     const board = buildBoardState(['a', 'b'], 2, null)
     const next = moveImageToRank(board, 'z', 0)
     expect(next).toBe(board)
+  })
+
+  it('auto-advances to the next unranked image in initial order', () => {
+    const board = buildBoardState(
+      ['a', 'b', 'c', 'd'],
+      3,
+      [['b']],
+    )
+    const withSelection = {
+      ...board,
+      selectedImageId: 'c',
+    }
+
+    const next = moveImageToRankWithAutoAdvance(
+      withSelection,
+      'c',
+      0,
+      ['a', 'b', 'c', 'd'],
+    )
+
+    expect(next.rankColumns[0]).toEqual(['b', 'c'])
+    expect(next.unranked).toEqual(['a', 'd'])
+    expect(next.selectedImageId).toBe('d')
+  })
+
+  it('wraps auto-advance when unranked items remain earlier in initial order', () => {
+    const board = buildBoardState(['a', 'b', 'c'], 3, null)
+    const withSelection = {
+      ...board,
+      selectedImageId: 'c',
+    }
+
+    const next = moveImageToRankWithAutoAdvance(
+      withSelection,
+      'c',
+      1,
+      ['a', 'b', 'c'],
+    )
+
+    expect(next.unranked).toEqual(['a', 'b'])
+    expect(next.selectedImageId).toBe('a')
+  })
+
+  it('keeps selection on rerank and unrank operations', () => {
+    const board = buildBoardState(['a', 'b', 'c'], 3, [['b']])
+    const reranked = moveImageToRankWithAutoAdvance(
+      board,
+      'b',
+      2,
+      ['a', 'b', 'c'],
+    )
+    const unranked = moveImageToRankWithAutoAdvance(
+      reranked,
+      'b',
+      null,
+      ['a', 'b', 'c'],
+    )
+
+    expect(reranked.selectedImageId).toBe('b')
+    expect(unranked.selectedImageId).toBe('b')
+    expect(unranked.unranked).toEqual(['a', 'c', 'b'])
+  })
+
+  it('falls back to remaining unranked order for hydrated edge cases', () => {
+    const hydrated = buildBoardState(
+      ['a', 'b', 'c', 'd'],
+      3,
+      [['a'], ['c']],
+    )
+
+    const next = moveImageToRankWithAutoAdvance(
+      hydrated,
+      'b',
+      0,
+      ['a', 'b', 'c'],
+    )
+
+    expect(next.unranked).toEqual(['d'])
+    expect(next.selectedImageId).toBe('d')
   })
 })

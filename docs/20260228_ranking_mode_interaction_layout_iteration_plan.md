@@ -48,6 +48,7 @@ Test strategy lock: keep Node-mode Vitest for ranking helper/state logic and use
 1. Sprint 1 delivers keyboard-first interaction and lightweight fullscreen behavior.
    Sprint goal: remove click-heavy ranking cadence and implement mode-aware key handling.
    Demo outcome: user can rank quickly with repeated number keys, navigate instances with `q/e`, and inspect/rank in fullscreen using `Enter/Escape/a/d`.
+   Sprint 1 status (2026-02-28): Completed in iteration `1/7` with `T1`-`T4` shipped.
    Tasks:
    1. T1: Update ranking board helpers to support deterministic auto-advance targeting next unranked image in `instance.images` order.
       Validation: extend `frontend/src/features/ranking/model/__tests__/board.test.ts` with auto-advance, rerank, unrank, and hydrated-session edge cases.
@@ -162,6 +163,16 @@ Planned command checks are:
     python scripts/gui_smoke_acceptance.py
     python scripts/lint_repo.py
 
+Sprint 1 command evidence (2026-02-28):
+1. `cd frontend && npm run test -- src/features/ranking src/app/model/__tests__/appMode.test.ts` -> pass (`4` files, `20` tests).
+2. `cd frontend && npx tsc --noEmit` -> pass.
+3. `cd frontend && npm run build` -> pass.
+4. `python scripts/lint_repo.py` -> pass.
+5. Cleanup and review routines completed via subagents using `code-simplifier` then `code-review`; one high and one low finding were fixed and follow-up review reported no remaining actionable findings.
+
+Sprint 1 manual-acceptance note:
+1. Browser/manual acceptance steps for fullscreen pan/zoom and keyflow are not executed in this CLI iteration and remain queued for Sprint 2/3 gate runs.
+
 Expected outcomes are:
 1. Rank assignment can proceed in a rapid `number -> number -> number` cadence after initial focus.
 2. Fullscreen interaction and board interaction remain behaviorally consistent for ranking actions.
@@ -189,8 +200,9 @@ If portability guardrails are threatened during implementation, fallback is to s
 - [x] 2026-02-28 06:36:40Z Revalidated plan against cleanup commit `c64ac3b` and removed stale references to deleted ranking smoke/packaging scripts.
 - [x] 2026-02-28 06:36:40Z Added explicit mini-app portability/debloat scope and layout-sketch path reference (`docs/msedge_cPDvMjjYTr.png`).
 - [x] 2026-02-28 06:42:05Z Integrated second review feedback: tightened key contracts, made portability boundary concrete, and added deterministic manual acceptance script.
-- [ ] 2026-02-28T00:00:00Z Sprint 1 implementation started.
-- [ ] 2026-02-28T00:00:00Z Sprint 1 cleanup and review gates completed.
+- [x] 2026-02-28 06:45:41Z Sprint 1 implementation started (`T1`-`T4` scope lock confirmed).
+- [x] 2026-02-28 07:00:51Z Sprint 1 implementation completed (`T1`-`T4`): board auto-advance helper + tests, mode-aware keyboard routing, ranking-local fullscreen overlay with pan/zoom + `a/d` traversal, per-card fullscreen control, and rank header label cleanup.
+- [x] 2026-02-28 07:00:51Z Sprint 1 cleanup/review gates completed: `code-simplifier` cleanup pass applied, `code-review` pass run twice, Enter-key interactive-control regression fixed, and follow-up review returned no remaining actionable findings.
 - [ ] 2026-02-28T00:00:00Z Sprint 2 implementation started.
 - [ ] 2026-02-28T00:00:00Z Sprint 2 cleanup and review gates completed.
 - [ ] 2026-02-28T00:00:00Z Sprint 3 implementation started.
@@ -211,5 +223,12 @@ Key implementation touch points are expected in:
 5. ranking docs/README sections describing keybindings and layout behavior
 
 Operator handoff notes after each sprint should include the exact keymap behavior, fullscreen boundary decisions, splitter clamp constants, palette mapping rule, and whether any portability boundary exceptions were needed.
+
+Sprint 1 handoff notes (closed 2026-02-28):
+1. Keymap shipped: board mode uses `1-9` rank (with deterministic unranked auto-advance in initial dataset order), `ArrowLeft/ArrowRight` selection movement, `q/e` instance prev/next, and `Enter` fullscreen open. Fullscreen mode uses `1-9` rank current image, `a/d` prev/next image in initial order, and `Escape` close.
+2. Fullscreen boundary: ranking-local overlay in `RankingApp` uses image URLs only, supports wheel zoom + pointer pan, and restores focus to the same card on close; no browse-specific viewer/file-path API imports were introduced.
+3. UI updates delivered: per-card fullscreen trigger button, rank headers rendered as `1`, `2`, `3`, and footer hotkey text updated to new contract.
+4. Portability exceptions: none needed for Sprint 1.
+5. Remaining scope: Sprint 2 (`T5`-`T8`) layout inversion + splitter + color dots.
 
 Revision note: this revision updates repository alignment after commit `c64ac3b`, removes outdated validation references, adds explicit mini-app lightweight/portable guardrails, explicitly references the committed layout sketch path, and incorporates mandatory second-pass review feedback.

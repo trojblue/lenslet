@@ -145,12 +145,34 @@
 }
 
 .ranking-card {
+  position: relative;
   border-radius: 10px;
   border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
   background: color-mix(in oklab, var(--surface) 86%, transparent);
   overflow: hidden;
   cursor: pointer;
   user-select: none;
+}
+
+.ranking-card-fullscreen {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  background: color-mix(in oklab, var(--surface-overlay) 86%, transparent);
+  color: var(--text);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.ranking-card-fullscreen:hover {
+  border-color: color-mix(in oklab, var(--accent) 70%, var(--border));
 }
 
 .ranking-card img {
@@ -186,6 +208,80 @@
   font-size: 12px;
 }
 
+.ranking-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--surface-overlay) 68%, transparent), color-mix(in oklab, #05060c 92%, transparent)),
+    color-mix(in oklab, #040509 90%, var(--bg));
+}
+
+.ranking-fullscreen-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--surface-overlay) 72%, transparent);
+}
+
+.ranking-fullscreen-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ranking-fullscreen-meta span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ranking-fullscreen-hint {
+  flex: 1;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ranking-fullscreen-stage {
+  flex: 1;
+  border: 1px solid color-mix(in oklab, var(--border) 74%, transparent);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 15%, color-mix(in oklab, var(--accent-muted) 18%, transparent), transparent 65%),
+    color-mix(in oklab, var(--surface-overlay) 64%, #020309);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  cursor: zoom-in;
+}
+
+.ranking-fullscreen-stage.is-zoomed {
+  cursor: grab;
+}
+
+.ranking-fullscreen-image {
+  max-width: min(95vw, 1600px);
+  max-height: min(84vh, 1200px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  transform-origin: center center;
+  transition: transform 0.08s linear;
+  will-change: transform;
+}
+
 @media (max-width: 980px) {
   .ranking-header {
     flex-wrap: wrap;
@@ -201,5 +297,13 @@
   .ranking-footer {
     flex-direction: column;
   }
-}
 
+  .ranking-fullscreen-header {
+    flex-wrap: wrap;
+  }
+
+  .ranking-fullscreen-hint {
+    width: 100%;
+    text-align: left;
+  }
+}

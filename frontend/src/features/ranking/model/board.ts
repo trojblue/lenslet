@@ -72,15 +72,14 @@ export function moveImageToRank(
   imageId: string,
   targetRankIndex: number | null,
 ): RankingBoardState {
-  const hasImage = board.unranked.includes(imageId) || board.rankColumns.some(
-    (column) => column.includes(imageId),
-  )
+  const hasImage = board.unranked.includes(imageId) ||
+    board.rankColumns.some((column) => column.includes(imageId))
   if (!hasImage) return board
 
   const unranked = board.unranked.filter((id) => id !== imageId)
-  const nextColumns = cloneRankColumns(board.rankColumns).map((column) => (
-    column.filter((id) => id !== imageId)
-  ))
+  const nextColumns = cloneRankColumns(board.rankColumns).map((column) =>
+    column.filter((id) => id !== imageId),
+  )
   if (targetRankIndex == null) {
     unranked.push(imageId)
   } else {
@@ -91,6 +90,57 @@ export function moveImageToRank(
     unranked,
     rankColumns,
     selectedImageId: imageId,
+  }
+}
+
+function nextUnrankedFromInitialOrder(
+  imageId: string,
+  unranked: string[],
+  initialOrder: string[],
+): string | null {
+  if (unranked.length === 0) return null
+  const unrankedSet = new Set(unranked)
+  const canonicalOrder = uniqueIds(initialOrder)
+  if (canonicalOrder.length === 0) {
+    return unranked[0] ?? null
+  }
+
+  const currentIndex = canonicalOrder.indexOf(imageId)
+  const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0
+  for (let idx = startIndex; idx < canonicalOrder.length; idx += 1) {
+    const candidate = canonicalOrder[idx]
+    if (unrankedSet.has(candidate)) {
+      return candidate
+    }
+  }
+  for (let idx = 0; idx < startIndex; idx += 1) {
+    const candidate = canonicalOrder[idx]
+    if (unrankedSet.has(candidate)) {
+      return candidate
+    }
+  }
+  return unranked[0] ?? null
+}
+
+export function moveImageToRankWithAutoAdvance(
+  board: RankingBoardState,
+  imageId: string,
+  targetRankIndex: number | null,
+  initialOrder: string[],
+): RankingBoardState {
+  const wasUnranked = board.unranked.includes(imageId)
+  const nextBoard = moveImageToRank(board, imageId, targetRankIndex)
+  if (nextBoard === board) return board
+  if (!wasUnranked || targetRankIndex == null) return nextBoard
+
+  const nextUnranked = nextUnrankedFromInitialOrder(
+    imageId,
+    nextBoard.unranked,
+    initialOrder,
+  )
+  return {
+    ...nextBoard,
+    selectedImageId: nextUnranked ?? imageId,
   }
 }
 

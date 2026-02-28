@@ -1,16 +1,20 @@
 .ranking-root {
+  --ranking-card-width: clamp(160px, 16vw, 216px);
+  --ranking-card-image-height: clamp(104px, 13vh, 146px);
   height: 100vh;
   min-height: 0;
   background:
-    radial-gradient(circle at 20% 10%, color-mix(in oklab, var(--accent-muted) 35%, transparent) 0%, transparent 48%),
-    radial-gradient(circle at 85% 0%, color-mix(in oklab, var(--accent) 18%, transparent) 0%, transparent 45%),
+    linear-gradient(180deg, color-mix(in oklab, var(--surface-overlay) 55%, transparent), transparent 42%),
+    radial-gradient(circle at 88% 0%, color-mix(in oklab, var(--accent-muted) 14%, transparent), transparent 46%),
     var(--bg);
   color: var(--text);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding: 10px 12px;
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .ranking-loading,
@@ -37,21 +41,89 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 7px 10px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  background: color-mix(in oklab, var(--surface) 80%, transparent);
+  gap: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  background: color-mix(in oklab, var(--surface) 88%, transparent);
   backdrop-filter: blur(6px);
   position: sticky;
   top: 0;
   z-index: 10;
 }
 
+.ranking-unselectable {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ranking-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.ranking-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+
+.ranking-progress-pill {
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  background: color-mix(in oklab, var(--surface-overlay) 88%, transparent);
+  font-size: 11px;
+  line-height: 1.4;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+
+.ranking-instance-id,
+.ranking-save-status,
+.ranking-hotkeys-inline {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+.ranking-instance-id,
+.ranking-save-status {
+  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--surface-overlay) 78%, transparent);
+  padding: 2px 8px;
+  line-height: 1.35;
+}
+
+.ranking-hotkeys-inline {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.ranking-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex: none;
+}
+
+.ranking-export-button {
+  margin-right: 10px;
+}
+
 .ranking-nav-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .ranking-button {
@@ -59,13 +131,15 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 30px;
-  padding: 0 10px;
-  border-radius: 8px;
+  min-height: 33px;
+  padding: 0 12px;
+  border-radius: 999px;
   border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--surface) 85%, transparent);
+  background: color-mix(in oklab, var(--surface) 90%, transparent);
   color: var(--text);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   text-decoration: none;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
@@ -73,7 +147,7 @@
 
 .ranking-button:hover {
   border-color: var(--border-hover);
-  background: color-mix(in oklab, var(--surface-hover) 90%, transparent);
+  background: color-mix(in oklab, var(--surface-hover) 92%, transparent);
 }
 
 .ranking-button:disabled {
@@ -90,23 +164,14 @@
 }
 
 .ranking-button-primary {
-  border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
-  background: color-mix(in oklab, var(--accent-muted) 45%, var(--surface));
+  border-color: color-mix(in oklab, var(--accent) 50%, var(--border));
+  background: color-mix(in oklab, var(--accent-muted) 38%, var(--surface));
 }
 
-.ranking-meta {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  text-align: center;
-}
-
-.ranking-instance-id,
-.ranking-save-status {
-  font-size: 11px;
-  color: var(--text-secondary);
+.ranking-button-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 
 .ranking-workspace {
@@ -168,8 +233,8 @@
 .ranking-column {
   min-height: 0;
   border-radius: 12px;
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  background: color-mix(in oklab, var(--surface-overlay) 85%, transparent);
+  border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  background: color-mix(in oklab, var(--surface-overlay) 82%, transparent);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -181,17 +246,17 @@
 }
 
 .ranking-column-header {
-  padding: 10px 10px 8px;
-  font-size: 12px;
+  padding: 11px 12px 8px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-secondary);
 }
 
 .ranking-column-cards {
-  gap: 8px;
-  padding: 0 8px 10px;
+  gap: 10px;
+  padding: 0 10px 10px;
   min-height: 0;
 }
 
@@ -200,41 +265,29 @@
 }
 
 .ranking-column-cards-unranked {
-  --ranking-unranked-card-width: calc((100% - (var(--ranking-unranked-count) - 1) * 8px) / var(--ranking-unranked-count));
   display: flex;
   flex-wrap: nowrap;
-  align-items: stretch;
+  align-items: flex-start;
   height: 100%;
+  padding-bottom: 4px;
   overflow-x: auto;
   overflow-y: hidden;
 }
 
 .ranking-column-unranked .ranking-card {
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 auto;
-  width: var(--ranking-unranked-card-width);
-  max-width: var(--ranking-unranked-card-width);
-  height: 100%;
-}
-
-.ranking-column-unranked .ranking-card img {
-  aspect-ratio: auto;
-  height: calc(100% - 34px);
-  max-height: 100%;
-  object-fit: contain;
-  background: color-mix(in oklab, var(--surface-overlay) 70%, transparent);
+  flex: 0 0 var(--ranking-card-width);
+  width: var(--ranking-card-width);
 }
 
 .ranking-ranks-panel {
   min-height: 0;
   border-radius: 12px;
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  background: color-mix(in oklab, var(--surface-overlay) 78%, transparent);
+  border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  background: color-mix(in oklab, var(--surface-overlay) 80%, transparent);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
+  gap: 10px;
+  padding: 10px;
   overflow: hidden;
 }
 
@@ -252,11 +305,11 @@
   flex: 1 1 auto;
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(160px, 1fr);
-  gap: 8px;
+  grid-auto-columns: minmax(calc(var(--ranking-card-width) + 26px), 1fr);
+  gap: 10px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding-bottom: 6px;
+  padding-bottom: 8px;
 }
 
 .ranking-column-rank {
@@ -269,7 +322,7 @@
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
   min-height: 0;
   overflow-y: auto;
@@ -278,18 +331,32 @@
 
 .ranking-card {
   position: relative;
-  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  width: var(--ranking-card-width);
+  flex: 0 0 var(--ranking-card-width);
+  border-radius: 12px;
   border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
-  background: color-mix(in oklab, var(--surface) 86%, transparent);
+  background: color-mix(in oklab, var(--surface) 90%, transparent);
   overflow: hidden;
-  cursor: pointer;
+  cursor: grab;
   user-select: none;
+  touch-action: none;
+  transition: box-shadow 0.08s linear, border-color 0.08s linear, opacity 0.08s linear;
+}
+
+.ranking-card:active {
+  cursor: grabbing;
+}
+
+.ranking-card.is-dragging {
+  opacity: 0.42;
 }
 
 .ranking-card-fullscreen {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 7px;
+  right: 7px;
   z-index: 1;
   width: 26px;
   height: 26px;
@@ -306,26 +373,33 @@
 }
 
 .ranking-card img {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 10;
-  object-fit: cover;
+  height: 100%;
+  object-fit: contain;
 }
 
-.ranking-column-rank .ranking-card img {
-  aspect-ratio: auto;
-  height: clamp(78px, 11vh, 120px);
+.ranking-card-image-shell {
+  position: relative;
+  width: 100%;
+  height: var(--ranking-card-image-height);
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--surface-overlay) 82%, transparent), color-mix(in oklab, var(--surface) 88%, transparent));
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
 }
 
 .ranking-column-rank .ranking-card {
-  width: min(100%, 220px);
+  width: var(--ranking-card-width);
 }
 
 .ranking-card-meta {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
+  min-height: 34px;
+  padding: 6px 9px;
 }
 
 .ranking-card-dot {
@@ -353,24 +427,15 @@
     0 0 0 2px color-mix(in oklab, var(--accent) 30%, transparent);
 }
 
-.ranking-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 0 2px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1.2;
-  white-space: nowrap;
-  flex: none;
-  min-height: 18px;
+.ranking-card-overlay {
+  width: var(--ranking-card-width);
+  box-shadow: 0 12px 24px color-mix(in oklab, black 28%, transparent);
+  cursor: grabbing;
+  pointer-events: none;
 }
 
-.ranking-footer span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.ranking-card-overlay .ranking-card-fullscreen {
+  display: none;
 }
 
 .ranking-fullscreen {
@@ -449,6 +514,7 @@
 
 @media (max-width: 980px) {
   .ranking-root {
+    --ranking-card-width: clamp(150px, 40vw, 188px);
     height: auto;
     min-height: 100vh;
     overflow: auto;
@@ -456,14 +522,29 @@
   }
 
   .ranking-header {
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
-  .ranking-meta {
+  .ranking-header-meta {
     width: 100%;
     justify-content: flex-start;
     text-align: left;
+  }
+
+  .ranking-hotkeys-inline {
+    width: 100%;
+    white-space: normal;
+  }
+
+  .ranking-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .ranking-export-button {
+    margin-right: 8px;
   }
 
   .ranking-workspace {
@@ -477,11 +558,7 @@
   }
 
   .ranking-ranks-board {
-    grid-auto-columns: minmax(130px, 1fr);
-  }
-
-  .ranking-footer {
-    flex-direction: column;
+    grid-auto-columns: minmax(calc(var(--ranking-card-width) + 20px), 1fr);
   }
 
   .ranking-fullscreen-header {

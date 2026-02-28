@@ -31,6 +31,10 @@ ALLOWED_RANKING_SHARED_IMPORTS = {
     "../../lib/fetcher",
 }
 ALLOWED_RANKING_BARE_IMPORTS = {
+    "@dnd-kit/core",
+    "@dnd-kit/sortable",
+    "@dnd-kit/utilities",
+    "lucide-react",
     "react",
     "vitest",
 }

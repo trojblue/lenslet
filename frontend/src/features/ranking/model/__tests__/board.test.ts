@@ -38,6 +38,24 @@ describe('ranking board state contracts', () => {
     expect(movedBack.selectedImageId).toBe('b')
   })
 
+  it('supports insertion index when moving between containers', () => {
+    const board = buildBoardState(['a', 'b', 'c', 'd'], 4, [['c'], ['d']])
+    const moved = moveImageToRank(board, 'b', 0, 0)
+    const unrankedMoved = moveImageToRank(moved, 'c', null, 1)
+
+    expect(moved.rankColumns[0]).toEqual(['b', 'c'])
+    expect(unrankedMoved.unranked).toEqual(['a', 'c'])
+  })
+
+  it('reorders inside the same rank column using target insertion index', () => {
+    const board = buildBoardState(['a', 'b', 'c', 'd'], 4, [['a', 'b', 'c']])
+    const movedToTail = moveImageToRank(board, 'a', 0, 2)
+    const movedToHead = moveImageToRank(movedToTail, 'c', 0, 0)
+
+    expect(movedToTail.rankColumns[0]).toEqual(['b', 'c', 'a'])
+    expect(movedToHead.rankColumns[0]).toEqual(['c', 'b', 'a'])
+  })
+
   it('serializes final ranks and completion state', () => {
     const board = buildBoardState(['a', 'b'], 2, null)
     const first = moveImageToRank(board, 'a', 0)

@@ -35,6 +35,13 @@ function clampRankIndex(rankIndex: number, maxRanks: number): number {
   return rankIndex
 }
 
+function clampInsertIndex(index: number | undefined, length: number): number {
+  if (index == null || Number.isNaN(index)) return length
+  if (index < 0) return 0
+  if (index > length) return length
+  return index
+}
+
 export function buildBoardState(
   imageIds: string[],
   maxRanks: number,
@@ -71,6 +78,7 @@ export function moveImageToRank(
   board: RankingBoardState,
   imageId: string,
   targetRankIndex: number | null,
+  targetInsertIndex?: number,
 ): RankingBoardState {
   const hasImage = board.unranked.includes(imageId) ||
     board.rankColumns.some((column) => column.includes(imageId))
@@ -81,9 +89,12 @@ export function moveImageToRank(
     column.filter((id) => id !== imageId),
   )
   if (targetRankIndex == null) {
-    unranked.push(imageId)
+    const insertIndex = clampInsertIndex(targetInsertIndex, unranked.length)
+    unranked.splice(insertIndex, 0, imageId)
   } else {
-    nextColumns[clampRankIndex(targetRankIndex, nextColumns.length)].push(imageId)
+    const column = nextColumns[clampRankIndex(targetRankIndex, nextColumns.length)]
+    const insertIndex = clampInsertIndex(targetInsertIndex, column.length)
+    column.splice(insertIndex, 0, imageId)
   }
   const rankColumns = compactRankColumns(nextColumns)
   return {

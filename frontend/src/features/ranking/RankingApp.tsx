@@ -5,10 +5,32 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type DragEvent,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  closestCenter,
+  pointerWithin,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+  type Modifier,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  rectSortingStrategy,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { BASE } from '../../api/base'
 import { rankingApi } from './api'
 import './ranking.css'
@@ -17,7 +39,6 @@ import {
   isBoardComplete,
   moveImageToRank,
   moveImageToRankWithAutoAdvance,
-  orderedImageIds,
   selectNeighborImage,
   type RankingBoardState,
 } from './model/board'
@@ -137,14 +158,226 @@ function clampZoom(zoom: number): number {
   return zoom
 }
 
+function pointerClientPosition(event: Event | null): { x: number; y: number } | null {
+  if (!event) return null
+  if (typeof MouseEvent !== 'undefined' && event instanceof MouseEvent) {
+    return {
+      x: event.clientX,
+      y: event.clientY,
+    }
+  }
+  if (typeof TouchEvent !== 'undefined' && event instanceof TouchEvent) {
+    const touch = event.touches[0] ?? event.changedTouches[0]
+    if (!touch) return null
+    return {
+      x: touch.clientX,
+      y: touch.clientY,
+    }
+  }
+  return null
+}
+
+type RankingContainerId = 'unranked' | `rank-${number}`
+
+type RankingCardContentProps = {
+  image: ImageView
+  label: string
+  dotColor: string
+  onOpenFullscreen?: () => void
+}
+
+type SortableRankingCardProps = RankingCardContentProps & {
+  imageId: string
+  containerId: RankingContainerId
+  isSelected: boolean
+  draggingDisabled: boolean
+  onSelect: () => void
+  registerCardRef: (imageId: string, element: HTMLElement | null) => void
+}
+
+type RankingDropColumnProps = {
+  containerId: RankingContainerId
+  title: string
+  imageIds: string[]
+  className: string
+  cardsClassName: string
+  cardsStyle?: CSSProperties
+  isDragOver: boolean
+  renderCard: (imageId: string, containerId: RankingContainerId) => ReactNode
+}
+
+const UNRANKED_CONTAINER_ID: RankingContainerId = 'unranked'
+
+function rankContainerId(rankIndex: number): RankingContainerId {
+  return `rank-${rankIndex}`
+}
+
+function parseContainerId(rawId: string, rankCount: number): RankingContainerId | null {
+  if (rawId === UNRANKED_CONTAINER_ID) return UNRANKED_CONTAINER_ID
+  if (!rawId.startsWith('rank-')) return null
+  const rankIndex = Number(rawId.slice('rank-'.length))
+  if (!Number.isInteger(rankIndex) || rankIndex < 0 || rankIndex >= rankCount) return null
+  return rankContainerId(rankIndex)
+}
+
+function rankIndexForContainerId(containerId: RankingContainerId): number | null {
+  if (containerId === UNRANKED_CONTAINER_ID) return null
+  return Number(containerId.slice('rank-'.length))
+}
+
+function findContainerForImage(
+  board: RankingBoardState,
+  imageId: string,
+): RankingContainerId | null {
+  if (board.unranked.includes(imageId)) return UNRANKED_CONTAINER_ID
+  for (let rankIndex = 0; rankIndex < board.rankColumns.length; rankIndex += 1) {
+    if (board.rankColumns[rankIndex].includes(imageId)) {
+      return rankContainerId(rankIndex)
+    }
+  }
+  return null
+}
+
+function itemsForContainer(board: RankingBoardState, containerId: RankingContainerId): string[] {
+  if (containerId === UNRANKED_CONTAINER_ID) {
+    return board.unranked
+  }
+  const rankIndex = rankIndexForContainerId(containerId)
+  if (rankIndex == null) return []
+  return board.rankColumns[rankIndex] ?? []
+}
+
+function RankingCardContent({
+  image,
+  label,
+  dotColor,
+  onOpenFullscreen,
+}: RankingCardContentProps) {
+  return (
+    <>
+      {onOpenFullscreen ? (
+        <button
+          type="button"
+          className="ranking-card-fullscreen"
+          onPointerDown={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onOpenFullscreen()
+          }}
+          aria-label={`Open ${label} fullscreen`}
+        >
+          <FullscreenIcon />
+          <span className="sr-only">Fullscreen</span>
+        </button>
+      ) : null}
+      <div className="ranking-card-image-shell">
+        <img src={image.url} alt={image.sourcePath} loading="lazy" draggable={false} />
+      </div>
+      <div className="ranking-card-meta">
+        <span
+          className="ranking-card-dot"
+          style={{ backgroundColor: dotColor }}
+          aria-hidden="true"
+        />
+        <div className="ranking-card-label">{label}</div>
+      </div>
+    </>
+  )
+}
+
+function SortableRankingCard({
+  imageId,
+  image,
+  label,
+  dotColor,
+  containerId,
+  isSelected,
+  draggingDisabled,
+  onSelect,
+  onOpenFullscreen,
+  registerCardRef,
+}: SortableRankingCardProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
+    id: imageId,
+    data: { containerId },
+    disabled: draggingDisabled,
+    transition: null,
+    animateLayoutChanges: () => false,
+  })
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition: 'none',
+  }
+  const className = [
+    'ranking-card',
+    isSelected && 'is-selected',
+    isDragging && 'is-dragging',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  return (
+    <article
+      className={className}
+      ref={(element) => {
+        setNodeRef(element)
+        registerCardRef(imageId, element)
+      }}
+      style={style}
+      onClick={onSelect}
+      {...attributes}
+      {...listeners}
+    >
+      <RankingCardContent
+        image={image}
+        label={label}
+        dotColor={dotColor}
+        onOpenFullscreen={onOpenFullscreen}
+      />
+    </article>
+  )
+}
+
+function RankingDropColumn({
+  containerId,
+  title,
+  imageIds,
+  className,
+  cardsClassName,
+  cardsStyle,
+  isDragOver,
+  renderCard,
+}: RankingDropColumnProps) {
+  const { setNodeRef } = useDroppable({ id: containerId })
+  const strategy = containerId === UNRANKED_CONTAINER_ID
+    ? rectSortingStrategy
+    : verticalListSortingStrategy
+  const columnClassName = ['ranking-column', className, isDragOver && 'is-drag-over']
+    .filter(Boolean)
+    .join(' ')
+  return (
+    <section className={columnClassName}>
+      <header className="ranking-column-header ranking-unselectable">{title}</header>
+      <div ref={setNodeRef} className={`ranking-column-cards ${cardsClassName}`} style={cardsStyle}>
+        <SortableContext id={containerId} items={imageIds} strategy={strategy}>
+          {imageIds.map((imageId) => renderCard(imageId, containerId))}
+        </SortableContext>
+      </div>
+    </section>
+  )
+}
+
 export default function RankingApp() {
   const [dataset, setDataset] = useState<RankingDatasetResponse | null>(null)
   const [sessions, setSessions] = useState<Record<string, InstanceSession>>({})
   const [currentIndex, setCurrentIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [draggingImageId, setDraggingImageId] = useState<string | null>(null)
-  const [dragOverRank, setDragOverRank] = useState<number | null>(null)
+  const [activeDragImageId, setActiveDragImageId] = useState<string | null>(null)
+  const [dragOverContainerId, setDragOverContainerId] = useState<RankingContainerId | null>(null)
   const [unrankedHeightPx, setUnrankedHeightPx] = useState<number | null>(null)
   const [splitterEnabled, setSplitterEnabled] = useState(false)
   const [isResizingSplit, setIsResizingSplit] = useState(false)
@@ -158,6 +391,7 @@ export default function RankingApp() {
   const cardRefs = useRef<Record<string, HTMLElement | null>>({})
   const workspaceRef = useRef<HTMLDivElement | null>(null)
   const splitterPointerIdRef = useRef<number | null>(null)
+  const dragPointerOffsetRef = useRef<{ x: number; y: number } | null>(null)
   const panStateRef = useRef<PanState>(defaultPanState())
   useEffect(() => {
     sessionsRef.current = sessions
@@ -350,7 +584,7 @@ export default function RankingApp() {
     (
       imageId: string,
       rankIndex: number | null,
-      options?: { autoAdvance: boolean },
+      options?: { autoAdvance?: boolean; targetInsertIndex?: number },
     ) => {
       if (!currentInstance) return
       const current = sessionsRef.current[currentInstance.instance_id]
@@ -362,7 +596,7 @@ export default function RankingApp() {
           rankIndex,
           currentImageOrder,
         )
-        : moveImageToRank(current.board, imageId, rankIndex)
+        : moveImageToRank(current.board, imageId, rankIndex, options?.targetInsertIndex)
       if (boardSnapshot === current.board) return
       updateSession(currentInstance.instance_id, (session) => ({
         ...session,
@@ -418,15 +652,16 @@ export default function RankingApp() {
   }, [resetFullscreenTransform])
 
   const clearDragState = useCallback(() => {
-    setDragOverRank(null)
-    setDraggingImageId(null)
+    setDragOverContainerId(null)
+    setActiveDragImageId(null)
+    dragPointerOffsetRef.current = null
   }, [])
 
   const onSplitterPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (!splitterEnabled) return
     if ((event.pointerType ?? 'mouse') !== 'mouse') return
     if (event.button !== 0) return
-    if (draggingImageId) return
+    if (activeDragImageId) return
 
     const workspace = workspaceRef.current
     if (!workspace) return
@@ -474,7 +709,7 @@ export default function RankingApp() {
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
     window.addEventListener('pointercancel', onPointerUp)
-  }, [clearDragState, draggingImageId, splitterEnabled])
+  }, [activeDragImageId, clearDragState, splitterEnabled])
 
   const navigateFullscreenImage = useCallback(
     (direction: 'prev' | 'next') => {
@@ -649,30 +884,119 @@ export default function RankingApp() {
     selectCurrentImage,
   ])
 
-  const startDrag = useCallback((event: DragEvent<HTMLElement>, imageId: string) => {
-    if (isResizingSplit) {
-      event.preventDefault()
-      return
-    }
-    event.dataTransfer.setData('text/plain', imageId)
-    event.dataTransfer.effectAllowed = 'move'
-    setDraggingImageId(imageId)
-  }, [isResizingSplit])
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 4 },
+    }),
+  )
+  const dragOverlayModifiers = useMemo<Modifier[]>(
+    () => [
+      ({ transform }) => {
+        const pointerOffset = dragPointerOffsetRef.current
+        if (!pointerOffset) return transform
+        return {
+          ...transform,
+          x: transform.x - pointerOffset.x,
+          y: transform.y - pointerOffset.y,
+        }
+      },
+    ],
+    [],
+  )
 
-  const dropOnRank = useCallback(
-    (event: DragEvent<HTMLElement>, rankIndex: number | null) => {
-      if (isResizingSplit) {
-        event.preventDefault()
+  const resolveContainerId = useCallback(
+    (board: RankingBoardState, rawId: string | null): RankingContainerId | null => {
+      if (!rawId) return null
+      const parsedContainer = parseContainerId(rawId, board.rankColumns.length)
+      if (parsedContainer) return parsedContainer
+      return findContainerForImage(board, rawId)
+    },
+    [],
+  )
+
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      if (isResizingSplit || !currentSession) return
+      const activeId = String(event.active.id)
+      if (!findContainerForImage(currentSession.board, activeId)) return
+      const pointerPosition = pointerClientPosition(event.activatorEvent)
+      const initialRect = event.active.rect.current.initial
+      if (pointerPosition && initialRect) {
+        dragPointerOffsetRef.current = {
+          x: Math.max(0, pointerPosition.x - initialRect.left),
+          y: Math.max(0, pointerPosition.y - initialRect.top),
+        }
+      } else {
+        dragPointerOffsetRef.current = null
+      }
+      setActiveDragImageId(activeId)
+      selectCurrentImage(activeId)
+    },
+    [currentSession, isResizingSplit, selectCurrentImage],
+  )
+
+  const handleDragOver = useCallback(
+    (event: DragOverEvent) => {
+      if (!currentInstance) return
+      const current = sessionsRef.current[currentInstance.instance_id]
+      if (!current) return
+      const overId = event.over ? String(event.over.id) : null
+      setDragOverContainerId(resolveContainerId(current.board, overId))
+    },
+    [currentInstance, resolveContainerId],
+  )
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (!currentInstance) {
         clearDragState()
         return
       }
-      event.preventDefault()
-      const imageId = event.dataTransfer.getData('text/plain') || draggingImageId
+      const current = sessionsRef.current[currentInstance.instance_id]
       clearDragState()
-      if (!imageId) return
-      moveCurrentImageToRank(imageId, rankIndex)
+      if (!current || !event.over) return
+
+      const activeId = String(event.active.id)
+      const overId = String(event.over.id)
+      const board = current.board
+      const activeContainerId = resolveContainerId(board, activeId)
+      const overContainerId = resolveContainerId(board, overId)
+      if (!activeContainerId || !overContainerId) return
+
+      const activeItems = itemsForContainer(board, activeContainerId)
+      const activeIndex = activeItems.indexOf(activeId)
+      if (activeIndex < 0) return
+
+      const overItems = itemsForContainer(board, overContainerId)
+      if (
+        activeContainerId === overContainerId &&
+        overId === overContainerId &&
+        activeIndex === activeItems.length - 1
+      ) {
+        return
+      }
+      let targetInsertIndex: number
+      if (overId === overContainerId) {
+        targetInsertIndex = overItems.length
+      } else {
+        const overIndex = overItems.indexOf(overId)
+        if (overIndex < 0) return
+        if (activeContainerId === overContainerId) {
+          if (activeIndex === overIndex) return
+          targetInsertIndex = overIndex
+        } else {
+          const activeTop = event.active.rect.current.translated?.top
+          const isBelowOverItem = activeTop != null &&
+            activeTop > event.over.rect.top + event.over.rect.height
+          targetInsertIndex = overIndex + (isBelowOverItem ? 1 : 0)
+        }
+      }
+
+      moveCurrentImageToRank(activeId, rankIndexForContainerId(overContainerId), {
+        targetInsertIndex,
+      })
     },
-    [clearDragState, draggingImageId, isResizingSplit, moveCurrentImageToRank],
+    [clearDragState, currentInstance, moveCurrentImageToRank, resolveContainerId],
   )
 
   if (loading) {
@@ -688,7 +1012,8 @@ export default function RankingApp() {
     )
   }
 
-  const ordered = orderedImageIds(currentSession.board)
+  const rankCount = Math.max(1, currentSession.board.rankColumns.length)
+  const rankHotkeyHint = `1-${rankCount}`
   const exportHref = `${BASE}/rank/export?completed_only=true`
   const fullscreenPosition = fullscreenImageId
     ? currentImageOrder.indexOf(fullscreenImageId) + 1
@@ -709,177 +1034,141 @@ export default function RankingApp() {
     .filter(Boolean)
     .join(' ')
 
-  const renderCard = (imageId: string) => {
+  const renderCard = (imageId: string, containerId: RankingContainerId) => {
     const image = imageById.get(imageId)
     if (!image) return null
     const isSelected = currentSession.board.selectedImageId === imageId
     const label = cardLabel(image.sourcePath)
     const dotColor = dotColorByImageId[imageId] ?? DEFAULT_DOT_COLOR
     return (
-      <article
+      <SortableRankingCard
         key={imageId}
-        className={`ranking-card ${isSelected ? 'is-selected' : ''}`}
-        draggable={!isResizingSplit}
-        tabIndex={0}
-        ref={(element) => registerCardRef(imageId, element)}
-        onDragStart={(event) => startDrag(event, imageId)}
-        onDragEnd={clearDragState}
-        onClick={() => selectCurrentImage(imageId)}
-      >
-        <button
-          type="button"
-          className="ranking-card-fullscreen"
-          onClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            openFullscreenForImage(imageId)
-          }}
-          aria-label={`Open ${label} fullscreen`}
-        >
-          <FullscreenIcon />
-          <span className="sr-only">Fullscreen</span>
-        </button>
-        <img src={image.url} alt={image.sourcePath} loading="lazy" draggable={false} />
-        <div className="ranking-card-meta">
-          <span
-            className="ranking-card-dot"
-            style={{ backgroundColor: dotColor }}
-            aria-hidden="true"
-          />
-          <div className="ranking-card-label">{label}</div>
-        </div>
-      </article>
+        imageId={imageId}
+        image={image}
+        label={label}
+        dotColor={dotColor}
+        containerId={containerId}
+        isSelected={isSelected}
+        draggingDisabled={isResizingSplit}
+        onSelect={() => selectCurrentImage(imageId)}
+        onOpenFullscreen={() => openFullscreenForImage(imageId)}
+        registerCardRef={registerCardRef}
+      />
     )
   }
-
-  const renderColumn = ({
-    title,
-    imageIds,
-    dragValue,
-    targetRank,
-    columnKey,
-    className,
-    cardsClassName,
-    cardsStyle,
-  }: {
-    title: string
-    imageIds: string[]
-    dragValue: number
-    targetRank: number | null
-    columnKey: string
-    className: string
-    cardsClassName: string
-    cardsStyle?: CSSProperties
-  }) => {
-    const columnClassName = ['ranking-column', className, dragOverRank === dragValue && 'is-drag-over']
-      .filter(Boolean)
-      .join(' ')
-    return (
-      <section
-        key={columnKey}
-        className={columnClassName}
-        onDragOver={(event) => {
-          if (isResizingSplit) return
-          event.preventDefault()
-          setDragOverRank(dragValue)
-        }}
-        onDragLeave={() => {
-          if (isResizingSplit) return
-          setDragOverRank(null)
-        }}
-        onDrop={(event) => dropOnRank(event, targetRank)}
-      >
-        <header className="ranking-column-header">{title}</header>
-        <div className={`ranking-column-cards ${cardsClassName}`} style={cardsStyle}>
-          {imageIds.map(renderCard)}
-        </div>
-      </section>
-    )
-  }
-  const unrankedCardsStyle = {
-    '--ranking-unranked-count': Math.max(1, currentSession.board.unranked.length),
-  } as CSSProperties
+  const dragOverlayImage = activeDragImageId ? imageById.get(activeDragImageId) ?? null : null
+  const dragOverlayLabel = dragOverlayImage ? cardLabel(dragOverlayImage.sourcePath) : null
+  const dragOverlayColor = activeDragImageId
+    ? dotColorByImageId[activeDragImageId] ?? DEFAULT_DOT_COLOR
+    : DEFAULT_DOT_COLOR
 
   return (
     <div className="ranking-root">
-      <header className="ranking-header">
-        <div className="ranking-nav-group">
-          <button
-            type="button"
-            className="ranking-button"
-            onClick={goPrev}
-            disabled={!canGoPrev}
-          >
-            Prev
-          </button>
-          <span
-            className="ranking-next-tooltip"
-            title={!canGoNext ? 'Rank all images before continuing.' : undefined}
-          >
-            <button
-              type="button"
-              className="ranking-button ranking-button-primary"
-              onClick={goNext}
-              disabled={!canGoNext}
-            >
-              Next
-            </button>
-          </span>
-        </div>
-        <div className="ranking-meta">
-          <strong>
+      <header className="ranking-header ranking-unselectable">
+        <div className="ranking-header-meta">
+          <h1 className="ranking-title">Image Ranking</h1>
+          <strong className="ranking-progress-pill">
             {currentIndex + 1} / {dataset.instances.length}
           </strong>
           <span className="ranking-instance-id">instance: {currentInstance.instance_id}</span>
           <span className="ranking-save-status">{saveStateLabel(currentSession)}</span>
+          <span className="ranking-hotkeys-inline">
+            Hotkeys: {rankHotkeyHint} rank, arrows move, Enter fullscreen, Esc close
+          </span>
         </div>
-        <a className="ranking-button" href={exportHref} target="_blank" rel="noreferrer">
-          Export
-        </a>
+        <div className="ranking-header-actions">
+          <a className="ranking-button ranking-export-button" href={exportHref} target="_blank" rel="noreferrer">
+            <Download className="ranking-button-icon" aria-hidden="true" />
+            Export
+          </a>
+          <div className="ranking-nav-group">
+            <button
+              type="button"
+              className="ranking-button"
+              onClick={goPrev}
+              disabled={!canGoPrev}
+            >
+              <ChevronLeft className="ranking-button-icon" aria-hidden="true" />
+              <span>{'< Prev (Q)'}</span>
+            </button>
+            <span
+              className="ranking-next-tooltip"
+              title={!canGoNext ? 'Rank all images before continuing.' : undefined}
+            >
+              <button
+                type="button"
+                className="ranking-button ranking-button-primary"
+                onClick={goNext}
+                disabled={!canGoNext}
+              >
+                <span>{'Next (E) >'}</span>
+                <ChevronRight className="ranking-button-icon" aria-hidden="true" />
+              </button>
+            </span>
+          </div>
+        </div>
       </header>
 
-      <div className={workspaceClassName} ref={workspaceRef} style={workspaceStyle}>
-        {renderColumn({
-          title: 'Unranked',
-          imageIds: currentSession.board.unranked,
-          dragValue: -1,
-          targetRank: null,
-          columnKey: 'unranked',
-          className: 'ranking-column-unranked',
-          cardsClassName: 'ranking-column-cards-unranked',
-          cardsStyle: unrankedCardsStyle,
-        })}
-        <div
-          className={splitterClassName}
-          onPointerDown={onSplitterPointerDown}
-          role={splitterEnabled ? 'separator' : undefined}
-          aria-hidden={!splitterEnabled}
-          aria-orientation={splitterEnabled ? 'horizontal' : undefined}
-        >
-          <span className="ranking-splitter-grip" />
-        </div>
-        <section className="ranking-ranks-panel">
-          <header className="ranking-ranks-header">Ranks</header>
-          <div className="ranking-ranks-board">
-            {currentSession.board.rankColumns.map((column, rankIdx) => (
-              renderColumn({
-                title: `${rankIdx + 1}`,
-                imageIds: column,
-                dragValue: rankIdx,
-                targetRank: rankIdx,
-                columnKey: `rank-${rankIdx}`,
-                className: 'ranking-column-rank',
-                cardsClassName: 'ranking-column-cards-rank',
-              })
-            ))}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={(args) => {
+          const pointerCollisions = pointerWithin(args)
+          return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args)
+        }}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+        onDragCancel={clearDragState}
+      >
+        <div className={workspaceClassName} ref={workspaceRef} style={workspaceStyle}>
+          <RankingDropColumn
+            containerId={UNRANKED_CONTAINER_ID}
+            title="Unranked"
+            imageIds={currentSession.board.unranked}
+            className="ranking-column-unranked"
+            cardsClassName="ranking-column-cards-unranked"
+            isDragOver={dragOverContainerId === UNRANKED_CONTAINER_ID}
+            renderCard={renderCard}
+          />
+          <div
+            className={splitterClassName}
+            onPointerDown={onSplitterPointerDown}
+            role={splitterEnabled ? 'separator' : undefined}
+            aria-hidden={!splitterEnabled}
+            aria-orientation={splitterEnabled ? 'horizontal' : undefined}
+          >
+            <span className="ranking-splitter-grip" />
           </div>
-        </section>
-      </div>
-
-      <footer className="ranking-footer">
-        <span>{ordered.length} images</span>
-        <span>Hotkeys: 1-9 rank, arrows move, q/e instance, Enter fullscreen, Esc close</span>
-      </footer>
+          <section className="ranking-ranks-panel">
+            <header className="ranking-ranks-header ranking-unselectable">Ranks</header>
+            <div className="ranking-ranks-board">
+              {currentSession.board.rankColumns.map((column, rankIdx) => (
+                <RankingDropColumn
+                  key={rankIdx}
+                  containerId={rankContainerId(rankIdx)}
+                  title={`${rankIdx + 1}`}
+                  imageIds={column}
+                  className="ranking-column-rank"
+                  cardsClassName="ranking-column-cards-rank"
+                  isDragOver={dragOverContainerId === rankContainerId(rankIdx)}
+                  renderCard={renderCard}
+                />
+              ))}
+            </div>
+          </section>
+        </div>
+        <DragOverlay modifiers={dragOverlayModifiers} dropAnimation={null}>
+          {dragOverlayImage && dragOverlayLabel ? (
+            <article className="ranking-card ranking-card-overlay">
+              <RankingCardContent
+                image={dragOverlayImage}
+                label={dragOverlayLabel}
+                dotColor={dragOverlayColor}
+              />
+            </article>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {fullscreenImageId && fullscreenImage ? (
         <div className="ranking-fullscreen" role="dialog" aria-modal="true">
@@ -891,7 +1180,7 @@ export default function RankingApp() {
               <span>{cardLabel(fullscreenImage.sourcePath)}</span>
             </div>
             <div className="ranking-fullscreen-hint">
-              Hotkeys: 1-9 rank, a/d image, Esc close
+              Hotkeys: {rankHotkeyHint} rank, a/d image, Esc close
             </div>
             <button
               type="button"

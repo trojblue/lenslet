@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
@@ -71,6 +72,27 @@ const MAX_FULLSCREEN_ZOOM = 4
 const FULLSCREEN_ZOOM_STEP = 0.18
 const INTERACTIVE_CONTROL_SELECTOR = 'button, a, [role="button"]'
 const DEFAULT_DOT_COLOR = RANKING_DOT_COLORS[0]
+
+function FullscreenIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 3H3v5" />
+      <path d="M16 3h5v5" />
+      <path d="M3 16v5h5" />
+      <path d="M21 16v5h-5" />
+    </svg>
+  )
+}
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -714,7 +736,8 @@ export default function RankingApp() {
           }}
           aria-label={`Open ${label} fullscreen`}
         >
-          Fullscreen
+          <FullscreenIcon />
+          <span className="sr-only">Fullscreen</span>
         </button>
         <img src={image.url} alt={image.sourcePath} loading="lazy" draggable={false} />
         <div className="ranking-card-meta">
@@ -737,6 +760,7 @@ export default function RankingApp() {
     columnKey,
     className,
     cardsClassName,
+    cardsStyle,
   }: {
     title: string
     imageIds: string[]
@@ -745,6 +769,7 @@ export default function RankingApp() {
     columnKey: string
     className: string
     cardsClassName: string
+    cardsStyle?: CSSProperties
   }) => {
     const columnClassName = ['ranking-column', className, dragOverRank === dragValue && 'is-drag-over']
       .filter(Boolean)
@@ -765,10 +790,15 @@ export default function RankingApp() {
         onDrop={(event) => dropOnRank(event, targetRank)}
       >
         <header className="ranking-column-header">{title}</header>
-        <div className={`ranking-column-cards ${cardsClassName}`}>{imageIds.map(renderCard)}</div>
+        <div className={`ranking-column-cards ${cardsClassName}`} style={cardsStyle}>
+          {imageIds.map(renderCard)}
+        </div>
       </section>
     )
   }
+  const unrankedCardsStyle = {
+    '--ranking-unranked-count': Math.max(1, currentSession.board.unranked.length),
+  } as CSSProperties
 
   return (
     <div className="ranking-root">
@@ -782,14 +812,19 @@ export default function RankingApp() {
           >
             Prev
           </button>
-          <button
-            type="button"
-            className="ranking-button ranking-button-primary"
-            onClick={goNext}
-            disabled={!canGoNext}
+          <span
+            className="ranking-next-tooltip"
+            title={!canGoNext ? 'Rank all images before continuing.' : undefined}
           >
-            Next
-          </button>
+            <button
+              type="button"
+              className="ranking-button ranking-button-primary"
+              onClick={goNext}
+              disabled={!canGoNext}
+            >
+              Next
+            </button>
+          </span>
         </div>
         <div className="ranking-meta">
           <strong>
@@ -803,12 +838,6 @@ export default function RankingApp() {
         </a>
       </header>
 
-      <div className="ranking-guard" role="status">
-        {isBoardComplete(currentSession.board)
-          ? 'All images ranked. Next is enabled.'
-          : 'Assign every image to a rank before continuing.'}
-      </div>
-
       <div className={workspaceClassName} ref={workspaceRef} style={workspaceStyle}>
         {renderColumn({
           title: 'Unranked',
@@ -818,6 +847,7 @@ export default function RankingApp() {
           columnKey: 'unranked',
           className: 'ranking-column-unranked',
           cardsClassName: 'ranking-column-cards-unranked',
+          cardsStyle: unrankedCardsStyle,
         })}
         <div
           className={splitterClassName}

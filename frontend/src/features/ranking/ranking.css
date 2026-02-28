@@ -1,5 +1,6 @@
 .ranking-root {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   background:
     radial-gradient(circle at 20% 10%, color-mix(in oklab, var(--accent-muted) 35%, transparent) 0%, transparent 48%),
     radial-gradient(circle at 85% 0%, color-mix(in oklab, var(--accent) 18%, transparent) 0%, transparent 45%),
@@ -7,8 +8,9 @@
   color: var(--text);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow: hidden;
 }
 
 .ranking-loading,
@@ -35,18 +37,21 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
   border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  background: color-mix(in oklab, var(--surface) 88%, transparent);
+  background: color-mix(in oklab, var(--surface) 80%, transparent);
   backdrop-filter: blur(6px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .ranking-nav-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .ranking-button {
@@ -54,13 +59,13 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 36px;
-  padding: 0 12px;
-  border-radius: 10px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: color-mix(in oklab, var(--surface) 85%, transparent);
   color: var(--text);
-  font-size: 13px;
+  font-size: 12px;
   text-decoration: none;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
@@ -76,6 +81,14 @@
   cursor: not-allowed;
 }
 
+.ranking-next-tooltip {
+  display: inline-flex;
+}
+
+.ranking-next-tooltip .ranking-button:disabled {
+  pointer-events: none;
+}
+
 .ranking-button-primary {
   border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
   background: color-mix(in oklab, var(--accent-muted) 45%, var(--surface));
@@ -83,32 +96,24 @@
 
 .ranking-meta {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   text-align: center;
 }
 
 .ranking-instance-id,
 .ranking-save-status {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
-}
-
-.ranking-guard {
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
-  background: color-mix(in oklab, var(--surface) 88%, transparent);
-  color: var(--text-secondary);
-  font-size: 13px;
 }
 
 .ranking-workspace {
-  min-height: clamp(520px, calc(100vh - 220px), 940px);
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
-  grid-template-rows: minmax(240px, 1.45fr) 10px minmax(180px, 1fr);
+  grid-template-rows: minmax(0, 1.1fr) 10px minmax(0, 1fr);
   gap: 0;
 }
 
@@ -167,6 +172,7 @@
   background: color-mix(in oklab, var(--surface-overlay) 85%, transparent);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .ranking-column.is-drag-over {
@@ -190,13 +196,34 @@
 }
 
 .ranking-column-unranked {
-  overflow: auto;
+  overflow: hidden;
 }
 
 .ranking-column-cards-unranked {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  align-content: start;
+  --ranking-unranked-card-width: calc((100% - (var(--ranking-unranked-count) - 1) * 8px) / var(--ranking-unranked-count));
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.ranking-column-unranked .ranking-card {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: var(--ranking-unranked-card-width);
+  max-width: var(--ranking-unranked-card-width);
+  height: 100%;
+}
+
+.ranking-column-unranked .ranking-card img {
+  aspect-ratio: auto;
+  height: calc(100% - 34px);
+  max-height: 100%;
+  object-fit: contain;
+  background: color-mix(in oklab, var(--surface-overlay) 70%, transparent);
 }
 
 .ranking-ranks-panel {
@@ -208,6 +235,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 8px;
+  overflow: hidden;
 }
 
 .ranking-ranks-header {
@@ -221,6 +249,7 @@
 
 .ranking-ranks-board {
   min-height: 0;
+  flex: 1 1 auto;
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(160px, 1fr);
@@ -232,12 +261,19 @@
 
 .ranking-column-rank {
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .ranking-column-cards-rank {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .ranking-card {
@@ -255,15 +291,13 @@
   top: 6px;
   right: 6px;
   z-index: 1;
-  min-height: 26px;
-  padding: 0 8px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   border-radius: 8px;
   border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
   background: color-mix(in oklab, var(--surface-overlay) 86%, transparent);
   color: var(--text);
-  font-size: 10px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
   cursor: pointer;
 }
 
@@ -279,7 +313,12 @@
 }
 
 .ranking-column-rank .ranking-card img {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: auto;
+  height: clamp(78px, 11vh, 120px);
+}
+
+.ranking-column-rank .ranking-card {
+  width: min(100%, 220px);
 }
 
 .ranking-card-meta {
@@ -317,10 +356,21 @@
 .ranking-footer {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 8px;
-  padding: 0 4px;
+  padding: 0 2px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  flex: none;
+  min-height: 18px;
+}
+
+.ranking-footer span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ranking-fullscreen {
@@ -398,6 +448,13 @@
 }
 
 @media (max-width: 980px) {
+  .ranking-root {
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
+    gap: 10px;
+  }
+
   .ranking-header {
     flex-wrap: wrap;
     justify-content: flex-start;
@@ -417,10 +474,6 @@
 
   .ranking-splitter {
     display: none;
-  }
-
-  .ranking-column-cards-unranked {
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   }
 
   .ranking-ranks-board {

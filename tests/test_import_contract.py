@@ -33,6 +33,12 @@ ALLOWED_RANKING_SHARED_IMPORTS = {
 ALLOWED_RANKING_BARE_IMPORTS = {
     "react",
     "vitest",
+    "@dnd-kit/core",
+    "@dnd-kit/sortable",
+    "@dnd-kit/utilities",
+    "clsx",
+    "tailwind-merge",
+    "lucide-react",
 }
 IMPORT_SPECIFIER_PATTERN = re.compile(
     r"""^\s*[\w{}\s,*]*\sfrom\s+["'](?P<from>[^"']+)["']|^\s*import\s+["'](?P<side>[^"']+)["']""",

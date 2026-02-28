@@ -43,8 +43,9 @@ import {
   type RankingBoardState,
 } from './model/board'
 import {
+  RANKING_DEFAULT_UNRANKED_HEIGHT_PX,
+  RANKING_MIN_UNRANKED_HEIGHT_PX,
   RANKING_MIN_RANKS_HEIGHT_PX,
-  RANKING_SPLITTER_HEIGHT_PX,
   clampUnrankedHeightPx,
 } from './model/layout'
 import {
@@ -124,15 +125,6 @@ function cardLabel(sourcePath: string): string {
   return name || sourcePath
 }
 
-function saveStateLabel(session: InstanceSession): string {
-  if (session.saveStatus === 'saving') return 'Saving...'
-  if (session.saveStatus === 'saved') return 'Saved'
-  if (session.saveStatus === 'error') {
-    return `Save failed: ${session.saveError ?? 'unknown error'}`
-  }
-  return 'Idle'
-}
-
 function defaultFullscreenTransform(): FullscreenTransform {
   return {
     zoom: MIN_FULLSCREEN_ZOOM,
@@ -203,6 +195,8 @@ type RankingDropColumnProps = {
   cardsClassName: string
   cardsStyle?: CSSProperties
   isDragOver: boolean
+  showHeader?: boolean
+  headerContent?: ReactNode
   renderCard: (imageId: string, containerId: RankingContainerId) => ReactNode
 }
 
@@ -314,6 +308,7 @@ function SortableRankingCard({
   }
   const className = [
     'ranking-card',
+    containerId === UNRANKED_CONTAINER_ID ? 'is-unranked' : 'is-ranked',
     isSelected && 'is-selected',
     isDragging && 'is-dragging',
   ]
@@ -349,6 +344,8 @@ function RankingDropColumn({
   cardsClassName,
   cardsStyle,
   isDragOver,
+  showHeader = true,
+  headerContent,
   renderCard,
 }: RankingDropColumnProps) {
   const { setNodeRef } = useDroppable({ id: containerId })
@@ -360,7 +357,11 @@ function RankingDropColumn({
     .join(' ')
   return (
     <section className={columnClassName}>
-      <header className="ranking-column-header ranking-unselectable">{title}</header>
+      {showHeader ? (
+        <header className="ranking-column-header ranking-unselectable">
+          {headerContent ?? title}
+        </header>
+      ) : null}
       <div ref={setNodeRef} className={`ranking-column-cards ${cardsClassName}`} style={cardsStyle}>
         <SortableContext id={containerId} items={imageIds} strategy={strategy}>
           {imageIds.map((imageId) => renderCard(imageId, containerId))}
@@ -378,8 +379,9 @@ export default function RankingApp() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [activeDragImageId, setActiveDragImageId] = useState<string | null>(null)
   const [dragOverContainerId, setDragOverContainerId] = useState<RankingContainerId | null>(null)
-  const [unrankedHeightPx, setUnrankedHeightPx] = useState<number | null>(null)
-  const [splitterEnabled, setSplitterEnabled] = useState(false)
+  const [unrankedHeightPx, setUnrankedHeightPx] = useState(
+    RANKING_DEFAULT_UNRANKED_HEIGHT_PX,
+  )
   const [isResizingSplit, setIsResizingSplit] = useState(false)
   const [fullscreenImageId, setFullscreenImageId] = useState<string | null>(null)
   const [fullscreenTransform, setFullscreenTransform] = useState<FullscreenTransform>(
@@ -390,7 +392,7 @@ export default function RankingApp() {
   const saveRequestRef = useRef<Record<string, number>>({})
   const cardRefs = useRef<Record<string, HTMLElement | null>>({})
   const workspaceRef = useRef<HTMLDivElement | null>(null)
-  const splitterPointerIdRef = useRef<number | null>(null)
+  const splitResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
   const dragPointerOffsetRef = useRef<{ x: number; y: number } | null>(null)
   const panStateRef = useRef<PanState>(defaultPanState())
   useEffect(() => {
@@ -398,42 +400,38 @@ export default function RankingApp() {
   }, [sessions])
 
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-      setSplitterEnabled(true)
-      return
+    if (typeof window === 'undefined') return
+
+    const clampToViewport = () => {
+      const workspace = workspaceRef.current
+      if (!workspace) return
+      const { height } = workspace.getBoundingClientRect()
+      setUnrankedHeightPx((prev) =>
+        clampUnrankedHeightPx(prev, height, {
+          minTopPx: RANKING_MIN_UNRANKED_HEIGHT_PX,
+          minBottomPx: RANKING_MIN_RANKS_HEIGHT_PX,
+          splitterPx: 0,
+        }),
+      )
     }
 
-    const coarseQuery = window.matchMedia('(pointer: coarse)')
-    const narrowQuery = window.matchMedia('(max-width: 980px)')
-
-    const apply = () => {
-      setSplitterEnabled(!(coarseQuery.matches || narrowQuery.matches))
-    }
-    apply()
-
-    const attachChangeListener = (query: MediaQueryList): (() => void) => {
-      if (typeof query.addEventListener === 'function') {
-        query.addEventListener('change', apply)
-        return () => query.removeEventListener('change', apply)
-      }
-      query.addListener(apply)
-      return () => query.removeListener(apply)
-    }
-
-    const cleanupCoarse = attachChangeListener(coarseQuery)
-    const cleanupNarrow = attachChangeListener(narrowQuery)
-    return () => {
-      cleanupCoarse()
-      cleanupNarrow()
-    }
+    clampToViewport()
+    window.addEventListener('resize', clampToViewport)
+    return () => window.removeEventListener('resize', clampToViewport)
   }, [])
 
   useEffect(() => {
-    if (splitterEnabled) return
-    splitterPointerIdRef.current = null
-    setIsResizingSplit(false)
-    setUnrankedHeightPx(null)
-  }, [splitterEnabled])
+    const workspace = workspaceRef.current
+    if (!workspace) return
+    const { height } = workspace.getBoundingClientRect()
+    setUnrankedHeightPx((prev) =>
+      clampUnrankedHeightPx(prev, height, {
+        minTopPx: RANKING_MIN_UNRANKED_HEIGHT_PX,
+        minBottomPx: RANKING_MIN_RANKS_HEIGHT_PX,
+        splitterPx: 0,
+      }),
+    )
+  }, [currentIndex])
 
   const updateSession = useCallback(
     (instanceId: string, updater: (session: InstanceSession) => InstanceSession) => {
@@ -625,6 +623,15 @@ export default function RankingApp() {
     cardRefs.current[imageId] = element
   }, [])
 
+  const focusCard = useCallback((imageId: string | null) => {
+    if (!imageId || typeof window === 'undefined') return
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        cardRefs.current[imageId]?.focus()
+      })
+    })
+  }, [])
+
   const resetFullscreenTransform = useCallback(() => {
     panStateRef.current = defaultPanState()
     setFullscreenTransform(defaultFullscreenTransform())
@@ -641,15 +648,11 @@ export default function RankingApp() {
 
   const closeFullscreen = useCallback(() => {
     setFullscreenImageId((openImageId) => {
-      if (openImageId && typeof window !== 'undefined') {
-        window.requestAnimationFrame(() => {
-          cardRefs.current[openImageId]?.focus()
-        })
-      }
+      focusCard(openImageId)
       return null
     })
     resetFullscreenTransform()
-  }, [resetFullscreenTransform])
+  }, [focusCard, resetFullscreenTransform])
 
   const clearDragState = useCallback(() => {
     setDragOverContainerId(null)
@@ -657,8 +660,7 @@ export default function RankingApp() {
     dragPointerOffsetRef.current = null
   }, [])
 
-  const onSplitterPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!splitterEnabled) return
+  const onUnrankedResizeStart = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
     if ((event.pointerType ?? 'mouse') !== 'mouse') return
     if (event.button !== 0) return
     if (activeDragImageId) return
@@ -669,47 +671,45 @@ export default function RankingApp() {
     event.preventDefault()
     event.stopPropagation()
     clearDragState()
-
-    const pointerId = event.pointerId
-    splitterPointerIdRef.current = pointerId
+    splitResizeRef.current = {
+      startY: event.clientY,
+      startHeight: unrankedHeightPx,
+    }
     setIsResizingSplit(true)
+  }, [activeDragImageId, clearDragState, unrankedHeightPx])
 
-    const handle = event.currentTarget
-    try {
-      handle.setPointerCapture(pointerId)
-    } catch {
-      // Ignore unsupported capture attempts.
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!splitResizeRef.current) return
+      const workspace = workspaceRef.current
+      if (!workspace) return
+      const delta = event.clientY - splitResizeRef.current.startY
+      const requestedHeight = splitResizeRef.current.startHeight + delta
+      const { height } = workspace.getBoundingClientRect()
+      setUnrankedHeightPx(
+        clampUnrankedHeightPx(requestedHeight, height, {
+          minTopPx: RANKING_MIN_UNRANKED_HEIGHT_PX,
+          minBottomPx: RANKING_MIN_RANKS_HEIGHT_PX,
+          splitterPx: 0,
+        }),
+      )
     }
 
-    const rect = workspace.getBoundingClientRect()
-    const applyPointerTop = (clientY: number) => {
-      setUnrankedHeightPx(clampUnrankedHeightPx(clientY - rect.top, rect.height))
-    }
-    applyPointerTop(event.clientY)
-
-    const onPointerMove = (nextEvent: PointerEvent) => {
-      if (splitterPointerIdRef.current !== nextEvent.pointerId) return
-      applyPointerTop(nextEvent.clientY)
-    }
-
-    const onPointerUp = (nextEvent: PointerEvent) => {
-      if (splitterPointerIdRef.current !== nextEvent.pointerId) return
-      splitterPointerIdRef.current = null
+    const stopResize = () => {
+      if (!splitResizeRef.current) return
+      splitResizeRef.current = null
       setIsResizingSplit(false)
-      window.removeEventListener('pointermove', onPointerMove)
-      window.removeEventListener('pointerup', onPointerUp)
-      window.removeEventListener('pointercancel', onPointerUp)
-      try {
-        handle.releasePointerCapture(pointerId)
-      } catch {
-        // Ignore unsupported release attempts.
-      }
     }
 
-    window.addEventListener('pointermove', onPointerMove)
-    window.addEventListener('pointerup', onPointerUp)
-    window.addEventListener('pointercancel', onPointerUp)
-  }, [activeDragImageId, clearDragState, splitterEnabled])
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResize)
+    window.addEventListener('pointercancel', stopResize)
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResize)
+      window.removeEventListener('pointercancel', stopResize)
+    }
+  }, [])
 
   const navigateFullscreenImage = useCallback(
     (direction: 'prev' | 'next') => {
@@ -841,7 +841,12 @@ export default function RankingApp() {
         const selected = currentSession.board.selectedImageId
         if (!selected) return
         event.preventDefault()
+        const instanceId = currentInstance.instance_id
         moveCurrentImageToRank(selected, boardAction.rankIndex, { autoAdvance: true })
+        window.setTimeout(() => {
+          const nextSelected = sessionsRef.current[instanceId]?.board.selectedImageId ?? null
+          focusCard(nextSelected)
+        }, 0)
         return
       }
       if (boardAction.type === 'select-neighbor') {
@@ -849,6 +854,7 @@ export default function RankingApp() {
         const nextSelected = selectNeighborImage(currentSession.board, boardAction.direction)
         if (nextSelected) {
           selectCurrentImage(nextSelected)
+          focusCard(nextSelected)
         }
         return
       }
@@ -881,6 +887,7 @@ export default function RankingApp() {
     moveCurrentImageToRank,
     navigateFullscreenImage,
     openFullscreenForImage,
+    focusCard,
     selectCurrentImage,
   ])
 
@@ -1018,21 +1025,15 @@ export default function RankingApp() {
   const fullscreenPosition = fullscreenImageId
     ? currentImageOrder.indexOf(fullscreenImageId) + 1
     : 0
-  const workspaceStyle = splitterEnabled && unrankedHeightPx != null
-    ? {
-      gridTemplateRows: `${unrankedHeightPx}px ${RANKING_SPLITTER_HEIGHT_PX}px minmax(${RANKING_MIN_RANKS_HEIGHT_PX}px, 1fr)`,
-    }
-    : undefined
   const workspaceClassName = [
     'ranking-workspace',
-    splitterEnabled ? 'is-splitter-enabled' : 'is-splitter-disabled',
     isResizingSplit && 'is-resizing',
   ]
     .filter(Boolean)
     .join(' ')
-  const splitterClassName = ['ranking-splitter', !splitterEnabled && 'is-disabled']
-    .filter(Boolean)
-    .join(' ')
+  const unrankedTrayStyle: CSSProperties = {
+    height: `${unrankedHeightPx}px`,
+  }
 
   const renderCard = (imageId: string, containerId: RankingContainerId) => {
     const image = imageById.get(imageId)
@@ -1065,23 +1066,8 @@ export default function RankingApp() {
   return (
     <div className="ranking-root">
       <header className="ranking-header ranking-unselectable">
-        <div className="ranking-header-meta">
-          <h1 className="ranking-title">Image Ranking</h1>
-          <strong className="ranking-progress-pill">
-            {currentIndex + 1} / {dataset.instances.length}
-          </strong>
-          <span className="ranking-instance-id">instance: {currentInstance.instance_id}</span>
-          <span className="ranking-save-status">{saveStateLabel(currentSession)}</span>
-          <span className="ranking-hotkeys-inline">
-            Hotkeys: {rankHotkeyHint} rank, arrows move, Enter fullscreen, Esc close
-          </span>
-        </div>
-        <div className="ranking-header-actions">
-          <a className="ranking-button ranking-export-button" href={exportHref} target="_blank" rel="noreferrer">
-            <Download className="ranking-button-icon" aria-hidden="true" />
-            Export
-          </a>
-          <div className="ranking-nav-group">
+        <div className="ranking-shell ranking-header-shell">
+          <div className="ranking-header-side is-left">
             <button
               type="button"
               className="ranking-button"
@@ -1089,8 +1075,19 @@ export default function RankingApp() {
               disabled={!canGoPrev}
             >
               <ChevronLeft className="ranking-button-icon" aria-hidden="true" />
-              <span>{'< Prev (Q)'}</span>
+              <span>{'Prev (Q)'}</span>
             </button>
+          </div>
+          <div className="ranking-header-center">
+            <strong className="ranking-progress-pill">
+              {currentIndex + 1} / {dataset.instances.length}
+            </strong>
+            <a className="ranking-button ranking-export-button" href={exportHref} target="_blank" rel="noreferrer">
+              <Download className="ranking-button-icon" aria-hidden="true" />
+              Export
+            </a>
+          </div>
+          <div className="ranking-header-side is-right">
             <span
               className="ranking-next-tooltip"
               title={!canGoNext ? 'Rank all images before continuing.' : undefined}
@@ -1101,7 +1098,7 @@ export default function RankingApp() {
                 onClick={goNext}
                 disabled={!canGoNext}
               >
-                <span>{'Next (E) >'}</span>
+                <span>{'Next (E)'}</span>
                 <ChevronRight className="ranking-button-icon" aria-hidden="true" />
               </button>
             </span>
@@ -1120,43 +1117,58 @@ export default function RankingApp() {
         onDragEnd={handleDragEnd}
         onDragCancel={clearDragState}
       >
-        <div className={workspaceClassName} ref={workspaceRef} style={workspaceStyle}>
-          <RankingDropColumn
-            containerId={UNRANKED_CONTAINER_ID}
-            title="Unranked"
-            imageIds={currentSession.board.unranked}
-            className="ranking-column-unranked"
-            cardsClassName="ranking-column-cards-unranked"
-            isDragOver={dragOverContainerId === UNRANKED_CONTAINER_ID}
-            renderCard={renderCard}
-          />
-          <div
-            className={splitterClassName}
-            onPointerDown={onSplitterPointerDown}
-            role={splitterEnabled ? 'separator' : undefined}
-            aria-hidden={!splitterEnabled}
-            aria-orientation={splitterEnabled ? 'horizontal' : undefined}
-          >
-            <span className="ranking-splitter-grip" />
-          </div>
-          <section className="ranking-ranks-panel">
-            <header className="ranking-ranks-header ranking-unselectable">Ranks</header>
-            <div className="ranking-ranks-board">
-              {currentSession.board.rankColumns.map((column, rankIdx) => (
-                <RankingDropColumn
-                  key={rankIdx}
-                  containerId={rankContainerId(rankIdx)}
-                  title={`${rankIdx + 1}`}
-                  imageIds={column}
-                  className="ranking-column-rank"
-                  cardsClassName="ranking-column-cards-rank"
-                  isDragOver={dragOverContainerId === rankContainerId(rankIdx)}
-                  renderCard={renderCard}
-                />
-              ))}
+        <main className="ranking-main">
+          <div className="ranking-shell">
+            <div className={workspaceClassName} ref={workspaceRef}>
+              <section className="ranking-unranked-panel">
+                <header className="ranking-unranked-head">
+                  <h1 className="ranking-title">Unassigned</h1>
+                  <p className="ranking-unranked-hint">
+                    Press {rankHotkeyHint} to assign selected, Enter for fullscreen
+                  </p>
+                </header>
+                <div className="ranking-unranked-tray" style={unrankedTrayStyle}>
+                  <RankingDropColumn
+                    containerId={UNRANKED_CONTAINER_ID}
+                    title="Unassigned"
+                    imageIds={currentSession.board.unranked}
+                    className="ranking-column-unranked"
+                    cardsClassName="ranking-column-cards-unranked"
+                    isDragOver={dragOverContainerId === UNRANKED_CONTAINER_ID}
+                    showHeader={false}
+                    renderCard={renderCard}
+                  />
+                </div>
+                <div className="ranking-unranked-resizer">
+                  <button
+                    type="button"
+                    className="ranking-unranked-resize-handle"
+                    onPointerDown={onUnrankedResizeStart}
+                    aria-label="Resize unassigned panel"
+                    title="Drag to resize unassigned panel"
+                  />
+                </div>
+              </section>
+              <section className="ranking-ranks-panel">
+                <div className="ranking-ranks-board">
+                  {currentSession.board.rankColumns.map((column, rankIdx) => (
+                    <RankingDropColumn
+                      key={rankIdx}
+                      containerId={rankContainerId(rankIdx)}
+                      title={`${rankIdx + 1}`}
+                      headerContent={<span className="ranking-rank-index">{rankIdx + 1}</span>}
+                      imageIds={column}
+                      className="ranking-column-rank"
+                      cardsClassName="ranking-column-cards-rank"
+                      isDragOver={dragOverContainerId === rankContainerId(rankIdx)}
+                      renderCard={renderCard}
+                    />
+                  ))}
+                </div>
+              </section>
             </div>
-          </section>
-        </div>
+          </div>
+        </main>
         <DragOverlay modifiers={dragOverlayModifiers} dropAnimation={null}>
           {dragOverlayImage && dragOverlayLabel ? (
             <article className="ranking-card ranking-card-overlay">

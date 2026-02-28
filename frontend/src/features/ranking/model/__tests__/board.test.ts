@@ -66,11 +66,11 @@ describe('ranking board state contracts', () => {
     expect(finalRanksFromBoard(second)).toEqual([['a'], ['b']])
   })
 
-  it('compacts sparse rank moves to preserve contiguous ordering', () => {
+  it('preserves fixed rank indices for sparse rank moves', () => {
     const board = buildBoardState(['a', 'b', 'c'], 3, null)
     const sparseMove = moveImageToRank(board, 'a', 2)
 
-    expect(sparseMove.rankColumns).toEqual([['a'], [], []])
+    expect(sparseMove.rankColumns).toEqual([[], [], ['a']])
     expect(finalRanksFromBoard(sparseMove)).toEqual([['a']])
   })
 

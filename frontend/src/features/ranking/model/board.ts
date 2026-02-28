@@ -19,15 +19,6 @@ function cloneRankColumns(rankColumns: string[][]): string[][] {
   return rankColumns.map((column) => [...column])
 }
 
-function compactRankColumns(rankColumns: string[][]): string[][] {
-  const nonEmpty = rankColumns.filter((column) => column.length > 0)
-  const compacted = nonEmpty.map((column) => [...column])
-  while (compacted.length < rankColumns.length) {
-    compacted.push([])
-  }
-  return compacted
-}
-
 function clampRankIndex(rankIndex: number, maxRanks: number): number {
   if (maxRanks <= 0) return 0
   if (rankIndex < 0) return 0
@@ -96,10 +87,9 @@ export function moveImageToRank(
     const insertIndex = clampInsertIndex(targetInsertIndex, column.length)
     column.splice(insertIndex, 0, imageId)
   }
-  const rankColumns = compactRankColumns(nextColumns)
   return {
     unranked,
-    rankColumns,
+    rankColumns: nextColumns,
     selectedImageId: imageId,
   }
 }

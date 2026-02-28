@@ -1,5 +1,6 @@
 export const RANKING_SPLITTER_HEIGHT_PX = 10
-export const RANKING_MIN_UNRANKED_HEIGHT_PX = 220
+export const RANKING_DEFAULT_UNRANKED_HEIGHT_PX = 200
+export const RANKING_MIN_UNRANKED_HEIGHT_PX = 120
 export const RANKING_MIN_RANKS_HEIGHT_PX = 180
 
 function toFiniteNumber(value: number, fallback: number): number {

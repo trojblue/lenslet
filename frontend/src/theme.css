@@ -1,29 +1,29 @@
 /* Base theme variables */
 :root {
   /* Core backgrounds */
-  --bg: #0f0f10;
-  --panel: #17181a;
-  --hover: #212327;
-  --border: #3a3e47;
+  --bg: #0e0d0b;
+  --panel: #181613;
+  --hover: #23211e;
+  --border: #2b2924;
   --thumb-bg: transparent;
   
   /* Elevated surfaces (buttons, dropdowns, inputs) */
-  --surface: #212327;
-  --surface-hover: #2b2f35;
-  --surface-active: #32373e;
-  --surface-overlay: rgba(23, 24, 26, 0.95);
-  --surface-inset: #0a0a0b;
+  --surface: #1c1a17;
+  --surface-hover: #25231f;
+  --surface-active: #2e2b26;
+  --surface-overlay: #131210;
+  --surface-inset: #0f0e0c;
   
   /* Text colors */
-  --text: #f1f2f4;
-  --text-secondary: #d0d4da;
-  --muted: #a7adb8;
+  --text: #e9e5df;
+  --text-secondary: #d3cec6;
+  --muted: #918b82;
   
   /* Accent colors (Cool violet/indigo) */
-  --accent: #7B6EF6;
-  --accent-hover: #8A7DF8;
-  --accent-muted: rgba(123, 110, 246, 0.18);
-  --accent-strong: rgba(123, 110, 246, 0.32);
+  --accent: #3b82f6;
+  --accent-hover: #5a9bff;
+  --accent-muted: rgba(59, 130, 246, 0.18);
+  --accent-strong: rgba(59, 130, 246, 0.32);
   --highlight: #e6a23c;
   --sync-recent: #b08bff;
 
@@ -40,15 +40,15 @@
   --star-hover: #e7c46a;
   
   /* Semantic colors (Monochrome Utility base tokens) */
-  --danger: #ff6d73;
-  --success: #35c88a;
+  --danger: #ff6b6b;
+  --success: #9ad4b5;
   --warning: #f0b660;
   --info: #55b8ff;
   
   /* Border variants */
-  --border-subtle: rgba(255, 255, 255, 0.04);
-  --border-strong: #525865;
-  --border-hover: #6a7182;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-strong: #3a3833;
+  --border-hover: #4a463e;
   
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -57,8 +57,8 @@
   --shadow-xl: 0 18px 40px rgba(0, 0, 0, 0.5);
 
   /* Subtle warmth without heavy effects */
-  --bg-gradient: radial-gradient(1200px 600px at 10% -10%, rgba(255, 255, 255, 0.02), transparent 60%),
-    radial-gradient(900px 500px at 100% -20%, rgba(123, 110, 246, 0.05), transparent 55%),
+  --bg-gradient: radial-gradient(1200px 600px at 10% -10%, rgba(255, 175, 110, 0.05), transparent 60%),
+    radial-gradient(900px 500px at 100% -20%, rgba(59, 130, 246, 0.08), transparent 55%),
     var(--bg);
 }
 

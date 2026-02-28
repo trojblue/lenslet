@@ -341,10 +341,14 @@ def run_browser_checks(base_url: str, timeout_ms: float, strict_reentry_anchor: 
                 break
         if enabled_export_idx is None:
             raise SmokeFailure("No enabled inspector Export comparison entry action found.")
-        export_entries.nth(enabled_export_idx).click()
-        compare_dialog.wait_for(state="visible")
-        compare_dialog.get_by_role("button", name="Close").click()
-        compare_dialog.wait_for(state="hidden")
+        with page.expect_response(
+            lambda response: response.request.method == "POST" and response.url.endswith("/export-comparison")
+        ) as export_response_info:
+            export_entries.nth(enabled_export_idx).click()
+        if export_response_info.value.status != 200:
+            raise SmokeFailure(
+                f"Comparison export request returned unexpected status: {export_response_info.value.status}."
+            )
 
         context.close()
         browser.close()

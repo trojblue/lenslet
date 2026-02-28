@@ -66,3 +66,19 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260228_ranking_mode_interaction_layout_ite
   - GUI smoke acceptance remains red in browse compare-flow path (`Compare images` dialog visibility timeout).
 - Next step:
   - Triage/fix browse compare-dialog path (script selector/interaction sequence vs UI behavior), rerun `python scripts/gui_smoke_acceptance.py`, and close `T11`/Sprint 3 once full gate set is green.
+## Iteration 4 (2026-02-28T07:38:23Z)
+- Completed task IDs: `T11` (Sprint 3 closed).
+- Files changed:
+  - `scripts/gui_smoke_acceptance.py`
+  - `docs/20260228_ranking_mode_interaction_layout_iteration_plan.md`
+- Validations run:
+  - `pytest tests/test_ranking_backend.py tests/test_ranking_cli.py -q` -> pass (`12` tests).
+  - `pytest tests/test_import_contract.py tests/test_dataset_http.py -q` -> pass (`4` tests).
+  - `cd frontend && npm run test -- src/features/ranking/model src/features/ranking src/app/model/__tests__/appMode.test.ts` -> pass (`6` files, `28` tests).
+  - `cd frontend && npx tsc --noEmit` -> pass.
+  - `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/` -> pass.
+  - `python scripts/gui_smoke_acceptance.py` -> pass (updated export check validates successful `POST /export-comparison` response).
+  - `python scripts/lint_repo.py` -> pass (ruff + file-size guardrails; unchanged warn-only large-file notices).
+  - Cleanup/review routines executed with subagents (`code-simplifier`, `code-review`) -> no actionable findings.
+- Blockers: none.
+- Next step: no remaining sprint tasks; prepare final handoff/closure.

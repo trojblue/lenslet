@@ -3,12 +3,12 @@
 @import './theme.css' layer(base);
 
 ::selection {
-  background: rgba(90, 155, 255, 0.28);
+  background: var(--accent-strong);
   color: var(--text);
 }
 
 ::-moz-selection {
-  background: rgba(90, 155, 255, 0.28);
+  background: var(--accent-strong);
   color: var(--text);
 }
 

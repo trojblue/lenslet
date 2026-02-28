@@ -163,10 +163,10 @@ export default function ThumbCard({
   }, [path])
 
   const cardClassName = [
-    'absolute inset-0 relative bg-hover border border-border rounded-lg overflow-hidden select-none',
-    selected ? 'outline-2 outline-accent' : '',
+    'absolute inset-0 bg-surface-inset rounded-[10px] overflow-hidden select-none',
+    'border border-border-subtle shadow-sm transition-all duration-200',
+    selected ? 'ring-2 ring-accent border-transparent' : 'hover:border-border-strong hover:shadow-md hover:-translate-y-[1px]',
     highlighted ? 'thumb-updated-ring' : '',
-    'hover:outline hover:outline-1 hover:outline-accent',
   ].filter(Boolean).join(' ')
 
   return (

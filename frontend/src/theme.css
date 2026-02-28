@@ -19,11 +19,11 @@
   --text-secondary: #d3cec6;
   --muted: #918b82;
   
-  /* Accent colors */
-  --accent: #3b82f6;
-  --accent-hover: #5a9bff;
-  --accent-muted: rgba(59, 130, 246, 0.18);
-  --accent-strong: rgba(59, 130, 246, 0.32);
+  /* Accent colors (Teal family for Charcoal Enterprise feel) */
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+  --accent-muted: rgba(45, 212, 191, 0.18);
+  --accent-strong: rgba(45, 212, 191, 0.32);
   --highlight: #e6a23c;
   --sync-recent: #b08bff;
 
@@ -56,7 +56,7 @@
 
   /* Subtle warmth without heavy effects */
   --bg-gradient: radial-gradient(1200px 600px at 10% -10%, rgba(255, 175, 110, 0.05), transparent 60%),
-    radial-gradient(900px 500px at 100% -20%, rgba(59, 130, 246, 0.08), transparent 55%),
+    radial-gradient(900px 500px at 100% -20%, rgba(45, 212, 191, 0.08), transparent 55%),
     var(--bg);
 }
 

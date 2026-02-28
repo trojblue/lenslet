@@ -17,8 +17,8 @@ import {
 import { LongPressController } from '../../../lib/touch'
 import { shouldOpenOnTap, toggleSelectedPath } from '../../../lib/mobileSelection'
 
-const GAP = 12
-const CAPTION_H = 44
+const GAP = 16
+const CAPTION_H = 56
 const DEFAULT_ASPECT = { w: 4, h: 3 }
 const PREVIEW_DELAY_MS = 350
 const SCROLL_IDLE_MS = 120
@@ -674,14 +674,14 @@ export default function VirtualGrid({
                 const imageContainerStyle = layout.mode === 'adaptive' ? { height: displayH } : {}
                 
                 const itemContainerClass = layout.mode === 'adaptive' 
-                    ? "relative rounded-lg overflow-hidden bg-[var(--thumb-bg,#121212)] group shrink-0" 
-                    : "relative aspect-[4/3] rounded-lg overflow-hidden bg-[var(--thumb-bg,#121212)] group"
+                    ? "relative rounded-[10px] group shrink-0" 
+                    : "relative aspect-[4/3] rounded-[10px] group"
 
                 return (
                 <div 
                   id={`cell-${encodeURIComponent(it.path)}`} 
                   key={it.path} 
-                  className={`relative min-w-0 ${isVisuallySelected ? 'outline outline-2 outline-accent outline-offset-2 rounded-[10px]' : ''}`}
+                  className="relative min-w-0"
                   role="gridcell" 
                   aria-selected={isVisuallySelected} 
                   tabIndex={focused===it.path?0:-1}
@@ -771,11 +771,11 @@ export default function VirtualGrid({
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-center text-center gap-0 mt-1 px-0.5 text-white/90">
-                    <div className="text-sm leading-[18px] thumb-filename line-clamp-2 break-words hyphens-auto text-center" title={it.name}>
+                  <div className="flex flex-col items-center text-center gap-0.5 mt-2 px-1 text-text-secondary">
+                    <div className="text-xs font-medium leading-[16px] thumb-filename line-clamp-2 break-words hyphens-auto text-center" title={it.name}>
                       {renderHighlightedName(it.name, highlight)}
                     </div>
-                    <div className="text-[11px] leading-[15px] opacity-70">{it.w} × {it.h}</div>
+                    <div className="text-[10px] leading-[14px] text-muted">{it.w} × {it.h}</div>
                   </div>
                 </div>
               )})}

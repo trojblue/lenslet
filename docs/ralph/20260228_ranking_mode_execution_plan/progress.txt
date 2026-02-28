@@ -61,3 +61,34 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260228_ranking_mode_execution_plan.md
   - python scripts/lint_repo.py (pass)
 - Blockers: none
 - Next step: start Sprint 3 (T8-T11) hardening and docs finalization.
+
+## Iteration 3 - 2026-02-28T06:03:27Z
+- Completed task IDs: T8, T9, T10, T11
+- Files changed:
+  - README.md
+  - docs/20260228_ranking_mode_execution_plan.md
+  - frontend/src/features/ranking/RankingApp.tsx
+  - frontend/src/features/ranking/model/session.ts
+  - frontend/src/features/ranking/model/__tests__/session.test.ts
+  - scripts/check_frontend_packaging_sync.py
+  - scripts/playwright_ranking_smoke.py
+  - tests/test_ranking_backend.py
+  - tests/test_browse_canary_ranking_isolation.py
+  - tests/test_frontend_packaging_sync.py
+  - tests/test_playwright_ranking_smoke.py
+  - src/lenslet/frontend/index.html
+  - src/lenslet/frontend/assets/index-CCz9ek10.js
+  - src/lenslet/frontend/assets/index-D6Nd4BEU.js (deleted)
+  - docs/ralph/20260228_ranking_mode_execution_plan/progress.txt
+- Validations run:
+  - pytest -q tests/test_ranking_backend.py tests/test_ranking_cli.py tests/test_browse_canary_ranking_isolation.py tests/test_frontend_packaging_sync.py tests/test_playwright_ranking_smoke.py (pass, 21 tests)
+  - cd frontend && npm run test -- src/features/ranking/model/__tests__/board.test.ts src/features/ranking/model/__tests__/saveSeq.test.ts src/features/ranking/model/__tests__/session.test.ts src/app/model/__tests__/appMode.test.ts (pass, 15 tests)
+  - cd frontend && npx tsc --noEmit (pass)
+  - cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/ (pass)
+  - python scripts/check_frontend_packaging_sync.py (pass)
+  - python scripts/playwright_ranking_smoke.py --output-json data/fixtures/ranking_smoke_result.json (pass: resume=2/2, completed_only=1, save_lines=6)
+  - python scripts/playwright_large_tree_smoke.py --baseline-profile secondary_tiny_fast --output-json data/fixtures/large_tree_smoke_tiny_result.json (pass: first-grid=0.2923s, first-thumb=234ms, max-gap=33.4ms)
+  - pytest -q tests/test_import_contract.py tests/test_dataset_http.py tests/test_browse_canary_ranking_isolation.py (pass, 4 tests)
+  - python scripts/lint_repo.py (pass; existing warn-only frontend file-size warnings unchanged)
+- Blockers: none
+- Next step: all planned sprints/tasks complete; ready for final acceptance handoff.

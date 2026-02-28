@@ -65,6 +65,17 @@ def test_results_store_collapses_latest_and_ignores_malformed_tail(tmp_path: Pat
     assert latest["two"]["completed"] is True
 
 
+def test_results_store_without_save_seq_prefers_latest_line(tmp_path: Path) -> None:
+    results_path = tmp_path / "results.jsonl"
+    store = RankingResultsStore(results_path)
+
+    store.append({"instance_id": "one", "instance_index": 0, "completed": False})
+    store.append({"instance_id": "one", "instance_index": 0, "completed": True})
+
+    latest = store.latest_entries_by_instance()
+    assert latest["one"]["completed"] is True
+
+
 def test_results_path_validation_rejects_image_directories(tmp_path: Path) -> None:
     dataset_path = _write_dataset(tmp_path)
     dataset = load_ranking_dataset(dataset_path)
@@ -172,3 +183,100 @@ def test_save_rejects_incomplete_completed_payload(tmp_path: Path) -> None:
     )
     assert response.status_code == 400
     assert "include every image" in response.json()["detail"]
+
+
+def test_save_rejects_unknown_and_duplicate_image_ids(tmp_path: Path) -> None:
+    dataset_path = _write_dataset(tmp_path)
+    app = create_ranking_app(dataset_path)
+    client = TestClient(app)
+
+    unknown = client.post(
+        "/rank/save",
+        json={
+            "instance_id": "one",
+            "final_ranks": [["0", "99"]],
+            "completed": False,
+        },
+    )
+    assert unknown.status_code == 400
+    assert "unknown image_id" in unknown.json()["detail"]
+
+    duplicate = client.post(
+        "/rank/save",
+        json={
+            "instance_id": "one",
+            "final_ranks": [["0", "0"]],
+            "completed": False,
+        },
+    )
+    assert duplicate.status_code == 400
+    assert "duplicate image_id" in duplicate.json()["detail"]
+
+
+def test_save_accepts_stale_writes_but_progress_uses_latest_seq(tmp_path: Path) -> None:
+    dataset_path = _write_dataset(tmp_path)
+    app = create_ranking_app(dataset_path)
+    client = TestClient(app)
+
+    first = client.post(
+        "/rank/save",
+        json={
+            "instance_id": "one",
+            "final_ranks": [["0", "1"]],
+            "completed": True,
+            "save_seq": 5,
+        },
+    )
+    assert first.status_code == 200
+
+    stale = client.post(
+        "/rank/save",
+        json={
+            "instance_id": "one",
+            "final_ranks": [["0"]],
+            "completed": False,
+            "save_seq": 3,
+        },
+    )
+    assert stale.status_code == 200
+
+    progress = client.get("/rank/progress")
+    assert progress.status_code == 200
+    progress_payload = progress.json()
+    assert progress_payload["completed_instance_ids"] == ["one"]
+
+    export_payload = client.get("/rank/export", params={"completed_only": True}).json()
+    assert export_payload["count"] == 1
+    assert export_payload["results"][0]["instance_id"] == "one"
+    assert export_payload["results"][0]["save_seq"] == 5
+
+    entries = RankingResultsStore(Path(app.state.ranking_results_path)).read_entries()
+    assert len(entries) == 2
+
+
+def test_save_recovers_from_malformed_tail_fragment(tmp_path: Path) -> None:
+    dataset_path = _write_dataset(tmp_path)
+    app = create_ranking_app(dataset_path)
+    results_path = Path(app.state.ranking_results_path)
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    results_path.write_text(
+        "{\"instance_id\":\"one\",\"instance_index\":0,\"completed\":false,\"save_seq\":1}\n{\"broken\":",
+        encoding="utf-8",
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/rank/save",
+        json={
+            "instance_id": "two",
+            "final_ranks": [["0", "1"]],
+            "completed": True,
+            "save_seq": 2,
+        },
+    )
+    assert response.status_code == 200
+
+    store = RankingResultsStore(results_path)
+    latest = store.latest_entries_by_instance()
+    assert latest["one"]["save_seq"] == 1
+    assert latest["two"]["save_seq"] == 2

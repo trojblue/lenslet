@@ -72,13 +72,14 @@ Implementation follows three sprints so each sprint is independently demoable an
    3. [x] T7: Implement keyboard controls, autosave triggers, resume/load behavior, and stale-write prevention policy for out-of-order save responses.
 
 3. Sprint 3 hardens behavior, validates cross-mode safety, and finalizes documentation.
+   Status: completed in iteration 3 (2026-02-28).
    Sprint goal: verify ranking behavior end-to-end and prove browse remains stable.
    Demo outcome: ranking flow passes realistic MVP usage checks, browse canary checks pass, and operator docs are complete.
    Tasks:
-   1. T8: Add backend tests for validation invariants, persistence collapse semantics, malformed trailing JSONL handling, and stale-write acceptance policy.
-   2. T9: Add frontend tests plus one browser smoke for ranking session flow including autosave/resume/navigation constraints.
-   3. T10: Add browse canary regression gates and frontend packaging sync gate to ensure shipping assets remain aligned.
-   4. T11: Update docs/README usage and add concise operator handoff notes for ranking mode launch, data format, export semantics, and limits.
+   1. [x] T8: Add backend tests for validation invariants, persistence collapse semantics, malformed trailing JSONL handling, and stale-write acceptance policy.
+   2. [x] T9: Add frontend tests plus one browser smoke for ranking session flow including autosave/resume/navigation constraints.
+   3. [x] T10: Add browse canary regression gates and frontend packaging sync gate to ensure shipping assets remain aligned.
+   4. [x] T11: Update docs/README usage and add concise operator handoff notes for ranking mode launch, data format, export semantics, and limits.
 
 ### Scope Budget and Guardrails
 
@@ -159,12 +160,15 @@ Secondary acceptance gates are:
 Planned command checks are:
 
     pytest tests/test_ranking_*.py -q
+    pytest tests/test_browse_canary_ranking_isolation.py tests/test_frontend_packaging_sync.py tests/test_playwright_ranking_smoke.py -q
     pytest tests/test_import_contract.py tests/test_dataset_http.py -q
-    cd frontend && npm run test -- src/features/ranking
+    cd frontend && npm run test -- src/features/ranking src/app/model/__tests__/appMode.test.ts
     cd frontend && npx tsc --noEmit
-    cd frontend && npm run build && cp -r dist/* ../src/lenslet/frontend/
+    cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/
+    python scripts/check_frontend_packaging_sync.py
+    python scripts/playwright_ranking_smoke.py --output-json data/fixtures/ranking_smoke_result.json
+    python scripts/playwright_large_tree_smoke.py --baseline-profile secondary_tiny_fast --output-json data/fixtures/large_tree_smoke_tiny_result.json
     python scripts/lint_repo.py
-    lenslet rank data/fixtures/ranking_dataset.json --port 7071
 
 Sprint 1 execution evidence (2026-02-28):
 1. `pytest tests/test_ranking_*.py -q` -> pass (10 tests).
@@ -179,6 +183,17 @@ Sprint 2 execution evidence (2026-02-28):
 4. `pytest tests/test_import_contract.py tests/test_dataset_http.py -q` -> pass (3 tests).
 5. `python scripts/lint_repo.py` -> pass (`ruff` clean; existing frontend file-size warnings unchanged).
 6. Sprint 2 primary manual browser gate is partially deferred in this iteration (no checked-in ranking fixture + no Playwright ranking smoke yet); behavior-focused frontend unit coverage and review gates were completed, with browser E2E tracked under Sprint 3 `T9`.
+
+Sprint 3 execution evidence (2026-02-28):
+1. `pytest tests/test_ranking_backend.py tests/test_ranking_cli.py tests/test_browse_canary_ranking_isolation.py tests/test_frontend_packaging_sync.py tests/test_playwright_ranking_smoke.py -q` -> pass (21 tests).
+2. `cd frontend && npm run test -- src/features/ranking/model/__tests__/board.test.ts src/features/ranking/model/__tests__/saveSeq.test.ts src/features/ranking/model/__tests__/session.test.ts src/app/model/__tests__/appMode.test.ts` -> pass (15 tests).
+3. `cd frontend && npx tsc --noEmit` -> pass.
+4. `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/ && python scripts/check_frontend_packaging_sync.py` -> pass (shipping frontend bundle regenerated, package sync verified).
+5. `python scripts/playwright_ranking_smoke.py --output-json data/fixtures/ranking_smoke_result.json` -> pass (resume `2/2`, `completed_only=1`, autosave log `save_lines=6`).
+6. `python scripts/playwright_large_tree_smoke.py --baseline-profile secondary_tiny_fast --output-json data/fixtures/large_tree_smoke_tiny_result.json` -> pass (`first_grid_visible_seconds=0.2923`, `first_grid_hotpath_latency_ms=141`, `first_thumbnail_latency_ms=234`, `max_frame_gap_ms=33.4`, no page/console errors).
+7. `pytest tests/test_import_contract.py tests/test_dataset_http.py tests/test_browse_canary_ranking_isolation.py -q` -> pass (4 tests).
+8. `python scripts/lint_repo.py` -> pass (`ruff` clean; existing frontend file-size warnings unchanged).
+9. Sprint 2 deferred primary browser gate is now closed by ranking Playwright smoke coverage with explicit autosave/resume/navigation assertions.
 
 Expected outcomes are:
 1. Ranking tests pass and browse canary tests confirm no regression in existing entrypoints/contracts.
@@ -214,7 +229,9 @@ Implementation note after Sprint 2: frontend board state compacts sparse rank pl
 - [x] 2026-02-28 05:45:00Z Sprint 2 T5-T7 implemented: frontend mode router + ranking feature modules shipped with drag/drop, keyboard controls, autosave/retry, resume boot flow, and stale-response handling.
 - [x] 2026-02-28 05:45:00Z Sprint 2 cleanup + review gates completed: code-simplifier pass, multi-pass independent reviews, and follow-up fixes for autosave sequencing, sparse-rank compaction, per-instance timing start, and drag payload validation.
 - [x] 2026-02-28 05:45:00Z Sprint 2 handoff notes added after implementation.
-- [ ] 2026-02-28 00:00:00Z Sprint 3 handoff notes and final retrospective added.
+- [x] 2026-02-28 06:02:53Z Sprint 3 T8-T11 implemented: backend invariants + stale-write tests, ranking session model tests, ranking Playwright smoke script, browse canary and frontend packaging-sync gate delivered.
+- [x] 2026-02-28 06:02:53Z Sprint 3 cleanup + review gates completed: code-simplifier pass, independent review, and follow-up fix for strict `/health.results_path` contract validation in ranking smoke harness.
+- [x] 2026-02-28 06:02:53Z Sprint 3 handoff notes and final retrospective added.
 
 
 ## Artifacts and Handoff
@@ -260,6 +277,25 @@ Sprint 2 handoff notes (2026-02-28):
    - `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/`
    - `pytest tests/test_import_contract.py tests/test_dataset_http.py -q`
    - `python scripts/lint_repo.py`
-3. Remaining open scope:
+3. Remaining open scope at end of Sprint 2 (resolved in Sprint 3):
    - Sprint 3 hardening (`T8-T11`), especially ranking E2E/browser smoke coverage and browse canary/packaging gates.
    - Manual ranking-mode browser session against a checked-in fixture (or Playwright equivalent) to fully satisfy Sprint 2 primary gate evidence.
+
+Sprint 3 handoff notes (2026-02-28):
+1. Shipped hardening + cross-mode safety gates:
+   - Expanded backend ranking tests for validation invariants, stale-write acceptance policy, latest-entry collapse semantics, and malformed-tail recovery behavior.
+   - Added frontend ranking session model module/tests to isolate resume hydration, index clamp, duration, and navigation guard contracts from component wiring.
+   - Added `scripts/playwright_ranking_smoke.py` + `tests/test_playwright_ranking_smoke.py` for deterministic ranking-mode browser smoke (autosave, resume, navigation constraints, completed-only export check).
+   - Added browse canary regression test (`tests/test_browse_canary_ranking_isolation.py`) confirming browse mode keeps `/rank/*` isolated and browse shell routes remain reachable.
+   - Added packaging sync gate (`scripts/check_frontend_packaging_sync.py` + `tests/test_frontend_packaging_sync.py`) and integrated it into operator workflow docs.
+2. Validation executed:
+   - `pytest tests/test_ranking_backend.py tests/test_ranking_cli.py tests/test_browse_canary_ranking_isolation.py tests/test_frontend_packaging_sync.py tests/test_playwright_ranking_smoke.py -q`
+   - `cd frontend && npm run test -- src/features/ranking/model/__tests__/board.test.ts src/features/ranking/model/__tests__/saveSeq.test.ts src/features/ranking/model/__tests__/session.test.ts src/app/model/__tests__/appMode.test.ts`
+   - `cd frontend && npx tsc --noEmit`
+   - `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/ && python scripts/check_frontend_packaging_sync.py`
+   - `python scripts/playwright_ranking_smoke.py --output-json data/fixtures/ranking_smoke_result.json`
+   - `python scripts/playwright_large_tree_smoke.py --baseline-profile secondary_tiny_fast --output-json data/fixtures/large_tree_smoke_tiny_result.json`
+   - `pytest tests/test_import_contract.py tests/test_dataset_http.py tests/test_browse_canary_ranking_isolation.py -q`
+   - `python scripts/lint_repo.py`
+3. Remaining open scope:
+   - Non-blocking follow-up only: optional 500+ instance ranking soak run remains tracked post-merge.

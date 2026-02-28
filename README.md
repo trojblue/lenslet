@@ -17,6 +17,7 @@ Lenslet is a self-contained image gallery server designed for simplicity and spe
 - **Metrics & filtering**: Sort/filter by numeric metrics from Parquet (histograms + range brushing)
 - **Embedding similarity**: Find similar images from fixed-size list embeddings (cosine; optional FAISS acceleration)
 - **Labels & export**: Tag, rate, and annotate items, then export metadata as JSON or CSV
+- **Ranking mode (MVP)**: Launch `lenslet rank <dataset.json>` for per-instance ranking with autosave/resume
 - **Single command**: Just point to a directory or Parquet file and go
 
 ## Touch + Mobile Controls
@@ -117,6 +118,50 @@ lenslet s3://my-bucket/items.parquet --source-column image_path
 lenslet /data/items.parquet --source-column image_path --embed
 ```
 
+### Ranking Mode (MVP)
+
+Run ranking mode with a dataset JSON:
+
+```bash
+lenslet rank /path/to/ranking_dataset.json --port 7071
+```
+
+`rank` options:
+
+```bash
+lenslet rank <dataset.json> [options]
+
+Options:
+  -p, --port PORT              Port to listen on (default: 7070; auto-increment if in use)
+  -H, --host HOST              Host to bind to (default: 127.0.0.1)
+  --reload                     Enable auto-reload for development
+  --results-path PATH          Optional JSONL results path (relative to dataset JSON directory)
+```
+
+Dataset JSON shape:
+
+```json
+[
+  {
+    "instance_id": "example-1",
+    "images": ["images/a.jpg", "images/b.jpg", "images/c.jpg"]
+  },
+  {
+    "instance_id": "example-2",
+    "images": ["/abs/path/x.jpg", "/abs/path/y.jpg"]
+  }
+]
+```
+
+Ranking mode constraints and semantics:
+
+- Image paths are local filesystem paths only (absolute or relative to dataset JSON location).
+- Each instance must have a unique non-empty `instance_id` and a non-empty `images` array.
+- Saves are append-only JSONL entries. Default results path is `<dataset_dir>/.lenslet/ranking/<dataset_stem>.results.jsonl`.
+- Results path must not point inside a served image directory; override with `--results-path` if needed.
+- Resume index is deterministic: `last_completed_instance_index + 1`, wrapping to `0` when all are complete.
+- `GET /rank/export` collapses to latest-per-instance entries; `completed_only=true` filters to completed items only.
+
 ### Embedding Similarity Search
 
 Lenslet auto-detects fixed-size list embedding columns in `items.parquet` (or you can force them with `--embedding-column`). The UI exposes a "Find similar" action, and the API supports path-based or base64 vector queries.
@@ -215,6 +260,7 @@ Run the fixed acceptance matrix from repo root:
 ```bash
 python scripts/lint_repo.py
 pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py
+pytest -q tests/test_ranking_backend.py tests/test_ranking_cli.py tests/test_browse_canary_ranking_isolation.py tests/test_frontend_packaging_sync.py tests/test_playwright_ranking_smoke.py
 python - <<'PY'
 import lenslet.server as server
 import lenslet.storage.table as table
@@ -233,6 +279,7 @@ print('import-contract-ok')
 PY
 cd frontend
 npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts
+npm run test -- src/app/model/__tests__/appMode.test.ts src/features/ranking/model/__tests__/board.test.ts src/features/ranking/model/__tests__/saveSeq.test.ts src/features/ranking/model/__tests__/session.test.ts
 npx tsc --noEmit
 cd ..
 python -m build
@@ -245,6 +292,8 @@ python -m playwright install chromium
 python scripts/playwright_large_tree_smoke.py \
   --dataset-dir data/fixtures/large_tree_40k \
   --output-json data/fixtures/large_tree_40k_smoke_result.json
+python scripts/playwright_ranking_smoke.py \
+  --output-json data/fixtures/ranking_smoke_result.json
 ```
 
 After frontend changes, ship deterministic packaged assets:
@@ -252,6 +301,7 @@ After frontend changes, ship deterministic packaged assets:
 ```bash
 cd frontend && npm run build && cd ..
 rsync -a --delete frontend/dist/ src/lenslet/frontend/
+python scripts/check_frontend_packaging_sync.py
 ```
 
 ## Hotpath API Notes (2026-02)

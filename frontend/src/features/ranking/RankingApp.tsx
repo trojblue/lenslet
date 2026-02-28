@@ -3,7 +3,6 @@ import { BASE } from '../../api/base'
 import { rankingApi } from './api'
 import './ranking.css'
 import {
-  buildBoardState,
   finalRanksFromBoard,
   isBoardComplete,
   moveImageToRank,
@@ -11,93 +10,24 @@ import {
   selectNeighborImage,
   type RankingBoardState,
 } from './model/board'
-import { isStaleSaveResponse, nextSaveSeq, sanitizeSaveSeq } from './model/saveSeq'
+import { isStaleSaveResponse, nextSaveSeq } from './model/saveSeq'
+import {
+  buildInitialSessions,
+  canNavigateNext,
+  canNavigatePrev,
+  clampInstanceIndex,
+  computeDurationMs,
+  isValidIsoTimestamp,
+  type InstanceSession,
+} from './model/session'
 import type {
   RankingDatasetResponse,
-  RankingExportEntry,
   RankingInstance,
   RankingSaveRequest,
 } from './types'
 
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
-
-type InstanceSession = {
-  board: RankingBoardState
-  startedAt: string | null
-  latestIssuedSeq: number
-  latestAckSeq: number
-  saveStatus: SaveStatus
-  saveError: string | null
-}
-
 function nowIso(): string {
   return new Date().toISOString()
-}
-
-function clampIndex(index: number, total: number): number {
-  if (total <= 0) return 0
-  if (index < 0) return 0
-  if (index >= total) return total - 1
-  return index
-}
-
-function isValidIso(value: unknown): value is string {
-  if (typeof value !== 'string') return false
-  const parsed = Date.parse(value)
-  return Number.isFinite(parsed)
-}
-
-function normalizeSavedRanks(entry: RankingExportEntry | undefined): string[][] | null {
-  const raw = entry?.final_ranks
-  if (!Array.isArray(raw)) return null
-  const groups: string[][] = []
-  for (const group of raw) {
-    if (!Array.isArray(group)) continue
-    const valid = group.filter((value): value is string => typeof value === 'string')
-    if (valid.length > 0) {
-      groups.push(valid)
-    }
-  }
-  return groups
-}
-
-function buildInitialSessions(
-  dataset: RankingDatasetResponse,
-  exported: RankingExportEntry[],
-): Record<string, InstanceSession> {
-  const exportedById = new Map<string, RankingExportEntry>()
-  for (const entry of exported) {
-    if (!entry || typeof entry.instance_id !== 'string') continue
-    exportedById.set(entry.instance_id, entry)
-  }
-
-  const sessions: Record<string, InstanceSession> = {}
-  for (const instance of dataset.instances) {
-    const imageIds = instance.images.map((image) => image.image_id)
-    const saved = exportedById.get(instance.instance_id)
-    const board = buildBoardState(
-      imageIds,
-      instance.max_ranks,
-      normalizeSavedRanks(saved),
-    )
-    const startedAt = isValidIso(saved?.started_at) ? saved.started_at : null
-    const seq = sanitizeSaveSeq(saved?.save_seq)
-    sessions[instance.instance_id] = {
-      board,
-      startedAt,
-      latestIssuedSeq: seq,
-      latestAckSeq: seq,
-      saveStatus: 'idle',
-      saveError: null,
-    }
-  }
-  return sessions
-}
-
-function computeDurationMs(startedAt: string): number {
-  const start = Date.parse(startedAt)
-  if (!Number.isFinite(start)) return 0
-  return Math.max(0, Math.trunc(Date.now() - start))
 }
 
 function cardLabel(sourcePath: string): string {
@@ -139,7 +69,9 @@ export default function RankingApp() {
         setDataset(datasetPayload)
         setSessions(initialSessions)
         issuedSeqRef.current = initialSeq
-        setCurrentIndex(clampIndex(progressPayload.resume_instance_index, datasetPayload.instances.length))
+        setCurrentIndex(
+          clampInstanceIndex(progressPayload.resume_instance_index, datasetPayload.instances.length),
+        )
         setLoading(false)
       })
       .catch((error) => {
@@ -155,12 +87,8 @@ export default function RankingApp() {
   const instances = dataset?.instances ?? []
   const currentInstance = instances[currentIndex] ?? null
   const currentSession = currentInstance ? sessions[currentInstance.instance_id] ?? null : null
-  const canGoPrev = currentIndex > 0
-  const canGoNext = Boolean(
-    currentSession &&
-    isBoardComplete(currentSession.board) &&
-    currentIndex < instances.length - 1,
-  )
+  const canGoPrev = canNavigatePrev(currentIndex)
+  const canGoNext = canNavigateNext(currentIndex, instances.length, currentSession)
 
   const imageById = useMemo(() => {
     const map = new Map<string, { url: string; sourcePath: string }>()
@@ -183,13 +111,13 @@ export default function RankingApp() {
 
   const ensureStartedAt = useCallback((instanceId: string): string => {
     const existing = sessionsRef.current[instanceId]?.startedAt
-    if (isValidIso(existing)) {
+    if (isValidIsoTimestamp(existing)) {
       return existing
     }
     const startedAt = nowIso()
     setSessions((prev) => {
       const session = prev[instanceId]
-      if (!session || isValidIso(session.startedAt)) return prev
+      if (!session || isValidIsoTimestamp(session.startedAt)) return prev
       return {
         ...prev,
         [instanceId]: {
@@ -203,7 +131,7 @@ export default function RankingApp() {
 
   const persistSnapshot = useCallback(
     (instance: RankingInstance, board: RankingBoardState, startedAtInput: string | null = null) => {
-      const startedAt = isValidIso(startedAtInput)
+      const startedAt = isValidIsoTimestamp(startedAtInput)
         ? startedAtInput
         : ensureStartedAt(instance.instance_id)
       const issuedSeq = nextSaveSeq(issuedSeqRef.current[instance.instance_id] ?? 0)
@@ -329,7 +257,7 @@ export default function RankingApp() {
   const navigateTo = useCallback(
     (nextIndex: number) => {
       if (!currentInstance || !dataset) return
-      const clamped = clampIndex(nextIndex, dataset.instances.length)
+      const clamped = clampInstanceIndex(nextIndex, dataset.instances.length)
       if (clamped === currentIndex) return
       const current = sessionsRef.current[currentInstance.instance_id]
       if (current) {

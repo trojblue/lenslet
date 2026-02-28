@@ -14,6 +14,7 @@ const PROXY_PATHS = [
   '/views',
   '/search',
   '/health',
+  '/rank',
   '/events',
   '/presence',
 ] as const

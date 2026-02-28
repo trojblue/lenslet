@@ -63,12 +63,13 @@ Implementation follows three sprints so each sprint is independently demoable an
    4. [x] T4: Migrate CLI parser to include `rank` subcommand with minimal V1 flags (`--host`, `--port`, `--reload`, `--results-path`) and add compatibility tests for existing browse invocation.
 
 2. Sprint 2 builds ranking frontend mode and interaction flow.
+   Status: completed in iteration 2 (2026-02-28).
    Sprint goal: deliver a focused ranking UI branch isolated from browse shell internals.
    Demo outcome: user can place images across rank columns, navigate with mouse/keyboard, autosave safely, and resume session state correctly.
    Tasks:
-   1. T5: Add ranking frontend mode boot path and mode handshake using ranking health/API contracts while keeping browse mount path intact.
-   2. T6: Implement ranking board core interactions: fixed rank columns, drag/drop moves, selected-card state, and navigation guards.
-   3. T7: Implement keyboard controls, autosave triggers, resume/load behavior, and stale-write prevention policy for out-of-order save responses.
+   1. [x] T5: Add ranking frontend mode boot path and mode handshake using ranking health/API contracts while keeping browse mount path intact.
+   2. [x] T6: Implement ranking board core interactions: fixed rank columns, drag/drop moves, selected-card state, and navigation guards.
+   3. [x] T7: Implement keyboard controls, autosave triggers, resume/load behavior, and stale-write prevention policy for out-of-order save responses.
 
 3. Sprint 3 hardens behavior, validates cross-mode safety, and finalizes documentation.
    Sprint goal: verify ranking behavior end-to-end and prove browse remains stable.
@@ -171,6 +172,14 @@ Sprint 1 execution evidence (2026-02-28):
 3. `python scripts/lint_repo.py` -> pass (`ruff` clean; existing frontend file-size warnings unchanged).
 4. `lenslet rank data/fixtures/ranking_dataset.json --port 7071` -> deferred in this iteration because no checked-in ranking fixture exists yet; API behavior is covered by `tests/test_ranking_backend.py`.
 
+Sprint 2 execution evidence (2026-02-28):
+1. `cd frontend && npm run test -- src/features/ranking src/app/model/__tests__/appMode.test.ts` -> pass (11 tests).
+2. `cd frontend && npx tsc --noEmit` -> pass.
+3. `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/` -> pass (shipping frontend bundle regenerated and synced).
+4. `pytest tests/test_import_contract.py tests/test_dataset_http.py -q` -> pass (3 tests).
+5. `python scripts/lint_repo.py` -> pass (`ruff` clean; existing frontend file-size warnings unchanged).
+6. Sprint 2 primary manual browser gate is partially deferred in this iteration (no checked-in ranking fixture + no Playwright ranking smoke yet); behavior-focused frontend unit coverage and review gates were completed, with browser E2E tracked under Sprint 3 `T9`.
+
 Expected outcomes are:
 1. Ranking tests pass and browse canary tests confirm no regression in existing entrypoints/contracts.
 2. Ranking session is resumable and autosave is non-blocking with stale-write protection.
@@ -190,6 +199,8 @@ Idempotent retry strategy is to include monotonic save ordering metadata and ign
 
 Hidden dependency risk exists around image serving assumptions. Mitigation is to reuse existing image-serving APIs only when contracts fit unchanged behavior; otherwise add a ranking-local media read path instead of mutating browse contracts.
 
+Implementation note after Sprint 2: frontend board state compacts sparse rank placements to contiguous groups before persistence because backend `final_ranks` intentionally omits empty groups; this preserves stable round-trips without introducing a new rank-index contract in V1.
+
 
 ## Progress Log
 
@@ -200,7 +211,9 @@ Hidden dependency risk exists around image serving assumptions. Mitigation is to
 - [x] 2026-02-28 05:36:00Z Sprint 1 T1-T4 implemented: ranking domain/persistence/app/routes/CLI delivered with targeted backend and CLI tests.
 - [x] 2026-02-28 05:36:00Z Sprint 1 cleanup + review gates completed: code-simplifier pass, independent reviews, and follow-up fixes for malformed-tail append boundary and `rank` path compatibility edge cases.
 - [x] 2026-02-28 05:36:00Z Sprint 1 handoff notes added after implementation.
-- [ ] 2026-02-28 00:00:00Z Sprint 2 handoff notes added after implementation.
+- [x] 2026-02-28 05:45:00Z Sprint 2 T5-T7 implemented: frontend mode router + ranking feature modules shipped with drag/drop, keyboard controls, autosave/retry, resume boot flow, and stale-response handling.
+- [x] 2026-02-28 05:45:00Z Sprint 2 cleanup + review gates completed: code-simplifier pass, multi-pass independent reviews, and follow-up fixes for autosave sequencing, sparse-rank compaction, per-instance timing start, and drag payload validation.
+- [x] 2026-02-28 05:45:00Z Sprint 2 handoff notes added after implementation.
 - [ ] 2026-02-28 00:00:00Z Sprint 3 handoff notes and final retrospective added.
 
 
@@ -232,5 +245,21 @@ Sprint 1 handoff notes (2026-02-28):
    - `pytest tests/test_import_contract.py -q`
    - `python scripts/lint_repo.py`
 3. Remaining open scope:
-   - Sprint 2 frontend ranking mode implementation (`T5-T7`).
+   - Sprint 2 frontend ranking mode implementation (`T5-T7`) (now completed in iteration 2).
    - Manual CLI smoke with a checked-in ranking fixture (fixture creation is currently pending).
+
+Sprint 2 handoff notes (2026-02-28):
+1. Shipped ranking frontend mode and interaction flow:
+   - Added frontend mode handshake at app boot: `/health` now determines `browse` vs `ranking` mount path without changing browse routing contracts.
+   - Added isolated ranking feature modules under `frontend/src/features/ranking/` (typed API client, board/save models, dedicated styles, and ranking mode app shell).
+   - Implemented ranking board behavior: fixed rank columns + unranked lane, drag/drop card moves, selected-card highlight, prev/next guards, and export access.
+   - Implemented keyboard + autosave flow: `1-9` rank assignment, arrow-key selection movement, `Enter`/`Backspace` navigation, save retry, resume boot from `/rank/progress` + `/rank/export`, and stale-response suppression via monotonic `save_seq`.
+2. Validation executed:
+   - `cd frontend && npm run test -- src/features/ranking src/app/model/__tests__/appMode.test.ts`
+   - `cd frontend && npx tsc --noEmit`
+   - `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/`
+   - `pytest tests/test_import_contract.py tests/test_dataset_http.py -q`
+   - `python scripts/lint_repo.py`
+3. Remaining open scope:
+   - Sprint 3 hardening (`T8-T11`), especially ranking E2E/browser smoke coverage and browse canary/packaging gates.
+   - Manual ranking-mode browser session against a checked-in fixture (or Playwright equivalent) to fully satisfy Sprint 2 primary gate evidence.

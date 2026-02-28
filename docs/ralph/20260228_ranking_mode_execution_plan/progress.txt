@@ -24,3 +24,40 @@ Plan: /home/ubuntu/dev/lenslet/docs/20260228_ranking_mode_execution_plan.md
   - python scripts/lint_repo.py (pass)
 - Blockers: none
 - Next step: start Sprint 2 (T5-T7) ranking frontend mode boot + interaction flow.
+
+## Iteration 2 - 2026-02-28T05:45:00Z
+- Completed task IDs: T5, T6, T7
+- Files changed:
+  - frontend/package.json
+  - frontend/package-lock.json
+  - frontend/tsconfig.json
+  - frontend/vite.config.ts
+  - frontend/src/App.tsx
+  - frontend/src/app/AppModeRouter.tsx
+  - frontend/src/app/model/appMode.ts
+  - frontend/src/app/model/__tests__/appMode.test.ts
+  - frontend/src/features/ranking/RankingApp.tsx
+  - frontend/src/features/ranking/api.ts
+  - frontend/src/features/ranking/types.ts
+  - frontend/src/features/ranking/ranking.css
+  - frontend/src/features/ranking/model/board.ts
+  - frontend/src/features/ranking/model/saveSeq.ts
+  - frontend/src/features/ranking/model/__tests__/board.test.ts
+  - frontend/src/features/ranking/model/__tests__/saveSeq.test.ts
+  - frontend/src/lib/types.ts
+  - frontend/src/styles.css
+  - src/lenslet/frontend/index.html
+  - src/lenslet/frontend/assets/index-D6Nd4BEU.js
+  - src/lenslet/frontend/assets/index-fv_IGP7R.css
+  - src/lenslet/frontend/assets/index-Y9imaOoe.js (deleted)
+  - src/lenslet/frontend/assets/index-mr9mHTvv.css (deleted)
+  - docs/20260228_ranking_mode_execution_plan.md
+  - docs/ralph/20260228_ranking_mode_execution_plan/progress.txt
+- Validations run:
+  - cd frontend && npm run test -- src/features/ranking src/app/model/__tests__/appMode.test.ts (pass, 11 tests)
+  - cd frontend && npx tsc --noEmit (pass)
+  - cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/ (pass)
+  - pytest tests/test_import_contract.py tests/test_dataset_http.py -q (pass, 3 tests)
+  - python scripts/lint_repo.py (pass)
+- Blockers: none
+- Next step: start Sprint 3 (T8-T11) hardening and docs finalization.

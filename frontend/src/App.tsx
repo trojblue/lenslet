@@ -1,6 +1,5 @@
-import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import AppShell from './app/AppShell'
+import AppModeRouter from './app/AppModeRouter'
 import './styles.css'
 
 /**
@@ -29,7 +28,7 @@ const queryClient = new QueryClient({
 export default function AppRoot() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AppShell />
+      <AppModeRouter />
     </QueryClientProvider>
   )
 }

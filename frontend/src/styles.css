@@ -76,6 +76,29 @@
   --mobile-drawer-h: 0px;
 }
 
+.boot-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.boot-warning {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: var(--z-overlay);
+  border-radius: 8px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in oklab, var(--accent) 55%, var(--border));
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 /* Scrollbar styling - can't be done purely in Tailwind */
 .scrollbar-thin {
   scrollbar-width: thin;

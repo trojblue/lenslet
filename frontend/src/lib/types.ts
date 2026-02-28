@@ -82,7 +82,7 @@ export type PresenceEvent = {
   editing: number
 }
 
-export type HealthMode = 'memory' | 'table' | 'dataset'
+export type HealthMode = 'memory' | 'table' | 'dataset' | 'ranking'
 
 export type HealthResponse = {
   ok: boolean

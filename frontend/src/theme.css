@@ -19,11 +19,11 @@
   --text-secondary: #d0d4da;
   --muted: #a7adb8;
   
-  /* Accent colors (Monochrome Utility) */
-  --accent: #9cb2d5;
-  --accent-hover: #b5c6e3;
-  --accent-muted: rgba(156, 178, 213, 0.18);
-  --accent-strong: rgba(156, 178, 213, 0.32);
+  /* Accent colors (Cool violet/indigo) */
+  --accent: #7B6EF6;
+  --accent-hover: #8A7DF8;
+  --accent-muted: rgba(123, 110, 246, 0.18);
+  --accent-strong: rgba(123, 110, 246, 0.32);
   --highlight: #e6a23c;
   --sync-recent: #b08bff;
 
@@ -58,7 +58,7 @@
 
   /* Subtle warmth without heavy effects */
   --bg-gradient: radial-gradient(1200px 600px at 10% -10%, rgba(255, 255, 255, 0.02), transparent 60%),
-    radial-gradient(900px 500px at 100% -20%, rgba(156, 178, 213, 0.04), transparent 55%),
+    radial-gradient(900px 500px at 100% -20%, rgba(123, 110, 246, 0.05), transparent 55%),
     var(--bg);
 }
 

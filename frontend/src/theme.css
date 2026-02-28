@@ -22,7 +22,7 @@
   /* Accent colors (Cool violet/indigo) */
   --accent: #7B6EF6;
   --accent-hover: #8A7DF8;
-  --accent-muted: rgba(123, 110, 246, 0.12);
+  --accent-muted: rgba(123, 110, 246, 0.18);
   --accent-strong: rgba(123, 110, 246, 0.32);
   --highlight: #e6a23c;
   --sync-recent: #b08bff;

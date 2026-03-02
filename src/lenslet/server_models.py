@@ -105,6 +105,7 @@ class _ExportComparisonRequestBase(BaseModel):
     embed_metadata: bool = True
     reverse_order: bool = False
     output_format: ExportComparisonOutputFormat = "png"
+    high_quality_gif: bool = False
 
 
 class ExportComparisonRequestV1(_ExportComparisonRequestBase):

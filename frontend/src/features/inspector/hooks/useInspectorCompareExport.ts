@@ -13,6 +13,15 @@ import {
   buildExportComparisonPayloadV2,
 } from '../compareExportBoundary'
 
+const INSPECTOR_EXPORT_REVERSE_ORDER_KEY = 'lenslet.inspector.export.reverseOrder'
+const INSPECTOR_EXPORT_HIGH_QUALITY_GIF_KEY = 'lenslet.inspector.export.highQualityGif'
+
+function parseStoredBool(raw: string | null, fallback: boolean): boolean {
+  if (raw === '1' || raw === 'true') return true
+  if (raw === '0' || raw === 'false') return false
+  return fallback
+}
+
 type UseInspectorCompareExportParams = {
   selectedPaths: string[]
   comparePathA: string | null
@@ -24,12 +33,16 @@ type UseInspectorCompareExportParams = {
 type UseInspectorCompareExportResult = {
   compareExportLabelsText: string
   compareExportEmbedMetadata: boolean
-  compareExportMode: 'png' | 'png-reverse' | 'gif' | 'gif-reverse' | null
+  compareExportReverseOrder: boolean
+  compareExportHighQualityGif: boolean
+  compareExportMode: 'png' | 'gif' | null
   compareExportError: string | null
   compareExportBusy: boolean
   handleCompareExportLabelsTextChange: (value: string) => void
   handleCompareExportEmbedMetadataChange: (checked: boolean) => void
-  runComparisonExport: (reverseOrder: boolean, outputFormat: ExportComparisonOutputFormat) => Promise<void>
+  handleCompareExportReverseOrderChange: (checked: boolean) => void
+  handleCompareExportHighQualityGifChange: (checked: boolean) => void
+  runComparisonExport: (outputFormat: ExportComparisonOutputFormat) => Promise<void>
 }
 
 type BuildInspectorComparisonExportPayloadArgs = {
@@ -42,6 +55,7 @@ type BuildInspectorComparisonExportPayloadArgs = {
   embedMetadata: boolean
   reverseOrder: boolean
   outputFormat: ExportComparisonOutputFormat
+  highQualityGif: boolean
 }
 
 function resolveComparisonPairPaths({
@@ -71,6 +85,7 @@ export function buildInspectorComparisonExportPayload({
   embedMetadata,
   reverseOrder,
   outputFormat,
+  highQualityGif,
 }: BuildInspectorComparisonExportPayloadArgs): ExportComparisonPayloadResult {
   const selectedCount = selectedPaths.length
   if (selectedCount < 2) {
@@ -94,6 +109,7 @@ export function buildInspectorComparisonExportPayload({
       embedMetadata,
       reverseOrder,
       outputFormat,
+      highQualityGif,
     })
   }
 
@@ -112,6 +128,7 @@ export function buildInspectorComparisonExportPayload({
     embedMetadata,
     reverseOrder,
     outputFormat,
+    highQualityGif,
   })
 }
 
@@ -126,9 +143,46 @@ export function useInspectorCompareExport({
   const [compareExportEmbedMetadata, setCompareExportEmbedMetadata] = useState(
     DEFAULT_EXPORT_COMPARISON_EMBED_METADATA,
   )
-  const [compareExportMode, setCompareExportMode] = useState<'png' | 'png-reverse' | 'gif' | 'gif-reverse' | null>(null)
+  const [compareExportReverseOrder, setCompareExportReverseOrder] = useState(false)
+  const [compareExportHighQualityGif, setCompareExportHighQualityGif] = useState(false)
+  const [compareExportMode, setCompareExportMode] = useState<'png' | 'gif' | null>(null)
   const [compareExportError, setCompareExportError] = useState<string | null>(null)
   const compareExportBusy = compareExportMode !== null
+
+  useEffect(() => {
+    try {
+      setCompareExportReverseOrder(
+        parseStoredBool(localStorage.getItem(INSPECTOR_EXPORT_REVERSE_ORDER_KEY), false),
+      )
+      setCompareExportHighQualityGif(
+        parseStoredBool(localStorage.getItem(INSPECTOR_EXPORT_HIGH_QUALITY_GIF_KEY), false),
+      )
+    } catch {
+      // Ignore localStorage read errors.
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        INSPECTOR_EXPORT_REVERSE_ORDER_KEY,
+        compareExportReverseOrder ? '1' : '0',
+      )
+    } catch {
+      // Ignore localStorage write errors.
+    }
+  }, [compareExportReverseOrder])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        INSPECTOR_EXPORT_HIGH_QUALITY_GIF_KEY,
+        compareExportHighQualityGif ? '1' : '0',
+      )
+    } catch {
+      // Ignore localStorage write errors.
+    }
+  }, [compareExportHighQualityGif])
 
   useEffect(() => {
     if (selectedPaths.length < 2) {
@@ -151,24 +205,26 @@ export function useInspectorCompareExport({
     setCompareExportEmbedMetadata(checked)
   }, [])
 
-  const resolveCompareExportMode = useCallback(
-    (reverseOrder: boolean, outputFormat: ExportComparisonOutputFormat) => {
-      if (outputFormat === 'gif') return reverseOrder ? 'gif-reverse' : 'gif'
-      return reverseOrder ? 'png-reverse' : 'png'
-    },
-    [],
-  )
+  const handleCompareExportReverseOrderChange = useCallback((checked: boolean) => {
+    setCompareExportReverseOrder(checked)
+  }, [])
+
+  const handleCompareExportHighQualityGifChange = useCallback((checked: boolean) => {
+    setCompareExportHighQualityGif(checked)
+  }, [])
 
   const runComparisonExport = useCallback(
-    async (reverseOrder: boolean, outputFormat: ExportComparisonOutputFormat) => {
+    async (outputFormat: ExportComparisonOutputFormat) => {
       if (compareExportBusy) return
       const selectedCount = selectedPaths.length
+      const reverseOrder = compareExportReverseOrder
 
       if (selectedCount < 2) {
         setCompareExportError(EXPORT_COMPARISON_PAIR_ONLY_MESSAGE)
         return
       }
 
+      const highQualityGif = outputFormat === 'gif' && compareExportHighQualityGif
       const payloadResult = buildInspectorComparisonExportPayload({
         selectedPaths,
         comparePathA,
@@ -179,13 +235,14 @@ export function useInspectorCompareExport({
         embedMetadata: compareExportEmbedMetadata,
         reverseOrder,
         outputFormat,
+        highQualityGif,
       })
       if (!payloadResult.ok) {
         setCompareExportError(payloadResult.message)
         return
       }
 
-      setCompareExportMode(resolveCompareExportMode(reverseOrder, outputFormat))
+      setCompareExportMode(outputFormat)
       setCompareExportError(null)
       try {
         const blob = await api.exportComparison(payloadResult.payload)
@@ -200,12 +257,13 @@ export function useInspectorCompareExport({
     [
       compareExportBusy,
       compareExportEmbedMetadata,
+      compareExportHighQualityGif,
       compareExportLabelsText,
       compareExportMaxPathsV2,
+      compareExportReverseOrder,
       compareExportSupportsV2,
       comparePathA,
       comparePathB,
-      resolveCompareExportMode,
       selectedPaths,
     ],
   )
@@ -213,11 +271,15 @@ export function useInspectorCompareExport({
   return {
     compareExportLabelsText,
     compareExportEmbedMetadata,
+    compareExportReverseOrder,
+    compareExportHighQualityGif,
     compareExportMode,
     compareExportError,
     compareExportBusy,
     handleCompareExportLabelsTextChange,
     handleCompareExportEmbedMetadataChange,
+    handleCompareExportReverseOrderChange,
+    handleCompareExportHighQualityGifChange,
     runComparisonExport,
   }
 }

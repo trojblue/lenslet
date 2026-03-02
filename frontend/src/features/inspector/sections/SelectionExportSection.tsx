@@ -14,9 +14,13 @@ interface SelectionExportSectionProps {
   onCompareExportLabelsTextChange: (value: string) => void
   compareExportEmbedMetadata: boolean
   onCompareExportEmbedMetadataChange: (checked: boolean) => void
+  compareExportReverseOrder: boolean
+  onCompareExportReverseOrderChange: (checked: boolean) => void
+  compareExportHighQualityGif: boolean
+  onCompareExportHighQualityGifChange: (checked: boolean) => void
   compareExportBusy: boolean
-  compareExportMode: 'png' | 'png-reverse' | 'gif' | 'gif-reverse' | null
-  onComparisonExport: (reverseOrder: boolean, outputFormat: 'png' | 'gif') => void
+  compareExportMode: 'png' | 'gif' | null
+  onComparisonExport: (outputFormat: 'png' | 'gif') => void
   compareExportError: string | null
 }
 
@@ -56,6 +60,10 @@ export function SelectionExportSection({
   onCompareExportLabelsTextChange,
   compareExportEmbedMetadata,
   onCompareExportEmbedMetadataChange,
+  compareExportReverseOrder,
+  onCompareExportReverseOrderChange,
+  compareExportHighQualityGif,
+  onCompareExportHighQualityGifChange,
   compareExportBusy,
   compareExportMode,
   onComparisonExport,
@@ -92,41 +100,45 @@ export function SelectionExportSection({
         />
         <span>Embed metadata</span>
       </label>
+      <label className="inline-flex items-center gap-2 text-[11px] text-muted">
+        <input
+          type="checkbox"
+          checked={compareExportReverseOrder}
+          onChange={(e) => onCompareExportReverseOrderChange(e.target.checked)}
+          disabled={exportDisabled}
+        />
+        <span>Reverse order</span>
+      </label>
+      <label className="inline-flex items-center gap-2 text-[11px] text-muted">
+        <input
+          type="checkbox"
+          checked={compareExportHighQualityGif}
+          onChange={(e) => onCompareExportHighQualityGifChange(e.target.checked)}
+          disabled={exportDisabled}
+        />
+        <span>Higher GIF quality</span>
+      </label>
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           className="btn btn-sm"
-          onClick={() => onComparisonExport(false, 'png')}
+          onClick={() => onComparisonExport('png')}
           disabled={exportDisabled}
         >
           {compareExportMode === 'png' ? 'Exporting…' : 'Export comparison'}
         </button>
         <button
           type="button"
-          className="btn btn-sm btn-ghost"
-          onClick={() => onComparisonExport(true, 'png')}
-          disabled={exportDisabled}
-        >
-          {compareExportMode === 'png-reverse' ? 'Exporting…' : 'Export (reverse order)'}
-        </button>
-        <button
-          type="button"
           className="btn btn-sm"
-          onClick={() => onComparisonExport(false, 'gif')}
+          onClick={() => onComparisonExport('gif')}
           disabled={exportDisabled}
         >
           {compareExportMode === 'gif' ? 'Exporting…' : 'Export GIF slideshow'}
         </button>
-        <button
-          type="button"
-          className="btn btn-sm btn-ghost"
-          onClick={() => onComparisonExport(true, 'gif')}
-          disabled={exportDisabled}
-        >
-          {compareExportMode === 'gif-reverse' ? 'Exporting…' : 'Export GIF (reverse)'}
-        </button>
       </div>
-      <div className="text-[11px] text-muted">GIF mode: 1.5s/frame, max 720px long side, capped to 8MB.</div>
+      <div className="text-[11px] text-muted">
+        GIF mode: {compareExportHighQualityGif ? '2.0s/frame, max 1080px long side' : '1.5s/frame, max 720px long side'}; capped to 8MB.
+      </div>
       {disabledReason && (
         <div className="text-[11px] text-muted">{disabledReason}</div>
       )}

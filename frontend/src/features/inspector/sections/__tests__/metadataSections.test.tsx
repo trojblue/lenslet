@@ -44,6 +44,10 @@ describe('inspector metadata section rendering', () => {
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
         onCompareExportEmbedMetadataChange={noop}
+        compareExportReverseOrder={false}
+        onCompareExportReverseOrderChange={noop}
+        compareExportHighQualityGif={false}
+        onCompareExportHighQualityGifChange={noop}
         compareExportBusy={false}
         compareExportMode={null}
         onComparisonExport={noop}
@@ -79,6 +83,10 @@ describe('inspector metadata section rendering', () => {
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
         onCompareExportEmbedMetadataChange={noop}
+        compareExportReverseOrder={false}
+        onCompareExportReverseOrderChange={noop}
+        compareExportHighQualityGif={false}
+        onCompareExportHighQualityGifChange={noop}
         compareExportBusy={false}
         compareExportMode={null}
         onComparisonExport={noop}
@@ -111,6 +119,10 @@ describe('inspector metadata section rendering', () => {
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
         onCompareExportEmbedMetadataChange={noop}
+        compareExportReverseOrder={false}
+        onCompareExportReverseOrderChange={noop}
+        compareExportHighQualityGif={false}
+        onCompareExportHighQualityGifChange={noop}
         compareExportBusy={false}
         compareExportMode={null}
         onComparisonExport={noop}
@@ -143,6 +155,10 @@ describe('inspector metadata section rendering', () => {
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
         onCompareExportEmbedMetadataChange={noop}
+        compareExportReverseOrder={false}
+        onCompareExportReverseOrderChange={noop}
+        compareExportHighQualityGif={false}
+        onCompareExportHighQualityGifChange={noop}
         compareExportBusy={false}
         compareExportMode={null}
         onComparisonExport={noop}
@@ -175,6 +191,10 @@ describe('inspector metadata section rendering', () => {
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
         onCompareExportEmbedMetadataChange={noop}
+        compareExportReverseOrder={false}
+        onCompareExportReverseOrderChange={noop}
+        compareExportHighQualityGif={false}
+        onCompareExportHighQualityGifChange={noop}
         compareExportBusy={false}
         compareExportMode={null}
         onComparisonExport={noop}

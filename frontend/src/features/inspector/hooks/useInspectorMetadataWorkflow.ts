@@ -31,7 +31,9 @@ type UseInspectorMetadataWorkflowResult = {
   compareShowPilInfoB: boolean
   compareExportLabelsText: string
   compareExportEmbedMetadata: boolean
-  compareExportMode: 'png' | 'png-reverse' | 'gif' | 'gif-reverse' | null
+  compareExportReverseOrder: boolean
+  compareExportHighQualityGif: boolean
+  compareExportMode: 'png' | 'gif' | null
   compareExportError: string | null
   compareExportBusy: boolean
   setShowPilInfo: Dispatch<SetStateAction<boolean>>
@@ -42,7 +44,9 @@ type UseInspectorMetadataWorkflowResult = {
   reloadCompareMetadata: () => void
   handleCompareExportLabelsTextChange: (value: string) => void
   handleCompareExportEmbedMetadataChange: (checked: boolean) => void
-  runComparisonExport: (reverseOrder: boolean, outputFormat: ExportComparisonOutputFormat) => Promise<void>
+  handleCompareExportReverseOrderChange: (checked: boolean) => void
+  handleCompareExportHighQualityGifChange: (checked: boolean) => void
+  runComparisonExport: (outputFormat: ExportComparisonOutputFormat) => Promise<void>
 }
 
 export function useInspectorMetadataWorkflow({
@@ -89,6 +93,8 @@ export function useInspectorMetadataWorkflow({
     compareShowPilInfoB: compareMetadata.compareShowPilInfoB,
     compareExportLabelsText: compareExport.compareExportLabelsText,
     compareExportEmbedMetadata: compareExport.compareExportEmbedMetadata,
+    compareExportReverseOrder: compareExport.compareExportReverseOrder,
+    compareExportHighQualityGif: compareExport.compareExportHighQualityGif,
     compareExportMode: compareExport.compareExportMode,
     compareExportError: compareExport.compareExportError,
     compareExportBusy: compareExport.compareExportBusy,
@@ -100,6 +106,8 @@ export function useInspectorMetadataWorkflow({
     reloadCompareMetadata: compareMetadata.reloadCompareMetadata,
     handleCompareExportLabelsTextChange: compareExport.handleCompareExportLabelsTextChange,
     handleCompareExportEmbedMetadataChange: compareExport.handleCompareExportEmbedMetadataChange,
+    handleCompareExportReverseOrderChange: compareExport.handleCompareExportReverseOrderChange,
+    handleCompareExportHighQualityGifChange: compareExport.handleCompareExportHighQualityGifChange,
     runComparisonExport: compareExport.runComparisonExport,
   }
 }

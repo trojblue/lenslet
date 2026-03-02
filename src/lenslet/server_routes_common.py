@@ -169,6 +169,7 @@ def register_common_api_routes(
                     images,
                     ordered_labels,
                     embed_metadata=body.embed_metadata,
+                    high_quality=body.high_quality_gif,
                     ordered_paths=ordered_paths,
                     source_formats=source_formats,
                     reversed_order=body.reverse_order,

@@ -24,6 +24,7 @@ describe('comparison export helpers', () => {
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'png',
+      highQualityGif: false,
     })
 
     expect(result.ok).toBe(true)
@@ -43,6 +44,7 @@ describe('comparison export helpers', () => {
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'png',
+      highQualityGif: false,
     })
 
     expect(result.ok).toBe(true)
@@ -58,6 +60,7 @@ describe('comparison export helpers', () => {
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'png',
+      highQualityGif: false,
     })
 
     expect(result.ok).toBe(false)
@@ -73,6 +76,7 @@ describe('comparison export helpers', () => {
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'png',
+      highQualityGif: false,
     })
 
     expect(result.ok).toBe(false)
@@ -88,6 +92,7 @@ describe('comparison export helpers', () => {
       embedMetadata: false,
       reverseOrder: true,
       outputFormat: 'png',
+      highQualityGif: false,
     })
 
     expect(result.ok).toBe(true)
@@ -112,6 +117,7 @@ describe('comparison export helpers', () => {
       embedMetadata: false,
       reverseOrder: true,
       outputFormat: 'png',
+      highQualityGif: false,
     })
 
     expect(result.ok).toBe(true)
@@ -132,11 +138,13 @@ describe('comparison export helpers', () => {
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'gif',
+      highQualityGif: true,
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.payload.output_format).toBe('gif')
+    expect(result.payload.high_quality_gif).toBe(true)
   })
 
   it('rejects v2 payloads outside the supported path range', () => {
@@ -146,6 +154,7 @@ describe('comparison export helpers', () => {
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'png',
+      highQualityGif: false,
     })
     expect(tooFew.ok).toBe(false)
     if (tooFew.ok) return
@@ -157,6 +166,7 @@ describe('comparison export helpers', () => {
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'png',
+      highQualityGif: false,
     })
     expect(hasBlank.ok).toBe(false)
     if (hasBlank.ok) return
@@ -170,6 +180,7 @@ describe('comparison export helpers', () => {
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'png',
+      highQualityGif: false,
     })
 
     expect(result.ok).toBe(false)
@@ -210,6 +221,7 @@ describe('comparison export helpers', () => {
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'png',
+      highQualityGif: false,
     })
 
     expect(result.ok).toBe(true)
@@ -229,6 +241,7 @@ describe('comparison export helpers', () => {
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'png',
+      highQualityGif: false,
     })
 
     expect(result.ok).toBe(false)

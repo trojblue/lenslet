@@ -184,6 +184,8 @@ export default function Inspector({
     compareShowPilInfoB,
     compareExportLabelsText,
     compareExportEmbedMetadata,
+    compareExportReverseOrder,
+    compareExportHighQualityGif,
     compareExportMode,
     compareExportError,
     compareExportBusy,
@@ -195,6 +197,8 @@ export default function Inspector({
     reloadCompareMetadata,
     handleCompareExportLabelsTextChange,
     handleCompareExportEmbedMetadataChange,
+    handleCompareExportReverseOrderChange,
+    handleCompareExportHighQualityGifChange,
     runComparisonExport,
   } = useInspectorMetadataWorkflow({
     path,
@@ -445,8 +449,8 @@ export default function Inspector({
   const handleToggleCompareShowPilInfoB = useCallback(() => {
     setCompareShowPilInfoB((prev) => !prev)
   }, [setCompareShowPilInfoB])
-  const handleComparisonExport = useCallback((reverseOrder: boolean, outputFormat: 'png' | 'gif') => {
-    void runComparisonExport(reverseOrder, outputFormat)
+  const handleComparisonExport = useCallback((outputFormat: 'png' | 'gif') => {
+    void runComparisonExport(outputFormat)
   }, [runComparisonExport])
 
   const showNotesConflictBanner = !multi && !!conflict && (conflictFields.tags || conflictFields.notes)
@@ -480,6 +484,10 @@ export default function Inspector({
       onCompareExportLabelsTextChange: handleCompareExportLabelsTextChange,
       compareExportEmbedMetadata,
       onCompareExportEmbedMetadataChange: handleCompareExportEmbedMetadataChange,
+      compareExportReverseOrder,
+      onCompareExportReverseOrderChange: handleCompareExportReverseOrderChange,
+      compareExportHighQualityGif,
+      onCompareExportHighQualityGifChange: handleCompareExportHighQualityGifChange,
       compareExportBusy,
       compareExportMode,
       onComparisonExport: handleComparisonExport,

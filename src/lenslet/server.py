@@ -96,8 +96,10 @@ MAX_EXPORT_STITCHED_PIXELS = 120_000_000
 MAX_EXPORT_METADATA_BYTES = 32 * 1024
 MAX_EXPORT_LABEL_CHARS = 120
 MAX_EXPORT_GIF_LONG_SIDE = 720
+MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY = 1_080
 MAX_EXPORT_GIF_MAX_BYTES = 8 * 1024 * 1024
 EXPORT_GIF_FRAME_DURATION_MS = 1_500
+EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY = 2_000
 EXPORT_COMPARISON_METADATA_KEY = "lenslet:comparison"
 _UNIBOX_IMAGE_UTILS: tuple[Callable[..., Any], Callable[..., Any]] | None = None
 
@@ -234,6 +236,9 @@ def _build_export_metadata_text(
     source_formats: list[str],
     reversed_order: bool,
     output_format: Literal["png", "gif"],
+    gif_high_quality: bool | None = None,
+    gif_max_long_side: int | None = None,
+    gif_frame_duration_ms: int | None = None,
 ) -> str:
     metadata_payload = {
         "tool": "lenslet.export_comparison",
@@ -245,6 +250,12 @@ def _build_export_metadata_text(
         "output_format": output_format,
         "exported_at": _now_iso(),
     }
+    if gif_high_quality is not None:
+        metadata_payload["gif_high_quality"] = gif_high_quality
+    if gif_max_long_side is not None:
+        metadata_payload["gif_max_long_side"] = gif_max_long_side
+    if gif_frame_duration_ms is not None:
+        metadata_payload["gif_frame_duration_ms"] = gif_frame_duration_ms
     metadata_text = json.dumps(metadata_payload, separators=(",", ":"), ensure_ascii=True)
     metadata_size = len(metadata_text.encode("utf-8"))
     if metadata_size > MAX_EXPORT_METADATA_BYTES:
@@ -296,6 +307,7 @@ def _encode_gif_candidate(
     *,
     colors: int,
     dither: Image.Dither,
+    duration_ms: int,
     comment: bytes | None,
 ) -> bytes:
     adaptive_palette = getattr(getattr(Image, "Palette", Image), "ADAPTIVE", Image.ADAPTIVE)
@@ -319,7 +331,7 @@ def _encode_gif_candidate(
             "format": "GIF",
             "save_all": True,
             "append_images": rest,
-            "duration": EXPORT_GIF_FRAME_DURATION_MS,
+            "duration": duration_ms,
             "loop": 0,
             "optimize": True,
             "disposal": 2,
@@ -338,6 +350,7 @@ def _build_export_gif(
     labels: list[str],
     *,
     embed_metadata: bool,
+    high_quality: bool,
     ordered_paths: list[str],
     source_formats: list[str],
     reversed_order: bool,
@@ -351,11 +364,13 @@ def _build_export_gif(
     prepped: list[Image.Image] = []
     base_frames: list[Image.Image] = []
     scaled_frames: list[Image.Image] = []
+    max_long_side = MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY if high_quality else MAX_EXPORT_GIF_LONG_SIDE
+    duration_ms = EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY if high_quality else EXPORT_GIF_FRAME_DURATION_MS
     try:
         for image, label in zip(images, labels):
             annotated_frame = _annotate_for_export(image, label, add_annotation=add_annotation)
             annotated.append(annotated_frame)
-            resized = _resize_image_max_long_side(annotated_frame, MAX_EXPORT_GIF_LONG_SIDE)
+            resized = _resize_image_max_long_side(annotated_frame, max_long_side)
             try:
                 prepped.append(resized.convert("RGB"))
             finally:
@@ -376,6 +391,9 @@ def _build_export_gif(
                 source_formats=source_formats,
                 reversed_order=reversed_order,
                 output_format="gif",
+                gif_high_quality=high_quality,
+                gif_max_long_side=max_long_side,
+                gif_frame_duration_ms=duration_ms,
             )
             metadata_comment = metadata_text.encode("utf-8")
 
@@ -392,6 +410,7 @@ def _build_export_gif(
                             scaled_frames,
                             colors=color_count,
                             dither=dither,
+                            duration_ms=duration_ms,
                             comment=metadata_comment,
                         )
                         if len(encoded) <= MAX_EXPORT_GIF_MAX_BYTES:

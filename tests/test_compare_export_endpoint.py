@@ -149,6 +149,37 @@ def test_export_comparison_gif_slideshow_success(tmp_path: Path) -> None:
     assert metadata_payload["labels"] == ["Prompt A", "Prompt B"]
     assert metadata_payload["reversed"] is False
     assert metadata_payload["output_format"] == "gif"
+    assert metadata_payload["gif_high_quality"] is False
+    assert metadata_payload["gif_max_long_side"] == server_mod.MAX_EXPORT_GIF_LONG_SIDE
+    assert metadata_payload["gif_frame_duration_ms"] == server_mod.EXPORT_GIF_FRAME_DURATION_MS
+
+
+def test_export_comparison_gif_high_quality_mode(tmp_path: Path) -> None:
+    _make_png(tmp_path / "a.png", size=(4200, 1100), color=(230, 80, 80))
+    _make_png(tmp_path / "b.png", size=(900, 3600), color=(70, 90, 240))
+
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.post(
+        "/export-comparison",
+        json=_export_payload(output_format="gif", high_quality_gif=True),
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/gif")
+    assert len(response.content) <= server_mod.MAX_EXPORT_GIF_MAX_BYTES
+
+    with Image.open(io.BytesIO(response.content)) as exported:
+        assert exported.format == "GIF"
+        assert bool(getattr(exported, "is_animated", False))
+        assert exported.n_frames == 2
+        assert max(exported.size) <= server_mod.MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY
+        assert exported.info.get("duration") == server_mod.EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY
+
+    metadata_payload = _read_gif_comparison_metadata(response.content)
+    assert metadata_payload is not None
+    assert metadata_payload["gif_high_quality"] is True
+    assert metadata_payload["gif_max_long_side"] == server_mod.MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY
+    assert metadata_payload["gif_frame_duration_ms"] == server_mod.EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY
 
 
 def test_export_comparison_gif_enforces_size_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -26,6 +26,7 @@ export type ExportComparisonPayloadArgs = {
   embedMetadata: boolean
   reverseOrder: boolean
   outputFormat: ExportComparisonOutputFormat
+  highQualityGif: boolean
 }
 
 export type ExportComparisonPayloadV2Args = {
@@ -34,6 +35,7 @@ export type ExportComparisonPayloadV2Args = {
   embedMetadata: boolean
   reverseOrder: boolean
   outputFormat: ExportComparisonOutputFormat
+  highQualityGif: boolean
 }
 
 export type ExportComparisonPayloadResult =
@@ -94,7 +96,7 @@ function toV2Paths(paths: [string, string, ...string[]]): [string, string, ...st
 }
 
 export function buildExportComparisonPayload(args: ExportComparisonPayloadArgs): ExportComparisonPayloadResult {
-  const { pathA, pathB, labelsText, embedMetadata, reverseOrder, outputFormat } = args
+  const { pathA, pathB, labelsText, embedMetadata, reverseOrder, outputFormat, highQualityGif } = args
   if (!pathA || !pathB) {
     return { ok: false, message: EXPORT_COMPARISON_PAIR_ONLY_MESSAGE }
   }
@@ -113,6 +115,7 @@ export function buildExportComparisonPayload(args: ExportComparisonPayloadArgs):
     embed_metadata: embedMetadata,
     reverse_order: reverseOrder,
     output_format: outputFormat,
+    high_quality_gif: highQualityGif,
   }
   if (labelsResult.labels) {
     payload.labels = toExportComparisonLabelsV1(labelsResult.labels)
@@ -123,7 +126,7 @@ export function buildExportComparisonPayload(args: ExportComparisonPayloadArgs):
 export function buildExportComparisonPayloadV2(
   args: ExportComparisonPayloadV2Args,
 ): ExportComparisonPayloadResult {
-  const { paths, labelsText, embedMetadata, reverseOrder, outputFormat } = args
+  const { paths, labelsText, embedMetadata, reverseOrder, outputFormat, highQualityGif } = args
   const normalizedPaths = normalizeExportPaths(paths)
   if (
     normalizedPaths.length !== paths.length
@@ -147,6 +150,7 @@ export function buildExportComparisonPayloadV2(
     embed_metadata: embedMetadata,
     reverse_order: reverseOrder,
     output_format: outputFormat,
+    high_quality_gif: highQualityGif,
   }
   if (labelsResult.labels) {
     payload.labels = labelsResult.labels

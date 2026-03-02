@@ -87,6 +87,7 @@ export type HealthMode = 'memory' | 'table' | 'dataset' | 'ranking'
 export type HealthResponse = {
   ok: boolean
   mode?: HealthMode
+  workspace_id?: string
   can_write?: boolean
   refresh?: {
     enabled?: boolean
@@ -187,6 +188,7 @@ export type ExportComparisonRequestV1 = {
   embed_metadata?: boolean
   reverse_order?: boolean
   output_format?: ExportComparisonOutputFormat
+  high_quality_gif?: boolean
 }
 
 export type ExportComparisonRequestV2 = {
@@ -196,6 +198,7 @@ export type ExportComparisonRequestV2 = {
   embed_metadata?: boolean
   reverse_order?: boolean
   output_format?: ExportComparisonOutputFormat
+  high_quality_gif?: boolean
 }
 
 export type ExportComparisonRequest = ExportComparisonRequestV1 | ExportComparisonRequestV2

@@ -20,9 +20,13 @@ interface OverviewSectionProps {
   onCompareExportLabelsTextChange: (value: string) => void
   compareExportEmbedMetadata: boolean
   onCompareExportEmbedMetadataChange: (checked: boolean) => void
+  compareExportReverseOrder: boolean
+  onCompareExportReverseOrderChange: (checked: boolean) => void
+  compareExportHighQualityGif: boolean
+  onCompareExportHighQualityGifChange: (checked: boolean) => void
   compareExportBusy: boolean
-  compareExportMode: 'png' | 'png-reverse' | 'gif' | 'gif-reverse' | null
-  onComparisonExport: (reverseOrder: boolean, outputFormat: 'png' | 'gif') => void
+  compareExportMode: 'png' | 'gif' | null
+  onComparisonExport: (outputFormat: 'png' | 'gif') => void
   compareExportError: string | null
   onFindSimilar?: () => void
   canFindSimilar: boolean
@@ -72,6 +76,10 @@ export function OverviewSection({
   onCompareExportLabelsTextChange,
   compareExportEmbedMetadata,
   onCompareExportEmbedMetadataChange,
+  compareExportReverseOrder,
+  onCompareExportReverseOrderChange,
+  compareExportHighQualityGif,
+  onCompareExportHighQualityGifChange,
   compareExportBusy,
   compareExportMode,
   onComparisonExport,
@@ -96,6 +104,10 @@ export function OverviewSection({
       onCompareExportLabelsTextChange,
       compareExportEmbedMetadata,
       onCompareExportEmbedMetadataChange,
+      compareExportReverseOrder,
+      onCompareExportReverseOrderChange,
+      compareExportHighQualityGif,
+      onCompareExportHighQualityGifChange,
       compareExportBusy,
       compareExportMode,
       onComparisonExport,

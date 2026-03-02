@@ -30,7 +30,7 @@ import {
 } from '../features/browse/model/filters'
 import { useSidebars } from './layout/useSidebars'
 import { useQueryClient } from '@tanstack/react-query'
-import type { FilterAST, Item, SavedView, SortSpec, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, EmbeddingSearchRequest } from '../lib/types'
+import type { FilterAST, HealthMode, Item, SavedView, SortSpec, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, EmbeddingSearchRequest } from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
 import { safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
@@ -72,6 +72,8 @@ import {
   deriveIndexingBrowseMode,
   normalizeIndexingGeneration,
 } from './model/indexingBrowseMode'
+import { applyThemePreset, type ThemePresetId } from '../theme/runtime'
+import { loadWorkspaceThemePreset, writeStoredThemePreset } from '../theme/storage'
 
 // S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
 // - T13a data scope: folder/search/similarity loading + derived pools.
@@ -99,6 +101,11 @@ const INDEXING_MODE_STORAGE_KEYS = {
   recentGeneration: 'indexingMostRecentGeneration',
 } as const
 
+type AppShellProps = {
+  themeHealthMode: HealthMode | null
+  themeWorkspaceId: string | null
+}
+
 function readStoredGeneration(key: string): string | null {
   if (typeof window === 'undefined') return null
   try {
@@ -125,7 +132,10 @@ function prefetchFilesAndThumbs(paths: readonly string[], context: FullFilePrefe
   }
 }
 
-export default function AppShell() {
+export default function AppShell({
+  themeHealthMode,
+  themeWorkspaceId,
+}: AppShellProps) {
   // Navigation state
   const [current, setCurrent] = useState<string>('/')
   const [query, setQuery] = useState('')
@@ -164,6 +174,9 @@ export default function AppShell() {
   ))
   const [recentGeneration, setRecentGeneration] = useState<string | null>(() => (
     readStoredGeneration(INDEXING_MODE_STORAGE_KEYS.recentGeneration)
+  ))
+  const [themePreset, setThemePreset] = useState<ThemePresetId>(() => (
+    loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode)
   ))
   const [scanStableMode, setScanStableMode] = useState(false)
   
@@ -401,6 +414,16 @@ export default function AppShell() {
         : indexingBrowseMode.scanStableActive
     ))
   }, [indexingBrowseMode.scanStableActive])
+
+  useEffect(() => {
+    setThemePreset(loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode))
+  }, [themeHealthMode, themeWorkspaceId])
+
+  const handleThemePresetChange = useCallback((nextThemePreset: ThemePresetId) => {
+    const appliedTheme = applyThemePreset(nextThemePreset)
+    writeStoredThemePreset(themeWorkspaceId, themeHealthMode, appliedTheme)
+    setThemePreset(appliedTheme)
+  }, [themeHealthMode, themeWorkspaceId])
 
   const handleSwitchToMostRecent = useCallback(() => {
     const generation = normalizeIndexingGeneration(indexing?.generation) ?? scanGeneration
@@ -1163,6 +1186,8 @@ export default function AppShell() {
         onUploadClick={openUploadPicker}
         uploadBusy={uploading}
         uploadDisabled={compareOpen}
+        themePreset={themePreset}
+        onThemePresetChange={handleThemePresetChange}
         multiSelectMode={mobileSelectMode}
         selectedCount={selectedPaths.length}
         onToggleMultiSelectMode={mobileSelectEnabled ? (() => setMobileSelectMode((prev) => !prev)) : undefined}
@@ -1221,6 +1246,8 @@ export default function AppShell() {
           onChangeRange={handleMetricRange}
           onChangeFilters={handleFiltersChange}
           onResize={onResizeLeft}
+          themePreset={themePreset}
+          onThemePresetChange={handleThemePresetChange}
         />
       )}
       <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>

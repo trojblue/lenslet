@@ -2,6 +2,8 @@ import type { MouseEvent, PointerEvent } from 'react'
 import FolderTree from '../../features/folders/FolderTree'
 import MetricsPanel from '../../features/metrics/MetricsPanel'
 import type { FilterAST, FolderIndex, Item, SavedView } from '../../lib/types'
+import type { ThemePresetId } from '../../theme/runtime'
+import ThemeSettingsMenu from './ThemeSettingsMenu'
 
 type LeftSidebarProps = {
   leftTool: 'folders' | 'metrics'
@@ -30,6 +32,8 @@ type LeftSidebarProps = {
   onChangeRange: (key: string, range: { min: number; max: number } | null) => void
   onChangeFilters: (filters: FilterAST) => void
   onResize: (event: PointerEvent<HTMLDivElement>) => void
+  themePreset: ThemePresetId
+  onThemePresetChange: (themeId: ThemePresetId) => void
 }
 
 const ROOTS = [{ label: 'Root', path: '/' }]
@@ -68,6 +72,8 @@ export default function LeftSidebar({
   onChangeRange,
   onChangeFilters,
   onResize,
+  themePreset,
+  onThemePresetChange,
 }: LeftSidebarProps): JSX.Element {
   const folderButtonClass = getSidebarIconButtonClass(leftTool === 'folders')
   const metricsButtonClass = getSidebarIconButtonClass(leftTool === 'metrics')
@@ -130,6 +136,11 @@ export default function LeftSidebar({
             <path d="M12 .5C5.73.5.5 5.74.5 12.02c0 5.1 3.29 9.42 7.86 10.95.58.11.79-.25.79-.56v-2.17c-3.2.7-3.88-1.55-3.88-1.55-.53-1.35-1.29-1.71-1.29-1.71-1.05-.72.08-.71.08-.71 1.16.08 1.78 1.2 1.78 1.2 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.29-5.23-5.74 0-1.27.45-2.31 1.19-3.13-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.19.92-.26 1.91-.39 2.89-.39.98 0 1.97.13 2.89.39 2.2-1.5 3.18-1.19 3.18-1.19.63 1.59.23 2.76.11 3.05.74.82 1.19 1.86 1.19 3.13 0 4.46-2.69 5.45-5.25 5.73.41.36.78 1.07.78 2.16v3.2c0 .31.21.67.8.56 4.56-1.53 7.85-5.85 7.85-10.95C23.5 5.74 18.27.5 12 .5z" />
           </svg>
         </a>
+        <ThemeSettingsMenu
+          value={themePreset}
+          onChange={onThemePresetChange}
+          placement="sidebar"
+        />
       </div>
       <div className="ml-12 h-full overflow-hidden">
         {leftTool === 'folders' ? (

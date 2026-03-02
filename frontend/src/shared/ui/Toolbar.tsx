@@ -7,6 +7,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery'
 import SortDirectionIcon from './toolbar/SortDirectionIcon'
 import ToolbarFilterMenu from './toolbar/ToolbarFilterMenu'
 import ToolbarMobileDrawer from './toolbar/ToolbarMobileDrawer'
+import type { ThemePresetId } from '../../theme/runtime'
 
 export interface ToolbarProps {
   rootRef?: React.RefObject<HTMLDivElement>
@@ -46,6 +47,8 @@ export interface ToolbarProps {
   onUploadClick?: () => void
   uploadBusy?: boolean
   uploadDisabled?: boolean
+  themePreset: ThemePresetId
+  onThemePresetChange: (themeId: ThemePresetId) => void
   multiSelectMode?: boolean
   selectedCount?: number
   onToggleMultiSelectMode?: () => void
@@ -90,6 +93,8 @@ export default function Toolbar({
   onUploadClick,
   uploadBusy = false,
   uploadDisabled = false,
+  themePreset,
+  onThemePresetChange,
   multiSelectMode = false,
   selectedCount = 0,
   onToggleMultiSelectMode,
@@ -440,11 +445,13 @@ export default function Toolbar({
           selectModeLabel={selectModeLabel}
           uploadBusy={uploadBusy}
           uploadDisabled={uploadDisabled}
+          themePreset={themePreset}
           onViewMode={onViewMode}
           onSortChange={(value) => onSortChange?.(parseSort(value, effectiveSort))}
           onToggleSortDir={handleSortDirToggle}
           onToggleMultiSelectMode={onToggleMultiSelectMode}
           onUploadClick={onUploadClick}
+          onThemePresetChange={onThemePresetChange}
         />
       )}
     </div>

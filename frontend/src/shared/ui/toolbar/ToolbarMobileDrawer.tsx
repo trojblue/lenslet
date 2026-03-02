@@ -2,6 +2,8 @@ import React from 'react'
 import Dropdown, { type DropdownGroup } from '../Dropdown'
 import SortDirectionIcon from './SortDirectionIcon'
 import type { ViewMode } from '../../../lib/types'
+import type { ThemePresetId } from '../../../theme/runtime'
+import ThemeSettingsMenu from '../../../app/components/ThemeSettingsMenu'
 
 export interface ToolbarMobileDrawerProps {
   viewMode?: ViewMode
@@ -16,11 +18,13 @@ export interface ToolbarMobileDrawerProps {
   selectModeLabel: string
   uploadBusy: boolean
   uploadDisabled: boolean
+  themePreset: ThemePresetId
   onViewMode?: (value: ViewMode) => void
   onSortChange?: (value: string) => void
   onToggleSortDir: () => void
   onToggleMultiSelectMode?: () => void
   onUploadClick?: () => void
+  onThemePresetChange: (themeId: ThemePresetId) => void
 }
 
 export default function ToolbarMobileDrawer({
@@ -36,11 +40,13 @@ export default function ToolbarMobileDrawer({
   selectModeLabel,
   uploadBusy,
   uploadDisabled,
+  themePreset,
   onViewMode,
   onSortChange,
   onToggleSortDir,
   onToggleMultiSelectMode,
   onUploadClick,
+  onThemePresetChange,
 }: ToolbarMobileDrawerProps): JSX.Element {
   return (
     <div className="mobile-drawer">
@@ -90,6 +96,11 @@ export default function ToolbarMobileDrawer({
             {selectModeLabel}
           </button>
         )}
+        <ThemeSettingsMenu
+          value={themePreset}
+          onChange={onThemePresetChange}
+          placement="mobile"
+        />
         {onUploadClick && (
           <button
             className={`mobile-pill ${uploadDisabled || uploadBusy ? 'opacity-50 cursor-not-allowed' : ''}`}

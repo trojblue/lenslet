@@ -12,6 +12,7 @@ Lenslet is a self-contained image gallery server designed for simplicity and spe
 ## Features
 
 - **Workspace-aware**: Persists UI state (Smart Folders/views) and optional thumbnail cache under `.lenslet/` (or `<parquet>.lenslet.json`)
+- **Workspace themes**: Browse mode supports `Original`, `Teal`, and `Charcoal` presets persisted per workspace, with matching dynamic tab favicon accents
 - **Read-only sources**: Never writes into your image directories or S3 buckets
 - **Local + S3 + HTTP**: Mix local files, `s3://` URIs, and URLs with smart source parsing
 - **Metrics & filtering**: Sort/filter by numeric metrics from Parquet (histograms + range brushing)

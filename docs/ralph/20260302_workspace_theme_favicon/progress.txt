@@ -29,3 +29,32 @@ Plan: /local/yada/dev/lenslet/docs/20260302_workspace_theme_favicon_execution_pl
   - cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/ -> PASS
 - Blockers: none.
 - Next step: start Sprint 2 at T5 (shared ThemeSettingsMenu + desktop mount), then T6 mobile mount.
+## Iteration 2 (2026-03-02T16:38:43Z)
+- Completed task IDs: T5, T6, T7, T8.
+- Files changed:
+  - frontend/src/app/AppModeRouter.tsx
+  - frontend/src/app/AppShell.tsx
+  - frontend/src/app/boot/bootTheme.ts
+  - frontend/src/app/components/LeftSidebar.tsx
+  - frontend/src/app/components/ThemeSettingsMenu.tsx
+  - frontend/src/app/components/__tests__/ThemeSettingsMenu.test.tsx
+  - frontend/src/shared/ui/Toolbar.tsx
+  - frontend/src/shared/ui/toolbar/ToolbarMobileDrawer.tsx
+  - frontend/src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx
+  - frontend/src/styles.css
+  - frontend/src/theme/__tests__/workspaceBehavior.test.ts
+  - docs/theme_variants.md
+  - README.md
+  - src/lenslet/frontend/index.html
+  - src/lenslet/frontend/assets/index--49dMz8-.js
+  - src/lenslet/frontend/assets/index-CwDJF2-A.css
+  - docs/20260302_workspace_theme_favicon_execution_plan.md
+- Validations run:
+  - cd frontend && npm run test -- src/app/boot/__tests__/bootHealth.test.ts src/app/components/__tests__/ThemeSettingsMenu.test.tsx src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx src/theme/__tests__/runtime.test.ts src/theme/__tests__/storage.test.ts src/theme/__tests__/workspaceBehavior.test.ts -> PASS (24 passed)
+  - cd frontend && npx tsc --noEmit -> PASS
+  - cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/ -> PASS
+  - python scripts/lint_repo.py -> PASS (warn-only large-file notices)
+  - python scripts/gui_smoke_acceptance.py -> PASS
+  - ad-hoc Playwright acceptance transcript (two live workspaces + mobile mount + fresh-context default) -> PASS
+- Blockers: none.
+- Next step: all planned sprint tasks are complete; finalize and close loop.

@@ -96,15 +96,19 @@ Sprint plan and tasks:
 
    T5. Implement shared `ThemeSettingsMenu` UI logic and mount it under a new cog button below GitHub icon in left rail.
    Validation: component tests for open/close, selection, keyboard escape, and outside-click close.
+   Status: completed in iteration 2 (2026-03-02).
 
    T6. Mount the same shared `ThemeSettingsMenu` in the mobile drawer path (no duplicated state logic).
    Validation: narrow-screen component test and manual responsive check.
+   Status: completed in iteration 2 (2026-03-02).
 
    T7. Add targeted tests and acceptance checks for per-workspace persistence behavior, no-regression default theme behavior, and tab favicon differentiation between two workspaces.
    Validation: frontend targeted tests plus recorded real-scenario acceptance transcript.
+   Status: completed in iteration 2 (2026-03-02).
 
    T8. Update docs with only shipped preset set, persistence behavior, and favicon behavior; run final build/lint/smoke and write handoff notes.
    Validation: docs/code consistency check, frontend build sync, lint, and browse smoke acceptance.
+   Status: completed in iteration 2 (2026-03-02).
 
 
 ## Validation and Acceptance
@@ -126,7 +130,7 @@ Secondary acceptance gates:
 
 1. Targeted frontend tests.
 
-    cd frontend && npm run test -- src/app src/shared/ui src/lib
+    cd frontend && npm run test -- src/app/boot/__tests__/bootHealth.test.ts src/app/components/__tests__/ThemeSettingsMenu.test.tsx src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx src/theme/__tests__/runtime.test.ts src/theme/__tests__/storage.test.ts src/theme/__tests__/workspaceBehavior.test.ts
 
 2. Typecheck.
 
@@ -171,6 +175,11 @@ Idempotent retry strategy relies on pure reapplication semantics for token and f
 - [x] 2026-03-02 15:44:08Z Sprint 1 targeted validations passed for new work: backend workspace-id contract test (`3 passed`), frontend boot/runtime/storage tests (`14 passed`), and frontend typecheck (`npx tsc --noEmit` clean).
 - [x] 2026-03-02 16:03:26Z Sprint 1 cleanup/review loop completed: required `code-simplifier` pass executed; first `code-review` pass found table workspace-id collision risk and 32-bit key collision risk; fixes applied (table seed includes browse signature when root is shared, storage hash upgraded to 64-bit); second `code-review` pass reported no actionable findings.
 - [x] 2026-03-02 16:03:26Z Post-fix validations passed: `pytest tests/test_indexing_health_contract.py -k "workspace_id or table_workspace_id" -q` (`4 passed`), frontend targeted tests (`14 passed`), `cd frontend && npx tsc --noEmit` clean, `python scripts/lint_repo.py` pass, and frontend build+sync completed (`npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/`).
+- [x] 2026-03-02 16:38:43Z Sprint 2 implementation executed for T5-T8: shared `ThemeSettingsMenu` landed, mounted in desktop left-rail cog and mobile drawer, workspace-aware theme state wired through boot/app shell, docs updated to shipped preset/persistence/favicon behavior, and frontend shipping bundle regenerated.
+- [x] 2026-03-02 16:38:43Z Sprint 2 targeted checks passed: frontend targeted tests (`24 passed`), `cd frontend && npx tsc --noEmit` clean, and workspace behavior assertions added for per-workspace persistence/default/fav differentiation.
+- [x] 2026-03-02 16:38:43Z Primary acceptance gates logged from live run: two browse workspaces on separate ports passed with distinct dynamic favicon accents and reload persistence; both settings mounts (left-rail cog + mobile drawer) were functional; fresh context preserved default theme/fav behavior; storage key leakage/stability remained covered by storage key tests.
+- [x] 2026-03-02 16:38:43Z Sprint 2 cleanup/review loop completed: required `code-simplifier` pass executed (non-semantic simplification in `ThemeSettingsMenu`), first `code-review` pass flagged mobile panel clipping risk (fixed via portal/fixed panel positioning and viewport-clamped placement helper), second `code-review` pass reported no sprint-introduced actionable findings.
+- [x] 2026-03-02 16:38:43Z Post-fix validations passed: frontend targeted tests (`24 passed`), `cd frontend && npx tsc --noEmit` clean, frontend build+sync completed (`npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/`), `python scripts/lint_repo.py` pass, and `python scripts/gui_smoke_acceptance.py` pass.
 
 
 ## Artifacts and Handoff
@@ -186,17 +195,29 @@ Planned implementation touchpoints:
     frontend/src/app/AppModeRouter.tsx
     frontend/src/app/boot/bootHealth.ts
     frontend/src/app/boot/bootTheme.ts
+    frontend/src/app/components/LeftSidebar.tsx
+    frontend/src/app/components/ThemeSettingsMenu.tsx
+    frontend/src/shared/ui/Toolbar.tsx
+    frontend/src/shared/ui/toolbar/ToolbarMobileDrawer.tsx
     frontend/src/theme/runtime.ts
     frontend/src/theme/storage.ts
+    frontend/src/styles.css
+    docs/theme_variants.md
+    README.md
     tests/test_indexing_health_contract.py
     frontend/src/app/boot/__tests__/bootHealth.test.ts
+    frontend/src/app/components/__tests__/ThemeSettingsMenu.test.tsx
+    frontend/src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx
     frontend/src/theme/__tests__/runtime.test.ts
     frontend/src/theme/__tests__/storage.test.ts
+    frontend/src/theme/__tests__/workspaceBehavior.test.ts
     src/lenslet/frontend/index.html
     src/lenslet/frontend/assets/*
 
 Sprint 1 handoff note (closed 2026-03-02): browse-mode workspace identity contract, boot-time theme/fav apply, runtime theming engine, and workspace-scoped persistence keying are complete and validated for the sprint scope.
 
 Sprint 2 start note: implement shared `ThemeSettingsMenu` UI once under left-rail cog and once under mobile drawer mount, reusing Sprint 1 runtime/storage APIs without duplicating state logic.
+
+Sprint 2 handoff note (closed 2026-03-02): shared browse theme settings are now available from desktop and mobile mounts with one state path, workspace-scoped persistence is validated in targeted tests plus live two-workspace acceptance, dynamic favicon differentiation is verified end-to-end, and docs/shipping assets are synchronized.
 
 Revision note (2026-03-02): tightened scope and validation after required subagent review to remove ambiguity and prevent overbuild while preserving robustness.

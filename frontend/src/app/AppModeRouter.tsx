@@ -7,6 +7,8 @@ import { applyThemeFromBootHealth, commitBootHealth, type AppBootState } from '.
 export default function AppModeRouter() {
   const [bootState, setBootState] = useState<AppBootState>({
     mode: 'browse',
+    healthMode: null,
+    workspaceId: null,
     loading: true,
     error: null,
   })
@@ -21,6 +23,8 @@ export default function AppModeRouter() {
         const message = error instanceof Error ? error.message : 'health check failed'
         setBootState({
           mode: 'browse',
+          healthMode: null,
+          workspaceId: null,
           loading: false,
           error: message,
         })
@@ -43,7 +47,10 @@ export default function AppModeRouter() {
           Health check failed; using browse mode fallback. ({bootState.error})
         </div>
       ) : null}
-      <AppShell />
+      <AppShell
+        themeHealthMode={bootState.healthMode}
+        themeWorkspaceId={bootState.workspaceId}
+      />
     </>
   )
 }

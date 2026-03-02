@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 import time
 from pathlib import Path
@@ -185,3 +186,70 @@ def test_health_reports_compare_export_capability_contract(tmp_path: Path) -> No
     compare_export = health.json().get("compare_export", {})
     assert compare_export.get("supported_versions") == [1, 2]
     assert compare_export.get("max_paths_v2") == MAX_EXPORT_COMPARISON_PATHS_V2
+
+
+@pytest.mark.parametrize(
+    "build_app",
+    [
+        pytest.param(
+            lambda root: create_app(str(root / "memory")),
+            id="memory",
+        ),
+        pytest.param(
+            lambda root: create_app_from_table(
+                [{"path": "/gallery/a.jpg", "source": str(root / "table" / "gallery" / "a.jpg")}],
+                base_dir=str(root / "table"),
+            ),
+            id="table",
+        ),
+        pytest.param(
+            lambda root: create_app_from_datasets(
+                {"demo": [str(root / "dataset" / "gallery" / "a.jpg")]},
+            ),
+            id="dataset",
+        ),
+    ],
+)
+def test_browse_modes_health_report_deterministic_workspace_id(
+    tmp_path: Path,
+    build_app,
+) -> None:
+    _make_image(tmp_path / "memory" / "a.jpg")
+    _make_image(tmp_path / "table" / "gallery" / "a.jpg")
+    _make_image(tmp_path / "dataset" / "gallery" / "a.jpg")
+    app = build_app(tmp_path)
+
+    with TestClient(app) as client:
+        first = client.get("/health")
+        second = client.get("/health")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    workspace_id = first.json().get("workspace_id")
+    assert isinstance(workspace_id, str)
+    assert re.fullmatch(r"[0-9a-f]{24}", workspace_id) is not None
+    assert workspace_id == second.json().get("workspace_id")
+
+
+def test_table_workspace_id_differs_for_distinct_tables_with_same_base_dir(tmp_path: Path) -> None:
+    base_dir = tmp_path / "table"
+    source_a = base_dir / "gallery" / "a.jpg"
+    source_b = base_dir / "gallery" / "b.jpg"
+    _make_image(source_a)
+    _make_image(source_b)
+
+    app_a = create_app_from_table(
+        [{"path": "/gallery/a.jpg", "source": str(source_a)}],
+        base_dir=str(base_dir),
+    )
+    app_b = create_app_from_table(
+        [{"path": "/gallery/b.jpg", "source": str(source_b)}],
+        base_dir=str(base_dir),
+    )
+
+    with TestClient(app_a) as client_a:
+        workspace_id_a = client_a.get("/health").json()["workspace_id"]
+    with TestClient(app_b) as client_b:
+        workspace_id_b = client_b.get("/health").json()["workspace_id"]
+
+    assert workspace_id_a != workspace_id_b

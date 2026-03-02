@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 from pathlib import Path
@@ -212,13 +213,14 @@ def _base_health_payload(
     app: FastAPI,
     *,
     mode: str,
+    workspace_id: str | None,
     storage_origin: str | None,
     storage,
     workspace: Workspace,
     runtime: AppRuntime,
     prune_interval_fallback: float,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "ok": True,
         "mode": mode,
         "can_write": workspace.can_write,
@@ -237,6 +239,31 @@ def _base_health_payload(
         ),
         "hotpath": runtime.hotpath_metrics.snapshot(storage),
     }
+    if workspace_id:
+        payload["workspace_id"] = workspace_id
+    return payload
+
+
+def _opaque_workspace_id(seed: str) -> str:
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
+
+
+def _workspace_id_for_root_path(root_path: str) -> str:
+    return _opaque_workspace_id(f"browse-root:{Path(root_path).resolve()}")
+
+
+def _workspace_id_for_dataset_storage(storage: DatasetStorage) -> str:
+    return _opaque_workspace_id(f"dataset-signature:{storage.browse_cache_signature()}")
+
+
+def _workspace_id_for_table_storage(storage: TableStorage, workspace: Workspace) -> str:
+    if workspace.views_path is not None:
+        return _opaque_workspace_id(f"table-views-path:{workspace.views_path.resolve()}")
+    if storage.root:
+        return _opaque_workspace_id(
+            f"table-root:{Path(storage.root).resolve()}|signature:{storage.browse_cache_signature()}",
+        )
+    return _opaque_workspace_id(f"table-signature:{storage.browse_cache_signature()}")
 
 
 def _refresh_health_payload(
@@ -643,6 +670,7 @@ def create_app(
             **_base_health_payload(
                 app,
                 mode=storage_mode,
+                workspace_id=_workspace_id_for_root_path(root_path),
                 storage_origin=storage_origin,
                 storage=storage_proxy,
                 workspace=workspace,
@@ -805,6 +833,7 @@ def create_app_from_datasets(
             **_base_health_payload(
                 app,
                 mode="dataset",
+                workspace_id=_workspace_id_for_dataset_storage(storage),
                 storage_origin="dataset",
                 storage=storage,
                 workspace=workspace,
@@ -957,6 +986,7 @@ def create_app_from_storage(
             **_base_health_payload(
                 app,
                 mode="table",
+                workspace_id=_workspace_id_for_table_storage(storage, workspace),
                 storage_origin="table",
                 storage=storage,
                 workspace=workspace,

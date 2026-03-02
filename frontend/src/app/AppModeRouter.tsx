@@ -1,33 +1,21 @@
 import { useEffect, useState } from 'react'
 import AppShell from './AppShell'
 import RankingApp from '../features/ranking/RankingApp'
-import { BASE } from '../api/base'
-import { fetchJSON } from '../lib/fetcher'
-import type { HealthResponse } from '../lib/types'
-import { deriveAppModeFromHealth, type AppMode } from './model/appMode'
-
-type BootState = {
-  mode: AppMode
-  loading: boolean
-  error: string | null
-}
+import { requestBootHealth } from './boot/bootHealth'
+import { applyThemeFromBootHealth, commitBootHealth, type AppBootState } from './boot/bootTheme'
 
 export default function AppModeRouter() {
-  const [bootState, setBootState] = useState<BootState>({
+  const [bootState, setBootState] = useState<AppBootState>({
     mode: 'browse',
     loading: true,
     error: null,
   })
 
   useEffect(() => {
-    const request = fetchJSON<HealthResponse>(`${BASE}/health`)
+    const request = requestBootHealth()
     request.promise
-      .then((health) => {
-        setBootState({
-          mode: deriveAppModeFromHealth(health),
-          loading: false,
-          error: null,
-        })
+      .then((bootHealth) => {
+        commitBootHealth(bootHealth, applyThemeFromBootHealth, setBootState)
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : 'health check failed'

@@ -178,6 +178,7 @@ export type ImageMetadataResponse = {
 }
 
 export type ExportComparisonLabelsV1 = [string] | [string, string]
+export type ExportComparisonOutputFormat = 'png' | 'gif'
 
 export type ExportComparisonRequestV1 = {
   v: 1
@@ -185,6 +186,7 @@ export type ExportComparisonRequestV1 = {
   labels?: ExportComparisonLabelsV1
   embed_metadata?: boolean
   reverse_order?: boolean
+  output_format?: ExportComparisonOutputFormat
 }
 
 export type ExportComparisonRequestV2 = {
@@ -193,6 +195,7 @@ export type ExportComparisonRequestV2 = {
   labels?: string[]
   embed_metadata?: boolean
   reverse_order?: boolean
+  output_format?: ExportComparisonOutputFormat
 }
 
 export type ExportComparisonRequest = ExportComparisonRequestV1 | ExportComparisonRequestV2

@@ -15,8 +15,8 @@ interface SelectionExportSectionProps {
   compareExportEmbedMetadata: boolean
   onCompareExportEmbedMetadataChange: (checked: boolean) => void
   compareExportBusy: boolean
-  compareExportMode: 'normal' | 'reverse' | null
-  onComparisonExport: (reverseOrder: boolean) => void
+  compareExportMode: 'png' | 'png-reverse' | 'gif' | 'gif-reverse' | null
+  onComparisonExport: (reverseOrder: boolean, outputFormat: 'png' | 'gif') => void
   compareExportError: string | null
 }
 
@@ -96,20 +96,37 @@ export function SelectionExportSection({
         <button
           type="button"
           className="btn btn-sm"
-          onClick={() => onComparisonExport(false)}
+          onClick={() => onComparisonExport(false, 'png')}
           disabled={exportDisabled}
         >
-          {compareExportMode === 'normal' ? 'Exporting…' : 'Export comparison'}
+          {compareExportMode === 'png' ? 'Exporting…' : 'Export comparison'}
         </button>
         <button
           type="button"
           className="btn btn-sm btn-ghost"
-          onClick={() => onComparisonExport(true)}
+          onClick={() => onComparisonExport(true, 'png')}
           disabled={exportDisabled}
         >
-          {compareExportMode === 'reverse' ? 'Exporting…' : 'Export (reverse order)'}
+          {compareExportMode === 'png-reverse' ? 'Exporting…' : 'Export (reverse order)'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => onComparisonExport(false, 'gif')}
+          disabled={exportDisabled}
+        >
+          {compareExportMode === 'gif' ? 'Exporting…' : 'Export GIF slideshow'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm btn-ghost"
+          onClick={() => onComparisonExport(true, 'gif')}
+          disabled={exportDisabled}
+        >
+          {compareExportMode === 'gif-reverse' ? 'Exporting…' : 'Export GIF (reverse)'}
         </button>
       </div>
+      <div className="text-[11px] text-muted">GIF mode: 1.5s/frame, max 720px long side, capped to 8MB.</div>
       {disabledReason && (
         <div className="text-[11px] text-muted">{disabledReason}</div>
       )}

@@ -164,23 +164,38 @@ def register_common_api_routes(
                 image, source_format = _server._load_export_image(storage, path)
                 images.append(image)
                 source_formats.append(source_format)
-            exported_png = _server._build_export_png(
-                images,
-                ordered_labels,
-                embed_metadata=body.embed_metadata,
-                ordered_paths=ordered_paths,
-                source_formats=source_formats,
-                reversed_order=body.reverse_order,
-            )
+            if body.output_format == "gif":
+                exported_content = _server._build_export_gif(
+                    images,
+                    ordered_labels,
+                    embed_metadata=body.embed_metadata,
+                    ordered_paths=ordered_paths,
+                    source_formats=source_formats,
+                    reversed_order=body.reverse_order,
+                )
+                media_type = "image/gif"
+            else:
+                exported_content = _server._build_export_png(
+                    images,
+                    ordered_labels,
+                    embed_metadata=body.embed_metadata,
+                    ordered_paths=ordered_paths,
+                    source_formats=source_formats,
+                    reversed_order=body.reverse_order,
+                )
+                media_type = "image/png"
         except HTTPException as exc:
             return _server._comparison_export_error_response(exc)
         finally:
             for image in images:
                 image.close()
 
-        filename = _server._comparison_export_filename(body.reverse_order)
+        filename = _server._comparison_export_filename(
+            body.reverse_order,
+            output_format=body.output_format,
+        )
         headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
-        return Response(content=exported_png, media_type="image/png", headers=headers)
+        return Response(content=exported_content, media_type=media_type, headers=headers)
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request):

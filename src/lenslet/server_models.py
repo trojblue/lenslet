@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 Mime = Literal["image/webp", "image/jpeg", "image/png"]
+ExportComparisonOutputFormat = Literal["png", "gif"]
 
 
 class Item(BaseModel):
@@ -103,6 +104,7 @@ class _ExportComparisonRequestBase(BaseModel):
     labels: list[str] | None = None
     embed_metadata: bool = True
     reverse_order: bool = False
+    output_format: ExportComparisonOutputFormat = "png"
 
 
 class ExportComparisonRequestV1(_ExportComparisonRequestBase):

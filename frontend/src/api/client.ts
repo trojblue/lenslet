@@ -689,7 +689,7 @@ export const api = {
   },
 
   /**
-   * Export a side-by-side comparison PNG for two image paths.
+   * Export comparison output (PNG strip or GIF slideshow) for selected image paths.
    */
   exportComparison: (body: ExportComparisonRequest): Promise<Blob> => {
     return fetchBlob(`${BASE}/export-comparison`, {

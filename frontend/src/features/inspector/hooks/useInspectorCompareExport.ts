@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { downloadBlob } from '../../../app/utils/appShellHelpers'
+import type { ExportComparisonOutputFormat } from '../../../lib/types'
 import { api } from '../../../shared/api/client'
 import {
   type ExportComparisonPayloadResult,
@@ -23,12 +24,12 @@ type UseInspectorCompareExportParams = {
 type UseInspectorCompareExportResult = {
   compareExportLabelsText: string
   compareExportEmbedMetadata: boolean
-  compareExportMode: 'normal' | 'reverse' | null
+  compareExportMode: 'png' | 'png-reverse' | 'gif' | 'gif-reverse' | null
   compareExportError: string | null
   compareExportBusy: boolean
   handleCompareExportLabelsTextChange: (value: string) => void
   handleCompareExportEmbedMetadataChange: (checked: boolean) => void
-  runComparisonExport: (reverseOrder: boolean) => Promise<void>
+  runComparisonExport: (reverseOrder: boolean, outputFormat: ExportComparisonOutputFormat) => Promise<void>
 }
 
 type BuildInspectorComparisonExportPayloadArgs = {
@@ -40,6 +41,7 @@ type BuildInspectorComparisonExportPayloadArgs = {
   labelsText: string
   embedMetadata: boolean
   reverseOrder: boolean
+  outputFormat: ExportComparisonOutputFormat
 }
 
 function resolveComparisonPairPaths({
@@ -68,6 +70,7 @@ export function buildInspectorComparisonExportPayload({
   labelsText,
   embedMetadata,
   reverseOrder,
+  outputFormat,
 }: BuildInspectorComparisonExportPayloadArgs): ExportComparisonPayloadResult {
   const selectedCount = selectedPaths.length
   if (selectedCount < 2) {
@@ -90,6 +93,7 @@ export function buildInspectorComparisonExportPayload({
       labelsText,
       embedMetadata,
       reverseOrder,
+      outputFormat,
     })
   }
 
@@ -107,6 +111,7 @@ export function buildInspectorComparisonExportPayload({
     labelsText,
     embedMetadata,
     reverseOrder,
+    outputFormat,
   })
 }
 
@@ -121,7 +126,7 @@ export function useInspectorCompareExport({
   const [compareExportEmbedMetadata, setCompareExportEmbedMetadata] = useState(
     DEFAULT_EXPORT_COMPARISON_EMBED_METADATA,
   )
-  const [compareExportMode, setCompareExportMode] = useState<'normal' | 'reverse' | null>(null)
+  const [compareExportMode, setCompareExportMode] = useState<'png' | 'png-reverse' | 'gif' | 'gif-reverse' | null>(null)
   const [compareExportError, setCompareExportError] = useState<string | null>(null)
   const compareExportBusy = compareExportMode !== null
 
@@ -146,8 +151,16 @@ export function useInspectorCompareExport({
     setCompareExportEmbedMetadata(checked)
   }, [])
 
+  const resolveCompareExportMode = useCallback(
+    (reverseOrder: boolean, outputFormat: ExportComparisonOutputFormat) => {
+      if (outputFormat === 'gif') return reverseOrder ? 'gif-reverse' : 'gif'
+      return reverseOrder ? 'png-reverse' : 'png'
+    },
+    [],
+  )
+
   const runComparisonExport = useCallback(
-    async (reverseOrder: boolean) => {
+    async (reverseOrder: boolean, outputFormat: ExportComparisonOutputFormat) => {
       if (compareExportBusy) return
       const selectedCount = selectedPaths.length
 
@@ -165,17 +178,18 @@ export function useInspectorCompareExport({
         labelsText: compareExportLabelsText,
         embedMetadata: compareExportEmbedMetadata,
         reverseOrder,
+        outputFormat,
       })
       if (!payloadResult.ok) {
         setCompareExportError(payloadResult.message)
         return
       }
 
-      setCompareExportMode(reverseOrder ? 'reverse' : 'normal')
+      setCompareExportMode(resolveCompareExportMode(reverseOrder, outputFormat))
       setCompareExportError(null)
       try {
         const blob = await api.exportComparison(payloadResult.payload)
-        downloadBlob(blob, buildComparisonExportFilename(reverseOrder))
+        downloadBlob(blob, buildComparisonExportFilename(reverseOrder, outputFormat))
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to export comparison.'
         setCompareExportError(msg)
@@ -191,6 +205,7 @@ export function useInspectorCompareExport({
       compareExportSupportsV2,
       comparePathA,
       comparePathB,
+      resolveCompareExportMode,
       selectedPaths,
     ],
   )

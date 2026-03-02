@@ -445,8 +445,8 @@ export default function Inspector({
   const handleToggleCompareShowPilInfoB = useCallback(() => {
     setCompareShowPilInfoB((prev) => !prev)
   }, [setCompareShowPilInfoB])
-  const handleComparisonExport = useCallback((reverseOrder: boolean) => {
-    void runComparisonExport(reverseOrder)
+  const handleComparisonExport = useCallback((reverseOrder: boolean, outputFormat: 'png' | 'gif') => {
+    void runComparisonExport(reverseOrder, outputFormat)
   }, [runComparisonExport])
 
   const showNotesConflictBanner = !multi && !!conflict && (conflictFields.tags || conflictFields.notes)

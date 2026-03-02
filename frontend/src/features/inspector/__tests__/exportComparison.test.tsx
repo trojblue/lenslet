@@ -23,6 +23,7 @@ describe('comparison export helpers', () => {
       labelsText: 'Prompt A\nPrompt B',
       embedMetadata: true,
       reverseOrder: false,
+      outputFormat: 'png',
     })
 
     expect(result.ok).toBe(true)
@@ -31,6 +32,7 @@ describe('comparison export helpers', () => {
     expect(result.payload.labels).toEqual(['Prompt A', 'Prompt B'])
     expect(result.payload.reverse_order).toBe(false)
     expect(result.payload.embed_metadata).toBe(true)
+    expect(result.payload.output_format).toBe('png')
   })
 
   it('preserves second-line mapping when first line is blank', () => {
@@ -40,6 +42,7 @@ describe('comparison export helpers', () => {
       labelsText: '\nPrompt B',
       embedMetadata: true,
       reverseOrder: false,
+      outputFormat: 'png',
     })
 
     expect(result.ok).toBe(true)
@@ -54,6 +57,7 @@ describe('comparison export helpers', () => {
       labelsText: 'A\nB\nC',
       embedMetadata: true,
       reverseOrder: false,
+      outputFormat: 'png',
     })
 
     expect(result.ok).toBe(false)
@@ -68,6 +72,7 @@ describe('comparison export helpers', () => {
       labelsText: '',
       embedMetadata: true,
       reverseOrder: false,
+      outputFormat: 'png',
     })
 
     expect(result.ok).toBe(false)
@@ -82,6 +87,7 @@ describe('comparison export helpers', () => {
       labelsText: 'A\nB',
       embedMetadata: false,
       reverseOrder: true,
+      outputFormat: 'png',
     })
 
     expect(result.ok).toBe(true)
@@ -89,12 +95,14 @@ describe('comparison export helpers', () => {
     expect(result.payload.reverse_order).toBe(true)
     expect(result.payload.paths).toEqual(['/a.png', '/b.png'])
     expect(result.payload.labels).toEqual(['A', 'B'])
+    expect(result.payload.output_format).toBe('png')
   })
 
   it('builds ASCII-safe timestamped filenames', () => {
     const at = new Date('2026-02-08T03:54:37Z')
-    expect(buildComparisonExportFilename(false, at)).toBe('comparison_20260208_035437.png')
-    expect(buildComparisonExportFilename(true, at)).toBe('comparison_reverse_20260208_035437.png')
+    expect(buildComparisonExportFilename(false, 'png', at)).toBe('comparison_20260208_035437.png')
+    expect(buildComparisonExportFilename(true, 'png', at)).toBe('comparison_reverse_20260208_035437.png')
+    expect(buildComparisonExportFilename(false, 'gif', at)).toBe('comparison_20260208_035437.gif')
   })
 
   it('builds v2 payloads for multi-image exports', () => {
@@ -103,6 +111,7 @@ describe('comparison export helpers', () => {
       labelsText: 'A\nB\nC',
       embedMetadata: false,
       reverseOrder: true,
+      outputFormat: 'png',
     })
 
     expect(result.ok).toBe(true)
@@ -112,6 +121,22 @@ describe('comparison export helpers', () => {
     expect(result.payload.labels).toEqual(['A', 'B', 'C'])
     expect(result.payload.embed_metadata).toBe(false)
     expect(result.payload.reverse_order).toBe(true)
+    expect(result.payload.output_format).toBe('png')
+  })
+
+  it('builds GIF payloads when slideshow mode is requested', () => {
+    const result = buildExportComparisonPayload({
+      pathA: '/a.png',
+      pathB: '/b.png',
+      labelsText: 'A\nB',
+      embedMetadata: true,
+      reverseOrder: false,
+      outputFormat: 'gif',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.payload.output_format).toBe('gif')
   })
 
   it('rejects v2 payloads outside the supported path range', () => {
@@ -120,6 +145,7 @@ describe('comparison export helpers', () => {
       labelsText: '',
       embedMetadata: true,
       reverseOrder: false,
+      outputFormat: 'png',
     })
     expect(tooFew.ok).toBe(false)
     if (tooFew.ok) return
@@ -130,6 +156,7 @@ describe('comparison export helpers', () => {
       labelsText: '',
       embedMetadata: true,
       reverseOrder: false,
+      outputFormat: 'png',
     })
     expect(hasBlank.ok).toBe(false)
     if (hasBlank.ok) return
@@ -142,6 +169,7 @@ describe('comparison export helpers', () => {
       labelsText: 'A\nB\nC\nD',
       embedMetadata: true,
       reverseOrder: false,
+      outputFormat: 'png',
     })
 
     expect(result.ok).toBe(false)
@@ -181,6 +209,7 @@ describe('comparison export helpers', () => {
       labelsText: '',
       embedMetadata: true,
       reverseOrder: false,
+      outputFormat: 'png',
     })
 
     expect(result.ok).toBe(true)
@@ -199,6 +228,7 @@ describe('comparison export helpers', () => {
       labelsText: '',
       embedMetadata: true,
       reverseOrder: false,
+      outputFormat: 'png',
     })
 
     expect(result.ok).toBe(false)

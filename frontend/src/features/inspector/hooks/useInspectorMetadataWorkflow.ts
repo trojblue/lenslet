@@ -1,4 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
+import type { ExportComparisonOutputFormat } from '../../../lib/types'
 import { useInspectorCompareExport } from './useInspectorCompareExport'
 import { useInspectorCompareMetadata } from './useInspectorCompareMetadata'
 import { useInspectorSingleMetadata } from './useInspectorSingleMetadata'
@@ -30,7 +31,7 @@ type UseInspectorMetadataWorkflowResult = {
   compareShowPilInfoB: boolean
   compareExportLabelsText: string
   compareExportEmbedMetadata: boolean
-  compareExportMode: 'normal' | 'reverse' | null
+  compareExportMode: 'png' | 'png-reverse' | 'gif' | 'gif-reverse' | null
   compareExportError: string | null
   compareExportBusy: boolean
   setShowPilInfo: Dispatch<SetStateAction<boolean>>
@@ -41,7 +42,7 @@ type UseInspectorMetadataWorkflowResult = {
   reloadCompareMetadata: () => void
   handleCompareExportLabelsTextChange: (value: string) => void
   handleCompareExportEmbedMetadataChange: (checked: boolean) => void
-  runComparisonExport: (reverseOrder: boolean) => Promise<void>
+  runComparisonExport: (reverseOrder: boolean, outputFormat: ExportComparisonOutputFormat) => Promise<void>
 }
 
 export function useInspectorMetadataWorkflow({

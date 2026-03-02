@@ -22,6 +22,7 @@ describe('exportComparison api contract', () => {
       labels: ['Prompt A', 'Prompt B'],
       embed_metadata: true,
       reverse_order: false,
+      output_format: 'png',
     }
 
     const blob = await api.exportComparison(payload)
@@ -50,6 +51,7 @@ describe('exportComparison api contract', () => {
       labels: ['A label', 'B label'],
       embed_metadata: false,
       reverse_order: true,
+      output_format: 'png',
     })
 
     const [, init] = fetchSpy.mock.calls[0]
@@ -57,6 +59,7 @@ describe('exportComparison api contract', () => {
     expect(parsed.reverse_order).toBe(true)
     expect(parsed.paths).toEqual(['/a.png', '/b.png'])
     expect(parsed.labels).toEqual(['A label', 'B label'])
+    expect(parsed.output_format).toBe('png')
   })
 
   it('supports posting v2 export payloads', async () => {
@@ -73,6 +76,7 @@ describe('exportComparison api contract', () => {
       labels: ['A label', 'B label', 'C label'],
       embed_metadata: true,
       reverse_order: false,
+      output_format: 'gif',
     })
 
     const [, init] = fetchSpy.mock.calls[0]
@@ -80,5 +84,6 @@ describe('exportComparison api contract', () => {
     expect(parsed.v).toBe(2)
     expect(parsed.paths).toEqual(['/a.png', '/b.png', '/c.png'])
     expect(parsed.labels).toEqual(['A label', 'B label', 'C label'])
+    expect(parsed.output_format).toBe('gif')
   })
 })

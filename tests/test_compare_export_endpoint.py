@@ -51,6 +51,17 @@ def _read_comparison_metadata(raw: bytes) -> dict | None:
     return None
 
 
+def _read_gif_comparison_metadata(raw: bytes) -> dict | None:
+    with Image.open(io.BytesIO(raw)) as image:
+        comment = image.info.get("comment")
+    if isinstance(comment, bytes):
+        text = comment.decode("utf-8")
+        return json.loads(text) if text else None
+    if isinstance(comment, str):
+        return json.loads(comment) if comment else None
+    return None
+
+
 def test_export_comparison_success_with_embedded_metadata(tmp_path: Path) -> None:
     _make_png(tmp_path / "a.png", size=(20, 10), color=(255, 0, 0))
     _make_png(tmp_path / "b.png", size=(12, 10), color=(0, 255, 0))
@@ -109,6 +120,53 @@ def test_export_comparison_omits_metadata_when_disabled(tmp_path: Path) -> None:
     assert _read_comparison_metadata(response.content) is None
 
 
+def test_export_comparison_gif_slideshow_success(tmp_path: Path) -> None:
+    _make_png(tmp_path / "a.png", size=(2400, 900), color=(230, 80, 80))
+    _make_png(tmp_path / "b.png", size=(800, 1600), color=(70, 90, 240))
+
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.post(
+        "/export-comparison",
+        json=_export_payload(output_format="gif"),
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/gif")
+    disposition = response.headers["content-disposition"]
+    assert re.search(r'attachment; filename="comparison_\d{8}_\d{6}\.gif"', disposition)
+    assert len(response.content) <= server_mod.MAX_EXPORT_GIF_MAX_BYTES
+
+    with Image.open(io.BytesIO(response.content)) as exported:
+        assert exported.format == "GIF"
+        assert bool(getattr(exported, "is_animated", False))
+        assert exported.n_frames == 2
+        assert max(exported.size) <= server_mod.MAX_EXPORT_GIF_LONG_SIDE
+        assert exported.info.get("duration") == server_mod.EXPORT_GIF_FRAME_DURATION_MS
+
+    metadata_payload = _read_gif_comparison_metadata(response.content)
+    assert metadata_payload is not None
+    assert metadata_payload["paths"] == ["/a.png", "/b.png"]
+    assert metadata_payload["labels"] == ["Prompt A", "Prompt B"]
+    assert metadata_payload["reversed"] is False
+    assert metadata_payload["output_format"] == "gif"
+
+
+def test_export_comparison_gif_enforces_size_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _make_png(tmp_path / "a.png", size=(600, 600), color=(255, 0, 0))
+    _make_png(tmp_path / "b.png", size=(600, 600), color=(0, 0, 255))
+
+    monkeypatch.setattr(server_mod, "MAX_EXPORT_GIF_MAX_BYTES", 100)
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.post(
+        "/export-comparison",
+        json=_export_payload(output_format="gif"),
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"] == "export_too_large"
+
+
 def test_export_comparison_rejects_invalid_paths_with_parity_checks(tmp_path: Path) -> None:
     _make_png(tmp_path / "a.png")
     _make_png(tmp_path / "b.png")
@@ -119,9 +177,9 @@ def test_export_comparison_rejects_invalid_paths_with_parity_checks(tmp_path: Pa
         json=_export_payload(paths=["../../etc/passwd", "/b.png"]),
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 404
     payload = response.json()
-    assert payload["error"] == "invalid_path"
+    assert payload["error"] == "file_not_found"
 
 
 def test_export_comparison_rejects_more_than_two_paths_for_v1(tmp_path: Path) -> None:
@@ -157,6 +215,22 @@ def test_export_comparison_rejects_more_than_two_labels_for_v1(tmp_path: Path) -
     assert payload["error"] == "invalid_request"
     assert "labels:" in payload["message"]
     assert "comparison export v1 accepts at most 2 labels" in payload["message"]
+
+
+def test_export_comparison_rejects_unknown_output_format(tmp_path: Path) -> None:
+    _make_png(tmp_path / "a.png")
+    _make_png(tmp_path / "b.png")
+
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.post(
+        "/export-comparison",
+        json=_export_payload(output_format="mp4"),
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"] == "invalid_request"
+    assert "output_format" in payload["message"]
 
 
 def test_export_comparison_v2_supports_multi_path_exports(tmp_path: Path) -> None:

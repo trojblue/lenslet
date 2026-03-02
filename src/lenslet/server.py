@@ -10,7 +10,7 @@ import io
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
@@ -95,6 +95,9 @@ MAX_EXPORT_SOURCE_PIXELS = 64_000_000
 MAX_EXPORT_STITCHED_PIXELS = 120_000_000
 MAX_EXPORT_METADATA_BYTES = 32 * 1024
 MAX_EXPORT_LABEL_CHARS = 120
+MAX_EXPORT_GIF_LONG_SIDE = 720
+MAX_EXPORT_GIF_MAX_BYTES = 8 * 1024 * 1024
+EXPORT_GIF_FRAME_DURATION_MS = 1_500
 EXPORT_COMPARISON_METADATA_KEY = "lenslet:comparison"
 _UNIBOX_IMAGE_UTILS: tuple[Callable[..., Any], Callable[..., Any]] | None = None
 
@@ -128,6 +131,8 @@ def _comparison_export_error_response(exc: HTTPException) -> JSONResponse:
     if exc.status_code != 400:
         return _error_response(500, "export_failed", detail)
     if "pixel limit" in detail:
+        return _error_response(400, "export_too_large", detail)
+    if "size limit" in detail:
         return _error_response(400, "export_too_large", detail)
     if "metadata exceeds configured limit" in detail:
         return _error_response(400, "metadata_too_large", detail)
@@ -222,6 +227,196 @@ def _load_export_image(storage, path: str) -> tuple[Image.Image, str]:
         raise HTTPException(415, f"failed to decode source image {path}: {exc}")
 
 
+def _build_export_metadata_text(
+    *,
+    ordered_paths: list[str],
+    labels: list[str],
+    source_formats: list[str],
+    reversed_order: bool,
+    output_format: Literal["png", "gif"],
+) -> str:
+    metadata_payload = {
+        "tool": "lenslet.export_comparison",
+        "version": 1,
+        "paths": ordered_paths,
+        "labels": labels,
+        "source_formats": source_formats,
+        "reversed": reversed_order,
+        "output_format": output_format,
+        "exported_at": _now_iso(),
+    }
+    metadata_text = json.dumps(metadata_payload, separators=(",", ":"), ensure_ascii=True)
+    metadata_size = len(metadata_text.encode("utf-8"))
+    if metadata_size > MAX_EXPORT_METADATA_BYTES:
+        raise HTTPException(400, "embedded metadata exceeds configured limit")
+    return metadata_text
+
+
+def _resize_image_max_long_side(image: Image.Image, max_long_side: int) -> Image.Image:
+    if max_long_side <= 0:
+        raise ValueError("max_long_side must be > 0")
+    width, height = image.size
+    long_side = max(width, height)
+    if long_side <= max_long_side:
+        return image.copy()
+    scale = max_long_side / long_side
+    resized_width = max(1, int(round(width * scale)))
+    resized_height = max(1, int(round(height * scale)))
+    return image.resize((resized_width, resized_height), resample=Image.Resampling.LANCZOS)
+
+
+def _pad_export_frames(frames: list[Image.Image]) -> list[Image.Image]:
+    if not frames:
+        return []
+    canvas_width = max(frame.width for frame in frames)
+    canvas_height = max(frame.height for frame in frames)
+    padded: list[Image.Image] = []
+    for frame in frames:
+        canvas = Image.new("RGB", (canvas_width, canvas_height), (255, 255, 255))
+        x = (canvas_width - frame.width) // 2
+        y = (canvas_height - frame.height) // 2
+        canvas.paste(frame, (x, y))
+        padded.append(canvas)
+    return padded
+
+
+def _scale_export_frames(frames: list[Image.Image], scale: float) -> list[Image.Image]:
+    if scale >= 0.999:
+        return [frame.copy() for frame in frames]
+    scaled_frames: list[Image.Image] = []
+    for frame in frames:
+        width = max(1, int(round(frame.width * scale)))
+        height = max(1, int(round(frame.height * scale)))
+        scaled_frames.append(frame.resize((width, height), resample=Image.Resampling.LANCZOS))
+    return scaled_frames
+
+
+def _encode_gif_candidate(
+    frames: list[Image.Image],
+    *,
+    colors: int,
+    dither: Image.Dither,
+    comment: bytes | None,
+) -> bytes:
+    adaptive_palette = getattr(getattr(Image, "Palette", Image), "ADAPTIVE", Image.ADAPTIVE)
+    palette_frames: list[Image.Image] = []
+    try:
+        for frame in frames:
+            palette_frames.append(
+                frame.convert(
+                    mode="P",
+                    palette=adaptive_palette,
+                    colors=colors,
+                    dither=dither,
+                )
+            )
+        if not palette_frames:
+            raise HTTPException(500, "failed to encode gif: no frames")
+
+        first, *rest = palette_frames
+        out = io.BytesIO()
+        save_kwargs: dict[str, Any] = {
+            "format": "GIF",
+            "save_all": True,
+            "append_images": rest,
+            "duration": EXPORT_GIF_FRAME_DURATION_MS,
+            "loop": 0,
+            "optimize": True,
+            "disposal": 2,
+        }
+        if comment is not None:
+            save_kwargs["comment"] = comment
+        first.save(out, **save_kwargs)
+        return out.getvalue()
+    finally:
+        for frame in palette_frames:
+            frame.close()
+
+
+def _build_export_gif(
+    images: list[Image.Image],
+    labels: list[str],
+    *,
+    embed_metadata: bool,
+    ordered_paths: list[str],
+    source_formats: list[str],
+    reversed_order: bool,
+) -> bytes:
+    try:
+        _, add_annotation = _get_unibox_image_utils()
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+
+    annotated: list[Image.Image] = []
+    prepped: list[Image.Image] = []
+    base_frames: list[Image.Image] = []
+    scaled_frames: list[Image.Image] = []
+    try:
+        for image, label in zip(images, labels):
+            annotated_frame = _annotate_for_export(image, label, add_annotation=add_annotation)
+            annotated.append(annotated_frame)
+            resized = _resize_image_max_long_side(annotated_frame, MAX_EXPORT_GIF_LONG_SIDE)
+            try:
+                prepped.append(resized.convert("RGB"))
+            finally:
+                resized.close()
+
+        if len(prepped) != len(images):
+            raise HTTPException(500, "failed to prepare all gif frames")
+
+        base_frames = _pad_export_frames(prepped)
+        if len(base_frames) != len(images):
+            raise HTTPException(500, "failed to normalize gif frame dimensions")
+
+        metadata_comment: bytes | None = None
+        if embed_metadata:
+            metadata_text = _build_export_metadata_text(
+                ordered_paths=ordered_paths,
+                labels=labels,
+                source_formats=source_formats,
+                reversed_order=reversed_order,
+                output_format="gif",
+            )
+            metadata_comment = metadata_text.encode("utf-8")
+
+        scale_steps = (1.0, 0.94, 0.88, 0.82, 0.76, 0.7, 0.64, 0.58, 0.52, 0.46, 0.4, 0.34)
+        color_steps = (256, 224, 192, 160, 128, 112, 96, 80, 64, 48, 32)
+        dither_steps = (Image.Dither.FLOYDSTEINBERG, Image.Dither.NONE)
+
+        for scale in scale_steps:
+            scaled_frames = _scale_export_frames(base_frames, scale)
+            try:
+                for color_count in color_steps:
+                    for dither in dither_steps:
+                        encoded = _encode_gif_candidate(
+                            scaled_frames,
+                            colors=color_count,
+                            dither=dither,
+                            comment=metadata_comment,
+                        )
+                        if len(encoded) <= MAX_EXPORT_GIF_MAX_BYTES:
+                            return encoded
+            finally:
+                for frame in scaled_frames:
+                    frame.close()
+                scaled_frames = []
+
+        raise HTTPException(400, "gif export exceeds configured size limit")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500, f"failed to build comparison gif: {exc}")
+    finally:
+        for frame in annotated:
+            frame.close()
+        for frame in prepped:
+            frame.close()
+        for frame in base_frames:
+            frame.close()
+        for frame in scaled_frames:
+            frame.close()
+
+
 def _build_export_png(
     images: list[Image.Image],
     labels: list[str],
@@ -259,19 +454,13 @@ def _build_export_png(
 
         pnginfo: PngImagePlugin.PngInfo | None = None
         if embed_metadata:
-            metadata_payload = {
-                "tool": "lenslet.export_comparison",
-                "version": 1,
-                "paths": ordered_paths,
-                "labels": labels,
-                "source_formats": source_formats,
-                "reversed": reversed_order,
-                "exported_at": _now_iso(),
-            }
-            metadata_text = json.dumps(metadata_payload, separators=(",", ":"), ensure_ascii=True)
-            metadata_size = len(metadata_text.encode("utf-8"))
-            if metadata_size > MAX_EXPORT_METADATA_BYTES:
-                raise HTTPException(400, "embedded metadata exceeds configured limit")
+            metadata_text = _build_export_metadata_text(
+                ordered_paths=ordered_paths,
+                labels=labels,
+                source_formats=source_formats,
+                reversed_order=reversed_order,
+                output_format="png",
+            )
             pnginfo = PngImagePlugin.PngInfo()
             pnginfo.add_text(EXPORT_COMPARISON_METADATA_KEY, metadata_text)
 
@@ -292,10 +481,15 @@ def _build_export_png(
             image.close()
 
 
-def _comparison_export_filename(reverse_order: bool) -> str:
+def _comparison_export_filename(
+    reverse_order: bool,
+    *,
+    output_format: Literal["png", "gif"] = "png",
+) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     suffix = "_reverse" if reverse_order else ""
-    return f"comparison{suffix}_{stamp}.png"
+    extension = "gif" if output_format == "gif" else "png"
+    return f"comparison{suffix}_{stamp}.{extension}"
 
 
 def _annotate_for_export(

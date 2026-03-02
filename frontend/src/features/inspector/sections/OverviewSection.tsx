@@ -21,8 +21,8 @@ interface OverviewSectionProps {
   compareExportEmbedMetadata: boolean
   onCompareExportEmbedMetadataChange: (checked: boolean) => void
   compareExportBusy: boolean
-  compareExportMode: 'normal' | 'reverse' | null
-  onComparisonExport: (reverseOrder: boolean) => void
+  compareExportMode: 'png' | 'png-reverse' | 'gif' | 'gif-reverse' | null
+  onComparisonExport: (reverseOrder: boolean, outputFormat: 'png' | 'gif') => void
   compareExportError: string | null
   onFindSimilar?: () => void
   canFindSimilar: boolean

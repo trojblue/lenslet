@@ -1,5 +1,6 @@
 import type {
   ExportComparisonLabelsV1,
+  ExportComparisonOutputFormat,
   ExportComparisonRequest,
   ExportComparisonRequestV1,
   ExportComparisonRequestV2,
@@ -24,6 +25,7 @@ export type ExportComparisonPayloadArgs = {
   labelsText: string
   embedMetadata: boolean
   reverseOrder: boolean
+  outputFormat: ExportComparisonOutputFormat
 }
 
 export type ExportComparisonPayloadV2Args = {
@@ -31,6 +33,7 @@ export type ExportComparisonPayloadV2Args = {
   labelsText: string
   embedMetadata: boolean
   reverseOrder: boolean
+  outputFormat: ExportComparisonOutputFormat
 }
 
 export type ExportComparisonPayloadResult =
@@ -91,7 +94,7 @@ function toV2Paths(paths: [string, string, ...string[]]): [string, string, ...st
 }
 
 export function buildExportComparisonPayload(args: ExportComparisonPayloadArgs): ExportComparisonPayloadResult {
-  const { pathA, pathB, labelsText, embedMetadata, reverseOrder } = args
+  const { pathA, pathB, labelsText, embedMetadata, reverseOrder, outputFormat } = args
   if (!pathA || !pathB) {
     return { ok: false, message: EXPORT_COMPARISON_PAIR_ONLY_MESSAGE }
   }
@@ -109,6 +112,7 @@ export function buildExportComparisonPayload(args: ExportComparisonPayloadArgs):
     paths: [pathA, pathB],
     embed_metadata: embedMetadata,
     reverse_order: reverseOrder,
+    output_format: outputFormat,
   }
   if (labelsResult.labels) {
     payload.labels = toExportComparisonLabelsV1(labelsResult.labels)
@@ -119,7 +123,7 @@ export function buildExportComparisonPayload(args: ExportComparisonPayloadArgs):
 export function buildExportComparisonPayloadV2(
   args: ExportComparisonPayloadV2Args,
 ): ExportComparisonPayloadResult {
-  const { paths, labelsText, embedMetadata, reverseOrder } = args
+  const { paths, labelsText, embedMetadata, reverseOrder, outputFormat } = args
   const normalizedPaths = normalizeExportPaths(paths)
   if (
     normalizedPaths.length !== paths.length
@@ -142,6 +146,7 @@ export function buildExportComparisonPayloadV2(
     paths: toV2Paths(normalizedPaths as [string, string, ...string[]]),
     embed_metadata: embedMetadata,
     reverse_order: reverseOrder,
+    output_format: outputFormat,
   }
   if (labelsResult.labels) {
     payload.labels = labelsResult.labels
@@ -153,7 +158,11 @@ function pad2(value: number): string {
   return String(value).padStart(2, '0')
 }
 
-export function buildComparisonExportFilename(reverseOrder: boolean, now: Date = new Date()): string {
+export function buildComparisonExportFilename(
+  reverseOrder: boolean,
+  outputFormat: ExportComparisonOutputFormat,
+  now: Date = new Date(),
+): string {
   const y = now.getUTCFullYear()
   const m = pad2(now.getUTCMonth() + 1)
   const d = pad2(now.getUTCDate())
@@ -161,5 +170,6 @@ export function buildComparisonExportFilename(reverseOrder: boolean, now: Date =
   const min = pad2(now.getUTCMinutes())
   const s = pad2(now.getUTCSeconds())
   const suffix = reverseOrder ? '_reverse' : ''
-  return `comparison${suffix}_${y}${m}${d}_${h}${min}${s}.png`
+  const extension = outputFormat === 'gif' ? 'gif' : 'png'
+  return `comparison${suffix}_${y}${m}${d}_${h}${min}${s}.${extension}`
 }

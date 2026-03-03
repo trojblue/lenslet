@@ -39,4 +39,17 @@ describe('constrainSidebarWidths', () => {
 
     expect(constrained).toEqual({ leftWidth: 0, rightWidth: 0 })
   })
+
+  it('allows wider sidebars on very wide viewports', () => {
+    const constrained = constrainSidebarWidths({
+      viewportWidth: 3840,
+      leftOpen: true,
+      rightOpen: true,
+      leftWidth: 900,
+      rightWidth: 900,
+    })
+
+    expect(constrained.leftWidth).toBe(760)
+    expect(constrained.rightWidth).toBe(760)
+  })
 })

@@ -1,4 +1,5 @@
 export const INSPECTOR_WIDGET_IDS = [
+  'quickView',
   'overview',
   'compareMetadata',
   'metadata',
@@ -66,8 +67,17 @@ export function parseStoredInspectorWidgetOrder(raw: string | null): InspectorWi
   }
 
   const parsedStrings = parsed.filter((entry): entry is string => typeof entry === 'string')
-  const order = sanitizeInspectorWidgetOrder(parsedStrings)
+  const hasQuickView = parsedStrings.includes('quickView')
+  const sanitizedOrder = sanitizeInspectorWidgetOrder(parsedStrings)
+  const migratedOrder: InspectorWidgetId[] = [
+    'quickView',
+    ...sanitizedOrder.filter((widgetId) => widgetId !== 'quickView'),
+  ]
+  const order = hasQuickView
+    ? sanitizedOrder
+    : migratedOrder
   const parsedOrderMatches =
+    hasQuickView &&
     parsed.length === order.length &&
     parsed.every((entry, idx) => typeof entry === 'string' && entry === order[idx])
 

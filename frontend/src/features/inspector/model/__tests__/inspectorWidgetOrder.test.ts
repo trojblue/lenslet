@@ -10,6 +10,7 @@ import {
 describe('inspector widget order model', () => {
   it('keeps metadata above basics in the canonical default order', () => {
     expect(INSPECTOR_WIDGET_DEFAULT_ORDER).toEqual([
+      'quickView',
       'overview',
       'compareMetadata',
       'metadata',
@@ -31,6 +32,7 @@ describe('inspector widget order model', () => {
       'notes',
       'overview',
       'metadata',
+      'quickView',
       'compareMetadata',
       'basics',
     ])
@@ -42,11 +44,28 @@ describe('inspector widget order model', () => {
     )
 
     expect(parsed.order).toEqual([
+      'quickView',
       'notes',
       'overview',
       'metadata',
       'compareMetadata',
       'basics',
+    ])
+    expect(parsed.shouldRewrite).toBe(true)
+  })
+
+  it('migrates pre-quick-view persisted orders by inserting quick view at the top once', () => {
+    const parsed = parseStoredInspectorWidgetOrder(
+      JSON.stringify(['overview', 'compareMetadata', 'metadata', 'basics', 'notes']),
+    )
+
+    expect(parsed.order).toEqual([
+      'quickView',
+      'overview',
+      'compareMetadata',
+      'metadata',
+      'basics',
+      'notes',
     ])
     expect(parsed.shouldRewrite).toBe(true)
   })
@@ -66,6 +85,7 @@ describe('inspector widget order model', () => {
     )
 
     expect(nextOrder).toEqual([
+      'quickView',
       'overview',
       'compareMetadata',
       'basics',
@@ -79,6 +99,7 @@ describe('inspector widget order model', () => {
       {
         overview: true,
         compare: true,
+        quickView: true,
         metadata: true,
         basics: true,
         notes: true,
@@ -94,6 +115,7 @@ describe('inspector widget order model', () => {
     const reopenedMetadata = toggleInspectorSectionState(closedMetadata, 'metadata')
 
     expect(reordered).toEqual([
+      'quickView',
       'notes',
       'overview',
       'compareMetadata',

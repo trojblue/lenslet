@@ -4,12 +4,15 @@ import { CompareMetadataSection } from './sections/CompareMetadataSection'
 import { MetadataSection } from './sections/MetadataSection'
 import { NotesSection } from './sections/NotesSection'
 import { OverviewSection } from './sections/OverviewSection'
+import { QuickViewSection } from './sections/QuickViewSection'
 import type { InspectorWidgetId } from './model/inspectorWidgetOrder'
 
 export interface InspectorWidgetContext {
   multi: boolean
   viewerCompareActive: boolean
   metadataCompareReady: boolean
+  quickViewVisible: boolean
+  quickViewProps: ComponentProps<typeof QuickViewSection>
   overviewProps: ComponentProps<typeof OverviewSection>
   compareMetadataProps: ComponentProps<typeof CompareMetadataSection>
   basicsProps: ComponentProps<typeof BasicsSection>
@@ -24,6 +27,11 @@ export interface InspectorWidgetDefinition {
 }
 
 export const INSPECTOR_WIDGETS: readonly InspectorWidgetDefinition[] = [
+  {
+    id: 'quickView',
+    isVisible: ({ quickViewVisible }) => quickViewVisible,
+    render: ({ quickViewProps }) => <QuickViewSection {...quickViewProps} />,
+  },
   {
     id: 'overview',
     isVisible: () => true,

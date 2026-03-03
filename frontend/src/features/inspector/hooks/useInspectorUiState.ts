@@ -6,8 +6,12 @@ import {
   reorderInspectorWidgetOrder,
   type InspectorWidgetId,
 } from '../model/inspectorWidgetOrder'
+import {
+  parseQuickViewCustomPathsInput,
+  parseStoredQuickViewCustomPaths,
+} from '../model/quickViewFields'
 
-export type InspectorSectionKey = 'overview' | 'compare' | 'basics' | 'metadata' | 'notes'
+export type InspectorSectionKey = 'quickView' | 'overview' | 'compare' | 'basics' | 'metadata' | 'notes'
 
 type UseInspectorUiStateParams = {
   path: string | null
@@ -25,11 +29,19 @@ type UseInspectorUiStateResult = {
   metadataCompareReady: boolean
   toggleMetadataCompareActive: () => void
   openSections: Record<InspectorSectionKey, boolean>
+  toggleQuickViewSection: () => void
   toggleOverviewSection: () => void
   toggleCompareSection: () => void
   toggleBasicsSection: () => void
   toggleMetadataSection: () => void
   toggleNotesSection: () => void
+  quickViewCustomPaths: string[]
+  quickViewCustomPathsDraft: string
+  quickViewCustomPathsError: string | null
+  setQuickViewCustomPathsDraft: (value: string) => void
+  saveQuickViewCustomPaths: () => void
+  quickViewCopiedRowId: string | null
+  markQuickViewValueCopied: (rowId: string) => void
   metricsExpanded: boolean
   toggleMetricsExpanded: () => void
   copiedField: string | null
@@ -40,11 +52,20 @@ type UseInspectorUiStateResult = {
   markMetadataValueCopied: (path: string) => void
 }
 
-const INSPECTOR_SECTION_KEYS: InspectorSectionKey[] = ['overview', 'compare', 'basics', 'metadata', 'notes']
+const INSPECTOR_SECTION_KEYS: InspectorSectionKey[] = [
+  'quickView',
+  'overview',
+  'compare',
+  'basics',
+  'metadata',
+  'notes',
+]
 const INSPECTOR_SECTION_STORAGE_KEY = 'lenslet.inspector.sections'
 const INSPECTOR_SECTION_ORDER_STORAGE_KEY = 'lenslet.inspector.sectionOrder.v2'
 const INSPECTOR_METRICS_EXPANDED_KEY = 'lenslet.inspector.metricsExpanded'
+const INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY = 'lenslet.inspector.quickView.paths.v1'
 const DEFAULT_SECTION_STATE: Record<InspectorSectionKey, boolean> = {
+  quickView: true,
   overview: true,
   compare: true,
   metadata: true,
@@ -93,6 +114,10 @@ export function useInspectorUiState({
   ])
   const [metadataCompareActive, setMetadataCompareActive] = useState(false)
   const [openSections, setOpenSections] = useState<Record<InspectorSectionKey, boolean>>(DEFAULT_SECTION_STATE)
+  const [quickViewCustomPaths, setQuickViewCustomPaths] = useState<string[]>([])
+  const [quickViewCustomPathsDraft, setQuickViewCustomPathsDraft] = useState('')
+  const [quickViewCustomPathsError, setQuickViewCustomPathsError] = useState<string | null>(null)
+  const [quickViewCopiedRowId, setQuickViewCopiedRowId] = useState<string | null>(null)
   const [metricsExpanded, setMetricsExpanded] = useState(false)
   const metadataCompareReady = metadataCompareActive && comparePaths.length >= 2
   const previousMetadataCompareActiveRef = useRef(metadataCompareActive)
@@ -104,6 +129,7 @@ export function useInspectorUiState({
   const infoCopyTimeoutRef = useRef<number | null>(null)
   const metaCopiedTimeoutRef = useRef<number | null>(null)
   const metaValueCopyTimeoutRef = useRef<number | null>(null)
+  const quickViewCopyTimeoutRef = useRef<number | null>(null)
 
   const toggleSection = useCallback((key: InspectorSectionKey) => {
     setOpenSections((prev) => toggleInspectorSectionState(prev, key))
@@ -113,6 +139,7 @@ export function useInspectorUiState({
     setMetadataCompareActive((prev) => !prev)
   }, [metadataCompareAvailable, selectedCount])
 
+  const toggleQuickViewSection = useCallback(() => toggleSection('quickView'), [toggleSection])
   const toggleOverviewSection = useCallback(() => toggleSection('overview'), [toggleSection])
   const toggleCompareSection = useCallback(() => toggleSection('compare'), [toggleSection])
   const toggleBasicsSection = useCallback(() => toggleSection('basics'), [toggleSection])
@@ -125,6 +152,27 @@ export function useInspectorUiState({
   const toggleMetricsExpanded = useCallback(() => {
     setMetricsExpanded((prev) => !prev)
   }, [])
+
+  const saveQuickViewCustomPaths = useCallback(() => {
+    const parsed = parseQuickViewCustomPathsInput(quickViewCustomPathsDraft)
+    if (parsed.error) {
+      setQuickViewCustomPathsError(parsed.error)
+      return
+    }
+    setQuickViewCustomPathsError(null)
+    setQuickViewCustomPaths(parsed.paths)
+    setQuickViewCustomPathsDraft(parsed.paths.join('\n'))
+  }, [quickViewCustomPathsDraft])
+
+  const handleQuickViewCustomPathsDraftChange = useCallback(
+    (value: string) => {
+      setQuickViewCustomPathsDraft(value)
+      if (quickViewCustomPathsError !== null) {
+        setQuickViewCustomPathsError(null)
+      }
+    },
+    [quickViewCustomPathsError],
+  )
 
   const markInfoCopied = useCallback((key: string) => {
     setCopiedField(key)
@@ -153,6 +201,15 @@ export function useInspectorUiState({
     }, 900)
   }, [])
 
+  const markQuickViewValueCopied = useCallback((rowId: string) => {
+    setQuickViewCopiedRowId(rowId)
+    clearTimer(quickViewCopyTimeoutRef)
+    quickViewCopyTimeoutRef.current = window.setTimeout(() => {
+      setQuickViewCopiedRowId(null)
+      quickViewCopyTimeoutRef.current = null
+    }, 900)
+  }, [])
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem(INSPECTOR_SECTION_ORDER_STORAGE_KEY)
@@ -173,6 +230,31 @@ export function useInspectorUiState({
       // Ignore localStorage write errors
     }
   }, [sectionOrder])
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY)
+      const parsed = parseStoredQuickViewCustomPaths(raw)
+      setQuickViewCustomPaths(parsed.paths)
+      setQuickViewCustomPathsDraft(parsed.paths.join('\n'))
+      if (parsed.shouldRewrite) {
+        localStorage.setItem(INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY, JSON.stringify(parsed.paths))
+      }
+    } catch {
+      // Ignore localStorage parsing errors
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY,
+        JSON.stringify(quickViewCustomPaths),
+      )
+    } catch {
+      // Ignore localStorage write errors
+    }
+  }, [quickViewCustomPaths])
 
   useEffect(() => {
     try {
@@ -246,8 +328,10 @@ export function useInspectorUiState({
   useEffect(() => {
     setMetaCopied(false)
     setMetaValueCopiedPath(null)
+    setQuickViewCopiedRowId(null)
     clearTimer(metaCopiedTimeoutRef)
     clearTimer(metaValueCopyTimeoutRef)
+    clearTimer(quickViewCopyTimeoutRef)
   }, [path, sidecarUpdatedAt])
 
   useEffect(
@@ -255,6 +339,7 @@ export function useInspectorUiState({
       clearTimer(infoCopyTimeoutRef)
       clearTimer(metaCopiedTimeoutRef)
       clearTimer(metaValueCopyTimeoutRef)
+      clearTimer(quickViewCopyTimeoutRef)
     },
     [],
   )
@@ -266,11 +351,19 @@ export function useInspectorUiState({
     metadataCompareReady,
     toggleMetadataCompareActive,
     openSections,
+    toggleQuickViewSection,
     toggleOverviewSection,
     toggleCompareSection,
     toggleBasicsSection,
     toggleMetadataSection,
     toggleNotesSection,
+    quickViewCustomPaths,
+    quickViewCustomPathsDraft,
+    quickViewCustomPathsError,
+    setQuickViewCustomPathsDraft: handleQuickViewCustomPathsDraftChange,
+    saveQuickViewCustomPaths,
+    quickViewCopiedRowId,
+    markQuickViewValueCopied,
     metricsExpanded,
     toggleMetricsExpanded,
     copiedField,

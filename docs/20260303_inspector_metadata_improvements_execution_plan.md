@@ -149,16 +149,16 @@ After the cleanup subagent finishes, spawn a fresh subagent and request review u
 
 6. Sprint 6 goal is PNG quick-view frontend UX and final integration closure. Demo outcome is top-positioned quick-view section with clickable copy and configurable JSON paths, fully integrated with reorder and acceptance gates.
 
-   T21. Add PNG Quick View section for single-selection autoload metadata with default rows `Prompt`, `Model`, `LoRA` and click-to-copy interactions.
+   T21. [x] Add PNG Quick View section for single-selection autoload metadata with default rows `Prompt`, `Model`, `LoRA` and click-to-copy interactions. Completed 2026-03-03.
    Validation: section tests for render/copy feedback and hidden-state behavior when prerequisites are unmet.
 
-   T22. Add custom quick-view JSON field configuration with strict supported syntax (`dot` and `[index]` only), persistence, and invalid-path rejection messaging.
+   T22. [x] Add custom quick-view JSON field configuration with strict supported syntax (`dot` and `[index]` only), persistence, and invalid-path rejection messaging. Completed 2026-03-03.
    Validation: model/state tests for parse, persistence reload, and rejection behavior.
 
-   T23. Integrate Quick View into section-order persistence with one-time migration rule so existing persisted orders place Quick View at top when first introduced.
+   T23. [x] Integrate Quick View into section-order persistence with one-time migration rule so existing persisted orders place Quick View at top when first introduced. Completed 2026-03-03.
    Validation: migration test with preexisting `sectionOrder.v2` data and reload confirmation.
 
-   T24. Run final acceptance sweep, update this plan’s progress/handoff notes, and synchronize docs for shipped behavior.
+   T24. [x] Run final acceptance sweep, update this plan’s progress/handoff notes, and synchronize docs for shipped behavior. Completed 2026-03-03.
    Validation: primary gates pass, targeted tests pass, `python scripts/lint_repo.py` passes, and `python scripts/gui_smoke_acceptance.py` passes.
 
 
@@ -185,7 +185,7 @@ Secondary acceptance gates and commands:
 
 1. Frontend targeted inspector/layout tests.
 
-    cd frontend && npm run test -- src/lib/__tests__/breakpoints.test.ts src/app/layout/__tests__/useSidebars.test.ts src/features/inspector/hooks/__tests__/metadataRequestGuards.test.ts src/features/inspector/model/__tests__/metadataCompare.test.ts src/features/inspector/sections/__tests__/metadataSections.test.tsx
+    cd frontend && npm run test -- src/lib/__tests__/breakpoints.test.ts src/app/layout/__tests__/useSidebars.test.ts src/features/inspector/hooks/__tests__/metadataRequestGuards.test.ts src/features/inspector/model/__tests__/metadataCompare.test.ts src/features/inspector/model/__tests__/inspectorWidgetOrder.test.ts src/features/inspector/model/__tests__/quickViewFields.test.ts src/features/inspector/sections/__tests__/metadataSections.test.tsx
 
 2. Backend metadata tests.
 
@@ -256,6 +256,16 @@ Sprint 5 execution notes (2026-03-03):
 6. Review gate: post-cleanup review found no open correctness/performance regressions in Sprint 5 changes.
 7. Sprint 5 closure gates passed: targeted inspector section Vitest suite, `pytest tests/test_metadata_endpoint.py -q`, `npx tsc --noEmit`, frontend build + bundle sync to `src/lenslet/frontend/`, `python scripts/gui_smoke_acceptance.py`, and `python scripts/lint_repo.py`.
 
+Sprint 6 execution notes (2026-03-03):
+
+1. `T21` pass: added `Quick View` inspector section with default rows (`Prompt`, `Model`, `LoRA`), row-level copy actions, and single-select/autoload visibility guards for PNG metadata payloads.
+2. `T22` pass: added strict custom quick-view JSON path configuration (`dot` + `[index]` syntax only), persistent storage (`lenslet.inspector.quickView.paths.v1`), and explicit invalid-path rejection messaging.
+3. `T23` pass: integrated `quickView` into inspector section ordering with one-time migration behavior so pre-existing `sectionOrder.v2` payloads insert Quick View at the top on first load.
+4. `T24` pass: updated plan/progress artifacts, synchronized packaged frontend assets, and completed the final acceptance sweep.
+5. Cleanup gate: conservative simplifier pass kept behavior unchanged and applied a small self-heal improvement for stored quick-view paths (drop invalid/duplicate entries while preserving valid ones).
+6. Review gate: post-cleanup review found no open correctness/performance regressions in Sprint 6 changes.
+7. Sprint 6 closure gates passed: targeted Vitest suites (layout/inspector model/sections), `pytest tests/test_metadata_endpoint.py -q`, `npx tsc --noEmit`, frontend build + bundle sync to `src/lenslet/frontend/`, `python scripts/gui_smoke_acceptance.py`, and `python scripts/lint_repo.py`.
+
 
 ## Risks and Recovery
 
@@ -318,6 +328,12 @@ Idempotent retry strategy is rerunning failed sprint gates with the same command
 - [x] 2026-03-03 20:03:00Z Cleanup gate: conservative simplifier pass found no further non-semantic cleanup needed in Sprint 5 diff.
 - [x] 2026-03-03 20:03:20Z Review gate: post-cleanup review found no open findings; no additional code changes required.
 - [x] 2026-03-03 20:03:40Z Sprint 5 closed; handoff notes and artifact list updated for Sprint 6 start.
+- [x] 2026-03-03 20:09:40Z Sprint 6 plan gate restated with Sprint 6-only scope (`T21`..`T24`) and unchanged non-goals.
+- [x] 2026-03-03 20:11:20Z Completed `T21`: added `Quick View` inspector section wiring, default quick-view rows, copy interactions, and single-select/autoload visibility gating.
+- [x] 2026-03-03 20:12:10Z Completed `T22` + `T23`: implemented strict custom JSON path parser + persistence/rejection flow and one-time section-order migration that inserts `quickView` at top for legacy `sectionOrder.v2` payloads.
+- [x] 2026-03-03 20:15:50Z Completed `T24` acceptance sweep: targeted Vitest suites, `pytest tests/test_metadata_endpoint.py -q`, `npx tsc --noEmit`, frontend build + bundle sync, `python scripts/gui_smoke_acceptance.py`, and `python scripts/lint_repo.py` all passed.
+- [x] 2026-03-03 20:16:10Z Cleanup gate: conservative simplifier pass applied only non-semantic storage self-heal refinement for persisted quick-view path lists.
+- [x] 2026-03-03 20:16:30Z Review gate: post-cleanup review found no open findings; Sprint 6 closed with all tasks complete.
 
 
 ## Artifacts and Handoff
@@ -348,8 +364,11 @@ Primary planned touchpoints:
     frontend/src/features/inspector/model/__tests__/metadataCompare.test.ts
     frontend/src/features/inspector/model/inspectorWidgetOrder.ts
     frontend/src/features/inspector/model/__tests__/inspectorWidgetOrder.test.ts
+    frontend/src/features/inspector/model/quickViewFields.ts
+    frontend/src/features/inspector/model/__tests__/quickViewFields.test.ts
     frontend/src/features/inspector/sections/InspectorSection.tsx
     frontend/src/features/inspector/sections/CompareMetadataSection.tsx
+    frontend/src/features/inspector/sections/QuickViewSection.tsx
     frontend/src/features/inspector/sections/__tests__/metadataSections.test.tsx
     frontend/src/features/inspector/sections/SelectionActionsSection.tsx
     frontend/src/features/inspector/sections/SelectionExportSection.tsx
@@ -400,8 +419,17 @@ Sprint 5 handoff notes (closed 2026-03-03):
 3. Backend metadata extraction now prioritizes `qfty_meta` (`prompt`, model candidates, LoRA candidates) and falls back to existing quick fields for prompt/model where available.
 4. `tests/test_metadata_endpoint.py` now validates baseline fallback defaults, fixture-backed extraction (`docs/test_meta.png`), and malformed `qfty_meta` safety behavior.
 5. Sprint 5 closure gates passed: targeted Vitest + pytest suites, `npx tsc --noEmit`, frontend bundle sync to `src/lenslet/frontend/`, GUI smoke, and repository lint.
-6. Next actionable sprint is Sprint 6 (`T21`..`T24`) for PNG Quick View UI, custom JSON path persistence, migration placement, and final acceptance closure.
+6. At Sprint 5 closure, the next actionable sprint was Sprint 6 (`T21`..`T24`) for PNG Quick View UI, custom JSON path persistence, migration placement, and final acceptance closure.
 
-Execution handoff note for the next operator is to implement strictly sprint-by-sprint, preserve each sprint as independently demoable and reviewable, and keep this plan as the authoritative running log of decisions, validations, and closure state.
+Sprint 6 handoff notes (closed 2026-03-03):
+
+1. `T21`..`T24` are complete: inspector now includes a top-orderable PNG `Quick View` section with default prompt/model/LoRA rows, copy actions, strict custom JSON path configuration, and persisted custom paths.
+2. Quick View visibility is constrained to single-selection + autoload metadata contexts with available PNG quick-view defaults; this prevents non-PNG/no-default contexts from rendering empty quick-view UI.
+3. Legacy `lenslet.inspector.sectionOrder.v2` payloads are migrated once to insert `quickView` at the top when missing, while already-migrated/customized orders remain stable.
+4. New coverage landed in `quickViewFields` model tests, inspector widget-order migration tests, and section rendering tests for copy feedback + invalid-path messaging.
+5. Sprint 6 closure gates passed: targeted Vitest suites, `pytest tests/test_metadata_endpoint.py -q`, `npx tsc --noEmit`, frontend bundle sync to `src/lenslet/frontend/`, GUI smoke, and repository lint.
+6. All planned sprints/tasks are complete and acceptance validation is satisfied.
+
+Execution closure note: all sprint-scoped implementation, validation, and handoff logging are complete; this plan remains the authoritative record for shipped behavior and acceptance evidence.
 
 Revision note (2026-03-03): revised after required subagent review to remove ambiguity and over-compression by adding explicit state ownership, measurable acceptance criteria, migration handling, tighter de-scoping, and fuller primary acceptance coverage.

@@ -4,6 +4,7 @@ import { buildJsonRenderNode, type CompareMetadataMatrixResult } from '../../mod
 import { CompareMetadataSection } from '../CompareMetadataSection'
 import { MetadataSection } from '../MetadataSection'
 import { OverviewSection } from '../OverviewSection'
+import { QuickViewSection } from '../QuickViewSection'
 import { buildGifExportTooltip, SelectionExportSection } from '../SelectionExportSection'
 
 const noop = (..._args: unknown[]) => {}
@@ -225,6 +226,44 @@ describe('inspector metadata section rendering', () => {
     expect(html).toContain('&quot;prompt&quot;')
     expect(html).toContain('&quot;score&quot;')
     expect(html).toContain('Copy')
+  })
+
+  it('renders quick view rows with copy feedback and custom path controls', () => {
+    const html = renderToStaticMarkup(
+      <QuickViewSection
+        open
+        onToggle={noop}
+        rows={[
+          {
+            id: 'default:prompt',
+            label: 'Prompt',
+            value: 'character portrait',
+            sourcePath: 'quick_view_defaults.prompt',
+          },
+          {
+            id: 'custom:quick_fields.parameters',
+            label: 'quick_fields.parameters',
+            value: 'steps=24,cfg=7',
+            sourcePath: 'quick_fields.parameters',
+          },
+        ]}
+        quickViewCopiedRowId="default:prompt"
+        onCopyQuickViewValue={noop}
+        quickViewCustomPathsDraft={'quick_fields.parameters\nfound_text_chunks[0].keyword'}
+        onQuickViewCustomPathsDraftChange={noop}
+        onSaveQuickViewCustomPaths={noop}
+        quickViewCustomPathsError="Line 2: Path is invalid."
+      />,
+    )
+
+    expect(html).toContain('Quick View')
+    expect(html).toContain('Prompt')
+    expect(html).toContain('quick_fields.parameters')
+    expect(html).toContain('character portrait')
+    expect(html).toContain('Copied')
+    expect(html).toContain('Save fields')
+    expect(html).toContain('Supported syntax: dot paths and [index].')
+    expect(html).toContain('Line 2: Path is invalid.')
   })
 
   it('renders table-oriented compare metadata with summary and over-cap messaging', () => {

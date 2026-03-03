@@ -19,6 +19,10 @@ import {
   isInspectorWidgetId,
   sanitizeInspectorWidgetOrder,
 } from './model/inspectorWidgetOrder'
+import {
+  buildQuickViewRows,
+  shouldShowQuickViewSection,
+} from './model/quickViewFields'
 import { INSPECTOR_WIDGETS, type InspectorWidgetContext } from './inspectorWidgets'
 import { resolveCompareMetadataTargets } from './hooks/metadataRequestGuards'
 import { useInspectorMetadataWorkflow } from './hooks/useInspectorMetadataWorkflow'
@@ -123,11 +127,19 @@ export default function Inspector({
     metadataCompareReady,
     toggleMetadataCompareActive,
     openSections,
+    toggleQuickViewSection,
     toggleOverviewSection,
     toggleCompareSection,
     toggleBasicsSection,
     toggleMetadataSection,
     toggleNotesSection,
+    quickViewCustomPaths,
+    quickViewCustomPathsDraft,
+    quickViewCustomPathsError,
+    setQuickViewCustomPathsDraft,
+    saveQuickViewCustomPaths,
+    quickViewCopiedRowId,
+    markQuickViewValueCopied,
     metricsExpanded,
     toggleMetricsExpanded,
     copiedField,
@@ -287,6 +299,18 @@ export default function Inspector({
     () => buildDisplayMetadataFromNormalized(normalizedMetaRaw, showPilInfo),
     [normalizedMetaRaw, showPilInfo],
   )
+  const quickViewRows = useMemo(
+    () => buildQuickViewRows(metaRaw, quickViewCustomPaths),
+    [metaRaw, quickViewCustomPaths],
+  )
+  const quickViewVisible = useMemo(
+    () => shouldShowQuickViewSection({
+      multi,
+      autoloadMetadata: autoloadImageMetadata,
+      meta: metaRaw,
+    }),
+    [autoloadImageMetadata, metaRaw, multi],
+  )
 
   const compareColumns = useMemo(
     () => comparePaths.map((comparePath) => ({
@@ -325,6 +349,13 @@ export default function Inspector({
       markMetadataValueCopied(pathLabel)
     }).catch(() => {})
   }, [markMetadataValueCopied])
+
+  const handleCopyQuickViewValue = useCallback((rowId: string, value: string) => {
+    if (!value) return
+    navigator.clipboard?.writeText(value).then(() => {
+      markQuickViewValueCopied(rowId)
+    }).catch(() => {})
+  }, [markQuickViewValueCopied])
 
   const handleMetaPathCopy = useCallback((path: Array<string | number>) => {
     if (!metaDisplayValue) return
@@ -416,6 +447,20 @@ export default function Inspector({
     multi,
     viewerCompareActive,
     metadataCompareReady,
+    quickViewVisible,
+    quickViewProps: {
+      open: openSections.quickView,
+      onToggle: toggleQuickViewSection,
+      sortableId: 'quickView',
+      sortableEnabled: true,
+      rows: quickViewRows,
+      quickViewCopiedRowId,
+      onCopyQuickViewValue: handleCopyQuickViewValue,
+      quickViewCustomPathsDraft,
+      onQuickViewCustomPathsDraftChange: setQuickViewCustomPathsDraft,
+      onSaveQuickViewCustomPaths: saveQuickViewCustomPaths,
+      quickViewCustomPathsError,
+    },
     overviewProps: {
       open: openSections.overview,
       onToggle: toggleOverviewSection,

@@ -186,3 +186,38 @@ Blockers:
 
 Next step:
 - Start Sprint 5 task sequence (`T17`..`T20`) for GIF tooltip relocation and backend PNG quick-view defaults.
+
+## Iteration 6 - 2026-03-03T20:04:15Z
+
+Completed task IDs:
+- T17
+- T18
+- T19
+- T20
+
+Files changed:
+- frontend/src/features/inspector/sections/SelectionExportSection.tsx
+- frontend/src/features/inspector/sections/__tests__/metadataSections.test.tsx
+- src/lenslet/metadata.py
+- tests/test_metadata_endpoint.py
+- docs/20260303_inspector_metadata_improvements_execution_plan.md
+- docs/ralph/20260303_inspector_metadata_improvements/progress.txt
+- src/lenslet/frontend/index.html
+- src/lenslet/frontend/assets/index-Cm_FKOCM.js
+- src/lenslet/frontend/assets/index-DA0dPSfn.js (removed)
+
+Validations run:
+- `cd frontend && npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx` -> pass (9 tests).
+- `pytest tests/test_metadata_endpoint.py -q` -> pass (4 tests).
+- `cd frontend && npx tsc --noEmit` -> pass.
+- `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/` -> pass.
+- `python scripts/gui_smoke_acceptance.py` -> pass.
+- `python scripts/lint_repo.py` -> pass.
+- Cleanup gate: conservative simplifier review found no additional non-semantic cleanup needed.
+- Review gate: post-cleanup review found no open findings.
+
+Blockers:
+- None.
+
+Next step:
+- Start Sprint 6 task sequence (`T21`..`T24`) for PNG Quick View frontend UX, custom field-path persistence, section-order migration, and final acceptance closure.

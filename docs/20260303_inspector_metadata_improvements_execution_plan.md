@@ -135,16 +135,16 @@ After the cleanup subagent finishes, spawn a fresh subagent and request review u
 
 5. Sprint 5 goal is GIF notice relocation and backend PNG quick-view defaults. Demo outcome is no persistent GIF notice line and backend provides stable quick-view defaults.
 
-   T17. Move GIF mode explanatory text from persistent inline block to hover tooltip on `Export GIF`, including disabled-state tooltip behavior.
+   T17. [x] Move GIF mode explanatory text from persistent inline block to hover tooltip on `Export GIF`, including disabled-state tooltip behavior. Completed 2026-03-03.
    Validation: section tests confirming inline notice removal and tooltip text for standard/high-quality modes.
 
-   T18. Extend PNG metadata parsing in `src/lenslet/metadata.py` to derive `quick_view_defaults.prompt/model/lora` from `qfty_meta` and fallbacks.
+   T18. [x] Extend PNG metadata parsing in `src/lenslet/metadata.py` to derive `quick_view_defaults.prompt/model/lora` from `qfty_meta` and fallbacks. Completed 2026-03-03.
    Validation: parser tests for primary and fallback extraction paths.
 
-   T19. Extend metadata endpoint tests to assert additive quick-view defaults, including fixture coverage using `docs/test_meta.png`.
+   T19. [x] Extend metadata endpoint tests to assert additive quick-view defaults, including fixture coverage using `docs/test_meta.png`. Completed 2026-03-03.
    Validation: `pytest tests/test_metadata_endpoint.py -q` plus targeted parser tests pass.
 
-   T20. Add backend-forward compatibility guard so missing/invalid quick-view defaults return safe empty values without endpoint failure.
+   T20. [x] Add backend-forward compatibility guard so missing/invalid quick-view defaults return safe empty values without endpoint failure. Completed 2026-03-03.
    Validation: negative parser tests for malformed metadata payloads.
 
 6. Sprint 6 goal is PNG quick-view frontend UX and final integration closure. Demo outcome is top-positioned quick-view section with clickable copy and configurable JSON paths, fully integrated with reorder and acceptance gates.
@@ -246,6 +246,16 @@ Sprint 4 execution notes (2026-03-03):
 6. Review gate: `code-review` subagent identified one medium bug (path trimming could mutate valid filenames); fix was applied and covered by new guard tests.
 7. Sprint 4 closure gates passed: targeted Vitest suites (hooks/model/sections), `npx tsc --noEmit`, frontend build + bundle sync to `src/lenslet/frontend/`, `python scripts/gui_smoke_acceptance.py`, and `python scripts/lint_repo.py`.
 
+Sprint 5 execution notes (2026-03-03):
+
+1. `T17` pass: moved GIF mode explanatory text from persistent inspector body copy to `Export GIF slideshow` hover tooltip and preserved tooltip visibility for disabled export states via wrapper-title wiring.
+2. `T18` pass: `src/lenslet/metadata.py` now derives additive `quick_view_defaults.prompt/model/lora` for PNG metadata from `qfty_meta` first, with deterministic fallback extraction from existing quick fields.
+3. `T19` pass: `tests/test_metadata_endpoint.py` now includes additive quick-view default assertions for baseline PNG text-chunk metadata and `docs/test_meta.png` fixture extraction coverage.
+4. `T20` pass: malformed `qfty_meta` payloads now produce safe empty-string quick-view defaults without metadata endpoint failure; negative test coverage is included.
+5. Cleanup gate: conservative simplifier pass found no further non-semantic cleanup opportunities after lint/type/test checks; no behavior-changing edits were introduced.
+6. Review gate: post-cleanup review found no open correctness/performance regressions in Sprint 5 changes.
+7. Sprint 5 closure gates passed: targeted inspector section Vitest suite, `pytest tests/test_metadata_endpoint.py -q`, `npx tsc --noEmit`, frontend build + bundle sync to `src/lenslet/frontend/`, `python scripts/gui_smoke_acceptance.py`, and `python scripts/lint_repo.py`.
+
 
 ## Risks and Recovery
 
@@ -299,6 +309,15 @@ Idempotent retry strategy is rerunning failed sprint gates with the same command
 - [x] 2026-03-03 19:44:20Z Cleanup gate: conservative `code-simplifier` subagent removed dead compare-copy state paths and simplified compare-request context reuse without behavior changes.
 - [x] 2026-03-03 19:47:10Z Review gate: `code-review` subagent found one medium issue (path-trimming mutation risk); patched path-preserving guard behavior, added regression test coverage, rebuilt bundle, reran GUI smoke, and reran lint (all pass).
 - [x] 2026-03-03 19:50:19Z Sprint 4 closed; handoff notes and artifact list updated for Sprint 5 start.
+- [x] 2026-03-03 19:54:30Z Sprint 5 plan gate restated with Sprint 5-only scope (`T17`..`T20`) and unchanged non-goals.
+- [x] 2026-03-03 19:56:40Z Completed `T17`: removed persistent GIF mode inline notice and moved mode guidance to `Export GIF slideshow` tooltip with disabled-state hover support.
+- [x] 2026-03-03 19:58:10Z Completed `T18` + `T20`: added PNG `quick_view_defaults` derivation from `qfty_meta` + fallbacks and safe-empty guard behavior for malformed/missing quick-view fields.
+- [x] 2026-03-03 19:58:40Z Completed `T19`: expanded metadata endpoint tests with additive quick-view defaults assertions, including `docs/test_meta.png` fixture and malformed `qfty_meta` negative case.
+- [x] 2026-03-03 20:00:40Z Ran Sprint 5 targeted validations: inspector section Vitest suite passed, `pytest tests/test_metadata_endpoint.py -q` passed, and `npx tsc --noEmit` passed.
+- [x] 2026-03-03 20:02:20Z Ran Sprint 5 acceptance gates: frontend build + bundle sync passed, `python scripts/gui_smoke_acceptance.py` passed, and `python scripts/lint_repo.py` passed.
+- [x] 2026-03-03 20:03:00Z Cleanup gate: conservative simplifier pass found no further non-semantic cleanup needed in Sprint 5 diff.
+- [x] 2026-03-03 20:03:20Z Review gate: post-cleanup review found no open findings; no additional code changes required.
+- [x] 2026-03-03 20:03:40Z Sprint 5 closed; handoff notes and artifact list updated for Sprint 6 start.
 
 
 ## Artifacts and Handoff
@@ -373,6 +392,15 @@ Sprint 4 handoff notes (closed 2026-03-03):
 4. Cleanup and review subagent gates were executed; one review finding (whitespace-significant path mutation) was fixed and locked with regression tests.
 5. Sprint 4 closure gates passed, including targeted Vitest suites, `npx tsc --noEmit`, frontend bundle sync to `src/lenslet/frontend/`, GUI smoke, and repository lint.
 6. Next actionable sprint is Sprint 5 (`T17`..`T20`) for GIF tooltip relocation and backend PNG quick-view defaults.
+
+Sprint 5 handoff notes (closed 2026-03-03):
+
+1. `T17`..`T20` are complete: GIF guidance moved from persistent body copy to hover tooltip, PNG metadata now includes additive `quick_view_defaults` fields, and malformed quick-view payloads safely degrade to empty values.
+2. `SelectionExportSection` now exposes mode-specific tooltip text for `Export GIF slideshow` and keeps tooltip copy discoverable when GIF export is disabled.
+3. Backend metadata extraction now prioritizes `qfty_meta` (`prompt`, model candidates, LoRA candidates) and falls back to existing quick fields for prompt/model where available.
+4. `tests/test_metadata_endpoint.py` now validates baseline fallback defaults, fixture-backed extraction (`docs/test_meta.png`), and malformed `qfty_meta` safety behavior.
+5. Sprint 5 closure gates passed: targeted Vitest + pytest suites, `npx tsc --noEmit`, frontend bundle sync to `src/lenslet/frontend/`, GUI smoke, and repository lint.
+6. Next actionable sprint is Sprint 6 (`T21`..`T24`) for PNG Quick View UI, custom JSON path persistence, migration placement, and final acceptance closure.
 
 Execution handoff note for the next operator is to implement strictly sprint-by-sprint, preserve each sprint as independently demoable and reviewable, and keep this plan as the authoritative running log of decisions, validations, and closure state.
 

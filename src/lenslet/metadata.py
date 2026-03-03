@@ -1,7 +1,9 @@
 from __future__ import annotations
 import io
+import json
 import struct
 import zlib
+from pathlib import Path
 from typing import Any, Dict, List
 
 from PIL import Image, PngImagePlugin, ExifTags
@@ -14,6 +16,135 @@ _EXIF_TAGS = ExifTags.TAGS
 _EXIF_GPS_TAGS = ExifTags.GPSTAGS
 _QUICK_FIELDS = ("parameters", "Software", "prompt", "Description")
 _QUICK_EXIF_FIELDS = ("Software", "ImageDescription", "UserComment", "XPComment", "Comment")
+_PNG_QFTY_META_KEY = "qfty_meta"
+
+
+def _empty_quick_view_defaults() -> Dict[str, str]:
+    return {
+        "prompt": "",
+        "model": "",
+        "lora": "",
+    }
+
+
+def _normalize_quick_view_scalar(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (bytes, bytearray)):
+        return _decode_bytes(bytes(value)).strip()
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return str(value).strip()
+
+
+def _is_absolute_path_like(value: str) -> bool:
+    if value.startswith(("/", "\\")):
+        return True
+    return len(value) > 2 and value[1] == ":" and value[2] in ("/", "\\")
+
+
+def _format_model_value(value: Any) -> str:
+    text = _normalize_quick_view_scalar(value)
+    if not text:
+        return ""
+    if _is_absolute_path_like(text):
+        return Path(text).name or text
+    return text
+
+
+def _format_lora_value(value: Any) -> str:
+    if isinstance(value, dict):
+        formatted: list[str] = []
+        for raw_name, raw_weight in value.items():
+            name = _format_model_value(raw_name)
+            if not name:
+                continue
+            weight = _normalize_quick_view_scalar(raw_weight)
+            if weight and weight not in ("1", "1.0", "1.00"):
+                formatted.append(f"{name} ({weight})")
+            else:
+                formatted.append(name)
+        return ", ".join(formatted)
+    if isinstance(value, (list, tuple, set)):
+        formatted = [_format_lora_value(item) for item in value]
+        return ", ".join(item for item in formatted if item)
+    return _format_model_value(value)
+
+
+def _parse_qfty_meta_payload(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    text = _normalize_quick_view_scalar(value)
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return {}
+    if isinstance(parsed, dict):
+        return parsed
+    return {}
+
+
+def _extract_qfty_meta_payload(
+    pil_info: Dict[str, Any],
+    found_text_chunks: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    payload = _parse_qfty_meta_payload(pil_info.get(_PNG_QFTY_META_KEY))
+    if payload:
+        return payload
+    for chunk in found_text_chunks:
+        if chunk.get("keyword") != _PNG_QFTY_META_KEY:
+            continue
+        payload = _parse_qfty_meta_payload(chunk.get("text"))
+        if payload:
+            return payload
+    return {}
+
+
+def _first_non_empty(values: list[str]) -> str:
+    for value in values:
+        if value:
+            return value
+    return ""
+
+
+def _build_png_quick_view_defaults(
+    pil_info: Dict[str, Any],
+    quick_fields: Dict[str, Any],
+    found_text_chunks: List[Dict[str, Any]],
+) -> Dict[str, str]:
+    quick_view_defaults = _empty_quick_view_defaults()
+    qfty_meta = _extract_qfty_meta_payload(pil_info, found_text_chunks)
+
+    quick_view_defaults["prompt"] = _first_non_empty([
+        _normalize_quick_view_scalar(qfty_meta.get("prompt")),
+        _normalize_quick_view_scalar(qfty_meta.get("prompt_t2i")),
+        _normalize_quick_view_scalar(qfty_meta.get("prompt_i2i")),
+        _normalize_quick_view_scalar(quick_fields.get("prompt")),
+        _normalize_quick_view_scalar(quick_fields.get("Description")),
+        _normalize_quick_view_scalar(quick_fields.get("parameters")),
+    ])
+    quick_view_defaults["model"] = _first_non_empty([
+        _format_model_value(qfty_meta.get("model")),
+        _format_model_value(qfty_meta.get("model_name")),
+        _format_model_value(qfty_meta.get("model_dir")),
+        _format_model_value(qfty_meta.get("ckpt")),
+        _format_model_value(qfty_meta.get("i2i_model_path")),
+        _format_model_value(quick_fields.get("Software")),
+    ])
+    quick_view_defaults["lora"] = _first_non_empty([
+        _format_lora_value(qfty_meta.get("lora")),
+        _format_lora_value(qfty_meta.get("loras")),
+        _format_lora_value(qfty_meta.get("t2i_loras")),
+        _format_lora_value(qfty_meta.get("i2i_loras")),
+        _format_lora_value(quick_fields.get("lora")),
+    ])
+    return quick_view_defaults
 
 
 def _read_bytes(file_obj) -> bytes:
@@ -264,10 +395,13 @@ def read_png_info(file_obj) -> Dict[str, Any]:
         if keyword in _QUICK_FIELDS and keyword not in quick_fields:
             quick_fields[keyword] = chunk.get("text", "")
 
+    quick_view_defaults = _build_png_quick_view_defaults(pil_info, quick_fields, found_text_chunks)
+
     return {
         "found_text_chunks": found_text_chunks,
         "pil_info": pil_info,
         "quick_fields": quick_fields,
+        "quick_view_defaults": quick_view_defaults,
     }
 
 

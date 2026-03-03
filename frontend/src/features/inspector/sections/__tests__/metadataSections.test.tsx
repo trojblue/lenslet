@@ -4,6 +4,7 @@ import { buildJsonRenderNode, type CompareMetadataMatrixResult } from '../../mod
 import { CompareMetadataSection } from '../CompareMetadataSection'
 import { MetadataSection } from '../MetadataSection'
 import { OverviewSection } from '../OverviewSection'
+import { buildGifExportTooltip, SelectionExportSection } from '../SelectionExportSection'
 
 const noop = (..._args: unknown[]) => {}
 const noopPath = (_path: Array<string | number>) => {}
@@ -276,5 +277,53 @@ describe('inspector metadata section rendering', () => {
     )
 
     expect(html).toContain('metadata failed')
+  })
+
+  it('moves GIF mode guidance into Export GIF tooltip text', () => {
+    const html = renderToStaticMarkup(
+      <SelectionExportSection
+        selectedCount={2}
+        compareExportLabelsText=""
+        onCompareExportLabelsTextChange={noop}
+        compareExportEmbedMetadata
+        onCompareExportEmbedMetadataChange={noop}
+        compareExportReverseOrder={false}
+        onCompareExportReverseOrderChange={noop}
+        compareExportHighQualityGif={false}
+        onCompareExportHighQualityGifChange={noop}
+        compareExportBusy={false}
+        compareExportMode={null}
+        onComparisonExport={noop}
+        compareExportError={null}
+      />,
+    )
+
+    expect(html).toContain('Export GIF slideshow')
+    expect(html).toContain(buildGifExportTooltip(false))
+    expect(html).not.toContain('>GIF mode:')
+  })
+
+  it('keeps GIF tooltip guidance available when export is disabled and high quality is enabled', () => {
+    const html = renderToStaticMarkup(
+      <SelectionExportSection
+        selectedCount={1}
+        compareExportLabelsText=""
+        onCompareExportLabelsTextChange={noop}
+        compareExportEmbedMetadata
+        onCompareExportEmbedMetadataChange={noop}
+        compareExportReverseOrder={false}
+        onCompareExportReverseOrderChange={noop}
+        compareExportHighQualityGif
+        onCompareExportHighQualityGifChange={noop}
+        compareExportBusy={false}
+        compareExportMode={null}
+        onComparisonExport={noop}
+        compareExportError={null}
+      />,
+    )
+
+    expect(html).toContain('Export GIF slideshow')
+    expect(html).toContain('disabled=""')
+    expect(html).toContain(buildGifExportTooltip(true))
   })
 })

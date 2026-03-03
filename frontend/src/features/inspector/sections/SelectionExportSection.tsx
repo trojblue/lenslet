@@ -22,6 +22,13 @@ interface SelectionExportSectionProps {
   compareExportError: string | null
 }
 
+export function buildGifExportTooltip(compareExportHighQualityGif: boolean): string {
+  if (compareExportHighQualityGif) {
+    return 'GIF mode: 2.0s/frame, max 1080px long side; capped to 8MB.'
+  }
+  return 'GIF mode: 1.5s/frame, max 720px long side; capped to 8MB.'
+}
+
 export function getSelectionExportDisabledReason({
   selectedCount,
   maxPaths,
@@ -69,6 +76,7 @@ export function SelectionExportSection({
     : [pngDisabledReason ? `PNG: ${pngDisabledReason}` : null, gifDisabledReason ? `GIF: ${gifDisabledReason}` : null]
       .filter((value): value is string => value !== null)
       .join(' ')
+  const gifExportTooltip = buildGifExportTooltip(compareExportHighQualityGif)
   const labelsPlaceholder = selectedCount > 2
     ? 'Label for image 1\nLabel for image 2\n...'
     : 'Label for A\nLabel for B'
@@ -120,17 +128,17 @@ export function SelectionExportSection({
         >
           {compareExportMode === 'png' ? 'Exporting…' : 'Export comparison'}
         </button>
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={() => onComparisonExport('gif')}
-          disabled={gifExportDisabled}
-        >
-          {compareExportMode === 'gif' ? 'Exporting…' : 'Export GIF slideshow'}
-        </button>
-      </div>
-      <div className="text-[11px] text-muted">
-        GIF mode: {compareExportHighQualityGif ? '2.0s/frame, max 1080px long side' : '1.5s/frame, max 720px long side'}; capped to 8MB.
+        <span className="inline-flex" title={gifExportTooltip}>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => onComparisonExport('gif')}
+            disabled={gifExportDisabled}
+            title={gifExportTooltip}
+          >
+            {compareExportMode === 'gif' ? 'Exporting…' : 'Export GIF slideshow'}
+          </button>
+        </span>
       </div>
       {disabledReason && (
         <div className="text-[11px] text-muted">{disabledReason}</div>

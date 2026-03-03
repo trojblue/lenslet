@@ -51,6 +51,7 @@ interface InspectorProps {
   embeddingsLoading?: boolean
   compareExportSupportsV2?: boolean
   compareExportMaxPathsV2?: number | null
+  compareExportMaxPathsV2Gif?: number | null
   onLocalTypingChange?: (active: boolean) => void
 }
 
@@ -75,6 +76,7 @@ export default function Inspector({
   embeddingsLoading = false,
   compareExportSupportsV2 = false,
   compareExportMaxPathsV2 = null,
+  compareExportMaxPathsV2Gif = null,
   onLocalTypingChange,
 }: InspectorProps) {
   const enabled = !!path
@@ -209,6 +211,7 @@ export default function Inspector({
     comparePathB,
     compareExportSupportsV2,
     compareExportMaxPathsV2,
+    compareExportMaxPathsV2Gif,
   })
   
   const selectedItems = useMemo(() => {
@@ -480,6 +483,7 @@ export default function Inspector({
       onOpenCompare,
       compareExportSupportsV2,
       compareExportMaxPathsV2,
+      compareExportMaxPathsV2Gif,
       compareExportLabelsText,
       onCompareExportLabelsTextChange: handleCompareExportLabelsTextChange,
       compareExportEmbedMetadata,

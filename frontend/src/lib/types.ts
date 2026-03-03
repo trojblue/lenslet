@@ -96,6 +96,7 @@ export type HealthResponse = {
   compare_export?: {
     supported_versions?: number[]
     max_paths_v2?: number | null
+    max_paths_v2_gif?: number | null
   }
   labels?: {
     enabled: boolean

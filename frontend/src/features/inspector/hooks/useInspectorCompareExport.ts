@@ -28,6 +28,7 @@ type UseInspectorCompareExportParams = {
   comparePathB: string | null
   compareExportSupportsV2: boolean
   compareExportMaxPathsV2: number | null
+  compareExportMaxPathsV2Gif: number | null
 }
 
 type UseInspectorCompareExportResult = {
@@ -50,7 +51,7 @@ type BuildInspectorComparisonExportPayloadArgs = {
   comparePathA: string | null
   comparePathB: string | null
   compareExportSupportsV2: boolean
-  compareExportMaxPathsV2: number | null
+  compareExportMaxPathsV2ForFormat: number | null
   labelsText: string
   embedMetadata: boolean
   reverseOrder: boolean
@@ -80,7 +81,7 @@ export function buildInspectorComparisonExportPayload({
   comparePathA,
   comparePathB,
   compareExportSupportsV2,
-  compareExportMaxPathsV2,
+  compareExportMaxPathsV2ForFormat,
   labelsText,
   embedMetadata,
   reverseOrder,
@@ -116,10 +117,10 @@ export function buildInspectorComparisonExportPayload({
   if (!compareExportSupportsV2) {
     return { ok: false, message: EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE }
   }
-  if (compareExportMaxPathsV2 !== null && selectedCount > compareExportMaxPathsV2) {
+  if (compareExportMaxPathsV2ForFormat !== null && selectedCount > compareExportMaxPathsV2ForFormat) {
     return {
       ok: false,
-      message: buildExportComparisonV2MaxPathsMessage(compareExportMaxPathsV2, selectedCount),
+      message: buildExportComparisonV2MaxPathsMessage(compareExportMaxPathsV2ForFormat, selectedCount),
     }
   }
   return buildExportComparisonPayloadV2({
@@ -138,6 +139,7 @@ export function useInspectorCompareExport({
   comparePathB,
   compareExportSupportsV2,
   compareExportMaxPathsV2,
+  compareExportMaxPathsV2Gif,
 }: UseInspectorCompareExportParams): UseInspectorCompareExportResult {
   const [compareExportLabelsText, setCompareExportLabelsText] = useState('')
   const [compareExportEmbedMetadata, setCompareExportEmbedMetadata] = useState(
@@ -225,12 +227,15 @@ export function useInspectorCompareExport({
       }
 
       const highQualityGif = outputFormat === 'gif' && compareExportHighQualityGif
+      const compareExportMaxPathsV2ForFormat = outputFormat === 'gif'
+        ? (compareExportMaxPathsV2Gif ?? compareExportMaxPathsV2)
+        : compareExportMaxPathsV2
       const payloadResult = buildInspectorComparisonExportPayload({
         selectedPaths,
         comparePathA,
         comparePathB,
         compareExportSupportsV2,
-        compareExportMaxPathsV2,
+        compareExportMaxPathsV2ForFormat,
         labelsText: compareExportLabelsText,
         embedMetadata: compareExportEmbedMetadata,
         reverseOrder,
@@ -260,6 +265,7 @@ export function useInspectorCompareExport({
       compareExportHighQualityGif,
       compareExportLabelsText,
       compareExportMaxPathsV2,
+      compareExportMaxPathsV2Gif,
       compareExportReverseOrder,
       compareExportSupportsV2,
       comparePathA,

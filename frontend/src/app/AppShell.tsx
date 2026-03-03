@@ -169,6 +169,7 @@ export default function AppShell({
   const [views, setViews] = useState<SavedView[]>([])
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
   const [folderCountsVersion, setFolderCountsVersion] = useState(0)
+  const [headerRefreshBusy, setHeaderRefreshBusy] = useState(false)
   const [scanGeneration, setScanGeneration] = useState<string | null>(() => (
     readStoredGeneration(INDEXING_MODE_STORAGE_KEYS.scanGeneration)
   ))
@@ -514,6 +515,18 @@ export default function AppShell({
       console.error('Failed to refresh folder:', err)
     }
   }, [current, refreshEnabled, refreshFolderPath])
+
+  const handleHeaderRefresh = useCallback(async () => {
+    if (!refreshEnabled || headerRefreshBusy) return
+    setHeaderRefreshBusy(true)
+    try {
+      await refreshFolderPath('/')
+    } catch (err) {
+      console.error('Failed to refresh root folder:', err)
+    } finally {
+      setHeaderRefreshBusy(false)
+    }
+  }, [headerRefreshBusy, refreshEnabled, refreshFolderPath])
 
   // Compute star counts for the filter UI
   const starCounts = useMemo(() => {
@@ -1177,6 +1190,10 @@ export default function AppShell({
         rightOpen={rightOpen}
         onToggleLeft={()=> setLeftOpen(v=>!v)}
         onToggleRight={()=> setRightOpen(v=>!v)}
+        onRefreshRoot={handleHeaderRefresh}
+        refreshEnabled={refreshEnabled}
+        refreshDisabledReason={refreshDisabledReason}
+        refreshBusy={headerRefreshBusy}
         onPrevImage={() => handleNavigate(-1)}
         onNextImage={() => handleNavigate(1)}
         canPrevImage={canPrevImage}
@@ -1371,6 +1388,7 @@ export default function AppShell({
           embeddingsLoading={embeddingsLoading}
           compareExportSupportsV2={compareExportCapability.supportsV2}
           compareExportMaxPathsV2={compareExportCapability.maxPathsV2}
+          compareExportMaxPathsV2Gif={compareExportCapability.maxPathsV2Gif}
           onLocalTypingChange={setLocalTypingActive}
         />
       )}

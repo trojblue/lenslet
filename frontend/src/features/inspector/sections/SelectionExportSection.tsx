@@ -10,6 +10,7 @@ interface SelectionExportSectionProps {
   compareReady: boolean
   compareExportSupportsV2: boolean
   compareExportMaxPathsV2: number | null
+  compareExportMaxPathsV2Gif: number | null
   compareExportLabelsText: string
   onCompareExportLabelsTextChange: (value: string) => void
   compareExportEmbedMetadata: boolean
@@ -56,6 +57,7 @@ export function SelectionExportSection({
   compareReady,
   compareExportSupportsV2,
   compareExportMaxPathsV2,
+  compareExportMaxPathsV2Gif,
   compareExportLabelsText,
   onCompareExportLabelsTextChange,
   compareExportEmbedMetadata,
@@ -69,13 +71,26 @@ export function SelectionExportSection({
   onComparisonExport,
   compareExportError,
 }: SelectionExportSectionProps): JSX.Element {
-  const disabledReason = getSelectionExportDisabledReason({
+  const pngDisabledReason = getSelectionExportDisabledReason({
     selectedCount,
     compareReady,
     compareExportSupportsV2,
     compareExportMaxPathsV2,
   })
-  const exportDisabled = compareExportBusy || disabledReason !== null
+  const gifDisabledReason = getSelectionExportDisabledReason({
+    selectedCount,
+    compareReady,
+    compareExportSupportsV2,
+    compareExportMaxPathsV2: compareExportMaxPathsV2Gif ?? compareExportMaxPathsV2,
+  })
+  const controlsDisabled = compareExportBusy || (pngDisabledReason !== null && gifDisabledReason !== null)
+  const pngExportDisabled = compareExportBusy || pngDisabledReason !== null
+  const gifExportDisabled = compareExportBusy || gifDisabledReason !== null
+  const disabledReason = pngDisabledReason === gifDisabledReason
+    ? pngDisabledReason
+    : [pngDisabledReason ? `PNG: ${pngDisabledReason}` : null, gifDisabledReason ? `GIF: ${gifDisabledReason}` : null]
+      .filter((value): value is string => value !== null)
+      .join(' ')
   const labelsPlaceholder = selectedCount > 2
     ? 'Label for image 1\nLabel for image 2\n...'
     : 'Label for A\nLabel for B'
@@ -88,7 +103,7 @@ export function SelectionExportSection({
         placeholder={labelsPlaceholder}
         value={compareExportLabelsText}
         onChange={(e) => onCompareExportLabelsTextChange(e.target.value)}
-        disabled={exportDisabled}
+        disabled={controlsDisabled}
         aria-label="Selection export labels"
       />
       <label className="inline-flex items-center gap-2 text-[11px] text-muted">
@@ -96,7 +111,7 @@ export function SelectionExportSection({
           type="checkbox"
           checked={compareExportEmbedMetadata}
           onChange={(e) => onCompareExportEmbedMetadataChange(e.target.checked)}
-          disabled={exportDisabled}
+          disabled={controlsDisabled}
         />
         <span>Embed metadata</span>
       </label>
@@ -105,7 +120,7 @@ export function SelectionExportSection({
           type="checkbox"
           checked={compareExportReverseOrder}
           onChange={(e) => onCompareExportReverseOrderChange(e.target.checked)}
-          disabled={exportDisabled}
+          disabled={controlsDisabled}
         />
         <span>Reverse order</span>
       </label>
@@ -114,7 +129,7 @@ export function SelectionExportSection({
           type="checkbox"
           checked={compareExportHighQualityGif}
           onChange={(e) => onCompareExportHighQualityGifChange(e.target.checked)}
-          disabled={exportDisabled}
+          disabled={controlsDisabled}
         />
         <span>Higher GIF quality</span>
       </label>
@@ -123,7 +138,7 @@ export function SelectionExportSection({
           type="button"
           className="btn btn-sm"
           onClick={() => onComparisonExport('png')}
-          disabled={exportDisabled}
+          disabled={pngExportDisabled}
         >
           {compareExportMode === 'png' ? 'Exporting…' : 'Export comparison'}
         </button>
@@ -131,7 +146,7 @@ export function SelectionExportSection({
           type="button"
           className="btn btn-sm"
           onClick={() => onComparisonExport('gif')}
-          disabled={exportDisabled}
+          disabled={gifExportDisabled}
         >
           {compareExportMode === 'gif' ? 'Exporting…' : 'Export GIF slideshow'}
         </button>

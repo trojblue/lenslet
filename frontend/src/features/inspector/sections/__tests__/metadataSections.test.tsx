@@ -40,6 +40,7 @@ describe('inspector metadata section rendering', () => {
         onOpenCompare={noop}
         compareExportSupportsV2={false}
         compareExportMaxPathsV2={null}
+        compareExportMaxPathsV2Gif={null}
         compareExportLabelsText={'Prompt A\nPrompt B'}
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -79,6 +80,7 @@ describe('inspector metadata section rendering', () => {
         onOpenCompare={noop}
         compareExportSupportsV2={false}
         compareExportMaxPathsV2={null}
+        compareExportMaxPathsV2Gif={null}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -115,6 +117,7 @@ describe('inspector metadata section rendering', () => {
         onOpenCompare={noop}
         compareExportSupportsV2={false}
         compareExportMaxPathsV2={null}
+        compareExportMaxPathsV2Gif={null}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -151,6 +154,7 @@ describe('inspector metadata section rendering', () => {
         onOpenCompare={noop}
         compareExportSupportsV2={false}
         compareExportMaxPathsV2={null}
+        compareExportMaxPathsV2Gif={null}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -187,6 +191,7 @@ describe('inspector metadata section rendering', () => {
         onOpenCompare={noop}
         compareExportSupportsV2
         compareExportMaxPathsV2={12}
+        compareExportMaxPathsV2Gif={24}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata

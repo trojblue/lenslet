@@ -10,7 +10,10 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from lenslet.server import create_app, create_app_from_datasets, create_app_from_table
-from lenslet.server_models import MAX_EXPORT_COMPARISON_PATHS_V2
+from lenslet.server_models import (
+    MAX_EXPORT_COMPARISON_PATHS_V2,
+    MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
+)
 from lenslet.storage.memory import MemoryStorage
 
 
@@ -186,6 +189,7 @@ def test_health_reports_compare_export_capability_contract(tmp_path: Path) -> No
     compare_export = health.json().get("compare_export", {})
     assert compare_export.get("supported_versions") == [1, 2]
     assert compare_export.get("max_paths_v2") == MAX_EXPORT_COMPARISON_PATHS_V2
+    assert compare_export.get("max_paths_v2_gif") == MAX_EXPORT_COMPARISON_PATHS_V2_GIF
 
 
 @pytest.mark.parametrize(

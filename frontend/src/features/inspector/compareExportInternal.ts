@@ -8,6 +8,7 @@ import type {
 
 export const MAX_EXPORT_COMPARISON_LINES = 2
 export const MAX_EXPORT_COMPARISON_PATHS_V2 = 12
+export const MAX_EXPORT_COMPARISON_PATHS_V2_GIF = 24
 export const MAX_EXPORT_COMPARISON_LABEL_CHARS = 120
 export const DEFAULT_EXPORT_COMPARISON_EMBED_METADATA = true
 export const EXPORT_COMPARISON_PAIR_ONLY_MESSAGE = 'Comparison export (v1) requires exactly 2 selected images.'
@@ -17,6 +18,11 @@ export const EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE =
 
 export function buildExportComparisonV2MaxPathsMessage(maxPaths: number, selectedCount: number): string {
   return `Comparison export (v2) supports up to ${maxPaths} selections (selected ${selectedCount}).`
+}
+
+function maxExportComparisonPathsV2ForFormat(outputFormat: ExportComparisonOutputFormat): number {
+  if (outputFormat === 'gif') return MAX_EXPORT_COMPARISON_PATHS_V2_GIF
+  return MAX_EXPORT_COMPARISON_PATHS_V2
 }
 
 export type ExportComparisonPayloadArgs = {
@@ -128,12 +134,16 @@ export function buildExportComparisonPayloadV2(
 ): ExportComparisonPayloadResult {
   const { paths, labelsText, embedMetadata, reverseOrder, outputFormat, highQualityGif } = args
   const normalizedPaths = normalizeExportPaths(paths)
+  const maxPaths = maxExportComparisonPathsV2ForFormat(outputFormat)
   if (
     normalizedPaths.length !== paths.length
     || normalizedPaths.length < 2
-    || normalizedPaths.length > MAX_EXPORT_COMPARISON_PATHS_V2
+    || normalizedPaths.length > maxPaths
   ) {
-    return { ok: false, message: EXPORT_COMPARISON_V2_PATH_RANGE_MESSAGE }
+    return {
+      ok: false,
+      message: `Comparison export (v2) requires between 2 and ${maxPaths} selected images.`,
+    }
   }
 
   const labelsResult = validateLabelLines(labelsText, {

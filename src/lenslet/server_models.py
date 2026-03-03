@@ -95,6 +95,13 @@ class ImageMetadataResponse(BaseModel):
 
 
 MAX_EXPORT_COMPARISON_PATHS_V2 = 12
+MAX_EXPORT_COMPARISON_PATHS_V2_GIF = 24
+
+
+def export_comparison_max_paths_v2_for_format(output_format: ExportComparisonOutputFormat) -> int:
+    if output_format == "gif":
+        return MAX_EXPORT_COMPARISON_PATHS_V2_GIF
+    return MAX_EXPORT_COMPARISON_PATHS_V2
 
 
 class _ExportComparisonRequestBase(BaseModel):
@@ -135,14 +142,19 @@ class ExportComparisonRequestV2(_ExportComparisonRequestBase):
     @field_validator("paths")
     @classmethod
     def validate_path_count(cls, value: list[str]) -> list[str]:
-        if len(value) < 2 or len(value) > MAX_EXPORT_COMPARISON_PATHS_V2:
+        if len(value) < 2:
             raise ValueError(
-                f"comparison export v2 requires between 2 and {MAX_EXPORT_COMPARISON_PATHS_V2} paths",
+                "comparison export v2 requires between 2 and the configured max paths",
             )
         return value
 
     @model_validator(mode="after")
     def validate_labels(self) -> "ExportComparisonRequestV2":
+        max_paths = export_comparison_max_paths_v2_for_format(self.output_format)
+        if len(self.paths) > max_paths:
+            raise ValueError(
+                f"comparison export v2 requires between 2 and {max_paths} paths for {self.output_format} output",
+            )
         if self.labels is None:
             return self
         if len(self.labels) > len(self.paths):

@@ -3,6 +3,7 @@ import type { HealthResponse } from '../../lib/types'
 export type CompareExportCapability = {
   supportedVersions: number[]
   maxPathsV2: number | null
+  maxPathsV2Gif: number | null
   supportsV2: boolean
 }
 
@@ -11,6 +12,7 @@ const DEFAULT_SUPPORTED_VERSIONS: number[] = [1]
 export const DEFAULT_COMPARE_EXPORT_CAPABILITY: CompareExportCapability = {
   supportedVersions: [...DEFAULT_SUPPORTED_VERSIONS],
   maxPathsV2: null,
+  maxPathsV2Gif: null,
   supportsV2: false,
 }
 
@@ -41,10 +43,15 @@ export function normalizeHealthCompareExport(
   }
 
   const maxPathsV2 = coerceMaxPathsV2(compareExport?.max_paths_v2)
-  const supportsV2 = supportedVersions.includes(2) && maxPathsV2 !== null && maxPathsV2 > 2
+  const maxPathsV2Gif = coerceMaxPathsV2(compareExport?.max_paths_v2_gif)
+  const supportsV2 = supportedVersions.includes(2) && (
+    (maxPathsV2 !== null && maxPathsV2 > 2)
+    || (maxPathsV2Gif !== null && maxPathsV2Gif > 2)
+  )
   return {
     supportedVersions,
     maxPathsV2,
+    maxPathsV2Gif,
     supportsV2,
   }
 }
@@ -56,6 +63,7 @@ export function compareExportCapabilityEquals(
   if (a === b) return true
   if (a.supportsV2 !== b.supportsV2) return false
   if (a.maxPathsV2 !== b.maxPathsV2) return false
+  if (a.maxPathsV2Gif !== b.maxPathsV2Gif) return false
   if (a.supportedVersions.length !== b.supportedVersions.length) return false
   for (let i = 0; i < a.supportedVersions.length; i += 1) {
     if (a.supportedVersions[i] !== b.supportedVersions[i]) {

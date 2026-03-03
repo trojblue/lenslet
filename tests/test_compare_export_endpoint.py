@@ -10,7 +10,7 @@ from PIL import Image
 import lenslet.server as server_mod
 from lenslet.metadata import read_png_info
 from lenslet.server import create_app
-from lenslet.server_models import MAX_EXPORT_COMPARISON_PATHS_V2
+from lenslet.server_models import MAX_EXPORT_COMPARISON_PATHS_V2, MAX_EXPORT_COMPARISON_PATHS_V2_GIF
 
 
 def _make_png(path: Path, *, size: tuple[int, int] = (12, 8), color=(64, 64, 64), mode: str = "RGB") -> None:
@@ -284,6 +284,30 @@ def test_export_comparison_v2_supports_multi_path_exports(tmp_path: Path) -> Non
     assert metadata_payload["reversed"] is False
 
 
+def test_export_comparison_v2_gif_supports_more_than_png_limit(tmp_path: Path) -> None:
+    path_count = MAX_EXPORT_COMPARISON_PATHS_V2 + 1
+    paths: list[str] = []
+    labels: list[str] = []
+    for idx in range(path_count):
+        name = f"f{idx}.png"
+        _make_png(tmp_path / name, size=(24, 12), color=(idx % 255, 80, 160))
+        paths.append(f"/{name}")
+        labels.append(f"Prompt {idx}")
+
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.post(
+        "/export-comparison",
+        json=_export_payload_v2(paths=paths, labels=labels, output_format="gif"),
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/gif")
+    with Image.open(io.BytesIO(response.content)) as exported:
+        assert exported.format == "GIF"
+        assert bool(getattr(exported, "is_animated", False))
+        assert exported.n_frames == path_count
+
+
 def test_export_comparison_v2_rejects_invalid_path_count(tmp_path: Path) -> None:
     _make_png(tmp_path / "a.png")
     _make_png(tmp_path / "b.png")
@@ -306,6 +330,23 @@ def test_export_comparison_v2_rejects_invalid_path_count(tmp_path: Path) -> None
     assert too_many.status_code == 400
     assert too_many.json()["error"] == "invalid_request"
     assert f"{MAX_EXPORT_COMPARISON_PATHS_V2}" in too_many.json()["message"]
+
+
+def test_export_comparison_v2_gif_rejects_path_count_above_gif_limit(tmp_path: Path) -> None:
+    for idx in range(3):
+        _make_png(tmp_path / f"{idx}.png")
+
+    client = TestClient(create_app(str(tmp_path)))
+    too_many = client.post(
+        "/export-comparison",
+        json=_export_payload_v2(
+            output_format="gif",
+            paths=["/0.png"] * (MAX_EXPORT_COMPARISON_PATHS_V2_GIF + 1),
+        ),
+    )
+    assert too_many.status_code == 400
+    assert too_many.json()["error"] == "invalid_request"
+    assert f"{MAX_EXPORT_COMPARISON_PATHS_V2_GIF}" in too_many.json()["message"]
 
 
 def test_export_comparison_v2_rejects_more_labels_than_paths(tmp_path: Path) -> None:

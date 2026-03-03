@@ -46,7 +46,10 @@ from .server_routes_presence import (
 from .server_routes_views import register_views_routes as _register_views_routes
 from .server_runtime import AppRuntime, build_app_runtime
 from .server_sync import _canonical_path, _sidecar_payload
-from .server_models import MAX_EXPORT_COMPARISON_PATHS_V2
+from .server_models import (
+    MAX_EXPORT_COMPARISON_PATHS_V2,
+    MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
+)
 from .storage.dataset import DatasetStorage
 from .storage.memory import MemoryStorage
 from .storage.table import TableStorage, load_parquet_schema, load_parquet_table
@@ -286,6 +289,7 @@ def _compare_export_health_payload() -> dict[str, Any]:
     return {
         "supported_versions": [1, 2],
         "max_paths_v2": MAX_EXPORT_COMPARISON_PATHS_V2,
+        "max_paths_v2_gif": MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
     }
 
 

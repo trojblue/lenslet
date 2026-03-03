@@ -173,6 +173,24 @@ describe('comparison export helpers', () => {
     expect(hasBlank.message).toBe(EXPORT_COMPARISON_V2_PATH_RANGE_MESSAGE)
   })
 
+  it('allows v2 GIF payloads above the PNG path limit', () => {
+    const paths = Array.from({ length: 13 }, (_, idx) => `/f${idx}.png`)
+    const labelsText = Array.from({ length: 13 }, (_, idx) => `L${idx}`).join('\n')
+    const result = buildExportComparisonPayloadV2({
+      paths,
+      labelsText,
+      embedMetadata: true,
+      reverseOrder: false,
+      outputFormat: 'gif',
+      highQualityGif: false,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.payload.paths).toHaveLength(13)
+    expect(result.payload.output_format).toBe('gif')
+  })
+
   it('rejects v2 label input when line count exceeds selected paths', () => {
     const result = buildExportComparisonPayloadV2({
       paths: ['/a.png', '/b.png', '/c.png'],
@@ -216,7 +234,7 @@ describe('comparison export helpers', () => {
       comparePathA: null,
       comparePathB: null,
       compareExportSupportsV2: false,
-      compareExportMaxPathsV2: null,
+      compareExportMaxPathsV2ForFormat: null,
       labelsText: '',
       embedMetadata: true,
       reverseOrder: false,
@@ -236,7 +254,7 @@ describe('comparison export helpers', () => {
       comparePathA: '/a.png',
       comparePathB: '/b.png',
       compareExportSupportsV2: false,
-      compareExportMaxPathsV2: null,
+      compareExportMaxPathsV2ForFormat: null,
       labelsText: '',
       embedMetadata: true,
       reverseOrder: false,

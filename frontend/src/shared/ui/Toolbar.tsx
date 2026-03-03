@@ -38,6 +38,10 @@ export interface ToolbarProps {
   rightOpen?: boolean
   onToggleLeft?: () => void
   onToggleRight?: () => void
+  onRefreshRoot?: () => void
+  refreshEnabled?: boolean
+  refreshDisabledReason?: string | null
+  refreshBusy?: boolean
   onPrevImage?: () => void
   onNextImage?: () => void
   canPrevImage?: boolean
@@ -84,6 +88,10 @@ export default function Toolbar({
   rightOpen,
   onToggleLeft,
   onToggleRight,
+  onRefreshRoot,
+  refreshEnabled = true,
+  refreshDisabledReason,
+  refreshBusy = false,
   onPrevImage,
   onNextImage,
   canPrevImage,
@@ -181,6 +189,10 @@ export default function Toolbar({
   const showSortFiltersInToolbar = !isCompactViewer
   const showToolbarNav = !!viewerActive && !isPhone
   const showSelectModeToggle = showMobileDrawer && !!onToggleMultiSelectMode
+  const refreshButtonDisabled = refreshBusy || !refreshEnabled || !onRefreshRoot
+  const refreshButtonTitle = refreshBusy
+    ? 'Refreshing root folder…'
+    : (refreshEnabled ? 'Refresh root folder' : (refreshDisabledReason || 'Refresh unavailable in current mode'))
   const selectModeLabel = multiSelectMode
     ? (selectedCount > 0 ? `Done (${selectedCount})` : 'Done')
     : 'Select'
@@ -369,6 +381,24 @@ export default function Toolbar({
               <rect x="3" y="5" width="10" height="14" rx="1.5" />
             </svg>
           </button>
+          {!viewerActive && (
+            <button
+              className={`btn btn-icon ${refreshButtonDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title={refreshButtonTitle}
+              onClick={() => {
+                if (refreshButtonDisabled) return
+                onRefreshRoot?.()
+              }}
+              aria-label="Refresh root folder"
+              aria-disabled={refreshButtonDisabled}
+              disabled={refreshButtonDisabled}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                <path d="M21 3v6h-6" />
+              </svg>
+            </button>
+          )}
         </div>
         {!viewerActive && onUploadClick && (
           <button

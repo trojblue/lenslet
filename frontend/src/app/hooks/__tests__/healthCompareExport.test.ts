@@ -10,6 +10,7 @@ describe('health compare export contracts', () => {
     expect(capability).toEqual({
       supportedVersions: [1],
       maxPathsV2: null,
+      maxPathsV2Gif: null,
       supportsV2: false,
     })
   })
@@ -18,10 +19,12 @@ describe('health compare export contracts', () => {
     const capability = normalizeHealthCompareExport({
       supported_versions: [1, 2],
       max_paths_v2: 12,
+      max_paths_v2_gif: 24,
     })
     expect(capability).toEqual({
       supportedVersions: [1, 2],
       maxPathsV2: 12,
+      maxPathsV2Gif: 24,
       supportsV2: true,
     })
   })
@@ -45,6 +48,7 @@ describe('health compare export contracts', () => {
     expect(invalid).toEqual({
       supportedVersions: [1, 2],
       maxPathsV2: null,
+      maxPathsV2Gif: null,
       supportsV2: false,
     })
   })
@@ -53,14 +57,17 @@ describe('health compare export contracts', () => {
     const a = normalizeHealthCompareExport({
       supported_versions: [1, 2],
       max_paths_v2: 12,
+      max_paths_v2_gif: 24,
     })
     const b = normalizeHealthCompareExport({
       supported_versions: [1, 2],
       max_paths_v2: 12,
+      max_paths_v2_gif: 24,
     })
     const c = normalizeHealthCompareExport({
       supported_versions: [1],
       max_paths_v2: null,
+      max_paths_v2_gif: null,
     })
 
     expect(compareExportCapabilityEquals(a, b)).toBe(true)

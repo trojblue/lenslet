@@ -436,13 +436,6 @@ export default function Inspector({
   const hasStarConflict = !multi && !!conflict && conflictFields.star
 
   const resizeHandleClass = 'toolbar-offset sidebar-resize-handle sidebar-resize-handle-right absolute bottom-0'
-
-  if (!enabled) return (
-    <div className="app-right-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
-      <div className={resizeHandleClass} onPointerDown={onResize} />
-    </div>
-  )
-
   const widgetContext: InspectorWidgetContext = {
     multi,
     viewerCompareActive,
@@ -502,6 +495,8 @@ export default function Inspector({
       compareIncludePilInfo,
       onToggleCompareIncludePilInfo: handleToggleCompareIncludePilInfo,
       onReload: reloadCompareMetadata,
+      compareCopiedPath: metaValueCopiedPath,
+      onCopyCompareValue: copyMetadataValue,
       compareMatrix,
       compareSelectionTruncatedCount: compareTargets.truncatedCount,
     },
@@ -572,6 +567,12 @@ export default function Inspector({
   const visibleWidgetIds = useMemo(
     () => orderedVisibleWidgets.map((widget) => widget.id),
     [orderedVisibleWidgets],
+  )
+
+  if (!enabled) return (
+    <div className="app-right-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
+      <div className={resizeHandleClass} onPointerDown={onResize} />
+    </div>
   )
 
   return (

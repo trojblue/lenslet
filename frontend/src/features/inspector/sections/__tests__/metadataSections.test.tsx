@@ -228,7 +228,7 @@ describe('inspector metadata section rendering', () => {
     expect(html).toContain('Copy')
   })
 
-  it('renders quick view rows with copy feedback and custom path controls', () => {
+  it('renders quick view rows with copy feedback and collapsed custom path controls', () => {
     const html = renderToStaticMarkup(
       <QuickViewSection
         open
@@ -252,7 +252,7 @@ describe('inspector metadata section rendering', () => {
         quickViewCustomPathsDraft={'quick_fields.parameters\nfound_text_chunks[0].keyword'}
         onQuickViewCustomPathsDraftChange={noop}
         onSaveQuickViewCustomPaths={noop}
-        quickViewCustomPathsError="Line 2: Path is invalid."
+        quickViewCustomPathsError={null}
       />,
     )
 
@@ -261,9 +261,9 @@ describe('inspector metadata section rendering', () => {
     expect(html).toContain('quick_fields.parameters')
     expect(html).toContain('character portrait')
     expect(html).toContain('Copied')
-    expect(html).toContain('Save fields')
-    expect(html).toContain('Supported syntax: dot paths and [index].')
-    expect(html).toContain('Line 2: Path is invalid.')
+    expect(html).toContain('Custom JSON paths')
+    expect(html).not.toContain('Save fields')
+    expect(html).not.toContain('Supported syntax: dot paths and [index].')
   })
 
   it('renders table-oriented compare metadata with summary and over-cap messaging', () => {
@@ -281,6 +281,8 @@ describe('inspector metadata section rendering', () => {
         compareIncludePilInfo={false}
         onToggleCompareIncludePilInfo={noop}
         onReload={noop}
+        compareCopiedPath={null}
+        onCopyCompareValue={noop}
         compareMatrix={buildCompareMatrix()}
         compareSelectionTruncatedCount={1}
       />,
@@ -310,6 +312,8 @@ describe('inspector metadata section rendering', () => {
         compareIncludePilInfo={false}
         onToggleCompareIncludePilInfo={noop}
         onReload={noop}
+        compareCopiedPath={null}
+        onCopyCompareValue={noop}
         compareMatrix={null}
         compareSelectionTruncatedCount={0}
       />,

@@ -649,7 +649,7 @@
 }
 
 .ui-kv-value {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   color: var(--text);
 }
 
@@ -1522,8 +1522,48 @@
 }
 
 .inspector-field-value {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   color: var(--text);
+}
+
+.ui-kv-value,
+.inspector-field-value,
+.inspector-scroll-value {
+  display: block;
+  max-height: calc(14 * 1.35em);
+  overflow-y: auto;
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.2) transparent;
+}
+
+.ui-kv-value::-webkit-scrollbar,
+.inspector-field-value::-webkit-scrollbar,
+.inspector-scroll-value::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+.ui-kv-value::-webkit-scrollbar-track,
+.inspector-field-value::-webkit-scrollbar-track,
+.inspector-scroll-value::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ui-kv-value::-webkit-scrollbar-thumb,
+.inspector-field-value::-webkit-scrollbar-thumb,
+.inspector-scroll-value::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.2);
+  border-radius: 10px;
+  border: 2px solid var(--bg);
+}
+
+.ui-kv-value::-webkit-scrollbar-thumb:hover,
+.inspector-field-value::-webkit-scrollbar-thumb:hover,
+.inspector-scroll-value::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.3);
 }
 
 .inspector-value-clamp {

@@ -7,6 +7,8 @@ import type { InspectorWidgetId } from '../model/inspectorWidgetOrder'
 import { InspectorSection } from './InspectorSection'
 
 type CompareMetaState = 'idle' | 'loading' | 'loaded' | 'error'
+const PATH_COLUMN_WIDTH_PX = 260
+const COMPARE_VALUE_COLUMN_WIDTH_PX = 130
 
 interface CompareMetadataSectionProps {
   open: boolean
@@ -17,6 +19,8 @@ interface CompareMetadataSectionProps {
   compareIncludePilInfo: boolean
   onToggleCompareIncludePilInfo: () => void
   onReload: () => void
+  compareCopiedPath: string | null
+  onCopyCompareValue: (pathLabel: string, copyText: string) => void
   compareMatrix: CompareMetadataMatrixResult | null
   compareSelectionTruncatedCount: number
   sortableId?: InspectorWidgetId
@@ -25,10 +29,14 @@ interface CompareMetadataSectionProps {
 
 interface CompareMatrixTableProps {
   matrix: CompareMetadataMatrixResult
+  compareCopiedPath: string | null
+  onCopyCompareValue: (pathLabel: string, copyText: string) => void
 }
 
 const CompareMatrixTable = React.memo(function CompareMatrixTable({
   matrix,
+  compareCopiedPath,
+  onCopyCompareValue,
 }: CompareMatrixTableProps): JSX.Element {
   if (matrix.rows.length === 0) {
     return <div className="text-muted">No differences found.</div>
@@ -36,17 +44,30 @@ const CompareMatrixTable = React.memo(function CompareMatrixTable({
 
   return (
     <div className="space-y-2">
-      <div className="overflow-x-auto rounded border border-border/60 bg-surface-inset/40">
-        <table className="min-w-full border-separate border-spacing-0 text-[11px]">
+      <div className="relative overflow-x-auto rounded border border-border/60 bg-surface-inset/40">
+        {compareCopiedPath && (
+          <div className="ui-json-key-toast">
+            Copied value:
+            {' '}
+            {compareCopiedPath}
+          </div>
+        )}
+        <table className="w-max min-w-full table-fixed border-separate border-spacing-0 text-[11px]">
+          <colgroup>
+            <col style={{ width: PATH_COLUMN_WIDTH_PX }} />
+            {matrix.columns.map((column) => (
+              <col key={column.path} style={{ width: COMPARE_VALUE_COLUMN_WIDTH_PX }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 min-w-[180px] border-b border-r border-border/60 bg-surface px-2 py-1 text-left text-[10px] uppercase tracking-wide text-muted">
+              <th className="sticky left-0 z-10 border-b border-r border-border/60 bg-surface px-2 py-1 text-left text-[10px] uppercase tracking-wide text-muted">
                 Path
               </th>
               {matrix.columns.map((column, idx) => (
                 <th
                   key={column.path}
-                  className="min-w-[170px] border-b border-border/60 bg-surface px-2 py-1 text-left text-[10px] uppercase tracking-wide text-muted"
+                  className="border-b border-border/60 bg-surface px-2 py-1 text-left text-[10px] uppercase tracking-wide text-muted"
                   title={column.path}
                 >
                   {`#${idx + 1} ${column.label}`}
@@ -59,19 +80,39 @@ const CompareMatrixTable = React.memo(function CompareMatrixTable({
               <tr key={row.key}>
                 <th
                   scope="row"
-                  className="sticky left-0 z-[1] border-b border-r border-border/60 bg-panel px-2 py-1 text-left font-normal text-muted break-all"
+                  className="sticky left-0 z-[1] border-b border-r border-border/60 bg-panel px-2 py-1 text-left font-normal text-muted"
                   title={row.key}
                 >
-                  {row.key}
+                  <button
+                    type="button"
+                    className="inspector-scroll-value w-full rounded text-left hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-strong"
+                    onClick={() => onCopyCompareValue(row.key, row.key)}
+                    title="Click to copy path"
+                  >
+                    {row.key}
+                  </button>
                 </th>
                 {row.values.map((value, valueIdx) => (
                   <td
                     key={`${row.key}-${valueIdx}`}
                     className="border-b border-border/60 px-2 py-1 align-top"
                   >
-                    <div className={value === '—' ? 'text-muted italic' : 'whitespace-pre-wrap break-words'}>
-                      {value}
-                    </div>
+                    <button
+                      type="button"
+                      className="inspector-scroll-value w-full rounded text-left hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-strong"
+                      onClick={() => {
+                        const column = matrix.columns[valueIdx]
+                        const pathLabel = column
+                          ? `${row.key} · #${valueIdx + 1} ${column.label}`
+                          : `${row.key} · #${valueIdx + 1}`
+                        onCopyCompareValue(pathLabel, value)
+                      }}
+                      title="Click to copy value"
+                    >
+                      <span className={value === '—' ? 'text-muted italic' : ''}>
+                        {value}
+                      </span>
+                    </button>
                   </td>
                 ))}
               </tr>
@@ -102,6 +143,8 @@ function CompareMetadataSectionComponent({
   compareIncludePilInfo,
   onToggleCompareIncludePilInfo,
   onReload,
+  compareCopiedPath,
+  onCopyCompareValue,
   compareMatrix,
   compareSelectionTruncatedCount,
   sortableId,
@@ -157,7 +200,7 @@ function CompareMetadataSectionComponent({
           {compareColumns.map((column, idx) => (
             <span
               key={column.path}
-              className="rounded border border-border/60 bg-surface-inset px-2 py-0.5 text-[11px] text-muted"
+              className="max-w-[50%] truncate rounded border border-border/60 bg-surface-inset px-2 py-0.5 text-[11px] text-muted"
               title={column.path}
             >
               {`#${idx + 1} ${column.label}`}
@@ -185,7 +228,11 @@ function CompareMetadataSectionComponent({
               {' '}
               missing values
             </div>
-            <CompareMatrixTable matrix={compareMatrix} />
+            <CompareMatrixTable
+              matrix={compareMatrix}
+              compareCopiedPath={compareCopiedPath}
+              onCopyCompareValue={onCopyCompareValue}
+            />
           </div>
         )}
       </div>

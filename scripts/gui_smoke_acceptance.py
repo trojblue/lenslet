@@ -13,12 +13,14 @@ It bootstraps a local fixture gallery, starts Lenslet, and validates:
 6. Path-token search behaves as expected.
 7. Inspector multi-select compare/export entry actions are triggerable.
 8. Inspector section reorder persists across reload.
+9. Metadata compare caps display to six selections and shows `+N not shown`.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -62,6 +64,7 @@ class SmokeResult:
     inspector_default_order: list[str]
     inspector_reordered_order: list[str]
     inspector_reloaded_order: list[str]
+    inspector_compare_over_cap_message: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -624,6 +627,42 @@ def run_browser_checks(base_url: str, timeout_ms: float, strict_reentry_anchor: 
                 f"Comparison export request returned unexpected status: {export_response_info.value.status}."
             )
 
+        set_right_panel_open(page, open_state=False, timeout_ms=10_000)
+        over_cap_cell_ids = wait_for_visible_grid_cell_ids(page, minimum_count=7, timeout_ms=10_000)
+        page.locator(f"[id='{over_cap_cell_ids[0]}']").first.click()
+        page.keyboard.down("Control")
+        try:
+            for cell_id in over_cap_cell_ids[1:7]:
+                page.locator(f"[id='{cell_id}']").first.click()
+                page.wait_for_timeout(60)
+        finally:
+            page.keyboard.up("Control")
+
+        selected_cell_count = page.evaluate(
+            """() => document.querySelectorAll('[role="gridcell"][aria-selected="true"]').length"""
+        )
+        if not isinstance(selected_cell_count, int) or selected_cell_count < 7:
+            raise SmokeFailure(
+                "Failed to assemble seven selected grid cells for metadata compare over-cap validation: "
+                f"selected={selected_cell_count!r}, candidate_ids={over_cap_cell_ids[:7]!r}."
+            )
+
+        set_right_panel_open(page, open_state=True, timeout_ms=10_000)
+        page.get_by_text("7 files").first.wait_for(state="visible")
+        compare_metadata_button = page.get_by_role("button", name="Compare metadata").first
+        if compare_metadata_button.is_disabled():
+            raise SmokeFailure("Compare metadata action is disabled for seven selections.")
+        compare_metadata_button.click()
+
+        compare_over_cap_notice = page.get_by_text(re.compile(r"\+\s*1\s+not shown\.?")).first
+        compare_over_cap_notice.wait_for(state="visible")
+        inspector_compare_over_cap_message = " ".join(compare_over_cap_notice.inner_text().split())
+        if not re.fullmatch(r"\+\s*1\s+not shown\.?", inspector_compare_over_cap_message):
+            raise SmokeFailure(
+                "Unexpected metadata compare over-cap message text: "
+                f"{inspector_compare_over_cap_message!r}."
+            )
+
         context.close()
         browser.close()
         return SmokeResult(
@@ -641,6 +680,7 @@ def run_browser_checks(base_url: str, timeout_ms: float, strict_reentry_anchor: 
             inspector_default_order=inspector_default_order,
             inspector_reordered_order=inspector_reordered_order,
             inspector_reloaded_order=inspector_reloaded_order,
+            inspector_compare_over_cap_message=inspector_compare_over_cap_message,
         )
 
 
@@ -753,6 +793,7 @@ def main() -> int:
                 "inspector_reordered_order": result.inspector_reordered_order,
                 "inspector_reloaded_order": result.inspector_reloaded_order,
                 "inspector_reorder_persisted": result.inspector_reordered_order == result.inspector_reloaded_order,
+                "inspector_compare_over_cap_message": result.inspector_compare_over_cap_message,
             },
             "warnings": warnings,
             "status": "passed",

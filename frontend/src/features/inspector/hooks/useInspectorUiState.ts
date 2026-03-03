@@ -9,13 +9,10 @@ import {
 
 export type InspectorSectionKey = 'overview' | 'compare' | 'basics' | 'metadata' | 'notes'
 
-type CompareSide = 'A' | 'B'
-
 type UseInspectorUiStateParams = {
   path: string | null
   sidecarUpdatedAt: string | undefined
-  comparePathA: string | null
-  comparePathB: string | null
+  comparePaths: string[]
   selectedCount: number
   metadataCompareAvailable: boolean
   autoloadMetadataCompare: boolean
@@ -41,11 +38,6 @@ type UseInspectorUiStateResult = {
   markMetadataCopied: () => void
   metaValueCopiedPath: string | null
   markMetadataValueCopied: (path: string) => void
-  compareMetaCopied: CompareSide | null
-  markCompareMetadataCopied: (side: CompareSide) => void
-  compareValueCopiedPathA: string | null
-  compareValueCopiedPathB: string | null
-  markCompareMetadataValueCopied: (side: CompareSide, path: string) => void
 }
 
 const INSPECTOR_SECTION_KEYS: InspectorSectionKey[] = ['overview', 'compare', 'basics', 'metadata', 'notes']
@@ -91,34 +83,27 @@ function clearTimer(timerRef: MutableRefObject<number | null>): void {
 export function useInspectorUiState({
   path,
   sidecarUpdatedAt,
-  comparePathA,
-  comparePathB,
+  comparePaths,
   selectedCount,
   metadataCompareAvailable,
   autoloadMetadataCompare,
 }: UseInspectorUiStateParams): UseInspectorUiStateResult {
-  const comparePairReady = !!comparePathA && !!comparePathB
   const [sectionOrder, setSectionOrder] = useState<InspectorWidgetId[]>([
     ...INSPECTOR_WIDGET_DEFAULT_ORDER,
   ])
   const [metadataCompareActive, setMetadataCompareActive] = useState(false)
   const [openSections, setOpenSections] = useState<Record<InspectorSectionKey, boolean>>(DEFAULT_SECTION_STATE)
   const [metricsExpanded, setMetricsExpanded] = useState(false)
-  const metadataCompareReady = metadataCompareActive && comparePairReady
+  const metadataCompareReady = metadataCompareActive && comparePaths.length >= 2
   const previousMetadataCompareActiveRef = useRef(metadataCompareActive)
 
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [metaCopied, setMetaCopied] = useState(false)
   const [metaValueCopiedPath, setMetaValueCopiedPath] = useState<string | null>(null)
-  const [compareMetaCopied, setCompareMetaCopied] = useState<CompareSide | null>(null)
-  const [compareValueCopiedPathA, setCompareValueCopiedPathA] = useState<string | null>(null)
-  const [compareValueCopiedPathB, setCompareValueCopiedPathB] = useState<string | null>(null)
 
   const infoCopyTimeoutRef = useRef<number | null>(null)
   const metaCopiedTimeoutRef = useRef<number | null>(null)
   const metaValueCopyTimeoutRef = useRef<number | null>(null)
-  const compareMetaCopiedTimeoutRef = useRef<number | null>(null)
-  const compareValueCopyTimeoutRef = useRef<number | null>(null)
 
   const toggleSection = useCallback((key: InspectorSectionKey) => {
     setOpenSections((prev) => toggleInspectorSectionState(prev, key))
@@ -165,29 +150,6 @@ export function useInspectorUiState({
     metaValueCopyTimeoutRef.current = window.setTimeout(() => {
       setMetaValueCopiedPath(null)
       metaValueCopyTimeoutRef.current = null
-    }, 900)
-  }, [])
-
-  const markCompareMetadataCopied = useCallback((side: CompareSide) => {
-    setCompareMetaCopied(side)
-    clearTimer(compareMetaCopiedTimeoutRef)
-    compareMetaCopiedTimeoutRef.current = window.setTimeout(() => {
-      setCompareMetaCopied((curr) => (curr === side ? null : curr))
-      compareMetaCopiedTimeoutRef.current = null
-    }, 1200)
-  }, [])
-
-  const markCompareMetadataValueCopied = useCallback((side: CompareSide, pathLabel: string) => {
-    if (side === 'A') {
-      setCompareValueCopiedPathA(pathLabel)
-    } else {
-      setCompareValueCopiedPathB(pathLabel)
-    }
-    clearTimer(compareValueCopyTimeoutRef)
-    compareValueCopyTimeoutRef.current = window.setTimeout(() => {
-      setCompareValueCopiedPathA(null)
-      setCompareValueCopiedPathB(null)
-      compareValueCopyTimeoutRef.current = null
     }, 900)
   }, [])
 
@@ -288,21 +250,11 @@ export function useInspectorUiState({
     clearTimer(metaValueCopyTimeoutRef)
   }, [path, sidecarUpdatedAt])
 
-  useEffect(() => {
-    setCompareMetaCopied(null)
-    setCompareValueCopiedPathA(null)
-    setCompareValueCopiedPathB(null)
-    clearTimer(compareMetaCopiedTimeoutRef)
-    clearTimer(compareValueCopyTimeoutRef)
-  }, [comparePathA, comparePathB, metadataCompareReady])
-
   useEffect(
     () => () => {
       clearTimer(infoCopyTimeoutRef)
       clearTimer(metaCopiedTimeoutRef)
       clearTimer(metaValueCopyTimeoutRef)
-      clearTimer(compareMetaCopiedTimeoutRef)
-      clearTimer(compareValueCopyTimeoutRef)
     },
     [],
   )
@@ -327,10 +279,5 @@ export function useInspectorUiState({
     markMetadataCopied,
     metaValueCopiedPath,
     markMetadataValueCopied,
-    compareMetaCopied,
-    markCompareMetadataCopied,
-    compareValueCopiedPathA,
-    compareValueCopiedPathB,
-    markCompareMetadataValueCopied,
   }
 }

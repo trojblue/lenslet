@@ -10,7 +10,7 @@ import { isInputElement } from '../../lib/keyboard'
 import {
   buildMetadataPathCopyPayload,
   buildJsonRenderNode,
-  buildCompareMetadataDiffFromNormalized,
+  buildCompareMetadataMatrixFromNormalized,
   buildDisplayMetadataFromNormalized,
   hasPilInfoMetadata,
   normalizeMetadataRecord,
@@ -20,6 +20,7 @@ import {
   sanitizeInspectorWidgetOrder,
 } from './model/inspectorWidgetOrder'
 import { INSPECTOR_WIDGETS, type InspectorWidgetContext } from './inspectorWidgets'
+import { resolveCompareMetadataTargets } from './hooks/metadataRequestGuards'
 import { useInspectorMetadataWorkflow } from './hooks/useInspectorMetadataWorkflow'
 import { useInspectorSidecarWorkflow } from './hooks/useInspectorSidecarWorkflow'
 import { useInspectorUiState } from './hooks/useInspectorUiState'
@@ -60,9 +61,9 @@ interface InspectorProps {
 }
 
 const METRICS_PREVIEW_LIMIT = 12
-const COMPARE_DIFF_LIMIT = 120
-const COMPARE_DIFF_MAX_DEPTH = 8
-const COMPARE_DIFF_MAX_ARRAY = 80
+const COMPARE_MATRIX_LIMIT = 120
+const COMPARE_MATRIX_MAX_DEPTH = 8
+const COMPARE_MATRIX_MAX_ARRAY = 80
 const INSPECTOR_WIDGET_MAP = new Map(
   INSPECTOR_WIDGETS.map((widget) => [widget.id, widget] as const),
 )
@@ -109,9 +110,12 @@ export default function Inspector({
   const star = itemStarFromList ?? data?.star ?? null
   const conflict = useSidecarConflict(!multi ? path : null)
 
-  const comparePathA = compareA?.path ?? null
-  const comparePathB = compareB?.path ?? null
-  const metadataCompareAvailable = !!comparePathA && !!comparePathB
+  const compareTargets = useMemo(
+    () => resolveCompareMetadataTargets(selectedCount >= 2, selectedPaths),
+    [selectedCount, selectedPaths],
+  )
+  const comparePaths = compareTargets.paths
+  const metadataCompareAvailable = comparePaths.length >= 2
   const {
     sectionOrder,
     reorderSectionOrder,
@@ -132,24 +136,16 @@ export default function Inspector({
     markMetadataCopied,
     metaValueCopiedPath,
     markMetadataValueCopied,
-    compareMetaCopied,
-    markCompareMetadataCopied,
-    compareValueCopiedPathA,
-    compareValueCopiedPathB,
-    markCompareMetadataValueCopied,
   } = useInspectorUiState({
     path,
     sidecarUpdatedAt: data?.updated_at,
-    comparePathA,
-    comparePathB,
+    comparePaths,
     selectedCount,
     metadataCompareAvailable,
     autoloadMetadataCompare: autoloadImageMetadata,
   })
   const compareSectionOpen = metadataCompareReady && openSections.compare
   const metadataSectionOpen = !multi && openSections.metadata
-  const compareLabelA = compareA?.name ?? comparePathA ?? 'A'
-  const compareLabelB = compareB?.name ?? comparePathB ?? 'B'
 
   const mutateSidecar = useCallback(
     (patch: { notes?: string; tags?: string[]; star?: StarRating | null }, baseVersion: number) => {
@@ -190,11 +186,8 @@ export default function Inspector({
     setMetaError,
     compareMetaState,
     compareMetaError,
-    compareMetaA,
-    compareMetaB,
+    compareMetaByPath,
     compareIncludePilInfo,
-    compareShowPilInfoA,
-    compareShowPilInfoB,
     compareExportLabelsText,
     compareExportEmbedMetadata,
     compareExportReverseOrder,
@@ -204,8 +197,6 @@ export default function Inspector({
     compareExportBusy,
     setShowPilInfo,
     setCompareIncludePilInfo,
-    setCompareShowPilInfoA,
-    setCompareShowPilInfoB,
     fetchMetadata,
     reloadCompareMetadata,
     handleCompareExportLabelsTextChange,
@@ -218,8 +209,7 @@ export default function Inspector({
     sidecarUpdatedAt: data?.updated_at,
     selectedPaths,
     compareReady: metadataCompareReady,
-    comparePathA,
-    comparePathB,
+    comparePaths,
     autoloadMetadata: autoloadImageMetadata && !multi,
   })
   
@@ -292,40 +282,27 @@ export default function Inspector({
   }, [metaRaw])
 
   const normalizedMetaRaw = useMemo(() => normalizeMetadataRecord(metaRaw), [metaRaw])
-  const normalizedCompareMetaA = useMemo(() => normalizeMetadataRecord(compareMetaA), [compareMetaA])
-  const normalizedCompareMetaB = useMemo(() => normalizeMetadataRecord(compareMetaB), [compareMetaB])
 
   const metaDisplayValue = useMemo(
     () => buildDisplayMetadataFromNormalized(normalizedMetaRaw, showPilInfo),
     [normalizedMetaRaw, showPilInfo],
   )
 
-  const compareMetaRawTextA = useMemo(() => {
-    if (!compareMetaA) return ''
-    try {
-      return JSON.stringify(compareMetaA, null, 1)
-    } catch {
-      return ''
-    }
-  }, [compareMetaA])
-
-  const compareMetaRawTextB = useMemo(() => {
-    if (!compareMetaB) return ''
-    try {
-      return JSON.stringify(compareMetaB, null, 1)
-    } catch {
-      return ''
-    }
-  }, [compareMetaB])
-
-  const compareDisplayValueA = useMemo(
-    () => buildDisplayMetadataFromNormalized(normalizedCompareMetaA, compareShowPilInfoA),
-    [normalizedCompareMetaA, compareShowPilInfoA],
+  const compareColumns = useMemo(
+    () => comparePaths.map((comparePath) => ({
+      path: comparePath,
+      label: comparePath.split('/').pop() || comparePath,
+    })),
+    [comparePaths],
   )
 
-  const compareDisplayValueB = useMemo(
-    () => buildDisplayMetadataFromNormalized(normalizedCompareMetaB, compareShowPilInfoB),
-    [normalizedCompareMetaB, compareShowPilInfoB],
+  const normalizedCompareMatrixInputs = useMemo(
+    () => compareColumns.map((column) => ({
+      path: column.path,
+      label: column.label,
+      normalizedMeta: normalizeMetadataRecord(compareMetaByPath[column.path] ?? null),
+    })),
+    [compareColumns, compareMetaByPath],
   )
 
   const copyMetadata = useCallback(() => {
@@ -343,30 +320,11 @@ export default function Inspector({
     return buildJsonRenderNode(metaDisplayValue)
   }, [metadataSectionOpen, metaDisplayValue])
 
-  const compareDisplayNodeA = useMemo(() => {
-    if (!compareSectionOpen || !compareDisplayValueA) return null
-    return buildJsonRenderNode(compareDisplayValueA)
-  }, [compareSectionOpen, compareDisplayValueA])
-
-  const compareDisplayNodeB = useMemo(() => {
-    if (!compareSectionOpen || !compareDisplayValueB) return null
-    return buildJsonRenderNode(compareDisplayValueB)
-  }, [compareSectionOpen, compareDisplayValueB])
-
   const copyMetadataValue = useCallback((pathLabel: string, copyText: string) => {
     navigator.clipboard?.writeText(copyText).then(() => {
       markMetadataValueCopied(pathLabel)
     }).catch(() => {})
   }, [markMetadataValueCopied])
-
-  const copyCompareMetadataValue = useCallback(
-    (side: 'A' | 'B', pathLabel: string, copyText: string) => {
-      navigator.clipboard?.writeText(copyText).then(() => {
-        markCompareMetadataValueCopied(side, pathLabel)
-      }).catch(() => {})
-    },
-    [markCompareMetadataValueCopied],
-  )
 
   const handleMetaPathCopy = useCallback((path: Array<string | number>) => {
     if (!metaDisplayValue) return
@@ -374,37 +332,11 @@ export default function Inspector({
     copyMetadataValue(payload.pathLabel, payload.copyText)
   }, [metaDisplayValue, copyMetadataValue])
 
-  const handleCompareMetaPathCopyA = useCallback((path: Array<string | number>) => {
-    if (!compareDisplayValueA) return
-    const payload = buildMetadataPathCopyPayload(compareDisplayValueA, path)
-    copyCompareMetadataValue('A', payload.pathLabel, payload.copyText)
-  }, [compareDisplayValueA, copyCompareMetadataValue])
-
-  const handleCompareMetaPathCopyB = useCallback((path: Array<string | number>) => {
-    if (!compareDisplayValueB) return
-    const payload = buildMetadataPathCopyPayload(compareDisplayValueB, path)
-    copyCompareMetadataValue('B', payload.pathLabel, payload.copyText)
-  }, [compareDisplayValueB, copyCompareMetadataValue])
-
-  const copyCompareMetadata = useCallback((side: 'A' | 'B') => {
-    const raw = side === 'A' ? compareMetaRawTextA : compareMetaRawTextB
-    if (!raw) return
-    navigator.clipboard?.writeText(raw).then(() => {
-      markCompareMetadataCopied(side)
-    }).catch(() => {})
-  }, [compareMetaRawTextA, compareMetaRawTextB, markCompareMetadataCopied])
-
   let metaContent = metaDisplayValue ? '' : 'PNG metadata not loaded yet.'
   if (metaState === 'loading') {
     metaContent = 'Loading metadata…'
   } else if (metaState === 'error' && metaError) {
     metaContent = metaError
-  }
-  let compareMetaContent = 'Metadata not loaded yet.'
-  if (compareMetaState === 'loading') {
-    compareMetaContent = 'Loading metadata…'
-  } else if (compareMetaState === 'error' && compareMetaError) {
-    compareMetaContent = compareMetaError
   }
   const metadataLoading = metaState === 'loading'
   const metaLoaded = metaState === 'loaded' && !!metaRawText
@@ -418,18 +350,16 @@ export default function Inspector({
   const handleMetadataAction = metaLoaded ? copyMetadata : fetchMetadata
 
   const hasPilInfo = hasPilInfoMetadata(metaRaw)
-  const compareHasPilInfoA = hasPilInfoMetadata(compareMetaA)
-  const compareHasPilInfoB = hasPilInfoMetadata(compareMetaB)
 
-  const compareDiff = useMemo(() => {
+  const compareMatrix = useMemo(() => {
     if (!compareSectionOpen) return null
-    return buildCompareMetadataDiffFromNormalized(normalizedCompareMetaA, normalizedCompareMetaB, {
+    return buildCompareMetadataMatrixFromNormalized(normalizedCompareMatrixInputs, {
       includePilInfo: compareIncludePilInfo,
-      limit: COMPARE_DIFF_LIMIT,
-      maxDepth: COMPARE_DIFF_MAX_DEPTH,
-      maxArray: COMPARE_DIFF_MAX_ARRAY,
+      limit: COMPARE_MATRIX_LIMIT,
+      maxDepth: COMPARE_MATRIX_MAX_DEPTH,
+      maxArray: COMPARE_MATRIX_MAX_ARRAY,
     })
-  }, [compareSectionOpen, normalizedCompareMetaA, normalizedCompareMetaB, compareIncludePilInfo])
+  }, [compareSectionOpen, normalizedCompareMatrixInputs, compareIncludePilInfo])
 
   const copyInfo = useCallback((key: string, text: string) => {
     if (!text) return
@@ -455,12 +385,6 @@ export default function Inspector({
   const handleToggleCompareIncludePilInfo = useCallback(() => {
     setCompareIncludePilInfo((prev) => !prev)
   }, [setCompareIncludePilInfo])
-  const handleToggleCompareShowPilInfoA = useCallback(() => {
-    setCompareShowPilInfoA((prev) => !prev)
-  }, [setCompareShowPilInfoA])
-  const handleToggleCompareShowPilInfoB = useCallback(() => {
-    setCompareShowPilInfoB((prev) => !prev)
-  }, [setCompareShowPilInfoB])
   const handleComparisonExport = useCallback((outputFormat: 'png' | 'gif') => {
     void runComparisonExport(outputFormat)
   }, [runComparisonExport])
@@ -529,27 +453,12 @@ export default function Inspector({
       sortableEnabled: true,
       compareMetaState,
       compareMetaError,
-      compareLabelA,
-      compareLabelB,
+      compareColumns,
       compareIncludePilInfo,
       onToggleCompareIncludePilInfo: handleToggleCompareIncludePilInfo,
       onReload: reloadCompareMetadata,
-      compareDiff,
-      compareHasPilInfoA,
-      compareHasPilInfoB,
-      compareShowPilInfoA,
-      compareShowPilInfoB,
-      onToggleCompareShowPilInfoA: handleToggleCompareShowPilInfoA,
-      onToggleCompareShowPilInfoB: handleToggleCompareShowPilInfoB,
-      compareMetaCopied,
-      onCopyCompareMetadata: copyCompareMetadata,
-      compareValueCopiedPathA,
-      compareValueCopiedPathB,
-      compareDisplayNodeA,
-      compareDisplayNodeB,
-      compareMetaContent,
-      onCompareMetaPathCopyA: handleCompareMetaPathCopyA,
-      onCompareMetaPathCopyB: handleCompareMetaPathCopyB,
+      compareMatrix,
+      compareSelectionTruncatedCount: compareTargets.truncatedCount,
     },
     basicsProps: {
       open: openSections.basics,

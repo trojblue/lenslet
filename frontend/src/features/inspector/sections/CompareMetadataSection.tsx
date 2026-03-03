@@ -1,7 +1,9 @@
 import React from 'react'
-import type { CompareMetadataDiffResult, JsonRenderNode, MetadataPathSegment } from '../model/metadataCompare'
+import type {
+  CompareMetadataColumn,
+  CompareMetadataMatrixResult,
+} from '../model/metadataCompare'
 import type { InspectorWidgetId } from '../model/inspectorWidgetOrder'
-import { JsonRenderCode } from './JsonRenderCode'
 import { InspectorSection } from './InspectorSection'
 
 type CompareMetaState = 'idle' | 'loading' | 'loaded' | 'error'
@@ -11,201 +13,97 @@ interface CompareMetadataSectionProps {
   onToggle: () => void
   compareMetaState: CompareMetaState
   compareMetaError: string | null
-  compareLabelA: string
-  compareLabelB: string
+  compareColumns: CompareMetadataColumn[]
   compareIncludePilInfo: boolean
   onToggleCompareIncludePilInfo: () => void
   onReload: () => void
-  compareDiff: CompareMetadataDiffResult | null
-  compareHasPilInfoA: boolean
-  compareHasPilInfoB: boolean
-  compareShowPilInfoA: boolean
-  compareShowPilInfoB: boolean
-  onToggleCompareShowPilInfoA: () => void
-  onToggleCompareShowPilInfoB: () => void
-  compareMetaCopied: 'A' | 'B' | null
-  onCopyCompareMetadata: (side: 'A' | 'B') => void
-  compareValueCopiedPathA: string | null
-  compareValueCopiedPathB: string | null
-  compareDisplayNodeA: JsonRenderNode | null
-  compareDisplayNodeB: JsonRenderNode | null
-  compareMetaContent: string
-  onCompareMetaPathCopyA: (path: MetadataPathSegment[]) => void
-  onCompareMetaPathCopyB: (path: MetadataPathSegment[]) => void
+  compareMatrix: CompareMetadataMatrixResult | null
+  compareSelectionTruncatedCount: number
   sortableId?: InspectorWidgetId
   sortableEnabled?: boolean
 }
 
-interface CompareDiffTableProps {
-  compareDiff: CompareMetadataDiffResult
+interface CompareMatrixTableProps {
+  matrix: CompareMetadataMatrixResult
 }
 
-interface CompareMetadataPaneProps {
-  side: 'A' | 'B'
-  compareMetaLoaded: boolean
-  hasPilInfo: boolean
-  showPilInfo: boolean
-  onToggleShowPilInfo: () => void
-  copied: boolean
-  onCopy: () => void
-  copiedPath: string | null
-  displayNode: JsonRenderNode | null
-  compareMetaContent: string
-  onMetaPathCopy: (path: MetadataPathSegment[]) => void
-}
+const CompareMatrixTable = React.memo(function CompareMatrixTable({
+  matrix,
+}: CompareMatrixTableProps): JSX.Element {
+  if (matrix.rows.length === 0) {
+    return <div className="text-muted">No differences found.</div>
+  }
 
-const CompareDiffTable = React.memo(function CompareDiffTable({
-  compareDiff,
-}: CompareDiffTableProps): JSX.Element {
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between text-muted">
-        <span>
-          {compareDiff.different}
-          {' '}
-          different
-          {' '}
-          ·
-          {' '}
-          {compareDiff.onlyA}
-          {' '}
-          only A
-          {' '}
-          ·
-          {' '}
-          {compareDiff.onlyB}
-          {' '}
-          only B
-        </span>
-        <span className="text-[10px] uppercase tracking-wide">Deep paths</span>
+      <div className="overflow-x-auto rounded border border-border/60 bg-surface-inset/40">
+        <table className="min-w-full border-separate border-spacing-0 text-[11px]">
+          <thead>
+            <tr>
+              <th className="sticky left-0 z-10 min-w-[180px] border-b border-r border-border/60 bg-surface px-2 py-1 text-left text-[10px] uppercase tracking-wide text-muted">
+                Path
+              </th>
+              {matrix.columns.map((column, idx) => (
+                <th
+                  key={column.path}
+                  className="min-w-[170px] border-b border-border/60 bg-surface px-2 py-1 text-left text-[10px] uppercase tracking-wide text-muted"
+                  title={column.path}
+                >
+                  {`#${idx + 1} ${column.label}`}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {matrix.rows.map((row) => (
+              <tr key={row.key}>
+                <th
+                  scope="row"
+                  className="sticky left-0 z-[1] border-b border-r border-border/60 bg-panel px-2 py-1 text-left font-normal text-muted break-all"
+                  title={row.key}
+                >
+                  {row.key}
+                </th>
+                {row.values.map((value, valueIdx) => (
+                  <td
+                    key={`${row.key}-${valueIdx}`}
+                    className="border-b border-border/60 px-2 py-1 align-top"
+                  >
+                    <div className={value === '—' ? 'text-muted italic' : 'whitespace-pre-wrap break-words'}>
+                      {value}
+                    </div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      {compareDiff.entries.length === 0 ? (
-        <div className="text-muted">No differences found.</div>
-      ) : (
-        <div className="space-y-2">
-          <div className="grid grid-cols-[minmax(80px,_1fr)_minmax(0,_1fr)_minmax(0,_1fr)] gap-2 text-[10px] uppercase tracking-wide text-muted">
-            <div>Path</div>
-            <div>A</div>
-            <div>B</div>
-          </div>
-          {compareDiff.entries.map((entry) => (
-            <div
-              key={entry.key}
-              className="grid grid-cols-[minmax(80px,_1fr)_minmax(0,_1fr)_minmax(0,_1fr)] gap-2"
-            >
-              <div className="text-[11px] text-muted break-all">{entry.key}</div>
-              <div className="text-[11px] bg-surface-inset border border-border/60 rounded px-2 py-1 whitespace-pre-wrap break-words max-h-32 overflow-auto">
-                {entry.aText}
-              </div>
-              <div className="text-[11px] bg-surface-inset border border-border/60 rounded px-2 py-1 whitespace-pre-wrap break-words max-h-32 overflow-auto">
-                {entry.bText}
-              </div>
-            </div>
-          ))}
-          {compareDiff.truncatedCount > 0 && (
-            <div className="text-muted text-[11px]">
-              +
-              {compareDiff.truncatedCount}
-              {' '}
-              more differences not shown.
-            </div>
-          )}
+      {matrix.truncatedRowCount > 0 && (
+        <div className="text-[11px] text-muted">
+          +
+          {matrix.truncatedRowCount}
+          {' '}
+          more rows not shown.
         </div>
       )}
     </div>
   )
 })
 
-CompareDiffTable.displayName = 'CompareDiffTable'
-
-const CompareMetadataPane = React.memo(function CompareMetadataPane({
-  side,
-  compareMetaLoaded,
-  hasPilInfo,
-  showPilInfo,
-  onToggleShowPilInfo,
-  copied,
-  onCopy,
-  copiedPath,
-  displayNode,
-  compareMetaContent,
-  onMetaPathCopy,
-}: CompareMetadataPaneProps): JSX.Element {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-wide text-muted">
-          Metadata
-          {' '}
-          {side}
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          {hasPilInfo && (
-            <button
-              className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
-              onClick={onToggleShowPilInfo}
-              disabled={!compareMetaLoaded}
-            >
-              {showPilInfo ? 'Hide PIL info' : 'Show PIL info'}
-            </button>
-          )}
-          <button
-            className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[70px]"
-            onClick={onCopy}
-            disabled={!compareMetaLoaded}
-          >
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-      </div>
-      <div className="relative">
-        {copiedPath && (
-          <div className="ui-json-key-toast">
-            Copied value:
-            {' '}
-            {copiedPath}
-          </div>
-        )}
-        <pre
-          className="ui-code-block ui-code-block-resizable h-40 overflow-auto whitespace-pre-wrap"
-        >
-          {compareMetaLoaded && displayNode ? (
-            <JsonRenderCode node={displayNode} onPathClick={onMetaPathCopy} />
-          ) : <span className="font-sans text-[12px]">{compareMetaContent}</span>}
-        </pre>
-      </div>
-    </div>
-  )
-})
-
-CompareMetadataPane.displayName = 'CompareMetadataPane'
+CompareMatrixTable.displayName = 'CompareMatrixTable'
 
 function CompareMetadataSectionComponent({
   open,
   onToggle,
   compareMetaState,
   compareMetaError,
-  compareLabelA,
-  compareLabelB,
+  compareColumns,
   compareIncludePilInfo,
   onToggleCompareIncludePilInfo,
   onReload,
-  compareDiff,
-  compareHasPilInfoA,
-  compareHasPilInfoB,
-  compareShowPilInfoA,
-  compareShowPilInfoB,
-  onToggleCompareShowPilInfoA,
-  onToggleCompareShowPilInfoB,
-  compareMetaCopied,
-  onCopyCompareMetadata,
-  compareValueCopiedPathA,
-  compareValueCopiedPathB,
-  compareDisplayNodeA,
-  compareDisplayNodeB,
-  compareMetaContent,
-  onCompareMetaPathCopyA,
-  onCompareMetaPathCopyB,
+  compareMatrix,
+  compareSelectionTruncatedCount,
   sortableId,
   sortableEnabled = false,
 }: CompareMetadataSectionProps): JSX.Element {
@@ -238,19 +136,33 @@ function CompareMetadataSectionComponent({
       )}
     >
       <div className="space-y-2 text-[11px]">
-        <div className="grid grid-cols-2 gap-2 text-[11px] text-muted">
-          <div>
-            <div className="uppercase tracking-wide text-[10px]">A</div>
-            <div className="text-text break-all" title={compareLabelA}>
-              {compareLabelA}
-            </div>
-          </div>
-          <div>
-            <div className="uppercase tracking-wide text-[10px]">B</div>
-            <div className="text-text break-all" title={compareLabelB}>
-              {compareLabelB}
-            </div>
-          </div>
+        <div className="flex flex-wrap items-center gap-2 text-muted">
+          <span>
+            Comparing
+            {' '}
+            {compareColumns.length}
+            {' '}
+            images.
+          </span>
+          {compareSelectionTruncatedCount > 0 && (
+            <span>
+              +
+              {compareSelectionTruncatedCount}
+              {' '}
+              not shown.
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {compareColumns.map((column, idx) => (
+            <span
+              key={column.path}
+              className="rounded border border-border/60 bg-surface-inset px-2 py-0.5 text-[11px] text-muted"
+              title={column.path}
+            >
+              {`#${idx + 1} ${column.label}`}
+            </span>
+          ))}
         </div>
 
         {compareMetaState === 'loading' && (
@@ -260,36 +172,22 @@ function CompareMetadataSectionComponent({
           <div className="text-danger break-words">{compareMetaError}</div>
         )}
 
-        {compareMetaLoaded && compareDiff && <CompareDiffTable compareDiff={compareDiff} />}
-
-        <div className="grid gap-3 pt-2">
-          <CompareMetadataPane
-            side="A"
-            compareMetaLoaded={compareMetaLoaded}
-            hasPilInfo={compareHasPilInfoA}
-            showPilInfo={compareShowPilInfoA}
-            onToggleShowPilInfo={onToggleCompareShowPilInfoA}
-            copied={compareMetaCopied === 'A'}
-            onCopy={() => onCopyCompareMetadata('A')}
-            copiedPath={compareValueCopiedPathA}
-            displayNode={compareDisplayNodeA}
-            compareMetaContent={compareMetaContent}
-            onMetaPathCopy={onCompareMetaPathCopyA}
-          />
-          <CompareMetadataPane
-            side="B"
-            compareMetaLoaded={compareMetaLoaded}
-            hasPilInfo={compareHasPilInfoB}
-            showPilInfo={compareShowPilInfoB}
-            onToggleShowPilInfo={onToggleCompareShowPilInfoB}
-            copied={compareMetaCopied === 'B'}
-            onCopy={() => onCopyCompareMetadata('B')}
-            copiedPath={compareValueCopiedPathB}
-            displayNode={compareDisplayNodeB}
-            compareMetaContent={compareMetaContent}
-            onMetaPathCopy={onCompareMetaPathCopyB}
-          />
-        </div>
+        {compareMetaLoaded && compareMatrix && (
+          <div className="space-y-2">
+            <div className="text-muted">
+              {compareMatrix.summary.differingRows}
+              {' '}
+              differing rows
+              {' '}
+              ·
+              {' '}
+              {compareMatrix.summary.missingValues}
+              {' '}
+              missing values
+            </div>
+            <CompareMatrixTable matrix={compareMatrix} />
+          </div>
+        )}
       </div>
     </InspectorSection>
   )

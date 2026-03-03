@@ -10,8 +10,7 @@ type UseInspectorMetadataWorkflowParams = {
   sidecarUpdatedAt: string | undefined
   selectedPaths: string[]
   compareReady: boolean
-  comparePathA: string | null
-  comparePathB: string | null
+  comparePaths: string[]
   autoloadMetadata: boolean
 }
 
@@ -23,11 +22,8 @@ type UseInspectorMetadataWorkflowResult = {
   setMetaError: Dispatch<SetStateAction<string | null>>
   compareMetaState: MetadataState
   compareMetaError: string | null
-  compareMetaA: MetadataRecord
-  compareMetaB: MetadataRecord
+  compareMetaByPath: Record<string, MetadataRecord>
   compareIncludePilInfo: boolean
-  compareShowPilInfoA: boolean
-  compareShowPilInfoB: boolean
   compareExportLabelsText: string
   compareExportEmbedMetadata: boolean
   compareExportReverseOrder: boolean
@@ -37,8 +33,6 @@ type UseInspectorMetadataWorkflowResult = {
   compareExportBusy: boolean
   setShowPilInfo: Dispatch<SetStateAction<boolean>>
   setCompareIncludePilInfo: Dispatch<SetStateAction<boolean>>
-  setCompareShowPilInfoA: Dispatch<SetStateAction<boolean>>
-  setCompareShowPilInfoB: Dispatch<SetStateAction<boolean>>
   fetchMetadata: () => Promise<void>
   reloadCompareMetadata: () => void
   handleCompareExportLabelsTextChange: (value: string) => void
@@ -53,8 +47,7 @@ export function useInspectorMetadataWorkflow({
   sidecarUpdatedAt,
   selectedPaths,
   compareReady,
-  comparePathA,
-  comparePathB,
+  comparePaths,
   autoloadMetadata,
 }: UseInspectorMetadataWorkflowParams): UseInspectorMetadataWorkflowResult {
   const singleMetadata = useInspectorSingleMetadata({
@@ -65,8 +58,7 @@ export function useInspectorMetadataWorkflow({
 
   const compareMetadata = useInspectorCompareMetadata({
     compareReady,
-    comparePathA,
-    comparePathB,
+    comparePaths,
   })
 
   const compareExport = useInspectorCompareExport({
@@ -81,11 +73,8 @@ export function useInspectorMetadataWorkflow({
     setMetaError: singleMetadata.setMetaError,
     compareMetaState: compareMetadata.compareMetaState,
     compareMetaError: compareMetadata.compareMetaError,
-    compareMetaA: compareMetadata.compareMetaA,
-    compareMetaB: compareMetadata.compareMetaB,
+    compareMetaByPath: compareMetadata.compareMetaByPath,
     compareIncludePilInfo: compareMetadata.compareIncludePilInfo,
-    compareShowPilInfoA: compareMetadata.compareShowPilInfoA,
-    compareShowPilInfoB: compareMetadata.compareShowPilInfoB,
     compareExportLabelsText: compareExport.compareExportLabelsText,
     compareExportEmbedMetadata: compareExport.compareExportEmbedMetadata,
     compareExportReverseOrder: compareExport.compareExportReverseOrder,
@@ -95,8 +84,6 @@ export function useInspectorMetadataWorkflow({
     compareExportBusy: compareExport.compareExportBusy,
     setShowPilInfo: singleMetadata.setShowPilInfo,
     setCompareIncludePilInfo: compareMetadata.setCompareIncludePilInfo,
-    setCompareShowPilInfoA: compareMetadata.setCompareShowPilInfoA,
-    setCompareShowPilInfoB: compareMetadata.setCompareShowPilInfoB,
     fetchMetadata: singleMetadata.fetchMetadata,
     reloadCompareMetadata: compareMetadata.reloadCompareMetadata,
     handleCompareExportLabelsTextChange: compareExport.handleCompareExportLabelsTextChange,

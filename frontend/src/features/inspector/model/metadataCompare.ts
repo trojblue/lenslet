@@ -1,19 +1,40 @@
-export interface CompareMetadataDiffEntry {
+export interface CompareMetadataColumn {
+  path: string
+  label: string
+}
+
+export interface CompareMetadataMatrixRow {
   key: string
-  kind: 'different' | 'onlyA' | 'onlyB'
-  aText: string
-  bText: string
+  values: string[]
+  missingCount: number
 }
 
-export interface CompareMetadataDiffResult {
-  entries: CompareMetadataDiffEntry[]
-  onlyA: number
-  onlyB: number
-  different: number
-  truncatedCount: number
+export interface CompareMetadataMatrixSummary {
+  differingRows: number
+  missingValues: number
+  totalRows: number
 }
 
-export interface BuildCompareMetadataDiffOptions {
+export interface CompareMetadataMatrixResult {
+  columns: CompareMetadataColumn[]
+  rows: CompareMetadataMatrixRow[]
+  summary: CompareMetadataMatrixSummary
+  truncatedRowCount: number
+}
+
+export interface CompareMetadataMatrixInput {
+  path: string
+  label: string
+  meta: Record<string, unknown> | null
+}
+
+export interface CompareMetadataNormalizedMatrixInput {
+  path: string
+  label: string
+  normalizedMeta: unknown | null
+}
+
+export interface BuildCompareMetadataMatrixOptions {
   includePilInfo: boolean
   limit: number
   maxDepth: number
@@ -313,72 +334,86 @@ export function hasPilInfoMetadata(meta: Record<string, unknown> | null): boolea
   return !!meta && isPlainObject(meta) && 'pil_info' in meta
 }
 
-export function buildCompareMetadataDiff(
-  compareMetaA: Record<string, unknown> | null,
-  compareMetaB: Record<string, unknown> | null,
-  options: BuildCompareMetadataDiffOptions,
-): CompareMetadataDiffResult | null {
-  return buildCompareMetadataDiffFromNormalized(
-    normalizeMetadataRecord(compareMetaA),
-    normalizeMetadataRecord(compareMetaB),
+export function buildCompareMetadataMatrix(
+  entries: CompareMetadataMatrixInput[],
+  options: BuildCompareMetadataMatrixOptions,
+): CompareMetadataMatrixResult | null {
+  return buildCompareMetadataMatrixFromNormalized(
+    entries.map((entry) => ({
+      path: entry.path,
+      label: entry.label,
+      normalizedMeta: normalizeMetadataRecord(entry.meta),
+    })),
     options,
   )
 }
 
-export function buildCompareMetadataDiffFromNormalized(
-  normalizedA: unknown | null,
-  normalizedB: unknown | null,
-  options: BuildCompareMetadataDiffOptions,
-): CompareMetadataDiffResult | null {
-  if (normalizedA == null || normalizedB == null) return null
-  const mapA = new Map<string, unknown>()
-  const mapB = new Map<string, unknown>()
-  const opts = {
+export function buildCompareMetadataMatrixFromNormalized(
+  entries: CompareMetadataNormalizedMatrixInput[],
+  options: BuildCompareMetadataMatrixOptions,
+): CompareMetadataMatrixResult | null {
+  if (entries.length < 2) return null
+
+  const columns: CompareMetadataColumn[] = entries.map((entry) => ({
+    path: entry.path,
+    label: entry.label,
+  }))
+  const flattenOptions = {
     maxDepth: options.maxDepth,
     maxArray: options.maxArray,
     skipPilInfo: !options.includePilInfo,
   }
-  flattenMeta(normalizedA, '', mapA, 0, opts)
-  flattenMeta(normalizedB, '', mapB, 0, opts)
-  const keys = new Set([...mapA.keys(), ...mapB.keys()])
-  const entries: CompareMetadataDiffEntry[] = []
-  let onlyA = 0
-  let onlyB = 0
-  let different = 0
-  const sortedKeys = Array.from(keys).sort((a, b) => a.localeCompare(b))
-  const skipPilInfo = !options.includePilInfo
-
-  for (const key of sortedKeys) {
-    if (skipPilInfo && isPilInfoPath(key)) continue
-    const hasA = mapA.has(key)
-    const hasB = mapB.has(key)
-    if (!hasA && hasB) {
-      onlyB += 1
-      entries.push({ key, kind: 'onlyB', aText: '—', bText: formatMetaValue(mapB.get(key)) })
-      continue
+  const maps: Array<Map<string, unknown>> = entries.map((entry) => {
+    const out = new Map<string, unknown>()
+    if (entry.normalizedMeta != null) {
+      flattenMeta(entry.normalizedMeta, '', out, 0, flattenOptions)
     }
-    if (hasA && !hasB) {
-      onlyA += 1
-      entries.push({ key, kind: 'onlyA', aText: formatMetaValue(mapA.get(key)), bText: '—' })
-      continue
-    }
-    const aVal = mapA.get(key)
-    const bVal = mapB.get(key)
-    const aCmp = toComparableString(aVal)
-    const bCmp = toComparableString(bVal)
-    if (aCmp !== bCmp) {
-      different += 1
-      entries.push({ key, kind: 'different', aText: formatMetaValue(aVal), bText: formatMetaValue(bVal) })
+    return out
+  })
+  const allKeys = new Set<string>()
+  for (const map of maps) {
+    for (const key of map.keys()) {
+      allKeys.add(key)
     }
   }
+  const sortedKeys = Array.from(allKeys).sort((a, b) => a.localeCompare(b))
 
-  const truncatedCount = Math.max(0, entries.length - options.limit)
-  const entriesVisible = truncatedCount ? entries.slice(0, options.limit) : entries
+  const allRows: CompareMetadataMatrixRow[] = []
+  let missingValues = 0
+  for (const key of sortedKeys) {
+    if (flattenOptions.skipPilInfo && isPilInfoPath(key)) continue
+    const values = maps.map((map) => (map.has(key) ? map.get(key) : undefined))
+    let missingCount = 0
+    for (const value of values) {
+      if (value === undefined) {
+        missingCount += 1
+      }
+    }
+    const comparableValues = values
+      .filter((value): value is unknown => value !== undefined)
+      .map((value) => toComparableString(value))
+    const uniqueComparable = new Set(comparableValues)
+    const differs = uniqueComparable.size > 1 || (missingCount > 0 && uniqueComparable.size > 0)
+    if (!differs) continue
+    allRows.push({
+      key,
+      values: values.map((value) => (value === undefined ? '—' : formatMetaValue(value))),
+      missingCount,
+    })
+    missingValues += missingCount
+  }
+
+  const differingRows = allRows.length
+  const truncatedRowCount = Math.max(0, differingRows - options.limit)
+  const rows = truncatedRowCount > 0 ? allRows.slice(0, options.limit) : allRows
   return {
-    entries: entriesVisible,
-    onlyA,
-    onlyB,
-    different,
-    truncatedCount,
+    columns,
+    rows,
+    summary: {
+      differingRows,
+      missingValues,
+      totalRows: differingRows,
+    },
+    truncatedRowCount,
   }
 }

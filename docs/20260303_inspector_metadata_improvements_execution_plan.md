@@ -121,16 +121,16 @@ After the cleanup subagent finishes, spawn a fresh subagent and request review u
 
 4. Sprint 4 goal is complete six-item metadata compare engine and table UI. Demo outcome is structured comparison for 2..6 images with deterministic over-cap behavior.
 
-   T13. Refactor compare request/guard logic from two-path to list-based flow with `MAX_INSPECTOR_COMPARE_PATHS = 6` and deterministic first-six truncation.
+   T13. [x] Refactor compare request/guard logic from two-path to list-based flow with `MAX_INSPECTOR_COMPARE_PATHS = 6` and deterministic first-six truncation. Completed 2026-03-03.
    Validation: request-guard tests for stable keys and reload behavior at 2..6 items.
 
-   T14. Replace pairwise compare model with N-way row matrix model plus summary outputs (differences, missing values, truncation notice).
+   T14. [x] Replace pairwise compare model with N-way row matrix model plus summary outputs (differences, missing values, truncation notice). Completed 2026-03-03.
    Validation: model tests for mixed metadata shapes and stable row ordering.
 
-   T15. Build table-oriented `CompareMetadataSection` with sticky key column and horizontal overflow handling for six columns.
+   T15. [x] Build table-oriented `CompareMetadataSection` with sticky key column and horizontal overflow handling for six columns. Completed 2026-03-03.
    Validation: component tests for multi-column rendering and sticky key semantics.
 
-   T16. Add over-cap message behavior (`+N not shown`) and Playwright smoke coverage for selecting 7 items.
+   T16. [x] Add over-cap message behavior (`+N not shown`) and Playwright smoke coverage for selecting 7 items. Completed 2026-03-03.
    Validation: `python scripts/gui_smoke_acceptance.py` verifies over-cap messaging path.
 
 5. Sprint 5 goal is GIF notice relocation and backend PNG quick-view defaults. Demo outcome is no persistent GIF notice line and backend provides stable quick-view defaults.
@@ -236,6 +236,16 @@ Sprint 3 execution notes (2026-03-03):
 5. Review-finding fix applied: metadata compare activation now requires available compare targets to avoid false “active” UI state when selected paths are not currently resolvable.
 6. Sprint 3 closure gates passed: targeted Vitest suites, `npx tsc --noEmit`, `python scripts/gui_smoke_acceptance.py`, `npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/`, and `python scripts/lint_repo.py`.
 
+Sprint 4 execution notes (2026-03-03):
+
+1. `T13` pass: compare request guards now resolve bounded list targets (`MAX_INSPECTOR_COMPARE_PATHS = 6`) with deterministic first-six behavior, stable context keys for 2..6 selections, and preserved whitespace-significant paths.
+2. `T14` pass: pairwise diff output was replaced with an N-way matrix model (rows keyed by flattened metadata paths) that reports differing rows, missing values, and row truncation count with deterministic key ordering.
+3. `T15` pass: `CompareMetadataSection` now renders a table-first compare UI with sticky path column, horizontal overflow support, and explicit compared-image chips/labels.
+4. `T16` pass: over-cap indicator (`+N not shown`) is surfaced in the compare section when selection count exceeds six and Playwright smoke now validates this path with seven selected images.
+5. Cleanup gate: required `code-simplifier` subagent pass removed dead compare-copy UI state and simplified compare hook context reuse without behavioral changes.
+6. Review gate: `code-review` subagent identified one medium bug (path trimming could mutate valid filenames); fix was applied and covered by new guard tests.
+7. Sprint 4 closure gates passed: targeted Vitest suites (hooks/model/sections), `npx tsc --noEmit`, frontend build + bundle sync to `src/lenslet/frontend/`, `python scripts/gui_smoke_acceptance.py`, and `python scripts/lint_repo.py`.
+
 
 ## Risks and Recovery
 
@@ -282,6 +292,13 @@ Idempotent retry strategy is rerunning failed sprint gates with the same command
 - [x] 2026-03-03 19:14:50Z Ran Sprint 3 targeted validations: updated inspector/hook Vitest suites passed, `npx tsc --noEmit` passed, and `python scripts/lint_repo.py` passed.
 - [x] 2026-03-03 19:17:00Z Cleanup gate: conservative `code-simplifier` subagent pass applied small non-semantic cleanups only (state/readability simplifications, no behavior changes).
 - [x] 2026-03-03 19:18:20Z Review gate: `code-review` subagent found one medium UI-state gap; patched compare-availability gating and reran targeted tests + `tsc` + GUI smoke + lint (all pass).
+- [x] 2026-03-03 19:22:00Z Sprint 4 plan gate restated with Sprint 4-only scope (`T13`..`T16`) and unchanged non-goals.
+- [x] 2026-03-03 19:34:30Z Completed `T13` + `T14`: list-based compare target/request flow landed (`MAX_INSPECTOR_COMPARE_PATHS = 6`) and compare model moved to N-way matrix output with summary/truncation signals.
+- [x] 2026-03-03 19:37:20Z Completed `T15` + `T16`: compare section moved to sticky-key table UI, over-cap message added (`+N not shown`), and Playwright smoke expanded to assert seven-selection behavior.
+- [x] 2026-03-03 19:42:40Z Ran Sprint 4 targeted validations: updated inspector Vitest suites passed and `npx tsc --noEmit` passed.
+- [x] 2026-03-03 19:44:20Z Cleanup gate: conservative `code-simplifier` subagent removed dead compare-copy state paths and simplified compare-request context reuse without behavior changes.
+- [x] 2026-03-03 19:47:10Z Review gate: `code-review` subagent found one medium issue (path-trimming mutation risk); patched path-preserving guard behavior, added regression test coverage, rebuilt bundle, reran GUI smoke, and reran lint (all pass).
+- [x] 2026-03-03 19:50:19Z Sprint 4 closed; handoff notes and artifact list updated for Sprint 5 start.
 
 
 ## Artifacts and Handoff
@@ -307,11 +324,14 @@ Primary planned touchpoints:
     frontend/src/features/inspector/hooks/useInspectorMetadataWorkflow.ts
     frontend/src/features/inspector/hooks/useInspectorCompareMetadata.ts
     frontend/src/features/inspector/hooks/metadataRequestGuards.ts
+    frontend/src/features/inspector/hooks/__tests__/metadataRequestGuards.test.ts
     frontend/src/features/inspector/model/metadataCompare.ts
+    frontend/src/features/inspector/model/__tests__/metadataCompare.test.ts
     frontend/src/features/inspector/model/inspectorWidgetOrder.ts
     frontend/src/features/inspector/model/__tests__/inspectorWidgetOrder.test.ts
     frontend/src/features/inspector/sections/InspectorSection.tsx
     frontend/src/features/inspector/sections/CompareMetadataSection.tsx
+    frontend/src/features/inspector/sections/__tests__/metadataSections.test.tsx
     frontend/src/features/inspector/sections/SelectionActionsSection.tsx
     frontend/src/features/inspector/sections/SelectionExportSection.tsx
     src/lenslet/metadata.py
@@ -344,6 +364,15 @@ Sprint 3 handoff notes (closed 2026-03-03):
 4. New targeted tests were added for inspector compare activation guards and app compare popstate/auto-close guards.
 5. Sprint 3 closure gates passed, including GUI smoke, frontend bundle sync to `src/lenslet/frontend/`, and repository lint.
 6. Next actionable sprint is Sprint 4 (`T13`..`T16`) for six-item metadata compare model/table and over-cap behavior.
+
+Sprint 4 handoff notes (closed 2026-03-03):
+
+1. `T13`..`T16` are complete: compare metadata now resolves first-six targets from selection order, uses list-based fetch guards, and renders a six-column-capable matrix/table UI.
+2. Compare summary output now reports differing row count, missing value count, and row truncation, while section-level messaging reports over-cap selection truncation as `+N not shown`.
+3. `scripts/gui_smoke_acceptance.py` now validates the seven-selection metadata compare path and records `inspector_compare_over_cap_message` in the JSON summary.
+4. Cleanup and review subagent gates were executed; one review finding (whitespace-significant path mutation) was fixed and locked with regression tests.
+5. Sprint 4 closure gates passed, including targeted Vitest suites, `npx tsc --noEmit`, frontend bundle sync to `src/lenslet/frontend/`, GUI smoke, and repository lint.
+6. Next actionable sprint is Sprint 5 (`T17`..`T20`) for GIF tooltip relocation and backend PNG quick-view defaults.
 
 Execution handoff note for the next operator is to implement strictly sprint-by-sprint, preserve each sprint as independently demoable and reviewable, and keep this plan as the authoritative running log of decisions, validations, and closure state.
 

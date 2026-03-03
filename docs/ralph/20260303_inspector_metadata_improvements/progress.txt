@@ -143,3 +143,46 @@ Blockers:
 
 Next step:
 - Start Sprint 4 task sequence (`T13`..`T16`) for six-item metadata compare model/table and over-cap messaging behavior.
+
+## Iteration 5 - 2026-03-03T19:50:19Z
+
+Completed task IDs:
+- T13
+- T14
+- T15
+- T16
+
+Files changed:
+- frontend/src/features/inspector/Inspector.tsx
+- frontend/src/features/inspector/hooks/metadataRequestGuards.ts
+- frontend/src/features/inspector/hooks/__tests__/metadataRequestGuards.test.ts
+- frontend/src/features/inspector/hooks/useInspectorCompareMetadata.ts
+- frontend/src/features/inspector/hooks/useInspectorMetadataWorkflow.ts
+- frontend/src/features/inspector/hooks/useInspectorUiState.ts
+- frontend/src/features/inspector/model/metadataCompare.ts
+- frontend/src/features/inspector/model/__tests__/metadataCompare.test.ts
+- frontend/src/features/inspector/sections/CompareMetadataSection.tsx
+- frontend/src/features/inspector/sections/__tests__/metadataSections.test.tsx
+- scripts/gui_smoke_acceptance.py
+- docs/20260303_inspector_metadata_improvements_execution_plan.md
+- docs/ralph/20260303_inspector_metadata_improvements/progress.txt
+- src/lenslet/frontend/index.html
+- src/lenslet/frontend/assets/index-BH8d7chx.css
+- src/lenslet/frontend/assets/index-DA0dPSfn.js
+- src/lenslet/frontend/assets/index-Doffrnzh.js (removed)
+- src/lenslet/frontend/assets/index-DymWVms6.css (removed)
+
+Validations run:
+- `cd frontend && npm run test -- src/features/inspector/hooks/__tests__/inspectorCompareActivation.test.ts src/features/inspector/hooks/__tests__/metadataRequestGuards.test.ts src/features/inspector/model/__tests__/metadataCompare.test.ts src/features/inspector/sections/__tests__/metadataSections.test.tsx` -> pass (29 tests).
+- `cd frontend && npx tsc --noEmit` -> pass.
+- `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/` -> pass.
+- `python scripts/gui_smoke_acceptance.py` -> pass (includes over-cap assertion: `inspector_compare_over_cap_message="+1 not shown."`).
+- `python scripts/lint_repo.py` -> pass.
+- Cleanup gate: `code-simplifier` subagent pass completed with conservative, non-semantic cleanups only.
+- Review gate: `code-review` subagent reported one medium issue (path trimming mutating whitespace-significant filenames); issue fixed and regression tests + smoke + lint rerun green.
+
+Blockers:
+- None.
+
+Next step:
+- Start Sprint 5 task sequence (`T17`..`T20`) for GIF tooltip relocation and backend PNG quick-view defaults.

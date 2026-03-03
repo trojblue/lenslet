@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   buildMetadataPathCopyPayload,
   buildJsonRenderNode,
-  buildCompareMetadataDiffFromNormalized,
-  buildCompareMetadataDiff,
+  buildCompareMetadataMatrixFromNormalized,
+  buildCompareMetadataMatrix,
   buildDisplayMetadataFromNormalized,
   buildDisplayMetadata,
   formatCopyValue,
@@ -65,8 +65,22 @@ describe('inspector metadata model utilities', () => {
     expect(buildDisplayMetadata(metaA, true)).toEqual(
       buildDisplayMetadataFromNormalized(normalizedA, true),
     )
-    expect(buildCompareMetadataDiff(metaA, metaB, opts)).toEqual(
-      buildCompareMetadataDiffFromNormalized(normalizedA, normalizedB, opts),
+    expect(
+      buildCompareMetadataMatrix(
+        [
+          { path: '/a.png', label: 'A', meta: metaA },
+          { path: '/b.png', label: 'B', meta: metaB },
+        ],
+        opts,
+      ),
+    ).toEqual(
+      buildCompareMetadataMatrixFromNormalized(
+        [
+          { path: '/a.png', label: 'A', normalizedMeta: normalizedA },
+          { path: '/b.png', label: 'B', normalizedMeta: normalizedB },
+        ],
+        opts,
+      ),
     )
   })
 
@@ -155,20 +169,30 @@ describe('inspector metadata model utilities', () => {
     expect(hasPilInfoMetadata(null)).toBe(false)
   })
 
-  it('builds compare diffs and excludes pil_info when disabled', () => {
-    const diff = buildCompareMetadataDiff(
-      {
-        score: 1,
-        onlyA: 'left',
-        same: 'value',
-        pil_info: { mode: 'RGB' },
-      },
-      {
-        score: 2,
-        onlyB: 'right',
-        same: 'value',
-        pil_info: { mode: 'RGBA' },
-      },
+  it('builds compare matrix rows and excludes pil_info when disabled', () => {
+    const matrix = buildCompareMetadataMatrix(
+      [
+        {
+          path: '/a.png',
+          label: 'A',
+          meta: {
+            score: 1,
+            onlyA: 'left',
+            same: 'value',
+            pil_info: { mode: 'RGB' },
+          },
+        },
+        {
+          path: '/b.png',
+          label: 'B',
+          meta: {
+            score: 2,
+            onlyB: 'right',
+            same: 'value',
+            pil_info: { mode: 'RGBA' },
+          },
+        },
+      ],
       {
         includePilInfo: false,
         limit: 20,
@@ -177,25 +201,34 @@ describe('inspector metadata model utilities', () => {
       },
     )
 
-    expect(diff).not.toBeNull()
-    expect(diff?.different).toBe(1)
-    expect(diff?.onlyA).toBe(1)
-    expect(diff?.onlyB).toBe(1)
-    expect(diff?.entries.map((entry) => entry.key)).toEqual(['onlyA', 'onlyB', 'score'])
+    expect(matrix).not.toBeNull()
+    expect(matrix?.summary.differingRows).toBe(3)
+    expect(matrix?.summary.missingValues).toBe(2)
+    expect(matrix?.rows.map((row) => row.key)).toEqual(['onlyA', 'onlyB', 'score'])
   })
 
-  it('includes pil_info keys when compare diff opts enable them', () => {
-    const diff = buildCompareMetadataDiff(
-      {
-        a: 1,
-        b: 2,
-        pil_info: { mode: 'RGB' },
-      },
-      {
-        a: 10,
-        b: 20,
-        pil_info: { mode: 'RGBA' },
-      },
+  it('includes pil_info keys when matrix opts enable them', () => {
+    const matrix = buildCompareMetadataMatrix(
+      [
+        {
+          path: '/a.png',
+          label: 'A',
+          meta: {
+            a: 1,
+            b: 2,
+            pil_info: { mode: 'RGB' },
+          },
+        },
+        {
+          path: '/b.png',
+          label: 'B',
+          meta: {
+            a: 10,
+            b: 20,
+            pil_info: { mode: 'RGBA' },
+          },
+        },
+      ],
       {
         includePilInfo: true,
         limit: 20,
@@ -204,24 +237,34 @@ describe('inspector metadata model utilities', () => {
       },
     )
 
-    expect(diff).not.toBeNull()
-    expect(diff?.different).toBe(3)
-    expect(diff?.entries).toHaveLength(3)
-    expect(diff?.entries.some((entry) => entry.key.startsWith('pil_info'))).toBe(true)
+    expect(matrix).not.toBeNull()
+    expect(matrix?.summary.differingRows).toBe(3)
+    expect(matrix?.rows).toHaveLength(3)
+    expect(matrix?.rows.some((row) => row.key.startsWith('pil_info'))).toBe(true)
   })
 
-  it('truncates compare diffs beyond the configured limit', () => {
-    const diff = buildCompareMetadataDiff(
-      {
-        a: 1,
-        b: 2,
-        c: 3,
-      },
-      {
-        a: 10,
-        b: 20,
-        c: 30,
-      },
+  it('truncates matrix rows beyond the configured limit', () => {
+    const matrix = buildCompareMetadataMatrix(
+      [
+        {
+          path: '/a.png',
+          label: 'A',
+          meta: {
+            a: 1,
+            b: 2,
+            c: 3,
+          },
+        },
+        {
+          path: '/b.png',
+          label: 'B',
+          meta: {
+            a: 10,
+            b: 20,
+            c: 30,
+          },
+        },
+      ],
       {
         includePilInfo: false,
         limit: 2,
@@ -230,9 +273,42 @@ describe('inspector metadata model utilities', () => {
       },
     )
 
-    expect(diff).not.toBeNull()
-    expect(diff?.different).toBe(3)
-    expect(diff?.entries).toHaveLength(2)
-    expect(diff?.truncatedCount).toBe(1)
+    expect(matrix).not.toBeNull()
+    expect(matrix?.summary.differingRows).toBe(3)
+    expect(matrix?.rows).toHaveLength(2)
+    expect(matrix?.truncatedRowCount).toBe(1)
+  })
+
+  it('supports N-way matrix comparison with stable key ordering', () => {
+    const matrix = buildCompareMetadataMatrix(
+      [
+        {
+          path: '/a.png',
+          label: 'A',
+          meta: { zeta: 1, alpha: 1, shared: 'same' },
+        },
+        {
+          path: '/b.png',
+          label: 'B',
+          meta: { zeta: 2, alpha: 1, beta: true, shared: 'same' },
+        },
+        {
+          path: '/c.png',
+          label: 'C',
+          meta: { zeta: 3, gamma: 'yes', shared: 'same' },
+        },
+      ],
+      {
+        includePilInfo: false,
+        limit: 50,
+        maxDepth: 8,
+        maxArray: 80,
+      },
+    )
+
+    expect(matrix).not.toBeNull()
+    expect(matrix?.columns.map((column) => column.label)).toEqual(['A', 'B', 'C'])
+    expect(matrix?.rows.map((row) => row.key)).toEqual(['alpha', 'beta', 'gamma', 'zeta'])
+    expect(matrix?.summary.missingValues).toBeGreaterThan(0)
   })
 })

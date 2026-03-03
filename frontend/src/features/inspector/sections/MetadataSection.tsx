@@ -1,5 +1,6 @@
 import React from 'react'
 import type { JsonRenderNode, MetadataPathSegment } from '../model/metadataCompare'
+import type { InspectorWidgetId } from '../model/inspectorWidgetOrder'
 import { JsonRenderCode } from './JsonRenderCode'
 import { InspectorSection } from './InspectorSection'
 
@@ -20,6 +21,8 @@ interface MetadataSectionProps {
   metaContent: string
   metaError: string | null
   onMetaPathCopy: (path: MetadataPathSegment[]) => void
+  sortableId?: InspectorWidgetId
+  sortableEnabled?: boolean
 }
 
 function MetadataSectionComponent({
@@ -39,6 +42,8 @@ function MetadataSectionComponent({
   metaContent,
   metaError,
   onMetaPathCopy,
+  sortableId,
+  sortableEnabled = false,
 }: MetadataSectionProps): JSX.Element {
   const metadataActions = (
     <div className="flex items-center gap-2 text-xs">
@@ -66,6 +71,8 @@ function MetadataSectionComponent({
       title="Metadata"
       open={open}
       onToggle={onToggle}
+      sortableId={sortableId}
+      sortableEnabled={sortableEnabled}
       actions={metadataActions}
     >
       <div className="relative">

@@ -4,8 +4,7 @@ import { CompareMetadataSection } from './sections/CompareMetadataSection'
 import { MetadataSection } from './sections/MetadataSection'
 import { NotesSection } from './sections/NotesSection'
 import { OverviewSection } from './sections/OverviewSection'
-
-export type InspectorWidgetId = 'overview' | 'compareMetadata' | 'basics' | 'metadata' | 'notes'
+import type { InspectorWidgetId } from './model/inspectorWidgetOrder'
 
 export interface InspectorWidgetContext {
   multi: boolean
@@ -18,7 +17,7 @@ export interface InspectorWidgetContext {
   notesProps: ComponentProps<typeof NotesSection>
 }
 
-interface InspectorWidgetDefinition {
+export interface InspectorWidgetDefinition {
   id: InspectorWidgetId
   isVisible: (ctx: InspectorWidgetContext) => boolean
   render: (ctx: InspectorWidgetContext) => JSX.Element
@@ -36,14 +35,14 @@ export const INSPECTOR_WIDGETS: readonly InspectorWidgetDefinition[] = [
     render: ({ compareMetadataProps }) => <CompareMetadataSection {...compareMetadataProps} />,
   },
   {
-    id: 'basics',
-    isVisible: () => true,
-    render: ({ basicsProps }) => <BasicsSection {...basicsProps} />,
-  },
-  {
     id: 'metadata',
     isVisible: ({ multi }) => !multi,
     render: ({ metadataProps }) => <MetadataSection {...metadataProps} />,
+  },
+  {
+    id: 'basics',
+    isVisible: () => true,
+    render: ({ basicsProps }) => <BasicsSection {...basicsProps} />,
   },
   {
     id: 'notes',

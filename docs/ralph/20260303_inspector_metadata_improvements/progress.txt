@@ -41,3 +41,41 @@ Blockers:
 
 Next step:
 - Start Sprint 2 task sequence (`T5`..`T8`) and keep execution scoped to reorderable inspector section behavior only.
+
+## Iteration 2 - 2026-03-03T18:33:02Z
+
+Completed task IDs:
+- T5
+- T6
+- T7
+
+Files changed:
+- frontend/src/features/inspector/model/inspectorWidgetOrder.ts
+- frontend/src/features/inspector/model/__tests__/inspectorWidgetOrder.test.ts
+- frontend/src/features/inspector/hooks/useInspectorUiState.ts
+- frontend/src/features/inspector/inspectorWidgets.tsx
+- frontend/src/features/inspector/Inspector.tsx
+- frontend/src/features/inspector/sections/InspectorSection.tsx
+- frontend/src/features/inspector/sections/OverviewSection.tsx
+- frontend/src/features/inspector/sections/MetadataSection.tsx
+- frontend/src/features/inspector/sections/BasicsSection.tsx
+- frontend/src/features/inspector/sections/CompareMetadataSection.tsx
+- frontend/src/features/inspector/sections/NotesSection.tsx
+- docs/20260303_inspector_metadata_improvements_execution_plan.md
+- docs/ralph/20260303_inspector_metadata_improvements/progress.txt
+- src/lenslet/frontend/index.html
+- src/lenslet/frontend/assets/index-DymWVms6.css
+- src/lenslet/frontend/assets/index-CPyqrwnY.js
+
+Validations run:
+- `cd frontend && npm run test -- src/features/inspector/model/__tests__/inspectorWidgetOrder.test.ts src/features/inspector/sections/__tests__/metadataSections.test.tsx` -> pass (13 tests).
+- `cd frontend && npx tsc --noEmit` -> pass.
+- `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/` -> pass.
+- `python scripts/lint_repo.py` -> pass.
+- `python scripts/gui_smoke_acceptance.py` -> fail (preexisting flaky multi-select step times out waiting for second gridcell click before reorder assertions).
+
+Blockers:
+- T8 blocked by existing `scripts/gui_smoke_acceptance.py` flake in deterministic two-item multi-select interaction (`[role='gridcell']` second-cell click timeout).
+
+Next step:
+- Stabilize multi-select behavior in Playwright smoke harness, then implement and validate Sprint 2 `T8` reorder-reload persistence path.

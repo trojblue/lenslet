@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
+import {
+  INSPECTOR_WIDGET_DEFAULT_ORDER,
+  parseStoredInspectorWidgetOrder,
+  reorderInspectorWidgetOrder,
+  type InspectorWidgetId,
+} from '../model/inspectorWidgetOrder'
 
 export type InspectorSectionKey = 'overview' | 'compare' | 'basics' | 'metadata' | 'notes'
 
@@ -14,6 +20,8 @@ type UseInspectorUiStateParams = {
 }
 
 type UseInspectorUiStateResult = {
+  sectionOrder: InspectorWidgetId[]
+  reorderSectionOrder: (activeId: InspectorWidgetId, overId: InspectorWidgetId) => void
   openSections: Record<InspectorSectionKey, boolean>
   toggleOverviewSection: () => void
   toggleCompareSection: () => void
@@ -37,6 +45,7 @@ type UseInspectorUiStateResult = {
 
 const INSPECTOR_SECTION_KEYS: InspectorSectionKey[] = ['overview', 'compare', 'basics', 'metadata', 'notes']
 const INSPECTOR_SECTION_STORAGE_KEY = 'lenslet.inspector.sections'
+const INSPECTOR_SECTION_ORDER_STORAGE_KEY = 'lenslet.inspector.sectionOrder.v2'
 const INSPECTOR_METRICS_EXPANDED_KEY = 'lenslet.inspector.metricsExpanded'
 const DEFAULT_SECTION_STATE: Record<InspectorSectionKey, boolean> = {
   overview: true,
@@ -44,6 +53,13 @@ const DEFAULT_SECTION_STATE: Record<InspectorSectionKey, boolean> = {
   metadata: true,
   basics: true,
   notes: true,
+}
+
+export function toggleInspectorSectionState(
+  sections: Record<InspectorSectionKey, boolean>,
+  key: InspectorSectionKey,
+): Record<InspectorSectionKey, boolean> {
+  return { ...sections, [key]: !sections[key] }
 }
 
 function clearTimer(timerRef: MutableRefObject<number | null>): void {
@@ -59,6 +75,9 @@ export function useInspectorUiState({
   comparePathA,
   comparePathB,
 }: UseInspectorUiStateParams): UseInspectorUiStateResult {
+  const [sectionOrder, setSectionOrder] = useState<InspectorWidgetId[]>([
+    ...INSPECTOR_WIDGET_DEFAULT_ORDER,
+  ])
   const [openSections, setOpenSections] = useState<Record<InspectorSectionKey, boolean>>(DEFAULT_SECTION_STATE)
   const [metricsExpanded, setMetricsExpanded] = useState(false)
 
@@ -76,7 +95,7 @@ export function useInspectorUiState({
   const compareValueCopyTimeoutRef = useRef<number | null>(null)
 
   const toggleSection = useCallback((key: InspectorSectionKey) => {
-    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
+    setOpenSections((prev) => toggleInspectorSectionState(prev, key))
   }, [])
 
   const toggleOverviewSection = useCallback(() => toggleSection('overview'), [toggleSection])
@@ -84,6 +103,9 @@ export function useInspectorUiState({
   const toggleBasicsSection = useCallback(() => toggleSection('basics'), [toggleSection])
   const toggleMetadataSection = useCallback(() => toggleSection('metadata'), [toggleSection])
   const toggleNotesSection = useCallback(() => toggleSection('notes'), [toggleSection])
+  const reorderSectionOrder = useCallback((activeId: InspectorWidgetId, overId: InspectorWidgetId) => {
+    setSectionOrder((prev) => reorderInspectorWidgetOrder(prev, activeId, overId))
+  }, [])
 
   const toggleMetricsExpanded = useCallback(() => {
     setMetricsExpanded((prev) => !prev)
@@ -138,6 +160,27 @@ export function useInspectorUiState({
       compareValueCopyTimeoutRef.current = null
     }, 900)
   }, [])
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(INSPECTOR_SECTION_ORDER_STORAGE_KEY)
+      const parsedOrder = parseStoredInspectorWidgetOrder(raw)
+      setSectionOrder(parsedOrder.order)
+      if (parsedOrder.shouldRewrite) {
+        localStorage.setItem(INSPECTOR_SECTION_ORDER_STORAGE_KEY, JSON.stringify(parsedOrder.order))
+      }
+    } catch {
+      // Ignore localStorage parsing errors
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(INSPECTOR_SECTION_ORDER_STORAGE_KEY, JSON.stringify(sectionOrder))
+    } catch {
+      // Ignore localStorage write errors
+    }
+  }, [sectionOrder])
 
   useEffect(() => {
     try {
@@ -213,6 +256,8 @@ export function useInspectorUiState({
   )
 
   return {
+    sectionOrder,
+    reorderSectionOrder,
     openSections,
     toggleOverviewSection,
     toggleCompareSection,

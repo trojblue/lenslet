@@ -1,4 +1,5 @@
 import React from 'react'
+import type { InspectorWidgetId } from '../model/inspectorWidgetOrder'
 import { InspectorSection } from './InspectorSection'
 
 interface NotesSectionProps {
@@ -14,6 +15,8 @@ interface NotesSectionProps {
   tags: string
   onTagsChange: (value: string) => void
   onTagsBlur: () => void
+  sortableId?: InspectorWidgetId
+  sortableEnabled?: boolean
 }
 
 export function NotesSection({
@@ -29,12 +32,16 @@ export function NotesSection({
   tags,
   onTagsChange,
   onTagsBlur,
+  sortableId,
+  sortableEnabled = false,
 }: NotesSectionProps): JSX.Element {
   return (
     <InspectorSection
       title="Notes & Tags"
       open={open}
       onToggle={onToggle}
+      sortableId={sortableId}
+      sortableEnabled={sortableEnabled}
       contentClassName="px-3 pb-3 space-y-2"
     >
       {showConflictBanner && (

@@ -1,4 +1,6 @@
 import React, { Fragment, useEffect, useMemo, useCallback } from 'react'
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict } from '../../shared/api/items'
 import { api, makeIdempotencyKey } from '../../shared/api/client'
@@ -13,6 +15,10 @@ import {
   hasPilInfoMetadata,
   normalizeMetadataRecord,
 } from './model/metadataCompare'
+import {
+  isInspectorWidgetId,
+  sanitizeInspectorWidgetOrder,
+} from './model/inspectorWidgetOrder'
 import { INSPECTOR_WIDGETS, type InspectorWidgetContext } from './inspectorWidgets'
 import { useInspectorMetadataWorkflow } from './hooks/useInspectorMetadataWorkflow'
 import { useInspectorSidecarWorkflow } from './hooks/useInspectorSidecarWorkflow'
@@ -57,6 +63,9 @@ const METRICS_PREVIEW_LIMIT = 12
 const COMPARE_DIFF_LIMIT = 120
 const COMPARE_DIFF_MAX_DEPTH = 8
 const COMPARE_DIFF_MAX_ARRAY = 80
+const INSPECTOR_WIDGET_MAP = new Map(
+  INSPECTOR_WIDGETS.map((widget) => [widget.id, widget] as const),
+)
 
 export default function Inspector({
   path,
@@ -104,6 +113,8 @@ export default function Inspector({
   const comparePairReady = !!comparePathA && !!comparePathB
   const compareReady = compareActive && comparePairReady
   const {
+    sectionOrder,
+    reorderSectionOrder,
     openSections,
     toggleOverviewSection,
     toggleCompareSection,
@@ -448,6 +459,18 @@ export default function Inspector({
   const handleComparisonExport = useCallback((outputFormat: 'png' | 'gif') => {
     void runComparisonExport(outputFormat)
   }, [runComparisonExport])
+  const sectionOrderSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+  )
+  const handleSectionDragEnd = useCallback((event: DragEndEvent) => {
+    const activeId = event.active.id
+    const overId = event.over?.id
+    if (typeof activeId !== 'string' || typeof overId !== 'string') return
+    if (!isInspectorWidgetId(activeId) || !isInspectorWidgetId(overId)) return
+    reorderSectionOrder(activeId, overId)
+  }, [reorderSectionOrder])
 
   const showNotesConflictBanner = !multi && !!conflict && (conflictFields.tags || conflictFields.notes)
   const hasStarConflict = !multi && !!conflict && conflictFields.star
@@ -467,6 +490,8 @@ export default function Inspector({
     overviewProps: {
       open: openSections.overview,
       onToggle: toggleOverviewSection,
+      sortableId: 'overview',
+      sortableEnabled: true,
       multi,
       selectedCount: selectedPaths.length,
       totalSize,
@@ -492,6 +517,8 @@ export default function Inspector({
     compareMetadataProps: {
       open: openSections.compare,
       onToggle: toggleCompareSection,
+      sortableId: 'compareMetadata',
+      sortableEnabled: true,
       compareMetaState,
       compareMetaError,
       compareLabelA,
@@ -519,6 +546,8 @@ export default function Inspector({
     basicsProps: {
       open: openSections.basics,
       onToggle: toggleBasicsSection,
+      sortableId: 'basics',
+      sortableEnabled: true,
       multi,
       star,
       onSelectStar: handleSelectStar,
@@ -537,6 +566,8 @@ export default function Inspector({
     metadataProps: {
       open: openSections.metadata,
       onToggle: toggleMetadataSection,
+      sortableId: 'metadata',
+      sortableEnabled: true,
       metadataLoading,
       metadataActionLabel,
       onMetadataAction: handleMetadataAction,
@@ -555,6 +586,8 @@ export default function Inspector({
     notesProps: {
       open: openSections.notes,
       onToggle: toggleNotesSection,
+      sortableId: 'notes',
+      sortableEnabled: true,
       multi,
       showConflictBanner: showNotesConflictBanner,
       onApplyConflict: applyConflict,
@@ -567,6 +600,17 @@ export default function Inspector({
       onTagsBlur: handleTagsBlur,
     },
   }
+  const orderedVisibleWidgets = useMemo(() => {
+    const orderedIds = sanitizeInspectorWidgetOrder(sectionOrder)
+    return orderedIds
+      .map((widgetId) => INSPECTOR_WIDGET_MAP.get(widgetId))
+      .filter((widget): widget is (typeof INSPECTOR_WIDGETS)[number] => !!widget)
+      .filter((widget) => widget.isVisible(widgetContext))
+  }, [sectionOrder, widgetContext])
+  const visibleWidgetIds = useMemo(
+    () => orderedVisibleWidgets.map((widget) => widget.id),
+    [orderedVisibleWidgets],
+  )
 
   return (
     <div className="app-right-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
@@ -578,9 +622,17 @@ export default function Inspector({
           </div>
         </div>
       )}
-      {INSPECTOR_WIDGETS.filter((widget) => widget.isVisible(widgetContext)).map((widget) => (
-        <Fragment key={widget.id}>{widget.render(widgetContext)}</Fragment>
-      ))}
+      <DndContext
+        sensors={sectionOrderSensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleSectionDragEnd}
+      >
+        <SortableContext items={visibleWidgetIds} strategy={verticalListSortingStrategy}>
+          {orderedVisibleWidgets.map((widget) => (
+            <Fragment key={widget.id}>{widget.render(widgetContext)}</Fragment>
+          ))}
+        </SortableContext>
+      </DndContext>
       <div className={resizeHandleClass} onPointerDown={onResize} />
     </div>
   )

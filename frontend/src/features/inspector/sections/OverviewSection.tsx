@@ -1,5 +1,6 @@
 import { Fragment, type ComponentProps, type JSX } from 'react'
 import { fmtBytes } from '../../../lib/util'
+import type { InspectorWidgetId } from '../model/inspectorWidgetOrder'
 import { InspectorSection } from './InspectorSection'
 import { SelectionActionsSection } from './SelectionActionsSection'
 import { SelectionExportSection } from './SelectionExportSection'
@@ -28,6 +29,8 @@ interface OverviewSectionProps {
   onFindSimilar?: () => void
   canFindSimilar: boolean
   findSimilarDisabledReason: string | null
+  sortableId?: InspectorWidgetId
+  sortableEnabled?: boolean
 }
 
 type OverviewWidgetId = 'selectionActions' | 'selectionExport'
@@ -81,6 +84,8 @@ export function OverviewSection({
   onFindSimilar,
   canFindSimilar,
   findSimilarDisabledReason,
+  sortableId,
+  sortableEnabled = false,
 }: OverviewSectionProps): JSX.Element {
   const widgetContext: OverviewWidgetContext = {
     compareActive,
@@ -111,6 +116,8 @@ export function OverviewSection({
       title={multi ? 'Selection' : 'Item'}
       open={open}
       onToggle={onToggle}
+      sortableId={sortableId}
+      sortableEnabled={sortableEnabled}
       contentClassName="px-3 pb-3 space-y-2"
       actions={onFindSimilar && (
         <button

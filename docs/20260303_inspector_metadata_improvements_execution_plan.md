@@ -93,17 +93,17 @@ After the cleanup subagent finishes, spawn a fresh subagent and request review u
 
 2. Sprint 2 goal is reorderable inspector sections with updated defaults. Demo outcome is drag reorder persistence across reload, with default order moving Metadata above Basics.
 
-   T5. Define canonical widget-order model and default order list in inspector model/widgets, including stable IDs for all sections.
-   Validation: unit tests for default order integrity and unknown-id handling.
+   T5. [x] Define canonical widget-order model and default order list in inspector model/widgets, including stable IDs for all sections. Completed 2026-03-03.
+   Validation: `inspectorWidgetOrder` model tests verify default order, stable IDs, and sanitize behavior.
 
-   T6. Add persistent section order storage key `lenslet.inspector.sectionOrder.v2` with sanitize logic (dedupe/remove unknown/append missing).
-   Validation: storage tests showing stale/invalid order data self-heals.
+   T6. [x] Add persistent section order storage key `lenslet.inspector.sectionOrder.v2` with sanitize logic (dedupe/remove unknown/append missing). Completed 2026-03-03.
+   Validation: persisted-order parsing tests verify stale/invalid payloads self-heal to canonical order.
 
-   T7. Add drag-and-drop reorder affordance in `InspectorSection`/`Inspector` using existing dnd-kit while preserving click-to-toggle behavior.
-   Validation: interaction test for reorder and toggle coexistence.
+   T7. [x] Add drag-and-drop reorder affordance in `InspectorSection`/`Inspector` using existing dnd-kit while preserving click-to-toggle behavior. Completed 2026-03-03.
+   Validation: interaction/state test confirms reorder and section-toggle state coexist without coupling.
 
-   T8. Add reload persistence acceptance test path in Playwright smoke for reordered section sequence.
-   Validation: `python scripts/gui_smoke_acceptance.py` confirms reorder survives reload.
+   T8. [ ] Add reload persistence acceptance test path in Playwright smoke for reordered section sequence. Blocked 2026-03-03.
+   Validation: blocked by existing `python scripts/gui_smoke_acceptance.py` flake in the multi-select step (`[role='gridcell']` second-cell click timeout) before reorder assertions execute.
 
 3. Sprint 3 goal is explicit metadata compare state ownership and multi-select activation. Demo outcome is metadata compare works independently from side-by-side viewer state and autoload can activate compare for multi-select.
 
@@ -218,6 +218,13 @@ Sprint 1 execution notes (2026-03-03):
 5. GUI smoke gate: `python scripts/gui_smoke_acceptance.py` passed with new Sprint 1 checks.
 6. Repository lint gate: `python scripts/lint_repo.py` passed.
 
+Sprint 2 execution notes (2026-03-03):
+
+1. `T5` + `T6` pass: introduced canonical inspector widget order model (`Metadata` above `Basics`) and persisted sanitize/self-heal path for `lenslet.inspector.sectionOrder.v2`.
+2. `T7` pass: added dnd-kit reorder handles on inspector section headers, wired sortable ordering in `Inspector`, and preserved title-button collapse toggles.
+3. Targeted frontend gates passed: `npm run test` for inspector model/section tests, `npx tsc --noEmit`, `npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/`, and `python scripts/lint_repo.py`.
+4. `T8` blocked: existing Playwright smoke harness fails before reorder checks during the preexisting two-item multi-select action (`[role='gridcell']` second-cell click timeout). Reorder persistence smoke path is deferred until this harness instability is stabilized.
+
 
 ## Risks and Recovery
 
@@ -227,6 +234,8 @@ Highest risk is regression from splitting metadata-compare state ownership away 
 Second risk is compare-table usability/performance at six columns. Recovery is deterministic cap, sticky key column, overflow support, and Playwright validation for 7-selection over-cap behavior.
 
 Third risk is PNG metadata variability across generators. Recovery is additive fallback extraction, strict quick-view path syntax limits, malformed-metadata tests, and safe empty-state behavior.
+
+Fourth risk is Playwright smoke instability in the existing multi-select interaction path, which currently blocks Sprint 2 `T8` acceptance expansion. Recovery is to stabilize deterministic multi-select in `scripts/gui_smoke_acceptance.py` first, then add reorder-reload assertions as a focused follow-up.
 
 Rollback path is sprint-scoped revert in reverse order, preserving completed prior sprint behavior. Because each sprint is atomic and validated, rollback can target one sprint without full feature removal.
 
@@ -248,6 +257,11 @@ Idempotent retry strategy is rerunning failed sprint gates with the same command
 - [x] 2026-03-03 17:47:30Z Completed `T4`: expanded Playwright smoke to validate rail-preserving collapse, active-tab toggles, `Ctrl+B` reopen, and 1440px right-width/center-width thresholds.
 - [x] 2026-03-03 17:48:20Z Ran Sprint 1 targeted validations: focused Vitest suite passed, frontend build+bundle sync completed, GUI smoke passed, `tsc --noEmit` passed, and `python scripts/lint_repo.py` passed.
 - [x] 2026-03-03 17:48:40Z Sprint 1 closed; handoff notes and artifact list updated for Sprint 2 start.
+- [x] 2026-03-03 18:12:00Z Sprint 2 plan gate restated with Sprint 2-only scope (`T5`..`T8`) and unchanged non-goals.
+- [x] 2026-03-03 18:18:00Z Completed `T5` + `T6`: added canonical inspector widget order model (`Metadata` before `Basics`) and persisted order sanitize/self-heal for `lenslet.inspector.sectionOrder.v2`.
+- [x] 2026-03-03 18:22:00Z Completed `T7`: integrated dnd-kit sortable section handles in `InspectorSection`/`Inspector` while preserving section toggle behavior.
+- [x] 2026-03-03 18:31:02Z Ran Sprint 2 targeted validations: inspector model/section Vitest suite passed, `npx tsc --noEmit` passed, frontend build+bundle sync passed, and `python scripts/lint_repo.py` passed.
+- [ ] 2026-03-03 18:34:00Z `T8` blocked: `python scripts/gui_smoke_acceptance.py` fails in preexisting two-item multi-select step (`[role='gridcell']` second-cell click timeout) before reorder assertions can run.
 
 
 ## Artifacts and Handoff
@@ -274,6 +288,8 @@ Primary planned touchpoints:
     frontend/src/features/inspector/hooks/useInspectorCompareMetadata.ts
     frontend/src/features/inspector/hooks/metadataRequestGuards.ts
     frontend/src/features/inspector/model/metadataCompare.ts
+    frontend/src/features/inspector/model/inspectorWidgetOrder.ts
+    frontend/src/features/inspector/model/__tests__/inspectorWidgetOrder.test.ts
     frontend/src/features/inspector/sections/InspectorSection.tsx
     frontend/src/features/inspector/sections/CompareMetadataSection.tsx
     frontend/src/features/inspector/sections/SelectionActionsSection.tsx
@@ -290,6 +306,14 @@ Sprint 1 handoff notes (closed 2026-03-03):
 4. Playwright smoke now asserts Sprint 1 primary behavior gates and emits measured widths in JSON summary payload.
 5. Packaged frontend assets were rebuilt and synced to `src/lenslet/frontend/` after Sprint 1 changes.
 6. Next actionable sprint is Sprint 2 (`T5`..`T8`) with no open blockers from Sprint 1.
+
+Sprint 2 handoff notes (in progress 2026-03-03):
+
+1. `T5`..`T7` are complete: canonical order model, persisted order sanitize/self-heal, and inspector drag-reorder affordance are implemented with targeted test coverage.
+2. Default inspector order now places `Metadata` above `Basics` and persisted order uses `lenslet.inspector.sectionOrder.v2`.
+3. Section header drag handles are explicit (`Reorder <Section Title>`) and do not override title-button collapse toggles.
+4. Sprint 2 is not closed because `T8` remains blocked by a preexisting Playwright smoke flake in the multi-select interaction path.
+5. Next actionable task is to stabilize deterministic multi-select in `scripts/gui_smoke_acceptance.py`, then add and validate reorder-reload persistence assertions.
 
 Execution handoff note for the next operator is to implement strictly sprint-by-sprint, preserve each sprint as independently demoable and reviewable, and keep this plan as the authoritative running log of decisions, validations, and closure state.
 

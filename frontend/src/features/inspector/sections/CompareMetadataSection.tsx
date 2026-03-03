@@ -1,5 +1,6 @@
 import React from 'react'
 import type { CompareMetadataDiffResult, JsonRenderNode, MetadataPathSegment } from '../model/metadataCompare'
+import type { InspectorWidgetId } from '../model/inspectorWidgetOrder'
 import { JsonRenderCode } from './JsonRenderCode'
 import { InspectorSection } from './InspectorSection'
 
@@ -31,6 +32,8 @@ interface CompareMetadataSectionProps {
   compareMetaContent: string
   onCompareMetaPathCopyA: (path: MetadataPathSegment[]) => void
   onCompareMetaPathCopyB: (path: MetadataPathSegment[]) => void
+  sortableId?: InspectorWidgetId
+  sortableEnabled?: boolean
 }
 
 interface CompareDiffTableProps {
@@ -203,6 +206,8 @@ function CompareMetadataSectionComponent({
   compareMetaContent,
   onCompareMetaPathCopyA,
   onCompareMetaPathCopyB,
+  sortableId,
+  sortableEnabled = false,
 }: CompareMetadataSectionProps): JSX.Element {
   const compareMetaLoaded = compareMetaState === 'loaded'
 
@@ -211,6 +216,8 @@ function CompareMetadataSectionComponent({
       title="Compare Metadata"
       open={open}
       onToggle={onToggle}
+      sortableId={sortableId}
+      sortableEnabled={sortableEnabled}
       actions={(
         <div className="flex items-center gap-2 text-xs">
           <button

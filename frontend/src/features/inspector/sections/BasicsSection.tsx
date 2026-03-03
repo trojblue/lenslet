@@ -1,6 +1,7 @@
 import React from 'react'
 import { fmtBytes, formatMetricNumber } from '../../../lib/util'
 import type { SortSpec, StarRating } from '../../../lib/types'
+import type { InspectorWidgetId } from '../model/inspectorWidgetOrder'
 import { InspectorSection } from './InspectorSection'
 
 interface BasicsInspectorItem {
@@ -31,6 +32,8 @@ interface BasicsSectionProps {
   metricsExpanded: boolean
   onToggleMetricsExpanded: () => void
   metricsPreviewLimit: number
+  sortableId?: InspectorWidgetId
+  sortableEnabled?: boolean
 }
 
 interface CopyableInfoValueProps {
@@ -66,12 +69,16 @@ export function BasicsSection({
   metricsExpanded,
   onToggleMetricsExpanded,
   metricsPreviewLimit,
+  sortableId,
+  sortableEnabled = false,
 }: BasicsSectionProps): JSX.Element {
   return (
     <InspectorSection
       title="Basics"
       open={open}
       onToggle={onToggle}
+      sortableId={sortableId}
+      sortableEnabled={sortableEnabled}
     >
       <div className="flex items-center gap-2 text-xs mb-1" role="radiogroup" aria-label="Star rating">
         <span className="ui-kv-label w-16 shrink-0">{multi ? 'Rating (all)' : 'Rating'}</span>

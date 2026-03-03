@@ -36,11 +36,7 @@ describe('inspector metadata section rendering', () => {
         totalSize={2048}
         filename=""
         compareActive
-        compareReady
         onOpenCompare={noop}
-        compareExportSupportsV2={false}
-        compareExportMaxPathsV2={null}
-        compareExportMaxPathsV2Gif={null}
         compareExportLabelsText={'Prompt A\nPrompt B'}
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -76,11 +72,7 @@ describe('inspector metadata section rendering', () => {
         totalSize={4096}
         filename=""
         compareActive={false}
-        compareReady
         onOpenCompare={noop}
-        compareExportSupportsV2={false}
-        compareExportMaxPathsV2={null}
-        compareExportMaxPathsV2Gif={null}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -103,21 +95,17 @@ describe('inspector metadata section rendering', () => {
     expect((html.match(/disabled=\"\"/g) ?? [])).toHaveLength(0)
   })
 
-  it('shows pair-only guidance when exactly two selections do not resolve to exportable paths', () => {
+  it('shows minimum-selection guidance when fewer than two items are selected', () => {
     const html = renderToStaticMarkup(
       <OverviewSection
         open
         onToggle={noop}
         multi
-        selectedCount={2}
+        selectedCount={1}
         totalSize={4096}
         filename=""
         compareActive={false}
-        compareReady={false}
         onOpenCompare={noop}
-        compareExportSupportsV2={false}
-        compareExportMaxPathsV2={null}
-        compareExportMaxPathsV2Gif={null}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -135,12 +123,11 @@ describe('inspector metadata section rendering', () => {
       />,
     )
 
-    expect(html).toContain('Comparison export (v1) requires exactly 2 selected images.')
-    expect(html).not.toContain('Open side-by-side view to enable comparison export.')
+    expect(html).toContain('Comparison export requires at least 2 selected images.')
     expect((html.match(/disabled=\"\"/g) ?? []).length).toBeGreaterThanOrEqual(4)
   })
 
-  it('shows explicit side-by-side and export capability guidance for selections above two', () => {
+  it('keeps side-by-side guidance while leaving export enabled for selections above two', () => {
     const html = renderToStaticMarkup(
       <OverviewSection
         open
@@ -150,48 +137,7 @@ describe('inspector metadata section rendering', () => {
         totalSize={4096}
         filename=""
         compareActive={false}
-        compareReady={false}
         onOpenCompare={noop}
-        compareExportSupportsV2={false}
-        compareExportMaxPathsV2={null}
-        compareExportMaxPathsV2Gif={null}
-        compareExportLabelsText=""
-        onCompareExportLabelsTextChange={noop}
-        compareExportEmbedMetadata
-        onCompareExportEmbedMetadataChange={noop}
-        compareExportReverseOrder={false}
-        onCompareExportReverseOrderChange={noop}
-        compareExportHighQualityGif={false}
-        onCompareExportHighQualityGifChange={noop}
-        compareExportBusy={false}
-        compareExportMode={null}
-        onComparisonExport={noop}
-        compareExportError={null}
-        canFindSimilar={false}
-        findSimilarDisabledReason={null}
-      />,
-    )
-
-    expect(html).toContain('Side-by-side view supports exactly 2 selections (selected 3).')
-    expect(html).toContain('Comparison export for more than 2 selections is unavailable on this server.')
-    expect((html.match(/disabled=\"\"/g) ?? []).length).toBeGreaterThanOrEqual(4)
-  })
-
-  it('enables selection export for >2 selections when server advertises v2 capability', () => {
-    const html = renderToStaticMarkup(
-      <OverviewSection
-        open
-        onToggle={noop}
-        multi
-        selectedCount={3}
-        totalSize={8192}
-        filename=""
-        compareActive={false}
-        compareReady={false}
-        onOpenCompare={noop}
-        compareExportSupportsV2
-        compareExportMaxPathsV2={12}
-        compareExportMaxPathsV2Gif={24}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata

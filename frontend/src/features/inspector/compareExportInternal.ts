@@ -1,38 +1,23 @@
 import type {
-  ExportComparisonLabelsV1,
   ExportComparisonOutputFormat,
   ExportComparisonRequest,
-  ExportComparisonRequestV1,
   ExportComparisonRequestV2,
 } from '../../lib/types'
 
-export const MAX_EXPORT_COMPARISON_LINES = 2
 export const MAX_EXPORT_COMPARISON_PATHS_V2 = 12
 export const MAX_EXPORT_COMPARISON_PATHS_V2_GIF = 24
 export const MAX_EXPORT_COMPARISON_LABEL_CHARS = 120
 export const DEFAULT_EXPORT_COMPARISON_EMBED_METADATA = true
-export const EXPORT_COMPARISON_PAIR_ONLY_MESSAGE = 'Comparison export (v1) requires exactly 2 selected images.'
-export const EXPORT_COMPARISON_V2_PATH_RANGE_MESSAGE = `Comparison export (v2) requires between 2 and ${MAX_EXPORT_COMPARISON_PATHS_V2} selected images.`
-export const EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE =
-  'Comparison export for more than 2 selections is unavailable on this server.'
+export const EXPORT_COMPARISON_MIN_SELECTIONS_MESSAGE =
+  'Comparison export requires at least 2 selected images.'
 
 export function buildExportComparisonV2MaxPathsMessage(maxPaths: number, selectedCount: number): string {
-  return `Comparison export (v2) supports up to ${maxPaths} selections (selected ${selectedCount}).`
+  return `Comparison export supports up to ${maxPaths} selections (selected ${selectedCount}).`
 }
 
-function maxExportComparisonPathsV2ForFormat(outputFormat: ExportComparisonOutputFormat): number {
+function maxExportComparisonPathsForFormat(outputFormat: ExportComparisonOutputFormat): number {
   if (outputFormat === 'gif') return MAX_EXPORT_COMPARISON_PATHS_V2_GIF
   return MAX_EXPORT_COMPARISON_PATHS_V2
-}
-
-export type ExportComparisonPayloadArgs = {
-  pathA: string
-  pathB: string
-  labelsText: string
-  embedMetadata: boolean
-  reverseOrder: boolean
-  outputFormat: ExportComparisonOutputFormat
-  highQualityGif: boolean
 }
 
 export type ExportComparisonPayloadV2Args = {
@@ -59,12 +44,6 @@ function normalizeLabelLines(text: string): string[] {
   return withoutTrailingEmptyLines.split('\n')
 }
 
-function toExportComparisonLabelsV1(lines: string[]): ExportComparisonLabelsV1 | undefined {
-  if (lines.length === 0) return undefined
-  if (lines.length === 1) return [lines[0]]
-  return [lines[0], lines[1]]
-}
-
 function normalizeExportPaths(paths: string[]): string[] {
   return paths.map((path) => path.trim()).filter((path) => path.length > 0)
 }
@@ -73,13 +52,15 @@ function validateLabelLines(
   labelsText: string,
   options: {
     maxLines: number
-    tooManyLinesMessage: string
   },
 ): { ok: true; labels: string[] | undefined } | { ok: false; message: string } {
-  const { maxLines, tooManyLinesMessage } = options
+  const { maxLines } = options
   const lines = normalizeLabelLines(labelsText)
   if (lines.length > maxLines) {
-    return { ok: false, message: tooManyLinesMessage }
+    return {
+      ok: false,
+      message: `Enter at most ${maxLines} label lines (one per selected image).`,
+    }
   }
 
   const sanitized = lines.map((line) => sanitizeLabelLine(line))
@@ -101,54 +82,25 @@ function toV2Paths(paths: [string, string, ...string[]]): [string, string, ...st
   return paths
 }
 
-export function buildExportComparisonPayload(args: ExportComparisonPayloadArgs): ExportComparisonPayloadResult {
-  const { pathA, pathB, labelsText, embedMetadata, reverseOrder, outputFormat, highQualityGif } = args
-  if (!pathA || !pathB) {
-    return { ok: false, message: EXPORT_COMPARISON_PAIR_ONLY_MESSAGE }
-  }
-
-  const labelsResult = validateLabelLines(labelsText, {
-    maxLines: MAX_EXPORT_COMPARISON_LINES,
-    tooManyLinesMessage: `Enter at most ${MAX_EXPORT_COMPARISON_LINES} label lines (line 1 = A, line 2 = B).`,
-  })
-  if (!labelsResult.ok) {
-    return labelsResult
-  }
-
-  const payload: ExportComparisonRequestV1 = {
-    v: 1,
-    paths: [pathA, pathB],
-    embed_metadata: embedMetadata,
-    reverse_order: reverseOrder,
-    output_format: outputFormat,
-    high_quality_gif: highQualityGif,
-  }
-  if (labelsResult.labels) {
-    payload.labels = toExportComparisonLabelsV1(labelsResult.labels)
-  }
-  return { ok: true, payload }
-}
-
-export function buildExportComparisonPayloadV2(
+export function buildExportComparisonPayload(
   args: ExportComparisonPayloadV2Args,
 ): ExportComparisonPayloadResult {
   const { paths, labelsText, embedMetadata, reverseOrder, outputFormat, highQualityGif } = args
   const normalizedPaths = normalizeExportPaths(paths)
-  const maxPaths = maxExportComparisonPathsV2ForFormat(outputFormat)
-  if (
-    normalizedPaths.length !== paths.length
-    || normalizedPaths.length < 2
-    || normalizedPaths.length > maxPaths
-  ) {
+  if (normalizedPaths.length !== paths.length || normalizedPaths.length < 2) {
+    return { ok: false, message: EXPORT_COMPARISON_MIN_SELECTIONS_MESSAGE }
+  }
+
+  const maxPaths = maxExportComparisonPathsForFormat(outputFormat)
+  if (normalizedPaths.length > maxPaths) {
     return {
       ok: false,
-      message: `Comparison export (v2) requires between 2 and ${maxPaths} selected images.`,
+      message: buildExportComparisonV2MaxPathsMessage(maxPaths, normalizedPaths.length),
     }
   }
 
   const labelsResult = validateLabelLines(labelsText, {
     maxLines: normalizedPaths.length,
-    tooManyLinesMessage: `Enter at most ${normalizedPaths.length} label lines (one per selected image).`,
   })
   if (!labelsResult.ok) {
     return labelsResult

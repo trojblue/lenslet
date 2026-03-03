@@ -287,7 +287,7 @@ def _refresh_health_payload(
 
 def _compare_export_health_payload() -> dict[str, Any]:
     return {
-        "supported_versions": [1, 2],
+        "supported_versions": [2],
         "max_paths_v2": MAX_EXPORT_COMPARISON_PATHS_V2,
         "max_paths_v2_gif": MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
     }

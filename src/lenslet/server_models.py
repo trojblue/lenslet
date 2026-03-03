@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Mime = Literal["image/webp", "image/jpeg", "image/png"]
 ExportComparisonOutputFormat = Literal["png", "gif"]
@@ -115,27 +115,7 @@ class _ExportComparisonRequestBase(BaseModel):
     high_quality_gif: bool = False
 
 
-class ExportComparisonRequestV1(_ExportComparisonRequestBase):
-    v: Literal[1]
-
-    @field_validator("paths")
-    @classmethod
-    def validate_pair_paths(cls, value: list[str]) -> list[str]:
-        if len(value) != 2:
-            raise ValueError("comparison export v1 requires exactly 2 paths")
-        return value
-
-    @field_validator("labels")
-    @classmethod
-    def validate_labels(cls, value: list[str] | None) -> list[str] | None:
-        if value is None:
-            return None
-        if len(value) > 2:
-            raise ValueError("comparison export v1 accepts at most 2 labels")
-        return value
-
-
-class ExportComparisonRequestV2(_ExportComparisonRequestBase):
+class ExportComparisonRequest(_ExportComparisonRequestBase):
     v: Literal[2]
     paths: list[str]
 
@@ -149,7 +129,7 @@ class ExportComparisonRequestV2(_ExportComparisonRequestBase):
         return value
 
     @model_validator(mode="after")
-    def validate_labels(self) -> "ExportComparisonRequestV2":
+    def validate_labels(self) -> "ExportComparisonRequest":
         max_paths = export_comparison_max_paths_v2_for_format(self.output_format)
         if len(self.paths) > max_paths:
             raise ValueError(
@@ -160,13 +140,6 @@ class ExportComparisonRequestV2(_ExportComparisonRequestBase):
         if len(self.labels) > len(self.paths):
             raise ValueError("comparison export v2 accepts at most one label per path")
         return self
-
-
-ExportComparisonRequest = Annotated[
-    ExportComparisonRequestV1 | ExportComparisonRequestV2,
-    Field(discriminator="v"),
-]
-EXPORT_COMPARISON_REQUEST_ADAPTER = TypeAdapter(ExportComparisonRequest)
 
 
 class ViewsPayload(BaseModel):

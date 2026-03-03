@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_EXPORT_COMPARISON_EMBED_METADATA,
-  EXPORT_COMPARISON_PAIR_ONLY_MESSAGE,
-  EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE,
-  EXPORT_COMPARISON_V2_PATH_RANGE_MESSAGE,
+  EXPORT_COMPARISON_MIN_SELECTIONS_MESSAGE,
+  MAX_EXPORT_COMPARISON_PATHS_V2,
+  MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
   buildComparisonExportFilename,
   buildExportComparisonPayload,
-  buildExportComparisonPayloadV2,
+  buildExportComparisonV2MaxPathsMessage,
 } from '../compareExportBoundary'
 import { buildInspectorComparisonExportPayload } from '../hooks/useInspectorCompareExport'
 import { getSelectionExportDisabledReason } from '../sections/SelectionExportSection'
@@ -16,10 +16,9 @@ describe('comparison export helpers', () => {
     expect(DEFAULT_EXPORT_COMPARISON_EMBED_METADATA).toBe(true)
   })
 
-  it('maps textarea line 1 to A and line 2 to B', () => {
+  it('builds v2 payloads for 2-path exports', () => {
     const result = buildExportComparisonPayload({
-      pathA: '/a.png',
-      pathB: '/b.png',
+      paths: ['/a.png', '/b.png'],
       labelsText: 'Prompt A\nPrompt B',
       embedMetadata: true,
       reverseOrder: false,
@@ -29,6 +28,7 @@ describe('comparison export helpers', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
+    expect(result.payload.v).toBe(2)
     expect(result.payload.paths).toEqual(['/a.png', '/b.png'])
     expect(result.payload.labels).toEqual(['Prompt A', 'Prompt B'])
     expect(result.payload.reverse_order).toBe(false)
@@ -38,8 +38,7 @@ describe('comparison export helpers', () => {
 
   it('preserves second-line mapping when first line is blank', () => {
     const result = buildExportComparisonPayload({
-      pathA: '/a.png',
-      pathB: '/b.png',
+      paths: ['/a.png', '/b.png'],
       labelsText: '\nPrompt B',
       embedMetadata: true,
       reverseOrder: false,
@@ -52,10 +51,9 @@ describe('comparison export helpers', () => {
     expect(result.payload.labels).toEqual(['', 'Prompt B'])
   })
 
-  it('returns a client-side validation error for more than two lines', () => {
+  it('validates label count against selected paths', () => {
     const result = buildExportComparisonPayload({
-      pathA: '/a.png',
-      pathB: '/b.png',
+      paths: ['/a.png', '/b.png'],
       labelsText: 'A\nB\nC',
       embedMetadata: true,
       reverseOrder: false,
@@ -68,26 +66,37 @@ describe('comparison export helpers', () => {
     expect(result.message).toContain('at most 2 label lines')
   })
 
-  it('returns explicit pair-only guidance when compare paths are incomplete', () => {
-    const result = buildExportComparisonPayload({
-      pathA: '/a.png',
-      pathB: '',
+  it('rejects payloads with fewer than 2 valid paths', () => {
+    const tooFew = buildExportComparisonPayload({
+      paths: ['/a.png'],
       labelsText: '',
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'png',
       highQualityGif: false,
     })
+    expect(tooFew.ok).toBe(false)
+    if (!tooFew.ok) {
+      expect(tooFew.message).toContain(EXPORT_COMPARISON_MIN_SELECTIONS_MESSAGE)
+    }
 
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.message).toBe(EXPORT_COMPARISON_PAIR_ONLY_MESSAGE)
+    const hasBlank = buildExportComparisonPayload({
+      paths: ['/a.png', '   ', '/c.png'],
+      labelsText: '',
+      embedMetadata: true,
+      reverseOrder: false,
+      outputFormat: 'png',
+      highQualityGif: false,
+    })
+    expect(hasBlank.ok).toBe(false)
+    if (!hasBlank.ok) {
+      expect(hasBlank.message).toContain(EXPORT_COMPARISON_MIN_SELECTIONS_MESSAGE)
+    }
   })
 
   it('sets reverse_order when reverse export is requested', () => {
     const result = buildExportComparisonPayload({
-      pathA: '/a.png',
-      pathB: '/b.png',
+      paths: ['/a.png', '/b.png'],
       labelsText: 'A\nB',
       embedMetadata: false,
       reverseOrder: true,
@@ -110,73 +119,10 @@ describe('comparison export helpers', () => {
     expect(buildComparisonExportFilename(false, 'gif', at)).toBe('comparison_20260208_035437.gif')
   })
 
-  it('builds v2 payloads for multi-image exports', () => {
-    const result = buildExportComparisonPayloadV2({
-      paths: ['/a.png', '/b.png', '/c.png'],
-      labelsText: 'A\nB\nC',
-      embedMetadata: false,
-      reverseOrder: true,
-      outputFormat: 'png',
-      highQualityGif: false,
-    })
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.payload.v).toBe(2)
-    expect(result.payload.paths).toEqual(['/a.png', '/b.png', '/c.png'])
-    expect(result.payload.labels).toEqual(['A', 'B', 'C'])
-    expect(result.payload.embed_metadata).toBe(false)
-    expect(result.payload.reverse_order).toBe(true)
-    expect(result.payload.output_format).toBe('png')
-  })
-
-  it('builds GIF payloads when slideshow mode is requested', () => {
+  it('allows GIF payloads above the PNG path limit', () => {
+    const paths = Array.from({ length: MAX_EXPORT_COMPARISON_PATHS_V2 + 1 }, (_, idx) => `/f${idx}.png`)
+    const labelsText = Array.from({ length: MAX_EXPORT_COMPARISON_PATHS_V2 + 1 }, (_, idx) => `L${idx}`).join('\n')
     const result = buildExportComparisonPayload({
-      pathA: '/a.png',
-      pathB: '/b.png',
-      labelsText: 'A\nB',
-      embedMetadata: true,
-      reverseOrder: false,
-      outputFormat: 'gif',
-      highQualityGif: true,
-    })
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.payload.output_format).toBe('gif')
-    expect(result.payload.high_quality_gif).toBe(true)
-  })
-
-  it('rejects v2 payloads outside the supported path range', () => {
-    const tooFew = buildExportComparisonPayloadV2({
-      paths: ['/a.png'],
-      labelsText: '',
-      embedMetadata: true,
-      reverseOrder: false,
-      outputFormat: 'png',
-      highQualityGif: false,
-    })
-    expect(tooFew.ok).toBe(false)
-    if (tooFew.ok) return
-    expect(tooFew.message).toBe(EXPORT_COMPARISON_V2_PATH_RANGE_MESSAGE)
-
-    const hasBlank = buildExportComparisonPayloadV2({
-      paths: ['/a.png', '   ', '/c.png'],
-      labelsText: '',
-      embedMetadata: true,
-      reverseOrder: false,
-      outputFormat: 'png',
-      highQualityGif: false,
-    })
-    expect(hasBlank.ok).toBe(false)
-    if (hasBlank.ok) return
-    expect(hasBlank.message).toBe(EXPORT_COMPARISON_V2_PATH_RANGE_MESSAGE)
-  })
-
-  it('allows v2 GIF payloads above the PNG path limit', () => {
-    const paths = Array.from({ length: 13 }, (_, idx) => `/f${idx}.png`)
-    const labelsText = Array.from({ length: 13 }, (_, idx) => `L${idx}`).join('\n')
-    const result = buildExportComparisonPayloadV2({
       paths,
       labelsText,
       embedMetadata: true,
@@ -187,54 +133,45 @@ describe('comparison export helpers', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.payload.paths).toHaveLength(13)
+    expect(result.payload.paths).toHaveLength(MAX_EXPORT_COMPARISON_PATHS_V2 + 1)
     expect(result.payload.output_format).toBe('gif')
   })
 
-  it('rejects v2 label input when line count exceeds selected paths', () => {
-    const result = buildExportComparisonPayloadV2({
-      paths: ['/a.png', '/b.png', '/c.png'],
-      labelsText: 'A\nB\nC\nD',
+  it('rejects payloads above format-specific max paths', () => {
+    const pngTooMany = buildExportComparisonPayload({
+      paths: Array.from({ length: MAX_EXPORT_COMPARISON_PATHS_V2 + 1 }, (_, idx) => `/f${idx}.png`),
+      labelsText: '',
       embedMetadata: true,
       reverseOrder: false,
       outputFormat: 'png',
       highQualityGif: false,
     })
+    expect(pngTooMany.ok).toBe(false)
+    if (!pngTooMany.ok) {
+      expect(pngTooMany.message).toBe(
+        buildExportComparisonV2MaxPathsMessage(MAX_EXPORT_COMPARISON_PATHS_V2, MAX_EXPORT_COMPARISON_PATHS_V2 + 1),
+      )
+    }
 
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.message).toContain('at most 3 label lines')
-  })
-
-  it('keeps 2-item export enabled when compare overlay is closed but pair paths are ready', () => {
-    const reason = getSelectionExportDisabledReason({
-      selectedCount: 2,
-      compareReady: true,
-      compareExportSupportsV2: false,
-      compareExportMaxPathsV2: null,
+    const gifTooMany = buildExportComparisonPayload({
+      paths: Array.from({ length: MAX_EXPORT_COMPARISON_PATHS_V2_GIF + 1 }, (_, idx) => `/f${idx}.png`),
+      labelsText: '',
+      embedMetadata: true,
+      reverseOrder: false,
+      outputFormat: 'gif',
+      highQualityGif: false,
     })
-
-    expect(reason).toBeNull()
+    expect(gifTooMany.ok).toBe(false)
+    if (!gifTooMany.ok) {
+      expect(gifTooMany.message).toBe(
+        buildExportComparisonV2MaxPathsMessage(MAX_EXPORT_COMPARISON_PATHS_V2_GIF, MAX_EXPORT_COMPARISON_PATHS_V2_GIF + 1),
+      )
+    }
   })
 
-  it('returns pair-only guidance when 2-item export pair paths are unavailable', () => {
-    const reason = getSelectionExportDisabledReason({
-      selectedCount: 2,
-      compareReady: false,
-      compareExportSupportsV2: false,
-      compareExportMaxPathsV2: null,
-    })
-
-    expect(reason).toBe(EXPORT_COMPARISON_PAIR_ONLY_MESSAGE)
-  })
-
-  it('builds 2-item export payloads from selected paths even when compare pair inputs are missing', () => {
+  it('builds inspector export payloads directly from selected paths', () => {
     const result = buildInspectorComparisonExportPayload({
       selectedPaths: ['/a.png', '/b.png'],
-      comparePathA: null,
-      comparePathB: null,
-      compareExportSupportsV2: false,
-      compareExportMaxPathsV2ForFormat: null,
       labelsText: '',
       embedMetadata: true,
       reverseOrder: false,
@@ -244,26 +181,22 @@ describe('comparison export helpers', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.payload.v).toBe(1)
+    expect(result.payload.v).toBe(2)
     expect(result.payload.paths).toEqual(['/a.png', '/b.png'])
   })
 
-  it('keeps v2 capability checks for selections above two', () => {
-    const result = buildInspectorComparisonExportPayload({
-      selectedPaths: ['/a.png', '/b.png', '/c.png'],
-      comparePathA: '/a.png',
-      comparePathB: '/b.png',
-      compareExportSupportsV2: false,
-      compareExportMaxPathsV2ForFormat: null,
-      labelsText: '',
-      embedMetadata: true,
-      reverseOrder: false,
-      outputFormat: 'png',
-      highQualityGif: false,
-    })
+  it('computes selection export disabled reason from fixed max paths', () => {
+    expect(getSelectionExportDisabledReason({ selectedCount: 2, maxPaths: MAX_EXPORT_COMPARISON_PATHS_V2 })).toBeNull()
 
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.message).toBe(EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE)
+    expect(getSelectionExportDisabledReason({ selectedCount: 1, maxPaths: MAX_EXPORT_COMPARISON_PATHS_V2 })).toContain(
+      EXPORT_COMPARISON_MIN_SELECTIONS_MESSAGE,
+    )
+
+    expect(
+      getSelectionExportDisabledReason({
+        selectedCount: MAX_EXPORT_COMPARISON_PATHS_V2 + 1,
+        maxPaths: MAX_EXPORT_COMPARISON_PATHS_V2,
+      }),
+    ).toBe(buildExportComparisonV2MaxPathsMessage(MAX_EXPORT_COMPARISON_PATHS_V2, MAX_EXPORT_COMPARISON_PATHS_V2 + 1))
   })
 })

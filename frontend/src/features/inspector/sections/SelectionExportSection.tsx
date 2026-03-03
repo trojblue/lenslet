@@ -1,16 +1,13 @@
 import React from 'react'
 import {
   buildExportComparisonV2MaxPathsMessage,
-  EXPORT_COMPARISON_PAIR_ONLY_MESSAGE,
-  EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE,
+  EXPORT_COMPARISON_MIN_SELECTIONS_MESSAGE,
+  MAX_EXPORT_COMPARISON_PATHS_V2,
+  MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
 } from '../compareExportBoundary'
 
 interface SelectionExportSectionProps {
   selectedCount: number
-  compareReady: boolean
-  compareExportSupportsV2: boolean
-  compareExportMaxPathsV2: number | null
-  compareExportMaxPathsV2Gif: number | null
   compareExportLabelsText: string
   onCompareExportLabelsTextChange: (value: string) => void
   compareExportEmbedMetadata: boolean
@@ -27,37 +24,22 @@ interface SelectionExportSectionProps {
 
 export function getSelectionExportDisabledReason({
   selectedCount,
-  compareReady,
-  compareExportSupportsV2,
-  compareExportMaxPathsV2,
+  maxPaths,
 }: {
   selectedCount: number
-  compareReady: boolean
-  compareExportSupportsV2: boolean
-  compareExportMaxPathsV2: number | null
+  maxPaths: number
 }): string | null {
   if (selectedCount < 2) {
-    return `Comparison export requires at least 2 selections (selected ${selectedCount}).`
+    return `${EXPORT_COMPARISON_MIN_SELECTIONS_MESSAGE} (selected ${selectedCount}).`
   }
-  if (selectedCount === 2) {
-    if (!compareReady) return EXPORT_COMPARISON_PAIR_ONLY_MESSAGE
-    return null
-  }
-  if (!compareExportSupportsV2 || compareExportMaxPathsV2 === null) {
-    return EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE
-  }
-  if (selectedCount > compareExportMaxPathsV2) {
-    return buildExportComparisonV2MaxPathsMessage(compareExportMaxPathsV2, selectedCount)
+  if (selectedCount > maxPaths) {
+    return buildExportComparisonV2MaxPathsMessage(maxPaths, selectedCount)
   }
   return null
 }
 
 export function SelectionExportSection({
   selectedCount,
-  compareReady,
-  compareExportSupportsV2,
-  compareExportMaxPathsV2,
-  compareExportMaxPathsV2Gif,
   compareExportLabelsText,
   onCompareExportLabelsTextChange,
   compareExportEmbedMetadata,
@@ -73,15 +55,11 @@ export function SelectionExportSection({
 }: SelectionExportSectionProps): JSX.Element {
   const pngDisabledReason = getSelectionExportDisabledReason({
     selectedCount,
-    compareReady,
-    compareExportSupportsV2,
-    compareExportMaxPathsV2,
+    maxPaths: MAX_EXPORT_COMPARISON_PATHS_V2,
   })
   const gifDisabledReason = getSelectionExportDisabledReason({
     selectedCount,
-    compareReady,
-    compareExportSupportsV2,
-    compareExportMaxPathsV2: compareExportMaxPathsV2Gif ?? compareExportMaxPathsV2,
+    maxPaths: MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
   })
   const controlsDisabled = compareExportBusy || (pngDisabledReason !== null && gifDisabledReason !== null)
   const pngExportDisabled = compareExportBusy || pngDisabledReason !== null

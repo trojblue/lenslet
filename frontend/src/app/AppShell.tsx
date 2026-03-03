@@ -380,7 +380,6 @@ export default function AppShell({
     refreshEnabled,
     refreshDisabledReason,
     indexing,
-    compareExportCapability,
     highlightedPaths,
     onVisiblePathsChange: handleVisiblePathsChange,
     offViewSummary,
@@ -1397,9 +1396,6 @@ export default function AppShell({
           onFindSimilar={() => setSimilarityOpen(true)}
           embeddingsAvailable={embeddingsAvailable}
           embeddingsLoading={embeddingsLoading}
-          compareExportSupportsV2={compareExportCapability.supportsV2}
-          compareExportMaxPathsV2={compareExportCapability.maxPathsV2}
-          compareExportMaxPathsV2Gif={compareExportCapability.maxPathsV2Gif}
           autoloadImageMetadata={autoloadImageMetadata}
           onLocalTypingChange={setLocalTypingActive}
         />

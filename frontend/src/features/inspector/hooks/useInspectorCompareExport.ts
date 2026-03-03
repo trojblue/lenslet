@@ -4,13 +4,10 @@ import type { ExportComparisonOutputFormat } from '../../../lib/types'
 import { api } from '../../../shared/api/client'
 import {
   type ExportComparisonPayloadResult,
-  buildExportComparisonV2MaxPathsMessage,
   DEFAULT_EXPORT_COMPARISON_EMBED_METADATA,
-  EXPORT_COMPARISON_PAIR_ONLY_MESSAGE,
-  EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE,
+  EXPORT_COMPARISON_MIN_SELECTIONS_MESSAGE,
   buildComparisonExportFilename,
   buildExportComparisonPayload,
-  buildExportComparisonPayloadV2,
 } from '../compareExportBoundary'
 
 const INSPECTOR_EXPORT_REVERSE_ORDER_KEY = 'lenslet.inspector.export.reverseOrder'
@@ -24,11 +21,6 @@ function parseStoredBool(raw: string | null, fallback: boolean): boolean {
 
 type UseInspectorCompareExportParams = {
   selectedPaths: string[]
-  comparePathA: string | null
-  comparePathB: string | null
-  compareExportSupportsV2: boolean
-  compareExportMaxPathsV2: number | null
-  compareExportMaxPathsV2Gif: number | null
 }
 
 type UseInspectorCompareExportResult = {
@@ -48,10 +40,6 @@ type UseInspectorCompareExportResult = {
 
 type BuildInspectorComparisonExportPayloadArgs = {
   selectedPaths: string[]
-  comparePathA: string | null
-  comparePathB: string | null
-  compareExportSupportsV2: boolean
-  compareExportMaxPathsV2ForFormat: number | null
   labelsText: string
   embedMetadata: boolean
   reverseOrder: boolean
@@ -59,71 +47,15 @@ type BuildInspectorComparisonExportPayloadArgs = {
   highQualityGif: boolean
 }
 
-function resolveComparisonPairPaths({
-  selectedPaths,
-  comparePathA,
-  comparePathB,
-}: {
-  selectedPaths: string[]
-  comparePathA: string | null
-  comparePathB: string | null
-}): [string, string] | null {
-  if (selectedPaths.length !== 2) return null
-  if (comparePathA && comparePathB) return [comparePathA, comparePathB]
-
-  const [pathA, pathB] = selectedPaths
-  if (!pathA || !pathB) return null
-  return [pathA, pathB]
-}
-
 export function buildInspectorComparisonExportPayload({
   selectedPaths,
-  comparePathA,
-  comparePathB,
-  compareExportSupportsV2,
-  compareExportMaxPathsV2ForFormat,
   labelsText,
   embedMetadata,
   reverseOrder,
   outputFormat,
   highQualityGif,
 }: BuildInspectorComparisonExportPayloadArgs): ExportComparisonPayloadResult {
-  const selectedCount = selectedPaths.length
-  if (selectedCount < 2) {
-    return { ok: false, message: EXPORT_COMPARISON_PAIR_ONLY_MESSAGE }
-  }
-
-  if (selectedCount === 2) {
-    const pairPaths = resolveComparisonPairPaths({
-      selectedPaths,
-      comparePathA,
-      comparePathB,
-    })
-    if (!pairPaths) {
-      return { ok: false, message: EXPORT_COMPARISON_PAIR_ONLY_MESSAGE }
-    }
-    const [pathA, pathB] = pairPaths
-    return buildExportComparisonPayload({
-      pathA,
-      pathB,
-      labelsText,
-      embedMetadata,
-      reverseOrder,
-      outputFormat,
-      highQualityGif,
-    })
-  }
-
-  if (!compareExportSupportsV2) {
-    return { ok: false, message: EXPORT_COMPARISON_V2_CAPABILITY_MESSAGE }
-  }
-  if (compareExportMaxPathsV2ForFormat !== null && selectedCount > compareExportMaxPathsV2ForFormat) {
-    return {
-      ok: false,
-      message: buildExportComparisonV2MaxPathsMessage(compareExportMaxPathsV2ForFormat, selectedCount),
-    }
-  }
-  return buildExportComparisonPayloadV2({
+  return buildExportComparisonPayload({
     paths: selectedPaths,
     labelsText,
     embedMetadata,
@@ -135,11 +67,6 @@ export function buildInspectorComparisonExportPayload({
 
 export function useInspectorCompareExport({
   selectedPaths,
-  comparePathA,
-  comparePathB,
-  compareExportSupportsV2,
-  compareExportMaxPathsV2,
-  compareExportMaxPathsV2Gif,
 }: UseInspectorCompareExportParams): UseInspectorCompareExportResult {
   const [compareExportLabelsText, setCompareExportLabelsText] = useState('')
   const [compareExportEmbedMetadata, setCompareExportEmbedMetadata] = useState(
@@ -196,7 +123,7 @@ export function useInspectorCompareExport({
     }
     setCompareExportMode(null)
     setCompareExportError(null)
-  }, [comparePathA, comparePathB, selectedPaths])
+  }, [selectedPaths])
 
   const handleCompareExportLabelsTextChange = useCallback((value: string) => {
     setCompareExportLabelsText(value)
@@ -218,24 +145,16 @@ export function useInspectorCompareExport({
   const runComparisonExport = useCallback(
     async (outputFormat: ExportComparisonOutputFormat) => {
       if (compareExportBusy) return
-      const selectedCount = selectedPaths.length
-      const reverseOrder = compareExportReverseOrder
 
-      if (selectedCount < 2) {
-        setCompareExportError(EXPORT_COMPARISON_PAIR_ONLY_MESSAGE)
+      if (selectedPaths.length < 2) {
+        setCompareExportError(EXPORT_COMPARISON_MIN_SELECTIONS_MESSAGE)
         return
       }
 
+      const reverseOrder = compareExportReverseOrder
       const highQualityGif = outputFormat === 'gif' && compareExportHighQualityGif
-      const compareExportMaxPathsV2ForFormat = outputFormat === 'gif'
-        ? (compareExportMaxPathsV2Gif ?? compareExportMaxPathsV2)
-        : compareExportMaxPathsV2
       const payloadResult = buildInspectorComparisonExportPayload({
         selectedPaths,
-        comparePathA,
-        comparePathB,
-        compareExportSupportsV2,
-        compareExportMaxPathsV2ForFormat,
         labelsText: compareExportLabelsText,
         embedMetadata: compareExportEmbedMetadata,
         reverseOrder,
@@ -264,12 +183,7 @@ export function useInspectorCompareExport({
       compareExportEmbedMetadata,
       compareExportHighQualityGif,
       compareExportLabelsText,
-      compareExportMaxPathsV2,
-      compareExportMaxPathsV2Gif,
       compareExportReverseOrder,
-      compareExportSupportsV2,
-      comparePathA,
-      comparePathB,
       selectedPaths,
     ],
   )

@@ -17,7 +17,7 @@ describe('exportComparison api contract', () => {
     )
 
     const payload: ExportComparisonRequest = {
-      v: 1,
+      v: 2,
       paths: ['/a.png', '/b.png'],
       labels: ['Prompt A', 'Prompt B'],
       embed_metadata: true,
@@ -47,7 +47,7 @@ describe('exportComparison api contract', () => {
     )
 
     await api.exportComparison({
-      v: 1,
+      v: 2,
       paths: ['/a.png', '/b.png'],
       labels: ['A label', 'B label'],
       embed_metadata: false,
@@ -65,7 +65,7 @@ describe('exportComparison api contract', () => {
     expect(parsed.high_quality_gif).toBe(false)
   })
 
-  it('supports posting v2 export payloads', async () => {
+  it('supports posting multi-image export payloads', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(new Blob([new Uint8Array([9, 8])], { type: 'image/png' }), {
         status: 200,

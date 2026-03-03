@@ -12,7 +12,7 @@ from PIL import Image
 from pydantic import ValidationError
 
 from .server_models import (
-    EXPORT_COMPARISON_REQUEST_ADAPTER,
+    ExportComparisonRequest,
     FolderIndex,
     ImageMetadataResponse,
     SearchResult,
@@ -132,7 +132,7 @@ def register_common_api_routes(
             return _server._error_response(400, "invalid_json", "request body must be valid JSON")
 
         try:
-            body = EXPORT_COMPARISON_REQUEST_ADAPTER.validate_python(payload)
+            body = ExportComparisonRequest.model_validate(payload)
         except ValidationError as exc:
             return _server._error_response(400, "invalid_request", _server._first_validation_error_detail(exc))
 

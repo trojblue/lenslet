@@ -187,7 +187,7 @@ def test_health_reports_compare_export_capability_contract(tmp_path: Path) -> No
 
     assert health.status_code == 200
     compare_export = health.json().get("compare_export", {})
-    assert compare_export.get("supported_versions") == [1, 2]
+    assert compare_export.get("supported_versions") == [2]
     assert compare_export.get("max_paths_v2") == MAX_EXPORT_COMPARISON_PATHS_V2
     assert compare_export.get("max_paths_v2_gif") == MAX_EXPORT_COMPARISON_PATHS_V2_GIF
 

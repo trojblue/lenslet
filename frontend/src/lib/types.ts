@@ -93,11 +93,6 @@ export type HealthResponse = {
     enabled?: boolean
     note?: string | null
   }
-  compare_export?: {
-    supported_versions?: number[]
-    max_paths_v2?: number | null
-    max_paths_v2_gif?: number | null
-  }
   labels?: {
     enabled: boolean
     log?: string | null
@@ -179,18 +174,7 @@ export type ImageMetadataResponse = {
   meta: Record<string, unknown>
 }
 
-export type ExportComparisonLabelsV1 = [string] | [string, string]
 export type ExportComparisonOutputFormat = 'png' | 'gif'
-
-export type ExportComparisonRequestV1 = {
-  v: 1
-  paths: [string, string]
-  labels?: ExportComparisonLabelsV1
-  embed_metadata?: boolean
-  reverse_order?: boolean
-  output_format?: ExportComparisonOutputFormat
-  high_quality_gif?: boolean
-}
 
 export type ExportComparisonRequestV2 = {
   v: 2
@@ -202,7 +186,7 @@ export type ExportComparisonRequestV2 = {
   high_quality_gif?: boolean
 }
 
-export type ExportComparisonRequest = ExportComparisonRequestV1 | ExportComparisonRequestV2
+export type ExportComparisonRequest = ExportComparisonRequestV2
 
 export type ViewMode = 'grid' | 'adaptive'
 

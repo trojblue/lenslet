@@ -20,7 +20,7 @@ def _make_png(path: Path, *, size: tuple[int, int] = (12, 8), color=(64, 64, 64)
 
 def _export_payload(**overrides):
     payload = {
-        "v": 1,
+        "v": 2,
         "paths": ["/a.png", "/b.png"],
         "labels": ["Prompt A", "Prompt B"],
         "embed_metadata": True,
@@ -31,13 +31,10 @@ def _export_payload(**overrides):
 
 
 def _export_payload_v2(**overrides):
-    payload = {
-        "v": 2,
-        "paths": ["/a.png", "/b.png", "/c.png"],
-        "labels": ["Prompt A", "Prompt B", "Prompt C"],
-        "embed_metadata": True,
-        "reverse_order": False,
-    }
+    payload = _export_payload(
+        paths=["/a.png", "/b.png", "/c.png"],
+        labels=["Prompt A", "Prompt B", "Prompt C"],
+    )
     payload.update(overrides)
     return payload
 
@@ -213,39 +210,20 @@ def test_export_comparison_rejects_invalid_paths_with_parity_checks(tmp_path: Pa
     assert payload["error"] == "file_not_found"
 
 
-def test_export_comparison_rejects_more_than_two_paths_for_v1(tmp_path: Path) -> None:
-    _make_png(tmp_path / "a.png")
-    _make_png(tmp_path / "b.png")
-    _make_png(tmp_path / "c.png")
-
-    client = TestClient(create_app(str(tmp_path)))
-    response = client.post(
-        "/export-comparison",
-        json=_export_payload(paths=["/a.png", "/b.png", "/c.png"]),
-    )
-
-    assert response.status_code == 400
-    payload = response.json()
-    assert payload["error"] == "invalid_request"
-    assert "paths:" in payload["message"]
-    assert "comparison export v1 requires exactly 2 paths" in payload["message"]
-
-
-def test_export_comparison_rejects_more_than_two_labels_for_v1(tmp_path: Path) -> None:
+def test_export_comparison_rejects_v1_payload_contract(tmp_path: Path) -> None:
     _make_png(tmp_path / "a.png")
     _make_png(tmp_path / "b.png")
 
     client = TestClient(create_app(str(tmp_path)))
     response = client.post(
         "/export-comparison",
-        json=_export_payload(labels=["A", "B", "C"]),
+        json=_export_payload(v=1),
     )
 
     assert response.status_code == 400
     payload = response.json()
     assert payload["error"] == "invalid_request"
-    assert "labels:" in payload["message"]
-    assert "comparison export v1 accepts at most 2 labels" in payload["message"]
+    assert "v:" in payload["message"]
 
 
 def test_export_comparison_rejects_unknown_output_format(tmp_path: Path) -> None:

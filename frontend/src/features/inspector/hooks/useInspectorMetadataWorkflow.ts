@@ -12,9 +12,6 @@ type UseInspectorMetadataWorkflowParams = {
   compareReady: boolean
   comparePathA: string | null
   comparePathB: string | null
-  compareExportSupportsV2: boolean
-  compareExportMaxPathsV2: number | null
-  compareExportMaxPathsV2Gif: number | null
   autoloadMetadata: boolean
 }
 
@@ -58,9 +55,6 @@ export function useInspectorMetadataWorkflow({
   compareReady,
   comparePathA,
   comparePathB,
-  compareExportSupportsV2,
-  compareExportMaxPathsV2,
-  compareExportMaxPathsV2Gif,
   autoloadMetadata,
 }: UseInspectorMetadataWorkflowParams): UseInspectorMetadataWorkflowResult {
   const singleMetadata = useInspectorSingleMetadata({
@@ -77,11 +71,6 @@ export function useInspectorMetadataWorkflow({
 
   const compareExport = useInspectorCompareExport({
     selectedPaths,
-    comparePathA,
-    comparePathB,
-    compareExportSupportsV2,
-    compareExportMaxPathsV2,
-    compareExportMaxPathsV2Gif,
   })
 
   return {

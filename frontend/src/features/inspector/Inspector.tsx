@@ -49,9 +49,6 @@ interface InspectorProps {
   onFindSimilar?: () => void
   embeddingsAvailable?: boolean
   embeddingsLoading?: boolean
-  compareExportSupportsV2?: boolean
-  compareExportMaxPathsV2?: number | null
-  compareExportMaxPathsV2Gif?: number | null
   autoloadImageMetadata?: boolean
   onLocalTypingChange?: (active: boolean) => void
 }
@@ -75,9 +72,6 @@ export default function Inspector({
   onFindSimilar,
   embeddingsAvailable = false,
   embeddingsLoading = false,
-  compareExportSupportsV2 = false,
-  compareExportMaxPathsV2 = null,
-  compareExportMaxPathsV2Gif = null,
   autoloadImageMetadata = false,
   onLocalTypingChange,
 }: InspectorProps) {
@@ -107,7 +101,6 @@ export default function Inspector({
 
   const comparePathA = compareA?.path ?? null
   const comparePathB = compareB?.path ?? null
-  const selectedPairReady = selectedPaths.length === 2 && !!selectedPaths[0] && !!selectedPaths[1]
   const comparePairReady = !!comparePathA && !!comparePathB
   const compareReady = compareActive && comparePairReady
   const {
@@ -211,9 +204,6 @@ export default function Inspector({
     compareReady,
     comparePathA,
     comparePathB,
-    compareExportSupportsV2,
-    compareExportMaxPathsV2,
-    compareExportMaxPathsV2Gif,
     autoloadMetadata: autoloadImageMetadata && !multi,
   })
   
@@ -482,11 +472,7 @@ export default function Inspector({
       totalSize,
       filename,
       compareActive,
-      compareReady: selectedPairReady,
       onOpenCompare,
-      compareExportSupportsV2,
-      compareExportMaxPathsV2,
-      compareExportMaxPathsV2Gif,
       compareExportLabelsText,
       onCompareExportLabelsTextChange: handleCompareExportLabelsTextChange,
       compareExportEmbedMetadata,

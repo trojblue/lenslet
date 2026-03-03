@@ -12,11 +12,7 @@ interface OverviewSectionProps {
   totalSize: number
   filename: string
   compareActive: boolean
-  compareReady: boolean
   onOpenCompare?: () => void
-  compareExportSupportsV2: boolean
-  compareExportMaxPathsV2: number | null
-  compareExportMaxPathsV2Gif: number | null
   compareExportLabelsText: string
   onCompareExportLabelsTextChange: (value: string) => void
   compareExportEmbedMetadata: boolean
@@ -69,11 +65,7 @@ export function OverviewSection({
   totalSize,
   filename,
   compareActive,
-  compareReady,
   onOpenCompare,
-  compareExportSupportsV2,
-  compareExportMaxPathsV2,
-  compareExportMaxPathsV2Gif,
   compareExportLabelsText,
   onCompareExportLabelsTextChange,
   compareExportEmbedMetadata,
@@ -99,10 +91,6 @@ export function OverviewSection({
     },
     selectionExportProps: {
       selectedCount,
-      compareReady,
-      compareExportSupportsV2,
-      compareExportMaxPathsV2,
-      compareExportMaxPathsV2Gif,
       compareExportLabelsText,
       onCompareExportLabelsTextChange,
       compareExportEmbedMetadata,

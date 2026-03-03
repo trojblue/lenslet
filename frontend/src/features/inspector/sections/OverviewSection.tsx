@@ -12,8 +12,11 @@ interface OverviewSectionProps {
   selectedCount: number
   totalSize: number
   filename: string
-  compareActive: boolean
+  viewerCompareActive: boolean
+  metadataCompareActive: boolean
+  metadataCompareAvailable: boolean
   onOpenCompare?: () => void
+  onToggleMetadataCompare?: () => void
   compareExportLabelsText: string
   onCompareExportLabelsTextChange: (value: string) => void
   compareExportEmbedMetadata: boolean
@@ -36,7 +39,7 @@ interface OverviewSectionProps {
 type OverviewWidgetId = 'selectionActions' | 'selectionExport'
 
 interface OverviewWidgetContext {
-  compareActive: boolean
+  viewerCompareActive: boolean
   selectionActionsProps: ComponentProps<typeof SelectionActionsSection>
   selectionExportProps: ComponentProps<typeof SelectionExportSection>
 }
@@ -55,7 +58,7 @@ const OVERVIEW_WIDGETS: readonly OverviewWidgetDefinition[] = [
   },
   {
     id: 'selectionExport',
-    isVisible: ({ compareActive }) => !compareActive,
+    isVisible: ({ viewerCompareActive }) => !viewerCompareActive,
     render: ({ selectionExportProps }) => <SelectionExportSection {...selectionExportProps} />,
   },
 ]
@@ -67,8 +70,11 @@ export function OverviewSection({
   selectedCount,
   totalSize,
   filename,
-  compareActive,
+  viewerCompareActive,
+  metadataCompareActive,
+  metadataCompareAvailable,
   onOpenCompare,
+  onToggleMetadataCompare,
   compareExportLabelsText,
   onCompareExportLabelsTextChange,
   compareExportEmbedMetadata,
@@ -88,11 +94,14 @@ export function OverviewSection({
   sortableEnabled = false,
 }: OverviewSectionProps): JSX.Element {
   const widgetContext: OverviewWidgetContext = {
-    compareActive,
+    viewerCompareActive,
     selectionActionsProps: {
       selectedCount,
-      compareActive,
+      viewerCompareActive,
+      metadataCompareActive,
+      metadataCompareAvailable,
       onOpenCompare,
+      onToggleMetadataCompare,
     },
     selectionExportProps: {
       selectedCount,

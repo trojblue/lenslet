@@ -107,16 +107,16 @@ After the cleanup subagent finishes, spawn a fresh subagent and request review u
 
 3. Sprint 3 goal is explicit metadata compare state ownership and multi-select activation. Demo outcome is metadata compare works independently from side-by-side viewer state and autoload can activate compare for multi-select.
 
-   T9. Introduce dedicated `metadataCompareActive` ownership in inspector state, separate from viewer `compareOpen`, with clear wiring boundaries.
+   T9. [x] Introduce dedicated `metadataCompareActive` ownership in inspector state, separate from viewer `compareOpen`, with clear wiring boundaries. Completed 2026-03-03.
    Validation: state tests proving metadata compare toggles do not alter side-by-side mode.
 
-   T10. Add explicit inspector metadata compare action for `selectedCount >= 2` and decouple compare section visibility from side-by-side gating.
+   T10. [x] Add explicit inspector metadata compare action for `selectedCount >= 2` and decouple compare section visibility from side-by-side gating. Completed 2026-03-03.
    Validation: section tests proving compare appears from inspector action without side-by-side.
 
-   T11. Remove multi-selection autoload suppression and auto-activate metadata compare when autoload is ON and `selectedCount >= 2`.
+   T11. [x] Remove multi-selection autoload suppression and auto-activate metadata compare when autoload is ON and `selectedCount >= 2`. Completed 2026-03-03.
    Validation: hook tests for autoload ON/OFF behavior across 1, 2, and 3 selections.
 
-   T12. Add regression tests for browser back/popstate behavior and side-by-side flow stability after compare-state split.
+   T12. [x] Add regression tests for browser back/popstate behavior and side-by-side flow stability after compare-state split. Completed 2026-03-03.
    Validation: targeted tests around history transitions and compare viewer unaffected behavior.
 
 4. Sprint 4 goal is complete six-item metadata compare engine and table UI. Demo outcome is structured comparison for 2..6 images with deterministic over-cap behavior.
@@ -227,6 +227,15 @@ Sprint 2 execution notes (2026-03-03):
 5. Sprint 2 closure gate pass: `python scripts/gui_smoke_acceptance.py` now validates default order (`Metadata` before `Basics`), drag reorder (`Basics` before `Metadata`), reload persistence, and existing multi-select compare/export actions in one deterministic run.
 6. Stability rerun pass: repeated `python scripts/gui_smoke_acceptance.py` after code cleanup also passed with identical reorder-persistence assertions and no new warnings.
 
+Sprint 3 execution notes (2026-03-03):
+
+1. `T9` pass: inspector now owns `metadataCompareActive`/`metadataCompareReady` in `useInspectorUiState`, while viewer `compareOpen` remains isolated in `useAppSelectionViewerCompare`.
+2. `T10` pass: `SelectionActionsSection` now exposes a dedicated `Compare metadata` toggle for multi-select contexts and keeps `Side by side view` behavior unchanged.
+3. `T11` pass: metadata compare auto-activates when `Auto Load Image Meta` is enabled and compare targets are available (`comparePathA` + `comparePathB`) for multi-selection.
+4. `T12` pass: added targeted regression guards in `useAppSelectionViewerCompare` for compare auto-close and popstate overlay reset semantics; side-by-side flow wiring remains unchanged.
+5. Review-finding fix applied: metadata compare activation now requires available compare targets to avoid false “active” UI state when selected paths are not currently resolvable.
+6. Sprint 3 closure gates passed: targeted Vitest suites, `npx tsc --noEmit`, `python scripts/gui_smoke_acceptance.py`, `npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/`, and `python scripts/lint_repo.py`.
+
 
 ## Risks and Recovery
 
@@ -267,6 +276,12 @@ Idempotent retry strategy is rerunning failed sprint gates with the same command
 - [x] 2026-03-03 18:58:00Z Completed `T8`: stabilized smoke selection sequence, added drag-reorder + reload persistence assertions, reran `python scripts/gui_smoke_acceptance.py` (pass), and reran `python scripts/lint_repo.py` (pass).
 - [x] 2026-03-03 18:58:10Z Cleanup gate: conservative simplifier pass found no additional non-semantic cleanup needed beyond the applied smoke harness refactor.
 - [x] 2026-03-03 18:58:20Z Review gate: post-cleanup diff review found no open findings; repeated GUI smoke and lint validations remained green.
+- [x] 2026-03-03 19:00:10Z Sprint 3 plan gate restated with Sprint 3-only scope (`T9`..`T12`) and unchanged non-goals.
+- [x] 2026-03-03 19:08:20Z Completed `T9` + `T10`: split inspector metadata compare ownership from viewer compare state and added explicit inspector metadata-compare action wiring.
+- [x] 2026-03-03 19:11:10Z Completed `T11` + `T12`: enabled autoload-triggered metadata compare activation for multi-select and added compare popstate/auto-close regression guard tests.
+- [x] 2026-03-03 19:14:50Z Ran Sprint 3 targeted validations: updated inspector/hook Vitest suites passed, `npx tsc --noEmit` passed, and `python scripts/lint_repo.py` passed.
+- [x] 2026-03-03 19:17:00Z Cleanup gate: conservative `code-simplifier` subagent pass applied small non-semantic cleanups only (state/readability simplifications, no behavior changes).
+- [x] 2026-03-03 19:18:20Z Review gate: `code-review` subagent found one medium UI-state gap; patched compare-availability gating and reran targeted tests + `tsc` + GUI smoke + lint (all pass).
 
 
 ## Artifacts and Handoff
@@ -320,6 +335,15 @@ Sprint 2 handoff notes (closed 2026-03-03):
 4. `T8` is complete: Playwright smoke now includes reorder + reload persistence assertions and retains multi-select compare/export checks with deterministic panel-state handling.
 5. Sprint 2 is closed with all tasks complete and acceptance evidence captured in this plan plus `progress.txt`.
 6. Next actionable sprint is Sprint 3 (`T9`..`T12`) focused on metadata-compare state ownership and autoload-triggered compare activation.
+
+Sprint 3 handoff notes (closed 2026-03-03):
+
+1. `T9`..`T12` are complete: metadata compare state is inspector-owned, explicit compare action is available for multi-select, autoload can activate compare, and popstate/compare guard regressions are covered.
+2. Side-by-side viewer state remains isolated (`compareOpen` in app hook); inspector metadata compare no longer depends on side-by-side overlay state.
+3. Metadata compare activation is now gated by compare-target availability (`comparePathA` + `comparePathB`) to prevent false active-state UI.
+4. New targeted tests were added for inspector compare activation guards and app compare popstate/auto-close guards.
+5. Sprint 3 closure gates passed, including GUI smoke, frontend bundle sync to `src/lenslet/frontend/`, and repository lint.
+6. Next actionable sprint is Sprint 4 (`T13`..`T16`) for six-item metadata compare model/table and over-cap behavior.
 
 Execution handoff note for the next operator is to implement strictly sprint-by-sprint, preserve each sprint as independently demoable and reviewable, and keep this plan as the authoritative running log of decisions, validations, and closure state.
 

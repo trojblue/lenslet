@@ -14,14 +14,19 @@ type CompareSide = 'A' | 'B'
 type UseInspectorUiStateParams = {
   path: string | null
   sidecarUpdatedAt: string | undefined
-  compareReady: boolean
   comparePathA: string | null
   comparePathB: string | null
+  selectedCount: number
+  metadataCompareAvailable: boolean
+  autoloadMetadataCompare: boolean
 }
 
 type UseInspectorUiStateResult = {
   sectionOrder: InspectorWidgetId[]
   reorderSectionOrder: (activeId: InspectorWidgetId, overId: InspectorWidgetId) => void
+  metadataCompareActive: boolean
+  metadataCompareReady: boolean
+  toggleMetadataCompareActive: () => void
   openSections: Record<InspectorSectionKey, boolean>
   toggleOverviewSection: () => void
   toggleCompareSection: () => void
@@ -62,6 +67,21 @@ export function toggleInspectorSectionState(
   return { ...sections, [key]: !sections[key] }
 }
 
+export function shouldDisableMetadataCompare(
+  selectedCount: number,
+  metadataCompareAvailable: boolean,
+): boolean {
+  return selectedCount < 2 || !metadataCompareAvailable
+}
+
+export function shouldAutoActivateMetadataCompare(
+  autoloadMetadataCompare: boolean,
+  selectedCount: number,
+  metadataCompareAvailable: boolean,
+): boolean {
+  return autoloadMetadataCompare && !shouldDisableMetadataCompare(selectedCount, metadataCompareAvailable)
+}
+
 function clearTimer(timerRef: MutableRefObject<number | null>): void {
   if (timerRef.current === null) return
   window.clearTimeout(timerRef.current)
@@ -71,15 +91,21 @@ function clearTimer(timerRef: MutableRefObject<number | null>): void {
 export function useInspectorUiState({
   path,
   sidecarUpdatedAt,
-  compareReady,
   comparePathA,
   comparePathB,
+  selectedCount,
+  metadataCompareAvailable,
+  autoloadMetadataCompare,
 }: UseInspectorUiStateParams): UseInspectorUiStateResult {
+  const comparePairReady = !!comparePathA && !!comparePathB
   const [sectionOrder, setSectionOrder] = useState<InspectorWidgetId[]>([
     ...INSPECTOR_WIDGET_DEFAULT_ORDER,
   ])
+  const [metadataCompareActive, setMetadataCompareActive] = useState(false)
   const [openSections, setOpenSections] = useState<Record<InspectorSectionKey, boolean>>(DEFAULT_SECTION_STATE)
   const [metricsExpanded, setMetricsExpanded] = useState(false)
+  const metadataCompareReady = metadataCompareActive && comparePairReady
+  const previousMetadataCompareActiveRef = useRef(metadataCompareActive)
 
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [metaCopied, setMetaCopied] = useState(false)
@@ -97,6 +123,10 @@ export function useInspectorUiState({
   const toggleSection = useCallback((key: InspectorSectionKey) => {
     setOpenSections((prev) => toggleInspectorSectionState(prev, key))
   }, [])
+  const toggleMetadataCompareActive = useCallback(() => {
+    if (shouldDisableMetadataCompare(selectedCount, metadataCompareAvailable)) return
+    setMetadataCompareActive((prev) => !prev)
+  }, [metadataCompareAvailable, selectedCount])
 
   const toggleOverviewSection = useCallback(() => toggleSection('overview'), [toggleSection])
   const toggleCompareSection = useCallback(() => toggleSection('compare'), [toggleSection])
@@ -230,6 +260,28 @@ export function useInspectorUiState({
   }, [metricsExpanded])
 
   useEffect(() => {
+    if (!shouldAutoActivateMetadataCompare(
+      autoloadMetadataCompare,
+      selectedCount,
+      metadataCompareAvailable,
+    )) return
+    setMetadataCompareActive(true)
+  }, [autoloadMetadataCompare, metadataCompareAvailable, selectedCount])
+
+  useEffect(() => {
+    if (!shouldDisableMetadataCompare(selectedCount, metadataCompareAvailable)) return
+    setMetadataCompareActive(false)
+  }, [metadataCompareAvailable, selectedCount])
+
+  useEffect(() => {
+    const wasActive = previousMetadataCompareActiveRef.current
+    if (metadataCompareActive && !wasActive) {
+      setOpenSections((prev) => (prev.compare ? prev : { ...prev, compare: true }))
+    }
+    previousMetadataCompareActiveRef.current = metadataCompareActive
+  }, [metadataCompareActive])
+
+  useEffect(() => {
     setMetaCopied(false)
     setMetaValueCopiedPath(null)
     clearTimer(metaCopiedTimeoutRef)
@@ -242,7 +294,7 @@ export function useInspectorUiState({
     setCompareValueCopiedPathB(null)
     clearTimer(compareMetaCopiedTimeoutRef)
     clearTimer(compareValueCopyTimeoutRef)
-  }, [comparePathA, comparePathB, compareReady])
+  }, [comparePathA, comparePathB, metadataCompareReady])
 
   useEffect(
     () => () => {
@@ -258,6 +310,9 @@ export function useInspectorUiState({
   return {
     sectionOrder,
     reorderSectionOrder,
+    metadataCompareActive,
+    metadataCompareReady,
+    toggleMetadataCompareActive,
     openSections,
     toggleOverviewSection,
     toggleCompareSection,

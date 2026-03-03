@@ -103,3 +103,43 @@ Next step:
 ### Iteration 3 Validation Addendum - 2026-03-03T18:57:27Z
 - `python scripts/gui_smoke_acceptance.py` rerun -> pass (same reorder persistence outcomes).
 - `python scripts/lint_repo.py` rerun -> pass.
+
+## Iteration 4 - 2026-03-03T19:18:39Z
+
+Completed task IDs:
+- T9
+- T10
+- T11
+- T12
+
+Files changed:
+- frontend/src/app/AppShell.tsx
+- frontend/src/app/hooks/useAppSelectionViewerCompare.ts
+- frontend/src/app/hooks/__tests__/useAppSelectionViewerCompare.test.ts
+- frontend/src/features/inspector/Inspector.tsx
+- frontend/src/features/inspector/hooks/useInspectorUiState.ts
+- frontend/src/features/inspector/hooks/__tests__/inspectorCompareActivation.test.ts
+- frontend/src/features/inspector/inspectorWidgets.tsx
+- frontend/src/features/inspector/sections/OverviewSection.tsx
+- frontend/src/features/inspector/sections/SelectionActionsSection.tsx
+- frontend/src/features/inspector/sections/__tests__/metadataSections.test.tsx
+- docs/20260303_inspector_metadata_improvements_execution_plan.md
+- docs/ralph/20260303_inspector_metadata_improvements/progress.txt
+- src/lenslet/frontend/index.html
+- src/lenslet/frontend/assets/index-Doffrnzh.js
+- src/lenslet/frontend/assets/index-CPyqrwnY.js (removed)
+
+Validations run:
+- `cd frontend && npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx src/features/inspector/hooks/__tests__/metadataRequestGuards.test.ts src/features/inspector/hooks/__tests__/inspectorCompareActivation.test.ts src/app/hooks/__tests__/useAppSelectionViewerCompare.test.ts` -> pass (16 tests).
+- `cd frontend && npx tsc --noEmit` -> pass.
+- `python scripts/gui_smoke_acceptance.py` -> pass.
+- `cd frontend && npm run build && rsync -a --delete dist/ ../src/lenslet/frontend/` -> pass.
+- `python scripts/lint_repo.py` -> pass.
+- Cleanup gate: `code-simplifier` subagent pass completed with conservative non-semantic edits only.
+- Review gate: `code-review` subagent reported one medium issue (metadata compare could show active when compare targets unavailable); issue fixed and validations rerun green.
+
+Blockers:
+- None.
+
+Next step:
+- Start Sprint 4 task sequence (`T13`..`T16`) for six-item metadata compare model/table and over-cap messaging behavior.

@@ -8,8 +8,8 @@ import type { InspectorWidgetId } from './model/inspectorWidgetOrder'
 
 export interface InspectorWidgetContext {
   multi: boolean
-  compareActive: boolean
-  compareReady: boolean
+  viewerCompareActive: boolean
+  metadataCompareReady: boolean
   overviewProps: ComponentProps<typeof OverviewSection>
   compareMetadataProps: ComponentProps<typeof CompareMetadataSection>
   basicsProps: ComponentProps<typeof BasicsSection>
@@ -31,7 +31,7 @@ export const INSPECTOR_WIDGETS: readonly InspectorWidgetDefinition[] = [
   },
   {
     id: 'compareMetadata',
-    isVisible: ({ compareActive, compareReady }) => compareActive && compareReady,
+    isVisible: ({ metadataCompareReady }) => metadataCompareReady,
     render: ({ compareMetadataProps }) => <CompareMetadataSection {...compareMetadataProps} />,
   },
   {

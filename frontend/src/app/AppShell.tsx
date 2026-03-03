@@ -1415,7 +1415,7 @@ export default function AppShell({
           path={selectedPaths[0] ?? null}
           selectedPaths={selectedPaths}
           items={items}
-          compareActive={compareOpen}
+          viewerCompareActive={compareOpen}
           compareA={compareA}
           compareB={compareB}
           onOpenCompare={openCompare}

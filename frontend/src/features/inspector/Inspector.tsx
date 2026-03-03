@@ -45,7 +45,7 @@ interface InspectorProps {
   path: string | null
   selectedPaths?: string[]
   items?: InspectorItem[]
-  compareActive?: boolean
+  viewerCompareActive?: boolean
   compareA?: Item | null
   compareB?: Item | null
   onOpenCompare?: () => void
@@ -71,7 +71,7 @@ export default function Inspector({
   path,
   selectedPaths = [],
   items = [],
-  compareActive = false,
+  viewerCompareActive = false,
   compareA = null,
   compareB = null,
   onOpenCompare,
@@ -89,7 +89,8 @@ export default function Inspector({
   const mut = useUpdateSidecar(path ?? '')
   const qc = useQueryClient()
 
-  const multi = selectedPaths.length > 1
+  const selectedCount = selectedPaths.length
+  const multi = selectedCount > 1
 
   const canFindSimilar = !!onFindSimilar && embeddingsAvailable && !multi
   const findSimilarDisabledReason = (() => {
@@ -110,11 +111,13 @@ export default function Inspector({
 
   const comparePathA = compareA?.path ?? null
   const comparePathB = compareB?.path ?? null
-  const comparePairReady = !!comparePathA && !!comparePathB
-  const compareReady = compareActive && comparePairReady
+  const metadataCompareAvailable = !!comparePathA && !!comparePathB
   const {
     sectionOrder,
     reorderSectionOrder,
+    metadataCompareActive,
+    metadataCompareReady,
+    toggleMetadataCompareActive,
     openSections,
     toggleOverviewSection,
     toggleCompareSection,
@@ -139,9 +142,11 @@ export default function Inspector({
     sidecarUpdatedAt: data?.updated_at,
     comparePathA,
     comparePathB,
-    compareReady,
+    selectedCount,
+    metadataCompareAvailable,
+    autoloadMetadataCompare: autoloadImageMetadata,
   })
-  const compareSectionOpen = compareReady && compareActive && openSections.compare
+  const compareSectionOpen = metadataCompareReady && openSections.compare
   const metadataSectionOpen = !multi && openSections.metadata
   const compareLabelA = compareA?.name ?? comparePathA ?? 'A'
   const compareLabelB = compareB?.name ?? comparePathB ?? 'B'
@@ -212,7 +217,7 @@ export default function Inspector({
     path,
     sidecarUpdatedAt: data?.updated_at,
     selectedPaths,
-    compareReady,
+    compareReady: metadataCompareReady,
     comparePathA,
     comparePathB,
     autoloadMetadata: autoloadImageMetadata && !multi,
@@ -241,7 +246,7 @@ export default function Inspector({
       e.preventDefault()
       const val: StarRating = k === '0' ? null : (Number(k) as 1 | 2 | 3 | 4 | 5)
       
-      if (multi && selectedPaths.length) {
+      if (multi) {
         commitSidecar({ star: val })
         onStarChanged?.(selectedPaths, val)
         return
@@ -434,7 +439,7 @@ export default function Inspector({
   }, [markInfoCopied])
 
   const handleSelectStar = useCallback((value: StarRating) => {
-    if (multi && selectedPaths.length) {
+    if (multi) {
       onStarChanged?.(selectedPaths, value)
       bulkUpdateSidecars(selectedPaths, { star: value })
       return
@@ -485,19 +490,22 @@ export default function Inspector({
 
   const widgetContext: InspectorWidgetContext = {
     multi,
-    compareActive,
-    compareReady,
+    viewerCompareActive,
+    metadataCompareReady,
     overviewProps: {
       open: openSections.overview,
       onToggle: toggleOverviewSection,
       sortableId: 'overview',
       sortableEnabled: true,
       multi,
-      selectedCount: selectedPaths.length,
+      selectedCount,
       totalSize,
       filename,
-      compareActive,
+      viewerCompareActive,
+      metadataCompareActive,
+      metadataCompareAvailable,
       onOpenCompare,
+      onToggleMetadataCompare: toggleMetadataCompareActive,
       compareExportLabelsText,
       onCompareExportLabelsTextChange: handleCompareExportLabelsTextChange,
       compareExportEmbedMetadata,

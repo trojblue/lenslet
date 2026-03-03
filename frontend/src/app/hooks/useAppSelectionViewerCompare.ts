@@ -42,6 +42,28 @@ type UseAppSelectionViewerCompareResult = {
   syncHashImageSelection: (imageTarget: string | null) => void
 }
 
+type OverlayPopstateResult = {
+  resetViewer: boolean
+  resetCompare: boolean
+}
+
+export function shouldCloseCompareForSelectionChange(
+  compareOpen: boolean,
+  compareEnabled: boolean,
+): boolean {
+  return compareOpen && !compareEnabled
+}
+
+export function resolveOverlayPopstateResult(
+  viewer: string | null,
+  compareOpen: boolean,
+): OverlayPopstateResult {
+  return {
+    resetViewer: viewer !== null,
+    resetCompare: compareOpen,
+  }
+}
+
 export function useAppSelectionViewerCompare({
   current,
   itemPaths,
@@ -186,19 +208,19 @@ export function useAppSelectionViewerCompare({
   }, [itemPaths, selectedPaths, viewer])
 
   useEffect(() => {
-    if (!compareOpen) return
-    if (compareEnabled) return
+    if (!shouldCloseCompareForSelectionChange(compareOpen, compareEnabled)) return
     closeCompare()
   }, [compareOpen, compareEnabled, closeCompare])
 
   // Keep browser history semantics for compare/viewer overlays.
   useEffect(() => {
     const onPop = () => {
-      if (viewer) {
+      const next = resolveOverlayPopstateResult(viewer, compareOpen)
+      if (next.resetViewer) {
         viewerHistoryPushedRef.current = false
         setViewer(null)
       }
-      if (compareOpen) {
+      if (next.resetCompare) {
         compareHistoryPushedRef.current = false
         setCompareOpen(false)
       }

@@ -35,8 +35,11 @@ describe('inspector metadata section rendering', () => {
         selectedCount={2}
         totalSize={2048}
         filename=""
-        compareActive
+        viewerCompareActive
+        metadataCompareActive={false}
+        metadataCompareAvailable
         onOpenCompare={noop}
+        onToggleMetadataCompare={noop}
         compareExportLabelsText={'Prompt A\nPrompt B'}
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -57,6 +60,7 @@ describe('inspector metadata section rendering', () => {
     expect(html).toContain('Selection Actions')
     expect(html).not.toContain('Selection Export')
     expect(html).toContain('Side by side view')
+    expect(html).toContain('Compare metadata')
     expect(html).not.toContain('Export comparison')
     expect(html).toContain('Side-by-side viewer is already open.')
     expect((html.match(/disabled=\"\"/g) ?? [])).toHaveLength(1)
@@ -71,8 +75,11 @@ describe('inspector metadata section rendering', () => {
         selectedCount={2}
         totalSize={4096}
         filename=""
-        compareActive={false}
+        viewerCompareActive={false}
+        metadataCompareActive={false}
+        metadataCompareAvailable
         onOpenCompare={noop}
+        onToggleMetadataCompare={noop}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -104,8 +111,11 @@ describe('inspector metadata section rendering', () => {
         selectedCount={1}
         totalSize={4096}
         filename=""
-        compareActive={false}
+        viewerCompareActive={false}
+        metadataCompareActive={false}
+        metadataCompareAvailable={false}
         onOpenCompare={noop}
+        onToggleMetadataCompare={noop}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -124,6 +134,7 @@ describe('inspector metadata section rendering', () => {
     )
 
     expect(html).toContain('Comparison export requires at least 2 selected images.')
+    expect(html).toContain('Select at least 2 images to compare metadata in the inspector.')
     expect((html.match(/disabled=\"\"/g) ?? []).length).toBeGreaterThanOrEqual(4)
   })
 
@@ -136,8 +147,11 @@ describe('inspector metadata section rendering', () => {
         selectedCount={3}
         totalSize={4096}
         filename=""
-        compareActive={false}
+        viewerCompareActive={false}
+        metadataCompareActive={false}
+        metadataCompareAvailable
         onOpenCompare={noop}
+        onToggleMetadataCompare={noop}
         compareExportLabelsText=""
         onCompareExportLabelsTextChange={noop}
         compareExportEmbedMetadata
@@ -156,6 +170,7 @@ describe('inspector metadata section rendering', () => {
     )
 
     expect(html).toContain('Side-by-side view supports exactly 2 selections (selected 3).')
+    expect(html).toContain('Open metadata compare in the inspector.')
     expect(html).not.toContain('Comparison export for more than 2 selections is unavailable on this server.')
     expect(html).toContain('Label for image 1')
     expect((html.match(/disabled=\"\"/g) ?? [])).toHaveLength(1)

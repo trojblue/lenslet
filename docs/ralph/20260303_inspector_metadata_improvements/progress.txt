@@ -79,3 +79,27 @@ Blockers:
 
 Next step:
 - Stabilize multi-select behavior in Playwright smoke harness, then implement and validate Sprint 2 `T8` reorder-reload persistence path.
+
+## Iteration 3 - 2026-03-03T18:56:02Z
+
+Completed task IDs:
+- T8
+
+Files changed:
+- scripts/gui_smoke_acceptance.py
+- docs/20260303_inspector_metadata_improvements_execution_plan.md
+- docs/ralph/20260303_inspector_metadata_improvements/progress.txt
+
+Validations run:
+- `python scripts/gui_smoke_acceptance.py` -> pass (reorder persistence path now covered; summary reports `inspector_default_order=[overview, metadata, basics, notes]`, `inspector_reordered_order=[overview, basics, metadata, notes]`, `inspector_reloaded_order=[overview, basics, metadata, notes]`, `inspector_reorder_persisted=true`).
+- `python scripts/lint_repo.py` -> pass.
+
+Blockers:
+- None.
+
+Next step:
+- Start Sprint 3 task sequence (`T9`..`T12`) for metadata-compare state ownership split and autoload-triggered compare behavior.
+
+### Iteration 3 Validation Addendum - 2026-03-03T18:57:27Z
+- `python scripts/gui_smoke_acceptance.py` rerun -> pass (same reorder persistence outcomes).
+- `python scripts/lint_repo.py` rerun -> pass.

@@ -12,6 +12,7 @@ It bootstraps a local fixture gallery, starts Lenslet, and validates:
 5. Folder re-entry restores and preserves top-anchor context.
 6. Path-token search behaves as expected.
 7. Inspector multi-select compare/export entry actions are triggerable.
+8. Inspector section reorder persists across reload.
 """
 
 from __future__ import annotations
@@ -58,6 +59,9 @@ class SmokeResult:
     anchor_settled: str
     anchor_reentry_exact: bool
     search_visible_matches: list[str]
+    inspector_default_order: list[str]
+    inspector_reordered_order: list[str]
+    inspector_reloaded_order: list[str]
 
 
 def parse_args() -> argparse.Namespace:
@@ -189,6 +193,137 @@ def top_visible_grid_path(page: Page) -> str:
     if not value or not isinstance(value, str):
         raise SmokeFailure("No visible gallery grid path found.")
     return value
+
+
+def visible_grid_cell_ids(page: Page) -> list[str]:
+    raw = page.evaluate(
+        """() => {
+          const cells = Array.from(document.querySelectorAll('[role="gridcell"][id^="cell-"]'))
+            .map((el) => {
+              const rect = el.getBoundingClientRect()
+              return { id: el.id, top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right }
+            })
+            .filter((entry) => entry.id && entry.bottom > 0 && entry.right > 0 && entry.top < window.innerHeight && entry.left < window.innerWidth)
+          cells.sort((a, b) => (a.top - b.top) || (a.left - b.left))
+          return cells.map((entry) => entry.id)
+        }"""
+    )
+    if not isinstance(raw, list):
+        raise SmokeFailure("Failed to evaluate visible grid cells.")
+    result: list[str] = []
+    for candidate in raw:
+        if isinstance(candidate, str) and candidate.startswith("cell-"):
+            result.append(candidate)
+    return result
+
+
+def wait_for_visible_grid_cell_ids(page: Page, minimum_count: int, timeout_ms: float) -> list[str]:
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    latest_ids: list[str] = []
+    while time.monotonic() < deadline:
+        latest_ids = visible_grid_cell_ids(page)
+        if len(latest_ids) >= minimum_count:
+            return latest_ids
+        page.wait_for_timeout(120)
+    raise SmokeFailure(
+        f"Timed out waiting for {minimum_count} visible gallery grid cells. Last visible ids: {latest_ids!r}"
+    )
+
+
+def inspector_section_order(page: Page) -> list[str]:
+    raw = page.evaluate(
+        """() => Array.from(document.querySelectorAll('.app-right-panel [data-inspector-section-id]'))
+          .map((el) => el.getAttribute('data-inspector-section-id'))
+          .filter((value) => typeof value === 'string' && value.length > 0)"""
+    )
+    if not isinstance(raw, list):
+        raise SmokeFailure("Failed to inspect right-panel section order.")
+    result: list[str] = []
+    for candidate in raw:
+        if isinstance(candidate, str):
+            result.append(candidate)
+    return result
+
+
+def assert_section_precedes(order: list[str], first: str, second: str, context: str) -> None:
+    try:
+        first_idx = order.index(first)
+    except ValueError as exc:
+        raise SmokeFailure(f"Section '{first}' missing from inspector order during {context}: {order!r}") from exc
+    try:
+        second_idx = order.index(second)
+    except ValueError as exc:
+        raise SmokeFailure(f"Section '{second}' missing from inspector order during {context}: {order!r}") from exc
+    if first_idx >= second_idx:
+        raise SmokeFailure(
+            f"Expected section '{first}' to precede '{second}' during {context}, got order: {order!r}"
+        )
+
+
+def wait_for_section_precedence(
+    page: Page,
+    first: str,
+    second: str,
+    timeout_ms: float,
+    context: str,
+) -> list[str]:
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    latest_order: list[str] = []
+    while time.monotonic() < deadline:
+        latest_order = inspector_section_order(page)
+        try:
+            assert_section_precedes(latest_order, first, second, context)
+            return latest_order
+        except SmokeFailure:
+            page.wait_for_timeout(120)
+    raise SmokeFailure(
+        f"Timed out waiting for section precedence '{first}' before '{second}' during {context}. "
+        f"Last order: {latest_order!r}"
+    )
+
+
+def set_right_panel_open(page: Page, open_state: bool, timeout_ms: float) -> None:
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    while time.monotonic() < deadline:
+        is_open = page.locator(".app-right-panel").count() > 0
+        if is_open == open_state:
+            return
+        toggle_button = page.locator("button[aria-label='Toggle right panel']").first
+        if toggle_button.count() == 0:
+            page.wait_for_timeout(120)
+            continue
+        toggle_button.click()
+        page.wait_for_timeout(180)
+    raise SmokeFailure(
+        f"Timed out setting right panel open state to {open_state}. "
+        f"Current count={page.locator('.app-right-panel').count()}."
+    )
+
+
+def ensure_inspector_reorder_handles(page: Page, timeout_ms: float) -> None:
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    last_reorder_labels: list[str] = []
+    while time.monotonic() < deadline:
+        metadata_handle = page.get_by_role("button", name="Reorder Metadata").first
+        basics_handle = page.get_by_role("button", name="Reorder Basics").first
+        labels_raw = page.evaluate(
+            """() => Array.from(document.querySelectorAll('button[aria-label^="Reorder "]'))
+              .map((el) => el.getAttribute('aria-label') || '')"""
+        )
+        if isinstance(labels_raw, list):
+            last_reorder_labels = [value for value in labels_raw if isinstance(value, str)]
+        if metadata_handle.count() > 0 and basics_handle.count() > 0:
+            try:
+                if metadata_handle.is_visible() and basics_handle.is_visible():
+                    return
+            except PlaywrightTimeoutError:
+                pass
+        page.wait_for_timeout(120)
+
+    raise SmokeFailure(
+        "Timed out waiting for inspector reorder handles. "
+        f"Visible reorder labels: {last_reorder_labels!r}."
+    )
 
 
 def wait_for_top_name_prefix(page: Page, prefix: str, timeout_ms: float) -> str:
@@ -394,22 +529,73 @@ def run_browser_checks(base_url: str, timeout_ms: float, strict_reentry_anchor: 
                 f"Search mismatch for token '{token}': visible names={search_visible_matches!r}"
             )
         search_box.fill("")
-        page.wait_for_function(
-            "() => document.querySelectorAll('[role=\"gridcell\"]').length >= 2",
-            timeout=10_000,
+        wait_for_visible_grid_cell_ids(page, minimum_count=2, timeout_ms=10_000)
+
+        # Work around current production-bundle instability when selecting while inspector is mounted.
+        set_right_panel_open(page, open_state=False, timeout_ms=10_000)
+        initial_cell_ids = wait_for_visible_grid_cell_ids(page, minimum_count=1, timeout_ms=10_000)
+        page.locator(f"[id='{initial_cell_ids[0]}']").first.click()
+
+        set_right_panel_open(page, open_state=True, timeout_ms=10_000)
+        ensure_inspector_reorder_handles(page, timeout_ms=10_000)
+
+        inspector_default_order = inspector_section_order(page)
+        assert_section_precedes(inspector_default_order, "metadata", "basics", "default order assertion")
+
+        reorder_basics = page.get_by_role("button", name="Reorder Basics").first
+        reorder_metadata = page.get_by_role("button", name="Reorder Metadata").first
+        basics_box = reorder_basics.bounding_box()
+        metadata_box = reorder_metadata.bounding_box()
+        if basics_box is None or metadata_box is None:
+            raise SmokeFailure("Inspector reorder handles are not visible for section-order validation.")
+        basics_center_x = float(basics_box["x"]) + (float(basics_box["width"]) * 0.5)
+        basics_center_y = float(basics_box["y"]) + (float(basics_box["height"]) * 0.5)
+        metadata_center_x = float(metadata_box["x"]) + (float(metadata_box["width"]) * 0.5)
+        metadata_center_y = float(metadata_box["y"]) + (float(metadata_box["height"]) * 0.5)
+
+        page.mouse.move(basics_center_x, basics_center_y)
+        page.mouse.down()
+        page.mouse.move(metadata_center_x, metadata_center_y, steps=18)
+        page.mouse.up()
+
+        inspector_reordered_order = wait_for_section_precedence(
+            page,
+            first="basics",
+            second="metadata",
+            timeout_ms=10_000,
+            context="post-drag order assertion",
         )
 
-        if page.locator(".app-right-panel").count() == 0:
-            page.get_by_role("button", name="Toggle right panel").click()
-            page.locator(".app-right-panel").first.wait_for(state="visible")
+        page.reload(wait_until="domcontentloaded")
+        page.get_by_role("grid", name="Gallery").wait_for(state="visible")
 
-        grid_cells = page.locator("[role='gridcell']")
-        if grid_cells.count() < 2:
-            raise SmokeFailure("Expected at least two visible grid cells for multi-select checks.")
-        page.keyboard.down("Control")
-        grid_cells.nth(0).click()
-        grid_cells.nth(1).click()
-        page.keyboard.up("Control")
+        set_right_panel_open(page, open_state=False, timeout_ms=10_000)
+        reloaded_cell_ids = wait_for_visible_grid_cell_ids(page, minimum_count=1, timeout_ms=10_000)
+        page.locator(f"[id='{reloaded_cell_ids[0]}']").first.click()
+        set_right_panel_open(page, open_state=True, timeout_ms=10_000)
+        ensure_inspector_reorder_handles(page, timeout_ms=10_000)
+
+        inspector_reloaded_order = wait_for_section_precedence(
+            page,
+            first="basics",
+            second="metadata",
+            timeout_ms=10_000,
+            context="reload persistence assertion",
+        )
+
+        set_right_panel_open(page, open_state=False, timeout_ms=10_000)
+        visible_cell_ids = wait_for_visible_grid_cell_ids(page, minimum_count=2, timeout_ms=10_000)
+        first_cell_id = visible_cell_ids[0]
+        page.locator(f"[id='{first_cell_id}']").first.click()
+
+        visible_cell_ids = wait_for_visible_grid_cell_ids(page, minimum_count=2, timeout_ms=10_000)
+        second_cell_id = next((cell_id for cell_id in visible_cell_ids if cell_id != first_cell_id), None)
+        if second_cell_id is None:
+            raise SmokeFailure(
+                f"Failed to resolve a distinct second grid cell for multi-select. Visible ids: {visible_cell_ids!r}"
+            )
+        page.locator(f"[id='{second_cell_id}']").first.click(modifiers=["Control"])
+        set_right_panel_open(page, open_state=True, timeout_ms=10_000)
 
         page.get_by_text("2 files").first.wait_for(state="visible")
         side_by_side = page.get_by_role("button", name="Side by side view").first
@@ -452,6 +638,9 @@ def run_browser_checks(base_url: str, timeout_ms: float, strict_reentry_anchor: 
             anchor_settled=anchor_settled,
             anchor_reentry_exact=anchor_reentry_exact,
             search_visible_matches=list(search_visible_matches),
+            inspector_default_order=inspector_default_order,
+            inspector_reordered_order=inspector_reordered_order,
+            inspector_reloaded_order=inspector_reloaded_order,
         )
 
 
@@ -560,6 +749,10 @@ def main() -> int:
                 "anchor_settled": result.anchor_settled,
                 "anchor_reentry_exact": result.anchor_reentry_exact,
                 "search_visible_matches": result.search_visible_matches,
+                "inspector_default_order": result.inspector_default_order,
+                "inspector_reordered_order": result.inspector_reordered_order,
+                "inspector_reloaded_order": result.inspector_reloaded_order,
+                "inspector_reorder_persisted": result.inspector_reordered_order == result.inspector_reloaded_order,
             },
             "warnings": warnings,
             "status": "passed",

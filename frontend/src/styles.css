@@ -1369,6 +1369,12 @@
   gap: 2px;
 }
 
+.theme-settings-menu-divider {
+  height: 1px;
+  margin: 8px 4px;
+  background: var(--border);
+}
+
 .theme-settings-menu-option {
   width: 100%;
   border: none;
@@ -1396,12 +1402,58 @@
   flex: 1;
 }
 
+.theme-settings-menu-option-label-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.theme-settings-menu-option-subtitle {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.25;
+}
+
 .theme-settings-menu-option-swatch {
   width: 11px;
   height: 11px;
   border-radius: 999px;
   border: 1px solid var(--border-subtle);
   flex-shrink: 0;
+}
+
+.theme-settings-menu-toggle {
+  width: 30px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  position: relative;
+  flex-shrink: 0;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.theme-settings-menu-toggle-knob {
+  position: absolute;
+  left: 1px;
+  top: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--text) 92%, white 8%);
+  transition: transform 140ms ease;
+}
+
+.theme-settings-menu-toggle.is-active {
+  background: var(--accent);
+  border-color: color-mix(in oklab, var(--accent) 70%, var(--border) 30%);
+}
+
+.theme-settings-menu-toggle.is-active .theme-settings-menu-toggle-knob {
+  transform: translateX(14px);
+  background: color-mix(in oklab, var(--surface) 94%, white 6%);
 }
 
 /* =================================================================

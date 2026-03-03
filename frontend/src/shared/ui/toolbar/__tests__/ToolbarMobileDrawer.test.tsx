@@ -23,8 +23,10 @@ describe('ToolbarMobileDrawer theme mount', () => {
         uploadBusy={false}
         uploadDisabled={false}
         themePreset="teal"
+        autoloadImageMetadata={false}
         onToggleSortDir={() => {}}
         onThemePresetChange={() => {}}
+        onAutoloadImageMetadataChange={() => {}}
       />,
     )
 

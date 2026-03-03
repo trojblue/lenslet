@@ -19,12 +19,14 @@ export interface ToolbarMobileDrawerProps {
   uploadBusy: boolean
   uploadDisabled: boolean
   themePreset: ThemePresetId
+  autoloadImageMetadata: boolean
   onViewMode?: (value: ViewMode) => void
   onSortChange?: (value: string) => void
   onToggleSortDir: () => void
   onToggleMultiSelectMode?: () => void
   onUploadClick?: () => void
   onThemePresetChange: (themeId: ThemePresetId) => void
+  onAutoloadImageMetadataChange: (enabled: boolean) => void
 }
 
 export default function ToolbarMobileDrawer({
@@ -41,12 +43,14 @@ export default function ToolbarMobileDrawer({
   uploadBusy,
   uploadDisabled,
   themePreset,
+  autoloadImageMetadata,
   onViewMode,
   onSortChange,
   onToggleSortDir,
   onToggleMultiSelectMode,
   onUploadClick,
   onThemePresetChange,
+  onAutoloadImageMetadataChange,
 }: ToolbarMobileDrawerProps): JSX.Element {
   return (
     <div className="mobile-drawer">
@@ -100,6 +104,8 @@ export default function ToolbarMobileDrawer({
           value={themePreset}
           onChange={onThemePresetChange}
           placement="mobile"
+          autoloadImageMetadata={autoloadImageMetadata}
+          onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
         />
         {onUploadClick && (
           <button

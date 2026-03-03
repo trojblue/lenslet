@@ -94,6 +94,7 @@ const STORAGE_KEYS = {
   gridItemSize: 'gridItemSize',
   leftOpen: 'leftOpen',
   rightOpen: 'rightOpen',
+  autoloadImageMetadata: 'autoloadImageMetadata',
 } as const
 
 const INDEXING_MODE_STORAGE_KEYS = {
@@ -179,6 +180,7 @@ export default function AppShell({
   const [themePreset, setThemePreset] = useState<ThemePresetId>(() => (
     loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode)
   ))
+  const [autoloadImageMetadata, setAutoloadImageMetadata] = useState(false)
   const [scanStableMode, setScanStableMode] = useState(false)
   
   // Local optimistic updates for star ratings
@@ -791,6 +793,7 @@ export default function AppShell({
       const storedGridSize = localStorage.getItem(STORAGE_KEYS.gridItemSize)
       const storedLeftOpen = localStorage.getItem(STORAGE_KEYS.leftOpen)
       const storedRightOpen = localStorage.getItem(STORAGE_KEYS.rightOpen)
+      const storedAutoloadImageMetadata = localStorage.getItem(STORAGE_KEYS.autoloadImageMetadata)
 
       const parseSortSpec = (raw: string | null): SortSpec | null => {
         if (!raw) return null
@@ -853,6 +856,9 @@ export default function AppShell({
       }
       if (storedLeftOpen === '0' || storedLeftOpen === 'false') setLeftOpen(false)
       if (storedRightOpen === '0' || storedRightOpen === 'false') setRightOpen(false)
+      if (storedAutoloadImageMetadata === '1' || storedAutoloadImageMetadata === 'true') {
+        setAutoloadImageMetadata(true)
+      }
     } catch {
       // Ignore localStorage errors (private browsing, etc.)
     }
@@ -915,10 +921,11 @@ export default function AppShell({
       localStorage.setItem(STORAGE_KEYS.gridItemSize, String(gridItemSize))
       localStorage.setItem(STORAGE_KEYS.leftOpen, leftOpen ? '1' : '0')
       localStorage.setItem(STORAGE_KEYS.rightOpen, rightOpen ? '1' : '0')
+      localStorage.setItem(STORAGE_KEYS.autoloadImageMetadata, autoloadImageMetadata ? '1' : '0')
     } catch {
       // Ignore localStorage errors
     }
-  }, [viewState, viewMode, gridItemSize, leftOpen, rightOpen])
+  }, [viewState, viewMode, gridItemSize, leftOpen, rightOpen, autoloadImageMetadata])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1205,6 +1212,8 @@ export default function AppShell({
         uploadDisabled={compareOpen}
         themePreset={themePreset}
         onThemePresetChange={handleThemePresetChange}
+        autoloadImageMetadata={autoloadImageMetadata}
+        onAutoloadImageMetadataChange={setAutoloadImageMetadata}
         multiSelectMode={mobileSelectMode}
         selectedCount={selectedPaths.length}
         onToggleMultiSelectMode={mobileSelectEnabled ? (() => setMobileSelectMode((prev) => !prev)) : undefined}
@@ -1265,6 +1274,8 @@ export default function AppShell({
           onResize={onResizeLeft}
           themePreset={themePreset}
           onThemePresetChange={handleThemePresetChange}
+          autoloadImageMetadata={autoloadImageMetadata}
+          onAutoloadImageMetadataChange={setAutoloadImageMetadata}
         />
       )}
       <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>
@@ -1389,6 +1400,7 @@ export default function AppShell({
           compareExportSupportsV2={compareExportCapability.supportsV2}
           compareExportMaxPathsV2={compareExportCapability.maxPathsV2}
           compareExportMaxPathsV2Gif={compareExportCapability.maxPathsV2Gif}
+          autoloadImageMetadata={autoloadImageMetadata}
           onLocalTypingChange={setLocalTypingActive}
         />
       )}

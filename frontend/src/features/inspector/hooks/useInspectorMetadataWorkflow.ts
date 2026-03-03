@@ -15,6 +15,7 @@ type UseInspectorMetadataWorkflowParams = {
   compareExportSupportsV2: boolean
   compareExportMaxPathsV2: number | null
   compareExportMaxPathsV2Gif: number | null
+  autoloadMetadata: boolean
 }
 
 type UseInspectorMetadataWorkflowResult = {
@@ -60,10 +61,12 @@ export function useInspectorMetadataWorkflow({
   compareExportSupportsV2,
   compareExportMaxPathsV2,
   compareExportMaxPathsV2Gif,
+  autoloadMetadata,
 }: UseInspectorMetadataWorkflowParams): UseInspectorMetadataWorkflowResult {
   const singleMetadata = useInspectorSingleMetadata({
     path,
     sidecarUpdatedAt,
+    autoloadMetadata,
   })
 
   const compareMetadata = useInspectorCompareMetadata({

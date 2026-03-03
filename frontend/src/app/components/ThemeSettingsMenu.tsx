@@ -9,6 +9,8 @@ type ThemeSettingsMenuProps = {
   value: ThemePresetId
   onChange: (themeId: ThemePresetId) => void
   placement: ThemeSettingsMenuPlacement
+  autoloadImageMetadata?: boolean
+  onAutoloadImageMetadataChange?: (enabled: boolean) => void
 }
 
 type ThemeMenuOption = {
@@ -107,6 +109,8 @@ export default function ThemeSettingsMenu({
   value,
   onChange,
   placement,
+  autoloadImageMetadata = false,
+  onAutoloadImageMetadataChange,
 }: ThemeSettingsMenuProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -114,6 +118,7 @@ export default function ThemeSettingsMenu({
   const [panelPosition, setPanelPosition] = useState<ThemeMenuPanelPosition>(getInitialPanelPosition)
   const selectedThemeId = resolveThemeMenuSelection(value)
   const selectedTheme = THEME_PRESETS[selectedThemeId]
+  const supportsInspectorAutoloadSetting = typeof onAutoloadImageMetadataChange === 'function'
   const updatePanelPosition = useCallback(() => {
     if (!open || typeof window === 'undefined') return
     const rootElement = rootRef.current
@@ -224,6 +229,32 @@ export default function ThemeSettingsMenu({
           )
         })}
       </div>
+      {supportsInspectorAutoloadSetting && (
+        <>
+          <div className="theme-settings-menu-divider" />
+          <div className="theme-settings-menu-header">Inspector</div>
+          <div className="theme-settings-menu-options">
+            <button
+              type="button"
+              className={`theme-settings-menu-option theme-settings-menu-option-toggle ${autoloadImageMetadata ? 'is-active' : ''}`}
+              role="menuitemcheckbox"
+              aria-checked={autoloadImageMetadata}
+              onClick={() => onAutoloadImageMetadataChange?.(!autoloadImageMetadata)}
+            >
+              <span className="theme-settings-menu-option-label-group">
+                <span className="theme-settings-menu-option-label">Autoload image metadata</span>
+                <span className="theme-settings-menu-option-subtitle">Load PNG metadata when selecting an image</span>
+              </span>
+              <span
+                className={`theme-settings-menu-toggle ${autoloadImageMetadata ? 'is-active' : ''}`}
+                aria-hidden="true"
+              >
+                <span className="theme-settings-menu-toggle-knob" />
+              </span>
+            </button>
+          </div>
+        </>
+      )}
     </div>
   ) : null
 

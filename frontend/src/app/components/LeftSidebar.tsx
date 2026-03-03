@@ -34,6 +34,8 @@ type LeftSidebarProps = {
   onResize: (event: PointerEvent<HTMLDivElement>) => void
   themePreset: ThemePresetId
   onThemePresetChange: (themeId: ThemePresetId) => void
+  autoloadImageMetadata: boolean
+  onAutoloadImageMetadataChange: (enabled: boolean) => void
 }
 
 const ROOTS = [{ label: 'Root', path: '/' }]
@@ -74,6 +76,8 @@ export default function LeftSidebar({
   onResize,
   themePreset,
   onThemePresetChange,
+  autoloadImageMetadata,
+  onAutoloadImageMetadataChange,
 }: LeftSidebarProps): JSX.Element {
   const folderButtonClass = getSidebarIconButtonClass(leftTool === 'folders')
   const metricsButtonClass = getSidebarIconButtonClass(leftTool === 'metrics')
@@ -140,6 +144,8 @@ export default function LeftSidebar({
           value={themePreset}
           onChange={onThemePresetChange}
           placement="sidebar"
+          autoloadImageMetadata={autoloadImageMetadata}
+          onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
         />
       </div>
       <div className="ml-12 h-full overflow-hidden">

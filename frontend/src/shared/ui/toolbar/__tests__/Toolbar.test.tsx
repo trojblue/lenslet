@@ -31,6 +31,8 @@ describe('Toolbar refresh trigger', () => {
         refreshEnabled
         themePreset="teal"
         onThemePresetChange={() => {}}
+        autoloadImageMetadata={false}
+        onAutoloadImageMetadataChange={() => {}}
       />,
     )
 
@@ -47,6 +49,8 @@ describe('Toolbar refresh trigger', () => {
         refreshDisabledReason="Refresh unavailable in static mode"
         themePreset="teal"
         onThemePresetChange={() => {}}
+        autoloadImageMetadata={false}
+        onAutoloadImageMetadataChange={() => {}}
       />,
     )
 

@@ -10,6 +10,7 @@ import type { MetadataRecord, MetadataState } from './useInspectorMetadataTypes'
 type UseInspectorSingleMetadataParams = {
   path: string | null
   sidecarUpdatedAt: string | undefined
+  autoloadMetadata: boolean
 }
 
 type UseInspectorSingleMetadataResult = {
@@ -25,6 +26,7 @@ type UseInspectorSingleMetadataResult = {
 export function useInspectorSingleMetadata({
   path,
   sidecarUpdatedAt,
+  autoloadMetadata,
 }: UseInspectorSingleMetadataParams): UseInspectorSingleMetadataResult {
   const [metaRaw, setMetaRaw] = useState<MetadataRecord>(null)
   const [metaError, setMetaError] = useState<string | null>(null)
@@ -83,6 +85,11 @@ export function useInspectorSingleMetadata({
       setMetaState('error')
     }
   }, [path, sidecarUpdatedAt])
+
+  useEffect(() => {
+    if (!autoloadMetadata || !path) return
+    void fetchMetadata()
+  }, [autoloadMetadata, path, metadataContextKey, fetchMetadata])
 
   return {
     metaRaw,

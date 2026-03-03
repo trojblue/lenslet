@@ -53,6 +53,8 @@ export interface ToolbarProps {
   uploadDisabled?: boolean
   themePreset: ThemePresetId
   onThemePresetChange: (themeId: ThemePresetId) => void
+  autoloadImageMetadata: boolean
+  onAutoloadImageMetadataChange: (enabled: boolean) => void
   multiSelectMode?: boolean
   selectedCount?: number
   onToggleMultiSelectMode?: () => void
@@ -103,6 +105,8 @@ export default function Toolbar({
   uploadDisabled = false,
   themePreset,
   onThemePresetChange,
+  autoloadImageMetadata,
+  onAutoloadImageMetadataChange,
   multiSelectMode = false,
   selectedCount = 0,
   onToggleMultiSelectMode,
@@ -285,6 +289,24 @@ export default function Toolbar({
               onClearFilters={onClearFilters}
               onClearStars={onClearStars}
             />
+            {!viewerActive && (
+              <button
+                className={`btn btn-icon ml-1 ${refreshButtonDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title={refreshButtonTitle}
+                onClick={() => {
+                  if (refreshButtonDisabled) return
+                  onRefreshRoot?.()
+                }}
+                aria-label="Refresh root folder"
+                aria-disabled={refreshButtonDisabled}
+                disabled={refreshButtonDisabled}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -381,24 +403,6 @@ export default function Toolbar({
               <rect x="3" y="5" width="10" height="14" rx="1.5" />
             </svg>
           </button>
-          {!viewerActive && (
-            <button
-              className={`btn btn-icon ${refreshButtonDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-              title={refreshButtonTitle}
-              onClick={() => {
-                if (refreshButtonDisabled) return
-                onRefreshRoot?.()
-              }}
-              aria-label="Refresh root folder"
-              aria-disabled={refreshButtonDisabled}
-              disabled={refreshButtonDisabled}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-                <path d="M21 3v6h-6" />
-              </svg>
-            </button>
-          )}
         </div>
         {!viewerActive && onUploadClick && (
           <button
@@ -476,12 +480,14 @@ export default function Toolbar({
           uploadBusy={uploadBusy}
           uploadDisabled={uploadDisabled}
           themePreset={themePreset}
+          autoloadImageMetadata={autoloadImageMetadata}
           onViewMode={onViewMode}
           onSortChange={(value) => onSortChange?.(parseSort(value, effectiveSort))}
           onToggleSortDir={handleSortDirToggle}
           onToggleMultiSelectMode={onToggleMultiSelectMode}
           onUploadClick={onUploadClick}
           onThemePresetChange={onThemePresetChange}
+          onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
         />
       )}
     </div>

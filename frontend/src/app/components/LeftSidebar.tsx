@@ -7,6 +7,7 @@ import ThemeSettingsMenu from './ThemeSettingsMenu'
 
 type LeftSidebarProps = {
   leftTool: 'folders' | 'metrics'
+  contentOpen: boolean
   onToolChange: (tool: 'folders' | 'metrics') => void
   compareEnabled: boolean
   compareActive: boolean
@@ -49,6 +50,7 @@ function getSidebarIconButtonClass(active: boolean): string {
 
 export default function LeftSidebar({
   leftTool,
+  contentOpen,
   onToolChange,
   compareEnabled,
   compareActive,
@@ -85,7 +87,10 @@ export default function LeftSidebar({
   const githubButtonClass = `${getSidebarIconButtonClass(false)} cursor-pointer`
 
   return (
-    <div className="app-left-panel col-start-1 row-start-2 relative border-r border-border bg-panel overflow-visible">
+    <div
+      className="app-left-panel col-start-1 row-start-2 relative border-r border-border bg-panel overflow-visible"
+      data-left-content-open={contentOpen ? 'true' : 'false'}
+    >
       <div className="absolute inset-y-0 left-0 w-12 border-r border-border flex flex-col items-center gap-2 py-3 bg-surface-overlay">
         <button
           className={folderButtonClass}
@@ -148,70 +153,74 @@ export default function LeftSidebar({
           onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
         />
       </div>
-      <div className="ml-12 h-full overflow-hidden">
-        {leftTool === 'folders' ? (
-          <div className="h-full flex flex-col">
-            <div className="px-2 py-2 border-b border-border">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted">Smart Folders</div>
-                <button
-                  className="btn btn-sm btn-ghost text-xs"
-                  onClick={onSaveView}
-                  title="Save current view as Smart Folder"
-                >
-                  + New
-                </button>
-              </div>
-              {views.length ? (
-                <div className="flex flex-col gap-1">
-                  {views.map((view) => {
-                    const active = view.id === activeViewId
-                    return (
-                      <button
-                        key={view.id}
-                        className={`text-left px-2 py-2 rounded-md text-sm ${active ? 'bg-accent-muted text-accent' : 'hover:bg-hover text-text'}`}
-                        onClick={() => onActivateView(view)}
-                      >
-                        {view.name}
-                      </button>
-                    )
-                  })}
+      {contentOpen && (
+        <>
+          <div className="ml-12 h-full overflow-hidden">
+            {leftTool === 'folders' ? (
+              <div className="h-full flex flex-col">
+                <div className="px-2 py-2 border-b border-border">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[11px] uppercase tracking-wide text-muted">Smart Folders</div>
+                    <button
+                      className="btn btn-sm btn-ghost text-xs"
+                      onClick={onSaveView}
+                      title="Save current view as Smart Folder"
+                    >
+                      + New
+                    </button>
+                  </div>
+                  {views.length ? (
+                    <div className="flex flex-col gap-1">
+                      {views.map((view) => {
+                        const active = view.id === activeViewId
+                        return (
+                          <button
+                            key={view.id}
+                            className={`text-left px-2 py-2 rounded-md text-sm ${active ? 'bg-accent-muted text-accent' : 'hover:bg-hover text-text'}`}
+                            onClick={() => onActivateView(view)}
+                          >
+                            {view.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted px-1 py-1.5">No saved Smart Folders yet.</div>
+                  )}
                 </div>
-              ) : (
-                <div className="text-xs text-muted px-1 py-1.5">No saved Smart Folders yet.</div>
-              )}
-            </div>
-            <FolderTree
-              current={current}
-              roots={ROOTS}
-              data={data}
-              onOpen={onOpenFolder}
-              onPullRefresh={onPullRefreshFolders}
-              onContextMenu={onContextMenu}
-              onOpenActions={onOpenFolderActions}
-              countVersion={countVersion}
-              className="flex-1 min-h-0 overflow-auto scrollbar-thin"
-              showResizeHandle={false}
-            />
+                <FolderTree
+                  current={current}
+                  roots={ROOTS}
+                  data={data}
+                  onOpen={onOpenFolder}
+                  onPullRefresh={onPullRefreshFolders}
+                  onContextMenu={onContextMenu}
+                  onOpenActions={onOpenFolderActions}
+                  countVersion={countVersion}
+                  className="flex-1 min-h-0 overflow-auto scrollbar-thin"
+                  showResizeHandle={false}
+                />
+              </div>
+            ) : (
+              <MetricsPanel
+                items={items}
+                filteredItems={filteredItems}
+                metricKeys={metricKeys}
+                selectedItems={selectedItems}
+                selectedMetric={selectedMetric}
+                onSelectMetric={onSelectMetric}
+                filters={filters}
+                onChangeRange={onChangeRange}
+                onChangeFilters={onChangeFilters}
+              />
+            )}
           </div>
-        ) : (
-          <MetricsPanel
-            items={items}
-            filteredItems={filteredItems}
-            metricKeys={metricKeys}
-            selectedItems={selectedItems}
-            selectedMetric={selectedMetric}
-            onSelectMetric={onSelectMetric}
-            filters={filters}
-            onChangeRange={onChangeRange}
-            onChangeFilters={onChangeFilters}
+          <div
+            className="toolbar-offset sidebar-resize-handle sidebar-resize-handle-left absolute bottom-0"
+            onPointerDown={onResize}
           />
-        )}
-      </div>
-      <div
-        className="toolbar-offset sidebar-resize-handle sidebar-resize-handle-left absolute bottom-0"
-        onPointerDown={onResize}
-      />
+        </>
+      )}
     </div>
   )
 }

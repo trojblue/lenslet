@@ -15,26 +15,40 @@ export const LAYOUT_MEDIA_QUERIES = {
 
 const SIDEBAR_LEFT_MIN = 200
 const SIDEBAR_RIGHT_MIN = 240
-const SIDEBAR_MAX_TABLET = 320
-const SIDEBAR_MAX_MEDIUM = 360
-const SIDEBAR_MAX_DESKTOP_MIN = 420
-const SIDEBAR_MAX_DESKTOP_MAX = 760
+const SIDEBAR_LEFT_MAX_TABLET = 320
+const SIDEBAR_LEFT_MAX_MEDIUM = 360
+const SIDEBAR_LEFT_MAX_DESKTOP_MIN = 420
+const SIDEBAR_LEFT_MAX_DESKTOP_MAX = 760
+const SIDEBAR_RIGHT_MAX_TABLET = 320
+const SIDEBAR_RIGHT_MAX_MEDIUM = 440
+const SIDEBAR_RIGHT_MAX_DESKTOP_MIN = 560
+const SIDEBAR_RIGHT_MAX_DESKTOP_MAX = 900
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
 
-function getSidebarMaxWidth(viewportWidth: number): number {
-  if (viewportWidth <= LAYOUT_BREAKPOINTS.tabletMax) return SIDEBAR_MAX_TABLET
-  if (viewportWidth <= LAYOUT_BREAKPOINTS.mediumMax) return SIDEBAR_MAX_MEDIUM
+function getLeftSidebarMaxWidth(viewportWidth: number): number {
+  if (viewportWidth <= LAYOUT_BREAKPOINTS.tabletMax) return SIDEBAR_LEFT_MAX_TABLET
+  if (viewportWidth <= LAYOUT_BREAKPOINTS.mediumMax) return SIDEBAR_LEFT_MAX_MEDIUM
   return clamp(
     Math.round(viewportWidth * 0.22),
-    SIDEBAR_MAX_DESKTOP_MIN,
-    SIDEBAR_MAX_DESKTOP_MAX,
+    SIDEBAR_LEFT_MAX_DESKTOP_MIN,
+    SIDEBAR_LEFT_MAX_DESKTOP_MAX,
   )
 }
 
-function getMinCenterWidth(viewportWidth: number): number {
+function getRightSidebarMaxWidth(viewportWidth: number): number {
+  if (viewportWidth <= LAYOUT_BREAKPOINTS.tabletMax) return SIDEBAR_RIGHT_MAX_TABLET
+  if (viewportWidth <= LAYOUT_BREAKPOINTS.mediumMax) return SIDEBAR_RIGHT_MAX_MEDIUM
+  return clamp(
+    Math.round(viewportWidth * 0.42),
+    SIDEBAR_RIGHT_MAX_DESKTOP_MIN,
+    SIDEBAR_RIGHT_MAX_DESKTOP_MAX,
+  )
+}
+
+export function getMinCenterWidth(viewportWidth: number): number {
   if (viewportWidth <= LAYOUT_BREAKPOINTS.tabletMax) return 360
   if (viewportWidth <= LAYOUT_BREAKPOINTS.mediumMax) return 420
   return 520
@@ -60,9 +74,10 @@ export function constrainSidebarWidths({
   leftWidth,
   rightWidth,
 }: SidebarConstraintInput): SidebarConstraintResult {
-  const maxSidebar = getSidebarMaxWidth(viewportWidth)
-  let left = leftOpen ? clamp(leftWidth, SIDEBAR_LEFT_MIN, maxSidebar) : 0
-  let right = rightOpen ? clamp(rightWidth, SIDEBAR_RIGHT_MIN, maxSidebar) : 0
+  const leftMaxSidebar = getLeftSidebarMaxWidth(viewportWidth)
+  const rightMaxSidebar = getRightSidebarMaxWidth(viewportWidth)
+  let left = leftOpen ? clamp(leftWidth, SIDEBAR_LEFT_MIN, leftMaxSidebar) : 0
+  let right = rightOpen ? clamp(rightWidth, SIDEBAR_RIGHT_MIN, rightMaxSidebar) : 0
 
   const maxCombined = Math.max(0, viewportWidth - getMinCenterWidth(viewportWidth))
   if (left + right > maxCombined) {

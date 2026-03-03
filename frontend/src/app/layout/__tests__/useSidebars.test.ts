@@ -84,7 +84,7 @@ describe('useSidebars resize and persistence helpers', () => {
         appWidth: 1000,
         rightWidth: 300,
       }),
-    ).toBe(500)
+    ).toBe(340)
   })
 
   it('clamps right resize within min and center-preserving max bounds', () => {
@@ -104,6 +104,17 @@ describe('useSidebars resize and persistence helpers', () => {
         appWidth: 1000,
         leftWidth: 260,
       }),
-    ).toBe(540)
+    ).toBe(380)
+  })
+
+  it('allows wide right inspector drag targets on desktop while preserving center width', () => {
+    expect(
+      clampRightSidebarWidth({
+        clientX: -20,
+        appLeft: 0,
+        appWidth: 1440,
+        leftWidth: 240,
+      }),
+    ).toBe(680)
   })
 })

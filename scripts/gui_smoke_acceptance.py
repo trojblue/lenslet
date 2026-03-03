@@ -7,9 +7,11 @@ It bootstraps a local fixture gallery, starts Lenslet, and validates:
 
 1. Startup indexing banner lifecycle (`running` -> hidden when ready).
 2. Left sidebar scrollbar-lane drag does not trigger resize.
-3. Folder re-entry restores and preserves top-anchor context.
-4. Path-token search behaves as expected.
-5. Inspector multi-select compare/export entry actions are triggerable.
+3. Left panel collapse keeps icon rail visible, supports active-tab toggles, and `Ctrl+B`.
+4. Right inspector resizes to desktop target while preserving center width floor.
+5. Folder re-entry restores and preserves top-anchor context.
+6. Path-token search behaves as expected.
+7. Inspector multi-select compare/export entry actions are triggerable.
 """
 
 from __future__ import annotations
@@ -47,6 +49,10 @@ class SmokeFailure(RuntimeError):
 class SmokeResult:
     indexing_banner_seen: bool
     sidebar_resize_delta_px: float
+    left_collapsed_width_px: float
+    left_hotkey_reopen_width_px: float
+    right_resized_width_px: float
+    center_width_after_right_resize_px: float
     anchor_before: str
     anchor_restored: str
     anchor_settled: str
@@ -225,7 +231,7 @@ def wait_for_stable_top_name(page: Page, prefix: str, timeout_ms: float, stable_
 def run_browser_checks(base_url: str, timeout_ms: float, strict_reentry_anchor: bool) -> SmokeResult:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(viewport={"width": 1720, "height": 980})
+        context = browser.new_context(viewport={"width": 1440, "height": 980})
         page = context.new_page()
         page.set_default_timeout(timeout_ms)
         page.goto(base_url, wait_until="domcontentloaded")
@@ -266,6 +272,88 @@ def run_browser_checks(base_url: str, timeout_ms: float, strict_reentry_anchor: 
             raise SmokeFailure(
                 f"Left sidebar width changed during scrollbar-lane drag: {left_width_before:.2f}px -> "
                 f"{left_width_after:.2f}px."
+            )
+
+        def get_left_panel_state() -> dict[str, Any]:
+            payload = page.evaluate(
+                """() => {
+                  const panel = document.querySelector('.app-left-panel');
+                  if (!panel) return null;
+                  const rect = panel.getBoundingClientRect();
+                  return {
+                    width: rect.width,
+                    contentOpen: panel.getAttribute('data-left-content-open') === 'true',
+                  };
+                }"""
+            )
+            if not isinstance(payload, dict):
+                raise SmokeFailure("Left panel is missing from the desktop layout.")
+            return payload
+
+        page.get_by_role("button", name="Toggle left panel").click()
+        page.wait_for_timeout(150)
+        left_collapsed_state = get_left_panel_state()
+        left_collapsed_width_px = float(left_collapsed_state["width"])
+        if left_collapsed_state["contentOpen"]:
+            raise SmokeFailure("Toolbar left-panel toggle did not collapse left content.")
+        if left_collapsed_width_px < 44.0 or left_collapsed_width_px > 84.0:
+            raise SmokeFailure(
+                "Left icon rail was not preserved at collapsed width: "
+                f"{left_collapsed_width_px:.2f}px."
+            )
+
+        page.get_by_role("button", name="Folders").click()
+        page.wait_for_timeout(150)
+        left_active_tab_open_state = get_left_panel_state()
+        if not left_active_tab_open_state["contentOpen"]:
+            raise SmokeFailure("Clicking active Folder tab did not re-open collapsed left content.")
+
+        page.get_by_role("button", name="Folders").click()
+        page.wait_for_timeout(150)
+        left_active_tab_collapsed_state = get_left_panel_state()
+        if left_active_tab_collapsed_state["contentOpen"]:
+            raise SmokeFailure("Clicking active Folder tab did not collapse left content.")
+
+        page.keyboard.press("Control+B")
+        page.wait_for_timeout(150)
+        left_hotkey_reopen_state = get_left_panel_state()
+        left_hotkey_reopen_width_px = float(left_hotkey_reopen_state["width"])
+        if not left_hotkey_reopen_state["contentOpen"]:
+            raise SmokeFailure("Ctrl+B did not re-open left content from the collapsed icon rail state.")
+        if left_hotkey_reopen_width_px < 200.0:
+            raise SmokeFailure(
+                "Left content panel reopened below expected width floor after Ctrl+B: "
+                f"{left_hotkey_reopen_width_px:.2f}px."
+            )
+
+        right_handle = page.locator(".app-right-panel .sidebar-resize-handle-right").first
+        if right_handle.count() == 0:
+            raise SmokeFailure("Right sidebar resize handle not found for desktop width check.")
+        handle_box = right_handle.bounding_box()
+        if handle_box is None:
+            raise SmokeFailure("Right sidebar resize handle has no visible bounding box.")
+        drag_start_x = float(handle_box["x"]) + max(2.0, float(handle_box["width"]) * 0.5)
+        drag_y = float(handle_box["y"]) + min(float(handle_box["height"]) * 0.6, 220.0)
+        page.mouse.move(drag_start_x, drag_y)
+        page.mouse.down()
+        page.mouse.move(8.0, drag_y, steps=20)
+        page.mouse.up()
+        page.wait_for_timeout(160)
+
+        right_resized_width_px = float(
+            page.eval_on_selector(".app-right-panel", "el => el.getBoundingClientRect().width")
+        )
+        center_width_after_right_resize_px = float(
+            page.eval_on_selector(".grid-shell", "el => el.getBoundingClientRect().width")
+        )
+        if right_resized_width_px < 560.0:
+            raise SmokeFailure(
+                f"Right inspector max width did not reach target at 1440px viewport: {right_resized_width_px:.2f}px."
+            )
+        if center_width_after_right_resize_px < 520.0:
+            raise SmokeFailure(
+                "Center pane width dropped below 520px during right inspector max resize: "
+                f"{center_width_after_right_resize_px:.2f}px."
             )
 
         page.locator("[role='treeitem']", has_text="alpha").first.click()
@@ -355,6 +443,10 @@ def run_browser_checks(base_url: str, timeout_ms: float, strict_reentry_anchor: 
         return SmokeResult(
             indexing_banner_seen=indexing_banner_seen,
             sidebar_resize_delta_px=sidebar_resize_delta_px,
+            left_collapsed_width_px=left_collapsed_width_px,
+            left_hotkey_reopen_width_px=left_hotkey_reopen_width_px,
+            right_resized_width_px=right_resized_width_px,
+            center_width_after_right_resize_px=center_width_after_right_resize_px,
             anchor_before=anchor_before,
             anchor_restored=anchor_restored,
             anchor_settled=anchor_settled,
@@ -459,6 +551,10 @@ def main() -> int:
                 "indexing_banner_seen": result.indexing_banner_seen,
                 "indexing_lifecycle_proof": indexing_lifecycle_proof,
                 "sidebar_resize_delta_px": result.sidebar_resize_delta_px,
+                "left_collapsed_width_px": result.left_collapsed_width_px,
+                "left_hotkey_reopen_width_px": result.left_hotkey_reopen_width_px,
+                "right_resized_width_px": result.right_resized_width_px,
+                "center_width_after_right_resize_px": result.center_width_after_right_resize_px,
                 "anchor_before": result.anchor_before,
                 "anchor_restored": result.anchor_restored,
                 "anchor_settled": result.anchor_settled,

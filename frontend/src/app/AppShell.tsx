@@ -29,6 +29,12 @@ import {
   setWidthCompareFilter,
 } from '../features/browse/model/filters'
 import { useSidebars } from './layout/useSidebars'
+import {
+  resolveLeftColumnLayout,
+  resolveLeftToolToggle,
+  resolveSidebarHotkeyToggle,
+  toggleLeftPanelContent,
+} from './layout/sidebarLayout'
 import { useQueryClient } from '@tanstack/react-query'
 import type { FilterAST, HealthMode, Item, SavedView, SortSpec, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, EmbeddingSearchRequest } from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
@@ -292,6 +298,9 @@ export default function AppShell({
   })
   const syncHashImageSelectionRef = useLatestRef(syncHashImageSelection)
   const bumpRestoreGridToSelectionTokenRef = useLatestRef(bumpRestoreGridToSelectionToken)
+  const leftOpenRef = useLatestRef(leftOpen)
+  const rightOpenRef = useLatestRef(rightOpen)
+  const leftToolRef = useLatestRef(leftTool)
   // Initialize current folder from URL hash and keep in sync.
   useEffect(() => {
     const applyHash = (raw: string) => {
@@ -715,6 +724,16 @@ export default function AppShell({
     setLeftTool('metrics')
   }, [])
 
+  const handleLeftToolChange = useCallback((nextTool: 'folders' | 'metrics') => {
+    const nextState = resolveLeftToolToggle({
+      activeTool: leftToolRef.current,
+      contentOpen: leftOpenRef.current,
+      clickedTool: nextTool,
+    })
+    setLeftTool(nextState.nextTool)
+    setLeftOpen(nextState.contentOpen)
+  }, [leftOpenRef, leftToolRef])
+
   const handleSortChange = useCallback((next: SortSpec) => {
     setViewState((prev) => ({ ...prev, sort: next }))
     if (next.kind === 'builtin' && next.key === 'random') {
@@ -1112,8 +1131,13 @@ export default function AppShell({
       // Toggle sidebars
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault()
-        if (e.altKey) setRightOpen((v) => !v)
-        else setLeftOpen((v) => !v)
+        const next = resolveSidebarHotkeyToggle({
+          leftContentOpen: leftOpenRef.current,
+          rightOpen: rightOpenRef.current,
+          altKey: e.altKey,
+        })
+        setLeftOpen(next.leftContentOpen)
+        setRightOpen(next.rightOpen)
         return
       }
 
@@ -1145,7 +1169,7 @@ export default function AppShell({
     
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [keyboardStateRef, setSelectedPaths])
+  }, [keyboardStateRef, leftOpenRef, rightOpenRef, setSelectedPaths])
 
   const constrainedSidebars = useMemo(() => constrainSidebarWidths({
     viewportWidth,
@@ -1155,7 +1179,13 @@ export default function AppShell({
     rightWidth: rightW,
   }), [viewportWidth, leftOpen, rightOpen, leftW, rightW])
 
-  const leftCol = leftOpen ? `${constrainedSidebars.leftWidth}px` : '0px'
+  const leftColumnLayout = useMemo(() => resolveLeftColumnLayout({
+    isNarrowViewport,
+    contentOpen: leftOpen,
+    contentWidth: constrainedSidebars.leftWidth,
+  }), [isNarrowViewport, leftOpen, constrainedSidebars.leftWidth])
+
+  const leftCol = `${leftColumnLayout.columnWidth}px`
   const rightCol = rightOpen ? `${constrainedSidebars.rightWidth}px` : '0px'
 
   return (
@@ -1194,7 +1224,7 @@ export default function AppShell({
         onGridItemSize={setGridItemSize}
         leftOpen={leftOpen}
         rightOpen={rightOpen}
-        onToggleLeft={()=> setLeftOpen(v=>!v)}
+        onToggleLeft={() => setLeftOpen((v) => toggleLeftPanelContent(v))}
         onToggleRight={()=> setRightOpen(v=>!v)}
         onRefreshRoot={handleHeaderRefresh}
         refreshEnabled={refreshEnabled}
@@ -1235,10 +1265,11 @@ export default function AppShell({
         className="sr-only"
         onChange={handleUploadInputChange}
       />
-      {leftOpen && (
+      {leftColumnLayout.railVisible && (
         <LeftSidebar
           leftTool={leftTool}
-          onToolChange={setLeftTool}
+          contentOpen={leftOpen}
+          onToolChange={handleLeftToolChange}
           compareEnabled={compareEnabled}
           compareActive={compareOpen}
           onOpenCompare={openCompare}

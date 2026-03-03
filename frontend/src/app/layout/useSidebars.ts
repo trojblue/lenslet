@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { getMinCenterWidth } from '../../lib/breakpoints'
 
 export const SIDEBAR_STORAGE_KEYS = {
   leftFolders: 'leftW.folders',
@@ -12,7 +13,6 @@ type SidebarStorageKey = (typeof SIDEBAR_STORAGE_KEYS)[keyof typeof SIDEBAR_STOR
 
 const LEFT_MIN_WIDTH = 200
 const RIGHT_MIN_WIDTH = 240
-const MIN_CENTER_WIDTH = 200
 
 function isPositiveFiniteNumber(value: number): boolean {
   return Number.isFinite(value) && value > 0
@@ -63,7 +63,8 @@ export function clampLeftSidebarWidth({
   rightWidth: number
 }): number {
   const x = clientX - appLeft
-  const max = Math.max(LEFT_MIN_WIDTH, appWidth - rightWidth - MIN_CENTER_WIDTH)
+  const minCenterWidth = getMinCenterWidth(appWidth)
+  const max = Math.max(LEFT_MIN_WIDTH, appWidth - rightWidth - minCenterWidth)
   return clamp(x, LEFT_MIN_WIDTH, max)
 }
 
@@ -80,7 +81,8 @@ export function clampRightSidebarWidth({
 }): number {
   const x = clientX - appLeft
   const fromRight = appWidth - x
-  const max = Math.max(RIGHT_MIN_WIDTH, appWidth - leftWidth - MIN_CENTER_WIDTH)
+  const minCenterWidth = getMinCenterWidth(appWidth)
+  const max = Math.max(RIGHT_MIN_WIDTH, appWidth - leftWidth - minCenterWidth)
   return clamp(fromRight, RIGHT_MIN_WIDTH, max)
 }
 

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../../features/ratings/services/exportRatings'
+import { FIND_SIMILAR_SELECT_SINGLE_REASON } from '../../features/inspector/model/findSimilarAvailability'
 import { api } from '../../shared/api/client'
 import type { ContextMenuState, Item } from '../../lib/types'
 import ContextMenu, { type MenuItem } from './ContextMenu'
@@ -16,11 +17,15 @@ interface AppContextMenuItemsProps {
   onRefetch: () => Promise<unknown>
   onOpenMoveDialog: (paths: string[]) => void
   onRefreshFolder: (path: string) => Promise<void>
+  canFindSimilar?: boolean
+  findSimilarDisabledReason?: string | null
+  onFindSimilar?: (path: string) => void
 }
 
 type ExportFormat = 'csv' | 'json'
 
 export const REFRESH_UNAVAILABLE_LABEL = 'Refresh unavailable in current mode'
+export const FIND_SIMILAR_UNAVAILABLE_LABEL = 'Find similar unavailable'
 
 type RefreshMenuItemParams = {
   refreshing: boolean
@@ -42,6 +47,36 @@ export function buildRefreshMenuItem({
     label,
     disabled: !refreshEnabled || refreshing,
     onClick: onRefresh,
+  }
+}
+
+type FindSimilarMenuItemParams = {
+  selectedPaths: string[]
+  canFindSimilar: boolean
+  findSimilarDisabledReason?: string | null
+  onFindSimilar?: (path: string) => void
+}
+
+export function buildFindSimilarMenuItem({
+  selectedPaths,
+  canFindSimilar,
+  findSimilarDisabledReason,
+  onFindSimilar,
+}: FindSimilarMenuItemParams): MenuItem | null {
+  if (!onFindSimilar) return null
+  const hasSingleSelection = selectedPaths.length === 1
+  const path = hasSingleSelection ? selectedPaths[0] : null
+  const disabledReason = hasSingleSelection
+    ? (findSimilarDisabledReason || FIND_SIMILAR_UNAVAILABLE_LABEL)
+    : (findSimilarDisabledReason || FIND_SIMILAR_SELECT_SINGLE_REASON)
+  const enabled = hasSingleSelection && canFindSimilar && !!path
+  return {
+    label: enabled ? 'Find similar' : disabledReason,
+    disabled: !enabled,
+    onClick: () => {
+      if (!enabled || !path) return
+      onFindSimilar(path)
+    },
   }
 }
 
@@ -73,6 +108,9 @@ export default function AppContextMenuItems({
   onRefetch,
   onOpenMoveDialog,
   onRefreshFolder,
+  canFindSimilar = false,
+  findSimilarDisabledReason = null,
+  onFindSimilar,
 }: AppContextMenuItemsProps): JSX.Element {
   const inTrash = isTrashPath(current)
   const [refreshing, setRefreshing] = useState(false)
@@ -216,6 +254,14 @@ export default function AppContextMenuItems({
         selectedPaths,
         inTrash,
         exporting,
+        canFindSimilar,
+        findSimilarDisabledReason,
+        onFindSimilar: onFindSimilar
+          ? (path: string) => {
+              onFindSimilar(path)
+              closeMenu()
+            }
+          : undefined,
         onDownloadSelection: handleDownloadSelection,
         onMoveSelection: onOpenMoveDialog,
         onMoveToTrash: handleMoveToTrash,
@@ -232,6 +278,9 @@ interface BuildItemMenuItemsArgs {
   selectedPaths: string[]
   inTrash: boolean
   exporting: ExportFormat | null
+  canFindSimilar: boolean
+  findSimilarDisabledReason: string | null
+  onFindSimilar?: (path: string) => void
   onDownloadSelection: () => Promise<void>
   onMoveSelection: (paths: string[]) => void
   onMoveToTrash: () => Promise<void>
@@ -245,6 +294,9 @@ function buildItemMenuItems({
   selectedPaths,
   inTrash,
   exporting,
+  canFindSimilar,
+  findSimilarDisabledReason,
+  onFindSimilar,
   onDownloadSelection,
   onMoveSelection,
   onMoveToTrash,
@@ -254,6 +306,16 @@ function buildItemMenuItems({
   onExportJson,
 }: BuildItemMenuItemsArgs): MenuItem[] {
   const items: MenuItem[] = []
+  const findSimilarItem = buildFindSimilarMenuItem({
+    selectedPaths,
+    canFindSimilar,
+    findSimilarDisabledReason,
+    onFindSimilar,
+  })
+
+  if (findSimilarItem) {
+    items.push(findSimilarItem)
+  }
 
   if (selectedPaths.length) {
     items.push({

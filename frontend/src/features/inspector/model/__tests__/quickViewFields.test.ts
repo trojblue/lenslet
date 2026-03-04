@@ -115,6 +115,14 @@ describe('quick view field model', () => {
         meta: { quick_fields: { parameters: 'steps=20' } },
       }),
     ).toBe(false)
+
+    expect(
+      shouldShowQuickViewSection({
+        multi: false,
+        autoloadMetadata: true,
+        meta: { quick_view_defaults: { prompt: '', model: '', lora: '' } },
+      }),
+    ).toBe(false)
   })
 
   it('builds default and custom quick-view rows from metadata payload', () => {

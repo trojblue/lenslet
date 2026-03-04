@@ -19,6 +19,9 @@ interface BasicsSectionProps {
   open: boolean
   onToggle: () => void
   multi: boolean
+  onFindSimilar?: () => void
+  canFindSimilar: boolean
+  findSimilarDisabledReason: string | null
   star: StarRating | null
   onSelectStar: (value: StarRating) => void
   hasStarConflict: boolean
@@ -45,9 +48,9 @@ interface CopyableInfoValueProps {
 
 function CopyableInfoValue({ copied, value, className = '', title }: CopyableInfoValueProps): JSX.Element {
   return (
-    <span className={`ui-kv-value relative inline-block text-right min-w-[80px] ${className}`.trim()} title={title}>
+    <span className={`ui-kv-value relative block min-w-0 flex-1 text-left ${className}`.trim()} title={title}>
       <span className={copied ? 'invisible block' : 'block'}>{value}</span>
-      {copied && <span className="absolute inset-0 text-right">Copied</span>}
+      {copied && <span className="absolute inset-0 text-left">Copied</span>}
     </span>
   )
 }
@@ -56,6 +59,9 @@ export function BasicsSection({
   open,
   onToggle,
   multi,
+  onFindSimilar,
+  canFindSimilar,
+  findSimilarDisabledReason,
   star,
   onSelectStar,
   hasStarConflict,
@@ -79,6 +85,17 @@ export function BasicsSection({
       onToggle={onToggle}
       sortableId={sortableId}
       sortableEnabled={sortableEnabled}
+      actions={onFindSimilar && (
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={onFindSimilar}
+          disabled={!canFindSimilar}
+          title={findSimilarDisabledReason ?? 'Find similar'}
+        >
+          Find similar
+        </button>
+      )}
     >
       <div className="flex items-center gap-2 text-xs mb-1" role="radiogroup" aria-label="Star rating">
         <span className="ui-kv-label w-16 shrink-0">{multi ? 'Rating (all)' : 'Rating'}</span>
@@ -103,6 +120,9 @@ export function BasicsSection({
           })}
         </div>
       </div>
+      {findSimilarDisabledReason && (
+        <div className="text-[11px] text-muted mb-2">{findSimilarDisabledReason}</div>
+      )}
 
       {hasStarConflict && (
         <div className="ui-banner ui-banner-danger mt-2 text-[11px] flex items-center justify-between gap-2">
@@ -120,36 +140,36 @@ export function BasicsSection({
 
       {!multi && currentItem && (
         <div className="text-[12px] space-y-1.5 leading-relaxed">
-          <div className="ui-kv-row">
+          <div className="ui-kv-row justify-start">
             <span
-              className="ui-kv-label ui-kv-label-action w-20 shrink-0"
+              className="ui-kv-label ui-kv-label-action w-24 shrink-0"
               onClick={() => onCopyInfo('dimensions', `${currentItem.w}×${currentItem.h}`)}
             >
               Dimensions
             </span>
             <CopyableInfoValue copied={copiedField === 'dimensions'} value={`${currentItem.w}×${currentItem.h}`} />
           </div>
-          <div className="ui-kv-row">
+          <div className="ui-kv-row justify-start">
             <span
-              className="ui-kv-label ui-kv-label-action w-20 shrink-0"
+              className="ui-kv-label ui-kv-label-action w-24 shrink-0"
               onClick={() => onCopyInfo('size', fmtBytes(currentItem.size))}
             >
               Size
             </span>
             <CopyableInfoValue copied={copiedField === 'size'} value={fmtBytes(currentItem.size)} />
           </div>
-          <div className="ui-kv-row">
+          <div className="ui-kv-row justify-start">
             <span
-              className="ui-kv-label ui-kv-label-action w-20 shrink-0"
+              className="ui-kv-label ui-kv-label-action w-24 shrink-0"
               onClick={() => onCopyInfo('type', currentItem.type)}
             >
               Type
             </span>
             <CopyableInfoValue copied={copiedField === 'type'} value={currentItem.type} className="break-all" />
           </div>
-          <div className="ui-kv-row">
+          <div className="ui-kv-row justify-start">
             <span
-              className="ui-kv-label ui-kv-label-action w-20 shrink-0"
+              className="ui-kv-label ui-kv-label-action w-24 shrink-0"
               onClick={() => sourceValue && onCopyInfo('source', sourceValue)}
             >
               Source
@@ -157,7 +177,7 @@ export function BasicsSection({
             <CopyableInfoValue
               copied={copiedField === 'source'}
               value={sourceValue}
-              className="inspector-value-clamp break-words max-w-[70%]"
+              className="inspector-value-clamp break-words"
               title={sourceValue}
             />
           </div>
@@ -186,11 +206,11 @@ export function BasicsSection({
                   {show.map(([key, val]) => {
                     const isHighlighted = highlightKey === key
                     return (
-                      <div key={key} className="ui-kv-row">
+                      <div key={key} className="ui-kv-row justify-start">
                         <span className={`w-24 shrink-0 ${isHighlighted ? 'text-accent font-medium' : 'ui-kv-label'}`}>
                           {key}
                         </span>
-                        <span className={`ui-kv-value text-right ${isHighlighted ? 'text-accent font-medium' : ''}`}>
+                        <span className={`ui-kv-value flex-1 text-left ${isHighlighted ? 'text-accent font-medium' : ''}`}>
                           {formatMetricNumber(val)}
                         </span>
                       </div>

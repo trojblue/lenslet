@@ -106,10 +106,10 @@ Sprint plan:
 3. Sprint 3 goal: stabilize inspector autoload transitions and interaction clarity.
    Demo outcome: Quick View reservation behaves deterministically, single-item grouping is simpler, and compare-table copy interactions are reliable.
    Tasks:
-   - `T9` Implement Quick View reservation and stale-response protection in [Inspector.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/Inspector.tsx) and [useInspectorSingleMetadata.ts](/local/yada/dev/lenslet/frontend/src/features/inspector/hooks/useInspectorSingleMetadata.ts), with an out-of-order completion test; validation: no stale Quick View hydration after rapid selection changes.
-   - `T10` Remove single-image `Item` section path in [OverviewSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/OverviewSection.tsx) and [inspectorWidgets.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/inspectorWidgets.tsx), then place filename with thumbnail grouping in [Inspector.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/Inspector.tsx); validation: multi-select behavior remains unchanged.
-   - `T11` Relocate `Find similar` access to [BasicsSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/BasicsSection.tsx) and [AppContextMenuItems.tsx](/local/yada/dev/lenslet/frontend/src/app/menu/AppContextMenuItems.tsx) with disabled-reason parity; validation: action visibility and disabled messaging are preserved in both entry points.
-   - `T12` Apply micro-tweaks in [QuickViewSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/QuickViewSection.tsx), [BasicsSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/BasicsSection.tsx), and [CompareMetadataSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/CompareMetadataSection.tsx) for icon-copy, left alignment, and click-priority over pan; validation: copy clicks win on interactive cells while drag pan remains available on non-interactive gaps.
+   - [x] `T9` Implement Quick View reservation and stale-response protection in [Inspector.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/Inspector.tsx) and [useInspectorSingleMetadata.ts](/local/yada/dev/lenslet/frontend/src/features/inspector/hooks/useInspectorSingleMetadata.ts), with an out-of-order completion test; validation: no stale Quick View hydration after rapid selection changes.
+   - [x] `T10` Remove single-image `Item` section path in [OverviewSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/OverviewSection.tsx) and [inspectorWidgets.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/inspectorWidgets.tsx), then place filename with thumbnail grouping in [Inspector.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/Inspector.tsx); validation: multi-select behavior remains unchanged.
+   - [x] `T11` Relocate `Find similar` access to [BasicsSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/BasicsSection.tsx) and [AppContextMenuItems.tsx](/local/yada/dev/lenslet/frontend/src/app/menu/AppContextMenuItems.tsx) with disabled-reason parity; validation: action visibility and disabled messaging are preserved in both entry points.
+   - [x] `T12` Apply micro-tweaks in [QuickViewSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/QuickViewSection.tsx), [BasicsSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/BasicsSection.tsx), and [CompareMetadataSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/CompareMetadataSection.tsx) for icon-copy, left alignment, and click-priority over pan; validation: copy clicks win on interactive cells while drag pan remains available on non-interactive gaps.
 
 
 ## Interfaces and Dependencies
@@ -143,12 +143,19 @@ Primary acceptance gates (real scenario):
       cd frontend && npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx src/features/inspector/model/__tests__/quickViewFields.test.ts src/app/menu/__tests__/AppContextMenuItems.test.tsx
       python scripts/gui_jitter_probe.py --scenario inspector --max-delta-px 1
    Expected outcome: no stale reservation hydration, section footprint follows reservation rules, and compare-table interactive-cell click-to-copy is reliable while gap drag still pans.
+   Execution result (2026-03-04 19:19 UTC): passed.
+   - `cd frontend && npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx src/features/inspector/model/__tests__/quickViewFields.test.ts src/features/inspector/model/__tests__/findSimilarAvailability.test.ts src/features/inspector/hooks/__tests__/useInspectorSingleMetadata.test.ts src/app/menu/__tests__/AppContextMenuItems.test.tsx` -> passed (31 tests).
+   - `python scripts/gui_jitter_probe.py --scenario inspector --max-delta-px 1 --output-json docs/ralph/20260304_ui_jitter_implementation/inspector_probe_iteration3.json` -> passed (`max_inspector_delta_px=0.828125`) with stale-response and quick-to-plain reservation-clear checks asserted.
 4. Final end-to-end gate after Sprint 3.
    Commands:
       cd frontend && npm run build
       python scripts/lint_repo.py
       python scripts/gui_smoke_acceptance.py
    Expected outcome: build, lint, and GUI smoke checks pass without regressions.
+   Execution result (2026-03-04 19:19 UTC): passed.
+   - `cd frontend && npm run build` -> passed.
+   - `python scripts/lint_repo.py` -> passed (existing file-size warnings only).
+   - `python scripts/gui_smoke_acceptance.py` -> passed.
 
 Secondary acceptance gates (fast proxy):
 1. Run task-scoped unit tests before each task completion and keep failures at zero.
@@ -181,9 +188,13 @@ Rollback path is frontend-only. Revert failing task commit(s), rerun that sprint
 - [x] 2026-03-04 18:36 UTC: Completed `T8` by extending [scripts/gui_jitter_probe.py](/local/yada/dev/lenslet/scripts/gui_jitter_probe.py) with `grid` scenario assertions, deterministic metric-fixture generation, and dynamic metric option detection for user datasets; recorded artifact [docs/ralph/20260304_ui_jitter_implementation/grid_probe_iteration2.json](/local/yada/dev/lenslet/docs/ralph/20260304_ui_jitter_implementation/grid_probe_iteration2.json).
 - [x] 2026-03-04 18:41 UTC: Ran sprint cleanup/review routines (`code-simplifier`, `code-review`) on Sprint 2 diff and fixed the high-severity reservation bug by allowing hidden-band reserve heights to shrink to latest measured height.
 - [x] 2026-03-04 18:43 UTC: Re-ran Sprint 2 acceptance gates (targeted tests, grid jitter probe, large-tree smoke, lint) and confirmed pass.
+- [x] 2026-03-04 19:05 UTC: Completed `T9` and `T12` by adding context-projected single-metadata state, Quick View reservation placeholders with stable geometry, icon-copy controls, compare copy-target gating over pan, and an inspector jitter probe scenario with fixture-backed stale/transition checks in [scripts/gui_jitter_probe.py](/local/yada/dev/lenslet/scripts/gui_jitter_probe.py).
+- [x] 2026-03-04 19:09 UTC: Completed `T10` and `T11` by making overview multi-select only, grouping filename with thumbnail in [Inspector.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/Inspector.tsx), and relocating `Find similar` to [BasicsSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/BasicsSection.tsx) plus [AppContextMenuItems.tsx](/local/yada/dev/lenslet/frontend/src/app/menu/AppContextMenuItems.tsx) using shared disabled-reason logic.
+- [x] 2026-03-04 19:18 UTC: Ran sprint cleanup/review routines (`code-simplifier`, `code-review`), fixed follow-up findings (context-menu close on `Find similar`, canonical compare-path copy payload), and revalidated.
+- [x] 2026-03-04 19:19 UTC: Re-ran Sprint 3 acceptance gates (targeted tests, inspector jitter probe, build, lint, GUI smoke) and confirmed pass.
 - [x] Sprint 1 complete.
 - [x] Sprint 2 complete.
-- [ ] Sprint 3 in progress.
+- [x] Sprint 3 complete.
 
 
 ## Artifacts and Handoff
@@ -202,9 +213,9 @@ Sprint 2 handoff notes:
 3. `hideScrollbar` mode switching is removed from [VirtualGrid.tsx](/local/yada/dev/lenslet/frontend/src/features/browse/components/VirtualGrid.tsx); [MetricScrollbar.tsx](/local/yada/dev/lenslet/frontend/src/features/browse/components/MetricScrollbar.tsx) now renders as slot content.
 4. Grid jitter probe output is captured at [docs/ralph/20260304_ui_jitter_implementation/grid_probe_iteration2.json](/local/yada/dev/lenslet/docs/ralph/20260304_ui_jitter_implementation/grid_probe_iteration2.json); large-tree smoke output refreshed at `data/fixtures/large_tree_40k_smoke_result.json`.
 
-Handoff notes for Sprint 3 operator:
-1. Start at `T9` and keep scope on inspector reservation + interaction clarity only.
-2. Preserve existing probe thresholds (`<=1px`) and keep sprint validation commands unchanged unless Sprint 3 tasks require explicit additions.
-3. Continue sprint-close routine order: task validations, `code-simplifier`, `code-review`, then sprint gate reruns.
+Sprint 3 handoff notes:
+1. Quick View reservation and stale-response protection now run through [useInspectorSingleMetadata.ts](/local/yada/dev/lenslet/frontend/src/features/inspector/hooks/useInspectorSingleMetadata.ts) context projection plus reservation logic in [Inspector.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/Inspector.tsx), with out-of-order projection coverage in [useInspectorSingleMetadata.test.ts](/local/yada/dev/lenslet/frontend/src/features/inspector/hooks/__tests__/useInspectorSingleMetadata.test.ts).
+2. Single-image inspector flow no longer renders Overview; filename is grouped with the thumbnail and `Find similar` lives in [BasicsSection.tsx](/local/yada/dev/lenslet/frontend/src/features/inspector/sections/BasicsSection.tsx) and [AppContextMenuItems.tsx](/local/yada/dev/lenslet/frontend/src/app/menu/AppContextMenuItems.tsx), driven by shared availability logic in [findSimilarAvailability.ts](/local/yada/dev/lenslet/frontend/src/features/inspector/model/findSimilarAvailability.ts).
+3. Inspector jitter probe now supports `--scenario inspector` in [scripts/gui_jitter_probe.py](/local/yada/dev/lenslet/scripts/gui_jitter_probe.py) with artifact [docs/ralph/20260304_ui_jitter_implementation/inspector_probe_iteration3.json](/local/yada/dev/lenslet/docs/ralph/20260304_ui_jitter_implementation/inspector_probe_iteration3.json).
 
 Revision note (2026-03-04 17:24 UTC): incorporated subagent critique by explicitly covering refresh-slot and compare click-vs-pan scope, splitting inspector simplification work into atomic tasks, replacing verification-bundle tasks with sprint-exit gates, and adding measurable `<=1px` jitter thresholds with explicit probe requirements.

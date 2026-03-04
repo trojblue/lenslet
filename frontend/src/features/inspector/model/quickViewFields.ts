@@ -274,7 +274,9 @@ export function shouldShowQuickViewSection({
   meta,
 }: ShouldShowQuickViewSectionParams): boolean {
   if (multi || !autoloadMetadata) return false
-  return readQuickViewDefaults(meta) !== null
+  const defaults = readQuickViewDefaults(meta)
+  if (!defaults) return false
+  return Object.values(defaults).some((value) => value.trim().length > 0)
 }
 
 export function buildQuickViewRows(

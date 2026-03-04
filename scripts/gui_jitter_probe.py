@@ -15,10 +15,11 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 from urllib.error import URLError
 from urllib.request import urlopen
 
-from PIL import Image
+from PIL import Image, PngImagePlugin
 
 
 class SmokeFailure(RuntimeError):
@@ -33,6 +34,7 @@ class ProbeResult:
     max_toolbar_delta_px: float = 0.0
     max_top_stack_delta_px: float = 0.0
     max_grid_width_delta_px: float = 0.0
+    max_inspector_delta_px: float = 0.0
     checks: dict[str, Any] = field(default_factory=dict)
 
 
@@ -40,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run UI jitter probe scenarios.")
     parser.add_argument(
         "--scenario",
-        choices=["toolbar", "grid"],
+        choices=["toolbar", "grid", "inspector"],
         required=True,
         help="Probe scenario to execute.",
     )
@@ -83,14 +85,64 @@ def _build_fixture_dataset(root: Path) -> None:
     payload = _jpeg_payload()
     for idx in range(12):
         _write_image(root / f"sample_{idx:03d}.jpg", payload)
+    _build_inspector_fixture_images(root)
     _write_fixture_items_parquet(root)
     _write_fixture_labels_snapshot(root)
 
 
+def _build_inspector_fixture_images(root: Path) -> None:
+    _write_png_with_metadata(
+        root / "quick_00_meta.png",
+        itxt_chunks={
+            "qfty_meta": json.dumps(
+                {
+                    "prompt": "alpha prompt",
+                    "model": "alpha-model",
+                    "lora": {"alpha-lora.safetensors": 0.8},
+                }
+            )
+        },
+    )
+    _write_png_with_metadata(
+        root / "quick_01_meta.png",
+        itxt_chunks={
+            "qfty_meta": json.dumps(
+                {
+                    "prompt": "beta prompt",
+                    "model": "beta-model",
+                    "lora": {"beta-lora.safetensors": 1.2},
+                }
+            )
+        },
+    )
+    _write_png_with_metadata(
+        root / "quick_02_plain.png",
+        text_chunks={"comment": "no quick-view defaults"},
+    )
+    _write_png_with_metadata(
+        root / "quick_03_meta.png",
+        itxt_chunks={
+            "qfty_meta": json.dumps(
+                {
+                    "prompt": "gamma prompt",
+                    "model": "gamma-model",
+                    "lora": {"gamma-lora.safetensors": 0.6},
+                }
+            )
+        },
+    )
+
+
+def _iter_fixture_image_paths(root: Path) -> list[Path]:
+    allowed = {".jpg", ".jpeg", ".png", ".webp"}
+    paths = [path for path in root.iterdir() if path.is_file() and path.suffix.lower() in allowed]
+    return sorted(paths, key=lambda path: path.name)
+
+
 def _write_fixture_labels_snapshot(root: Path) -> None:
     items: dict[str, Any] = {}
-    for idx in range(12):
-        path = f"/sample_{idx:03d}.jpg"
+    for idx, image_path in enumerate(_iter_fixture_image_paths(root)):
+        path = f"/{image_path.name}"
         score = round((idx % 7) / 7.0, 6)
         items[path] = {
             "tags": [],
@@ -120,8 +172,8 @@ def _write_fixture_items_parquet(root: Path) -> None:
     import pyarrow.parquet as pq
 
     rows: list[dict[str, Any]] = []
-    for idx in range(12):
-        rel_path = f"sample_{idx:03d}.jpg"
+    for idx, image_path in enumerate(_iter_fixture_image_paths(root)):
+        rel_path = image_path.name
         score = round((idx % 7) / 7.0, 6)
         rows.append(
             {
@@ -146,6 +198,21 @@ def _jpeg_payload() -> bytes:
 def _write_image(path: Path, payload: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
+
+
+def _write_png_with_metadata(
+    path: Path,
+    *,
+    text_chunks: dict[str, str] | None = None,
+    itxt_chunks: dict[str, str] | None = None,
+) -> None:
+    meta = PngImagePlugin.PngInfo()
+    for key, value in (text_chunks or {}).items():
+        meta.add_text(key, value)
+    for key, value in (itxt_chunks or {}).items():
+        meta.add_itxt(key, value)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (48, 32), color=(72, 36, 120)).save(path, format="PNG", pnginfo=meta)
 
 
 def choose_port(host: str, preferred: int) -> int:
@@ -866,6 +933,254 @@ def run_grid_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float
     )
 
 
+def _snapshot_quick_view_section(page: Any) -> dict[str, Any]:
+    snapshot = page.evaluate(
+        """() => {
+          const section = document.querySelector('[data-inspector-section-id="quickView"]');
+          if (!(section instanceof HTMLElement)) {
+            return {
+              present: false,
+              top: null,
+              height: null,
+              rowCount: 0,
+              placeholderRowCount: 0,
+              loading: false,
+              promptValue: null,
+            };
+          }
+
+          const rect = section.getBoundingClientRect();
+          const rows = Array.from(section.querySelectorAll('.ui-kv-row'));
+          const visibleRows = rows.filter((row) => row.getAttribute('aria-hidden') !== 'true');
+          const placeholderRows = rows.filter((row) => row.getAttribute('aria-hidden') === 'true');
+          let promptValue = null;
+
+          for (const row of visibleRows) {
+            const label = row.querySelector('.ui-kv-label');
+            const value = row.querySelector('.ui-kv-value');
+            if (!(label instanceof HTMLElement) || !(value instanceof HTMLElement)) continue;
+            if ((label.textContent || '').trim() !== 'Prompt') continue;
+            promptValue = (value.textContent || '').trim();
+            break;
+          }
+
+          return {
+            present: true,
+            top: rect.top,
+            height: rect.height,
+            rowCount: visibleRows.length,
+            placeholderRowCount: placeholderRows.length,
+            loading: (section.textContent || '').includes('Loading metadata…'),
+            promptValue,
+          };
+        }"""
+    )
+    if not isinstance(snapshot, dict):
+        raise SmokeFailure("Failed to capture Quick View snapshot.")
+    return snapshot
+
+
+def _quick_view_delta(lhs: dict[str, Any], rhs: dict[str, Any]) -> float:
+    if not bool(lhs.get("present")) or not bool(rhs.get("present")):
+        return 0.0
+    try:
+        top_delta = abs(float(lhs.get("top")) - float(rhs.get("top")))
+        height_delta = abs(float(lhs.get("height")) - float(rhs.get("height")))
+    except (TypeError, ValueError):
+        return 0.0
+    return max(top_delta, height_delta)
+
+
+def _select_grid_path(page: Any, path: str, browser_timeout_ms: float) -> None:
+    selector = f'[id="cell-{quote(path, safe="")}"]'
+    cell = page.locator(selector).first
+    if cell.count() == 0:
+        raise SmokeFailure(f"Grid cell for {path} not found.")
+    cell.click()
+    page.wait_for_function(
+        """(targetPath) => {
+          const panel = document.querySelector('.app-right-panel');
+          if (!(panel instanceof HTMLElement)) return false;
+          const filename = targetPath.split('/').filter(Boolean).pop() || targetPath;
+          return (panel.textContent || '').includes(filename);
+        }""",
+        arg=path,
+        timeout=browser_timeout_ms,
+    )
+
+
+def run_inspector_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float) -> ProbeResult:
+    playwright_error, playwright_timeout_error, sync_playwright = _import_playwright()
+    quick_zero_path = "/quick_00_meta.png"
+    quick_one_path = "/quick_01_meta.png"
+    plain_path = "/quick_02_plain.png"
+    quick_three_path = "/quick_03_meta.png"
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1280, "height": 900})
+
+            def metadata_delay(route: Any) -> None:
+                request_url = route.request.url
+                delay_ms = 100
+                if "quick_00_meta.png" in request_url:
+                    delay_ms = 320
+                elif "quick_01_meta.png" in request_url:
+                    delay_ms = 45
+                elif "quick_02_plain.png" in request_url:
+                    delay_ms = 180
+                elif "quick_03_meta.png" in request_url:
+                    delay_ms = 260
+                time.sleep(delay_ms / 1000.0)
+                route.continue_()
+
+            context.route("**/metadata**", metadata_delay)
+            page = context.new_page()
+            page.set_default_timeout(browser_timeout_ms)
+
+            page.goto(base_url, wait_until="domcontentloaded")
+            _wait_for_grid(page, browser_timeout_ms)
+
+            _set_local_storage(
+                page,
+                {
+                    "autoloadImageMetadata": "true",
+                    "sortSpec": json.dumps({"kind": "builtin", "key": "name", "dir": "asc"}),
+                    "sortKey": "name",
+                    "sortDir": "asc",
+                    "selectedMetric": None,
+                    "filterAst": json.dumps({"and": []}),
+                    "starFilters": json.dumps([]),
+                    "lenslet.inspector.sections": json.dumps(
+                        {
+                            "quickView": True,
+                            "overview": True,
+                            "compare": True,
+                            "metadata": True,
+                            "basics": True,
+                            "notes": True,
+                        }
+                    ),
+                },
+            )
+            page.reload(wait_until="domcontentloaded")
+            _wait_for_grid(page, browser_timeout_ms)
+
+            _select_grid_path(page, quick_zero_path, browser_timeout_ms)
+            page.wait_for_timeout(20)
+            _select_grid_path(page, quick_one_path, browser_timeout_ms)
+
+            try:
+                page.wait_for_function(
+                    """() => {
+                      const section = document.querySelector('[data-inspector-section-id="quickView"]');
+                      if (!(section instanceof HTMLElement)) return false;
+                      const promptRow = Array.from(section.querySelectorAll('.ui-kv-row')).find((row) => {
+                        const label = row.querySelector('.ui-kv-label');
+                        return label instanceof HTMLElement && (label.textContent || '').trim() === 'Prompt';
+                      });
+                      if (!(promptRow instanceof HTMLElement)) return false;
+                      const value = promptRow.querySelector('.ui-kv-value');
+                      const promptText = value instanceof HTMLElement ? (value.textContent || '').trim() : '';
+                      return promptText.includes('beta prompt')
+                        && !promptText.includes('alpha prompt')
+                        && !(section.textContent || '').includes('Loading metadata…');
+                    }""",
+                    timeout=browser_timeout_ms,
+                )
+            except playwright_timeout_error as exc:
+                raise SmokeFailure(
+                    "Timed out waiting for quick-view to settle on latest selection without stale hydration."
+                ) from exc
+            quick_one_loaded = _snapshot_quick_view_section(page)
+            page.wait_for_timeout(120)
+
+            _select_grid_path(page, quick_three_path, browser_timeout_ms)
+            pending_quick = _snapshot_quick_view_section(page)
+            try:
+                page.wait_for_function(
+                    """() => {
+                      const section = document.querySelector('[data-inspector-section-id="quickView"]');
+                      if (!(section instanceof HTMLElement)) return false;
+                      if ((section.textContent || '').includes('Loading metadata…')) return false;
+                      const promptRow = Array.from(section.querySelectorAll('.ui-kv-row')).find((row) => {
+                        const label = row.querySelector('.ui-kv-label');
+                        return label instanceof HTMLElement && (label.textContent || '').trim() === 'Prompt';
+                      });
+                      if (!(promptRow instanceof HTMLElement)) return false;
+                      const value = promptRow.querySelector('.ui-kv-value');
+                      const promptText = value instanceof HTMLElement ? (value.textContent || '').trim() : '';
+                      return promptText.includes('gamma prompt');
+                    }""",
+                    timeout=browser_timeout_ms,
+                )
+            except playwright_timeout_error as exc:
+                raise SmokeFailure("Timed out waiting for quick-view quick->quick hydration.") from exc
+            quick_three_loaded = _snapshot_quick_view_section(page)
+            page.wait_for_timeout(120)
+
+            _select_grid_path(page, plain_path, browser_timeout_ms)
+            pending_plain = _snapshot_quick_view_section(page)
+            try:
+                page.wait_for_function(
+                    """() => !document.querySelector('[data-inspector-section-id="quickView"]')""",
+                    timeout=browser_timeout_ms,
+                )
+            except playwright_timeout_error as exc:
+                raise SmokeFailure("Timed out waiting for Quick View reservation to clear for plain metadata.") from exc
+            plain_resolved = _snapshot_quick_view_section(page)
+
+            context.close()
+            browser.close()
+    except playwright_timeout_error as exc:
+        raise SmokeFailure(f"playwright timeout: {exc}") from exc
+    except playwright_error as exc:
+        raise SmokeFailure(f"playwright probe failed: {exc}") from exc
+
+    quick_view_deltas = {
+        "quick_to_quick_pending_delta": _quick_view_delta(quick_one_loaded, pending_quick),
+        "quick_to_quick_loaded_delta": _quick_view_delta(quick_one_loaded, quick_three_loaded),
+        "quick_to_plain_pending_delta": _quick_view_delta(quick_three_loaded, pending_plain),
+    }
+    max_inspector_delta = max(quick_view_deltas.values(), default=0.0)
+
+    violations: list[str] = []
+    if max_inspector_delta > max_delta_px:
+        violations.append(
+            f"inspector delta {max_inspector_delta:.3f}px exceeded threshold {max_delta_px:.3f}px"
+        )
+    if not bool(pending_quick.get("present")):
+        violations.append("quick->quick pending: expected Quick View section to remain mounted")
+    if not bool(pending_plain.get("present")):
+        violations.append("quick->plain pending: expected Quick View section to remain mounted")
+    if bool(plain_resolved.get("present")):
+        violations.append("quick->plain resolved: expected Quick View section to unmount after metadata settles")
+    prompt_value = str(quick_one_loaded.get("promptValue") or "")
+    if "beta prompt" not in prompt_value or "alpha prompt" in prompt_value:
+        violations.append("stale protection: expected quick-view prompt to match latest selection")
+
+    checks: dict[str, Any] = {
+        "quick_view_deltas_px": quick_view_deltas,
+        "quick_one_loaded_snapshot": quick_one_loaded,
+        "pending_quick_snapshot": pending_quick,
+        "quick_three_loaded_snapshot": quick_three_loaded,
+        "pending_plain_snapshot": pending_plain,
+        "plain_resolved_snapshot": plain_resolved,
+        "violations": violations,
+    }
+
+    if violations:
+        raise SmokeFailure("; ".join(violations))
+
+    return ProbeResult(
+        scenario="inspector",
+        max_delta_px=max_delta_px,
+        max_inspector_delta_px=max_inspector_delta,
+        checks=checks,
+    )
+
+
 def _write_output_json(path: Path | None, summary: dict[str, Any]) -> None:
     if path is None:
         return
@@ -910,8 +1225,10 @@ def main() -> int:
 
         if args.scenario == "toolbar":
             result = run_toolbar_probe(base_url, args.max_delta_px, args.browser_timeout_ms)
-        else:
+        elif args.scenario == "grid":
             result = run_grid_probe(base_url, args.max_delta_px, args.browser_timeout_ms)
+        else:
+            result = run_inspector_probe(base_url, args.max_delta_px, args.browser_timeout_ms)
 
         summary = {
             "status": "passed",
@@ -923,6 +1240,7 @@ def main() -> int:
             "max_toolbar_delta_px": result.max_toolbar_delta_px,
             "max_top_stack_delta_px": result.max_top_stack_delta_px,
             "max_grid_width_delta_px": result.max_grid_width_delta_px,
+            "max_inspector_delta_px": result.max_inspector_delta_px,
             "checks": result.checks,
         }
         print(json.dumps(summary, indent=2))

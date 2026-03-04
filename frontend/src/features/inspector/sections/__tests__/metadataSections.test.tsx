@@ -53,10 +53,8 @@ describe('inspector metadata section rendering', () => {
       <OverviewSection
         open
         onToggle={noop}
-        multi
         selectedCount={2}
         totalSize={2048}
-        filename=""
         viewerCompareActive
         metadataCompareActive={false}
         metadataCompareAvailable
@@ -74,8 +72,6 @@ describe('inspector metadata section rendering', () => {
         compareExportMode={null}
         onComparisonExport={noop}
         compareExportError={null}
-        canFindSimilar={false}
-        findSimilarDisabledReason={null}
       />,
     )
 
@@ -93,10 +89,8 @@ describe('inspector metadata section rendering', () => {
       <OverviewSection
         open
         onToggle={noop}
-        multi
         selectedCount={2}
         totalSize={4096}
-        filename=""
         viewerCompareActive={false}
         metadataCompareActive={false}
         metadataCompareAvailable
@@ -114,8 +108,6 @@ describe('inspector metadata section rendering', () => {
         compareExportMode={null}
         onComparisonExport={noop}
         compareExportError={null}
-        canFindSimilar={false}
-        findSimilarDisabledReason={null}
       />,
     )
 
@@ -129,10 +121,8 @@ describe('inspector metadata section rendering', () => {
       <OverviewSection
         open
         onToggle={noop}
-        multi
         selectedCount={1}
         totalSize={4096}
-        filename=""
         viewerCompareActive={false}
         metadataCompareActive={false}
         metadataCompareAvailable={false}
@@ -150,8 +140,6 @@ describe('inspector metadata section rendering', () => {
         compareExportMode={null}
         onComparisonExport={noop}
         compareExportError={null}
-        canFindSimilar={false}
-        findSimilarDisabledReason={null}
       />,
     )
 
@@ -165,10 +153,8 @@ describe('inspector metadata section rendering', () => {
       <OverviewSection
         open
         onToggle={noop}
-        multi
         selectedCount={3}
         totalSize={4096}
-        filename=""
         viewerCompareActive={false}
         metadataCompareActive={false}
         metadataCompareAvailable
@@ -186,8 +172,6 @@ describe('inspector metadata section rendering', () => {
         compareExportMode={null}
         onComparisonExport={noop}
         compareExportError={null}
-        canFindSimilar={false}
-        findSimilarDisabledReason={null}
       />,
     )
 
@@ -247,6 +231,9 @@ describe('inspector metadata section rendering', () => {
             sourcePath: 'quick_fields.parameters',
           },
         ]}
+        reservationActive={false}
+        reservationRowCount={3}
+        metadataLoading={false}
         quickViewCopiedRowId="default:prompt"
         onCopyQuickViewValue={noop}
         quickViewCustomPathsDraft={'quick_fields.parameters\nfound_text_chunks[0].keyword'}
@@ -260,10 +247,33 @@ describe('inspector metadata section rendering', () => {
     expect(html).toContain('Prompt')
     expect(html).toContain('quick_fields.parameters')
     expect(html).toContain('character portrait')
-    expect(html).toContain('Copied')
+    expect(html).toContain('Prompt copied')
+    expect(html).toContain('aria-label="Copy Prompt"')
     expect(html).toContain('Custom JSON paths')
     expect(html).not.toContain('Save fields')
     expect(html).not.toContain('Supported syntax: dot paths and [index].')
+  })
+
+  it('keeps quick view footprint reserved while metadata is loading for a new selection', () => {
+    const html = renderToStaticMarkup(
+      <QuickViewSection
+        open
+        onToggle={noop}
+        rows={[]}
+        reservationActive
+        reservationRowCount={2}
+        metadataLoading
+        quickViewCopiedRowId={null}
+        onCopyQuickViewValue={noop}
+        quickViewCustomPathsDraft=""
+        onQuickViewCustomPathsDraftChange={noop}
+        onSaveQuickViewCustomPaths={noop}
+        quickViewCustomPathsError={null}
+      />,
+    )
+
+    expect(html).toContain('Loading metadata…')
+    expect((html.match(/aria-hidden=\"true\"/g) ?? []).length).toBeGreaterThanOrEqual(2)
   })
 
   it('renders table-oriented compare metadata with summary and over-cap messaging', () => {

@@ -1,0 +1,65 @@
+{
+  "status": "passed",
+  "base_url": "http://127.0.0.1:39753",
+  "dataset_dir": "/tmp/lenslet-jitter-probe-07c7mg_5",
+  "scenario": "inspector",
+  "max_delta_px": 1.0,
+  "max_anchor_delta_px": 0.0,
+  "max_toolbar_delta_px": 0.0,
+  "max_top_stack_delta_px": 0.0,
+  "max_grid_width_delta_px": 0.0,
+  "max_inspector_delta_px": 0.828125,
+  "checks": {
+    "quick_view_deltas_px": {
+      "quick_to_quick_pending_delta": 0.828125,
+      "quick_to_quick_loaded_delta": 0.0,
+      "quick_to_plain_pending_delta": 0.828125
+    },
+    "quick_one_loaded_snapshot": {
+      "present": true,
+      "top": 277,
+      "height": 245.609375,
+      "rowCount": 3,
+      "placeholderRowCount": 0,
+      "loading": false,
+      "promptValue": "beta prompt"
+    },
+    "pending_quick_snapshot": {
+      "present": true,
+      "top": 277,
+      "height": 246.4375,
+      "rowCount": 0,
+      "placeholderRowCount": 3,
+      "loading": true,
+      "promptValue": null
+    },
+    "quick_three_loaded_snapshot": {
+      "present": true,
+      "top": 277,
+      "height": 245.609375,
+      "rowCount": 3,
+      "placeholderRowCount": 0,
+      "loading": false,
+      "promptValue": "gamma prompt"
+    },
+    "pending_plain_snapshot": {
+      "present": true,
+      "top": 277,
+      "height": 246.4375,
+      "rowCount": 0,
+      "placeholderRowCount": 3,
+      "loading": true,
+      "promptValue": null
+    },
+    "plain_resolved_snapshot": {
+      "present": false,
+      "top": null,
+      "height": null,
+      "rowCount": 0,
+      "placeholderRowCount": 0,
+      "loading": false,
+      "promptValue": null
+    },
+    "violations": []
+  }
+}

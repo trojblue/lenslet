@@ -12,6 +12,7 @@ export interface InspectorWidgetContext {
   viewerCompareActive: boolean
   metadataCompareReady: boolean
   quickViewVisible: boolean
+  quickViewReserved: boolean
   quickViewProps: ComponentProps<typeof QuickViewSection>
   overviewProps: ComponentProps<typeof OverviewSection>
   compareMetadataProps: ComponentProps<typeof CompareMetadataSection>
@@ -29,12 +30,12 @@ export interface InspectorWidgetDefinition {
 export const INSPECTOR_WIDGETS: readonly InspectorWidgetDefinition[] = [
   {
     id: 'quickView',
-    isVisible: ({ quickViewVisible }) => quickViewVisible,
+    isVisible: ({ quickViewVisible, quickViewReserved }) => quickViewVisible || quickViewReserved,
     render: ({ quickViewProps }) => <QuickViewSection {...quickViewProps} />,
   },
   {
     id: 'overview',
-    isVisible: () => true,
+    isVisible: ({ multi }) => multi,
     render: ({ overviewProps }) => <OverviewSection {...overviewProps} />,
   },
   {

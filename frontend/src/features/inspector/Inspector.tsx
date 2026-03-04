@@ -1,4 +1,4 @@
-import React, { Fragment, useEffect, useMemo, useCallback } from 'react'
+import React, { Fragment, useEffect, useMemo, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQueryClient } from '@tanstack/react-query'
@@ -23,6 +23,7 @@ import {
   buildQuickViewRows,
   shouldShowQuickViewSection,
 } from './model/quickViewFields'
+import { resolveFindSimilarAvailability } from './model/findSimilarAvailability'
 import { INSPECTOR_WIDGETS, type InspectorWidgetContext } from './inspectorWidgets'
 import { resolveCompareMetadataTargets } from './hooks/metadataRequestGuards'
 import { useInspectorMetadataWorkflow } from './hooks/useInspectorMetadataWorkflow'
@@ -68,6 +69,7 @@ const METRICS_PREVIEW_LIMIT = 12
 const COMPARE_MATRIX_LIMIT = 120
 const COMPARE_MATRIX_MAX_DEPTH = 8
 const COMPARE_MATRIX_MAX_ARRAY = 80
+const QUICK_VIEW_FALLBACK_ROW_COUNT = 3
 const INSPECTOR_WIDGET_MAP = new Map(
   INSPECTOR_WIDGETS.map((widget) => [widget.id, widget] as const),
 )
@@ -97,20 +99,22 @@ export default function Inspector({
   const selectedCount = selectedPaths.length
   const multi = selectedCount > 1
 
-  const canFindSimilar = !!onFindSimilar && embeddingsAvailable && !multi
-  const findSimilarDisabledReason = (() => {
-    if (!onFindSimilar) return null
-    if (!embeddingsAvailable) return embeddingsLoading ? 'Loading embeddings...' : 'No embeddings detected.'
-    if (multi) return 'Select a single image to search.'
-    return null
-  })()
+  const { canFindSimilar, disabledReason: findSimilarDisabledReason } = useMemo(
+    () => resolveFindSimilarAvailability({
+      enabled: !!onFindSimilar,
+      embeddingsAvailable,
+      embeddingsLoading,
+      selectedCount,
+    }),
+    [embeddingsAvailable, embeddingsLoading, onFindSimilar, selectedCount],
+  )
 
   // Get star from item list (optimistic local value) or sidecar
   const itemStarFromList = useMemo((): StarRating | null => {
     const star = items.find((i) => i.path === path)?.star
     return star ?? null
   }, [items, path])
-  
+
   const star = itemStarFromList ?? data?.star ?? null
   const conflict = useSidecarConflict(!multi ? path : null)
 
@@ -224,30 +228,30 @@ export default function Inspector({
     comparePaths,
     autoloadMetadata: autoloadImageMetadata && !multi,
   })
-  
+
   const selectedItems = useMemo(() => {
-    const set = new Set(selectedPaths)
-    return items.filter((i) => set.has(i.path))
+    const selectedPathSet = new Set(selectedPaths)
+    return items.filter((i) => selectedPathSet.has(i.path))
   }, [items, selectedPaths])
-  
+
   const totalSize = useMemo(
     () => selectedItems.reduce((acc, it) => acc + (it.size || 0), 0),
-    [selectedItems]
+    [selectedItems],
   )
 
   // Keyboard shortcuts for star ratings (0-5)
   useEffect(() => {
     if (!path) return
-    
+
     const onKey = (e: KeyboardEvent) => {
       if (isInputElement(e.target)) return
-      
+
       const k = e.key
       if (!/^[0-5]$/.test(k)) return
-      
+
       e.preventDefault()
       const val: StarRating = k === '0' ? null : (Number(k) as 1 | 2 | 3 | 4 | 5)
-      
+
       if (multi) {
         commitSidecar({ star: val })
         onStarChanged?.(selectedPaths, val)
@@ -256,7 +260,7 @@ export default function Inspector({
       commitSidecar({ star: val })
       onStarChanged?.([path], val)
     }
-    
+
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [path, multi, selectedPaths, commitSidecar, onStarChanged])
@@ -311,6 +315,77 @@ export default function Inspector({
     }),
     [autoloadImageMetadata, metaRaw, multi],
   )
+  const [quickViewReservationActive, setQuickViewReservationActive] = useState(false)
+  const [quickViewReservationRowCount, setQuickViewReservationRowCount] = useState(
+    QUICK_VIEW_FALLBACK_ROW_COUNT,
+  )
+  const previousSelectionKeyRef = useRef<string | null>(null)
+  const previousQuickViewRowsRef = useRef(0)
+  const selectionKey = `${path ?? ''}::${data?.updated_at ?? ''}`
+
+  useLayoutEffect(() => {
+    const previousSelectionKey = previousSelectionKeyRef.current
+    const selectionChanged = previousSelectionKey !== null && previousSelectionKey !== selectionKey
+    if (selectionChanged) {
+      if (
+        autoloadImageMetadata
+        && !multi
+        && !!path
+        && previousQuickViewRowsRef.current > 0
+      ) {
+        const reservedRows = Math.max(previousQuickViewRowsRef.current, QUICK_VIEW_FALLBACK_ROW_COUNT)
+        setQuickViewReservationRowCount(reservedRows)
+        setQuickViewReservationActive(true)
+      } else {
+        setQuickViewReservationActive(false)
+      }
+    }
+
+    if (quickViewVisible) {
+      const measuredRows = Math.max(quickViewRows.length, QUICK_VIEW_FALLBACK_ROW_COUNT)
+      previousQuickViewRowsRef.current = measuredRows
+      setQuickViewReservationRowCount(measuredRows)
+    }
+
+    previousSelectionKeyRef.current = selectionKey
+  }, [
+    autoloadImageMetadata,
+    multi,
+    path,
+    quickViewRows.length,
+    quickViewVisible,
+    selectionKey,
+  ])
+
+  useEffect(() => {
+    if (!quickViewReservationActive) return
+    if (quickViewVisible) {
+      setQuickViewReservationActive(false)
+      return
+    }
+    if (!autoloadImageMetadata || multi || !path) {
+      setQuickViewReservationActive(false)
+      previousQuickViewRowsRef.current = 0
+      return
+    }
+    const metadataSettled = metaRaw !== null || metaError !== null || metaState === 'error'
+    if (metadataSettled) {
+      setQuickViewReservationActive(false)
+      if (!quickViewVisible) {
+        previousQuickViewRowsRef.current = 0
+      }
+    }
+  }, [
+    autoloadImageMetadata,
+    metaError,
+    metaRaw,
+    metaState,
+    multi,
+    path,
+    quickViewReservationActive,
+    quickViewVisible,
+  ])
+  const quickViewReserved = quickViewReservationActive && !quickViewVisible
 
   const compareColumns = useMemo(
     () => comparePaths.map((comparePath) => ({
@@ -441,12 +516,16 @@ export default function Inspector({
     viewerCompareActive,
     metadataCompareReady,
     quickViewVisible,
+    quickViewReserved,
     quickViewProps: {
       open: openSections.quickView,
       onToggle: toggleQuickViewSection,
       sortableId: 'quickView',
       sortableEnabled: true,
       rows: quickViewRows,
+      reservationActive: quickViewReserved,
+      reservationRowCount: quickViewReservationRowCount,
+      metadataLoading,
       quickViewCopiedRowId,
       onCopyQuickViewValue: handleCopyQuickViewValue,
       quickViewCustomPathsDraft,
@@ -459,10 +538,8 @@ export default function Inspector({
       onToggle: toggleOverviewSection,
       sortableId: 'overview',
       sortableEnabled: true,
-      multi,
       selectedCount,
       totalSize,
-      filename,
       viewerCompareActive,
       metadataCompareActive,
       metadataCompareAvailable,
@@ -480,9 +557,6 @@ export default function Inspector({
       compareExportMode,
       onComparisonExport: handleComparisonExport,
       compareExportError,
-      onFindSimilar,
-      canFindSimilar,
-      findSimilarDisabledReason,
     },
     compareMetadataProps: {
       open: openSections.compare,
@@ -519,6 +593,9 @@ export default function Inspector({
       metricsExpanded,
       onToggleMetricsExpanded: toggleMetricsExpanded,
       metricsPreviewLimit: METRICS_PREVIEW_LIMIT,
+      onFindSimilar,
+      canFindSimilar,
+      findSimilarDisabledReason,
     },
     metadataProps: {
       open: openSections.metadata,
@@ -579,9 +656,17 @@ export default function Inspector({
     <div className="app-right-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative">
       {!multi && (
         <div className="p-3 border-b border-border flex justify-center">
-          <div className="relative rounded-lg overflow-hidden border border-border w-[220px] h-[160px] bg-panel select-none">
-            {thumbUrl && <img src={thumbUrl} alt="thumb" className="block w-full h-full object-contain" />}
-            {!!ext && <div className="absolute top-1.5 left-1.5 bg-surface border border-border text-text text-xs px-1.5 py-0.5 rounded-md select-none">{ext}</div>}
+          <div className="w-[220px] space-y-2">
+            <div className="relative rounded-lg overflow-hidden border border-border w-[220px] h-[160px] bg-panel select-none">
+              {thumbUrl && <img src={thumbUrl} alt="thumb" className="block w-full h-full object-contain" />}
+              {!!ext && <div className="absolute top-1.5 left-1.5 bg-surface border border-border text-text text-xs px-1.5 py-0.5 rounded-md select-none">{ext}</div>}
+            </div>
+            <div className="space-y-0.5">
+              <div className="text-[10px] uppercase tracking-wide text-muted">Filename</div>
+              <div className="text-[12px] leading-relaxed break-all" title={filename || undefined}>
+                {filename || '—'}
+              </div>
+            </div>
           </div>
         </div>
       )}

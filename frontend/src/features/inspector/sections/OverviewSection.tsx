@@ -8,10 +8,8 @@ import { SelectionExportSection } from './SelectionExportSection'
 interface OverviewSectionProps {
   open: boolean
   onToggle: () => void
-  multi: boolean
   selectedCount: number
   totalSize: number
-  filename: string
   viewerCompareActive: boolean
   metadataCompareActive: boolean
   metadataCompareAvailable: boolean
@@ -29,9 +27,6 @@ interface OverviewSectionProps {
   compareExportMode: 'png' | 'gif' | null
   onComparisonExport: (outputFormat: 'png' | 'gif') => void
   compareExportError: string | null
-  onFindSimilar?: () => void
-  canFindSimilar: boolean
-  findSimilarDisabledReason: string | null
   sortableId?: InspectorWidgetId
   sortableEnabled?: boolean
 }
@@ -66,10 +61,8 @@ const OVERVIEW_WIDGETS: readonly OverviewWidgetDefinition[] = [
 export function OverviewSection({
   open,
   onToggle,
-  multi,
   selectedCount,
   totalSize,
-  filename,
   viewerCompareActive,
   metadataCompareActive,
   metadataCompareAvailable,
@@ -87,9 +80,6 @@ export function OverviewSection({
   compareExportMode,
   onComparisonExport,
   compareExportError,
-  onFindSimilar,
-  canFindSimilar,
-  findSimilarDisabledReason,
   sortableId,
   sortableEnabled = false,
 }: OverviewSectionProps): JSX.Element {
@@ -122,51 +112,28 @@ export function OverviewSection({
 
   return (
     <InspectorSection
-      title={multi ? 'Selection' : 'Item'}
+      title="Selection"
       open={open}
       onToggle={onToggle}
       sortableId={sortableId}
       sortableEnabled={sortableEnabled}
       contentClassName="px-3 pb-3 space-y-2"
-      actions={onFindSimilar && (
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={onFindSimilar}
-          disabled={!canFindSimilar}
-          title={findSimilarDisabledReason ?? 'Find similar'}
-        >
-          Find similar
-        </button>
-      )}
     >
-      {multi ? (
-        <div className="space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="inspector-field">
-              <div className="inspector-field-label">Selected</div>
-              <div className="inspector-field-value">{selectedCount} files</div>
-            </div>
-            <div className="inspector-field">
-              <div className="inspector-field-label">Total size</div>
-              <div className="inspector-field-value">{fmtBytes(totalSize)}</div>
-            </div>
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="inspector-field">
+            <div className="inspector-field-label">Selected</div>
+            <div className="inspector-field-value">{selectedCount} files</div>
           </div>
-          {OVERVIEW_WIDGETS.filter((widget) => widget.isVisible(widgetContext)).map((widget) => (
-            <Fragment key={widget.id}>{widget.render(widgetContext)}</Fragment>
-          ))}
-        </div>
-      ) : (
-        <div className="inspector-field">
-          <div className="inspector-field-label">Filename</div>
-          <div className="inspector-field-value break-all" title={filename}>
-            {filename}
+          <div className="inspector-field">
+            <div className="inspector-field-label">Total size</div>
+            <div className="inspector-field-value">{fmtBytes(totalSize)}</div>
           </div>
         </div>
-      )}
-      {findSimilarDisabledReason && (
-        <div className="text-[11px] text-muted">{findSimilarDisabledReason}</div>
-      )}
+        {OVERVIEW_WIDGETS.filter((widget) => widget.isVisible(widgetContext)).map((widget) => (
+          <Fragment key={widget.id}>{widget.render(widgetContext)}</Fragment>
+        ))}
+      </div>
     </InspectorSection>
   )
 }

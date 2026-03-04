@@ -50,6 +50,7 @@ import { constrainSidebarWidths, LAYOUT_BREAKPOINTS, LAYOUT_MEDIA_QUERIES } from
 import { useMediaQuery } from '../shared/hooks/useMediaQuery'
 import MoveToDialog from './components/MoveToDialog'
 import AppContextMenuItems from './menu/AppContextMenuItems'
+import { resolveFindSimilarAvailability } from '../features/inspector/model/findSimilarAvailability'
 import { useLatestRef } from '../shared/hooks/useLatestRef'
 import {
   buildStarCounts,
@@ -334,6 +335,15 @@ export default function AppShell({
   const hasMetricScrollbar = useMemo(
     () => hasMetricSortValues(items, metricSortKey),
     [items, metricSortKey],
+  )
+  const findSimilarAvailability = useMemo(
+    () => resolveFindSimilarAvailability({
+      enabled: true,
+      embeddingsAvailable,
+      embeddingsLoading,
+      selectedCount: selectedPaths.length,
+    }),
+    [embeddingsAvailable, embeddingsLoading, selectedPaths.length],
   )
 
   const updateItemCaches = useCallback((payload: { path: string; star?: StarRating | null; metrics?: Record<string, number | null> | null; comments?: string | null }) => {
@@ -1467,6 +1477,12 @@ export default function AppShell({
           onRefetch={refetch}
           onOpenMoveDialog={openMoveDialogForPaths}
           onRefreshFolder={refreshFolderPath}
+          canFindSimilar={findSimilarAvailability.canFindSimilar}
+          findSimilarDisabledReason={findSimilarAvailability.disabledReason}
+          onFindSimilar={(path) => {
+            setSelectedPaths([path])
+            setSimilarityOpen(true)
+          }}
         />
       )}
     </div>

@@ -74,6 +74,7 @@
 :root {
   --toolbar-h: var(--spacing-toolbar, 48px);
   --mobile-drawer-h: 0px;
+  --metric-rail-w: 18px;
 }
 
 .boot-loading {
@@ -512,6 +513,63 @@
 .grid-shell {
   min-height: 0;
   padding-bottom: var(--mobile-drawer-h);
+}
+
+.grid-top-stack {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.grid-top-band {
+  position: relative;
+}
+
+.grid-top-band.is-hidden {
+  pointer-events: none;
+  user-select: none;
+}
+
+.grid-top-band-reserve {
+  width: 100%;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.grid-top-band-reserve.is-collapsed {
+  border-bottom: 0;
+  background: transparent;
+}
+
+.grid-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--metric-rail-w);
+}
+
+.grid-body-main {
+  min-height: 0;
+  min-width: 0;
+}
+
+.metric-rail-slot {
+  min-height: 0;
+  width: var(--metric-rail-w);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 12px 2px;
+  border-left: 1px solid var(--border-subtle);
+  background: color-mix(in oklab, var(--surface-inset) 78%, var(--bg));
+}
+
+.metric-rail-slot.is-inactive {
+  pointer-events: none;
+}
+
+.metric-rail-placeholder {
+  width: 100%;
+  height: 100%;
 }
 
 /* =================================================================
@@ -1011,6 +1069,7 @@
 @media (max-width: 900px) {
   :root {
     --mobile-drawer-h: calc(56px + env(safe-area-inset-bottom, 0px));
+    --metric-rail-w: 16px;
   }
 
   .toolbar-shell {

@@ -1,0 +1,186 @@
+{
+  "status": "passed",
+  "base_url": "http://127.0.0.1:59663",
+  "dataset_dir": "/tmp/lenslet-jitter-probe-xxjd8qcn",
+  "scenario": "grid",
+  "max_delta_px": 1.0,
+  "max_anchor_delta_px": 0.0,
+  "max_toolbar_delta_px": 0.0,
+  "max_top_stack_delta_px": 0.0,
+  "max_grid_width_delta_px": 0.0,
+  "checks": {
+    "top_stack_deltas_px": {
+      "baseline_to_filters_top_stack_delta": 0.0,
+      "baseline_to_restored_top_stack_delta": 0.0,
+      "baseline_to_filters_status_band_delta": 0.0,
+      "baseline_to_restored_status_band_delta": 0.0,
+      "baseline_to_filters_similarity_band_delta": 0.0,
+      "baseline_to_restored_similarity_band_delta": 0.0,
+      "baseline_to_filters_filters_band_delta": 0.0,
+      "baseline_to_restored_filters_band_delta": 0.0
+    },
+    "grid_width_deltas_px": {
+      "metric_to_restored_body_width_delta": 0.0,
+      "metric_to_restored_first_cell_left_delta": 0.0,
+      "metric_to_restored_first_cell_width_delta": 0.0,
+      "metric_to_restored_rail_width_delta": 0.0
+    },
+    "builtin_initial_snapshot": {
+      "topStackHeight": 92,
+      "topStackTop": 48,
+      "bandHeights": {
+        "status": 47,
+        "similarity": 0,
+        "filters": 45
+      },
+      "bandHidden": {
+        "status": false,
+        "similarity": true,
+        "filters": true
+      },
+      "gridBodyWidth": 782,
+      "gridBodyLeft": 240,
+      "metricRailWidth": 18,
+      "metricRailActive": false,
+      "firstCellLeft": 252,
+      "firstCellWidth": 242,
+      "scrollRootClasses": [
+        "relative",
+        "h-full",
+        "overflow-auto",
+        "p-3",
+        "outline-none",
+        "scrollbar-thin"
+      ],
+      "scrollRootUsesHiddenScrollbar": false,
+      "persistedSortKind": "builtin",
+      "persistedSortKey": "added"
+    },
+    "filters_active_snapshot": {
+      "topStackHeight": 92,
+      "topStackTop": 48,
+      "bandHeights": {
+        "status": 47,
+        "similarity": 0,
+        "filters": 45
+      },
+      "bandHidden": {
+        "status": false,
+        "similarity": true,
+        "filters": false
+      },
+      "gridBodyWidth": 782,
+      "gridBodyLeft": 240,
+      "metricRailWidth": 18,
+      "metricRailActive": false,
+      "firstCellLeft": 252,
+      "firstCellWidth": 242,
+      "scrollRootClasses": [
+        "relative",
+        "h-full",
+        "overflow-auto",
+        "p-3",
+        "outline-none",
+        "scrollbar-thin"
+      ],
+      "scrollRootUsesHiddenScrollbar": false,
+      "persistedSortKind": "builtin",
+      "persistedSortKey": "added"
+    },
+    "filters_cleared_snapshot": {
+      "topStackHeight": 92,
+      "topStackTop": 48,
+      "bandHeights": {
+        "status": 47,
+        "similarity": 0,
+        "filters": 45
+      },
+      "bandHidden": {
+        "status": false,
+        "similarity": true,
+        "filters": true
+      },
+      "gridBodyWidth": 782,
+      "gridBodyLeft": 240,
+      "metricRailWidth": 18,
+      "metricRailActive": false,
+      "firstCellLeft": 252,
+      "firstCellWidth": 242,
+      "scrollRootClasses": [
+        "relative",
+        "h-full",
+        "overflow-auto",
+        "p-3",
+        "outline-none",
+        "scrollbar-thin"
+      ],
+      "scrollRootUsesHiddenScrollbar": false,
+      "persistedSortKind": "builtin",
+      "persistedSortKey": "added"
+    },
+    "metric_mode_snapshot": {
+      "topStackHeight": 92,
+      "topStackTop": 48,
+      "bandHeights": {
+        "status": 47,
+        "similarity": 0,
+        "filters": 45
+      },
+      "bandHidden": {
+        "status": true,
+        "similarity": true,
+        "filters": true
+      },
+      "gridBodyWidth": 782,
+      "gridBodyLeft": 240,
+      "metricRailWidth": 18,
+      "metricRailActive": true,
+      "firstCellLeft": 252,
+      "firstCellWidth": 242,
+      "scrollRootClasses": [
+        "relative",
+        "h-full",
+        "overflow-auto",
+        "p-3",
+        "outline-none",
+        "scrollbar-thin"
+      ],
+      "scrollRootUsesHiddenScrollbar": false,
+      "persistedSortKind": "metric",
+      "persistedSortKey": "probe_rank"
+    },
+    "builtin_restored_snapshot": {
+      "topStackHeight": 92,
+      "topStackTop": 48,
+      "bandHeights": {
+        "status": 47,
+        "similarity": 0,
+        "filters": 45
+      },
+      "bandHidden": {
+        "status": true,
+        "similarity": true,
+        "filters": true
+      },
+      "gridBodyWidth": 782,
+      "gridBodyLeft": 240,
+      "metricRailWidth": 18,
+      "metricRailActive": false,
+      "firstCellLeft": 252,
+      "firstCellWidth": 242,
+      "scrollRootClasses": [
+        "relative",
+        "h-full",
+        "overflow-auto",
+        "p-3",
+        "outline-none",
+        "scrollbar-thin"
+      ],
+      "scrollRootUsesHiddenScrollbar": false,
+      "persistedSortKind": "builtin",
+      "persistedSortKey": "added"
+    },
+    "metric_sort_label": "probe_rank",
+    "violations": []
+  }
+}

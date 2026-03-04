@@ -81,7 +81,6 @@ interface VirtualGridProps {
   viewMode?: ViewMode
   targetCellSize?: number
   scrollRef?: React.RefObject<HTMLDivElement>
-  hideScrollbar?: boolean
   isLoading?: boolean
 }
 
@@ -104,7 +103,6 @@ export default function VirtualGrid({
   viewMode = 'grid',
   targetCellSize = 220,
   scrollRef,
-  hideScrollbar = false,
   isLoading = false,
 }: VirtualGridProps) {
   const [previewFor, setPreviewFor] = useState<string | null>(null)
@@ -618,7 +616,7 @@ export default function VirtualGrid({
     <div 
       role="grid" 
       aria-label="Gallery" 
-      className={`relative h-full overflow-auto p-3 outline-none ${hideScrollbar ? 'scrollbar-hidden pr-4' : 'scrollbar-thin'} ${hasPreview ? 'cursor-zoom-in' : ''}`}
+      className={`relative h-full overflow-auto p-3 outline-none scrollbar-thin ${hasPreview ? 'cursor-zoom-in' : ''}`}
       ref={parentRef} 
       tabIndex={0} 
       aria-activedescendant={activeDescendantId} 

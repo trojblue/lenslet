@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -29,16 +29,18 @@ class SmokeFailure(RuntimeError):
 class ProbeResult:
     scenario: str
     max_delta_px: float
-    max_anchor_delta_px: float
-    max_toolbar_delta_px: float
-    checks: dict[str, Any]
+    max_anchor_delta_px: float = 0.0
+    max_toolbar_delta_px: float = 0.0
+    max_top_stack_delta_px: float = 0.0
+    max_grid_width_delta_px: float = 0.0
+    checks: dict[str, Any] = field(default_factory=dict)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run UI jitter probe scenarios.")
     parser.add_argument(
         "--scenario",
-        choices=["toolbar"],
+        choices=["toolbar", "grid"],
         required=True,
         help="Probe scenario to execute.",
     )
@@ -80,7 +82,59 @@ def parse_args() -> argparse.Namespace:
 def _build_fixture_dataset(root: Path) -> None:
     payload = _jpeg_payload()
     for idx in range(12):
-        _write_image(root / f"group_{idx % 3}" / f"sample_{idx:03d}.jpg", payload)
+        _write_image(root / f"sample_{idx:03d}.jpg", payload)
+    _write_fixture_items_parquet(root)
+    _write_fixture_labels_snapshot(root)
+
+
+def _write_fixture_labels_snapshot(root: Path) -> None:
+    items: dict[str, Any] = {}
+    for idx in range(12):
+        path = f"/sample_{idx:03d}.jpg"
+        score = round((idx % 7) / 7.0, 6)
+        items[path] = {
+            "tags": [],
+            "notes": "",
+            "star": None,
+            "version": 100,
+            "updated_at": "",
+            "updated_by": "probe",
+            "metrics": {
+                "probe_score": score,
+                "probe_rank": float(idx),
+            },
+        }
+
+    payload = {
+        "version": 1,
+        "last_event_id": len(items),
+        "items": items,
+    }
+    snapshot_path = root / ".lenslet" / "labels.snapshot.json"
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_fixture_items_parquet(root: Path) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    rows: list[dict[str, Any]] = []
+    for idx in range(12):
+        rel_path = f"sample_{idx:03d}.jpg"
+        score = round((idx % 7) / 7.0, 6)
+        rows.append(
+            {
+                "path": rel_path,
+                "source": str((root / rel_path).resolve()),
+                "metrics": {
+                    "probe_score": score,
+                    "probe_rank": float(idx),
+                },
+            }
+        )
+    table = pa.Table.from_pylist(rows)
+    pq.write_table(table, root / "items.parquet")
 
 
 def _jpeg_payload() -> bytes:
@@ -463,6 +517,355 @@ def run_toolbar_probe(base_url: str, max_delta_px: float, browser_timeout_ms: fl
     )
 
 
+def _snapshot_grid(page: Any) -> dict[str, Any]:
+    snapshot = page.evaluate(
+        """() => {
+          const topStack = document.querySelector('[data-grid-top-stack]');
+          const topStackRect = topStack instanceof HTMLElement ? topStack.getBoundingClientRect() : null;
+          const bandNames = ['status', 'similarity', 'filters'];
+          const bandHeights = {};
+          const bandHidden = {};
+          for (const bandName of bandNames) {
+            const band = document.querySelector(`[data-grid-top-band="${bandName}"]`);
+            if (!(band instanceof HTMLElement)) {
+              bandHeights[bandName] = null;
+              bandHidden[bandName] = null;
+              continue;
+            }
+            const rect = band.getBoundingClientRect();
+            bandHeights[bandName] = rect.height;
+            bandHidden[bandName] = band.getAttribute('aria-hidden') === 'true';
+          }
+
+          const bodyMain = document.querySelector('[data-grid-body-main]');
+          const bodyRect = bodyMain instanceof HTMLElement ? bodyMain.getBoundingClientRect() : null;
+          const rail = document.querySelector('[data-metric-rail-slot]');
+          const railRect = rail instanceof HTMLElement ? rail.getBoundingClientRect() : null;
+          const railActive = rail instanceof HTMLElement
+            ? rail.getAttribute('data-metric-rail-active') === 'true'
+            : null;
+
+          const scrollRoot = document.querySelector('[role="grid"][aria-label="Gallery"]');
+          const scrollRootClasses = scrollRoot instanceof HTMLElement ? Array.from(scrollRoot.classList) : [];
+          const usesHiddenScrollbar = scrollRootClasses.includes('scrollbar-hidden');
+
+          let persistedSortSpec = null;
+          try {
+            const rawSortSpec = window.localStorage.getItem('sortSpec');
+            if (rawSortSpec) {
+              const parsedSortSpec = JSON.parse(rawSortSpec);
+              if (parsedSortSpec && typeof parsedSortSpec === 'object') {
+                persistedSortSpec = parsedSortSpec;
+              }
+            }
+          } catch (error) {
+            persistedSortSpec = null;
+          }
+
+          const firstCell = document.querySelector('[role="gridcell"][id^="cell-"]');
+          const firstCellRect = firstCell instanceof HTMLElement ? firstCell.getBoundingClientRect() : null;
+
+          return {
+            topStackHeight: topStackRect ? topStackRect.height : null,
+            topStackTop: topStackRect ? topStackRect.top : null,
+            bandHeights,
+            bandHidden,
+            gridBodyWidth: bodyRect ? bodyRect.width : null,
+            gridBodyLeft: bodyRect ? bodyRect.left : null,
+            metricRailWidth: railRect ? railRect.width : null,
+            metricRailActive: railActive,
+            firstCellLeft: firstCellRect ? firstCellRect.left : null,
+            firstCellWidth: firstCellRect ? firstCellRect.width : null,
+            scrollRootClasses,
+            scrollRootUsesHiddenScrollbar: usesHiddenScrollbar,
+            persistedSortKind: persistedSortSpec ? persistedSortSpec.kind ?? null : null,
+            persistedSortKey: persistedSortSpec ? persistedSortSpec.key ?? null : null,
+          };
+        }"""
+    )
+    if not isinstance(snapshot, dict):
+        raise SmokeFailure("Failed to capture grid snapshot.")
+    return snapshot
+
+
+def _set_local_storage(page: Any, values: dict[str, str | None]) -> None:
+    page.evaluate(
+        """(entries) => {
+          for (const [key, value] of Object.entries(entries)) {
+            if (value === null) {
+              window.localStorage.removeItem(key);
+            } else {
+              window.localStorage.setItem(key, value);
+            }
+          }
+        }""",
+        values,
+    )
+
+
+def _state_delta_nested(lhs: dict[str, Any], rhs: dict[str, Any], parent_key: str, key: str) -> float:
+    left_parent = lhs.get(parent_key)
+    right_parent = rhs.get(parent_key)
+    if not isinstance(left_parent, dict) or not isinstance(right_parent, dict):
+        return 0.0
+    left_raw = left_parent.get(key)
+    right_raw = right_parent.get(key)
+    if left_raw is None or right_raw is None:
+        return 0.0
+    try:
+        return abs(float(left_raw) - float(right_raw))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def run_grid_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float) -> ProbeResult:
+    playwright_error, playwright_timeout_error, sync_playwright = _import_playwright()
+    sort_panel_selector = '.dropdown-panel[role="listbox"][aria-label="Sort and layout"]'
+
+    def ensure_sort_trigger(page: Any) -> Any:
+        trigger = page.locator('button[aria-label="Sort and layout"]').first
+        if trigger.count() == 0:
+            raise SmokeFailure("Sort dropdown trigger is missing.")
+        if trigger.is_disabled():
+            switch_button = page.locator('button:has-text("Switch to Most recent")').first
+            if switch_button.count() > 0:
+                switch_button.click()
+                page.wait_for_function(
+                    """() => {
+                      const button = document.querySelector('button[aria-label="Sort and layout"]');
+                      return button instanceof HTMLButtonElement ? !button.disabled : false;
+                    }""",
+                    timeout=browser_timeout_ms,
+                )
+            if trigger.is_disabled():
+                raise SmokeFailure("Sort dropdown trigger is disabled.")
+        return trigger
+
+    def open_sort_panel(page: Any) -> tuple[Any, Any]:
+        trigger = ensure_sort_trigger(page)
+        trigger.click()
+        page.wait_for_selector(sort_panel_selector, timeout=browser_timeout_ms)
+        panel = page.locator(sort_panel_selector).first
+        return trigger, panel
+
+    def detect_metric_sort_label(page: Any) -> str:
+        trigger, panel = open_sort_panel(page)
+        option_labels = [label.strip() for label in panel.locator("button.dropdown-item").all_inner_texts()]
+        builtin_options = {"Grid", "Masonry", "Date added", "Filename", "Random"}
+        metric_labels = [label for label in option_labels if label and label not in builtin_options]
+        trigger.click()
+        if not metric_labels:
+            raise SmokeFailure(f"No metric sort options found. Available options: {option_labels}")
+        return metric_labels[0]
+
+    def set_json_storage(page: Any, payload: dict[str, Any]) -> None:
+        serialized: dict[str, str | None] = {}
+        for key, value in payload.items():
+            if value is None:
+                serialized[key] = None
+            elif isinstance(value, str):
+                serialized[key] = value
+            else:
+                serialized[key] = json.dumps(value)
+        _set_local_storage(page, serialized)
+
+    def reload_with_state(page: Any, payload: dict[str, Any]) -> None:
+        set_json_storage(page, payload)
+        page.reload(wait_until="domcontentloaded")
+        _wait_for_grid(page, browser_timeout_ms)
+
+    def wait_for_metric_rail(page: Any, *, active: bool) -> None:
+        page.wait_for_function(
+            """(expectedActive) => {
+              const rail = document.querySelector('[data-metric-rail-slot]');
+              if (!(rail instanceof HTMLElement)) return false;
+              const isActive = rail.getAttribute('data-metric-rail-active') === 'true';
+              return isActive === expectedActive;
+            }""",
+            arg=active,
+            timeout=browser_timeout_ms,
+        )
+
+    def select_sort_option(page: Any, label: str) -> None:
+        _, panel = open_sort_panel(page)
+        option = panel.locator("button.dropdown-item", has_text=label).first
+        if option.count() == 0:
+            available = panel.locator("button.dropdown-item").all_inner_texts()
+            raise SmokeFailure(f"Sort option '{label}' not found. Available options: {available}")
+        option.click()
+
+    def wait_for_filters_band(page: Any, *, hidden: bool) -> None:
+        page.wait_for_function(
+            """(expectedHidden) => {
+              const band = document.querySelector('[data-grid-top-band="filters"]');
+              if (!(band instanceof HTMLElement)) return false;
+              const isHidden = band.getAttribute('aria-hidden') === 'true';
+              return isHidden === expectedHidden;
+            }""",
+            arg=hidden,
+            timeout=browser_timeout_ms,
+        )
+
+    def enable_unrated_filter(page: Any) -> None:
+        filters_button = page.locator('button[title="Filters"]').first
+        filters_button.click()
+        page.wait_for_selector('[role="dialog"][aria-label="Filters"]', timeout=browser_timeout_ms)
+        page.locator('[role="dialog"][aria-label="Filters"] button:has-text("Unrated")').first.click()
+        try:
+            filters_button.click()
+        except playwright_error:
+            pass
+        wait_for_filters_band(page, hidden=False)
+
+    def clear_filter_chips(page: Any) -> None:
+        clear_button = page.locator('[data-grid-top-band="filters"] button:has-text("Clear all")').first
+        if clear_button.count() > 0:
+            clear_button.click()
+        wait_for_filters_band(page, hidden=True)
+
+    metric_sort_label = ""
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1280, "height": 840})
+            page = context.new_page()
+            page.set_default_timeout(browser_timeout_ms)
+
+            page.goto(base_url, wait_until="domcontentloaded")
+            _wait_for_grid(page, browser_timeout_ms)
+
+            base_payload = {
+                "sortSpec": {"kind": "builtin", "key": "added", "dir": "desc"},
+                "sortKey": "added",
+                "sortDir": "desc",
+                "selectedMetric": None,
+                "filterAst": {"and": []},
+                "starFilters": [],
+            }
+
+            reload_with_state(page, base_payload)
+
+            # Warm up reservation on the running page so hide/show checks capture steady-state toggles.
+            enable_unrated_filter(page)
+            warmup_filters_active = _snapshot_grid(page)
+            clear_filter_chips(page)
+
+            builtin_initial = _snapshot_grid(page)
+
+            enable_unrated_filter(page)
+            filters_active = _snapshot_grid(page)
+
+            clear_filter_chips(page)
+            filters_cleared = _snapshot_grid(page)
+
+            metric_sort_label = detect_metric_sort_label(page)
+            select_sort_option(page, metric_sort_label)
+            wait_for_metric_rail(page, active=True)
+            metric_mode = _snapshot_grid(page)
+
+            select_sort_option(page, "Date added")
+            wait_for_metric_rail(page, active=False)
+            builtin_restored = _snapshot_grid(page)
+
+            context.close()
+            browser.close()
+    except playwright_timeout_error as exc:
+        raise SmokeFailure(f"playwright timeout: {exc}") from exc
+    except playwright_error as exc:
+        raise SmokeFailure(f"playwright probe failed: {exc}") from exc
+
+    top_stack_deltas = {
+        "baseline_to_filters_top_stack_delta": _state_delta(builtin_initial, filters_active, "topStackHeight"),
+        "baseline_to_restored_top_stack_delta": _state_delta(builtin_initial, filters_cleared, "topStackHeight"),
+    }
+    for band_name in ("status", "similarity", "filters"):
+        top_stack_deltas[f"baseline_to_filters_{band_name}_band_delta"] = _state_delta_nested(
+            builtin_initial,
+            filters_active,
+            "bandHeights",
+            band_name,
+        )
+        top_stack_deltas[f"baseline_to_restored_{band_name}_band_delta"] = _state_delta_nested(
+            builtin_initial,
+            filters_cleared,
+            "bandHeights",
+            band_name,
+        )
+
+    grid_width_deltas = {
+        "metric_to_restored_body_width_delta": _state_delta(metric_mode, builtin_restored, "gridBodyWidth"),
+        "metric_to_restored_first_cell_left_delta": _state_delta(metric_mode, builtin_restored, "firstCellLeft"),
+        "metric_to_restored_first_cell_width_delta": _state_delta(metric_mode, builtin_restored, "firstCellWidth"),
+        "metric_to_restored_rail_width_delta": _state_delta(metric_mode, builtin_restored, "metricRailWidth"),
+    }
+
+    max_top_stack_delta = max(top_stack_deltas.values(), default=0.0)
+    max_grid_width_delta = max(grid_width_deltas.values(), default=0.0)
+
+    violations: list[str] = []
+    if max_top_stack_delta > max_delta_px:
+        violations.append(
+            f"top-stack delta {max_top_stack_delta:.3f}px exceeded threshold {max_delta_px:.3f}px"
+        )
+    if max_grid_width_delta > max_delta_px:
+        violations.append(
+            f"grid-width delta {max_grid_width_delta:.3f}px exceeded threshold {max_delta_px:.3f}px"
+        )
+
+    snapshots = {
+        "warmup_filters_active": warmup_filters_active,
+        "builtin_initial": builtin_initial,
+        "filters_active": filters_active,
+        "filters_cleared": filters_cleared,
+        "metric_mode": metric_mode,
+        "builtin_restored": builtin_restored,
+    }
+
+    for name, snapshot in snapshots.items():
+        if bool(snapshot.get("scrollRootUsesHiddenScrollbar")):
+            violations.append(f"{name}: expected scroll root to avoid scrollbar-hidden mode")
+        if snapshot.get("metricRailWidth") is None:
+            violations.append(f"{name}: missing metric rail slot width measurement")
+        for band_name in ("status", "similarity", "filters"):
+            band_value = snapshot.get("bandHeights", {}).get(band_name)
+            if band_value is None:
+                violations.append(f"{name}: missing mounted top-stack band '{band_name}'")
+
+    if metric_mode.get("metricRailActive") is not True:
+        violations.append("metric_mode: metric rail did not activate after requesting metric sort")
+    if metric_mode.get("persistedSortKind") != "metric":
+        violations.append("metric_mode: expected persisted sort kind to be metric")
+    if metric_sort_label and metric_mode.get("persistedSortKey") != metric_sort_label:
+        violations.append(
+            f"metric_mode: expected persisted metric sort key {metric_sort_label}"
+        )
+    if builtin_restored.get("persistedSortKind") != "builtin":
+        violations.append("builtin_restored: expected persisted sort kind to return to builtin")
+
+    checks: dict[str, Any] = {
+        "top_stack_deltas_px": top_stack_deltas,
+        "grid_width_deltas_px": grid_width_deltas,
+        "builtin_initial_snapshot": builtin_initial,
+        "filters_active_snapshot": filters_active,
+        "filters_cleared_snapshot": filters_cleared,
+        "metric_mode_snapshot": metric_mode,
+        "builtin_restored_snapshot": builtin_restored,
+        "metric_sort_label": metric_sort_label,
+        "violations": violations,
+    }
+
+    if violations:
+        raise SmokeFailure("; ".join(violations))
+
+    return ProbeResult(
+        scenario="grid",
+        max_delta_px=max_delta_px,
+        max_top_stack_delta_px=max_top_stack_delta,
+        max_grid_width_delta_px=max_grid_width_delta,
+        checks=checks,
+    )
+
+
 def _write_output_json(path: Path | None, summary: dict[str, Any]) -> None:
     if path is None:
         return
@@ -496,7 +899,6 @@ def main() -> int:
         "--port",
         str(port),
         "--verbose",
-        "--no-skip-indexing",
     ]
     process = subprocess.Popen(command, cwd=str(Path(__file__).resolve().parents[1]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -506,7 +908,10 @@ def main() -> int:
         if process.poll() is not None:
             raise SmokeFailure(f"Lenslet exited unexpectedly with code {process.returncode}.")
 
-        result = run_toolbar_probe(base_url, args.max_delta_px, args.browser_timeout_ms)
+        if args.scenario == "toolbar":
+            result = run_toolbar_probe(base_url, args.max_delta_px, args.browser_timeout_ms)
+        else:
+            result = run_grid_probe(base_url, args.max_delta_px, args.browser_timeout_ms)
 
         summary = {
             "status": "passed",
@@ -516,6 +921,8 @@ def main() -> int:
             "max_delta_px": result.max_delta_px,
             "max_anchor_delta_px": result.max_anchor_delta_px,
             "max_toolbar_delta_px": result.max_toolbar_delta_px,
+            "max_top_stack_delta_px": result.max_top_stack_delta_px,
+            "max_grid_width_delta_px": result.max_grid_width_delta_px,
             "checks": result.checks,
         }
         print(json.dumps(summary, indent=2))

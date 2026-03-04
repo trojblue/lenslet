@@ -28,3 +28,28 @@ Plan: /local/yada/dev/lenslet/docs/20260304_ui_jitter_implementation_plan.md
   - `code-review` subagent run post-cleanup; medium finding on hidden-row pointer interception fixed and revalidated.
 - Blockers: none.
 - Next step: start Sprint 2 at `T5` (persistent top-stack component and AppShell migration).
+
+## Iteration 2 (2026-03-04 18:43 UTC)
+- Completed task IDs: `T5`, `T6`, `T7`, `T8` (Sprint 2 closed).
+- Files changed:
+  - `frontend/src/app/AppShell.tsx`
+  - `frontend/src/app/components/StatusBar.tsx`
+  - `frontend/src/app/components/GridTopStack.tsx`
+  - `frontend/src/app/components/__tests__/GridTopStack.test.tsx`
+  - `frontend/src/features/browse/components/VirtualGrid.tsx`
+  - `frontend/src/features/browse/components/MetricScrollbar.tsx`
+  - `frontend/src/styles.css`
+  - `scripts/gui_jitter_probe.py`
+  - `docs/20260304_ui_jitter_implementation_plan.md`
+  - `docs/ralph/20260304_ui_jitter_implementation/grid_probe_iteration2.json`
+  - frontend bundle refresh under `src/lenslet/frontend/` (`index.html`, new hashed CSS/JS pair, previous tracked hashed pair removed)
+- Validations run + outcomes:
+  - `cd frontend && npm run test -- src/app/components/__tests__/GridTopStack.test.tsx src/app/components/__tests__/StatusBar.test.tsx` -> passed
+  - `python scripts/gui_jitter_probe.py --scenario grid --max-delta-px 1 --output-json docs/ralph/20260304_ui_jitter_implementation/grid_probe_iteration2.json` -> passed (`max_top_stack_delta_px=0.0`, `max_grid_width_delta_px=0.0`)
+  - `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` -> first run failed (`first-grid=5.17s`), rerun passed (`first-grid=4.83s`)
+  - `python scripts/lint_repo.py` -> passed
+- Cleanup/review routines:
+  - `code-simplifier` subagent run on Sprint 2 diff; non-semantic opportunities reviewed.
+  - `code-review` subagent run post-cleanup; high finding on top-band reserve growth fixed, then validations rerun.
+- Blockers: none.
+- Next step: start Sprint 3 at `T9` (Quick View reservation + stale-response protection).

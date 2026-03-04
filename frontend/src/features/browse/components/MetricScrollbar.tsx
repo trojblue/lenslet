@@ -87,7 +87,7 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
   }
 
   return (
-    <div className="absolute right-0 top-3 bottom-3 w-[14px] flex items-stretch pointer-events-auto">
+    <div className="relative h-full w-full flex items-stretch pointer-events-auto">
       <svg
         ref={svgRef}
         viewBox="0 0 10 100"

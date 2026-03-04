@@ -3,7 +3,7 @@ import type { HealthResponse } from '../../lib/types'
 
 type HealthIndexing = HealthResponse['indexing'] | null
 
-type StatusBarProps = {
+export type StatusBarProps = {
   persistenceEnabled: boolean
   indexing?: HealthIndexing
   showSwitchToMostRecentBanner?: boolean
@@ -15,7 +15,22 @@ type StatusBarProps = {
   browserZoomPercent?: number | null
 }
 
-export default function StatusBar({
+type StatusBarStateInput = Omit<StatusBarProps, 'onClearOffView'>
+
+type StatusBarState = {
+  offViewLabel: string
+  canReveal: boolean
+  zoomPercent: number | null
+  showZoomWarning: boolean
+  showIndexingRunning: boolean
+  showIndexingError: boolean
+  indexingScopeLabel: string
+  indexingProgressLabel: string | null
+  showSwitchBanner: boolean
+  showAnyBanner: boolean
+}
+
+function deriveStatusBarState({
   persistenceEnabled,
   indexing = null,
   showSwitchToMostRecentBanner = false,
@@ -23,11 +38,9 @@ export default function StatusBar({
   offViewSummary,
   onRevealOffView,
   canRevealOffView = false,
-  onClearOffView,
   browserZoomPercent,
-}: StatusBarProps): JSX.Element | null {
-  const hasOffViewNames = !!offViewSummary?.names.length
-  const offViewLabel = hasOffViewNames && offViewSummary
+}: StatusBarStateInput): StatusBarState {
+  const offViewLabel = offViewSummary?.names.length
     ? ` (${offViewSummary.names.join(', ')}${offViewSummary.extra ? ` +${offViewSummary.extra}` : ''})`
     : ''
   const canReveal = canRevealOffView && onRevealOffView != null
@@ -47,6 +60,56 @@ export default function StatusBar({
   const showSwitchBanner = showSwitchToMostRecentBanner && onSwitchToMostRecent != null
   const showAnyBanner =
     !persistenceEnabled || showIndexingRunning || showIndexingError || showSwitchBanner || showZoomWarning || !!offViewSummary
+  return {
+    offViewLabel,
+    canReveal,
+    zoomPercent,
+    showZoomWarning,
+    showIndexingRunning,
+    showIndexingError,
+    indexingScopeLabel,
+    indexingProgressLabel,
+    showSwitchBanner,
+    showAnyBanner,
+  }
+}
+
+export function hasStatusBarContent(props: StatusBarProps): boolean {
+  return deriveStatusBarState(props).showAnyBanner
+}
+
+export default function StatusBar({
+  persistenceEnabled,
+  indexing = null,
+  showSwitchToMostRecentBanner = false,
+  onSwitchToMostRecent,
+  offViewSummary,
+  onRevealOffView,
+  canRevealOffView = false,
+  onClearOffView,
+  browserZoomPercent,
+}: StatusBarProps): JSX.Element | null {
+  const {
+    offViewLabel,
+    canReveal,
+    zoomPercent,
+    showZoomWarning,
+    showIndexingRunning,
+    showIndexingError,
+    indexingScopeLabel,
+    indexingProgressLabel,
+    showSwitchBanner,
+    showAnyBanner,
+  } = deriveStatusBarState({
+    persistenceEnabled,
+    indexing,
+    showSwitchToMostRecentBanner,
+    onSwitchToMostRecent,
+    offViewSummary,
+    onRevealOffView,
+    canRevealOffView,
+    browserZoomPercent,
+  })
   if (!showAnyBanner) return null
   return (
     <div className="border-b border-border bg-panel">
@@ -81,7 +144,7 @@ export default function StatusBar({
             </span>
             <button
               className="text-muted hover:text-text transition-colors"
-              onClick={() => onSwitchToMostRecent?.()}
+              onClick={onSwitchToMostRecent}
             >
               Switch to Most recent
             </button>
@@ -102,7 +165,7 @@ export default function StatusBar({
               {canReveal && (
                 <button
                   className="text-muted hover:text-text transition-colors"
-                  onClick={() => onRevealOffView?.()}
+                  onClick={onRevealOffView}
                   aria-label="Reveal off-view updates"
                 >
                   Reveal

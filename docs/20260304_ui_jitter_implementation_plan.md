@@ -98,10 +98,10 @@ Sprint plan:
 2. Sprint 2 goal: stabilize top-stack and metric-mode grid geometry.
    Demo outcome: status/similarity/filter-chip transitions and builtin/metric sort toggles keep vertical and horizontal geometry stable.
    Tasks:
-   - `T5` Add persistent [GridTopStack.tsx](/local/yada/dev/lenslet/frontend/src/app/components/GridTopStack.tsx) and migrate top-stack rendering in [AppShell.tsx](/local/yada/dev/lenslet/frontend/src/app/AppShell.tsx) to always-mounted bands; validation: top-stack bands stay mounted while visibility toggles.
-   - `T6` Refactor [AppShell.tsx](/local/yada/dev/lenslet/frontend/src/app/AppShell.tsx) and [styles.css](/local/yada/dev/lenslet/frontend/src/styles.css) to use a persistent metric rail slot with stable right gutter; validation: tracked grid content width delta stays within threshold across sort-mode toggles.
-   - `T7` Remove `hideScrollbar` mode switching in [VirtualGrid.tsx](/local/yada/dev/lenslet/frontend/src/features/browse/components/VirtualGrid.tsx) and adapt [MetricScrollbar.tsx](/local/yada/dev/lenslet/frontend/src/features/browse/components/MetricScrollbar.tsx) to slot layout; validation: no scroll-root class flip tied to mode.
-   - `T8` Extend jitter probe for top-stack height and grid-width threshold checks, including large-tree fixture path as sprint-exit verification; validation: probe output and large-tree smoke output stay within accepted bounds.
+   - [x] `T5` Add persistent [GridTopStack.tsx](/local/yada/dev/lenslet/frontend/src/app/components/GridTopStack.tsx) and migrate top-stack rendering in [AppShell.tsx](/local/yada/dev/lenslet/frontend/src/app/AppShell.tsx) to always-mounted bands; validation: top-stack bands stay mounted while visibility toggles.
+   - [x] `T6` Refactor [AppShell.tsx](/local/yada/dev/lenslet/frontend/src/app/AppShell.tsx) and [styles.css](/local/yada/dev/lenslet/frontend/src/styles.css) to use a persistent metric rail slot with stable right gutter; validation: tracked grid content width delta stays within threshold across sort-mode toggles.
+   - [x] `T7` Remove `hideScrollbar` mode switching in [VirtualGrid.tsx](/local/yada/dev/lenslet/frontend/src/features/browse/components/VirtualGrid.tsx) and adapt [MetricScrollbar.tsx](/local/yada/dev/lenslet/frontend/src/features/browse/components/MetricScrollbar.tsx) to slot layout; validation: no scroll-root class flip tied to mode.
+   - [x] `T8` Extend jitter probe for top-stack height and grid-width threshold checks, including large-tree fixture path as sprint-exit verification; validation: probe output and large-tree smoke output stay within accepted bounds.
 
 3. Sprint 3 goal: stabilize inspector autoload transitions and interaction clarity.
    Demo outcome: Quick View reservation behaves deterministically, single-item grouping is simpler, and compare-table copy interactions are reliable.
@@ -133,6 +133,11 @@ Primary acceptance gates (real scenario):
       python scripts/gui_jitter_probe.py --scenario grid --max-delta-px 1
       python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json
    Expected outcome: top-stack height and grid-width deltas are `<=1px` in the probe; no major regression in large-tree smoke output versus current baseline.
+   Execution result (2026-03-04 18:43 UTC): passed.
+   - `cd frontend && npm run test -- src/app/components/__tests__/GridTopStack.test.tsx src/app/components/__tests__/StatusBar.test.tsx` -> passed (8 tests).
+   - `python scripts/gui_jitter_probe.py --scenario grid --max-delta-px 1 --output-json docs/ralph/20260304_ui_jitter_implementation/grid_probe_iteration2.json` -> passed (`max_top_stack_delta_px=0.0`, `max_grid_width_delta_px=0.0`), with metric-rail activation and metric sort persistence asserted.
+   - `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` -> passed (`first-grid=4.83s` on final run; one earlier run in this iteration measured `5.17s` and failed threshold).
+   - `python scripts/lint_repo.py` -> passed.
 3. Sprint 3 inspector continuity and compare interaction gate.
    Commands:
       cd frontend && npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx src/features/inspector/model/__tests__/quickViewFields.test.ts src/app/menu/__tests__/AppContextMenuItems.test.tsx
@@ -172,8 +177,12 @@ Rollback path is frontend-only. Revert failing task commit(s), rerun that sprint
 - [x] 2026-03-04 17:35 UTC: Completed `T3` in [ToolbarFilterMenu.tsx](/local/yada/dev/lenslet/frontend/src/shared/ui/toolbar/ToolbarFilterMenu.tsx), [ToolbarMobileDrawer.tsx](/local/yada/dev/lenslet/frontend/src/shared/ui/toolbar/ToolbarMobileDrawer.tsx), and [styles.css](/local/yada/dev/lenslet/frontend/src/styles.css) for stable dynamic widths and badge mounting.
 - [x] 2026-03-04 17:42 UTC: Completed `T4` by adding [scripts/gui_jitter_probe.py](/local/yada/dev/lenslet/scripts/gui_jitter_probe.py) and recording toolbar probe artifact [docs/ralph/20260304_ui_jitter_implementation/toolbar_probe_iteration1.json](/local/yada/dev/lenslet/docs/ralph/20260304_ui_jitter_implementation/toolbar_probe_iteration1.json).
 - [x] 2026-03-04 17:43 UTC: Ran sprint cleanup/review routines (`code-simplifier`, `code-review`), resolved hidden-row pointer-events finding, and re-validated sprint gates.
+- [x] 2026-03-04 18:12 UTC: Completed `T5`, `T6`, and `T7` across [GridTopStack.tsx](/local/yada/dev/lenslet/frontend/src/app/components/GridTopStack.tsx), [AppShell.tsx](/local/yada/dev/lenslet/frontend/src/app/AppShell.tsx), [VirtualGrid.tsx](/local/yada/dev/lenslet/frontend/src/features/browse/components/VirtualGrid.tsx), [MetricScrollbar.tsx](/local/yada/dev/lenslet/frontend/src/features/browse/components/MetricScrollbar.tsx), and [styles.css](/local/yada/dev/lenslet/frontend/src/styles.css), including persistent top-stack bands and persistent metric rail slot layout.
+- [x] 2026-03-04 18:36 UTC: Completed `T8` by extending [scripts/gui_jitter_probe.py](/local/yada/dev/lenslet/scripts/gui_jitter_probe.py) with `grid` scenario assertions, deterministic metric-fixture generation, and dynamic metric option detection for user datasets; recorded artifact [docs/ralph/20260304_ui_jitter_implementation/grid_probe_iteration2.json](/local/yada/dev/lenslet/docs/ralph/20260304_ui_jitter_implementation/grid_probe_iteration2.json).
+- [x] 2026-03-04 18:41 UTC: Ran sprint cleanup/review routines (`code-simplifier`, `code-review`) on Sprint 2 diff and fixed the high-severity reservation bug by allowing hidden-band reserve heights to shrink to latest measured height.
+- [x] 2026-03-04 18:43 UTC: Re-ran Sprint 2 acceptance gates (targeted tests, grid jitter probe, large-tree smoke, lint) and confirmed pass.
 - [x] Sprint 1 complete.
-- [ ] Sprint 2 in progress.
+- [x] Sprint 2 complete.
 - [ ] Sprint 3 in progress.
 
 
@@ -187,9 +196,15 @@ Sprint 1 handoff notes:
 2. Mobile search row remains mounted on narrow layouts with stable geometry; closed state now uses `pointer-events: none` to avoid inert hitbox interception.
 3. Toolbar jitter probe lives in [scripts/gui_jitter_probe.py](/local/yada/dev/lenslet/scripts/gui_jitter_probe.py) (currently `--scenario toolbar`), with sprint artifact output captured at [docs/ralph/20260304_ui_jitter_implementation/toolbar_probe_iteration1.json](/local/yada/dev/lenslet/docs/ralph/20260304_ui_jitter_implementation/toolbar_probe_iteration1.json).
 
-Handoff notes for Sprint 2 operator:
-1. Start at `T5` and keep scope on top-stack + metric rail stability only.
-2. Extend the existing jitter probe to include `grid` scenario when implementing `T8`.
-3. Preserve the same gate routine: task-scoped validation, sprint cleanup (`code-simplifier`), then sprint review (`code-review`) before closure.
+Sprint 2 handoff notes:
+1. Top-stack rendering is now centralized in [GridTopStack.tsx](/local/yada/dev/lenslet/frontend/src/app/components/GridTopStack.tsx), with persistent mounted `status`, `similarity`, and `filters` bands and measured reserve behavior.
+2. Grid body layout now always mounts a right metric rail slot in [AppShell.tsx](/local/yada/dev/lenslet/frontend/src/app/AppShell.tsx) and [styles.css](/local/yada/dev/lenslet/frontend/src/styles.css), so builtin/metric sort toggles keep body width stable.
+3. `hideScrollbar` mode switching is removed from [VirtualGrid.tsx](/local/yada/dev/lenslet/frontend/src/features/browse/components/VirtualGrid.tsx); [MetricScrollbar.tsx](/local/yada/dev/lenslet/frontend/src/features/browse/components/MetricScrollbar.tsx) now renders as slot content.
+4. Grid jitter probe output is captured at [docs/ralph/20260304_ui_jitter_implementation/grid_probe_iteration2.json](/local/yada/dev/lenslet/docs/ralph/20260304_ui_jitter_implementation/grid_probe_iteration2.json); large-tree smoke output refreshed at `data/fixtures/large_tree_40k_smoke_result.json`.
+
+Handoff notes for Sprint 3 operator:
+1. Start at `T9` and keep scope on inspector reservation + interaction clarity only.
+2. Preserve existing probe thresholds (`<=1px`) and keep sprint validation commands unchanged unless Sprint 3 tasks require explicit additions.
+3. Continue sprint-close routine order: task validations, `code-simplifier`, `code-review`, then sprint gate reruns.
 
 Revision note (2026-03-04 17:24 UTC): incorporated subagent critique by explicitly covering refresh-slot and compare click-vs-pan scope, splitting inspector simplification work into atomic tasks, replacing verification-bundle tasks with sprint-exit gates, and adding measurable `<=1px` jitter thresholds with explicit probe requirements.

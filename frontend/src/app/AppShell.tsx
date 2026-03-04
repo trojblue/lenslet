@@ -42,7 +42,7 @@ import { safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
 import { FetchError } from '../lib/fetcher'
 import LeftSidebar from './components/LeftSidebar'
-import StatusBar from './components/StatusBar'
+import GridTopStack from './components/GridTopStack'
 import { deriveIndicatorState } from './presenceUi'
 import { LONG_SYNC_THRESHOLD_MS } from '../lib/constants'
 import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
@@ -1187,6 +1187,7 @@ export default function AppShell({
 
   const leftCol = `${leftColumnLayout.columnWidth}px`
   const rightCol = rightOpen ? `${constrainedSidebars.rightWidth}px` : '0px'
+  const metricRailActive = hasMetricScrollbar && metricSortKey !== null
 
   return (
     <div
@@ -1312,101 +1313,74 @@ export default function AppShell({
         <div aria-live="polite" className="sr-only">
           {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
         </div>
-        <StatusBar
-          persistenceEnabled={persistenceEnabled}
-          indexing={indexing}
-          showSwitchToMostRecentBanner={indexingBrowseMode.showSwitchToMostRecentBanner}
-          onSwitchToMostRecent={handleSwitchToMostRecent}
-          offViewSummary={offViewSummary}
-          canRevealOffView={showFilteredCounts}
-          onRevealOffView={handleRevealOffView}
-          onClearOffView={clearOffViewActivity}
-          browserZoomPercent={browserZoomPercent}
+        <GridTopStack
+          statusBarProps={{
+            persistenceEnabled,
+            indexing,
+            showSwitchToMostRecentBanner: indexingBrowseMode.showSwitchToMostRecentBanner,
+            onSwitchToMostRecent: handleSwitchToMostRecent,
+            offViewSummary,
+            canRevealOffView: showFilteredCounts,
+            onRevealOffView: handleRevealOffView,
+            onClearOffView: clearOffViewActivity,
+            browserZoomPercent,
+          }}
+          actionError={actionError}
+          similarity={similarityState ? {
+            embedding: similarityState.embedding,
+            topK: similarityState.topK,
+            minScore: similarityState.minScore,
+            queryLabel: similarityQueryLabel,
+            countLabel: similarityCountLabel,
+          } : null}
+          onExitSimilarity={clearSimilarity}
+          filterChips={filterChips}
+          onClearFilters={handleClearFilters}
         />
-        {actionError && (
-          <div className="border-b border-border bg-panel px-3 py-2">
-            <div className="ui-banner ui-banner-danger text-xs">{actionError}</div>
-          </div>
-        )}
-        {similarityState && (
-          <div className="border-b border-border bg-panel">
-            <div className="px-3 py-2 flex flex-wrap items-center gap-2">
-              <div className="ui-banner ui-banner-accent text-xs flex flex-wrap items-center gap-2">
-                <span className="font-semibold">Similarity mode</span>
-                <span className="text-muted">Embedding: {similarityState.embedding}</span>
-                {similarityQueryLabel && (
-                  <span className="text-muted">Query: {similarityQueryLabel}</span>
-                )}
-                {similarityCountLabel && (
-                  <span className="text-muted">Results: {similarityCountLabel}</span>
-                )}
-                <span className="text-muted">Top K: {similarityState.topK}</span>
-                {similarityState.minScore != null && (
-                  <span className="text-muted">Min score: {similarityState.minScore}</span>
-                )}
-              </div>
-              <button className="btn btn-sm" onClick={clearSimilarity}>
-                Exit similarity
-              </button>
-            </div>
-          </div>
-        )}
-        {filterChips.length > 0 && (
-          <div className="sticky top-0 z-10 px-3 py-2 bg-panel border-b border-border">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] uppercase tracking-wide text-muted">Filters</span>
-              {filterChips.map((chip) => (
-                <span key={chip.id} className="filter-chip">
-                  <span className="truncate max-w-[240px]" title={chip.label}>{chip.label}</span>
-                  <button
-                    className="filter-chip-remove"
-                    aria-label={`Clear filter ${chip.label}`}
-                    onClick={chip.onRemove}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-              <button className="btn btn-sm btn-ghost text-xs" onClick={handleClearFilters}>
-                Clear all
-              </button>
-            </div>
-          </div>
-        )}
-        <div className="flex-1 min-h-0 relative">
-          <VirtualGrid
-            items={items}
-            selected={selectedPaths}
-            restoreToSelectionToken={restoreGridToSelectionToken}
-            restoreToTopAnchorToken={restoreGridToTopAnchorToken}
-            restoreToTopAnchorPath={restoreGridTopAnchorPath}
-            multiSelectMode={mobileSelectEnabled && mobileSelectMode}
-            onSelectionChange={setSelectedPaths}
-            onOpenViewer={(p) => { rememberFocusedPath(p); openViewer(p); setSelectedPaths([p]) }}
-            highlight={searching ? normalizedQ : ''}
-            recentlyUpdated={highlightedPaths}
-            onVisiblePathsChange={handleVisiblePathsChange}
-            onTopAnchorPathChange={handleGridTopAnchorPathChange}
-            suppressSelectionHighlight={overlayActive}
-            viewMode={viewMode}
-            targetCellSize={gridItemSize}
-            onContextMenuItem={(e, path) => {
-              e.preventDefault()
-              openGridActions(path, { x: e.clientX, y: e.clientY })
-            }}
-            onOpenItemActions={openGridActions}
-            scrollRef={gridScrollRef}
-            hideScrollbar={hasMetricScrollbar}
-            isLoading={showGridLoading}
-          />
-          {hasMetricScrollbar && metricSortKey && (
-            <MetricScrollbar
+        <div className="grid-body flex-1 min-h-0" data-grid-body>
+          <div className="grid-body-main relative min-h-0 min-w-0" data-grid-body-main>
+            <VirtualGrid
               items={items}
-              metricKey={metricSortKey}
+              selected={selectedPaths}
+              restoreToSelectionToken={restoreGridToSelectionToken}
+              restoreToTopAnchorToken={restoreGridToTopAnchorToken}
+              restoreToTopAnchorPath={restoreGridTopAnchorPath}
+              multiSelectMode={mobileSelectEnabled && mobileSelectMode}
+              onSelectionChange={setSelectedPaths}
+              onOpenViewer={(p) => { rememberFocusedPath(p); openViewer(p); setSelectedPaths([p]) }}
+              highlight={searching ? normalizedQ : ''}
+              recentlyUpdated={highlightedPaths}
+              onVisiblePathsChange={handleVisiblePathsChange}
+              onTopAnchorPathChange={handleGridTopAnchorPathChange}
+              suppressSelectionHighlight={overlayActive}
+              viewMode={viewMode}
+              targetCellSize={gridItemSize}
+              onContextMenuItem={(e, path) => {
+                e.preventDefault()
+                openGridActions(path, { x: e.clientX, y: e.clientY })
+              }}
+              onOpenItemActions={openGridActions}
               scrollRef={gridScrollRef}
-              sortDir={viewState.sort.dir}
+              isLoading={showGridLoading}
             />
-          )}
+          </div>
+          <div
+            className={`metric-rail-slot${metricRailActive ? '' : ' is-inactive'}`}
+            data-metric-rail-slot
+            data-metric-rail-active={metricRailActive ? 'true' : 'false'}
+            aria-hidden={!metricRailActive}
+          >
+            {metricRailActive
+              ? (
+                <MetricScrollbar
+                  items={items}
+                  metricKey={metricSortKey!}
+                  scrollRef={gridScrollRef}
+                  sortDir={viewState.sort.dir}
+                />
+              )
+              : <div className="metric-rail-placeholder" aria-hidden="true" />}
+          </div>
         </div>
         {/* Bottom selection bar removed intentionally */}
       </div>

@@ -22,7 +22,7 @@ const SIDEBAR_LEFT_MAX_DESKTOP_MAX = 760
 const SIDEBAR_RIGHT_MAX_TABLET = 320
 const SIDEBAR_RIGHT_MAX_MEDIUM = 440
 const SIDEBAR_RIGHT_MAX_DESKTOP_MIN = 560
-const SIDEBAR_RIGHT_MAX_DESKTOP_MAX = 900
+const SIDEBAR_RIGHT_MAX_DESKTOP_MAX = 1400
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -42,7 +42,7 @@ function getRightSidebarMaxWidth(viewportWidth: number): number {
   if (viewportWidth <= LAYOUT_BREAKPOINTS.tabletMax) return SIDEBAR_RIGHT_MAX_TABLET
   if (viewportWidth <= LAYOUT_BREAKPOINTS.mediumMax) return SIDEBAR_RIGHT_MAX_MEDIUM
   return clamp(
-    Math.round(viewportWidth * 0.42),
+    Math.round(viewportWidth * 0.6),
     SIDEBAR_RIGHT_MAX_DESKTOP_MIN,
     SIDEBAR_RIGHT_MAX_DESKTOP_MAX,
   )

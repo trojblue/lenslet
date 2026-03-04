@@ -46,11 +46,11 @@ describe('constrainSidebarWidths', () => {
       leftOpen: true,
       rightOpen: true,
       leftWidth: 900,
-      rightWidth: 900,
+      rightWidth: 2000,
     })
 
     expect(constrained.leftWidth).toBe(760)
-    expect(constrained.rightWidth).toBe(900)
+    expect(constrained.rightWidth).toBe(1400)
   })
 
   it('lets the right inspector reach at least 560px at 1440px while preserving center space', () => {

@@ -52,6 +52,8 @@ export default function ToolbarMobileDrawer({
   onThemePresetChange,
   onAutoloadImageMetadataChange,
 }: ToolbarMobileDrawerProps): JSX.Element {
+  const canShowUpload = Boolean(onUploadClick)
+
   return (
     <div className="mobile-drawer">
       <div className="mobile-drawer-row">
@@ -90,16 +92,19 @@ export default function ToolbarMobileDrawer({
         >
           <SortDirectionIcon isRandom={isRandom} dir={sortDir} />
         </button>
-        {showSelectModeToggle && (
+        <div className="mobile-pill-slot mobile-pill-slot-select">
           <button
-            className={`mobile-pill ${multiSelectMode ? 'is-active' : ''}`}
+            className={`mobile-pill mobile-pill-select ${multiSelectMode ? 'is-active' : ''} ${showSelectModeToggle ? '' : 'toolbar-control-hidden'}`}
             onClick={() => onToggleMultiSelectMode?.()}
             aria-pressed={multiSelectMode}
             title={multiSelectMode ? 'Exit select mode' : 'Enter select mode'}
+            aria-hidden={!showSelectModeToggle}
+            disabled={!showSelectModeToggle}
+            tabIndex={showSelectModeToggle ? 0 : -1}
           >
             {selectModeLabel}
           </button>
-        )}
+        </div>
         <ThemeSettingsMenu
           value={themePreset}
           onChange={onThemePresetChange}
@@ -107,15 +112,17 @@ export default function ToolbarMobileDrawer({
           autoloadImageMetadata={autoloadImageMetadata}
           onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
         />
-        {onUploadClick && (
+        <div className="mobile-pill-slot mobile-pill-slot-upload">
           <button
-            className={`mobile-pill ${uploadDisabled || uploadBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-            onClick={() => !uploadDisabled && !uploadBusy && onUploadClick()}
-            disabled={uploadDisabled || uploadBusy}
+            className={`mobile-pill mobile-pill-upload ${canShowUpload ? '' : 'toolbar-control-hidden'} ${uploadDisabled || uploadBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
+            onClick={() => canShowUpload && !uploadDisabled && !uploadBusy && onUploadClick?.()}
+            aria-hidden={!canShowUpload}
+            disabled={!canShowUpload || uploadDisabled || uploadBusy}
+            tabIndex={canShowUpload ? 0 : -1}
           >
             {uploadBusy ? 'Uploading…' : 'Upload'}
           </button>
-        )}
+        </div>
       </div>
     </div>
   )

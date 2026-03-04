@@ -119,6 +119,18 @@ export default function Toolbar({
   const isNarrow = useMediaQuery(LAYOUT_MEDIA_QUERIES.narrow)
   const isPhone = useMediaQuery(LAYOUT_MEDIA_QUERIES.phone)
   const isToolbarCompact = useMediaQuery(LAYOUT_MEDIA_QUERIES.toolbarCompact)
+  const showMobileDrawer = isNarrow && !viewerActive
+  const isCompactViewer = Boolean(viewerActive) && isToolbarCompact
+  const sortSlotsVisible = !isCompactViewer
+  const showToolbarNav = !!viewerActive && !isPhone
+  const showBackButton = Boolean(viewerActive && onBack)
+  const showRefreshButton = Boolean(!viewerActive && onRefreshRoot)
+  const showUploadButton = Boolean(!viewerActive && onUploadClick)
+  const showDesktopSearch = Boolean(!viewerActive && !isNarrow)
+  const showNarrowSearchControls = Boolean(!viewerActive && isNarrow)
+  const showNarrowSearchToggle = showNarrowSearchControls
+  const showMobileSearchRow = showNarrowSearchControls
+  const mobileSearchInteractive = showMobileSearchRow && mobileSearchOpen && !searchDisabled
 
   // Close filters on click outside
   useEffect(() => {
@@ -133,18 +145,21 @@ export default function Toolbar({
   }, [filtersOpen])
 
   useEffect(() => {
-    if (searchDisabled) {
-      setMobileSearchOpen(false)
-      return
+    if (!filtersOpen) return
+    if (!sortSlotsVisible || viewerActive) {
+      setFiltersOpen(false)
     }
-    if (!isNarrow || viewerActive) {
+  }, [filtersOpen, sortSlotsVisible, viewerActive])
+
+  useEffect(() => {
+    if (searchDisabled || !showMobileSearchRow) {
       setMobileSearchOpen(false)
       return
     }
     if (!mobileSearchOpen) return
     const handle = window.requestAnimationFrame(() => searchInputRef.current?.focus())
     return () => window.cancelAnimationFrame(handle)
-  }, [isNarrow, mobileSearchOpen, viewerActive, searchDisabled])
+  }, [mobileSearchOpen, searchDisabled, showMobileSearchRow])
 
   const effectiveSort: SortSpec = sortSpec ?? { kind: 'builtin', key: 'added', dir: 'desc' }
   const sortDir = effectiveSort.dir
@@ -188,10 +203,6 @@ export default function Toolbar({
     },
   ]
 
-  const showMobileDrawer = isNarrow && !viewerActive
-  const isCompactViewer = Boolean(viewerActive) && isToolbarCompact
-  const showSortFiltersInToolbar = !isCompactViewer
-  const showToolbarNav = !!viewerActive && !isPhone
   const showSelectModeToggle = showMobileDrawer && !!onToggleMultiSelectMode
   const refreshButtonDisabled = refreshBusy || !refreshEnabled || !onRefreshRoot
   const refreshButtonTitle = refreshBusy
@@ -245,70 +256,93 @@ export default function Toolbar({
             <span className="toolbar-count text-xs text-muted whitespace-nowrap tabular-nums">{countLabel}</span>
           )}
         </div>
-        {viewerActive && (
-          <button className="toolbar-back-btn btn btn-sm" onClick={onBack} title="Back to grid">
+        <div className="toolbar-sort flex items-center gap-2">
+          <div
+            className={`toolbar-sort-controls flex items-center gap-2 ${sortSlotsVisible ? '' : 'toolbar-control-hidden'}`}
+            aria-hidden={!sortSlotsVisible}
+          >
+            <Dropdown
+              value={currentSort}
+              onChange={handleSortLayoutChange}
+              options={sortOptions}
+              title="Sort and layout options"
+              aria-label="Sort and layout"
+              triggerClassName="toolbar-sort-trigger min-w-[110px]"
+              disabled={sortControlsDisabled || !sortSlotsVisible}
+            />
+            <button
+              className="toolbar-sort-dir btn btn-icon"
+              onClick={handleSortDirToggle}
+              title={sortDisabled ? 'Sorting disabled' : (isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`)}
+              aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
+              aria-disabled={sortControlsDisabled || !sortSlotsVisible}
+              aria-hidden={!sortSlotsVisible}
+              disabled={sortControlsDisabled || !sortSlotsVisible}
+              tabIndex={sortSlotsVisible ? 0 : -1}
+            >
+              <SortDirectionIcon isRandom={isRandom} dir={sortDir} />
+            </button>
+          </div>
+          <ToolbarFilterMenu
+            viewerActive={Boolean(viewerActive)}
+            suppressed={!sortSlotsVisible}
+            filtersOpen={filtersOpen}
+            filtersRef={filtersRef}
+            totalFilterCount={totalFilterCount}
+            filterCount={filterCount}
+            starFilterList={starFilterList}
+            starCounts={starCounts}
+            onToggleFilters={() => {
+              if (!sortSlotsVisible || viewerActive) return
+              setFiltersOpen((value) => !value)
+            }}
+            onOpenFilters={onOpenFilters}
+            onToggleStar={onToggleStar}
+            onClearFilters={onClearFilters}
+            onClearStars={onClearStars}
+          />
+          <div className="toolbar-slot toolbar-slot-refresh" data-toolbar-slot="refresh">
+            <button
+              data-toolbar-control="refresh"
+              className={`btn btn-icon ml-1 ${showRefreshButton ? '' : 'toolbar-control-hidden'} ${refreshButtonDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title={refreshButtonTitle}
+              onClick={() => {
+                if (!showRefreshButton || refreshButtonDisabled) return
+                onRefreshRoot?.()
+              }}
+              aria-label="Refresh root folder"
+              aria-disabled={!showRefreshButton || refreshButtonDisabled}
+              aria-hidden={!showRefreshButton}
+              disabled={!showRefreshButton || refreshButtonDisabled}
+              tabIndex={showRefreshButton ? 0 : -1}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                <path d="M21 3v6h-6" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div className="toolbar-slot toolbar-slot-back" data-toolbar-slot="back">
+          <button
+            data-toolbar-control="back"
+            className={`toolbar-back-btn btn btn-sm ${showBackButton ? '' : 'toolbar-control-hidden'}`}
+            onClick={() => {
+              if (!showBackButton) return
+              onBack?.()
+            }}
+            title="Back to grid"
+            aria-label="Back to grid"
+            aria-hidden={!showBackButton}
+            disabled={!showBackButton}
+            tabIndex={showBackButton ? 0 : -1}
+          >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 18l-6-6 6-6" />
             </svg>
-            Back
+            <span className="toolbar-back-label">Back</span>
           </button>
-        )}
-        {showSortFiltersInToolbar && (
-          <div className="toolbar-sort flex items-center gap-2">
-            <div className={`toolbar-sort-controls flex items-center gap-2 ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
-              <Dropdown
-                value={currentSort}
-                onChange={handleSortLayoutChange}
-                options={sortOptions}
-                title="Sort and layout options"
-                aria-label="Sort and layout"
-                triggerClassName="min-w-[110px]"
-              />
-              <button
-                className="toolbar-sort-dir btn btn-icon"
-                onClick={handleSortDirToggle}
-                title={sortDisabled ? 'Sorting disabled' : (isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`)}
-                aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
-                aria-disabled={sortControlsDisabled}
-                disabled={sortControlsDisabled}
-              >
-                <SortDirectionIcon isRandom={isRandom} dir={sortDir} />
-              </button>
-            </div>
-            <ToolbarFilterMenu
-              viewerActive={Boolean(viewerActive)}
-              filtersOpen={filtersOpen}
-              filtersRef={filtersRef}
-              totalFilterCount={totalFilterCount}
-              filterCount={filterCount}
-              starFilterList={starFilterList}
-              starCounts={starCounts}
-              onToggleFilters={() => setFiltersOpen((value) => !value)}
-              onOpenFilters={onOpenFilters}
-              onToggleStar={onToggleStar}
-              onClearFilters={onClearFilters}
-              onClearStars={onClearStars}
-            />
-            {!viewerActive && (
-              <button
-                className={`btn btn-icon ml-1 ${refreshButtonDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                title={refreshButtonTitle}
-                onClick={() => {
-                  if (refreshButtonDisabled) return
-                  onRefreshRoot?.()
-                }}
-                aria-label="Refresh root folder"
-                aria-disabled={refreshButtonDisabled}
-                disabled={refreshButtonDisabled}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-                  <path d="M21 3v6h-6" />
-                </svg>
-              </button>
-            )}
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Center section - size slider */}
@@ -350,14 +384,16 @@ export default function Toolbar({
 
       {/* Right section */}
       <div className="toolbar-right flex items-center gap-2 justify-end">
-        {showToolbarNav && (
-          <div className="toolbar-nav flex items-center gap-1 mr-1">
+        <div className="toolbar-slot toolbar-slot-nav" data-toolbar-slot="nav">
+          <div className={`toolbar-nav flex items-center gap-1 ${showToolbarNav ? '' : 'toolbar-control-hidden'}`} aria-hidden={!showToolbarNav}>
             <button
               className={`btn btn-icon ${canPrevImage ? '' : 'opacity-40 cursor-not-allowed'}`}
               title="Previous image (A / ←)"
-              onClick={() => canPrevImage && onPrevImage?.()}
+              onClick={() => showToolbarNav && canPrevImage && onPrevImage?.()}
               aria-label="Previous image"
-              aria-disabled={!canPrevImage}
+              aria-disabled={!showToolbarNav || !canPrevImage}
+              disabled={!showToolbarNav || !canPrevImage}
+              tabIndex={showToolbarNav ? 0 : -1}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 18l-6-6 6-6" />
@@ -366,16 +402,18 @@ export default function Toolbar({
             <button
               className={`btn btn-icon ${canNextImage ? '' : 'opacity-40 cursor-not-allowed'}`}
               title="Next image (D / →)"
-              onClick={() => canNextImage && onNextImage?.()}
+              onClick={() => showToolbarNav && canNextImage && onNextImage?.()}
               aria-label="Next image"
-              aria-disabled={!canNextImage}
+              aria-disabled={!showToolbarNav || !canNextImage}
+              disabled={!showToolbarNav || !canNextImage}
+              tabIndex={showToolbarNav ? 0 : -1}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 6l6 6-6 6" />
               </svg>
             </button>
           </div>
-        )}
+        </div>
 
         {/* Panel toggles */}
         <div className="toolbar-panels flex items-center gap-1">
@@ -404,65 +442,86 @@ export default function Toolbar({
             </svg>
           </button>
         </div>
-        {!viewerActive && onUploadClick && (
+        <div className="toolbar-slot toolbar-slot-upload" data-toolbar-slot="upload">
           <button
-            className={`btn ${uploadDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-            onClick={() => !uploadDisabled && onUploadClick()}
+            data-toolbar-control="upload"
+            className={`btn toolbar-upload-btn ${showUploadButton ? '' : 'toolbar-control-hidden'} ${(uploadDisabled || uploadBusy) ? 'opacity-50 cursor-not-allowed' : ''}`}
+            onClick={() => showUploadButton && !uploadDisabled && !uploadBusy && onUploadClick?.()}
             aria-label="Upload images"
             title={uploadBusy ? 'Uploading…' : 'Upload images'}
-            aria-disabled={uploadDisabled || uploadBusy}
-            disabled={uploadDisabled || uploadBusy}
+            aria-disabled={!showUploadButton || uploadDisabled || uploadBusy}
+            aria-hidden={!showUploadButton}
+            disabled={!showUploadButton || uploadDisabled || uploadBusy}
+            tabIndex={showUploadButton ? 0 : -1}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M12 16V5" />
               <path d="M7 10l5-5 5 5" />
               <path d="M4 19h16" />
             </svg>
-            <span>{uploadBusy ? 'Uploading…' : 'Upload'}</span>
+            <span className="toolbar-upload-label">{uploadBusy ? 'Uploading…' : 'Upload'}</span>
           </button>
-        )}
+        </div>
         {syncIndicator && (
           <SyncIndicator
             {...syncIndicator}
             isNarrow={isNarrow || isToolbarCompact}
           />
         )}
-        {!viewerActive && isNarrow && (
-          <button
-            className={`btn btn-icon ${mobileSearchOpen ? 'btn-active' : ''} ${searchDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-            aria-label={mobileSearchOpen ? 'Close search' : 'Open search'}
-            title={searchDisabled ? 'Search disabled' : (mobileSearchOpen ? 'Close search' : 'Search')}
-            onClick={() => !searchDisabled && setMobileSearchOpen((prev) => !prev)}
-            disabled={searchDisabled}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="11" cy="11" r="7" />
-              <path d="M21 21l-4.35-4.35" />
-            </svg>
-          </button>
+        {isNarrow && (
+          <div className="toolbar-slot toolbar-slot-search-toggle" data-toolbar-slot="search-toggle">
+            <button
+              data-toolbar-control="search-toggle"
+              className={`btn btn-icon ${showNarrowSearchToggle ? '' : 'toolbar-control-hidden'} ${mobileSearchOpen ? 'btn-active' : ''} ${searchDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+              aria-label={mobileSearchOpen ? 'Close search' : 'Open search'}
+              title={searchDisabled ? 'Search disabled' : (mobileSearchOpen ? 'Close search' : 'Search')}
+              onClick={() => showNarrowSearchToggle && !searchDisabled && setMobileSearchOpen((prev) => !prev)}
+              disabled={!showNarrowSearchToggle || searchDisabled}
+              aria-hidden={!showNarrowSearchToggle}
+              tabIndex={showNarrowSearchToggle ? 0 : -1}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="M21 21l-4.35-4.35" />
+              </svg>
+            </button>
+          </div>
         )}
-        {!viewerActive && !isNarrow ? (
-          <div className="toolbar-search toolbar-search-desktop w-[240px]">
-            <input
-              ref={searchInputRef}
-              aria-label="Search filename, tags, notes"
-              placeholder={searchDisabled ? (searchPlaceholder ?? 'Search disabled') : 'Search...'}
-              onChange={(e) => onSearch(e.target.value)}
-              className="toolbar-search-input input w-full focus:w-full transition-all duration-200 select-text"
-              disabled={searchDisabled}
-            />
+        {!isNarrow ? (
+          <div className="toolbar-slot toolbar-slot-search-desktop" data-toolbar-slot="search-desktop">
+            <div className={`toolbar-search toolbar-search-desktop w-[240px] ${showDesktopSearch ? '' : 'toolbar-control-hidden'}`}>
+              <input
+                data-toolbar-control="search-desktop"
+                ref={searchInputRef}
+                aria-label="Search filename, tags, notes"
+                placeholder={searchDisabled ? (searchPlaceholder ?? 'Search disabled') : 'Search...'}
+                onChange={(e) => onSearch(e.target.value)}
+                className="toolbar-search-input input w-full focus:w-full transition-all duration-200 select-text"
+                disabled={!showDesktopSearch || searchDisabled}
+                tabIndex={showDesktopSearch ? 0 : -1}
+                aria-hidden={!showDesktopSearch}
+              />
+            </div>
           </div>
         ) : null}
       </div>
-      {!viewerActive && isNarrow && mobileSearchOpen && !searchDisabled && (
-        <div className="toolbar-search-row">
-          <input
-            ref={searchInputRef}
-            aria-label="Search filename, tags, notes"
-            placeholder={searchPlaceholder ?? 'Search...'}
-            onChange={(e) => onSearch(e.target.value)}
-            className="toolbar-search-input-mobile input input-lg w-full select-text"
-          />
+      {showMobileSearchRow && (
+        <div
+          className={`toolbar-search-row ${mobileSearchInteractive ? 'toolbar-search-row-active' : 'toolbar-search-row-hidden'}`}
+          data-toolbar-slot="search-row"
+          aria-hidden={!mobileSearchInteractive}
+        >
+            <input
+              data-toolbar-control="search-mobile"
+              ref={searchInputRef}
+              aria-label="Search filename, tags, notes"
+              aria-hidden={!mobileSearchInteractive}
+              placeholder={searchPlaceholder ?? 'Search...'}
+              onChange={(e) => onSearch(e.target.value)}
+              className={`toolbar-search-input-mobile input input-lg w-full select-text ${mobileSearchInteractive ? '' : 'toolbar-control-hidden'}`}
+              disabled={!mobileSearchInteractive}
+              tabIndex={mobileSearchInteractive ? 0 : -1}
+            />
         </div>
       )}
       {showMobileDrawer && (

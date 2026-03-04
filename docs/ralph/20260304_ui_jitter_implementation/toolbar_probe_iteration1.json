@@ -1,0 +1,431 @@
+{
+  "status": "passed",
+  "base_url": "http://127.0.0.1:48421",
+  "dataset_dir": "/tmp/lenslet-jitter-probe-v5nth9j0",
+  "scenario": "toolbar",
+  "max_delta_px": 1.0,
+  "max_anchor_delta_px": 0.0,
+  "max_toolbar_delta_px": 0.0,
+  "checks": {
+    "slot_deltas_px": {
+      "back": 0.0,
+      "refresh": 0.0,
+      "nav": 0.0,
+      "upload": 0.0,
+      "search-desktop": 0.0,
+      "search-toggle": 0.0
+    },
+    "toolbar_deltas_px": {
+      "desktop_toolbar_height_delta": 0.0,
+      "desktop_toolbar_var_delta": 0.0,
+      "narrow_toolbar_height_delta": 0.0,
+      "narrow_toolbar_var_delta": 0.0
+    },
+    "desktop_browse_snapshot": {
+      "toolbarHeight": 48,
+      "toolbarVarPx": 48,
+      "searchRowPointerEvents": null,
+      "anchors": {
+        "back": {
+          "left": 342.21875,
+          "top": 9.5,
+          "width": 40,
+          "height": 28
+        },
+        "refresh": {
+          "left": 296.21875,
+          "top": 7.5,
+          "width": 40,
+          "height": 32
+        },
+        "nav": {
+          "left": 644,
+          "top": 7.5,
+          "width": 72,
+          "height": 32
+        },
+        "upload": {
+          "left": 796,
+          "top": 7.5,
+          "width": 104,
+          "height": 32
+        },
+        "search-desktop": {
+          "left": 942,
+          "top": 7.5,
+          "width": 168,
+          "height": 32
+        },
+        "search-toggle": null,
+        "search-row": null
+      },
+      "controls": {
+        "back": {
+          "disabled": true,
+          "tabIndex": -1,
+          "ariaHidden": true
+        },
+        "refresh": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "upload": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "search-desktop": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "search-toggle": null,
+        "search-mobile": null
+      }
+    },
+    "desktop_viewer_snapshot": {
+      "toolbarHeight": 48,
+      "toolbarVarPx": 48,
+      "searchRowPointerEvents": null,
+      "anchors": {
+        "back": {
+          "left": 342.21875,
+          "top": 9.5,
+          "width": 40,
+          "height": 28
+        },
+        "refresh": {
+          "left": 296.21875,
+          "top": 7.5,
+          "width": 40,
+          "height": 32
+        },
+        "nav": {
+          "left": 644,
+          "top": 7.5,
+          "width": 72,
+          "height": 32
+        },
+        "upload": {
+          "left": 796,
+          "top": 7.5,
+          "width": 104,
+          "height": 32
+        },
+        "search-desktop": {
+          "left": 942,
+          "top": 7.5,
+          "width": 168,
+          "height": 32
+        },
+        "search-toggle": null,
+        "search-row": null
+      },
+      "controls": {
+        "back": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "refresh": {
+          "disabled": true,
+          "tabIndex": -1,
+          "ariaHidden": true
+        },
+        "upload": {
+          "disabled": true,
+          "tabIndex": -1,
+          "ariaHidden": true
+        },
+        "search-desktop": {
+          "disabled": true,
+          "tabIndex": -1,
+          "ariaHidden": true
+        },
+        "search-toggle": null,
+        "search-mobile": null
+      }
+    },
+    "desktop_restored_snapshot": {
+      "toolbarHeight": 48,
+      "toolbarVarPx": 48,
+      "searchRowPointerEvents": null,
+      "anchors": {
+        "back": {
+          "left": 342.21875,
+          "top": 9.5,
+          "width": 40,
+          "height": 28
+        },
+        "refresh": {
+          "left": 296.21875,
+          "top": 7.5,
+          "width": 40,
+          "height": 32
+        },
+        "nav": {
+          "left": 644,
+          "top": 7.5,
+          "width": 72,
+          "height": 32
+        },
+        "upload": {
+          "left": 796,
+          "top": 7.5,
+          "width": 104,
+          "height": 32
+        },
+        "search-desktop": {
+          "left": 942,
+          "top": 7.5,
+          "width": 168,
+          "height": 32
+        },
+        "search-toggle": null,
+        "search-row": null
+      },
+      "controls": {
+        "back": {
+          "disabled": true,
+          "tabIndex": -1,
+          "ariaHidden": true
+        },
+        "refresh": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "upload": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "search-desktop": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "search-toggle": null,
+        "search-mobile": null
+      }
+    },
+    "narrow_closed_snapshot": {
+      "toolbarHeight": 48,
+      "toolbarVarPx": 48,
+      "searchRowPointerEvents": "none",
+      "anchors": {
+        "back": {
+          "left": 368,
+          "top": 12,
+          "width": 40,
+          "height": 28
+        },
+        "refresh": {
+          "left": 231.109375,
+          "top": 10,
+          "width": 40,
+          "height": 32
+        },
+        "nav": {
+          "left": 418,
+          "top": 26,
+          "width": 72,
+          "height": 0
+        },
+        "upload": {
+          "left": 570,
+          "top": 10,
+          "width": 104,
+          "height": 32
+        },
+        "search-desktop": null,
+        "search-toggle": {
+          "left": 716,
+          "top": 10,
+          "width": 32,
+          "height": 32
+        },
+        "search-row": {
+          "left": 12,
+          "top": 50,
+          "width": 736,
+          "height": 36
+        }
+      },
+      "controls": {
+        "back": {
+          "disabled": true,
+          "tabIndex": -1,
+          "ariaHidden": true
+        },
+        "refresh": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "upload": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "search-desktop": null,
+        "search-toggle": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "search-mobile": {
+          "disabled": true,
+          "tabIndex": -1,
+          "ariaHidden": true
+        }
+      }
+    },
+    "narrow_open_snapshot": {
+      "toolbarHeight": 48,
+      "toolbarVarPx": 48,
+      "searchRowPointerEvents": "auto",
+      "anchors": {
+        "back": {
+          "left": 368,
+          "top": 12,
+          "width": 40,
+          "height": 28
+        },
+        "refresh": {
+          "left": 231.109375,
+          "top": 10,
+          "width": 40,
+          "height": 32
+        },
+        "nav": {
+          "left": 418,
+          "top": 26,
+          "width": 72,
+          "height": 0
+        },
+        "upload": {
+          "left": 570,
+          "top": 10,
+          "width": 104,
+          "height": 32
+        },
+        "search-desktop": null,
+        "search-toggle": {
+          "left": 716,
+          "top": 10,
+          "width": 32,
+          "height": 32
+        },
+        "search-row": {
+          "left": 12,
+          "top": 50,
+          "width": 736,
+          "height": 36
+        }
+      },
+      "controls": {
+        "back": {
+          "disabled": true,
+          "tabIndex": -1,
+          "ariaHidden": true
+        },
+        "refresh": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "upload": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "search-desktop": null,
+        "search-toggle": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "search-mobile": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        }
+      }
+    },
+    "narrow_restored_snapshot": {
+      "toolbarHeight": 48,
+      "toolbarVarPx": 48,
+      "searchRowPointerEvents": "none",
+      "anchors": {
+        "back": {
+          "left": 368,
+          "top": 12,
+          "width": 40,
+          "height": 28
+        },
+        "refresh": {
+          "left": 231.109375,
+          "top": 10,
+          "width": 40,
+          "height": 32
+        },
+        "nav": {
+          "left": 418,
+          "top": 26,
+          "width": 72,
+          "height": 0
+        },
+        "upload": {
+          "left": 570,
+          "top": 10,
+          "width": 104,
+          "height": 32
+        },
+        "search-desktop": null,
+        "search-toggle": {
+          "left": 716,
+          "top": 10,
+          "width": 32,
+          "height": 32
+        },
+        "search-row": {
+          "left": 12,
+          "top": 50,
+          "width": 736,
+          "height": 36
+        }
+      },
+      "controls": {
+        "back": {
+          "disabled": true,
+          "tabIndex": -1,
+          "ariaHidden": true
+        },
+        "refresh": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "upload": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "search-desktop": null,
+        "search-toggle": {
+          "disabled": false,
+          "tabIndex": 0,
+          "ariaHidden": false
+        },
+        "search-mobile": {
+          "disabled": true,
+          "tabIndex": -1,
+          "ariaHidden": true
+        }
+      }
+    },
+    "violations": []
+  }
+}

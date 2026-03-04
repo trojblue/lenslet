@@ -1,0 +1,30 @@
+# Ralph Progress Log
+Started: 2026-03-04T17:14:17Z
+Mode: plan
+Tool: codex
+Repo: /local/yada/dev/lenslet
+Plan: /local/yada/dev/lenslet/docs/20260304_ui_jitter_implementation_plan.md
+---
+
+## Iteration 1 (2026-03-04 17:43 UTC)
+- Completed task IDs: `T1`, `T2`, `T3`, `T4` (Sprint 1 closed).
+- Files changed:
+  - `frontend/src/shared/ui/Toolbar.tsx`
+  - `frontend/src/shared/ui/toolbar/ToolbarFilterMenu.tsx`
+  - `frontend/src/shared/ui/toolbar/ToolbarMobileDrawer.tsx`
+  - `frontend/src/styles.css`
+  - `frontend/src/shared/ui/toolbar/__tests__/Toolbar.test.tsx`
+  - `frontend/src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx`
+  - `scripts/gui_jitter_probe.py`
+  - `docs/20260304_ui_jitter_implementation_plan.md`
+  - `docs/ralph/20260304_ui_jitter_implementation/toolbar_probe_iteration1.json`
+  - frontend bundle refresh under `src/lenslet/frontend/` (`index.html`, new hashed CSS/JS pair, previous tracked hashed pair removed)
+- Validations run + outcomes:
+  - `cd frontend && npm run test -- src/shared/ui/toolbar/__tests__/Toolbar.test.tsx src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx` -> passed
+  - `python scripts/gui_jitter_probe.py --scenario toolbar --max-delta-px 1 --output-json docs/ralph/20260304_ui_jitter_implementation/toolbar_probe_iteration1.json` -> passed (`max_anchor_delta_px=0.0`, `max_toolbar_delta_px=0.0`)
+  - `python scripts/lint_repo.py` -> passed
+- Cleanup/review routines:
+  - `code-simplifier` subagent run on Sprint 1 diff; non-semantic cleanup applied.
+  - `code-review` subagent run post-cleanup; medium finding on hidden-row pointer interception fixed and revalidated.
+- Blockers: none.
+- Next step: start Sprint 2 at `T5` (persistent top-stack component and AppShell migration).

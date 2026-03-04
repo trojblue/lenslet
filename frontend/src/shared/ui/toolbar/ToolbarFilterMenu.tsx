@@ -2,6 +2,7 @@ import React from 'react'
 
 export interface ToolbarFilterMenuProps {
   viewerActive: boolean
+  suppressed?: boolean
   filtersOpen: boolean
   filtersRef: React.RefObject<HTMLDivElement>
   totalFilterCount: number
@@ -17,6 +18,7 @@ export interface ToolbarFilterMenuProps {
 
 export default function ToolbarFilterMenu({
   viewerActive,
+  suppressed = false,
   filtersOpen,
   filtersRef,
   totalFilterCount,
@@ -29,28 +31,43 @@ export default function ToolbarFilterMenu({
   onClearFilters,
   onClearStars,
 }: ToolbarFilterMenuProps): JSX.Element {
+  const controlsVisible = !suppressed
+  const buttonDisabled = viewerActive || suppressed
+  const hasActiveFilters = totalFilterCount > 0
+
   return (
-    <div ref={filtersRef} className={`toolbar-filter relative ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}>
+    <div
+      ref={filtersRef}
+      className={`toolbar-filter relative ${controlsVisible ? '' : 'toolbar-control-hidden'} ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}
+      aria-hidden={!controlsVisible}
+    >
       <button
-        className={`btn ${totalFilterCount > 0 ? 'btn-active' : ''}`}
-        onClick={onToggleFilters}
+        className={`btn ${hasActiveFilters ? 'btn-active' : ''}`}
+        onClick={() => {
+          if (buttonDisabled) return
+          onToggleFilters()
+        }}
         aria-haspopup="dialog"
         aria-expanded={filtersOpen}
         title="Filters"
-        aria-disabled={viewerActive}
+        aria-disabled={buttonDisabled}
+        aria-hidden={!controlsVisible}
+        disabled={buttonDisabled}
+        tabIndex={controlsVisible ? 0 : -1}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
         </svg>
         <span className="toolbar-filters-label">Filters</span>
-        {totalFilterCount > 0 && (
-          <span className="toolbar-filters-count px-1.5 py-0.5 text-[11px] rounded-full bg-accent-strong text-text">
-            {totalFilterCount}
-          </span>
-        )}
+        <span
+          className={`toolbar-filters-count px-1.5 py-0.5 text-[11px] rounded-full bg-accent-strong text-text ${hasActiveFilters ? '' : 'toolbar-filters-count-hidden'}`}
+          aria-hidden={!hasActiveFilters}
+        >
+          {hasActiveFilters ? totalFilterCount : '0'}
+        </span>
       </button>
 
-      {filtersOpen && (
+      {filtersOpen && controlsVisible && !buttonDisabled && (
         <div
           role="dialog"
           aria-label="Filters"

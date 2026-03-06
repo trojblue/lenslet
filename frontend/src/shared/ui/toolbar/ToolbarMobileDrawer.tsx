@@ -1,7 +1,7 @@
 import React from 'react'
 import Dropdown, { type DropdownGroup } from '../Dropdown'
 import SortDirectionIcon from './SortDirectionIcon'
-import type { ViewMode } from '../../../lib/types'
+import type { CompareOrderMode, ViewMode } from '../../../lib/types'
 import type { ThemePresetId } from '../../../theme/runtime'
 import ThemeSettingsMenu from '../../../app/components/ThemeSettingsMenu'
 
@@ -20,6 +20,7 @@ export interface ToolbarMobileDrawerProps {
   uploadDisabled: boolean
   themePreset: ThemePresetId
   autoloadImageMetadata: boolean
+  compareOrderMode: CompareOrderMode
   onViewMode?: (value: ViewMode) => void
   onSortChange?: (value: string) => void
   onToggleSortDir: () => void
@@ -27,6 +28,7 @@ export interface ToolbarMobileDrawerProps {
   onUploadClick?: () => void
   onThemePresetChange: (themeId: ThemePresetId) => void
   onAutoloadImageMetadataChange: (enabled: boolean) => void
+  onCompareOrderModeChange: (mode: CompareOrderMode) => void
 }
 
 export default function ToolbarMobileDrawer({
@@ -44,6 +46,7 @@ export default function ToolbarMobileDrawer({
   uploadDisabled,
   themePreset,
   autoloadImageMetadata,
+  compareOrderMode,
   onViewMode,
   onSortChange,
   onToggleSortDir,
@@ -51,6 +54,7 @@ export default function ToolbarMobileDrawer({
   onUploadClick,
   onThemePresetChange,
   onAutoloadImageMetadataChange,
+  onCompareOrderModeChange,
 }: ToolbarMobileDrawerProps): JSX.Element {
   const canShowUpload = Boolean(onUploadClick)
 
@@ -111,6 +115,8 @@ export default function ToolbarMobileDrawer({
           placement="mobile"
           autoloadImageMetadata={autoloadImageMetadata}
           onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
+          compareOrderMode={compareOrderMode}
+          onCompareOrderModeChange={onCompareOrderModeChange}
         />
         <div className="mobile-pill-slot mobile-pill-slot-upload">
           <button

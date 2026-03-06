@@ -24,9 +24,11 @@ describe('ToolbarMobileDrawer theme mount', () => {
         uploadDisabled={false}
         themePreset="teal"
         autoloadImageMetadata={false}
+        compareOrderMode="gallery"
         onToggleSortDir={() => {}}
         onThemePresetChange={() => {}}
         onAutoloadImageMetadataChange={() => {}}
+        onCompareOrderModeChange={() => {}}
       />,
     )
 
@@ -51,9 +53,11 @@ describe('ToolbarMobileDrawer theme mount', () => {
         uploadDisabled={false}
         themePreset="teal"
         autoloadImageMetadata={false}
+        compareOrderMode="gallery"
         onToggleSortDir={() => {}}
         onThemePresetChange={() => {}}
         onAutoloadImageMetadataChange={() => {}}
+        onCompareOrderModeChange={() => {}}
       />,
     )
 

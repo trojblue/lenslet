@@ -40,6 +40,8 @@ describe('Toolbar refresh trigger', () => {
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
         onAutoloadImageMetadataChange={() => {}}
+        compareOrderMode="gallery"
+        onCompareOrderModeChange={() => {}}
       />,
     )
 
@@ -58,6 +60,8 @@ describe('Toolbar refresh trigger', () => {
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
         onAutoloadImageMetadataChange={() => {}}
+        compareOrderMode="gallery"
+        onCompareOrderModeChange={() => {}}
       />,
     )
 
@@ -78,6 +82,8 @@ describe('Toolbar refresh trigger', () => {
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
         onAutoloadImageMetadataChange={() => {}}
+        compareOrderMode="gallery"
+        onCompareOrderModeChange={() => {}}
       />,
     )
 
@@ -99,6 +105,8 @@ describe('Toolbar refresh trigger', () => {
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
         onAutoloadImageMetadataChange={() => {}}
+        compareOrderMode="gallery"
+        onCompareOrderModeChange={() => {}}
       />,
     )
 

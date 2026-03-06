@@ -50,6 +50,7 @@ interface InspectorItem {
 interface InspectorProps {
   path: string | null
   selectedPaths?: string[]
+  comparePaths?: string[]
   items?: InspectorItem[]
   viewerCompareActive?: boolean
   compareA?: Item | null
@@ -77,6 +78,7 @@ const INSPECTOR_WIDGET_MAP = new Map(
 export default function Inspector({
   path,
   selectedPaths = [],
+  comparePaths,
   items = [],
   viewerCompareActive = false,
   compareA = null,
@@ -88,7 +90,7 @@ export default function Inspector({
   onFindSimilar,
   embeddingsAvailable = false,
   embeddingsLoading = false,
-  autoloadImageMetadata = false,
+  autoloadImageMetadata = true,
   onLocalTypingChange,
 }: InspectorProps) {
   const enabled = !!path
@@ -98,6 +100,7 @@ export default function Inspector({
 
   const selectedCount = selectedPaths.length
   const multi = selectedCount > 1
+  const comparisonPaths = comparePaths ?? selectedPaths
 
   const { canFindSimilar, disabledReason: findSimilarDisabledReason } = useMemo(
     () => resolveFindSimilarAvailability({
@@ -119,11 +122,11 @@ export default function Inspector({
   const conflict = useSidecarConflict(!multi ? path : null)
 
   const compareTargets = useMemo(
-    () => resolveCompareMetadataTargets(selectedCount >= 2, selectedPaths),
-    [selectedCount, selectedPaths],
+    () => resolveCompareMetadataTargets(selectedCount >= 2, comparisonPaths),
+    [selectedCount, comparisonPaths],
   )
-  const comparePaths = compareTargets.paths
-  const metadataCompareAvailable = comparePaths.length >= 2
+  const compareTargetPaths = compareTargets.paths
+  const metadataCompareAvailable = compareTargetPaths.length >= 2
   const {
     sectionOrder,
     reorderSectionOrder,
@@ -155,7 +158,7 @@ export default function Inspector({
   } = useInspectorUiState({
     path,
     sidecarUpdatedAt: data?.updated_at,
-    comparePaths,
+    comparePaths: compareTargetPaths,
     selectedCount,
     metadataCompareAvailable,
     autoloadMetadataCompare: autoloadImageMetadata,
@@ -223,9 +226,9 @@ export default function Inspector({
   } = useInspectorMetadataWorkflow({
     path,
     sidecarUpdatedAt: data?.updated_at,
-    selectedPaths,
+    selectedPaths: compareTargetPaths,
     compareReady: metadataCompareReady,
-    comparePaths,
+    comparePaths: compareTargetPaths,
     autoloadMetadata: autoloadImageMetadata && !multi,
   })
 
@@ -388,11 +391,11 @@ export default function Inspector({
   const quickViewReserved = quickViewReservationActive && !quickViewVisible
 
   const compareColumns = useMemo(
-    () => comparePaths.map((comparePath) => ({
+    () => compareTargetPaths.map((comparePath) => ({
       path: comparePath,
       label: comparePath.split('/').pop() || comparePath,
     })),
-    [comparePaths],
+    [compareTargetPaths],
   )
 
   const normalizedCompareMatrixInputs = useMemo(

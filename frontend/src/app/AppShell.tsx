@@ -36,7 +36,21 @@ import {
   toggleLeftPanelContent,
 } from './layout/sidebarLayout'
 import { useQueryClient } from '@tanstack/react-query'
-import type { FilterAST, HealthMode, Item, SavedView, SortSpec, StarRating, ViewMode, ViewsPayload, ViewState, FolderIndex, SearchResult, EmbeddingSearchRequest } from '../lib/types'
+import type {
+  CompareOrderMode,
+  FilterAST,
+  HealthMode,
+  Item,
+  SavedView,
+  SortSpec,
+  StarRating,
+  ViewMode,
+  ViewsPayload,
+  ViewState,
+  FolderIndex,
+  SearchResult,
+  EmbeddingSearchRequest,
+} from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
 import { safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
@@ -102,6 +116,7 @@ const STORAGE_KEYS = {
   leftOpen: 'leftOpen',
   rightOpen: 'rightOpen',
   autoloadImageMetadata: 'autoloadImageMetadata',
+  compareOrderMode: 'compareOrderMode',
 } as const
 
 const INDEXING_MODE_STORAGE_KEYS = {
@@ -187,7 +202,8 @@ export default function AppShell({
   const [themePreset, setThemePreset] = useState<ThemePresetId>(() => (
     loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode)
   ))
-  const [autoloadImageMetadata, setAutoloadImageMetadata] = useState(false)
+  const [autoloadImageMetadata, setAutoloadImageMetadata] = useState(true)
+  const [compareOrderMode, setCompareOrderMode] = useState<CompareOrderMode>('gallery')
   const [scanStableMode, setScanStableMode] = useState(false)
   
   // Local optimistic updates for star ratings
@@ -295,6 +311,7 @@ export default function AppShell({
     itemPaths,
     items,
     selectionPool,
+    compareOrderMode,
     focusGridCell,
   })
   const syncHashImageSelectionRef = useLatestRef(syncHashImageSelection)
@@ -822,6 +839,7 @@ export default function AppShell({
       const storedLeftOpen = localStorage.getItem(STORAGE_KEYS.leftOpen)
       const storedRightOpen = localStorage.getItem(STORAGE_KEYS.rightOpen)
       const storedAutoloadImageMetadata = localStorage.getItem(STORAGE_KEYS.autoloadImageMetadata)
+      const storedCompareOrderMode = localStorage.getItem(STORAGE_KEYS.compareOrderMode)
 
       const parseSortSpec = (raw: string | null): SortSpec | null => {
         if (!raw) return null
@@ -884,8 +902,13 @@ export default function AppShell({
       }
       if (storedLeftOpen === '0' || storedLeftOpen === 'false') setLeftOpen(false)
       if (storedRightOpen === '0' || storedRightOpen === 'false') setRightOpen(false)
-      if (storedAutoloadImageMetadata === '1' || storedAutoloadImageMetadata === 'true') {
+      if (storedAutoloadImageMetadata === '0' || storedAutoloadImageMetadata === 'false') {
+        setAutoloadImageMetadata(false)
+      } else if (storedAutoloadImageMetadata === '1' || storedAutoloadImageMetadata === 'true') {
         setAutoloadImageMetadata(true)
+      }
+      if (storedCompareOrderMode === 'gallery' || storedCompareOrderMode === 'selection') {
+        setCompareOrderMode(storedCompareOrderMode)
       }
     } catch {
       // Ignore localStorage errors (private browsing, etc.)
@@ -950,10 +973,11 @@ export default function AppShell({
       localStorage.setItem(STORAGE_KEYS.leftOpen, leftOpen ? '1' : '0')
       localStorage.setItem(STORAGE_KEYS.rightOpen, rightOpen ? '1' : '0')
       localStorage.setItem(STORAGE_KEYS.autoloadImageMetadata, autoloadImageMetadata ? '1' : '0')
+      localStorage.setItem(STORAGE_KEYS.compareOrderMode, compareOrderMode)
     } catch {
       // Ignore localStorage errors
     }
-  }, [viewState, viewMode, gridItemSize, leftOpen, rightOpen, autoloadImageMetadata])
+  }, [viewState, viewMode, gridItemSize, leftOpen, rightOpen, autoloadImageMetadata, compareOrderMode])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1254,6 +1278,8 @@ export default function AppShell({
         onThemePresetChange={handleThemePresetChange}
         autoloadImageMetadata={autoloadImageMetadata}
         onAutoloadImageMetadataChange={setAutoloadImageMetadata}
+        compareOrderMode={compareOrderMode}
+        onCompareOrderModeChange={setCompareOrderMode}
         multiSelectMode={mobileSelectMode}
         selectedCount={selectedPaths.length}
         onToggleMultiSelectMode={mobileSelectEnabled ? (() => setMobileSelectMode((prev) => !prev)) : undefined}
@@ -1317,6 +1343,8 @@ export default function AppShell({
           onThemePresetChange={handleThemePresetChange}
           autoloadImageMetadata={autoloadImageMetadata}
           onAutoloadImageMetadataChange={setAutoloadImageMetadata}
+          compareOrderMode={compareOrderMode}
+          onCompareOrderModeChange={setCompareOrderMode}
         />
       )}
       <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>
@@ -1398,6 +1426,7 @@ export default function AppShell({
         <Inspector
           path={selectedPaths[0] ?? null}
           selectedPaths={selectedPaths}
+          comparePaths={comparePaths}
           items={items}
           viewerCompareActive={compareOpen}
           compareA={compareA}

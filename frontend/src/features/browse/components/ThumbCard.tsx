@@ -66,6 +66,7 @@ interface ThumbCardProps {
   selected?: boolean
   highlighted?: boolean
   highlightKey?: string | null
+  selectionOrder?: number | null
   displayW?: number
   displayH?: number
   ioRoot?: Element | null
@@ -80,6 +81,7 @@ export default function ThumbCard({
   selected,
   highlighted,
   highlightKey,
+  selectionOrder = null,
   displayW,
   displayH,
   ioRoot,
@@ -178,6 +180,11 @@ export default function ThumbCard({
       className={cardClassName}
       onClick={onClick}
     >
+      {selectionOrder !== null && (
+        <div className="grid-selection-order-badge" aria-label={`Selection order ${selectionOrder}`}>
+          {selectionOrder}
+        </div>
+      )}
       {url ? (
         <img
           className={`w-full h-full object-cover block pointer-events-none select-none opacity-0 transition-opacity duration-[160ms] ${loaded ? 'opacity-100' : ''}`}

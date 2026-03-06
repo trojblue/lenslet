@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { THEME_PRESETS, resolveThemePresetId, type ThemePresetId } from '../../theme/runtime'
+import type { CompareOrderMode } from '../../lib/types'
 
 export type ThemeSettingsMenuPlacement = 'sidebar' | 'mobile'
 export type ThemeSettingsMenuCloseIntent = 'toggle' | 'close' | 'escape' | 'outside_click' | 'select'
@@ -11,6 +12,8 @@ type ThemeSettingsMenuProps = {
   placement: ThemeSettingsMenuPlacement
   autoloadImageMetadata?: boolean
   onAutoloadImageMetadataChange?: (enabled: boolean) => void
+  compareOrderMode?: CompareOrderMode
+  onCompareOrderModeChange?: (mode: CompareOrderMode) => void
 }
 
 type ThemeMenuOption = {
@@ -109,8 +112,10 @@ export default function ThemeSettingsMenu({
   value,
   onChange,
   placement,
-  autoloadImageMetadata = false,
+  autoloadImageMetadata = true,
   onAutoloadImageMetadataChange,
+  compareOrderMode = 'gallery',
+  onCompareOrderModeChange,
 }: ThemeSettingsMenuProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -119,6 +124,7 @@ export default function ThemeSettingsMenu({
   const selectedThemeId = resolveThemeMenuSelection(value)
   const selectedTheme = THEME_PRESETS[selectedThemeId]
   const supportsInspectorAutoloadSetting = typeof onAutoloadImageMetadataChange === 'function'
+  const supportsCompareOrderSetting = typeof onCompareOrderModeChange === 'function'
   const updatePanelPosition = useCallback(() => {
     if (!open || typeof window === 'undefined') return
     const rootElement = rootRef.current
@@ -247,6 +253,35 @@ export default function ThemeSettingsMenu({
               </span>
               <span
                 className={`theme-settings-menu-toggle ${autoloadImageMetadata ? 'is-active' : ''}`}
+                aria-hidden="true"
+              >
+                <span className="theme-settings-menu-toggle-knob" />
+              </span>
+            </button>
+          </div>
+        </>
+      )}
+      {supportsCompareOrderSetting && (
+        <>
+          <div className="theme-settings-menu-divider" />
+          <div className="theme-settings-menu-header">Compare</div>
+          <div className="theme-settings-menu-options">
+            <button
+              type="button"
+              className={`theme-settings-menu-option theme-settings-menu-option-toggle ${compareOrderMode === 'selection' ? 'is-active' : ''}`}
+              role="menuitemcheckbox"
+              aria-checked={compareOrderMode === 'selection'}
+              onClick={() => {
+                const nextMode: CompareOrderMode = compareOrderMode === 'selection' ? 'gallery' : 'selection'
+                onCompareOrderModeChange?.(nextMode)
+              }}
+            >
+              <span className="theme-settings-menu-option-label-group">
+                <span className="theme-settings-menu-option-label">Order compare by selection</span>
+                <span className="theme-settings-menu-option-subtitle">Off uses gallery sort order (default)</span>
+              </span>
+              <span
+                className={`theme-settings-menu-toggle ${compareOrderMode === 'selection' ? 'is-active' : ''}`}
                 aria-hidden="true"
               >
                 <span className="theme-settings-menu-toggle-knob" />

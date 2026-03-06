@@ -1,7 +1,7 @@
 import type { MouseEvent, PointerEvent } from 'react'
 import FolderTree from '../../features/folders/FolderTree'
 import MetricsPanel from '../../features/metrics/MetricsPanel'
-import type { FilterAST, FolderIndex, Item, SavedView } from '../../lib/types'
+import type { CompareOrderMode, FilterAST, FolderIndex, Item, SavedView } from '../../lib/types'
 import type { ThemePresetId } from '../../theme/runtime'
 import ThemeSettingsMenu from './ThemeSettingsMenu'
 
@@ -37,6 +37,8 @@ type LeftSidebarProps = {
   onThemePresetChange: (themeId: ThemePresetId) => void
   autoloadImageMetadata: boolean
   onAutoloadImageMetadataChange: (enabled: boolean) => void
+  compareOrderMode: CompareOrderMode
+  onCompareOrderModeChange: (mode: CompareOrderMode) => void
 }
 
 const ROOTS = [{ label: 'Root', path: '/' }]
@@ -80,6 +82,8 @@ export default function LeftSidebar({
   onThemePresetChange,
   autoloadImageMetadata,
   onAutoloadImageMetadataChange,
+  compareOrderMode,
+  onCompareOrderModeChange,
 }: LeftSidebarProps): JSX.Element {
   const folderButtonClass = getSidebarIconButtonClass(leftTool === 'folders')
   const metricsButtonClass = getSidebarIconButtonClass(leftTool === 'metrics')
@@ -151,6 +155,8 @@ export default function LeftSidebar({
           placement="sidebar"
           autoloadImageMetadata={autoloadImageMetadata}
           onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
+          compareOrderMode={compareOrderMode}
+          onCompareOrderModeChange={onCompareOrderModeChange}
         />
       </div>
       {contentOpen && (

@@ -189,6 +189,7 @@ export type ExportComparisonRequestV2 = {
 export type ExportComparisonRequest = ExportComparisonRequestV2
 
 export type ViewMode = 'grid' | 'adaptive'
+export type CompareOrderMode = 'gallery' | 'selection'
 
 export type SortSpec =
   | { kind: 'builtin'; key: 'added' | 'name' | 'random'; dir: 'asc' | 'desc' }

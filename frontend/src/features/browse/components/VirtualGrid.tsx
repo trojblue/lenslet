@@ -540,6 +540,13 @@ export default function VirtualGrid({
   ])
 
   const selectedSet = useMemo(() => new Set(selected), [selected])
+  const selectionOrderByPath = useMemo(() => {
+    const order = new Map<string, number>()
+    for (let i = 0; i < selected.length; i += 1) {
+      order.set(selected[i], i + 1)
+    }
+    return order
+  }, [selected])
   const hasPreview = !!(previewFor && previewUrl && delayPassed)
   const adjacentThumbPrefetchPaths = useMemo(
     () => getAdjacentThumbPrefetchPaths(virtualRows, layout, items),
@@ -666,6 +673,7 @@ export default function VirtualGrid({
             >
               {rowItems.map(({ item: it, displayW, displayH }) => {
                 const isVisuallySelected = !suppressSelectionHighlight && ((active===it.path) || selectedSet.has(it.path))
+                const selectionOrder = selectionOrderByPath.get(it.path) ?? null
                 const recentUpdateKey = recentlyUpdated?.get(it.path) ?? null
                 const isRecentlyUpdated = recentUpdateKey != null
                 const wrapperStyle = layout.mode === 'adaptive' ? { width: displayW } : {}
@@ -703,7 +711,7 @@ export default function VirtualGrid({
                     onMouseLeave={clearPreview}>
                     <button
                       type="button"
-                      className="grid-item-action-btn touch-manipulation"
+                      className={`grid-item-action-btn touch-manipulation ${selectionOrder !== null ? 'has-selection-order' : ''}`}
                       data-grid-action="1"
                       aria-label={`Open actions for ${it.name}`}
                       aria-haspopup="menu"
@@ -727,6 +735,7 @@ export default function VirtualGrid({
                         selected={isVisuallySelected}
                         highlighted={isRecentlyUpdated}
                         highlightKey={recentUpdateKey}
+                        selectionOrder={selectionOrder}
                         displayW={displayW}
                         displayH={displayH}
                         ioRoot={parentRef.current}

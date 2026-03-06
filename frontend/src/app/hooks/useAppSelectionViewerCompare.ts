@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
-import type { Item } from '../../lib/types'
+import type { CompareOrderMode, Item } from '../../lib/types'
 import { replaceHash, writeHash } from '../routing/hash'
 
 type UseAppSelectionViewerCompareParams = {
@@ -8,6 +8,7 @@ type UseAppSelectionViewerCompareParams = {
   itemPaths: string[]
   items: Item[]
   selectionPool: Item[]
+  compareOrderMode: CompareOrderMode
   focusGridCell: (path: string | null | undefined) => void
 }
 
@@ -64,11 +65,46 @@ export function resolveOverlayPopstateResult(
   }
 }
 
+export function resolveSelectionOrderedItems(
+  selectedPaths: readonly string[],
+  selectionPool: readonly Item[],
+  items: readonly Item[],
+): Item[] {
+  if (!selectedPaths.length) return []
+  const poolByPath = new Map(selectionPool.map((it) => [it.path, it]))
+  const itemsByPath = new Map(items.map((it) => [it.path, it]))
+  return selectedPaths
+    .map((path) => poolByPath.get(path) ?? itemsByPath.get(path))
+    .filter((it): it is Item => !!it)
+}
+
+export function resolveGalleryOrderedItems(
+  selectedPaths: readonly string[],
+  items: readonly Item[],
+): Item[] {
+  if (!selectedPaths.length) return []
+  const selectedSet = new Set(selectedPaths)
+  return items.filter((item) => selectedSet.has(item.path))
+}
+
+export function resolveCompareOrderedItems(
+  selectedPaths: readonly string[],
+  selectionPool: readonly Item[],
+  items: readonly Item[],
+  compareOrderMode: CompareOrderMode,
+): Item[] {
+  if (compareOrderMode === 'selection') {
+    return resolveSelectionOrderedItems(selectedPaths, selectionPool, items)
+  }
+  return resolveGalleryOrderedItems(selectedPaths, items)
+}
+
 export function useAppSelectionViewerCompare({
   current,
   itemPaths,
   items,
   selectionPool,
+  compareOrderMode,
   focusGridCell,
 }: UseAppSelectionViewerCompareParams): UseAppSelectionViewerCompareResult {
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
@@ -80,16 +116,14 @@ export function useAppSelectionViewerCompare({
   const compareHistoryPushedRef = useRef(false)
   const lastFocusedPathRef = useRef<string | null>(null)
 
-  const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths])
-  const selectedItems = useMemo(() => {
-    if (!selectedPaths.length) return []
-    const poolByPath = new Map(selectionPool.map((it) => [it.path, it]))
-    const itemsByPath = new Map(items.map((it) => [it.path, it]))
-    return selectedPaths
-      .map((path) => poolByPath.get(path) ?? itemsByPath.get(path))
-      .filter((it): it is Item => !!it)
-  }, [selectedPaths, selectionPool, items])
-  const compareItems = useMemo(() => items.filter((it) => selectedSet.has(it.path)), [items, selectedSet])
+  const selectedItems = useMemo(
+    () => resolveSelectionOrderedItems(selectedPaths, selectionPool, items),
+    [selectedPaths, selectionPool, items],
+  )
+  const compareItems = useMemo(
+    () => resolveCompareOrderedItems(selectedPaths, selectionPool, items, compareOrderMode),
+    [selectedPaths, selectionPool, items, compareOrderMode],
+  )
   const comparePaths = useMemo(() => compareItems.map((it) => it.path), [compareItems])
   const compareMaxIndex = Math.max(0, compareItems.length - 2)
   const compareIndexClamped = Math.min(compareIndex, compareMaxIndex)

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import Dropdown from './Dropdown'
 import SyncIndicator, { type SyncIndicatorData } from './SyncIndicator'
-import type { SortSpec, ViewMode } from '../../lib/types'
+import type { CompareOrderMode, SortSpec, ViewMode } from '../../lib/types'
 import { LAYOUT_MEDIA_QUERIES } from '../../lib/breakpoints'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import SortDirectionIcon from './toolbar/SortDirectionIcon'
@@ -55,6 +55,8 @@ export interface ToolbarProps {
   onThemePresetChange: (themeId: ThemePresetId) => void
   autoloadImageMetadata: boolean
   onAutoloadImageMetadataChange: (enabled: boolean) => void
+  compareOrderMode: CompareOrderMode
+  onCompareOrderModeChange: (mode: CompareOrderMode) => void
   multiSelectMode?: boolean
   selectedCount?: number
   onToggleMultiSelectMode?: () => void
@@ -107,6 +109,8 @@ export default function Toolbar({
   onThemePresetChange,
   autoloadImageMetadata,
   onAutoloadImageMetadataChange,
+  compareOrderMode,
+  onCompareOrderModeChange,
   multiSelectMode = false,
   selectedCount = 0,
   onToggleMultiSelectMode,
@@ -540,6 +544,7 @@ export default function Toolbar({
           uploadDisabled={uploadDisabled}
           themePreset={themePreset}
           autoloadImageMetadata={autoloadImageMetadata}
+          compareOrderMode={compareOrderMode}
           onViewMode={onViewMode}
           onSortChange={(value) => onSortChange?.(parseSort(value, effectiveSort))}
           onToggleSortDir={handleSortDirToggle}
@@ -547,6 +552,7 @@ export default function Toolbar({
           onUploadClick={onUploadClick}
           onThemePresetChange={onThemePresetChange}
           onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
+          onCompareOrderModeChange={onCompareOrderModeChange}
         />
       )}
     </div>

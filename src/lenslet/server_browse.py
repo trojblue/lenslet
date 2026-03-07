@@ -435,18 +435,12 @@ def _build_folder_index(
                 index,
             )
             items = []
-        elif browse_cache is not None:
-            snapshots, total_items = _load_or_build_recursive_snapshots(
-                storage,
-                canonical_path,
-                index,
-                sort_mode=RECURSIVE_SORT_MODE_SCAN,
-                browse_cache=browse_cache,
-                defer_persist=True,
-                hotpath_metrics=hotpath_metrics,
-            )
-            items = [to_item(storage, snapshot) for snapshot in snapshots]
         else:
+            # `/folders?recursive=true` intentionally returns the full subtree in
+            # one response and does not support paging parameters. Materializing
+            # and persisting an additional snapshot copy for this unbounded
+            # response path amplifies memory/disk pressure with no paging benefit,
+            # so we bypass recursive snapshot caching here.
             cached_items, total_items = _collect_recursive_cached_items(
                 storage,
                 canonical_path,

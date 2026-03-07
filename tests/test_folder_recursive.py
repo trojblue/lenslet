@@ -67,6 +67,22 @@ def test_recursive_rejects_paging_params_and_legacy_flag(tmp_path: Path) -> None
         assert key in payload["message"]
 
 
+
+
+def test_recursive_response_does_not_persist_snapshot_cache(tmp_path: Path) -> None:
+    root = tmp_path
+    for idx in range(8):
+        _make_image(root / f"gallery/branch/img_{idx:03d}.jpg")
+
+    app = create_app(str(root))
+    cache = app.state.recursive_browse_cache
+    with TestClient(app) as client:
+        payload = _recursive(client, "/gallery")
+
+    assert len(payload["items"]) == 8
+    assert cache.pending_warm_count() == 0
+    assert cache.disk_usage_bytes() == 0
+    assert len(cache._memory) == 0
 def test_recursive_cache_reuses_snapshot_between_calls(
     tmp_path: Path,
 ) -> None:

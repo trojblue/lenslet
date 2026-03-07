@@ -212,6 +212,7 @@ Sprint 4 risks frontend asset drift and browser-side object-URL regressions. Rec
 - [x] 2026-03-07 03:01 UTC: Completed `S1-T1` and `S1-T2` by routing `/health`, `/og-image`, `/index.html`, and `/views` through request-time context lookups, caching `index.html` once per process, and adding refresh tests that swap storage, workspace, and runtime cache-bound services.
 - [x] 2026-03-07 03:03 UTC: Completed `S1-T3` by removing the `lenslet.server` back-reference from the Sprint 1 route modules, moving shared common-route helpers into leaf modules, and adding import-contract coverage for the touched route files.
 - [x] 2026-03-07 03:04 UTC: Validated Sprint 1 with `pytest -q tests/test_refresh.py tests/test_parquet_ingestion.py tests/test_hotpath_sprint_s4.py tests/test_import_contract.py` and `python scripts/lint_repo.py`; the cleanup pass needed no edits, and the review pass surfaced one runtime workspace carryover bug in `snapshotter`/`thumb_cache`, which was fixed and revalidated.
+- [x] 2026-03-07 03:10 UTC: Closed the post-review follow-up by routing `/thumb` and `record_update` through the current runtime from app context, rebuilding workspace-bound runtime services on refresh swaps, and adding regression coverage that proves refreshed thumbnail cache and labels snapshot writes land in the new workspace.
 
 
 ## Artifacts and Handoff
@@ -235,7 +236,7 @@ Sprint 1 handoff:
 
 - Completed tasks: `S1-T1`, `S1-T2`, `S1-T3`.
 - Key cutover: added `src/lenslet/server_context.py`, moved refresh-sensitive routes onto request-time context lookups, cached the frontend HTML shell once per process, and rebuilt runtime cache-bound services when a refresh swaps to a different workspace root.
-- Validation: `pytest -q tests/test_refresh.py tests/test_parquet_ingestion.py tests/test_hotpath_sprint_s4.py tests/test_import_contract.py` passed; `python scripts/lint_repo.py` passed; the conservative `code-simplifier` pass reported no extra cleanup; the review pass found one runtime workspace carryover bug and it was fixed before rerunning the gate.
+- Validation: `pytest -q tests/test_refresh.py tests/test_parquet_ingestion.py tests/test_hotpath_sprint_s4.py tests/test_import_contract.py` passed before and after the runtime follow-up; `python scripts/lint_repo.py` passed; the conservative `code-simplifier` pass reported no extra cleanup; the final re-review found no further actionable issues.
 - Diff stat: `src/lenslet/server_browse.py | 3 +-, src/lenslet/server_factory.py | 251 +++++++++------, src/lenslet/server_routes_common.py | 587 ++++++++++++++++++++++++++++++++----, src/lenslet/server_routes_index.py | 17 +-, src/lenslet/server_routes_og.py | 41 +--, src/lenslet/server_routes_views.py | 16 +-, tests/test_import_contract.py | 15 +, tests/test_refresh.py | 126 ++++++++`.
 - Next operator should start Sprint 2 with `S2-T1`, keeping the new app-context/runtime path intact while adding the no-create metadata read contract for search.
 

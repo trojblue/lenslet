@@ -285,9 +285,33 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         assert "Lenslet: beta" in html_after.text
         assert "(2 images)" in html_after.text
 
+        app.state.runtime.snapshotter._min_updates = 1
+        app.state.runtime.snapshotter._min_interval = 0.0
+        thumb_after = client.get("/thumb", params={"path": "/shots/first.jpg"})
+        assert thumb_after.status_code == 200
+        update_after = client.put(
+            "/item",
+            params={"path": "/shots/first.jpg"},
+            json={"tags": ["beta"], "notes": "workspace-b", "star": 5},
+        )
+        assert update_after.status_code == 200
+
         og_after = client.get("/og-image", params={"path": "/shots"})
         assert og_after.status_code == 200
         assert og_after.content != og_before.content
+
+    thumb_cache_b = workspace_b.thumb_cache_dir()
+    assert thumb_cache_b is not None
+    assert list(thumb_cache_b.rglob("*.webp")), "expected refreshed thumb cache writes in workspace_b"
+    snapshot_b = workspace_b.labels_snapshot_path()
+    assert snapshot_b is not None and snapshot_b.exists()
+
+    thumb_cache_a = workspace_a.thumb_cache_dir()
+    if thumb_cache_a is not None:
+        assert not list(thumb_cache_a.rglob("*.webp"))
+    snapshot_a = workspace_a.labels_snapshot_path()
+    if snapshot_a is not None:
+        assert not snapshot_a.exists()
 
 
 def test_index_shell_is_cached_once_per_process(tmp_path: Path, monkeypatch) -> None:

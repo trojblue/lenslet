@@ -130,27 +130,23 @@ def _build_embedding_manager(
 
 def _build_record_update(
     app: FastAPI,
-    *,
-    broker,
-    log_lock: threading.Lock,
-    snapshotter,
-    sync_state: dict[str, int],
 ) -> RecordUpdateFn:
     def _record_update(path: str, meta: dict, event_type: str = "item-updated") -> None:
         context = get_app_context(app)
         storage = context.storage
         workspace = context.workspace
+        runtime = context.runtime
         payload = _sidecar_payload(path, meta)
-        event_id = broker.publish(event_type, payload)
-        sync_state["last_event_id"] = event_id
+        event_id = runtime.broker.publish(event_type, payload)
+        runtime.sync_state["last_event_id"] = event_id
         if workspace.can_write:
             entry = {"id": event_id, "type": event_type, **payload}
             try:
-                with log_lock:
+                with runtime.log_lock:
                     workspace.append_labels_log(entry)
             except Exception as exc:
                 print(f"[lenslet] Warning: failed to append labels log: {exc}")
-            snapshotter.maybe_write(storage, event_id)
+            runtime.snapshotter.maybe_write(storage, event_id)
 
     return _record_update
 
@@ -185,7 +181,7 @@ def _runtime_for_workspace(
     runtime: AppRuntime,
     workspace: Workspace,
     *,
-    thumb_cache: bool,
+    thumb_cache_enabled: bool,
 ) -> AppRuntime:
     return replace(
         runtime,
@@ -194,7 +190,7 @@ def _runtime_for_workspace(
             meta_lock=runtime.meta_lock,
             log_lock=runtime.log_lock,
         ),
-        thumb_cache=_thumb_cache_from_workspace(workspace, thumb_cache),
+        thumb_cache=_thumb_cache_from_workspace(workspace, thumb_cache_enabled),
     )
 
 
@@ -364,9 +360,6 @@ def _register_common_routes(
         presence_metrics=runtime.presence_metrics,
         idempotency_cache=runtime.idempotency_cache,
         record_update=record_update,
-        thumb_queue=runtime.thumb_queue,
-        thumb_cache=runtime.thumb_cache,
-        hotpath_metrics=runtime.hotpath_metrics,
     )
 
 
@@ -676,13 +669,7 @@ def create_app(
         meta = storage.get_metadata(cached.path)
         return _build_item(cached, meta)
 
-    record_update = _build_record_update(
-        app,
-        broker=runtime.broker,
-        log_lock=runtime.log_lock,
-        snapshotter=runtime.snapshotter,
-        sync_state=runtime.sync_state,
-    )
+    record_update = _build_record_update(app)
 
     _set_runtime_context(
         app,
@@ -750,11 +737,15 @@ def create_app(
             if context.recursive_browse_cache is not None:
                 context.recursive_browse_cache.invalidate_path(path)
             updated_runtime = context.runtime
-            if updated_workspace.root != context.workspace.root:
+            if (
+                updated_workspace.root != context.workspace.root
+                or updated_workspace.views_override != context.workspace.views_override
+                or updated_workspace.can_write != context.workspace.can_write
+            ):
                 updated_runtime = _runtime_for_workspace(
                     context.runtime,
                     updated_workspace,
-                    thumb_cache=thumb_cache,
+                    thumb_cache_enabled=thumb_cache,
                 )
             updated_context = _set_runtime_context(
                 app,
@@ -856,13 +847,7 @@ def create_app_from_datasets(
                 source = None
         return _build_item(cached, meta, source=source)
 
-    record_update = _build_record_update(
-        app,
-        broker=runtime.broker,
-        log_lock=runtime.log_lock,
-        snapshotter=runtime.snapshotter,
-        sync_state=runtime.sync_state,
-    )
+    record_update = _build_record_update(app)
 
     _set_runtime_context(
         app,
@@ -1022,13 +1007,7 @@ def create_app_from_storage(
         source = cached.source if show_source else None
         return _build_item(cached, meta, source=source)
 
-    record_update = _build_record_update(
-        app,
-        broker=runtime.broker,
-        log_lock=runtime.log_lock,
-        snapshotter=runtime.snapshotter,
-        sync_state=runtime.sync_state,
-    )
+    record_update = _build_record_update(app)
 
     _set_runtime_context(
         app,

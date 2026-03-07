@@ -529,8 +529,6 @@ def _update_item(
 def register_folder_route(
     app: FastAPI,
     to_item,
-    *,
-    hotpath_metrics: Any | None = None,
 ) -> None:
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(
@@ -554,15 +552,15 @@ def register_folder_route(
                 f"supported parameters: {supported_list}",
             )
         storage = _storage_from_request(request)
-        browse_cache = get_request_context(request).recursive_browse_cache
+        context = get_request_context(request)
         return _build_folder_index(
             storage,
             _canonical_path(path),
             to_item,
             recursive=recursive,
             count_only=count_only,
-            browse_cache=browse_cache,
-            hotpath_metrics=hotpath_metrics,
+            browse_cache=context.recursive_browse_cache,
+            hotpath_metrics=context.runtime.hotpath_metrics,
         )
 
 
@@ -576,11 +574,8 @@ def register_common_api_routes(
     presence_metrics,
     idempotency_cache,
     record_update: RecordUpdateFn,
-    thumb_queue,
-    thumb_cache,
-    hotpath_metrics,
 ) -> None:
-    register_folder_route(app, to_item, hotpath_metrics=hotpath_metrics)
+    register_folder_route(app, to_item)
 
     def _resolve_image_request(path: str, request: Request):
         storage = _storage_from_request(request)
@@ -789,19 +784,21 @@ def register_common_api_routes(
     @app.get("/thumb")
     async def get_thumb(path: str, request: Request):
         storage, path = _resolve_image_request(path, request)
+        runtime = get_request_context(request).runtime
         return await _thumb_response_async(
             storage,
             path,
             request,
-            thumb_queue,
-            thumb_cache,
-            hotpath_metrics=hotpath_metrics,
+            runtime.thumb_queue,
+            runtime.thumb_cache,
+            hotpath_metrics=runtime.hotpath_metrics,
         )
 
     @app.get("/file")
     def get_file(path: str, request: Request):
         storage, path = _resolve_image_request(path, request)
-        return _file_response(storage, path, request=request, hotpath_metrics=hotpath_metrics)
+        runtime = get_request_context(request).runtime
+        return _file_response(storage, path, request=request, hotpath_metrics=runtime.hotpath_metrics)
 
     @app.get("/search", response_model=SearchResult)
     def search(request: Request, q: str = "", path: str = "/", limit: int = 100):

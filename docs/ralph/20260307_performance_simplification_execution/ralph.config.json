@@ -1,0 +1,9 @@
+{
+  "mode": "plan",
+  "tool": "codex",
+  "maxIterations": 8,
+  "maxTasksPerIteration": 6,
+  "planFile": "/local/yada/dev/lenslet/docs/20260307_performance_simplification_execution_plan.md",
+  "prdFile": "prd.json",
+  "progressFile": "progress.txt"
+}

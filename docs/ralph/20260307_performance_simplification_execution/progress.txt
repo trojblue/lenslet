@@ -85,4 +85,4 @@ Validations:
 - `python scripts/gui_smoke_acceptance.py` — passed
 - `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` — passed with `first-grid=4.15s`, `first-thumb=3804ms`, `max-frame-gap=316.7ms`
 Blockers: none
-Next step: record the closeout commit; the execution plan and overall acceptance are complete.
+Next step: none; closeout committed as `99caebc` (`fix: restore closeout acceptance gates`) and the execution plan is complete.

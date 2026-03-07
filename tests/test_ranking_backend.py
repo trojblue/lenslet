@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from lenslet.ranking.app import create_ranking_app
-from lenslet.ranking.dataset import load_ranking_dataset
+from lenslet.ranking.dataset import RankingDatasetError, load_ranking_dataset
 from lenslet.ranking.persistence import RankingPersistenceError, RankingResultsStore, resolve_results_path
 
 
@@ -46,6 +46,47 @@ def test_load_ranking_dataset_resolves_local_paths(tmp_path: Path) -> None:
     assert first.image_ids == ("0", "1")
     assert first.images[0].abs_path.exists()
     assert first.images[1].abs_path.exists()
+
+
+def test_load_ranking_dataset_rejects_absolute_image_paths(tmp_path: Path) -> None:
+    external_image = tmp_path / "external.jpg"
+    _make_image(external_image)
+    dataset_path = tmp_path / "ranking_dataset.json"
+    dataset_path.write_text(
+        json.dumps(
+            [
+                {
+                    "instance_id": "one",
+                    "images": [str(external_image)],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RankingDatasetError, match="must stay under dataset directory"):
+        load_ranking_dataset(dataset_path)
+
+
+def test_load_ranking_dataset_rejects_parent_traversal_paths(tmp_path: Path) -> None:
+    _make_image(tmp_path / "outside.jpg")
+    dataset_dir = tmp_path / "datasets"
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    dataset_path = dataset_dir / "ranking_dataset.json"
+    dataset_path.write_text(
+        json.dumps(
+            [
+                {
+                    "instance_id": "one",
+                    "images": ["../outside.jpg"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RankingDatasetError, match="must stay under dataset directory"):
+        load_ranking_dataset(dataset_path)
 
 
 def test_results_store_collapses_latest_and_ignores_malformed_tail(tmp_path: Path) -> None:

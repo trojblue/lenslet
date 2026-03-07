@@ -169,6 +169,9 @@ def _resolve_image_path(raw_path: str, dataset_dir: Path) -> Path:
     if not candidate.is_absolute():
         candidate = dataset_dir / candidate
     resolved = candidate.resolve()
+    dataset_root = dataset_dir.resolve()
+    if not resolved.is_relative_to(dataset_root):
+        raise RankingDatasetError(f"image path must stay under dataset directory: {raw_path}")
     if not resolved.exists():
         raise RankingDatasetError(f"image does not exist: {raw_path}")
     if not resolved.is_file():

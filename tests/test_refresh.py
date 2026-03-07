@@ -3,13 +3,22 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import lenslet.server_factory as server_factory
+import lenslet.server_routes_index as server_routes_index
 from lenslet.server import create_app, create_app_from_datasets
 from lenslet.storage.memory import MemoryStorage
+from lenslet.storage.table import TableStorage
+from lenslet.workspace import Workspace
 
 
 def _make_image(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (4, 4), color=(32, 64, 128)).save(path, format="JPEG")
+
+
+def _make_colored_image(path: Path, color: tuple[int, int, int]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (4, 4), color=color).save(path, format="JPEG")
 
 
 def test_invalidate_subtree_drops_cache_and_rebuilds(tmp_path: Path):
@@ -187,6 +196,123 @@ def test_refresh_endpoint_dataset_mode_is_noop():
     payload = resp.json()
     assert payload["ok"] is True
     assert "static" in payload.get("note", "")
+
+
+def test_refresh_swaps_health_index_og_and_views_from_current_context(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "gallery-root"
+    first_image = root / "shots" / "first.jpg"
+    second_image = root / "shots" / "second.jpg"
+    _make_colored_image(first_image, (255, 32, 32))
+    _make_colored_image(second_image, (32, 200, 64))
+
+    workspace_a = Workspace(root=tmp_path / "alpha" / ".lenslet", can_write=True)
+    workspace_b = Workspace(root=tmp_path / "beta" / ".lenslet", can_write=True)
+    workspace_a.write_views({
+        "version": 1,
+        "views": [{"id": "alpha-view", "name": "Alpha", "pool": {"kind": "folder", "path": "/shots"}, "view": {}}],
+    })
+    workspace_b.write_views({
+        "version": 1,
+        "views": [{"id": "beta-view", "name": "Beta", "pool": {"kind": "folder", "path": "/shots"}, "view": {}}],
+    })
+
+    storage_a = TableStorage(
+        [{"path": "/shots/first.jpg", "source": str(first_image)}],
+        root=None,
+        skip_indexing=True,
+    )
+    storage_b = TableStorage(
+        [
+            {"path": "/shots/first.jpg", "source": str(first_image)},
+            {"path": "/shots/second.jpg", "source": str(second_image)},
+        ],
+        root=None,
+        skip_indexing=True,
+    )
+    preindex_states = [
+        (storage_a, workspace_a, "sig-a"),
+        (storage_b, workspace_b, "sig-b"),
+    ]
+
+    def _fake_ensure_preindex_storage(*_args, **_kwargs):
+        assert preindex_states, "unexpected extra preindex rebuild"
+        return preindex_states.pop(0)
+
+    monkeypatch.setattr(server_factory, "_ensure_preindex_storage", _fake_ensure_preindex_storage)
+
+    app = create_app(str(root), og_preview=True)
+    with TestClient(app) as client:
+        health_before = client.get("/health")
+        assert health_before.status_code == 200
+        health_before_payload = health_before.json()
+        assert health_before_payload["mode"] == "table"
+        assert health_before_payload["refresh"]["enabled"] is True
+        assert health_before_payload["browse_cache"]["path"] == str(workspace_a.browse_cache_dir())
+
+        views_before = client.get("/views")
+        assert views_before.status_code == 200
+        assert views_before.json()["views"][0]["id"] == "alpha-view"
+
+        html_before = client.get("/index.html", params={"path": "/shots"})
+        assert html_before.status_code == 200
+        assert "Lenslet: alpha" in html_before.text
+        assert "(1 images)" in html_before.text
+
+        og_before = client.get("/og-image", params={"path": "/shots"})
+        assert og_before.status_code == 200
+
+        refresh = client.post("/refresh", params={"path": "/shots"})
+        assert refresh.status_code == 200
+        assert refresh.json()["ok"] is True
+
+        health_after = client.get("/health")
+        assert health_after.status_code == 200
+        health_after_payload = health_after.json()
+        assert health_after_payload["browse_cache"]["path"] == str(workspace_b.browse_cache_dir())
+        assert health_after_payload["indexing"]["generation"] != health_before_payload["indexing"]["generation"]
+        assert app.state.runtime.snapshotter._workspace.root == workspace_b.root  # type: ignore[attr-defined]
+        assert app.state.runtime.thumb_cache.root == workspace_b.thumb_cache_dir()  # type: ignore[union-attr]
+
+        views_after = client.get("/views")
+        assert views_after.status_code == 200
+        assert views_after.json()["views"][0]["id"] == "beta-view"
+
+        html_after = client.get("/index.html", params={"path": "/shots"})
+        assert html_after.status_code == 200
+        assert "Lenslet: beta" in html_after.text
+        assert "(2 images)" in html_after.text
+
+        og_after = client.get("/og-image", params={"path": "/shots"})
+        assert og_after.status_code == 200
+        assert og_after.content != og_before.content
+
+
+def test_index_shell_is_cached_once_per_process(tmp_path: Path, monkeypatch) -> None:
+    _make_image(tmp_path / "gallery" / "sample.jpg")
+    server_routes_index._load_frontend_shell.cache_clear()
+    app = create_app(str(tmp_path), og_preview=True)
+
+    index_path = Path(server_routes_index.__file__).resolve().parent / "frontend" / "index.html"
+    original_read_text = Path.read_text
+    calls = {"count": 0}
+
+    def _counting_read_text(self: Path, *args, **kwargs):
+        if self.resolve() == index_path.resolve():
+            calls["count"] += 1
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _counting_read_text)
+
+    with TestClient(app) as client:
+        first = client.get("/index.html", params={"path": "/gallery"})
+        second = client.get("/index.html", params={"path": "/gallery"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert calls["count"] == 1
 
 
 def test_folders_recursive_includes_descendants(tmp_path: Path):

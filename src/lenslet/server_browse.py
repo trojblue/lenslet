@@ -13,13 +13,14 @@ from fastapi import FastAPI, HTTPException, Request
 
 from .browse_cache import RecursiveBrowseCache, RecursiveCachedItemSnapshot
 from .metadata import read_jpeg_info, read_png_info, read_webp_info
+from .server_context import get_request_context
 from .server_models import DirEntry, FolderIndex, ImageMetadataResponse, Item, SearchResult, Sidecar
 from .server_sync import _canonical_path, _sidecar_from_meta
 from .workspace import Workspace
 
 
 def _storage_from_request(request: Request):
-    return request.state.storage  # type: ignore[attr-defined]
+    return get_request_context(request).storage
 
 
 def _ensure_image(storage, path: str) -> None:

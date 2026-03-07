@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -32,20 +33,20 @@ from .server_browse import (
     _build_item,
     _create_hotpath_metrics,
     _labels_health_payload,
-    _storage_from_request,
 )
+from .server_context import AppContext, bind_request_context, get_app_context, get_request_context, set_app_context
 from .server_media import _thumb_worker_count
 from .server_routes_common import RecordUpdateFn, register_common_api_routes as _register_common_api_routes
 from .server_routes_embeddings import register_embedding_routes as _register_embedding_routes
 from .server_routes_index import mount_frontend as _mount_frontend, register_index_routes as _register_index_routes
-from .server_routes_og import register_og_routes as _register_og_routes
+from .server_routes_og import _og_cache_from_workspace, register_og_routes as _register_og_routes
 from .server_routes_presence import (
     install_presence_prune_loop as _install_presence_prune_loop,
     presence_runtime_payload as _presence_runtime_payload,
 )
 from .server_routes_views import register_views_routes as _register_views_routes
 from .server_runtime import AppRuntime, build_app_runtime
-from .server_sync import _canonical_path, _sidecar_payload
+from .server_sync import SnapshotWriter, _canonical_path, _sidecar_payload
 from .server_models import (
     MAX_EXPORT_COMPARISON_PATHS_V2,
     MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
@@ -59,22 +60,6 @@ from .workspace import Workspace
 REFRESH_NOTE_DATASET_STATIC = "dataset mode is static"
 REFRESH_NOTE_TABLE_STATIC = "table mode is static"
 REFRESH_NOTE_PREINDEX_NO_WRITE = "preindex refresh disabled (no-write workspace)"
-
-
-class StorageProxy:
-    """Mutable storage wrapper to allow hot-swapping the backing storage."""
-
-    def __init__(self, storage):
-        self._storage = storage
-
-    def swap(self, storage) -> None:
-        self._storage = storage
-
-    def current(self):
-        return self._storage
-
-    def __getattr__(self, name: str):
-        return getattr(self._storage, name)
 
 
 def _create_base_app(*, description: str) -> FastAPI:
@@ -92,12 +77,10 @@ def _create_base_app(*, description: str) -> FastAPI:
     return app
 
 
-def _attach_storage(app: FastAPI, storage) -> None:
-    app.state.storage = storage
-
+def _attach_request_context(app: FastAPI) -> None:
     @app.middleware("http")
-    async def attach_storage(request: Request, call_next):
-        request.state.storage = app.state.storage
+    async def attach_request_context(request: Request, call_next):
+        bind_request_context(request)
         return await call_next(request)
 
 
@@ -146,15 +129,17 @@ def _build_embedding_manager(
 
 
 def _build_record_update(
-    storage,
+    app: FastAPI,
     *,
     broker,
-    workspace: Workspace,
     log_lock: threading.Lock,
     snapshotter,
     sync_state: dict[str, int],
 ) -> RecordUpdateFn:
     def _record_update(path: str, meta: dict, event_type: str = "item-updated") -> None:
+        context = get_app_context(app)
+        storage = context.storage
+        workspace = context.workspace
         payload = _sidecar_payload(path, meta)
         event_id = broker.publish(event_type, payload)
         sync_state["last_event_id"] = event_id
@@ -168,6 +153,49 @@ def _build_record_update(
             snapshotter.maybe_write(storage, event_id)
 
     return _record_update
+
+
+def _set_runtime_context(
+    app: FastAPI,
+    *,
+    storage,
+    workspace: Workspace,
+    runtime: AppRuntime,
+    storage_mode: str,
+    storage_origin: str | None,
+    indexing: IndexingLifecycle,
+    og_preview: bool,
+) -> AppContext:
+    return set_app_context(
+        app,
+        AppContext(
+            storage=storage,
+            workspace=workspace,
+            runtime=runtime,
+            recursive_browse_cache=_recursive_browse_cache_from_workspace(workspace),
+            og_cache=_og_cache_from_workspace(workspace, enabled=og_preview),
+            storage_mode=storage_mode,
+            storage_origin=storage_origin,
+            indexing=indexing,
+        ),
+    )
+
+
+def _runtime_for_workspace(
+    runtime: AppRuntime,
+    workspace: Workspace,
+    *,
+    thumb_cache: bool,
+) -> AppRuntime:
+    return replace(
+        runtime,
+        snapshotter=SnapshotWriter(
+            workspace,
+            meta_lock=runtime.meta_lock,
+            log_lock=runtime.log_lock,
+        ),
+        thumb_cache=_thumb_cache_from_workspace(workspace, thumb_cache),
+    )
 
 
 def _initialize_runtime(
@@ -601,21 +629,15 @@ def create_app(
         print(f"[lenslet] Warning: failed to initialize workspace: {exc}")
         workspace.can_write = False
 
-    storage_proxy = StorageProxy(storage)
-
     runtime = _initialize_runtime(
         app,
-        storage=storage_proxy,
+        storage=storage,
         workspace=workspace,
         thumb_cache=thumb_cache,
         presence_view_ttl=presence_view_ttl,
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
     )
-    app.state.recursive_browse_cache = _recursive_browse_cache_from_workspace(workspace)
-    app.state.storage_origin = storage_origin
-    app.state.storage_mode = storage_mode
-    app.state.workspace = workspace
 
     embedding_manager: EmbeddingManager | None = None
     if storage_mode == "table" and items_path.is_file() and isinstance(storage, TableStorage):
@@ -655,76 +677,97 @@ def create_app(
         return _build_item(cached, meta)
 
     record_update = _build_record_update(
-        storage_proxy,
+        app,
         broker=runtime.broker,
-        workspace=workspace,
         log_lock=runtime.log_lock,
         snapshotter=runtime.snapshotter,
         sync_state=runtime.sync_state,
     )
 
-    # Inject storage via middleware
-    _attach_storage(app, storage_proxy)
+    _set_runtime_context(
+        app,
+        storage=storage,
+        workspace=workspace,
+        runtime=runtime,
+        storage_mode=storage_mode,
+        storage_origin=storage_origin,
+        indexing=indexing,
+        og_preview=og_preview,
+    )
+    _attach_request_context(app)
 
     # --- Routes ---
 
     @app.get("/health")
     def health():
+        context = get_app_context(app)
         return {
             **_base_health_payload(
                 app,
-                mode=storage_mode,
+                mode=context.storage_mode,
                 workspace_id=_workspace_id_for_root_path(root_path),
-                storage_origin=storage_origin,
-                storage=storage_proxy,
-                workspace=workspace,
-                runtime=runtime,
+                storage_origin=context.storage_origin,
+                storage=context.storage,
+                workspace=context.workspace,
+                runtime=context.runtime,
                 prune_interval_fallback=presence_prune_interval,
             ),
             "root": root_path,
-            "indexing": _indexing_health_payload(indexing, storage_proxy),
+            "indexing": _indexing_health_payload(context.indexing, context.storage),
         }
 
     @app.post("/refresh")
     def refresh(request: Request, path: str = "/"):
-        if storage_mode == "table" and getattr(app.state, "storage_origin", "") != "preindex":
+        context = get_request_context(request)
+        if context.storage_mode == "table" and context.storage_origin != "preindex":
             return {"ok": True, "note": REFRESH_NOTE_TABLE_STATIC}
 
-        storage = _storage_from_request(request)
+        storage = context.storage
         path = _canonical_path(path)
 
-        if storage_mode == "table":
-            if not workspace.can_write:
+        if context.storage_mode == "table":
+            if not context.workspace.can_write:
                 return {"ok": True, "note": REFRESH_NOTE_PREINDEX_NO_WRITE}
             preindex_storage, updated_workspace, _signature = _ensure_preindex_storage(
                 root_path,
-                workspace,
+                context.workspace,
                 thumb_size=thumb_size,
                 thumb_quality=thumb_quality,
                 skip_indexing=skip_indexing,
             )
             if preindex_storage is None:
                 raise HTTPException(500, "failed to rebuild preindex table")
-            if updated_workspace.root != workspace.root:
-                app.state.workspace = updated_workspace
-            old_storage = storage.current() if isinstance(storage, StorageProxy) else storage
-            if isinstance(old_storage, TableStorage) and isinstance(preindex_storage, TableStorage):
+            if isinstance(storage, TableStorage) and isinstance(preindex_storage, TableStorage):
                 valid_keys = {
-                    preindex_storage._canonical_meta_key(path)
-                    for path in preindex_storage._items.keys()
+                    preindex_storage._canonical_meta_key(item_path)
+                    for item_path in preindex_storage._items.keys()
                 }
                 preindex_storage._metadata = {
                     key: value
-                    for key, value in old_storage._metadata.items()
+                    for key, value in storage._metadata.items()
                     if key in valid_keys
                 }
-            if isinstance(storage, StorageProxy):
-                storage.swap(preindex_storage)
-            else:
-                app.state.storage = preindex_storage
-            browse_cache = getattr(app.state, "recursive_browse_cache", None)
-            if browse_cache is not None:
-                browse_cache.invalidate_path(path)
+            if context.recursive_browse_cache is not None:
+                context.recursive_browse_cache.invalidate_path(path)
+            updated_runtime = context.runtime
+            if updated_workspace.root != context.workspace.root:
+                updated_runtime = _runtime_for_workspace(
+                    context.runtime,
+                    updated_workspace,
+                    thumb_cache=thumb_cache,
+                )
+            updated_context = _set_runtime_context(
+                app,
+                storage=preindex_storage,
+                workspace=updated_workspace,
+                runtime=updated_runtime,
+                storage_mode=context.storage_mode,
+                storage_origin=context.storage_origin,
+                indexing=context.indexing,
+                og_preview=og_preview,
+            )
+            if updated_context.recursive_browse_cache is not None:
+                updated_context.recursive_browse_cache.invalidate_path(path)
             return {"ok": True}
 
         try:
@@ -737,9 +780,8 @@ def create_app(
 
         # Keep in-memory sidecar metadata so annotations survive refresh.
         storage.invalidate_subtree(path, clear_metadata=False)
-        browse_cache = getattr(app.state, "recursive_browse_cache", None)
-        if browse_cache is not None:
-            browse_cache.invalidate_path(path)
+        if context.recursive_browse_cache is not None:
+            context.recursive_browse_cache.invalidate_path(path)
         return {"ok": True}
 
     _register_common_routes(
@@ -750,9 +792,9 @@ def create_app(
     )
 
     _register_embedding_routes(app, storage, embedding_manager)
-    _register_og_routes(app, storage, workspace, enabled=og_preview)
-    _register_index_routes(app, storage, workspace, og_preview=og_preview)
-    _register_views_routes(app, workspace)
+    _register_og_routes(app, enabled=og_preview)
+    _register_index_routes(app, og_preview=og_preview)
+    _register_views_routes(app)
 
     # Mount frontend if dist exists
     _mount_frontend(app)
@@ -798,7 +840,6 @@ def create_app_from_datasets(
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
     )
-    app.state.recursive_browse_cache = _recursive_browse_cache_from_workspace(workspace)
     indexing = IndexingLifecycle.ready(scope="/")
     if indexing_listener is not None:
         indexing.subscribe(indexing_listener, emit_current=True)
@@ -816,37 +857,46 @@ def create_app_from_datasets(
         return _build_item(cached, meta, source=source)
 
     record_update = _build_record_update(
-        storage,
+        app,
         broker=runtime.broker,
-        workspace=workspace,
         log_lock=runtime.log_lock,
         snapshotter=runtime.snapshotter,
         sync_state=runtime.sync_state,
     )
 
-    # Inject storage via middleware
-    _attach_storage(app, storage)
+    _set_runtime_context(
+        app,
+        storage=storage,
+        workspace=workspace,
+        runtime=runtime,
+        storage_mode="dataset",
+        storage_origin="dataset",
+        indexing=indexing,
+        og_preview=False,
+    )
+    _attach_request_context(app)
 
     # --- Routes ---
 
     @app.get("/health")
     def health():
+        context = get_app_context(app)
         dataset_names = list(datasets.keys())
         total_images = sum(len(paths) for paths in datasets.values())
         return {
             **_base_health_payload(
                 app,
-                mode="dataset",
-                workspace_id=_workspace_id_for_dataset_storage(storage),
-                storage_origin="dataset",
-                storage=storage,
-                workspace=workspace,
-                runtime=runtime,
+                mode=context.storage_mode,
+                workspace_id=_workspace_id_for_dataset_storage(context.storage),
+                storage_origin=context.storage_origin,
+                storage=context.storage,
+                workspace=context.workspace,
+                runtime=context.runtime,
                 prune_interval_fallback=presence_prune_interval,
             ),
             "datasets": dataset_names,
             "total_images": total_images,
-            "indexing": _indexing_health_payload(indexing, storage),
+            "indexing": _indexing_health_payload(context.indexing, context.storage),
         }
 
     _register_static_refresh_route(app, note=REFRESH_NOTE_DATASET_STATIC)
@@ -859,7 +909,7 @@ def create_app_from_datasets(
     )
 
     _register_embedding_routes(app, storage, embedding_manager)
-    _register_views_routes(app, workspace)
+    _register_views_routes(app)
 
     # Mount frontend if dist exists
     _mount_frontend(app)
@@ -948,7 +998,6 @@ def create_app_from_storage(
         presence_edit_ttl=presence_edit_ttl,
         presence_prune_interval=presence_prune_interval,
     )
-    app.state.recursive_browse_cache = _recursive_browse_cache_from_workspace(workspace)
     indexing = IndexingLifecycle.ready(scope="/")
     if indexing_listener is not None:
         indexing.subscribe(indexing_listener, emit_current=True)
@@ -974,31 +1023,41 @@ def create_app_from_storage(
         return _build_item(cached, meta, source=source)
 
     record_update = _build_record_update(
-        storage,
+        app,
         broker=runtime.broker,
-        workspace=workspace,
         log_lock=runtime.log_lock,
         snapshotter=runtime.snapshotter,
         sync_state=runtime.sync_state,
     )
 
-    _attach_storage(app, storage)
+    _set_runtime_context(
+        app,
+        storage=storage,
+        workspace=workspace,
+        runtime=runtime,
+        storage_mode="table",
+        storage_origin="table",
+        indexing=indexing,
+        og_preview=og_preview,
+    )
+    _attach_request_context(app)
 
     @app.get("/health")
     def health():
+        context = get_app_context(app)
         return {
             **_base_health_payload(
                 app,
-                mode="table",
-                workspace_id=_workspace_id_for_table_storage(storage, workspace),
-                storage_origin="table",
-                storage=storage,
-                workspace=workspace,
-                runtime=runtime,
+                mode=context.storage_mode,
+                workspace_id=_workspace_id_for_table_storage(context.storage, context.workspace),
+                storage_origin=context.storage_origin,
+                storage=context.storage,
+                workspace=context.workspace,
+                runtime=context.runtime,
                 prune_interval_fallback=presence_prune_interval,
             ),
-            "total_images": len(storage._items),
-            "indexing": _indexing_health_payload(indexing, storage),
+            "total_images": len(context.storage._items),
+            "indexing": _indexing_health_payload(context.indexing, context.storage),
         }
 
     _register_static_refresh_route(app, note=REFRESH_NOTE_TABLE_STATIC)
@@ -1011,9 +1070,9 @@ def create_app_from_storage(
     )
 
     _register_embedding_routes(app, storage, embedding_manager)
-    _register_og_routes(app, storage, workspace, enabled=og_preview)
-    _register_index_routes(app, storage, workspace, og_preview=og_preview)
-    _register_views_routes(app, workspace)
+    _register_og_routes(app, enabled=og_preview)
+    _register_index_routes(app, og_preview=og_preview)
+    _register_views_routes(app)
     _mount_frontend(app)
 
     return app

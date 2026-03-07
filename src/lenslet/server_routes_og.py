@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, Request, Response
 
 from . import og
+from .server_context import get_request_context
 from .og_cache import OgImageCache
 from .workspace import Workspace
 
@@ -36,12 +37,12 @@ def _dataset_mtime(workspace: Workspace) -> float | None:
     return None
 
 
-def _dataset_signature(storage, workspace: Workspace) -> str:
-    mtime = _dataset_mtime(workspace)
+def _dataset_signature(current_storage, current_workspace: Workspace) -> str:
+    mtime = _dataset_mtime(current_workspace)
     if mtime is not None:
         return f"parquet:{int(mtime)}"
     try:
-        index = storage.get_index("/")
+        index = current_storage.get_index("/")
     except Exception:
         return "unknown"
     items = getattr(index, "items", [])
@@ -66,26 +67,26 @@ def _og_path_from_request(path: str | None, request: Request | None) -> str:
     return og.normalize_path(fragment)
 
 
-def _dataset_label(workspace: Workspace) -> str:
-    if workspace.views_override is not None:
-        name = workspace.views_override.name
+def _dataset_label(current_workspace: Workspace) -> str:
+    if current_workspace.views_override is not None:
+        name = current_workspace.views_override.name
         if name.endswith(".lenslet.json"):
             name = name[: -len(".lenslet.json")]
         label = Path(name).stem
         return label or "dataset"
-    if workspace.root is not None:
-        label = workspace.root.parent.name
+    if current_workspace.root is not None:
+        label = current_workspace.root.parent.name
         return label or "dataset"
     return "dataset"
 
 
-def _dataset_count(storage) -> int | None:
-    items = getattr(storage, "_items", None)
+def _dataset_count(current_storage) -> int | None:
+    items = getattr(current_storage, "_items", None)
     if isinstance(items, dict):
         return len(items)
     if isinstance(items, list):
         return len(items)
-    indexes = getattr(storage, "_indexes", None)
+    indexes = getattr(current_storage, "_indexes", None)
     if isinstance(indexes, dict):
         root = indexes.get("") or indexes.get("/")
         if root is not None and hasattr(root, "items"):
@@ -105,18 +106,20 @@ def _og_cache_from_workspace(workspace: Workspace, enabled: bool) -> OgImageCach
     return OgImageCache(cache_dir)
 
 
-def register_og_routes(app: FastAPI, storage, workspace: Workspace, enabled: bool) -> None:
-    og_cache = _og_cache_from_workspace(workspace, enabled=enabled)
-
+def register_og_routes(app: FastAPI, enabled: bool) -> None:
     @app.get("/og-image", include_in_schema=False, name="og_image")
     def og_image(request: Request, style: str = og.OG_STYLE, path: str | None = None):
-        label = _dataset_label(workspace)
+        context = get_request_context(request)
+        current_storage = context.storage
+        current_workspace = context.workspace
+        og_cache = context.og_cache
+        label = _dataset_label(current_workspace)
         if not enabled:
             return Response(content=og.fallback_og_image(label), media_type="image/png")
         style_key = style if style == og.OG_STYLE else og.OG_STYLE
         sample_path = _og_path_from_request(path, request)
-        signature = _dataset_signature(storage, workspace)
-        cache_key = _og_cache_key(workspace, style_key, signature, sample_path)
+        signature = _dataset_signature(current_storage, current_workspace)
+        cache_key = _og_cache_key(current_workspace, style_key, signature, sample_path)
         if og_cache is not None:
             cached = og_cache.get(cache_key)
             if cached is not None:
@@ -124,9 +127,9 @@ def register_og_routes(app: FastAPI, storage, workspace: Workspace, enabled: boo
 
         sample_count = og.OG_IMAGES_X * og.OG_IMAGES_Y
         tiles: list[list[list[tuple[int, int, int]]]] = []
-        for sample_path_entry in og.sample_paths(storage, sample_path, sample_count):
+        for sample_path_entry in og.sample_paths(current_storage, sample_path, sample_count):
             try:
-                thumb = storage.get_thumbnail(sample_path_entry)
+                thumb = current_storage.get_thumbnail(sample_path_entry)
             except Exception:
                 thumb = None
             if not thumb:

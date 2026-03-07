@@ -1,0 +1,17 @@
+# Ralph Progress Log
+Started: 2026-03-07T02:48:22Z
+Mode: plan
+Tool: codex
+Repo: /local/yada/dev/lenslet
+Plan: /local/yada/dev/lenslet/docs/20260307_performance_simplification_execution_plan.md
+---
+## Iteration 1 — 2026-03-07 03:04 UTC
+Completed task IDs: S1-T1, S1-T2, S1-T3
+Files changed: src/lenslet/server_browse.py, src/lenslet/server_context.py, src/lenslet/server_factory.py, src/lenslet/server_routes_common.py, src/lenslet/server_routes_index.py, src/lenslet/server_routes_og.py, src/lenslet/server_routes_views.py, tests/test_import_contract.py, tests/test_refresh.py, docs/20260307_performance_simplification_execution_plan.md, docs/ralph/20260307_performance_simplification_execution/progress.txt
+Validations:
+- `pytest -q tests/test_refresh.py tests/test_import_contract.py` — passed
+- `pytest -q tests/test_refresh.py tests/test_parquet_ingestion.py tests/test_hotpath_sprint_s4.py tests/test_import_contract.py` — passed
+- `python -m ruff check src/lenslet/server_context.py src/lenslet/server_factory.py src/lenslet/server_routes_common.py src/lenslet/server_routes_index.py src/lenslet/server_routes_og.py src/lenslet/server_routes_views.py tests/test_refresh.py tests/test_import_contract.py` — passed in the cleanup pass
+- `python scripts/lint_repo.py` — passed
+Blockers: none
+Next step: start Sprint 2 with S2-T1 and keep the new app-context/runtime cut intact while adding the no-create metadata read path for search.

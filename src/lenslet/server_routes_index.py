@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 import html
 from pathlib import Path
 
@@ -9,8 +10,8 @@ from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import og
+from .server_context import get_request_context
 from .server_routes_og import _dataset_count, _dataset_label
-from .workspace import Workspace
 
 
 class NoCacheIndexStaticFiles(StaticFiles):
@@ -69,18 +70,24 @@ def _build_index_description(label: str, scope_path: str) -> str:
     return f"Browse {label} gallery in {scope_path}"
 
 
-def register_index_routes(app: FastAPI, storage, workspace: Workspace, og_preview: bool) -> None:
+@lru_cache(maxsize=1)
+def _load_frontend_shell(index_path: str) -> str:
+    return Path(index_path).read_text(encoding="utf-8")
+
+
+def register_index_routes(app: FastAPI, og_preview: bool) -> None:
     frontend_dist = Path(__file__).parent / "frontend"
     index_path = frontend_dist / "index.html"
     if not index_path.is_file():
         return
 
     def render_index(request: Request):
-        html_text = index_path.read_text(encoding="utf-8")
+        html_text = _load_frontend_shell(str(index_path))
         if og_preview:
-            label = _dataset_label(workspace)
+            context = get_request_context(request)
+            label = _dataset_label(context.workspace)
             scope_path = og.normalize_path(request.query_params.get("path"))
-            title = _build_index_title(label, _dataset_count(storage))
+            title = _build_index_title(label, _dataset_count(context.storage))
             description = _build_index_description(label, scope_path)
             image_url = request.url_for("og_image")
             path_param = request.query_params.get("path")

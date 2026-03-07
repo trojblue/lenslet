@@ -45,6 +45,12 @@ IMPORT_SPECIFIER_PATTERN = re.compile(
 DYNAMIC_IMPORT_PATTERN = re.compile(
     r"""import\(\s*["'](?P<dynamic>[^"']+)["']\s*\)"""
 )
+SPRINT1_ROUTE_FILES = (
+    REPO_ROOT / "src" / "lenslet" / "server_routes_common.py",
+    REPO_ROOT / "src" / "lenslet" / "server_routes_index.py",
+    REPO_ROOT / "src" / "lenslet" / "server_routes_og.py",
+    REPO_ROOT / "src" / "lenslet" / "server_routes_views.py",
+)
 
 
 def _iter_import_specifiers(file_path: Path) -> list[str]:
@@ -111,3 +117,12 @@ def test_ranking_frontend_import_contract() -> None:
             )
 
     assert not violations, "ranking import contract violations:\n" + "\n".join(sorted(violations))
+
+
+def test_sprint1_route_modules_do_not_depend_on_server_facade() -> None:
+    violations: list[str] = []
+    for file_path in SPRINT1_ROUTE_FILES:
+        text = file_path.read_text(encoding="utf-8")
+        if "from . import server" in text or "from .server import" in text:
+            violations.append(str(file_path.relative_to(REPO_ROOT)))
+    assert not violations, "route modules still depend on lenslet.server:\n" + "\n".join(violations)

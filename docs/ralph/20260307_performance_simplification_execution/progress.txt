@@ -71,4 +71,4 @@ Validations:
 - `rg -n "shared/api|ranking_old\\.css|collectMoveFolders|BlobUrlCache" frontend/src src tests` — no matches
 - `pytest` — failed in untouched suites: `tests/test_compare_export_endpoint.py` (3 failures) and `tests/test_indexing_health_contract.py` (3 failures)
 Blockers: repo-level `pytest` is not green because of unrelated compare-export and indexing-health failures outside the Sprint 4 files touched in this iteration.
-Next step: commit the validated Sprint 4 slice, then decide whether to treat the remaining `pytest` failures as pre-existing baseline debt or scope a follow-up iteration to clear them before declaring plan completion.
+Next step: Sprint 4 is committed as `e09320d` (`feat: finish sprint 4 delivery simplifications`); decide whether to treat the remaining `pytest` failures as pre-existing baseline debt or scope a follow-up iteration to clear them before declaring plan completion.

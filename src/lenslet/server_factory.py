@@ -36,7 +36,11 @@ from .server_browse import (
 )
 from .server_context import AppContext, bind_request_context, get_app_context, get_request_context, set_app_context
 from .server_media import _thumb_worker_count
-from .server_routes_common import RecordUpdateFn, register_common_api_routes as _register_common_api_routes
+from .server_routes_common import (
+    ComparisonExportRuntime,
+    RecordUpdateFn,
+    register_common_api_routes as _register_common_api_routes,
+)
 from .server_routes_embeddings import register_embedding_routes as _register_embedding_routes
 from .server_routes_index import mount_frontend as _mount_frontend, register_index_routes as _register_index_routes
 from .server_routes_og import _og_cache_from_workspace, register_og_routes as _register_og_routes
@@ -360,6 +364,7 @@ def _register_common_routes(
         presence_metrics=runtime.presence_metrics,
         idempotency_cache=runtime.idempotency_cache,
         record_update=record_update,
+        comparison_export_runtime=_comparison_export_runtime_from_server_facade,
     )
 
 
@@ -368,6 +373,24 @@ def _register_static_refresh_route(app: FastAPI, note: str) -> None:
     def refresh(path: str = "/"):
         _ = path
         return {"ok": True, "note": note}
+
+
+def _comparison_export_runtime_from_server_facade() -> ComparisonExportRuntime:
+    from . import server as server_mod
+
+    return ComparisonExportRuntime(
+        max_source_pixels=server_mod.MAX_EXPORT_SOURCE_PIXELS,
+        max_stitched_pixels=server_mod.MAX_EXPORT_STITCHED_PIXELS,
+        max_metadata_bytes=server_mod.MAX_EXPORT_METADATA_BYTES,
+        max_label_chars=server_mod.MAX_EXPORT_LABEL_CHARS,
+        max_gif_long_side=server_mod.MAX_EXPORT_GIF_LONG_SIDE,
+        max_gif_long_side_high_quality=server_mod.MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY,
+        max_gif_bytes=server_mod.MAX_EXPORT_GIF_MAX_BYTES,
+        gif_frame_duration_ms=server_mod.EXPORT_GIF_FRAME_DURATION_MS,
+        gif_frame_duration_ms_high_quality=server_mod.EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY,
+        metadata_key=server_mod.EXPORT_COMPARISON_METADATA_KEY,
+        load_unibox_image_utils=server_mod._get_unibox_image_utils,
+    )
 
 
 def _warn_dataset_embedding_search_unavailable(embedding_parquet_path: str | None) -> None:

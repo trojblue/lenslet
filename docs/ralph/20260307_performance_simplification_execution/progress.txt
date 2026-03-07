@@ -72,3 +72,17 @@ Validations:
 - `pytest` — failed in untouched suites: `tests/test_compare_export_endpoint.py` (3 failures) and `tests/test_indexing_health_contract.py` (3 failures)
 Blockers: repo-level `pytest` is not green because of unrelated compare-export and indexing-health failures outside the Sprint 4 files touched in this iteration.
 Next step: Sprint 4 is committed as `e09320d` (`feat: finish sprint 4 delivery simplifications`); decide whether to treat the remaining `pytest` failures as pre-existing baseline debt or scope a follow-up iteration to clear them before declaring plan completion.
+
+## Iteration 5 — 2026-03-07 04:24 UTC
+Completed task IDs: none (overall acceptance closeout blocker resolution)
+Files changed: src/lenslet/server_factory.py, src/lenslet/server_routes_common.py, tests/test_indexing_health_contract.py, docs/20260307_performance_simplification_execution_plan.md, docs/ralph/20260307_performance_simplification_execution/progress.txt
+Validations:
+- `pytest -q tests/test_compare_export_endpoint.py tests/test_indexing_health_contract.py` — passed
+- `python -m ruff check src/lenslet/server_routes_common.py src/lenslet/server_factory.py tests/test_indexing_health_contract.py` — passed
+- `python scripts/lint_repo.py` — passed
+- `pytest` — passed (`160 passed, 6 warnings`)
+- `cd frontend && npm run test` — passed (`65 files, 299 tests`)
+- `python scripts/gui_smoke_acceptance.py` — passed
+- `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` — passed with `first-grid=4.15s`, `first-thumb=3804ms`, `max-frame-gap=316.7ms`
+Blockers: none
+Next step: record the closeout commit; the execution plan and overall acceptance are complete.

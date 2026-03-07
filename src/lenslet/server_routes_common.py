@@ -7,6 +7,7 @@ import io
 import json
 import threading
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -67,6 +68,37 @@ _UNIBOX_IMAGE_UTILS: tuple[Callable[..., Any], Callable[..., Any]] | None = None
 RecordUpdateFn = Callable[[str, dict, str], None]
 
 
+@dataclass(frozen=True)
+class ComparisonExportRuntime:
+    max_source_pixels: int
+    max_stitched_pixels: int
+    max_metadata_bytes: int
+    max_label_chars: int
+    max_gif_long_side: int
+    max_gif_long_side_high_quality: int
+    max_gif_bytes: int
+    gif_frame_duration_ms: int
+    gif_frame_duration_ms_high_quality: int
+    metadata_key: str
+    load_unibox_image_utils: Callable[[], tuple[Callable[..., Any], Callable[..., Any]]]
+
+
+def _default_comparison_export_runtime() -> ComparisonExportRuntime:
+    return ComparisonExportRuntime(
+        max_source_pixels=MAX_EXPORT_SOURCE_PIXELS,
+        max_stitched_pixels=MAX_EXPORT_STITCHED_PIXELS,
+        max_metadata_bytes=MAX_EXPORT_METADATA_BYTES,
+        max_label_chars=MAX_EXPORT_LABEL_CHARS,
+        max_gif_long_side=MAX_EXPORT_GIF_LONG_SIDE,
+        max_gif_long_side_high_quality=MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY,
+        max_gif_bytes=MAX_EXPORT_GIF_MAX_BYTES,
+        gif_frame_duration_ms=EXPORT_GIF_FRAME_DURATION_MS,
+        gif_frame_duration_ms_high_quality=EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY,
+        metadata_key=EXPORT_COMPARISON_METADATA_KEY,
+        load_unibox_image_utils=_get_unibox_image_utils,
+    )
+
+
 def _error_response(status: int, error: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"error": error, "message": message})
 
@@ -120,19 +152,27 @@ def _get_unibox_image_utils() -> tuple[Callable[..., Any], Callable[..., Any]]:
     return _UNIBOX_IMAGE_UTILS
 
 
-def _sanitize_export_label(raw: str) -> str:
+def _sanitize_export_label(raw: str, *, max_label_chars: int) -> str:
     cleaned = "".join(ch for ch in raw if ord(ch) >= 32 and ord(ch) != 127).strip()
-    if len(cleaned) > MAX_EXPORT_LABEL_CHARS:
-        raise ValueError(f"labels must be <= {MAX_EXPORT_LABEL_CHARS} characters after sanitation")
+    if len(cleaned) > max_label_chars:
+        raise ValueError(f"labels must be <= {max_label_chars} characters after sanitation")
     return cleaned
 
 
-def _normalize_export_labels(labels: list[str] | None, *, max_labels: int) -> list[str]:
+def _normalize_export_labels(
+    labels: list[str] | None,
+    *,
+    max_labels: int,
+    max_label_chars: int,
+) -> list[str]:
     if labels is None:
         return []
     if len(labels) > max_labels:
         raise ValueError(f"expected at most {max_labels} labels")
-    return [_sanitize_export_label(value) for value in labels]
+    return [
+        _sanitize_export_label(value, max_label_chars=max_label_chars)
+        for value in labels
+    ]
 
 
 def _default_export_label(path: str, idx: int) -> str:
@@ -164,7 +204,12 @@ def _resolve_export_paths_and_labels(
     return ordered_paths, ordered_labels
 
 
-def _load_export_image(storage, path: str) -> tuple[Image.Image, str]:
+def _load_export_image(
+    storage,
+    path: str,
+    *,
+    runtime: ComparisonExportRuntime,
+) -> tuple[Image.Image, str]:
     try:
         raw = storage.read_bytes(path)
     except FileNotFoundError:
@@ -181,7 +226,7 @@ def _load_export_image(storage, path: str) -> tuple[Image.Image, str]:
             width, height = source.size
             if width <= 0 or height <= 0:
                 raise HTTPException(415, f"invalid source dimensions for {path}")
-            if width * height > MAX_EXPORT_SOURCE_PIXELS:
+            if width * height > runtime.max_source_pixels:
                 raise HTTPException(400, f"source image exceeds pixel limit: {path}")
             return source.copy(), source_format.lower()
     except HTTPException:
@@ -202,6 +247,7 @@ def _build_export_metadata_text(
     gif_high_quality: bool | None = None,
     gif_max_long_side: int | None = None,
     gif_frame_duration_ms: int | None = None,
+    runtime: ComparisonExportRuntime,
 ) -> str:
     metadata_payload = {
         "tool": "lenslet.export_comparison",
@@ -221,7 +267,7 @@ def _build_export_metadata_text(
         metadata_payload["gif_frame_duration_ms"] = gif_frame_duration_ms
     metadata_text = json.dumps(metadata_payload, separators=(",", ":"), ensure_ascii=True)
     metadata_size = len(metadata_text.encode("utf-8"))
-    if metadata_size > MAX_EXPORT_METADATA_BYTES:
+    if metadata_size > runtime.max_metadata_bytes:
         raise HTTPException(400, "embedded metadata exceeds configured limit")
     return metadata_text
 
@@ -317,9 +363,10 @@ def _build_export_gif(
     ordered_paths: list[str],
     source_formats: list[str],
     reversed_order: bool,
+    runtime: ComparisonExportRuntime,
 ) -> bytes:
     try:
-        _, add_annotation = _get_unibox_image_utils()
+        _, add_annotation = runtime.load_unibox_image_utils()
     except RuntimeError as exc:
         raise HTTPException(500, str(exc))
 
@@ -327,8 +374,16 @@ def _build_export_gif(
     prepped: list[Image.Image] = []
     base_frames: list[Image.Image] = []
     scaled_frames: list[Image.Image] = []
-    max_long_side = MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY if high_quality else MAX_EXPORT_GIF_LONG_SIDE
-    duration_ms = EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY if high_quality else EXPORT_GIF_FRAME_DURATION_MS
+    max_long_side = (
+        runtime.max_gif_long_side_high_quality
+        if high_quality
+        else runtime.max_gif_long_side
+    )
+    duration_ms = (
+        runtime.gif_frame_duration_ms_high_quality
+        if high_quality
+        else runtime.gif_frame_duration_ms
+    )
     try:
         for image, label in zip(images, labels):
             annotated_frame = _annotate_for_export(image, label, add_annotation=add_annotation)
@@ -357,6 +412,7 @@ def _build_export_gif(
                 gif_high_quality=high_quality,
                 gif_max_long_side=max_long_side,
                 gif_frame_duration_ms=duration_ms,
+                runtime=runtime,
             ).encode("utf-8")
 
         scale_steps = (1.0, 0.94, 0.88, 0.82, 0.76, 0.7, 0.64, 0.58, 0.52, 0.46, 0.4, 0.34)
@@ -375,7 +431,7 @@ def _build_export_gif(
                             duration_ms=duration_ms,
                             comment=metadata_comment,
                         )
-                        if len(encoded) <= MAX_EXPORT_GIF_MAX_BYTES:
+                        if len(encoded) <= runtime.max_gif_bytes:
                             return encoded
             finally:
                 for frame in scaled_frames:
@@ -406,9 +462,10 @@ def _build_export_png(
     ordered_paths: list[str],
     source_formats: list[str],
     reversed_order: bool,
+    runtime: ComparisonExportRuntime,
 ) -> bytes:
     try:
-        concatenate_images_horizontally, add_annotation = _get_unibox_image_utils()
+        concatenate_images_horizontally, add_annotation = runtime.load_unibox_image_utils()
     except RuntimeError as exc:
         raise HTTPException(500, str(exc))
 
@@ -424,7 +481,7 @@ def _build_export_png(
         if stitched is None:
             raise HTTPException(500, "failed to stitch comparison image")
         stitched_pixels = stitched.width * stitched.height
-        if stitched_pixels > MAX_EXPORT_STITCHED_PIXELS:
+        if stitched_pixels > runtime.max_stitched_pixels:
             raise HTTPException(400, "stitched output exceeds configured pixel limit")
 
         pnginfo: PngImagePlugin.PngInfo | None = None
@@ -435,9 +492,10 @@ def _build_export_png(
                 source_formats=source_formats,
                 reversed_order=reversed_order,
                 output_format="png",
+                runtime=runtime,
             )
             pnginfo = PngImagePlugin.PngInfo()
-            pnginfo.add_text(EXPORT_COMPARISON_METADATA_KEY, metadata_text)
+            pnginfo.add_text(runtime.metadata_key, metadata_text)
 
         out = io.BytesIO()
         save_kwargs: dict[str, Any] = {"format": "PNG"}
@@ -605,8 +663,10 @@ def register_common_api_routes(
     presence_metrics,
     idempotency_cache,
     record_update: RecordUpdateFn,
+    comparison_export_runtime: Callable[[], ComparisonExportRuntime] | None = None,
 ) -> None:
     register_folder_route(app, to_item)
+    resolve_export_runtime = comparison_export_runtime or _default_comparison_export_runtime
 
     def _resolve_image_request(path: str, request: Request):
         storage = _storage_from_request(request)
@@ -650,9 +710,11 @@ def register_common_api_routes(
                 return _path_validation_error_response(exc)
 
         try:
+            export_runtime = resolve_export_runtime()
             normalized_labels = _normalize_export_labels(
                 body.labels,
                 max_labels=len(canonical_paths),
+                max_label_chars=export_runtime.max_label_chars,
             )
         except ValueError as exc:
             return _error_response(400, "invalid_labels", str(exc))
@@ -667,7 +729,11 @@ def register_common_api_routes(
         source_formats: list[str] = []
         try:
             for path in ordered_paths:
-                image, source_format = _load_export_image(storage, path)
+                image, source_format = _load_export_image(
+                    storage,
+                    path,
+                    runtime=export_runtime,
+                )
                 images.append(image)
                 source_formats.append(source_format)
             if body.output_format == "gif":
@@ -679,6 +745,7 @@ def register_common_api_routes(
                     ordered_paths=ordered_paths,
                     source_formats=source_formats,
                     reversed_order=body.reverse_order,
+                    runtime=export_runtime,
                 )
                 media_type = "image/gif"
             else:
@@ -689,6 +756,7 @@ def register_common_api_routes(
                     ordered_paths=ordered_paths,
                     source_formats=source_formats,
                     reversed_order=body.reverse_order,
+                    runtime=export_runtime,
                 )
                 media_type = "image/png"
         except HTTPException as exc:

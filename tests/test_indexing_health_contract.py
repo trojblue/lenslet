@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import lenslet.server_factory as server_factory
 from lenslet.server import create_app, create_app_from_datasets, create_app_from_table
 from lenslet.server_models import (
     MAX_EXPORT_COMPARISON_PATHS_V2,
@@ -39,6 +40,30 @@ def _wait_for_indexing_state(
     raise AssertionError(f"timed out waiting for indexing state={target}; last={last_payload!r}")
 
 
+def _create_memory_app(
+    root_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    **kwargs,
+):
+    def _disable_preindex(
+        _root_path: str,
+        workspace,
+        *,
+        thumb_size: int,
+        thumb_quality: int,
+        skip_indexing: bool,
+        preindex_signature: str | None = None,
+    ):
+        _ = _root_path
+        _ = thumb_size
+        _ = thumb_quality
+        _ = skip_indexing
+        return None, workspace, preindex_signature
+
+    monkeypatch.setattr(server_factory, "_ensure_preindex_storage", _disable_preindex)
+    return create_app(str(root_path), **kwargs)
+
+
 def test_memory_health_reports_running_then_ready_indexing_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -58,7 +83,7 @@ def test_memory_health_reports_running_then_ready_indexing_state(
 
     monkeypatch.setattr(MemoryStorage, "_build_index", _blocked_build_index)
 
-    app = create_app(str(tmp_path))
+    app = _create_memory_app(tmp_path, monkeypatch)
     with TestClient(app) as client:
         assert started.wait(timeout=1.0)
         running = client.get("/health").json()["indexing"]
@@ -79,12 +104,13 @@ def test_memory_health_reports_running_then_ready_indexing_state(
 
 def test_memory_indexing_listener_receives_running_then_ready(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _make_image(tmp_path / "gallery" / "a.jpg")
     _make_image(tmp_path / "gallery" / "b.jpg")
 
     events: list[dict] = []
-    app = create_app(str(tmp_path), indexing_listener=events.append)
+    app = _create_memory_app(tmp_path, monkeypatch, indexing_listener=events.append)
     with TestClient(app) as client:
         _wait_for_indexing_state(client, "ready")
 
@@ -108,7 +134,7 @@ def test_memory_health_reports_error_when_warm_index_fails(
 
     monkeypatch.setattr(MemoryStorage, "_build_index", _failing_build_index)
 
-    app = create_app(str(tmp_path))
+    app = _create_memory_app(tmp_path, monkeypatch)
     with TestClient(app) as client:
         errored = _wait_for_indexing_state(client, "error")
 
@@ -134,7 +160,7 @@ def test_memory_indexing_listener_receives_error_state(
     monkeypatch.setattr(MemoryStorage, "_build_index", _failing_build_index)
     events: list[dict] = []
 
-    app = create_app(str(tmp_path), indexing_listener=events.append)
+    app = _create_memory_app(tmp_path, monkeypatch, indexing_listener=events.append)
     with TestClient(app) as client:
         _wait_for_indexing_state(client, "error")
 

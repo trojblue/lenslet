@@ -149,18 +149,20 @@ def get_dimensions(storage: Any, path: str) -> tuple[int, int]:
         return 0, 0
 
 
-def get_metadata(storage: Any, path: str) -> dict:
-    norm = storage._normalize_item_path(path)
-    key = storage._canonical_meta_key(norm)
-    if key in storage._metadata:
-        return storage._metadata[key]
-
+def _build_default_metadata(storage: Any, norm: str) -> dict:
     w, h = storage._dimensions.get(norm, (0, 0))
-    item = storage._items.get(norm)
+    item = None
+    items = getattr(storage, "_items", None)
+    if hasattr(items, "get"):
+        item = items.get(norm)
+    if item is None:
+        lookup_item = getattr(storage, "_lookup_item", None)
+        if callable(lookup_item):
+            item = lookup_item(norm)
     if item and (w == 0 or h == 0):
         w, h = item.width, item.height
 
-    meta = {
+    return {
         "width": w,
         "height": h,
         "tags": [],
@@ -170,8 +172,27 @@ def get_metadata(storage: Any, path: str) -> dict:
         "updated_at": "",
         "updated_by": "server",
     }
+
+
+def get_metadata(storage: Any, path: str) -> dict:
+    norm = storage._normalize_item_path(path)
+    key = storage._canonical_meta_key(norm)
+    meta = storage._metadata.get(key)
+    if meta is not None:
+        return meta
+
+    meta = _build_default_metadata(storage, norm)
     storage._metadata[key] = meta
     return meta
+
+
+def get_metadata_readonly(storage: Any, path: str) -> dict:
+    norm = storage._normalize_item_path(path)
+    key = storage._canonical_meta_key(norm)
+    meta = storage._metadata.get(key)
+    if meta is not None:
+        return meta
+    return _build_default_metadata(storage, norm)
 
 
 def set_metadata(storage: Any, path: str, meta: dict) -> None:
@@ -183,12 +204,16 @@ def set_metadata(storage: Any, path: str, meta: dict) -> None:
 def search_items(storage: Any, query: str = "", path: str = "/", limit: int = 100) -> list[Any]:
     q = (query or "").lower()
     scope_norm = normalize_search_path(path)
+    meta_reader = getattr(storage, "get_metadata_readonly", None)
 
     results: list[Any] = []
     for item in storage._items.values():
         if not path_in_scope(logical_path=item.path, scope_norm=scope_norm):
             continue
-        meta = storage.get_metadata(item.path)
+        if callable(meta_reader):
+            meta = meta_reader(item.path)
+        else:
+            meta = get_metadata_readonly(storage, item.path)
         source = None
         if storage._include_source_in_search:
             source = getattr(item, "source", None) or storage._source_paths.get(item.path)

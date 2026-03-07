@@ -24,3 +24,22 @@ Validations:
 - `python scripts/lint_repo.py` — passed
 Blockers: none
 Next step: commit the post-review runtime follow-up, then begin Sprint 2 with S2-T1.
+
+## Iteration 2 — 2026-03-07 03:40 UTC
+Completed task IDs: S2-T1, S2-T2, S2-T3
+Files changed: src/lenslet/storage/dataset.py, src/lenslet/storage/memory.py, src/lenslet/storage/table.py, src/lenslet/storage/table_facade.py, src/lenslet/storage/table_index.py, tests/test_dataset_http.py, tests/test_search_text_contract.py, tests/test_table_index_pipeline.py, docs/20260307_performance_simplification_execution_plan.md, docs/ralph/20260307_performance_simplification_execution/progress.txt
+Validations:
+- `pytest -q tests/test_search_text_contract.py tests/test_table_index_pipeline.py tests/test_dataset_http.py tests/test_hotpath_sprint_s4.py` — passed
+- `pytest -q tests/test_search_source_contract.py` — passed
+- `rg -n "get_metadata\\(item\\.path\\)" src/lenslet/storage/dataset.py src/lenslet/storage/table_facade.py src/lenslet/storage/memory.py` — no matches
+- `python scripts/lint_repo.py` — passed
+Blockers: none
+Next step: run the Sprint 2 cleanup/review gates, commit the validated storage slice, then start Sprint 3 with S3-T1.
+
+Update — 2026-03-07 03:48 UTC
+Files changed: src/lenslet/storage/memory.py, docs/20260307_performance_simplification_execution_plan.md, docs/ralph/20260307_performance_simplification_execution/progress.txt
+Validations:
+- `pytest -q tests/test_search_text_contract.py tests/test_table_index_pipeline.py tests/test_dataset_http.py tests/test_hotpath_sprint_s4.py tests/test_search_source_contract.py` — passed
+- `python scripts/lint_repo.py` — passed
+Blockers: none
+Next step: make the Sprint 2 commit, then begin Sprint 3 with S3-T1.

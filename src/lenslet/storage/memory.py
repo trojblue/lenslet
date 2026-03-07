@@ -76,6 +76,9 @@ class MemoryStorage:
         """Normalize path for consistent cache keys."""
         return path.strip("/") if path else ""
 
+    def _normalize_item_path(self, path: str) -> str:
+        return self._normalize_path(path)
+
     def _canonical_meta_key(self, path: str) -> str:
         """Canonical key for metadata maps (leading slash, no trailing)."""
         p = (path or "").replace("\\", "/").strip()
@@ -510,7 +513,7 @@ class MemoryStorage:
         for item in self._all_items():
             if not path_in_scope(logical_path=item.path, scope_norm=scope_norm):
                 continue
-            meta = self.get_metadata(item.path)
+            meta = self.get_metadata_readonly(item.path)
             source, url = self._metadata_source_fields(meta)
             haystack = build_search_haystack(
                 logical_path=item.path,
@@ -562,12 +565,23 @@ class MemoryStorage:
     def get_metadata(self, path: str) -> dict:
         """Get metadata for an image (in-memory only)."""
         key = self._canonical_meta_key(path)
-        if key in self._metadata:
-            return self._metadata[key]
-        # Build minimal metadata - dimensions loaded lazily
-        lookup = (path or "").lstrip("/")
-        w, h = self._dimensions.get(lookup, self._dimensions.get(path, (0, 0)))
-        meta = {
+        meta = self._metadata.get(key)
+        if meta is not None:
+            return meta
+
+        meta = self.get_metadata_readonly(path)
+        self._metadata[key] = meta
+        return meta
+
+    def get_metadata_readonly(self, path: str) -> dict:
+        key = self._canonical_meta_key(path)
+        meta = self._metadata.get(key)
+        if meta is not None:
+            return meta
+
+        lookup = self._normalize_item_path(path)
+        w, h = self._dimensions.get(lookup, (0, 0))
+        return {
             "width": w,
             "height": h,
             "tags": [],
@@ -577,8 +591,6 @@ class MemoryStorage:
             "updated_at": "",
             "updated_by": "server",
         }
-        self._metadata[key] = meta
-        return meta
 
     def set_metadata(self, path: str, meta: dict) -> None:
         """Update in-memory metadata (session-only, lost on restart)."""

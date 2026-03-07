@@ -11,6 +11,7 @@ from .progress import ProgressBar
 from .table_facade import (
     get_dimensions as storage_get_dimensions,
     get_metadata as storage_get_metadata,
+    get_metadata_readonly as storage_get_metadata_readonly,
     get_presigned_url as storage_get_presigned_url,
     get_s3_client as storage_get_s3_client,
     get_thumbnail as storage_get_thumbnail,
@@ -461,6 +462,9 @@ class TableStorage:
 
     def get_metadata(self, path: str) -> dict:
         return storage_get_metadata(self, path)
+
+    def get_metadata_readonly(self, path: str) -> dict:
+        return storage_get_metadata_readonly(self, path)
 
     def set_metadata(self, path: str, meta: dict) -> None:
         storage_set_metadata(self, path, meta)

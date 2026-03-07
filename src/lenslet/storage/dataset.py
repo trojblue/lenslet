@@ -1,24 +1,60 @@
 """In-memory dataset storage for programmatic API."""
 from __future__ import annotations
+
 import hashlib
 import os
-import struct
+import posixpath
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from io import BytesIO
 from threading import Lock
+from typing import Any
 from urllib.parse import urlparse
-from PIL import Image
+
 from .progress import ProgressBar
-from .search_text import build_search_haystack, normalize_search_path, path_in_scope
-from .s3 import S3_DEPENDENCY_ERROR, create_s3_client
+from .table_facade import (
+    get_dimensions as storage_get_dimensions,
+    get_metadata as storage_get_metadata,
+    get_metadata_readonly as storage_get_metadata_readonly,
+    get_presigned_url as storage_get_presigned_url,
+    get_s3_client as storage_get_s3_client,
+    get_thumbnail as storage_get_thumbnail,
+    guess_mime as storage_guess_mime,
+    make_thumbnail as storage_make_thumbnail,
+    read_bytes as storage_read_bytes,
+    search_items as storage_search_items,
+    set_metadata as storage_set_metadata,
+)
+from .table_index import ScannedRow, assemble_indexes
+from .table_media import (
+    read_dimensions_from_bytes,
+    read_jpeg_dimensions,
+    read_png_dimensions,
+    read_webp_dimensions,
+)
+from .table_paths import (
+    canonical_meta_key,
+    dedupe_path,
+    extract_name,
+    is_http_url,
+    is_s3_uri,
+    is_supported_image,
+    normalize_item_path,
+    normalize_path,
+)
+from .table_probe import (
+    effective_remote_workers,
+    get_remote_header_bytes,
+    get_remote_header_info,
+    parse_content_range,
+    probe_remote_dimensions,
+)
 
 
 @dataclass
 class CachedItem:
     """In-memory cached metadata for an image."""
+
     path: str
     name: str
     mime: str
@@ -26,27 +62,146 @@ class CachedItem:
     height: int
     size: int
     mtime: float
-    url: str | None = None  # For HTTP/HTTPS sources
+    url: str | None = None
 
 
 @dataclass
 class CachedIndex:
     """In-memory cached folder index."""
+
     path: str
     generated_at: str
     items: list[CachedItem] = field(default_factory=list)
     dirs: list[str] = field(default_factory=list)
 
 
+def _common_parts(groups: list[list[str]]) -> list[str]:
+    if not groups:
+        return []
+    common = list(groups[0])
+    for parts in groups[1:]:
+        limit = min(len(common), len(parts))
+        idx = 0
+        while idx < limit and common[idx] == parts[idx]:
+            idx += 1
+        common = common[:idx]
+        if not common:
+            break
+    return common
+
+
+def _compute_dataset_local_prefix(paths: list[str]) -> str | None:
+    local_dirs: list[str] = []
+    for source in paths:
+        if is_s3_uri(source) or is_http_url(source):
+            continue
+        local_dirs.append(os.path.dirname(os.path.abspath(source)))
+    if not local_dirs:
+        return None
+    try:
+        return os.path.commonpath(local_dirs)
+    except ValueError:
+        return None
+
+
+def _compute_dataset_s3_prefixes(paths: list[str]) -> tuple[dict[str, str], bool]:
+    buckets: dict[str, list[list[str]]] = {}
+    for source in paths:
+        if not is_s3_uri(source):
+            continue
+        parsed = urlparse(source)
+        bucket = parsed.netloc
+        key = parsed.path.lstrip("/")
+        if not bucket or not key:
+            continue
+        directory = posixpath.dirname(key)
+        parts = [part for part in directory.split("/") if part and part != "."]
+        buckets.setdefault(bucket, []).append(parts)
+
+    prefixes: dict[str, str] = {}
+    for bucket, groups in buckets.items():
+        prefix_parts = _common_parts(groups)
+        prefix = "/".join(prefix_parts)
+        prefixes[bucket] = f"{prefix}/" if prefix else ""
+    return prefixes, len(prefixes) > 1
+
+
+def _compute_dataset_http_prefixes(paths: list[str]) -> tuple[dict[str, str], bool]:
+    hosts: dict[str, list[list[str]]] = {}
+    for source in paths:
+        if not is_http_url(source):
+            continue
+        parsed = urlparse(source)
+        host = parsed.netloc
+        path = parsed.path.lstrip("/")
+        if not host or not path:
+            continue
+        directory = posixpath.dirname(path)
+        parts = [part for part in directory.split("/") if part and part != "."]
+        hosts.setdefault(host, []).append(parts)
+
+    prefixes: dict[str, str] = {}
+    for host, groups in hosts.items():
+        prefix_parts = _common_parts(groups)
+        prefix = "/".join(prefix_parts)
+        prefixes[host] = f"{prefix}/" if prefix else ""
+    return prefixes, len(prefixes) > 1
+
+
+def _trim_prefix(path: str, prefix: str) -> str:
+    if prefix and path.startswith(prefix):
+        return path[len(prefix):].lstrip("/")
+    return path.lstrip("/")
+
+
+def _dataset_relative_path(
+    source: str,
+    *,
+    local_prefix: str | None,
+    s3_prefixes: dict[str, str],
+    s3_use_bucket: bool,
+    http_prefixes: dict[str, str],
+    http_use_host: bool,
+) -> str:
+    if is_s3_uri(source):
+        parsed = urlparse(source)
+        bucket = parsed.netloc
+        key = parsed.path.lstrip("/")
+        trimmed = _trim_prefix(key, s3_prefixes.get(bucket, ""))
+        if s3_use_bucket and bucket:
+            return f"{bucket}/{trimmed}" if trimmed else bucket
+        return trimmed or extract_name(source)
+
+    if is_http_url(source):
+        parsed = urlparse(source)
+        host = parsed.netloc
+        path = parsed.path.lstrip("/")
+        trimmed = _trim_prefix(path, http_prefixes.get(host, ""))
+        if http_use_host and host:
+            return f"{host}/{trimmed}" if trimmed else host
+        return trimmed or extract_name(source)
+
+    resolved = os.path.abspath(source)
+    if local_prefix:
+        try:
+            relative = os.path.relpath(resolved, local_prefix)
+            if not relative.startswith(".."):
+                return relative
+        except ValueError:
+            pass
+    return os.path.basename(resolved)
+
+
 class DatasetStorage:
     """
     In-memory storage for programmatic datasets.
-    Supports both local file paths and S3 URIs.
+    Supports local file paths, S3 URIs, and HTTP/HTTPS URLs.
     """
 
     IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
     REMOTE_HEADER_BYTES = 65536
     REMOTE_DIM_WORKERS = 16
+    REMOTE_DIM_WORKERS_MAX = 16
 
     def __init__(
         self,
@@ -55,33 +210,26 @@ class DatasetStorage:
         thumb_quality: int = 70,
         include_source_in_search: bool = True,
     ):
-        """
-        Initialize with datasets.
-        
-        Args:
-            datasets: Dict of {dataset_name: [list of paths/URIs]}
-            thumb_size: Thumbnail short edge size
-            thumb_quality: WebP quality for thumbnails
-        """
         self.datasets = datasets
         self.thumb_size = thumb_size
         self.thumb_quality = thumb_quality
         self._include_source_in_search = include_source_in_search
         self._progress_bar = ProgressBar()
-        
-        # Build flat path structure: /dataset_name/image_name
-        self._items: dict[str, CachedItem] = {}  # path -> item
+
         self._indexes: dict[str, CachedIndex] = {}
+        self._items: dict[str, CachedItem] = {}
         self._thumbnails: dict[str, bytes] = {}
         self._metadata: dict[str, dict] = {}
         self._dimensions: dict[str, tuple[int, int]] = {}
         self._source_paths: dict[str, str] = {}
+        self._row_dimensions: list[tuple[int, int] | None] = []
+        self._path_to_row: dict[str, int] = {}
+        self._row_to_path: dict[int, str] = {}
         self._s3_client_lock = Lock()
-        self._s3_session = None
-        self._s3_client = None
+        self._s3_session: Any | None = None
+        self._s3_client: Any | None = None
         self._s3_client_creations = 0
-        
-        # Build initial index
+
         self._build_all_indexes()
         self._browse_signature = self._compute_browse_signature()
 
@@ -94,149 +242,209 @@ class DatasetStorage:
         return digest.hexdigest()
 
     def _is_s3_uri(self, path: str) -> bool:
-        """Check if path is an S3 URI."""
-        return path.startswith("s3://")
+        return is_s3_uri(path)
 
     def _is_http_url(self, path: str) -> bool:
-        """Check if path is an HTTP/HTTPS URL."""
-        return path.startswith("http://") or path.startswith("https://")
+        return is_http_url(path)
+
+    def _is_supported_image(self, name: str) -> bool:
+        return is_supported_image(name, self.IMAGE_EXTS)
+
+    def _extract_name(self, value: str) -> str:
+        return extract_name(value)
+
+    def _normalize_path(self, path: str) -> str:
+        return normalize_path(path)
+
+    def _normalize_item_path(self, path: str) -> str:
+        normalized = normalize_item_path(path)
+        return f"/{normalized}" if normalized else "/"
+
+    def _canonical_meta_key(self, path: str) -> str:
+        return canonical_meta_key(path)
+
+    def _resolve_local_source(self, source: str) -> str:
+        if not source:
+            raise ValueError("empty path")
+        return os.path.abspath(source)
+
+    def _effective_remote_workers(self, total: int) -> int:
+        return effective_remote_workers(
+            total,
+            baseline_workers=self.REMOTE_DIM_WORKERS,
+            max_workers=self.REMOTE_DIM_WORKERS_MAX,
+            cpu_count=os.cpu_count,
+        )
 
     def _get_s3_client(self):
-        with self._s3_client_lock:
-            if self._s3_client is not None:
-                return self._s3_client
-            self._s3_session, self._s3_client = create_s3_client()
-            self._s3_client_creations += 1
-            return self._s3_client
+        return storage_get_s3_client(self)
 
     def s3_client_creations(self) -> int:
         return self._s3_client_creations
 
     def _get_presigned_url(self, s3_uri: str, expires_in: int = 3600) -> str:
-        """Convert S3 URI to a presigned HTTPS URL using boto3."""
-        try:
-            from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-        except ImportError as exc:  # pragma: no cover - optional dependency
-            raise ImportError(S3_DEPENDENCY_ERROR) from exc
-
-        parsed = urlparse(s3_uri)
-        bucket = parsed.netloc
-        key = parsed.path.lstrip("/")
-        if not bucket or not key:
-            raise ValueError(f"Invalid S3 URI: {s3_uri}")
-
-        try:
-            s3_client = self._get_s3_client()
-            return s3_client.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": bucket, "Key": key},
-                ExpiresIn=expires_in,
-            )
-        except (BotoCoreError, ClientError, NoCredentialsError) as e:
-            raise RuntimeError(f"Failed to presign S3 URI: {e}") from e
-
-    def _is_supported_image(self, name: str) -> bool:
-        """Check if file is a supported image."""
-        return name.lower().endswith(self.IMAGE_EXTS)
-
-    def _extract_name(self, path: str) -> str:
-        """Extract filename from local path or S3 URI."""
-        if self._is_s3_uri(path) or self._is_http_url(path):
-            parsed = urlparse(path)
-            return os.path.basename(parsed.path)
-        return os.path.basename(path)
-
-    def _read_dimensions_from_bytes(self, data: bytes, ext: str | None) -> tuple[int, int] | None:
-        """Read image dimensions from in-memory bytes."""
-        if not data:
-            return None
-
-        kind = None
-        if ext in ("jpg", "jpeg"):
-            kind = "jpeg"
-        elif ext == "png":
-            kind = "png"
-        elif ext == "webp":
-            kind = "webp"
-        else:
-            if data.startswith(b"\xff\xd8"):
-                kind = "jpeg"
-            elif data.startswith(b"\x89PNG\r\n\x1a\n"):
-                kind = "png"
-            elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
-                kind = "webp"
-
-        try:
-            buf = BytesIO(data)
-            if kind == "jpeg":
-                return self._jpeg_dimensions(buf)
-            if kind == "png":
-                return self._png_dimensions(buf)
-            if kind == "webp":
-                return self._webp_dimensions(buf)
-        except Exception:
-            return None
-        return None
+        return storage_get_presigned_url(self, s3_uri, expires_in=expires_in)
 
     def _parse_content_range(self, header: str) -> int | None:
-        """Parse Content-Range and return total size if present."""
-        # Expected format: "bytes start-end/total" or "bytes */total"
-        try:
-            if "/" not in header:
-                return None
-            total = header.split("/")[-1].strip()
-            if total == "*":
-                return None
-            return int(total)
-        except Exception:
-            return None
+        return parse_content_range(header)
 
     def _get_remote_header_bytes(
         self,
         url: str,
         max_bytes: int | None = None,
     ) -> tuple[bytes | None, int | None]:
-        """Fetch the first N bytes of a remote image via Range request."""
-        max_bytes = max_bytes or self.REMOTE_HEADER_BYTES
-        try:
-            import urllib.request
-            req = urllib.request.Request(
-                url,
-                headers={"Range": f"bytes=0-{max_bytes - 1}"},
-            )
-            with urllib.request.urlopen(req) as response:
-                data = response.read(max_bytes)
-                total = None
-                content_range = response.headers.get("Content-Range")
-                if content_range:
-                    total = self._parse_content_range(content_range)
-                if total is None:
-                    content_length = response.headers.get("Content-Length")
-                    if content_length:
-                        try:
-                            total = int(content_length)
-                        except Exception:
-                            total = None
-                return data, total
-        except Exception:
-            return None, None
+        return get_remote_header_bytes(
+            url,
+            max_bytes=max_bytes or self.REMOTE_HEADER_BYTES,
+            parse_content_range_fn=self._parse_content_range,
+        )
 
     def _get_remote_header_info(
         self,
         url: str,
         name: str,
     ) -> tuple[tuple[int, int] | None, int | None]:
-        """Try to read dimensions and size from a ranged remote request."""
-        header, total = self._get_remote_header_bytes(url)
-        if not header:
-            return None, total
-        ext = os.path.splitext(name)[1].lower().lstrip(".") or None
-        return self._read_dimensions_from_bytes(header, ext), total
+        return get_remote_header_info(
+            url,
+            name,
+            max_bytes=self.REMOTE_HEADER_BYTES,
+            read_dimensions_from_bytes=self._read_dimensions_from_bytes,
+            get_remote_header_bytes_fn=self._get_remote_header_bytes,
+        )
 
-    def _get_remote_dimensions(self, url: str, name: str) -> tuple[int, int] | None:
-        """Try to read dimensions from a ranged remote request."""
-        dims, _ = self._get_remote_header_info(url, name)
-        return dims
+    def _read_dimensions_from_bytes(self, data: bytes, ext: str | None) -> tuple[int, int] | None:
+        return read_dimensions_from_bytes(data, ext)
+
+    def _probe_remote_dimensions(
+        self,
+        tasks: list[tuple[str, CachedItem, str, str]],
+        label: str | None = None,
+    ) -> None:
+        _ = label
+        probe_remote_dimensions(self, tasks)
+
+    def _build_all_indexes(self) -> None:
+        generated_at = datetime.now(timezone.utc).isoformat()
+        total_sources = sum(len(paths) for paths in self.datasets.values())
+        self._row_dimensions = [None] * total_sources
+
+        rows: list[ScannedRow] = []
+        remote_tasks: list[tuple[str, CachedItem, str, str]] = []
+        row_idx = 0
+
+        for dataset_name, raw_paths in self.datasets.items():
+            sources: list[str] = []
+            for raw in raw_paths:
+                if isinstance(raw, os.PathLike):
+                    raw = os.fspath(raw)
+                if not isinstance(raw, str):
+                    continue
+                source = raw.strip()
+                if source:
+                    sources.append(source)
+
+            local_prefix = _compute_dataset_local_prefix(sources)
+            s3_prefixes, s3_use_bucket = _compute_dataset_s3_prefixes(sources)
+            http_prefixes, http_use_host = _compute_dataset_http_prefixes(sources)
+            seen_paths: set[str] = set()
+
+            for source in sources:
+                name = self._extract_name(source)
+                if not self._is_supported_image(name):
+                    continue
+
+                relative_path = _dataset_relative_path(
+                    source,
+                    local_prefix=local_prefix,
+                    s3_prefixes=s3_prefixes,
+                    s3_use_bucket=s3_use_bucket,
+                    http_prefixes=http_prefixes,
+                    http_use_host=http_use_host,
+                )
+                logical_relative = normalize_item_path(f"{dataset_name}/{relative_path}")
+                if not logical_relative:
+                    continue
+
+                logical_relative = dedupe_path(logical_relative, seen_paths)
+                seen_paths.add(logical_relative)
+                logical_path = self._normalize_item_path(logical_relative)
+
+                is_s3 = self._is_s3_uri(source)
+                is_http = self._is_http_url(source)
+                url = source if is_http else None
+                size = 0
+                mtime = time.time()
+
+                if not is_s3 and not is_http:
+                    resolved = self._resolve_local_source(source)
+                    if not os.path.exists(resolved):
+                        print(f"[lenslet] Warning: File not found: {resolved}")
+                        continue
+                    try:
+                        size = os.path.getsize(resolved)
+                    except Exception:
+                        size = 0
+                    try:
+                        mtime = os.path.getmtime(resolved)
+                    except Exception:
+                        mtime = time.time()
+
+                item = CachedItem(
+                    path=logical_path,
+                    name=name,
+                    mime=self._guess_mime(name),
+                    width=0,
+                    height=0,
+                    size=size,
+                    mtime=mtime,
+                    url=url,
+                )
+                folder_norm = normalize_path(os.path.dirname(logical_path))
+                rows.append(
+                    ScannedRow(
+                        row_idx=row_idx,
+                        logical_path=logical_path,
+                        source=source,
+                        folder_norm=folder_norm,
+                        item=item,
+                        discovered_dims=None,
+                    )
+                )
+                row_idx += 1
+
+                if is_s3 or is_http:
+                    remote_tasks.append((logical_path, item, source, name))
+
+        self._row_dimensions = self._row_dimensions[:row_idx]
+        assemble_indexes(
+            self,
+            rows,
+            generated_at=generated_at,
+            index_factory=CachedIndex,
+        )
+
+        root_index = self._indexes.setdefault(
+            "",
+            CachedIndex(path="/", generated_at=generated_at, items=[], dirs=[]),
+        )
+        root_dirs = set(root_index.dirs)
+        for dataset_name in self.datasets:
+            dataset_norm = normalize_path(dataset_name)
+            self._indexes.setdefault(
+                dataset_norm,
+                CachedIndex(
+                    path=f"/{dataset_norm}" if dataset_norm else "/",
+                    generated_at=generated_at,
+                    items=[],
+                    dirs=[],
+                ),
+            )
+            if dataset_norm:
+                root_dirs.add(dataset_norm)
+        root_index.dirs = sorted(root_dirs)
+
+        if remote_tasks:
+            self._probe_remote_dimensions(remote_tasks, "remote headers")
 
     def _progress(self, done: int, total: int, label: str) -> None:
         self._progress_bar.update(done, total, label)
@@ -250,439 +458,78 @@ class DatasetStorage:
     def browse_cache_signature(self) -> str:
         return self._browse_signature
 
-    def _effective_remote_workers(self, total: int) -> int:
-        if total <= 0:
-            return 0
-        cpu = os.cpu_count() or 1
-        return max(1, min(self.REMOTE_DIM_WORKERS, cpu, total))
-
-    def _probe_remote_dimensions(self, tasks: list[tuple[str, CachedItem, str, str]], label: str) -> None:
-        """Fetch remote dimensions in parallel and update cached items."""
-        total = len(tasks)
-        if total == 0:
-            return
-        workers = self._effective_remote_workers(total)
-        done = 0
-        last_print = 0.0
-        progress_label = label
-
-        def _work(task: tuple[str, CachedItem, str, str]):
-            logical_path, item, source_path, name = task
-            url = None
-            if self._is_s3_uri(source_path):
-                try:
-                    url = self._get_presigned_url(source_path)
-                except Exception:
-                    url = None
-            elif self._is_http_url(source_path):
-                url = source_path
-            if not url:
-                return logical_path, item, None, None
-            dims, total_size = self._get_remote_header_info(url, name)
-            return logical_path, item, dims, total_size
-
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [executor.submit(_work, task) for task in tasks]
-            for future in as_completed(futures):
-                logical_path, item, dims, total_size = future.result()
-                if dims:
-                    self._dimensions[logical_path] = dims
-                    item.width, item.height = dims
-                if total_size:
-                    item.size = total_size
-                done += 1
-                now = time.monotonic()
-                if now - last_print > 0.1 or done == total:
-                    self._progress(done, total, progress_label)
-                    last_print = now
-
-    def _build_all_indexes(self):
-        """Build indexes for all datasets."""
-        # Root index contains dataset folders
-        root_dirs = list(self.datasets.keys())
-        self._indexes["/"] = CachedIndex(
-            path="/",
-            generated_at=datetime.now(timezone.utc).isoformat(),
-            items=[],
-            dirs=root_dirs,
-        )
-        
-        # Build index for each dataset
-        for dataset_name, paths in self.datasets.items():
-            items = []
-            remote_tasks: list[tuple[str, CachedItem, str, str]] = []
-            for source_path in paths:
-                name = self._extract_name(source_path)
-                if not self._is_supported_image(name):
-                    continue
-                
-                # Create logical path: /dataset_name/filename
-                logical_path = f"/{dataset_name}/{name}"
-                
-                # Determine source type
-                is_s3 = self._is_s3_uri(source_path)
-                is_http = self._is_http_url(source_path)
-                url = None
-                size = 0
-
-                if is_s3:
-                    # For S3, presign on-demand only
-                    size = 0
-                elif is_http:
-                    # Plain HTTP/HTTPS URL — use as-is
-                    url = source_path
-                    size = 0
-                else:
-                    # For local, validate and get size
-                    if not os.path.exists(source_path):
-                        print(f"[lenslet] Warning: File not found: {source_path}")
-                        continue
-                    try:
-                        size = os.path.getsize(source_path)
-                    except Exception:
-                        size = 0
-                
-                mime = self._guess_mime(name)
-                mtime = time.time()
-                width, height = 0, 0
-
-                # Create cached item
-                item = CachedItem(
-                    path=logical_path,
-                    name=name,
-                    mime=mime,
-                    width=width,
-                    height=height,
-                    size=size,
-                    mtime=mtime,
-                    url=url,  # For S3 images
-                )
-
-                items.append(item)
-                self._items[logical_path] = item
-                self._source_paths[logical_path] = source_path
-                if url:
-                    remote_tasks.append((logical_path, item, url, name))
-                elif is_s3:
-                    remote_tasks.append((logical_path, item, source_path, name))
-            
-            if remote_tasks:
-                self._probe_remote_dimensions(remote_tasks, f"remote headers: {dataset_name}")
-
-            # Create dataset index
-            dataset_path = f"/{dataset_name}"
-            self._indexes[dataset_path] = CachedIndex(
-                path=dataset_path,
-                generated_at=datetime.now(timezone.utc).isoformat(),
-                items=items,
-                dirs=[],
-            )
-
-    def _normalize_path(self, path: str) -> str:
-        """Normalize path for consistent cache keys."""
-        p = path.strip("/")
-        return "/" + p if p else "/"
-
-    def _canonical_meta_key(self, path: str) -> str:
-        """Canonical key for metadata maps (leading slash, no trailing)."""
-        p = (path or "").replace("\\", "/").strip()
-        if not p:
-            return "/"
-        p = "/" + p.lstrip("/")
-        if p != "/":
-            p = p.rstrip("/")
-        return p
-
     def get_index(self, path: str) -> CachedIndex:
-        """Get cached index for a folder."""
         norm = self._normalize_path(path)
         if norm in self._indexes:
             return self._indexes[norm]
         raise FileNotFoundError(f"Dataset not found: {path}")
 
     def validate_image_path(self, path: str) -> None:
-        """Ensure path is valid and exists in our dataset."""
-        if not path or path not in self._items:
+        norm = self._normalize_item_path(path)
+        if not path or norm not in self._items:
             raise FileNotFoundError(path)
 
     def get_source_path(self, logical_path: str) -> str:
-        """Get original source path/URI for a logical path."""
-        if logical_path not in self._source_paths:
+        norm = self._normalize_item_path(logical_path)
+        if norm not in self._source_paths:
             raise FileNotFoundError(logical_path)
-        return self._source_paths[logical_path]
+        return self._source_paths[norm]
 
     def read_bytes(self, path: str) -> bytes:
-        """Read file contents. For S3, downloads from presigned URL. For local, reads file."""
-        source_path = self.get_source_path(path)
-        item = self._items[path]
-        
-        if self._is_s3_uri(source_path):  # S3 image
-            import urllib.request
-            try:
-                url = self._get_presigned_url(source_path)
-                with urllib.request.urlopen(url) as response:
-                    return response.read()
-            except Exception as e:
-                raise RuntimeError(f"Failed to download from S3: {e}")
-        if item.url:  # HTTP/HTTPS image
-            import urllib.request
-            try:
-                with urllib.request.urlopen(item.url) as response:
-                    return response.read()
-            except Exception as e:
-                raise RuntimeError(f"Failed to download from URL: {e}")
-        else:  # Local file
-            with open(source_path, "rb") as f:
-                return f.read()
+        return storage_read_bytes(self, path)
 
     def exists(self, path: str) -> bool:
-        """Check if path exists in dataset."""
-        return path in self._items
+        norm = self._normalize_item_path(path)
+        return norm in self._items
 
     def size(self, path: str) -> int:
-        """Get file size."""
-        if path in self._items:
-            return self._items[path].size
-        return 0
+        norm = self._normalize_item_path(path)
+        item = self._items.get(norm)
+        return item.size if item else 0
 
     def join(self, *parts: str) -> str:
-        """Join path parts."""
         return "/" + "/".join(p.strip("/") for p in parts if p.strip("/"))
 
     def etag(self, path: str) -> str | None:
-        """Get ETag for caching."""
-        if path in self._items:
-            item = self._items[path]
-            return f"{int(item.mtime)}-{item.size}"
-        return None
+        norm = self._normalize_item_path(path)
+        item = self._items.get(norm)
+        if not item:
+            return None
+        return f"{int(item.mtime)}-{item.size}"
 
     def get_thumbnail(self, path: str) -> bytes | None:
-        """Get thumbnail, generating if needed."""
-        if path in self._thumbnails:
-            return self._thumbnails[path]
-
-        try:
-            raw = self.read_bytes(path)
-            thumb, dims = self._make_thumbnail(raw)
-            self._thumbnails[path] = thumb
-            if dims:
-                self._dimensions[path] = dims
-            return thumb
-        except Exception as e:
-            print(f"[lenslet] Failed to generate thumbnail for {path}: {e}")
-            return None
+        return storage_get_thumbnail(self, path)
 
     def _make_thumbnail(self, img_bytes: bytes) -> tuple[bytes, tuple[int, int] | None]:
-        """Generate a WebP thumbnail. Returns (thumb_bytes, (w, h))."""
-        with Image.open(BytesIO(img_bytes)) as im:
-            w, h = im.size
-            short = min(w, h)
-            if short > self.thumb_size:
-                scale = self.thumb_size / short
-                new_w = max(1, int(w * scale))
-                new_h = max(1, int(h * scale))
-                im = im.convert("RGB").resize((new_w, new_h), Image.LANCZOS)
-            else:
-                im = im.convert("RGB")
-            out = BytesIO()
-            im.save(out, format="WEBP", quality=self.thumb_quality, method=6)
-            return out.getvalue(), (w, h)
+        return storage_make_thumbnail(
+            img_bytes,
+            thumb_size=self.thumb_size,
+            thumb_quality=self.thumb_quality,
+        )
 
     def get_dimensions(self, path: str) -> tuple[int, int]:
-        """Get image dimensions, loading lazily if needed."""
-        if path in self._dimensions:
-            return self._dimensions[path]
-
-        item = self._items.get(path)
-        if item:
-            url = None
-            source_path = self.get_source_path(path)
-            if self._is_s3_uri(source_path):
-                try:
-                    url = self._get_presigned_url(source_path)
-                except Exception:
-                    url = None
-            else:
-                url = item.url
-            if url:
-                dims, total = self._get_remote_header_info(url, item.name)
-                if total:
-                    self._items[path].size = total
-                if dims:
-                    self._dimensions[path] = dims
-                    self._items[path].width = dims[0]
-                    self._items[path].height = dims[1]
-                    return dims
-
-        try:
-            raw = self.read_bytes(path)
-            with Image.open(BytesIO(raw)) as im:
-                w, h = im.size
-                self._dimensions[path] = (w, h)
-                
-                # Update item dimensions
-                if path in self._items:
-                    self._items[path].width = w
-                    self._items[path].height = h
-                
-                return w, h
-        except Exception:
-            return 0, 0
+        return storage_get_dimensions(self, path)
 
     def get_metadata(self, path: str) -> dict:
-        """Get metadata for an image."""
-        key = self._canonical_meta_key(path)
-        if key in self._metadata:
-            return self._metadata[key]
-        
-        # Get dimensions if available
-        w, h = self._dimensions.get(key, (0, 0))
-        if (w == 0 or h == 0) and key in self._items:
-            w = self._items[key].width
-            h = self._items[key].height
-        
-        meta = {
-            "width": w,
-            "height": h,
-            "tags": [],
-            "notes": "",
-            "star": None,
-            "version": 1,
-            "updated_at": "",
-            "updated_by": "server",
-        }
-        self._metadata[key] = meta
-        return meta
+        return storage_get_metadata(self, path)
+
+    def get_metadata_readonly(self, path: str) -> dict:
+        return storage_get_metadata_readonly(self, path)
 
     def set_metadata(self, path: str, meta: dict) -> None:
-        """Update in-memory metadata (session-only)."""
-        key = self._canonical_meta_key(path)
-        self._metadata[key] = meta
+        storage_set_metadata(self, path, meta)
 
     def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[CachedItem]:
-        """Simple in-memory search."""
-        q = (query or "").lower()
-        scope_norm = normalize_search_path(path)
-        
-        results = []
-        for item in self._items.values():
-            if not path_in_scope(logical_path=item.path, scope_norm=scope_norm):
-                continue
-            meta = self.get_metadata(item.path)
-            source = self._source_paths.get(item.path) if self._include_source_in_search else None
-            haystack = build_search_haystack(
-                logical_path=item.path,
-                name=item.name,
-                tags=meta.get("tags", []),
-                notes=meta.get("notes", ""),
-                source=source,
-                url=item.url,
-                include_source_fields=self._include_source_in_search,
-            )
-            
-            if q in haystack:
-                results.append(item)
-                if len(results) >= limit:
-                    break
-        
-        return results
+        return storage_search_items(self, query=query, path=path, limit=limit)
 
-    def _jpeg_dimensions(self, f) -> tuple[int, int] | None:
-        """Read JPEG dimensions from SOF marker."""
-        f.seek(0)
-        if f.read(2) != b"\xff\xd8":
-            return None
-        while True:
-            marker = f.read(2)
-            if len(marker) < 2 or marker[0] != 0xff:
-                return None
-            if marker[1] == 0xd9:  # EOI
-                return None
-            if 0xc0 <= marker[1] <= 0xcf and marker[1] not in (0xc4, 0xc8, 0xcc):
-                length_bytes = f.read(2)
-                if len(length_bytes) < 2:
-                    return None
-                _ = struct.unpack(">H", length_bytes)[0]
-                f.read(1)  # precision
-                size = f.read(4)
-                if len(size) < 4:
-                    return None
-                h, w = struct.unpack(">HH", size)
-                return w, h
-            length_bytes = f.read(2)
-            if len(length_bytes) < 2:
-                return None
-            length = struct.unpack(">H", length_bytes)[0]
-            if length < 2:
-                return None
-            f.seek(length - 2, 1)
+    def _jpeg_dimensions(self, handle) -> tuple[int, int] | None:
+        return read_jpeg_dimensions(handle)
 
-    def _png_dimensions(self, f) -> tuple[int, int] | None:
-        """Read PNG dimensions from IHDR chunk."""
-        f.seek(0)
-        if f.read(8) != b"\x89PNG\r\n\x1a\n":
-            return None
-        if len(f.read(4)) < 4:
-            return None
-        if f.read(4) != b"IHDR":
-            return None
-        data = f.read(8)
-        if len(data) < 8:
-            return None
-        w, h = struct.unpack(">II", data)
-        return w, h
+    def _png_dimensions(self, handle) -> tuple[int, int] | None:
+        return read_png_dimensions(handle)
 
-    def _webp_dimensions(self, f) -> tuple[int, int] | None:
-        """Read WebP dimensions from header."""
-        f.seek(0)
-        if f.read(4) != b"RIFF":
-            return None
-        if len(f.read(4)) < 4:
-            return None
-        if f.read(4) != b"WEBP":
-            return None
-        chunk = f.read(4)
-        if chunk == b"VP8 ":
-            if len(f.read(4)) < 4:
-                return None
-            f.read(3)
-            if f.read(3) != b"\x9d\x01\x2a":
-                return None
-            data = f.read(4)
-            if len(data) < 4:
-                return None
-            w = (data[0] | (data[1] << 8)) & 0x3FFF
-            h = (data[2] | (data[3] << 8)) & 0x3FFF
-            return w, h
-        if chunk == b"VP8L":
-            if len(f.read(4)) < 4:
-                return None
-            if f.read(1) != b"\x2f":
-                return None
-            data = f.read(4)
-            if len(data) < 4:
-                return None
-            val = struct.unpack("<I", data)[0]
-            w = (val & 0x3FFF) + 1
-            h = ((val >> 14) & 0x3FFF) + 1
-            return w, h
-        if chunk == b"VP8X":
-            if len(f.read(4)) < 4:
-                return None
-            f.read(4)
-            data = f.read(6)
-            if len(data) < 6:
-                return None
-            w = (data[0] | (data[1] << 8) | (data[2] << 16)) + 1
-            h = (data[3] | (data[4] << 8) | (data[5] << 16)) + 1
-            return w, h
-        return None
+    def _webp_dimensions(self, handle) -> tuple[int, int] | None:
+        return read_webp_dimensions(handle)
 
     def _guess_mime(self, name: str) -> str:
-        """Guess MIME type from filename."""
-        n = name.lower()
-        if n.endswith(".webp"):
-            return "image/webp"
-        if n.endswith(".png"):
-            return "image/png"
-        return "image/jpeg"
+        return storage_guess_mime(name)

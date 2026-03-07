@@ -202,6 +202,26 @@ def test_dataset_search_source_and_url_fields_respect_toggle(
     assert "gallery/remote.jpg" not in _result_paths(disabled.search(query="cdn.example.com"))
 
 
+@pytest.mark.parametrize(
+    "factory",
+    [
+        pytest.param(_build_memory_storage, id="memory"),
+        pytest.param(_build_table_storage_from_parquet, id="table-parquet"),
+        pytest.param(_build_table_storage, id="table"),
+        pytest.param(_build_dataset_storage, id="dataset"),
+    ],
+)
+def test_search_miss_does_not_grow_metadata(factory: StorageFactory, tmp_path: Path) -> None:
+    storage, _ = factory(tmp_path)
+
+    before_keys = set(storage._metadata.keys())
+    before_count = len(storage._metadata)
+
+    assert storage.search(query="definitely-not-present") == []
+    assert len(storage._metadata) == before_count
+    assert set(storage._metadata.keys()) == before_keys
+
+
 def test_search_text_helpers_cover_scope_and_haystack_contract() -> None:
     assert normalize_search_path("/") == ""
     assert normalize_search_path("\\gallery\\cat.jpg") == "gallery/cat.jpg"

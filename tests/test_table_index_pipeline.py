@@ -140,3 +140,31 @@ def test_skip_local_realpath_validation_still_blocks_lexical_escape(tmp_path: Pa
         skip_local_realpath_validation=True,
     )
     assert "outside.jpg" not in storage._items
+
+
+def test_s3_rows_honor_explicit_path_column(tmp_path: Path) -> None:
+    rows = [
+        {
+            "source": "s3://bucket/raw/first.jpg",
+            "display_path": "logical/alpha.jpg",
+        },
+        {
+            "source": "s3://bucket/raw/nested/second.jpg",
+            "display_path": "logical/nested/beta.jpg",
+        },
+    ]
+
+    storage = TableStorage(
+        rows,
+        root=str(tmp_path),
+        source_column="source",
+        path_column="display_path",
+        skip_indexing=True,
+    )
+
+    assert sorted(storage._items.keys()) == [
+        "logical/alpha.jpg",
+        "logical/nested/beta.jpg",
+    ]
+    assert storage.path_for_row_index(0) == "logical/alpha.jpg"
+    assert storage.path_for_row_index(1) == "logical/nested/beta.jpg"

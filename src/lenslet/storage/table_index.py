@@ -195,7 +195,7 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
                 continue
 
         logical_value = None
-        if has_path_column and not is_s3_uri(source):
+        if has_path_column:
             logical_value = path_values[idx]
         logical_path = str(logical_value).strip() if logical_value else derive_logical_path(source)
         if logical_path and os.path.isabs(logical_path) and local_prefix:

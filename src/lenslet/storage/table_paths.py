@@ -192,9 +192,11 @@ def resolve_local_source(
 ) -> str:
     if not allow_local:
         raise ValueError("local sources are disabled")
-    if os.path.isabs(source) or not root:
+    if not root:
         return source
-    candidate = os.path.abspath(os.path.join(root, source))
+
+    candidate = source if os.path.isabs(source) else os.path.join(root, source)
+    candidate = os.path.abspath(candidate)
     real = os.path.realpath(candidate)
     resolved_root_real = root_real or os.path.realpath(root)
     try:
@@ -219,9 +221,11 @@ def resolve_local_source_lexical(
     """
     if not allow_local:
         raise ValueError("local sources are disabled")
-    if os.path.isabs(source) or not root:
+    if not root:
         return source
-    candidate = os.path.abspath(os.path.join(root, source))
+
+    candidate = source if os.path.isabs(source) else os.path.join(root, source)
+    candidate = os.path.abspath(candidate)
     try:
         common = os.path.commonpath([root, candidate])
     except Exception:

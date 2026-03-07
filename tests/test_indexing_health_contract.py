@@ -140,7 +140,7 @@ def test_memory_health_reports_error_when_warm_index_fails(
 
     assert errored["scope"] == "/"
     assert errored.get("generation")
-    assert "forced warm index failure" in errored.get("error", "")
+    assert errored.get("error") == "failed to build index"
     assert errored.get("started_at")
     assert errored.get("finished_at")
 

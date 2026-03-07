@@ -61,6 +61,7 @@ import {
   clampInstanceIndex,
   computeDurationMs,
   isValidIsoTimestamp,
+  buildInitialSaveSeqByInstance,
   type InstanceSession,
 } from './model/session'
 import type {
@@ -436,6 +437,7 @@ export default function RankingApp() {
 
   const sessionsRef = useRef<Record<string, InstanceSession>>(sessions)
   const saveRequestRef = useRef<Record<string, number>>({})
+  const saveSeqRef = useRef<Record<string, number>>({})
   const cardRefs = useRef<Record<string, HTMLElement | null>>({})
   const workspaceRef = useRef<HTMLDivElement | null>(null)
   const splitResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
@@ -533,6 +535,7 @@ export default function RankingApp() {
         if (!active) return
         setDataset(datasetPayload)
         setSessions(buildInitialSessions(datasetPayload, exportPayload.results))
+        saveSeqRef.current = buildInitialSaveSeqByInstance(exportPayload.results)
         setCurrentIndex(
           clampInstanceIndex(progressPayload.resume_instance_index, datasetPayload.instances.length),
         )
@@ -613,12 +616,15 @@ export default function RankingApp() {
       const startedAt = isValidIsoTimestamp(startedAtInput)
         ? startedAtInput
         : ensureStartedAt(instanceId)
+      const saveSeq = (saveSeqRef.current[instanceId] ?? 0) + 1
+      saveSeqRef.current[instanceId] = saveSeq
       const payload: RankingSaveRequest = {
         instance_id: instanceId,
         final_ranks: finalRanksFromBoard(board),
         started_at: startedAt,
         duration_ms: computeDurationMs(startedAt),
         completed: isBoardComplete(board),
+        save_seq: saveSeq,
       }
 
       const requestId = (saveRequestRef.current[instanceId] ?? 0) + 1

@@ -42,4 +42,4 @@ Validations:
 - `pytest -q tests/test_search_text_contract.py tests/test_table_index_pipeline.py tests/test_dataset_http.py tests/test_hotpath_sprint_s4.py tests/test_search_source_contract.py` — passed
 - `python scripts/lint_repo.py` — passed
 Blockers: none
-Next step: make the Sprint 2 commit, then begin Sprint 3 with S3-T1.
+Next step: Sprint 2 committed as `098c6f7` (`fix: align storage path and metadata contracts`); begin Sprint 3 with S3-T1.

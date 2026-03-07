@@ -134,7 +134,7 @@ def _resolve_local_file_path(storage, path: str) -> tuple[str, os.stat_result] |
         try:
             source = local_resolver(path)
         except Exception:
-            pass
+            return None
 
     return _existing_local_file(source)
 

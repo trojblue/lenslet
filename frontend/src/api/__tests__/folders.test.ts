@@ -1,10 +1,14 @@
-import { describe, expect, it } from 'vitest'
-import { buildFolderQuery } from '../client'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { api, buildFolderQuery } from '../client'
 import {
   folderQueryKey,
   shouldRemoveRecursiveFolderQuery,
   shouldRetainRecursiveFolderQuery,
 } from '../folders'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('folder api query helpers', () => {
   it('builds recursive query params', () => {
@@ -23,6 +27,21 @@ describe('folder api query helpers', () => {
 
     expect(params.get('recursive')).toBe('1')
     expect(params.get('legacy_recursive')).toBeNull()
+  })
+
+  it('fetches folder paths from the dedicated endpoint', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ paths: ['/', '/shots', '/shots/day-1'] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    await expect(api.getFolderPaths()).resolves.toEqual({
+      paths: ['/', '/shots', '/shots/day-1'],
+    })
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/folders/paths')
   })
 
   it('separates recursive cache keys from non-recursive', () => {

@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import type { DragEvent as ReactDragEvent } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { FolderIndex } from '../../../lib/types'
-import { api } from '../../../shared/api/client'
+import { api } from '../../../api/client'
 
 interface FolderTreeDragDropOptions {
   path: string

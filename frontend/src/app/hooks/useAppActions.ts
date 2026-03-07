@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ChangeEvent, Dispatch, RefObject, SetStateAction } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { api } from '../../shared/api/client'
-import type { ContextMenuState, FolderIndex } from '../../lib/types'
+import { api } from '../../api/client'
+import type { ContextMenuState, FolderPathsResponse } from '../../lib/types'
 import { FetchError } from '../../lib/fetcher'
-import { getPathName, joinPath, sanitizePath } from '../routing/hash'
-
-const MOVE_FOLDER_SCAN_LIMIT = 600
+import { getPathName, sanitizePath } from '../routing/hash'
 
 export type MoveDialogState = {
   paths: string[]
@@ -67,36 +65,27 @@ function summarizeFailures(label: string, failures: string[]): string {
   return `${label} failed for ${failures.length} item(s). ${failures[0]}`
 }
 
-async function collectMoveFolders(): Promise<string[]> {
-  const queue: string[] = ['/']
-  const visited = new Set<string>()
-  const found = new Set<string>(['/'])
-
-  while (queue.length > 0 && visited.size < MOVE_FOLDER_SCAN_LIMIT) {
-    const path = queue.shift() ?? '/'
-    const safePath = sanitizePath(path)
-    if (visited.has(safePath)) continue
-    visited.add(safePath)
-    let folder: FolderIndex | null = null
-    try {
-      folder = await api.getFolder(safePath)
-    } catch {
-      folder = null
-    }
-    if (!folder) continue
-    for (const dir of folder.dirs ?? []) {
-      const child = sanitizePath(joinPath(safePath, dir.name))
-      if (found.has(child)) continue
-      found.add(child)
-      queue.push(child)
-    }
-  }
-
-  return Array.from(found).sort((a, b) => {
+function sortMoveFolders(paths: Iterable<string>): string[] {
+  return Array.from(paths).sort((a, b) => {
     if (a === '/') return -1
     if (b === '/') return 1
     return a.localeCompare(b)
   })
+}
+
+function normalizeMoveDestinationPaths(paths: readonly string[]): string[] {
+  const normalized = new Set<string>(['/'])
+  for (const path of paths) {
+    normalized.add(sanitizePath(path))
+  }
+  return sortMoveFolders(normalized)
+}
+
+export async function loadMoveDestinationPaths(
+  getFolderPaths: () => Promise<FolderPathsResponse> = () => api.getFolderPaths(),
+): Promise<string[]> {
+  const response = await getFolderPaths()
+  return normalizeMoveDestinationPaths(response.paths ?? [])
 }
 
 export function useAppActions({
@@ -143,7 +132,7 @@ export function useAppActions({
     if (!moveDialog) return
     let cancelled = false
     setMoveFoldersLoading(true)
-    void collectMoveFolders()
+    void loadMoveDestinationPaths()
       .then((paths) => {
         if (!cancelled) setMoveFolders(paths)
       })

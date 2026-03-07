@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
-import { api } from '../../../shared/api/client'
+import { api } from '../../../api/client'
 import {
   resolveCompareMetadataTargets,
   shouldApplyMetadataResponse,

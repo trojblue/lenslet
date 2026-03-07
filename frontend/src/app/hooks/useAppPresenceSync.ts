@@ -9,9 +9,9 @@ import {
   getClientId,
   subscribeEvents,
   subscribeEventStatus,
-} from '../../shared/api/client'
-import type { ConnectionStatus, SyncEvent } from '../../shared/api/client'
-import { sidecarQueryKey, updateConflictFromServer } from '../../shared/api/items'
+} from '../../api/client'
+import type { ConnectionStatus, SyncEvent } from '../../api/client'
+import { sidecarQueryKey, updateConflictFromServer } from '../../api/items'
 import type { HealthMode, HealthResponse, Item, PresenceEvent, Sidecar, StarRating } from '../../lib/types'
 import { FetchError } from '../../lib/fetcher'
 import { formatAbsoluteTime, formatRelativeTime, parseTimestampMs } from '../../lib/util'
@@ -35,13 +35,7 @@ import {
   shouldContinueIndexingPoll,
   type HealthIndexing,
 } from './healthIndexing'
-
-type ItemCacheUpdatePayload = {
-  path: string
-  star?: StarRating | null
-  metrics?: Record<string, number | null> | null
-  comments?: string | null
-}
+import type { ItemCacheUpdatePayload } from '../model/appShellStateSync'
 
 type UseAppPresenceSyncParams = {
   current: string

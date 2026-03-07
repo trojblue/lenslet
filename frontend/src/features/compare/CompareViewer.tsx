@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from '../../shared/api/client'
+import { api } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import { isInputElement } from '../../lib/keyboard'
 import type { Item } from '../../lib/types'

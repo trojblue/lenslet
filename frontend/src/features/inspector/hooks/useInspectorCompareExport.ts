@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { downloadBlob } from '../../../app/utils/appShellHelpers'
 import type { ExportComparisonOutputFormat } from '../../../lib/types'
-import { api } from '../../../shared/api/client'
+import { api } from '../../../api/client'
 import {
   type ExportComparisonPayloadResult,
   DEFAULT_EXPORT_COMPARISON_EMBED_METADATA,

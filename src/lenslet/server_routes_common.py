@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import threading
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -28,6 +29,7 @@ from .server_media import _file_response, _thumb_response_async
 from .server_models import (
     ExportComparisonRequest,
     FolderIndex,
+    FolderPathsResponse,
     ImageMetadataResponse,
     SearchResult,
     Sidecar,
@@ -564,6 +566,35 @@ def register_folder_route(
         )
 
 
+def _folder_index_getter(storage) -> Callable[[str], Any]:
+    getter = getattr(storage, "get_index_for_recursive", None)
+    if callable(getter):
+        return getter
+    return storage.get_index
+
+
+def _collect_folder_paths(storage) -> list[str]:
+    get_index = _folder_index_getter(storage)
+    queue: deque[str] = deque(["/"])
+    seen: set[str] = set()
+
+    while queue:
+        path = _canonical_path(queue.popleft())
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            index = get_index(path)
+        except FileNotFoundError:
+            continue
+        if index is None:
+            continue
+        for child_name in getattr(index, "dirs", []) or []:
+            queue.append(_canonical_path(storage.join(path, child_name)))
+
+    return sorted(seen, key=lambda value: (value != "/", value))
+
+
 def register_common_api_routes(
     app: FastAPI,
     to_item,
@@ -582,6 +613,11 @@ def register_common_api_routes(
         canonical_path = _canonical_path(path)
         _ensure_image(storage, canonical_path)
         return storage, canonical_path
+
+    @app.get("/folders/paths", response_model=FolderPathsResponse)
+    def get_folder_paths(request: Request):
+        storage = _storage_from_request(request)
+        return FolderPathsResponse(paths=_collect_folder_paths(storage))
 
     @app.get("/item")
     def get_item(path: str, request: Request):

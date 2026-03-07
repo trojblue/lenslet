@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../../features/ratings/services/exportRatings'
 import { FIND_SIMILAR_SELECT_SINGLE_REASON } from '../../features/inspector/model/findSimilarAvailability'
-import { api } from '../../shared/api/client'
+import { api } from '../../api/client'
 import type { ContextMenuState, Item } from '../../lib/types'
 import ContextMenu, { type MenuItem } from './ContextMenu'
 import { getPathName, isTrashPath } from '../routing/hash'

@@ -9,6 +9,7 @@ import {
 } from './requestBudget'
 import type {
   FolderIndex,
+  FolderPathsResponse,
   Sidecar,
   SidecarPatch,
   FileOpResponse,
@@ -502,6 +503,10 @@ export const api = {
         `${BASE}/folders?${buildFolderQuery(path, { recursive: true, countOnly: true })}`,
       ),
     ).promise
+  },
+
+  getFolderPaths: (): Promise<FolderPathsResponse> => {
+    return fetchJSON<FolderPathsResponse>(`${BASE}/folders/paths`).promise
   },
 
   /**

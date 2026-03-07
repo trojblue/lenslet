@@ -35,6 +35,10 @@ export type FolderIndex = {
   totalItems?: number
 }
 
+export type FolderPathsResponse = {
+  paths: string[]
+}
+
 export type Sidecar = {
   v: 1
   tags: string[]

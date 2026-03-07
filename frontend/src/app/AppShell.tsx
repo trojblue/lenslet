@@ -6,10 +6,10 @@ import Viewer from '../features/viewer/Viewer'
 import CompareViewer from '../features/compare/CompareViewer'
 import Inspector from '../features/inspector/Inspector'
 import SimilarityModal from '../features/embeddings/SimilarityModal'
-import { api } from '../shared/api/client'
-import type { FullFilePrefetchContext } from '../shared/api/client'
-import { useOldestInflightAgeMs, useSyncStatus } from '../shared/api/items'
-import { usePollingEnabled } from '../shared/api/polling'
+import { api } from '../api/client'
+import type { FullFilePrefetchContext } from '../api/client'
+import { useOldestInflightAgeMs, useSyncStatus } from '../api/items'
+import { usePollingEnabled } from '../api/polling'
 import { readHash, writeHash, sanitizePath, getParentPath, isLikelyImagePath } from './routing/hash'
 import {
   countActiveFilters,
@@ -47,8 +47,6 @@ import type {
   ViewMode,
   ViewsPayload,
   ViewState,
-  FolderIndex,
-  SearchResult,
   EmbeddingSearchRequest,
 } from '../lib/types'
 import { isInputElement } from '../lib/keyboard'
@@ -93,6 +91,14 @@ import {
   deriveIndexingBrowseMode,
   normalizeIndexingGeneration,
 } from './model/indexingBrowseMode'
+import {
+  createDeferredWriteScheduler,
+  ItemQueryPathIndex,
+  patchIndexedItemQueries,
+  syncItemQueryIndexFromEvent,
+  type ItemCacheUpdatePayload,
+  type PersistedAppShellSettings,
+} from './model/appShellStateSync'
 import { applyThemePreset, type ThemePresetId } from '../theme/runtime'
 import { loadWorkspaceThemePreset, writeStoredThemePreset } from '../theme/storage'
 
@@ -123,6 +129,37 @@ const INDEXING_MODE_STORAGE_KEYS = {
   scanGeneration: 'indexingScanGeneration',
   recentGeneration: 'indexingMostRecentGeneration',
 } as const
+
+function writePersistedSettings(settings: PersistedAppShellSettings): void {
+  if (typeof window === 'undefined') return
+  try {
+    const storage = window.localStorage
+    storage.setItem(
+      STORAGE_KEYS.sortKey,
+      settings.sortSpec.kind === 'builtin' ? settings.sortSpec.key : 'added',
+    )
+    storage.setItem(STORAGE_KEYS.sortDir, settings.sortSpec.dir)
+    storage.setItem(STORAGE_KEYS.sortSpec, JSON.stringify(settings.sortSpec))
+    storage.setItem(STORAGE_KEYS.starFilters, JSON.stringify(settings.starFilters))
+    storage.setItem(STORAGE_KEYS.filterAst, JSON.stringify(settings.filterAst))
+    if (settings.selectedMetric) {
+      storage.setItem(STORAGE_KEYS.selectedMetric, settings.selectedMetric)
+    } else {
+      storage.removeItem(STORAGE_KEYS.selectedMetric)
+    }
+    storage.setItem(STORAGE_KEYS.viewMode, settings.viewMode)
+    storage.setItem(STORAGE_KEYS.gridItemSize, String(settings.gridItemSize))
+    storage.setItem(STORAGE_KEYS.leftOpen, settings.leftOpen ? '1' : '0')
+    storage.setItem(STORAGE_KEYS.rightOpen, settings.rightOpen ? '1' : '0')
+    storage.setItem(
+      STORAGE_KEYS.autoloadImageMetadata,
+      settings.autoloadImageMetadata ? '1' : '0',
+    )
+    storage.setItem(STORAGE_KEYS.compareOrderMode, settings.compareOrderMode)
+  } catch {
+    // Ignore localStorage errors.
+  }
+}
 
 type AppShellProps = {
   themeHealthMode: HealthMode | null
@@ -205,6 +242,7 @@ export default function AppShell({
   const [autoloadImageMetadata, setAutoloadImageMetadata] = useState(true)
   const [compareOrderMode, setCompareOrderMode] = useState<CompareOrderMode>('gallery')
   const [scanStableMode, setScanStableMode] = useState(false)
+  const [persistedSettingsReady, setPersistedSettingsReady] = useState(false)
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
@@ -217,6 +255,10 @@ export default function AppShell({
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const similarityPrevSelectionRef = useRef<string[] | null>(null)
   const initialHashSyncRef = useRef(false)
+  const itemQueryIndexRef = useRef(new ItemQueryPathIndex())
+  const persistedSettingsWriterRef = useRef(
+    createDeferredWriteScheduler<PersistedAppShellSettings>(writePersistedSettings),
+  )
 
   const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool)
   const {
@@ -234,6 +276,39 @@ export default function AppShell({
   const pollingEnabled = usePollingEnabled()
   const oldestInflightAgeMs = useOldestInflightAgeMs()
   const [localTypingActive, setLocalTypingActive] = useState(false)
+
+  useEffect(() => {
+    const itemQueryIndex = itemQueryIndexRef.current
+    const queryCache = queryClient.getQueryCache()
+    itemQueryIndex.seed(queryCache.getAll())
+    return queryCache.subscribe((event) => {
+      syncItemQueryIndexFromEvent(
+        itemQueryIndex,
+        event as {
+          type?: string
+          query?: {
+            queryHash?: string
+            queryKey: readonly unknown[]
+            state?: { data?: unknown }
+          }
+        },
+      )
+    })
+  }, [queryClient])
+
+  useEffect(() => {
+    const writer = persistedSettingsWriterRef.current
+    const flush = () => {
+      writer.flush()
+    }
+    window.addEventListener('pagehide', flush)
+    window.addEventListener('beforeunload', flush)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      window.removeEventListener('beforeunload', flush)
+      writer.flush()
+    }
+  }, [])
 
   const {
     data,
@@ -363,45 +438,8 @@ export default function AppShell({
     [embeddingsAvailable, embeddingsLoading, selectedPaths.length],
   )
 
-  const updateItemCaches = useCallback((payload: { path: string; star?: StarRating | null; metrics?: Record<string, number | null> | null; comments?: string | null }) => {
-    const hasStar = Object.prototype.hasOwnProperty.call(payload, 'star')
-    const hasMetrics = payload.metrics !== undefined
-    const hasComments = payload.comments !== undefined
-    if (!hasStar && !hasMetrics && !hasComments) return
-
-    const updateItem = (item: Item): Item => {
-      if (item.path !== payload.path) return item
-      let next = item
-      if (hasStar && item.star !== payload.star) {
-        next = { ...next, star: payload.star ?? null }
-      }
-      if (hasMetrics) {
-        next = { ...next, metrics: payload.metrics ?? undefined }
-      }
-      if (hasComments && item.comments !== payload.comments) {
-        next = { ...next, comments: payload.comments ?? '' }
-      }
-      return next
-    }
-
-    const updateList = <T extends { items: Item[] }>(old: T | undefined): T | undefined => {
-      if (!old) return old
-      let changed = false
-      const items = old.items.map((it) => {
-        const next = updateItem(it)
-        if (next !== it) changed = true
-        return next
-      })
-      return changed ? { ...old, items } : old
-    }
-
-    queryClient.setQueriesData<FolderIndex>({
-      predicate: ({ queryKey }) => Array.isArray(queryKey) && queryKey[0] === 'folder',
-    }, updateList)
-
-    queryClient.setQueriesData<SearchResult>({
-      predicate: ({ queryKey }) => Array.isArray(queryKey) && queryKey[0] === 'search',
-    }, updateList)
+  const updateItemCaches = useCallback((payload: ItemCacheUpdatePayload) => {
+    patchIndexedItemQueries(queryClient, itemQueryIndexRef.current, payload)
   }, [queryClient])
 
   const {
@@ -913,6 +951,7 @@ export default function AppShell({
     } catch {
       // Ignore localStorage errors (private browsing, etc.)
     }
+    setPersistedSettingsReady(true)
   }, [])
 
   // Auto-collapse side panels on narrow screens
@@ -954,30 +993,33 @@ export default function AppShell({
     }
   }, [])
 
-  // Persist settings when they change
+  const persistedSettings = useMemo<PersistedAppShellSettings>(() => ({
+    sortSpec: viewState.sort,
+    starFilters: getStarFilter(viewState.filters),
+    filterAst: viewState.filters,
+    selectedMetric: viewState.selectedMetric,
+    viewMode,
+    gridItemSize,
+    leftOpen,
+    rightOpen,
+    autoloadImageMetadata,
+    compareOrderMode,
+  }), [
+    autoloadImageMetadata,
+    compareOrderMode,
+    gridItemSize,
+    leftOpen,
+    rightOpen,
+    viewMode,
+    viewState.filters,
+    viewState.selectedMetric,
+    viewState.sort,
+  ])
+
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.sortKey, viewState.sort.kind === 'builtin' ? viewState.sort.key : 'added')
-      localStorage.setItem(STORAGE_KEYS.sortDir, viewState.sort.dir)
-      localStorage.setItem(STORAGE_KEYS.sortSpec, JSON.stringify(viewState.sort))
-      const starFilters = getStarFilter(viewState.filters)
-      localStorage.setItem(STORAGE_KEYS.starFilters, JSON.stringify(starFilters))
-      localStorage.setItem(STORAGE_KEYS.filterAst, JSON.stringify(viewState.filters))
-      if (viewState.selectedMetric) {
-        localStorage.setItem(STORAGE_KEYS.selectedMetric, viewState.selectedMetric)
-      } else {
-        localStorage.removeItem(STORAGE_KEYS.selectedMetric)
-      }
-      localStorage.setItem(STORAGE_KEYS.viewMode, viewMode)
-      localStorage.setItem(STORAGE_KEYS.gridItemSize, String(gridItemSize))
-      localStorage.setItem(STORAGE_KEYS.leftOpen, leftOpen ? '1' : '0')
-      localStorage.setItem(STORAGE_KEYS.rightOpen, rightOpen ? '1' : '0')
-      localStorage.setItem(STORAGE_KEYS.autoloadImageMetadata, autoloadImageMetadata ? '1' : '0')
-      localStorage.setItem(STORAGE_KEYS.compareOrderMode, compareOrderMode)
-    } catch {
-      // Ignore localStorage errors
-    }
-  }, [viewState, viewMode, gridItemSize, leftOpen, rightOpen, autoloadImageMetadata, compareOrderMode])
+    if (!persistedSettingsReady) return
+    persistedSettingsWriterRef.current.schedule(persistedSettings)
+  }, [persistedSettings, persistedSettingsReady])
 
   useEffect(() => {
     if (typeof window === 'undefined') return

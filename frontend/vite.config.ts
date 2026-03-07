@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 const BACKEND_URL = 'http://127.0.0.1:7070'
 const PROXY_PATHS = [
   '/folders',
+  '/folders/paths',
   '/item',
   '/thumb',
   '/file',

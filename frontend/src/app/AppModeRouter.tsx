@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import AppShell from './AppShell'
-import RankingApp from '../features/ranking/RankingApp'
 import { requestBootHealth } from './boot/bootHealth'
 import { applyThemeFromBootHealth, commitBootHealth, type AppBootState } from './boot/bootTheme'
+
+const RankingApp = lazy(() => import('../features/ranking/RankingApp'))
 
 export default function AppModeRouter() {
   const [bootState, setBootState] = useState<AppBootState>({
@@ -37,7 +38,11 @@ export default function AppModeRouter() {
   }
 
   if (bootState.mode === 'ranking') {
-    return <RankingApp />
+    return (
+      <Suspense fallback={<div className="boot-loading">Loading Lenslet...</div>}>
+        <RankingApp />
+      </Suspense>
+    )
   }
 
   return (

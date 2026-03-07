@@ -56,3 +56,19 @@ Validations:
 - `python scripts/lint_repo.py` — passed
 Blockers: none
 Next step: commit the validated Sprint 3 slice, then begin Sprint 4 with S4-T1.
+
+## Iteration 4 — 2026-03-07 04:06 UTC
+Completed task IDs: S4-T1, S4-T2, S4-T3
+Files changed: frontend/src/api/__tests__/folders.test.ts, frontend/src/api/client.ts, frontend/src/app/AppModeRouter.tsx, frontend/src/app/AppShell.tsx, frontend/src/app/__tests__/liveUpdateCachePatch.test.ts, frontend/src/app/__tests__/moveTargets.test.ts, frontend/src/app/__tests__/settingsPersistence.test.ts, frontend/src/app/hooks/useAppActions.ts, frontend/src/app/hooks/useAppDataScope.ts, frontend/src/app/hooks/useAppPresenceSync.ts, frontend/src/app/menu/AppContextMenuItems.tsx, frontend/src/app/model/appShellStateSync.ts, frontend/src/features/browse/components/ThumbCard.tsx, frontend/src/features/browse/components/VirtualGrid.tsx, frontend/src/features/browse/components/__tests__/thumbUrlHook.test.ts, frontend/src/features/compare/CompareViewer.tsx, frontend/src/features/folders/FolderTree.tsx, frontend/src/features/folders/hooks/useFolderTreeDragDrop.ts, frontend/src/features/inspector/Inspector.tsx, frontend/src/features/inspector/hooks/useInspectorCompareExport.ts, frontend/src/features/inspector/hooks/useInspectorCompareMetadata.ts, frontend/src/features/inspector/hooks/useInspectorSidecarWorkflow.ts, frontend/src/features/inspector/hooks/useInspectorSingleMetadata.ts, frontend/src/features/viewer/Viewer.tsx, frontend/src/lib/types.ts, frontend/src/shared/hooks/useBlobUrl.ts, frontend/vite.config.ts, src/lenslet/server_models.py, src/lenslet/server_routes_common.py, src/lenslet/frontend/index.html, tests/test_hotpath_sprint_s4.py, docs/20260307_performance_simplification_execution_plan.md, docs/ralph/20260307_performance_simplification_execution/progress.txt
+Validations:
+- `cd frontend && npm run test -- src/app/__tests__/liveUpdateCachePatch.test.ts src/app/__tests__/settingsPersistence.test.ts src/app/__tests__/moveTargets.test.ts src/features/browse/components/__tests__/thumbUrlHook.test.ts src/api/__tests__/folders.test.ts` — passed
+- `cd frontend && npm run test` — passed
+- `cd frontend && npm run build` — passed and emitted async ranking assets (`dist/assets/RankingApp-BAhys0Cx.js`, `dist/assets/RankingApp-enQo52fX.css`)
+- `pytest -q tests/test_hotpath_sprint_s4.py` — passed
+- `python scripts/gui_smoke_acceptance.py` — passed
+- `python scripts/lint_repo.py` — passed
+- `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` — passed
+- `rg -n "shared/api|ranking_old\\.css|collectMoveFolders|BlobUrlCache" frontend/src src tests` — no matches
+- `pytest` — failed in untouched suites: `tests/test_compare_export_endpoint.py` (3 failures) and `tests/test_indexing_health_contract.py` (3 failures)
+Blockers: repo-level `pytest` is not green because of unrelated compare-export and indexing-health failures outside the Sprint 4 files touched in this iteration.
+Next step: commit the validated Sprint 4 slice, then decide whether to treat the remaining `pytest` failures as pre-existing baseline debt or scope a follow-up iteration to clear them before declaring plan completion.

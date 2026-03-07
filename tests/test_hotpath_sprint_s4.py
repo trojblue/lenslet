@@ -95,6 +95,23 @@ def test_recursive_full_response_across_app_modes(tmp_path: Path, build_app: App
 
 
 @pytest.mark.parametrize("build_app", APP_BUILDERS)
+def test_folder_paths_route_returns_canonical_paths_across_app_modes(
+    tmp_path: Path,
+    build_app: AppBuilder,
+) -> None:
+    _seed_gallery(tmp_path)
+    app, folder_path, _ = build_app(tmp_path)
+
+    with TestClient(app) as client:
+        response = client.get("/folders/paths")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "paths": ["/", folder_path, f"{folder_path}/sub"],
+    }
+
+
+@pytest.mark.parametrize("build_app", APP_BUILDERS)
 def test_file_route_streams_local_files_and_tracks_prefetch_counters(
     tmp_path: Path,
     build_app: AppBuilder,

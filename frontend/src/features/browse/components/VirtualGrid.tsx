@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallba
 import { createPortal } from 'react-dom'
 import type { Item, ViewMode } from '../../../lib/types'
 import ThumbCard from './ThumbCard'
-import { api } from '../../../shared/api/client'
+import { api } from '../../../api/client'
 import { getBrowseHotpathSnapshot, markFirstGridItemVisible } from '../../../lib/browseHotpath'
 import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'

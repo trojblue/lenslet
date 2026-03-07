@@ -43,6 +43,10 @@ class FolderIndex(BaseModel):
     totalItems: int | None = None
 
 
+class FolderPathsResponse(BaseModel):
+    paths: list[str] = Field(default_factory=list)
+
+
 class Sidecar(BaseModel):
     v: int = 1
     tags: list[str] = Field(default_factory=list)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
-import { bulkUpdateSidecars, clearConflict, sidecarQueryKey } from '../../../shared/api/items'
-import type { ConflictEntry } from '../../../shared/api/items'
+import { bulkUpdateSidecars, clearConflict, sidecarQueryKey } from '../../../api/items'
+import type { ConflictEntry } from '../../../api/items'
 import type { Sidecar, StarRating } from '../../../lib/types'
 import {
   buildSidecarDraft,

@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback } from 'react'
-import { api } from '../../shared/api/client'
+import { api } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import { useZoomPan } from './hooks/useZoomPan'
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-type PendingRevoke = {
+export type PendingRevoke = {
   url: string
   cancel: () => void
 }
@@ -13,7 +13,7 @@ function revokeObjectUrl(url: string): void {
   }
 }
 
-function scheduleObjectUrlRevoke(url: string, onFinalize: () => void): PendingRevoke {
+export function scheduleObjectUrlRevoke(url: string, onFinalize: () => void): PendingRevoke {
   let finalized = false
   const finalize = () => {
     if (finalized) return

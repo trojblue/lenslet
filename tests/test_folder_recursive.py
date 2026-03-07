@@ -114,7 +114,7 @@ def test_recursive_first_request_uses_lightweight_recursive_getter(
     }
 
 
-def test_recursive_count_only_seeds_snapshot_cache_for_payload(tmp_path: Path) -> None:
+def test_recursive_count_only_avoids_snapshot_cache_work(tmp_path: Path) -> None:
     root = tmp_path
     for idx in range(8):
         branch = "alpha" if idx % 2 == 0 else "beta"
@@ -138,9 +138,8 @@ def test_recursive_count_only_seeds_snapshot_cache_for_payload(tmp_path: Path) -
         counters_after_payload = client.get("/health").json()["hotpath"]["counters"]
 
     assert len(payload_response["items"]) == 8
-    assert counters_after_count["folders_recursive_cache_miss_total"] >= 1
+    assert counters_after_count.get("folders_recursive_cache_miss_total", 0) == 0
     assert (
-        counters_after_payload["folders_recursive_cache_miss_total"]
-        == counters_after_count["folders_recursive_cache_miss_total"]
+        counters_after_payload.get("folders_recursive_cache_miss_total", 0)
+        > counters_after_count.get("folders_recursive_cache_miss_total", 0)
     )
-    assert counters_after_payload["folders_recursive_cache_hit_total"] >= 1

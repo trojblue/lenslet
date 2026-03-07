@@ -97,6 +97,7 @@ def _child_folder_path(parent: str, child: str) -> str:
 
 RECURSIVE_SORT_MODE_SCAN = "scan"
 RECURSIVE_CACHE_BUILD_MAX_RETRIES = 2
+RECURSIVE_ITEMS_HARD_LIMIT = 10_000
 
 
 class HotpathTelemetry:
@@ -169,6 +170,13 @@ def _storage_s3_client_creations(storage) -> int | None:
     return None
 
 
+def _raise_recursive_items_limit() -> None:
+    raise HTTPException(
+        413,
+        "recursive folder listing exceeds server safety limit; refine the path or use count_only",
+    )
+
+
 
 
 def _collect_recursive_cached_items(
@@ -176,6 +184,7 @@ def _collect_recursive_cached_items(
     root_path: str,
     root_index: Any,
     *,
+    max_items: int | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> tuple[list[Any], int]:
     queue: deque[tuple[str, Any]] = deque([(_canonical_path(root_path), root_index)])
@@ -200,6 +209,8 @@ def _collect_recursive_cached_items(
             if item_path in seen_items:
                 continue
             seen_items.add(item_path)
+            if max_items is not None and total_items >= max_items:
+                _raise_recursive_items_limit()
             total_items += 1
             items.append((item_path, cached))
 
@@ -242,17 +253,21 @@ def _build_recursive_snapshots(
     canonical_path: str,
     root_index: Any,
     *,
+    max_items: int | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
     scope_items = getattr(storage, "items_in_scope", None)
     if callable(scope_items):
         snapshots = _snapshots_from_cached_items(scope_items(canonical_path))
+        if max_items is not None and len(snapshots) > max_items:
+            _raise_recursive_items_limit()
         return snapshots, len(snapshots)
 
     cached_items, total_items = _collect_recursive_cached_items(
         storage,
         canonical_path,
         root_index,
+        max_items=max_items,
         cancelled=cancelled,
     )
     return _snapshots_from_cached_items(cached_items), total_items
@@ -335,6 +350,7 @@ def _load_or_build_recursive_snapshots(
             storage,
             canonical_path,
             root_index,
+            max_items=RECURSIVE_ITEMS_HARD_LIMIT,
         )
 
         latest_generation = _recursive_cache_generation_token(storage)
@@ -365,6 +381,7 @@ def _load_or_build_recursive_snapshots(
         storage,
         canonical_path,
         root_index,
+        max_items=RECURSIVE_ITEMS_HARD_LIMIT,
     )
 
 
@@ -446,6 +463,7 @@ def _build_folder_index(
                     storage,
                     canonical_path,
                     index,
+                    max_items=RECURSIVE_ITEMS_HARD_LIMIT,
                 )
             items = [to_item(storage, snapshot) for snapshot in snapshots]
         if hotpath_metrics is not None:

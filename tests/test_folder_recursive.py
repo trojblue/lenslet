@@ -143,3 +143,29 @@ def test_recursive_count_only_avoids_snapshot_cache_work(tmp_path: Path) -> None
         counters_after_payload.get("folders_recursive_cache_miss_total", 0)
         > counters_after_count.get("folders_recursive_cache_miss_total", 0)
     )
+
+
+def test_recursive_rejects_unbounded_large_listing(tmp_path: Path) -> None:
+    root = tmp_path
+    for idx in range(10_001):
+        _make_image(root / f"huge/img_{idx:05d}.jpg")
+
+    client = TestClient(create_app(str(root)))
+    resp = _folders_request(client, "/huge", recursive="1")
+
+    assert resp.status_code == 413
+    assert "safety limit" in resp.json()["detail"]
+
+
+def test_recursive_count_only_still_handles_large_listing(tmp_path: Path) -> None:
+    root = tmp_path
+    for idx in range(10_001):
+        _make_image(root / f"huge_count/img_{idx:05d}.jpg")
+
+    client = TestClient(create_app(str(root)))
+    resp = _folders_request(client, "/huge_count", recursive="1", count_only="1")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["items"] == []
+    assert payload["totalItems"] == 10_001

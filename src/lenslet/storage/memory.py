@@ -338,31 +338,6 @@ class MemoryStorage:
             self._leaf_batch.update(norm)
         return index
 
-    def hydrate_recursive_items(self, items: list[CachedItem]) -> list[CachedItem]:
-        """Hydrate lightweight recursive items with file stat fields for response payloads."""
-        hydrated: list[CachedItem] = []
-        for item in items:
-            if item.size > 0 and item.mtime > 0:
-                hydrated.append(item)
-                continue
-            try:
-                stat = os.stat(self._abs_path(item.path))
-            except Exception:
-                hydrated.append(item)
-                continue
-            hydrated.append(
-                CachedItem(
-                    path=item.path,
-                    name=item.name,
-                    mime=item.mime,
-                    width=item.width,
-                    height=item.height,
-                    size=stat.st_size,
-                    mtime=stat.st_mtime,
-                )
-            )
-        return hydrated
-
     def get_dimensions(self, path: str) -> tuple[int, int]:
         """Get image dimensions, loading lazily if needed."""
         if path in self._dimensions:

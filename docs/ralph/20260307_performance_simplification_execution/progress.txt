@@ -43,3 +43,16 @@ Validations:
 - `python scripts/lint_repo.py` — passed
 Blockers: none
 Next step: Sprint 2 committed as `098c6f7` (`fix: align storage path and metadata contracts`); begin Sprint 3 with S3-T1.
+
+## Iteration 3 — 2026-03-07 03:54 UTC
+Completed task IDs: S3-T1, S3-T2, S3-T3
+Files changed: src/lenslet/browse_cache.py, src/lenslet/server_browse.py, src/lenslet/storage/memory.py, tests/test_browse_cache.py, tests/test_folder_recursive.py, tests/test_memory_index_performance.py, docs/20260307_performance_simplification_execution_plan.md, docs/ralph/20260307_performance_simplification_execution/progress.txt
+Validations:
+- `pytest -q tests/test_memory_index_performance.py tests/test_folder_recursive.py tests/test_browse_cache.py tests/test_hotpath_sprint_s3.py` — passed
+- `python -m ruff check src/lenslet/server_browse.py src/lenslet/browse_cache.py src/lenslet/storage/memory.py tests/test_memory_index_performance.py tests/test_folder_recursive.py tests/test_browse_cache.py` — passed
+- `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` — passed
+- `rg -n "storage.get_index\\(child_path\\)|storage.get_index\\(canonical_path\\)" src/lenslet/server_browse.py` — no matches
+- `rg -n "hydrate_recursive_items" src tests` — no matches
+- `python scripts/lint_repo.py` — passed
+Blockers: none
+Next step: commit the validated Sprint 3 slice, then begin Sprint 4 with S4-T1.

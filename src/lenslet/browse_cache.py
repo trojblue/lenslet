@@ -169,7 +169,7 @@ class RecursiveBrowseCache:
             thread_name_prefix="lenslet-recursive-cache-warm",
         )
         self._warm_jobs: dict[tuple[str, str, str], threading.Event] = {}
-        self._persist_jobs: set[tuple[str, str, str]] = set()
+        self._persist_jobs: dict[tuple[str, str, str], threading.Event] = {}
         if self._persistence_enabled:
             self._evict_disk_to_cap()
 
@@ -244,6 +244,7 @@ class RecursiveBrowseCache:
         if path is None:
             with self._lock:
                 self._cancel_pending_warms_locked(None)
+                self._cancel_pending_persists_locked(None)
                 self._memory.clear()
                 self._memory_access.clear()
             self._clear_disk()
@@ -257,10 +258,8 @@ class RecursiveBrowseCache:
                     self._memory.pop(key, None)
                     self._memory_access.pop(key, None)
             self._cancel_pending_warms_locked(canonical)
-
-        # Path-scoped disk invalidation would require parsing full entry payloads.
-        # For now we clear persisted entries to avoid stale ancestor/descendant reuse.
-        self._clear_disk()
+            self._cancel_pending_persists_locked(canonical)
+        self._clear_disk_path(canonical)
 
     def clear(self) -> None:
         self.invalidate_path(None)
@@ -347,6 +346,17 @@ class RecursiveBrowseCache:
             if event is not None:
                 event.set()
 
+    def _cancel_pending_persists_locked(self, path: str | None) -> None:
+        if path is None:
+            keys = list(self._persist_jobs.keys())
+        else:
+            canonical = _canonical_scope(path)
+            keys = [key for key in self._persist_jobs.keys() if _scopes_overlap(key[0], canonical)]
+        for key in keys:
+            event = self._persist_jobs.pop(key, None)
+            if event is not None:
+                event.set()
+
     def _schedule_persist_write(
         self,
         key: tuple[str, str, str],
@@ -355,21 +365,26 @@ class RecursiveBrowseCache:
         with self._lock:
             if key in self._persist_jobs:
                 return False
-            self._persist_jobs.add(key)
+            cancel_event = threading.Event()
+            self._persist_jobs[key] = cancel_event
 
         def _run() -> None:
             try:
-                self._save_disk_window(window)
+                self._save_disk_window(window, cancel_event=cancel_event)
             finally:
                 with self._lock:
-                    self._persist_jobs.discard(key)
+                    current = self._persist_jobs.get(key)
+                    if current is cancel_event:
+                        self._persist_jobs.pop(key, None)
 
         try:
             self._warm_executor.submit(_run)
             return False
         except Exception:
             with self._lock:
-                self._persist_jobs.discard(key)
+                current = self._persist_jobs.get(key)
+                if current is cancel_event:
+                    self._persist_jobs.pop(key, None)
             return False
 
     def _enable_persistence(self) -> bool:
@@ -458,11 +473,18 @@ class RecursiveBrowseCache:
             items=tuple(snapshots),
         )
 
-    def _save_disk_window(self, window: RecursiveSnapshotWindow) -> bool:
+    def _save_disk_window(
+        self,
+        window: RecursiveSnapshotWindow,
+        *,
+        cancel_event: threading.Event | None = None,
+    ) -> bool:
         if not self._persistence_enabled:
             return False
         tmp: Path | None = None
         try:
+            if cancel_event is not None and cancel_event.is_set():
+                return False
             path = self._disk_path_for(window.scope_path, window.sort_mode, window.generation)
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
@@ -475,7 +497,13 @@ class RecursiveBrowseCache:
             }
             with gzip.open(tmp, "wt", encoding="utf-8") as handle:
                 json.dump(payload, handle, separators=(",", ":"), sort_keys=True)
+            if cancel_event is not None and cancel_event.is_set():
+                self._safe_unlink(tmp)
+                return False
             tmp.replace(path)
+            if cancel_event is not None and cancel_event.is_set():
+                self._safe_unlink(path)
+                return False
             self._evict_disk_to_cap()
             return path.exists()
         except Exception:
@@ -522,6 +550,37 @@ class RecursiveBrowseCache:
         for path in self._iter_cache_files():
             self._safe_unlink(path)
         self._cleanup_empty_dirs()
+
+    def _clear_disk_path(self, scope_path: str) -> None:
+        if not self._persistence_enabled:
+            return
+        canonical = _canonical_scope(scope_path)
+        for path in self._iter_cache_files():
+            disk_scope = self._read_disk_scope(path)
+            if disk_scope is None:
+                continue
+            if _scopes_overlap(disk_scope, canonical):
+                self._safe_unlink(path)
+        self._cleanup_empty_dirs()
+
+    def _read_disk_scope(self, path: Path) -> str | None:
+        try:
+            with gzip.open(path, "rt", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except Exception:
+            self._safe_unlink(path)
+            return None
+        if not isinstance(payload, dict):
+            self._safe_unlink(path)
+            return None
+        if payload.get("schema_version") != CACHE_SCHEMA_VERSION:
+            self._safe_unlink(path)
+            return None
+        raw_scope = payload.get("scope_path")
+        if not isinstance(raw_scope, str):
+            self._safe_unlink(path)
+            return None
+        return _canonical_scope(raw_scope)
 
     def _safe_unlink(self, path: Path) -> None:
         try:

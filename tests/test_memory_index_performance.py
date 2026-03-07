@@ -2,6 +2,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from lenslet.browse_cache import RecursiveBrowseCache
+from lenslet.server_browse import warm_recursive_cache
 from lenslet.storage.memory import MemoryStorage
 
 
@@ -74,3 +76,21 @@ def test_full_index_rebuilds_after_recursive_lightweight_cache(tmp_path: Path):
     assert full is not None
     assert all(item.width > 0 for item in full.items)
     assert all(item.height > 0 for item in full.items)
+
+
+def test_warm_recursive_cache_uses_lightweight_indexes(tmp_path: Path, monkeypatch):
+    _make_image(tmp_path / "task_a" / "one.jpg")
+    _make_image(tmp_path / "task_a" / "two.jpg")
+    storage = MemoryStorage(str(tmp_path))
+    cache = RecursiveBrowseCache(max_memory_entries=2)
+
+    original_recursive = storage.get_index_for_recursive
+
+    def _unexpected_get_index(_path: str):
+        raise AssertionError("warm recursive cache should use lightweight recursive indexes")
+
+    monkeypatch.setattr(storage, "get_index", _unexpected_get_index)
+    monkeypatch.setattr(storage, "get_index_for_recursive", original_recursive)
+
+    warmed = warm_recursive_cache(storage, "/task_a", cache)
+    assert warmed == 2

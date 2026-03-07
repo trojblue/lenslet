@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildBoardState, moveImageToRank } from '../board'
 import {
+  buildInitialSaveSeqByInstance,
   buildInitialSessions,
   canNavigateNext,
   canNavigatePrev,
@@ -53,6 +54,23 @@ describe('ranking session model contracts', () => {
     expect(sessions.one.board.unranked).toEqual([])
     expect(sessions.one.startedAt).toBe('2026-02-28T05:10:00.000Z')
     expect(sessions.two.board.unranked).toEqual(['0', '1'])
+  })
+
+
+  it('hydrates latest non-negative save sequence per instance', () => {
+    const exported: RankingExportEntry[] = [
+      { instance_id: 'one', save_seq: 2 },
+      { instance_id: 'one', save_seq: 1 },
+      { instance_id: 'two', save_seq: 4 },
+      { instance_id: 'two', save_seq: -1 },
+      { instance_id: 'two' },
+      { instance_id: 'one', save_seq: 7 },
+    ]
+
+    expect(buildInitialSaveSeqByInstance(exported)).toEqual({
+      one: 7,
+      two: 4,
+    })
   })
 
   it('sanitizes malformed export fields during hydration', () => {

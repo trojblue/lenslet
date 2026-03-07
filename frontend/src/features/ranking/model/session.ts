@@ -84,6 +84,20 @@ export function buildInitialSessions(
   return sessions
 }
 
+export function buildInitialSaveSeqByInstance(
+  exported: RankingExportEntry[],
+): Record<string, number> {
+  const saveSeqByInstance: Record<string, number> = {}
+  for (const entry of exported) {
+    if (!entry || typeof entry.instance_id !== 'string') continue
+    if (!Number.isInteger(entry.save_seq) || (entry.save_seq ?? -1) < 0) continue
+    const current = saveSeqByInstance[entry.instance_id]
+    const next = entry.save_seq as number
+    saveSeqByInstance[entry.instance_id] = typeof current === 'number' ? Math.max(current, next) : next
+  }
+  return saveSeqByInstance
+}
+
 export function computeDurationMs(startedAt: string, nowMs: number = Date.now()): number {
   const startMs = Date.parse(startedAt)
   if (!Number.isFinite(startMs)) return 0

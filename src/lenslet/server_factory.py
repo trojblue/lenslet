@@ -51,6 +51,7 @@ from .server_models import (
     MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
 )
 from .storage.dataset import DatasetStorage
+from .storage.table_facade import table_to_columns
 from .storage.memory import MemoryStorage
 from .storage.table import TableStorage, load_parquet_schema, load_parquet_table
 from .thumb_cache import ThumbCache
@@ -451,6 +452,10 @@ def _load_preindex_storage(
         print(f"[lenslet] Warning: failed to load preindex data: {exc}")
         return None
 
+    if not _preindex_table_sources_within_root(table, root_path):
+        print("[lenslet] Warning: preindex contains unsafe sources; rebuilding.")
+        return None
+
     try:
         return TableStorage(
             table=table,
@@ -465,6 +470,41 @@ def _load_preindex_storage(
     except Exception as exc:
         print(f"[lenslet] Warning: failed to initialize preindex storage: {exc}")
         return None
+
+
+def _preindex_table_sources_within_root(table: object, root_path: str) -> bool:
+    try:
+        _columns, data, row_count = table_to_columns(table)
+    except Exception:
+        return False
+    if row_count <= 0:
+        return False
+
+    allowed_sources: set[str] = set()
+    try:
+        entries = scan_local_images(Path(root_path))
+    except Exception:
+        return False
+    for entry in entries:
+        normalized = entry.rel_path.replace("\\", "/").lstrip("/")
+        if normalized:
+            allowed_sources.add(normalized)
+
+    sources = data.get(PREINDEX_SOURCE_COLUMN)
+    if not isinstance(sources, list) or len(sources) != row_count:
+        return False
+
+    for raw_source in sources:
+        source = str(raw_source or "").strip().replace("\\", "/").lstrip("/")
+        if not source:
+            return False
+        if source.startswith(("http://", "https://", "s3://")):
+            return False
+        if "://" in source or os.path.isabs(str(raw_source or "")):
+            return False
+        if source not in allowed_sources:
+            return False
+    return True
 
 
 def _ensure_preindex_storage(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pyarrow as pa
@@ -88,3 +89,34 @@ def test_preindex_reports_scan_phase(
     assert result is not None
     captured = capsys.readouterr()
     assert "[lenslet] Scanning files..." in captured.out
+
+
+def test_preindex_storage_rejects_unsafe_sources(tmp_path: Path) -> None:
+    root = tmp_path / "gallery"
+    _make_image(root / "a.jpg")
+
+    workspace = Workspace.for_dataset(str(root), can_write=True)
+    preindex = ensure_local_preindex(root, workspace)
+    assert preindex is not None
+
+    paths = preindex.workspace.preindex_dir()
+    assert paths is not None
+    meta_path = paths / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["format"] = "json"
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    (paths / "items.json").write_text(
+        '[{"path": "a.jpg", "source": "/etc/hostname"}]',
+        encoding="utf-8",
+    )
+
+    storage = server_factory._load_preindex_storage(
+        str(root),
+        preindex.workspace,
+        thumb_size=256,
+        thumb_quality=70,
+        skip_indexing=False,
+        preindex_signature=preindex.signature,
+    )
+
+    assert storage is None

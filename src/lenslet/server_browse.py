@@ -258,6 +258,27 @@ def _build_recursive_snapshots(
     return _snapshots_from_cached_items(cached_items), total_items
 
 
+def _count_recursive_items(
+    storage,
+    canonical_path: str,
+    root_index: Any,
+) -> int:
+    count_in_scope = getattr(storage, "count_in_scope", None)
+    if callable(count_in_scope):
+        return int(count_in_scope(canonical_path))
+
+    scope_items = getattr(storage, "items_in_scope", None)
+    if callable(scope_items):
+        return sum(1 for _ in scope_items(canonical_path))
+
+    _cached_items, total_items = _collect_recursive_cached_items(
+        storage,
+        canonical_path,
+        root_index,
+    )
+    return total_items
+
+
 def _recursive_cache_generation_token(storage) -> str:
     parts: list[str] = []
     signature_fn = getattr(storage, "browse_cache_signature", None)
@@ -406,23 +427,27 @@ def _build_folder_index(
             hotpath_metrics.increment("folders_recursive_requests_total")
         traversal_started = time.perf_counter()
         canonical_path = _canonical_path(path)
-        if browse_cache is not None:
-            snapshots, total_items = _load_or_build_recursive_snapshots(
-                storage,
-                canonical_path,
-                index,
-                sort_mode=RECURSIVE_SORT_MODE_SCAN,
-                browse_cache=browse_cache,
-                defer_persist=True,
-                hotpath_metrics=hotpath_metrics,
-            )
+        if count_only:
+            total_items = _count_recursive_items(storage, canonical_path, index)
+            items = []
         else:
-            snapshots, total_items = _build_recursive_snapshots(
-                storage,
-                canonical_path,
-                index,
-            )
-        items = [] if count_only else [to_item(storage, snapshot) for snapshot in snapshots]
+            if browse_cache is not None:
+                snapshots, total_items = _load_or_build_recursive_snapshots(
+                    storage,
+                    canonical_path,
+                    index,
+                    sort_mode=RECURSIVE_SORT_MODE_SCAN,
+                    browse_cache=browse_cache,
+                    defer_persist=True,
+                    hotpath_metrics=hotpath_metrics,
+                )
+            else:
+                snapshots, total_items = _build_recursive_snapshots(
+                    storage,
+                    canonical_path,
+                    index,
+                )
+            items = [to_item(storage, snapshot) for snapshot in snapshots]
         if hotpath_metrics is not None:
             hotpath_metrics.observe_ms(
                 "folders_recursive_traversal_ms",

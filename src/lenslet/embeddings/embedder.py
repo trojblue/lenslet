@@ -25,6 +25,7 @@ class EmbedConfig:
     error_policy: str = "zero"
     num_workers: int = 8
     show_progress: bool = True
+    allow_remote_uris: bool = False
 
 
 def embed_parquet(
@@ -73,6 +74,7 @@ def embed_parquet(
             error_policy=cfg.error_policy,
             normalize=cfg.normalize,
             num_workers=cfg.num_workers,
+            allow_remote_uris=cfg.allow_remote_uris,
         )
 
         embed_array = pa.array(embeddings.tolist(), type=embed_type)
@@ -157,8 +159,10 @@ def _resolve_path(raw: str, base_dir: str | None) -> str:
     return text
 
 
-def _read_bytes(uri: str) -> bytes:
+def _read_bytes(uri: str, *, allow_remote_uris: bool) -> bytes:
     if uri.startswith("s3://"):
+        if not allow_remote_uris:
+            raise ValueError("Remote URIs are disabled. Use local file paths for embedding.")
         boto3 = _lazy_import_boto3()
         parsed = urlparse(uri)
         bucket = parsed.netloc
@@ -169,6 +173,8 @@ def _read_bytes(uri: str) -> bytes:
         obj = s3.get_object(Bucket=bucket, Key=key)
         return obj["Body"].read()
     if uri.startswith("http://") or uri.startswith("https://"):
+        if not allow_remote_uris:
+            raise ValueError("Remote URIs are disabled. Use local file paths for embedding.")
         req = Request(uri, headers={"User-Agent": "lenslet-embedder/1.0"})
         with urlopen(req, timeout=30) as resp:
             return resp.read()
@@ -176,9 +182,9 @@ def _read_bytes(uri: str) -> bytes:
         return handle.read()
 
 
-def _load_image(uri: str):
+def _load_image(uri: str, *, allow_remote_uris: bool):
     Image = _lazy_import_pil()
-    raw = _read_bytes(uri)
+    raw = _read_bytes(uri, allow_remote_uris=allow_remote_uris)
     image = Image.open(io.BytesIO(raw))
     return image.convert("RGB")
 
@@ -234,6 +240,7 @@ def _encode_batch(
     error_policy: str,
     normalize: bool,
     num_workers: int,
+    allow_remote_uris: bool,
 ):
     lib = _lazy_import_torch()
     torch = lib["torch"]
@@ -245,7 +252,7 @@ def _encode_batch(
 
     def load_one(uri: str):
         try:
-            img = _load_image(uri)
+            img = _load_image(uri, allow_remote_uris=allow_remote_uris)
             return preprocess(img), None
         except Exception as exc:
             return None, exc

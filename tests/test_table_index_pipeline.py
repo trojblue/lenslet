@@ -168,3 +168,56 @@ def test_s3_rows_honor_explicit_path_column(tmp_path: Path) -> None:
     ]
     assert storage.path_for_row_index(0) == "logical/alpha.jpg"
     assert storage.path_for_row_index(1) == "logical/nested/beta.jpg"
+
+
+def test_absolute_local_source_outside_root_is_blocked(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "outside.jpg"
+    _make_image(outside)
+
+    rows = [
+        {
+            "source": str(outside),
+            "path": "outside.jpg",
+            "size": int(outside.stat().st_size),
+            "mtime": float(outside.stat().st_mtime),
+            "width": 12,
+            "height": 9,
+        }
+    ]
+
+    storage = TableStorage(
+        rows,
+        root=str(tmp_path),
+        source_column="source",
+        path_column="path",
+        skip_indexing=True,
+    )
+
+    assert "outside.jpg" not in storage._items
+
+
+def test_skip_local_realpath_validation_blocks_absolute_escape(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "outside-lexical.jpg"
+    _make_image(outside)
+
+    rows = [
+        {
+            "source": str(outside),
+            "path": "outside-lexical.jpg",
+            "size": int(outside.stat().st_size),
+            "mtime": float(outside.stat().st_mtime),
+            "width": 12,
+            "height": 9,
+        }
+    ]
+
+    storage = TableStorage(
+        rows,
+        root=str(tmp_path),
+        source_column="source",
+        path_column="path",
+        skip_indexing=True,
+        skip_local_realpath_validation=True,
+    )
+
+    assert "outside-lexical.jpg" not in storage._items

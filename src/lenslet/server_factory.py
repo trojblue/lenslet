@@ -59,6 +59,7 @@ from .workspace import Workspace
 REFRESH_NOTE_DATASET_STATIC = "dataset mode is static"
 REFRESH_NOTE_TABLE_STATIC = "table mode is static"
 REFRESH_NOTE_PREINDEX_NO_WRITE = "preindex refresh disabled (no-write workspace)"
+DEFAULT_THUMB_CACHE_CAP_BYTES = 200 * 1024 * 1024
 
 
 class StorageProxy:
@@ -1025,10 +1026,7 @@ def _thumb_cache_from_workspace(workspace: Workspace, enabled: bool) -> ThumbCac
     cache_dir = workspace.thumb_cache_dir()
     if cache_dir is None:
         return None
-    max_disk_bytes = None
-    if workspace.is_temp_workspace():
-        max_disk_bytes = 200 * 1024 * 1024
-    return ThumbCache(cache_dir, max_disk_bytes=max_disk_bytes)
+    return ThumbCache(cache_dir, max_disk_bytes=DEFAULT_THUMB_CACHE_CAP_BYTES)
 
 
 def _recursive_browse_cache_from_workspace(workspace: Workspace) -> RecursiveBrowseCache:

@@ -4,6 +4,7 @@ import argparse
 import math
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -15,12 +16,6 @@ from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from .storage.table import TableStorage
-
-
-_CLOUDFLARED_URL = (
-    "https://github.com/cloudflare/cloudflared/releases/latest/download/"
-    "cloudflared-linux-amd64"
-)
 
 
 def _is_remote_uri(value: str) -> bool:
@@ -88,23 +83,25 @@ def _find_available_port(host: str, start_port: int = 7070, max_tries: int = 50)
 
 
 def _ensure_cloudflared_binary() -> Path:
-    binary_path = Path.home() / "cfed"
-    if binary_path.is_file():
-        if os.access(binary_path, os.X_OK):
-            return binary_path
-        binary_path.chmod(binary_path.stat().st_mode | 0o111)
+    configured_path = os.getenv("LENSLET_CLOUDFLARED_BIN", "").strip()
+    if configured_path:
+        binary_path = Path(configured_path).expanduser()
+        if not binary_path.is_file():
+            raise RuntimeError(
+                "LENSLET_CLOUDFLARED_BIN must point to an existing cloudflared binary."
+            )
+        if not os.access(binary_path, os.X_OK):
+            raise RuntimeError("LENSLET_CLOUDFLARED_BIN must point to an executable file.")
         return binary_path
 
-    print("[lenslet] Downloading cloudflared...")
-    import urllib.request
-    with urllib.request.urlopen(_CLOUDFLARED_URL) as response, binary_path.open("wb") as handle:
-        while True:
-            chunk = response.read(1024 * 1024)
-            if not chunk:
-                break
-            handle.write(chunk)
-    binary_path.chmod(0o755)
-    return binary_path
+    discovered = shutil.which("cloudflared")
+    if discovered:
+        return Path(discovered)
+
+    raise RuntimeError(
+        "cloudflared is required for --share. Install cloudflared and ensure it is on PATH, "
+        "or set LENSLET_CLOUDFLARED_BIN to a trusted executable path."
+    )
 
 
 def _tunnel_target_host(bind_host: str) -> str:

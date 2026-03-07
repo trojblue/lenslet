@@ -67,6 +67,19 @@ def test_recursive_rejects_paging_params_and_legacy_flag(tmp_path: Path) -> None
         assert key in payload["message"]
 
 
+def test_recursive_rejects_unbounded_large_traversal(tmp_path: Path) -> None:
+    root = tmp_path
+    for idx in range(5001):
+        _make_image(root / f"bigset/chunk/img_{idx:04d}.jpg")
+
+    client = TestClient(create_app(str(root)))
+    resp = _folders_request(client, "/bigset", recursive="1")
+
+    assert resp.status_code == 413
+    payload = resp.json()
+    assert payload["detail"] == "recursive listing exceeds limit of 5000 items"
+
+
 def test_recursive_cache_reuses_snapshot_between_calls(
     tmp_path: Path,
 ) -> None:

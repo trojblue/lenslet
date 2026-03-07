@@ -92,6 +92,7 @@ def _child_folder_path(parent: str, child: str) -> str:
 
 RECURSIVE_SORT_MODE_SCAN = "scan"
 RECURSIVE_CACHE_BUILD_MAX_RETRIES = 2
+RECURSIVE_ITEMS_HARD_LIMIT = 10_000
 
 
 class HotpathTelemetry:
@@ -172,12 +173,13 @@ def _collect_recursive_cached_items(
     root_index: Any,
     *,
     cancelled: Callable[[], bool] | None = None,
-) -> tuple[list[Any], int]:
+) -> tuple[list[Any], int, bool]:
     queue: deque[tuple[str, Any]] = deque([(_canonical_path(root_path), root_index)])
     seen_folders: set[str] = set()
     seen_items: set[str] = set()
     items: list[tuple[str, Any]] = []
     total_items = 0
+    limit_reached = False
 
     while queue:
         if cancelled is not None and cancelled():
@@ -194,8 +196,14 @@ def _collect_recursive_cached_items(
             if item_path in seen_items:
                 continue
             seen_items.add(item_path)
+            if total_items >= RECURSIVE_ITEMS_HARD_LIMIT:
+                limit_reached = True
+                break
             total_items += 1
             items.append((item_path, cached))
+
+        if limit_reached:
+            break
 
         for child_name in folder_index.dirs:
             if cancelled is not None and cancelled():
@@ -210,7 +218,7 @@ def _collect_recursive_cached_items(
             queue.append((child_path, child_index))
 
     items.sort(key=lambda pair: pair[0])
-    return [cached for _, cached in items], total_items
+    return [cached for _, cached in items], total_items, limit_reached
 
 
 def _recursive_index_getter(storage) -> Callable[[str], Any]:
@@ -318,11 +326,16 @@ def _load_or_build_recursive_snapshots(
         if hotpath_metrics is not None:
             hotpath_metrics.increment("folders_recursive_cache_miss_total")
 
-        cached_items, total_items = _collect_recursive_cached_items(
+        cached_items, total_items, limit_reached = _collect_recursive_cached_items(
             storage,
             canonical_path,
             root_index,
         )
+        if limit_reached:
+            raise HTTPException(
+                413,
+                "recursive folder listing exceeds server safety limit; refine the path or use count_only",
+            )
         snapshots = tuple(
             RecursiveCachedItemSnapshot.from_cached_item(cached)
             for cached in cached_items
@@ -350,11 +363,16 @@ def _load_or_build_recursive_snapshots(
             hotpath_metrics.increment("folders_recursive_cache_persist_write_total")
         return snapshots, total_items
 
-    cached_items, total_items = _collect_recursive_cached_items(
+    cached_items, total_items, limit_reached = _collect_recursive_cached_items(
         storage,
         canonical_path,
         root_index,
     )
+    if limit_reached:
+        raise HTTPException(
+            413,
+            "recursive folder listing exceeds server safety limit; refine the path or use count_only",
+        )
     snapshots = tuple(
         RecursiveCachedItemSnapshot.from_cached_item(cached)
         for cached in cached_items
@@ -426,6 +444,11 @@ def _build_folder_index(
                 items = []
             else:
                 cached_items = scope_items(canonical_path)
+                if len(cached_items) > RECURSIVE_ITEMS_HARD_LIMIT:
+                    raise HTTPException(
+                        413,
+                        "recursive folder listing exceeds server safety limit; refine the path or use count_only",
+                    )
                 total_items = len(cached_items)
                 items = [] if count_only else [to_item(storage, it) for it in cached_items]
         elif count_only:
@@ -447,11 +470,16 @@ def _build_folder_index(
             )
             items = [to_item(storage, snapshot) for snapshot in snapshots]
         else:
-            cached_items, total_items = _collect_recursive_cached_items(
+            cached_items, total_items, limit_reached = _collect_recursive_cached_items(
                 storage,
                 canonical_path,
                 index,
             )
+            if limit_reached:
+                raise HTTPException(
+                    413,
+                    "recursive folder listing exceeds server safety limit; refine the path or use count_only",
+                )
             items = [to_item(storage, it) for it in cached_items]
         if hotpath_metrics is not None:
             hotpath_metrics.observe_ms(

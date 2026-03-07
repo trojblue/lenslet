@@ -403,6 +403,8 @@ def _storage_indexing_generation(storage) -> str:
 def _indexing_health_payload(indexing: IndexingLifecycle, storage) -> dict[str, Any]:
     done, total = _storage_indexing_progress(storage)
     payload = indexing.snapshot(done=done, total=total)
+    if payload.get("state") == "error" and isinstance(payload.get("error"), str):
+        payload["error"] = "failed to build index"
     payload["generation"] = _storage_indexing_generation(storage)
     return payload
 

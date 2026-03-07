@@ -16,7 +16,7 @@ def _make_image(path: Path) -> None:
     Image.new("RGB", (12, 9), color=(24, 64, 96)).save(path, format="JPEG")
 
 
-def test_preindex_storage_uses_fast_local_validation(tmp_path: Path, monkeypatch) -> None:
+def test_preindex_storage_uses_strict_local_validation(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "gallery"
     _make_image(root / "a.jpg")
 
@@ -43,10 +43,10 @@ def test_preindex_storage_uses_fast_local_validation(tmp_path: Path, monkeypatch
     )
 
     assert storage is not None
-    assert captured.get("skip_local_realpath_validation") is True
+    assert captured.get("skip_local_realpath_validation", False) is False
 
 
-def test_create_app_folder_items_parquet_uses_fast_local_validation(
+def test_create_app_folder_items_parquet_uses_strict_local_validation(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -69,7 +69,7 @@ def test_create_app_folder_items_parquet_uses_fast_local_validation(
     monkeypatch.setattr(server_factory, "TableStorage", SpyTableStorage)
     app = server_factory.create_app(str(root))
     assert app is not None
-    assert captured.get("skip_local_realpath_validation") is True
+    assert captured.get("skip_local_realpath_validation", False) is False
 
 
 def test_preindex_reports_scan_phase(

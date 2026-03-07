@@ -504,7 +504,6 @@ def _load_preindex_storage(
             source_column=PREINDEX_SOURCE_COLUMN,
             path_column=PREINDEX_PATH_COLUMN,
             skip_indexing=skip_indexing,
-            skip_local_realpath_validation=True,
         )
     except Exception as exc:
         print(f"[lenslet] Warning: failed to initialize preindex storage: {exc}")
@@ -606,7 +605,6 @@ def create_app(
                 thumb_quality=thumb_quality,
                 source_column=source_column,
                 skip_indexing=skip_indexing,
-                skip_local_realpath_validation=True,
             )
             storage_mode = "table"
             storage_origin = "parquet"

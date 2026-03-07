@@ -100,3 +100,35 @@ def test_file_response_falls_back_for_non_local_sources() -> None:
     assert response.media_type == "image/jpeg"
     assert response.body == b"remote-bytes"
     assert storage.read_calls == 1
+
+
+def test_file_response_falls_back_when_local_resolver_rejects_path() -> None:
+    class _RejectingLocal:
+        @staticmethod
+        def resolve_path(_path: str) -> str:
+            raise ValueError("invalid path")
+
+    class _StorageWithRejectingLocal:
+        def __init__(self):
+            self.local = _RejectingLocal()
+            self.read_calls = 0
+
+        @staticmethod
+        def get_source_path(_logical_path: str) -> str:
+            return "../secret.jpg"
+
+        def read_bytes(self, _path: str) -> bytes:
+            self.read_calls += 1
+            return b"safe-fallback"
+
+        @staticmethod
+        def _guess_mime(_path: str) -> str:
+            return "image/jpeg"
+
+    storage = _StorageWithRejectingLocal()
+    response = _file_response(storage, "../secret.jpg")
+
+    assert not isinstance(response, FileResponse)
+    assert response.media_type == "image/jpeg"
+    assert response.body == b"safe-fallback"
+    assert storage.read_calls == 1

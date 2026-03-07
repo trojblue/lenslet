@@ -711,7 +711,7 @@ export default function VirtualGrid({
                     onMouseLeave={clearPreview}>
                     <button
                       type="button"
-                      className={`grid-item-action-btn touch-manipulation ${selectionOrder !== null ? 'has-selection-order' : ''}`}
+                      className="grid-item-action-btn touch-manipulation"
                       data-grid-action="1"
                       aria-label={`Open actions for ${it.name}`}
                       aria-haspopup="menu"

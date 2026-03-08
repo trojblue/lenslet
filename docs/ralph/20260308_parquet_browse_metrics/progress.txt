@@ -1,0 +1,7 @@
+# Ralph Progress Log
+Started: 2026-03-08T07:55:34Z
+Mode: plan
+Tool: codex
+Repo: /local/yada/dev/lenslet
+Plan: /local/yada/dev/lenslet/docs/20260308_parquet_browse_metrics_execution_plan.md
+---

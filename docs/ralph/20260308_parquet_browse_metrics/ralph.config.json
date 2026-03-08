@@ -1,0 +1,10 @@
+{
+  "mode": "plan",
+  "tool": "codex",
+  "maxIterations": 7,
+  "maxTasksPerIteration": 6,
+  "planFile": "/local/yada/dev/lenslet/docs/20260308_parquet_browse_metrics_execution_plan.md",
+  "prdFile": "prd.json",
+  "progressFile": "progress.txt",
+  "sharedDir": "../shared"
+}

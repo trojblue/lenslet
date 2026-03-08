@@ -95,6 +95,37 @@ def _child_folder_path(parent: str, child: str) -> str:
     return _canonical_path(f"{parent_path.rstrip('/')}/{child}")
 
 
+def _metric_keys_from_cached_items(cached_items: Iterable[Any]) -> list[str]:
+    metric_keys: set[str] = set()
+    for cached in cached_items:
+        metrics = getattr(cached, "metrics", None)
+        if not isinstance(metrics, dict):
+            continue
+        for raw_key in metrics.keys():
+            key = str(raw_key).strip()
+            if key:
+                metric_keys.add(key)
+    return sorted(metric_keys)
+
+
+def _metric_keys_for_folder(
+    storage,
+    canonical_path: str,
+    index: Any,
+    *,
+    recursive: bool,
+    snapshots: Iterable[RecursiveCachedItemSnapshot] | None = None,
+) -> list[str]:
+    if recursive:
+        if snapshots is not None:
+            return _metric_keys_from_cached_items(snapshots)
+        scope_items = getattr(storage, "items_in_scope", None)
+        if callable(scope_items):
+            return _metric_keys_from_cached_items(scope_items(canonical_path))
+        return []
+    return _metric_keys_from_cached_items(getattr(index, "items", []) or [])
+
+
 RECURSIVE_SORT_MODE_SCAN = "scan"
 RECURSIVE_CACHE_BUILD_MAX_RETRIES = 2
 RECURSIVE_ITEMS_HARD_LIMIT = 10_000
@@ -426,24 +457,25 @@ def _build_folder_index(
     browse_cache: RecursiveBrowseCache | None = None,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> FolderIndex:
+    canonical_path = _canonical_path(path)
     try:
         if recursive:
             getter = _recursive_index_getter(storage)
-            index = getter(path)
+            index = getter(canonical_path)
             if index is None:
-                raise FileNotFoundError(path)
+                raise FileNotFoundError(canonical_path)
         else:
-            index = storage.get_index(path)
+            index = storage.get_index(canonical_path)
     except ValueError:
         raise HTTPException(400, "invalid path")
     except FileNotFoundError:
         raise HTTPException(404, "folder not found")
 
+    snapshots: tuple[RecursiveCachedItemSnapshot, ...] | None = None
     if recursive:
         if hotpath_metrics is not None:
             hotpath_metrics.increment("folders_recursive_requests_total")
         traversal_started = time.perf_counter()
-        canonical_path = _canonical_path(path)
         if count_only:
             total_items = _count_recursive_items(storage, canonical_path, index)
             items = []
@@ -481,12 +513,20 @@ def _build_folder_index(
             total_items = None
 
     dirs = [DirEntry(name=d, kind="branch") for d in sorted(index.dirs)]
+    metric_keys = _metric_keys_for_folder(
+        storage,
+        canonical_path,
+        index,
+        recursive=recursive,
+        snapshots=snapshots,
+    )
 
     return FolderIndex(
-        path=_canonical_path(path),
+        path=canonical_path,
         generatedAt=index.generated_at,
         items=items,
         dirs=dirs,
+        metricKeys=metric_keys,
         page=None,
         pageSize=None,
         pageCount=None,

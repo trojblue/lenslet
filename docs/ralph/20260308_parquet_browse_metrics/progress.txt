@@ -5,3 +5,28 @@ Tool: codex
 Repo: /local/yada/dev/lenslet
 Plan: /local/yada/dev/lenslet/docs/20260308_parquet_browse_metrics_execution_plan.md
 ---
+
+## Iteration 1 - 2026-03-08T08:01:00Z
+
+Completed tasks: T1, T2
+
+Files changed:
+- docs/20260308_parquet_browse_metrics_execution_plan.md
+- src/lenslet/server_browse.py
+- src/lenslet/server_models.py
+- src/lenslet/storage/table_index.py
+- tests/test_parquet_ingestion.py
+- tests/test_table_index_pipeline.py
+
+Validations:
+- `pytest tests/test_table_index_pipeline.py -q` -> passed (`11 passed`)
+- `pytest tests/test_parquet_ingestion.py -q` -> passed (`5 passed`)
+- `pytest tests/test_table_index_pipeline.py tests/test_parquet_ingestion.py -q` -> passed (`16 passed`)
+- `python scripts/lint_repo.py` -> passed
+- `git diff --check -- src/lenslet/storage/table_index.py src/lenslet/server_models.py src/lenslet/server_browse.py tests/test_table_index_pipeline.py tests/test_parquet_ingestion.py docs/20260308_parquet_browse_metrics_execution_plan.md` -> passed
+
+Blockers:
+- None.
+
+Next step:
+- Start Sprint 2 in `src/lenslet/server_browse.py` with a table-only recursive-limit bypass and backend regression coverage that preserves the filesystem `10_000` recursive safety cap.

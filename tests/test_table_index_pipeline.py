@@ -36,6 +36,46 @@ def test_metrics_column_overrides_scalar_metric_values(tmp_path: Path) -> None:
     assert abs(item.metrics["quality_score"] - 0.42) < 1e-9
 
 
+def test_internal_scalar_metric_columns_are_filtered(tmp_path: Path) -> None:
+    image_path = tmp_path / "one.jpg"
+    _make_image(image_path)
+
+    rows = [
+        {
+            "source": str(image_path),
+            "path": "one.jpg",
+            "__index_level_0__": 17,
+            "quality_score": 0.42,
+        }
+    ]
+
+    storage = TableStorage(rows, skip_indexing=True)
+
+    assert storage._extract_metrics(0) == {"quality_score": 0.42}
+    assert storage._items["one.jpg"].metrics == {"quality_score": 0.42}
+
+
+def test_internal_metrics_map_entries_are_filtered(tmp_path: Path) -> None:
+    image_path = tmp_path / "one.jpg"
+    _make_image(image_path)
+
+    rows = [
+        {
+            "source": str(image_path),
+            "path": "one.jpg",
+            "metrics": {
+                "__index_level_0__": 17,
+                "quality_score": 0.42,
+            },
+        }
+    ]
+
+    storage = TableStorage(rows, skip_indexing=True)
+
+    assert storage._extract_metrics_map(0) == {"quality_score": 0.42}
+    assert storage._items["one.jpg"].metrics == {"quality_score": 0.42}
+
+
 def test_duplicate_logical_paths_keep_stable_row_mappings(tmp_path: Path) -> None:
     first = tmp_path / "first.jpg"
     second = tmp_path / "second.jpg"

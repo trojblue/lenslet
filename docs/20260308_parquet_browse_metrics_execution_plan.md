@@ -158,6 +158,15 @@ Secondary fast checks:
        cd frontend && npm run build
        rsync -a --delete frontend/dist/ src/lenslet/frontend/
 
+Sprint 1 completed checks on 2026-03-08:
+
+    pytest tests/test_table_index_pipeline.py -q
+    pytest tests/test_parquet_ingestion.py -q
+    pytest tests/test_table_index_pipeline.py tests/test_parquet_ingestion.py -q
+    python scripts/lint_repo.py
+
+Observed outcome: the new table-index coverage proves synthetic parquet index columns are removed from both scalar metric-column extraction and nested `metrics`-map extraction, table-backed folder payloads now expose sorted `metricKeys` on both non-recursive and recursive fixture paths, and repo lint passes.
+
 Overall acceptance is not met until the real parquet scenario can browse and expose `quality_score` for sort/filter without leaking `__index_level_0__` and without widening the local source boundary beyond the safe-root rules already in place.
 
 
@@ -182,8 +191,12 @@ Idempotent retry strategy: after any failed sprint, restore a clean worktree, re
 - [x] 2026-03-08 07:41 UTC Verified the same payload also contains synthetic `__index_level_0__`, confirming metric hygiene work is needed.
 - [x] 2026-03-08 07:42 UTC Verified recursive `/folders` requests for `/` and `/pixai-aes-1.2-train-val-images` fail at the current `10_000` hard limit.
 - [x] 2026-03-08 07:44 UTC Confirmed frontend metric sort/filter discovery is based on loaded gallery items rather than an explicit metric schema.
+- [x] 2026-03-08 07:54 UTC Locked the Sprint 1 backend contract: `FolderIndex.metricKeys` is the explicit browse metric schema, and parquet metric hygiene is enforced at table extraction time rather than filtered in the frontend.
+- [x] 2026-03-08 07:59 UTC Completed T1 in `src/lenslet/storage/table_index.py` by filtering synthetic `__index_level_<n>__` keys from both scalar metric columns and nested `metrics` maps, with focused coverage in `tests/test_table_index_pipeline.py`.
+- [x] 2026-03-08 08:00 UTC Completed T2 in `src/lenslet/server_models.py` and `src/lenslet/server_browse.py` by exposing sorted `metricKeys` on folder payloads and covering both non-recursive and recursive table-backed API responses in `tests/test_parquet_ingestion.py`.
+- [x] 2026-03-08 08:01 UTC Ran Sprint 1 validation (`pytest tests/test_table_index_pipeline.py tests/test_parquet_ingestion.py -q` and `python scripts/lint_repo.py`); all checks passed and no Sprint 1 cleanup/review blockers were found.
 - [ ] Next operator: keep the unrelated local `pyproject.toml` edit out of the next commit unless it is explicitly approved.
-- [ ] Next operator: start Sprint 1 and update this document immediately after the first contract decision lands.
+- [ ] Next operator: start Sprint 2 in `src/lenslet/server_browse.py` with a table-only recursive-limit bypass and regression coverage that keeps generic filesystem recursive traversal capped at `10_000`.
 
 
 ## Artifacts and Handoff
@@ -207,8 +220,21 @@ Relevant codepaths already identified:
     frontend metric sort/filter wiring: frontend/src/app/AppShell.tsx
     inspector metric rendering: frontend/src/features/inspector/sections/BasicsSection.tsx
 
+Sprint 1 artifacts:
+
+    backend contract change:
+    FolderIndex.metricKeys now ships sorted metric keys on folder payloads.
+
+    metric hygiene change:
+    synthetic parquet index keys matching __index_level_<n>__ are excluded from scalar metric columns and nested metrics maps before item metrics are assembled.
+
+    focused validation:
+    tests/test_table_index_pipeline.py
+    tests/test_parquet_ingestion.py
+
 Handoff notes:
 
-Continue from a clean worktree and keep unrelated edits out of the next diff unless they become intentionally relevant. Treat the real parquet command above plus the two recursive `/folders` calls as the primary acceptance target for every sprint. Do not expand this work into large-folder session-cache redesign unless the primary path still fails after the narrow table-only browse fix. When revising this document, add a short note at the bottom describing what changed and why.
+Continue from the current worktree and keep unrelated edits out of the next diff unless they become intentionally relevant. Sprint 1 is closed; the next slice is the narrow table-only recursive browse fix in `src/lenslet/server_browse.py` plus regression coverage proving filesystem recursive traversal still returns `413` above `10_000` items. Treat the real parquet command above plus the two recursive `/folders` calls as the primary acceptance target for every remaining sprint. Do not expand this work into large-folder session-cache redesign unless the primary path still fails after the narrow table-only browse fix. When revising this document, add a short note at the bottom describing what changed and why.
 
 Revision note, 2026-03-08: tightened the plan after review feedback to require explicit recursive acceptance checks, remove normal-browse fallback language, collapse browse-mode metric contract work into one hard-cutover task, narrow Sprint 2 to a table-only recursive-limit bypass, add stronger regression-test requirements, add Playwright-backed UI validation, and replace an unsafe worktree-cleanup instruction with a commit-scope instruction.
+Revision note, 2026-03-08 08:01 UTC: recorded Sprint 1 completion, documented the shipped `metricKeys` backend contract and parquet metric hygiene change, added the exact Sprint 1 validation commands/outcomes, and updated handoff notes to point the next operator at the table-only recursive-limit bypass in Sprint 2.

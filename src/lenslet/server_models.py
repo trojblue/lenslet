@@ -37,6 +37,7 @@ class FolderIndex(BaseModel):
     generatedAt: str
     items: list[Item] = Field(default_factory=list)
     dirs: list[DirEntry] = Field(default_factory=list)
+    metricKeys: list[str] = Field(default_factory=list)
     page: int | None = None
     pageSize: int | None = None
     pageCount: int | None = None

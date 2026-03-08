@@ -40,6 +40,13 @@ class ScanResult:
     skipped_local_missing: int
 
 
+def _is_internal_metric_key(raw_key: Any) -> bool:
+    key = str(raw_key).strip()
+    if not key.startswith("__index_level_") or not key.endswith("__"):
+        return False
+    return key[len("__index_level_"):-2].isdigit()
+
+
 class ProgressTicker:
     def __init__(self, *, total: int, label: str, emit: Callable[[int, int, str], None]) -> None:
         self.total = total
@@ -125,6 +132,8 @@ def collect_metric_columns(storage: Any, none_values: list[Any]) -> tuple[tuple[
         if column in used_columns:
             continue
         if column.lower() in storage.RESERVED_COLUMNS:
+            continue
+        if _is_internal_metric_key(column):
             continue
         metric_columns.append((column, storage._data.get(column, none_values)))
     return tuple(metric_columns)
@@ -310,6 +319,8 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
             raw_metrics = metrics_values[idx]
             if isinstance(raw_metrics, dict):
                 for raw_key, raw_value in raw_metrics.items():
+                    if _is_internal_metric_key(raw_key):
+                        continue
                     num = coerce_float(raw_value)
                     if num is None:
                         continue
@@ -433,6 +444,8 @@ def extract_row_metrics_map(storage: Any, row_idx: int) -> dict[str, float]:
 
     result: dict[str, float] = {}
     for key, value in raw.items():
+        if _is_internal_metric_key(key):
+            continue
         num = storage._coerce_float(value)
         if num is None:
             continue

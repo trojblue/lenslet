@@ -43,8 +43,41 @@ def test_parquet_items_and_metrics_inline(tmp_path: Path):
     assert resp.status_code == 200
     payload = resp.json()
     assert len(payload["items"]) == 2
+    assert payload["metricKeys"] == ["clip_aesthetic"]
     metrics = [item.get("metrics") for item in payload["items"]]
     assert any(m and "clip_aesthetic" in m for m in metrics)
+    assert all("__index_level_0__" not in (item_metrics or {}) for item_metrics in metrics)
+
+
+def test_parquet_folder_payload_exposes_sorted_metric_keys(tmp_path: Path):
+    root = tmp_path
+    img_a = root / "gallery" / "a.jpg"
+    img_b = root / "gallery" / "b.jpg"
+    _make_image(img_a)
+    _make_image(img_b)
+
+    _write_parquet(root / "items.parquet", {
+        "path": ["gallery/a.jpg", "gallery/b.jpg"],
+        "quality_score": [0.8, 0.3],
+        "clip_aesthetic": [0.4, 0.2],
+        "__index_level_0__": [11, 12],
+    })
+
+    client = TestClient(create_app(str(root)))
+
+    payload = client.get("/folders", params={"path": "/gallery"}).json()
+    recursive_payload = client.get("/folders", params={"path": "/gallery", "recursive": "1"}).json()
+
+    assert payload["metricKeys"] == ["clip_aesthetic", "quality_score"]
+    assert recursive_payload["metricKeys"] == ["clip_aesthetic", "quality_score"]
+    assert all(
+        "__index_level_0__" not in (item.get("metrics") or {})
+        for item in payload["items"]
+    )
+    assert all(
+        "__index_level_0__" not in (item.get("metrics") or {})
+        for item in recursive_payload["items"]
+    )
 
 
 def test_views_no_write_mode(tmp_path: Path):

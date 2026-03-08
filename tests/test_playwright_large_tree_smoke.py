@@ -23,6 +23,7 @@ def _load_smoke_module() -> ModuleType:
 def _make_args(**overrides: object) -> argparse.Namespace:
     defaults = {
         "dataset_dir": None,
+        "source_path": None,
         "total_images": None,
         "total_folders": None,
         "image_width": None,
@@ -36,6 +37,9 @@ def _make_args(**overrides: object) -> argparse.Namespace:
         "baseline_file": Path("scripts/playwright_large_tree_smoke_baselines.json"),
         "baseline_profile": "primary_large_no_write",
         "write_mode": False,
+        "scope_path": None,
+        "metric_key": None,
+        "forbid_metric_key": None,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -92,3 +96,20 @@ def test_thresholds_require_first_grid_hotpath_metric() -> None:
             first_thumbnail_latency_ms=700,
             first_thumbnail_threshold_ms=5_000.0,
         )
+
+
+def test_scope_url_normalizes_and_quotes_hash_paths() -> None:
+    smoke = _load_smoke_module()
+
+    assert smoke.scope_url("http://127.0.0.1:7070", None) == "http://127.0.0.1:7070"
+    assert smoke.scope_url(
+        "http://127.0.0.1:7070",
+        "gallery child",
+    ) == "http://127.0.0.1:7070#/gallery%20child"
+
+
+def test_parse_toolbar_count_label_handles_scoped_and_filtered_labels() -> None:
+    smoke = _load_smoke_module()
+
+    assert smoke.parse_toolbar_count_label("19,456 items") == (19_456, None)
+    assert smoke.parse_toolbar_count_label("7,881 / 19,456 items") == (7_881, 19_456)

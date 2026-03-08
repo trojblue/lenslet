@@ -13,20 +13,7 @@ export function hasMetricSortValues(items: readonly Item[], metricSortKey: strin
   })
 }
 
-export function buildStarCounts(
-  items: readonly Item[],
-  localStarOverrides: Record<string, StarRating>
-): Record<string, number> {
-  const counts: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 }
-  for (const item of items) {
-    const star = localStarOverrides[item.path] ?? item.star ?? 0
-    const key = String(star)
-    counts[key] = (counts[key] || 0) + 1
-  }
-  return counts
-}
-
-export function collectMetricKeys(items: readonly Item[], scanLimit = 250): string[] {
+function collectSimilarityMetricKeys(items: readonly Item[], scanLimit = 250): string[] {
   const keys = new Set<string>()
   let scanned = 0
   for (const item of items) {
@@ -40,6 +27,28 @@ export function collectMetricKeys(items: readonly Item[], scanLimit = 250): stri
     if (scanned >= scanLimit && keys.size > 0) break
   }
   return Array.from(keys).sort()
+}
+
+export function resolveMetricKeys(
+  folderMetricKeys: readonly string[] | undefined,
+  similarityActive: boolean,
+  similarityItems: readonly Item[],
+): string[] {
+  if (!similarityActive) return folderMetricKeys ? [...folderMetricKeys] : []
+  return collectSimilarityMetricKeys(similarityItems)
+}
+
+export function buildStarCounts(
+  items: readonly Item[],
+  localStarOverrides: Record<string, StarRating>
+): Record<string, number> {
+  const counts: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 }
+  for (const item of items) {
+    const star = localStarOverrides[item.path] ?? item.star ?? 0
+    const key = String(star)
+    counts[key] = (counts[key] || 0) + 1
+  }
+  return counts
 }
 
 export function getDisplayItemCount(

@@ -7,6 +7,7 @@ import { cancelBrowseRequests } from '../../api/client'
 import { useDebounced } from '../../shared/hooks/useDebounced'
 import { applyFilters, applySort } from '../../features/browse/model/apply'
 import { FetchError } from '../../lib/fetcher'
+import { resolveMetricKeys } from '../model/appShellSelectors'
 import {
   completeBrowseLoad,
   startBrowseLoad,
@@ -60,6 +61,7 @@ type UseAppDataScopeResult = {
   embeddingsError: string | null
   poolItems: Item[]
   similarityItems: Item[]
+  metricKeys: string[]
   items: Item[]
   totalCount: number
   filteredCount: number
@@ -172,6 +174,10 @@ export function useAppDataScope({
     })
   }, [similarityState, poolItemsByPath, localStarOverrides])
 
+  const metricKeys = useMemo(() => (
+    resolveMetricKeys(data?.metricKeys, similarityActive, similarityItems)
+  ), [data?.metricKeys, similarityActive, similarityItems])
+
   const items = useMemo((): Item[] => {
     if (similarityState) {
       return applyFilters(similarityItems, viewState.filters)
@@ -202,6 +208,7 @@ export function useAppDataScope({
     embeddingsError,
     poolItems,
     similarityItems,
+    metricKeys,
     items,
     totalCount,
     filteredCount,

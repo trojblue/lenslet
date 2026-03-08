@@ -5,7 +5,21 @@ import Toolbar from '../../Toolbar'
 const mediaQueryMock = vi.fn<(query: string) => boolean>(() => false)
 
 vi.mock('../../Dropdown', () => ({
-  default: () => <div data-dropdown-mock="1" />,
+  default: ({
+    options,
+  }: {
+    options?: Array<{ label?: string; options?: Array<{ value: string; label: string }> }>
+  }) => (
+    <div data-dropdown-mock="1">
+      {options?.flatMap((group) => (
+        group.options?.map((option) => (
+          <span key={option.value} data-dropdown-option={option.value}>
+            {option.label}
+          </span>
+        )) ?? []
+      ))}
+    </div>
+  ),
 }))
 
 vi.mock('../../SyncIndicator', () => ({
@@ -112,5 +126,23 @@ describe('Toolbar refresh trigger', () => {
 
     expect(html).toContain('data-toolbar-slot="search-row"')
     expect(html).toMatch(/data-toolbar-control="search-mobile"[^>]*disabled=""[^>]*tabindex="-1"/)
+  })
+
+  it('renders metric sort options from folder payload metric keys', () => {
+    const html = renderToStaticMarkup(
+      <Toolbar
+        onSearch={() => {}}
+        metricKeys={['quality_score']}
+        themePreset="teal"
+        onThemePresetChange={() => {}}
+        autoloadImageMetadata={false}
+        onAutoloadImageMetadataChange={() => {}}
+        compareOrderMode="gallery"
+        onCompareOrderModeChange={() => {}}
+      />,
+    )
+
+    expect(html).toContain('quality_score')
+    expect(html).not.toContain('__index_level_0__')
   })
 })

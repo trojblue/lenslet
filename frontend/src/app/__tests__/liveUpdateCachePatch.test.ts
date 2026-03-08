@@ -25,6 +25,7 @@ function makeFolder(path: string, items: Item[]): FolderIndex {
     v: 1,
     path,
     generatedAt: '2026-03-07T00:00:00Z',
+    metricKeys: [],
     items,
     dirs: [],
   }

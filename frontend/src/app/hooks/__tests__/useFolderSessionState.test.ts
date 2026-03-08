@@ -30,6 +30,7 @@ function makeFolder(path: string, itemPaths: string[], generatedAt = '2026-02-12
     v: 1,
     path,
     generatedAt,
+    metricKeys: [],
     dirs: [],
     items: itemPaths.map((itemPath) => makeItem(itemPath)),
     totalItems: itemPaths.length,

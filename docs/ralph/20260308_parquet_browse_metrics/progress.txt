@@ -55,3 +55,43 @@ Blockers:
 
 Next step:
 - Start Sprint 3 in the frontend browse path by hard-cutting normal browse metric discovery to `FolderIndex.metricKeys`, then validate sort/filter UI behavior against the parquet scenario.
+
+## Iteration 3 - 2026-03-08T08:31:09Z
+
+Completed tasks: T6, T7
+
+Files changed:
+- docs/20260308_parquet_browse_metrics_execution_plan.md
+- docs/ralph/20260308_parquet_browse_metrics/progress.txt
+- frontend/src/app/AppShell.tsx
+- frontend/src/app/__tests__/appShellSelectors.test.ts
+- frontend/src/app/__tests__/liveUpdateCachePatch.test.ts
+- frontend/src/app/hooks/__tests__/useFolderSessionState.test.ts
+- frontend/src/app/hooks/useAppDataScope.ts
+- frontend/src/app/model/appShellSelectors.ts
+- frontend/src/features/metrics/__tests__/MetricsPanel.test.tsx
+- frontend/src/features/metrics/components/__tests__/MetricRangePanel.test.tsx
+- frontend/src/lib/types.ts
+- frontend/src/shared/ui/toolbar/__tests__/Toolbar.test.tsx
+- scripts/gui_jitter_probe.py
+- scripts/playwright_large_tree_smoke.py
+- src/lenslet/frontend/index.html
+- src/lenslet/frontend/assets/RankingApp-C5r6_XTq.js
+- src/lenslet/frontend/assets/index-6fGjrvvE.js
+- tests/test_playwright_large_tree_smoke.py
+
+Validations:
+- `cd frontend && npm run test -- --run src/app/__tests__/appShellSelectors.test.ts src/shared/ui/toolbar/__tests__/Toolbar.test.tsx src/features/metrics/__tests__/MetricsPanel.test.tsx src/features/metrics/components/__tests__/MetricRangePanel.test.tsx src/app/__tests__/liveUpdateCachePatch.test.ts src/app/hooks/__tests__/useFolderSessionState.test.ts` -> passed (`22 tests`)
+- `pytest tests/test_playwright_large_tree_smoke.py -q` -> passed (`6 passed`)
+- `cd frontend && npm run build` -> passed
+- `rsync -a --delete frontend/dist/ src/lenslet/frontend/` -> passed
+- `python scripts/gui_jitter_probe.py --scenario grid --dataset-dir /local/yada/dev/aeslib/ongoing/11_retrain_old_scores_on_siglip2/outputs/vqr1_concat.parquet --expected-metric-key quality_score --forbid-metric-key __index_level_0__ --metric-filter-max 4.6 --max-delta-px 1000 --browser-timeout-ms 90000` -> passed (`quality_score` exposed, `__index_level_0__` hidden, top visible items changed on sort-direction toggle, count reduced `42,270 -> 10,377`)
+- `python scripts/gui_smoke_acceptance.py` -> passed
+- `python scripts/lint_repo.py` -> passed
+- `git diff --check` -> passed
+
+Blockers:
+- None.
+
+Next step:
+- All planned sprints/tasks are complete and acceptance validation is satisfied. Create the Sprint 3 commit and stop.

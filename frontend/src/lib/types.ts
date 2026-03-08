@@ -29,6 +29,7 @@ export type FolderIndex = {
   generatedAt: string
   items: Item[]
   dirs: DirEntry[]
+  metricKeys: string[]
   page?: number
   pageSize?: number
   pageCount?: number

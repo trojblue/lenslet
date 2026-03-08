@@ -66,7 +66,6 @@ import { resolveFindSimilarAvailability } from '../features/inspector/model/find
 import { useLatestRef } from '../shared/hooks/useLatestRef'
 import {
   buildStarCounts,
-  collectMetricKeys,
   getDisplayItemCount,
   getDisplayTotalCount,
   getSimilarityCountLabel,
@@ -325,6 +324,7 @@ export default function AppShell({
     embeddingsError,
     poolItems,
     similarityItems,
+    metricKeys,
     items,
     totalCount,
     filteredCount,
@@ -608,11 +608,6 @@ export default function AppShell({
     const baseItems = similarityState ? similarityItems : poolItems
     return buildStarCounts(baseItems, localStarOverrides)
   }, [similarityState, similarityItems, poolItems, localStarOverrides])
-
-  const metricKeys = useMemo(() => {
-    const baseItems = similarityState ? similarityItems : poolItems
-    return collectMetricKeys(baseItems)
-  }, [similarityState, similarityItems, poolItems])
 
   useEffect(() => {
     if (similarityActive) return

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -77,6 +78,29 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional path for machine-readable probe output.",
+    )
+    parser.add_argument(
+        "--expected-metric-key",
+        default=None,
+        help="Optional metric key that must appear in metric sort/filter controls.",
+    )
+    parser.add_argument(
+        "--forbid-metric-key",
+        action="append",
+        default=[],
+        help="Metric key that must not appear in metric sort/filter controls. May be provided multiple times.",
+    )
+    parser.add_argument(
+        "--metric-filter-min",
+        type=float,
+        default=None,
+        help="Optional minimum bound for metric range-filter validation.",
+    )
+    parser.add_argument(
+        "--metric-filter-max",
+        type=float,
+        default=None,
+        help="Optional maximum bound for metric range-filter validation.",
     )
     return parser.parse_args()
 
@@ -268,6 +292,84 @@ def _import_playwright() -> tuple[type[BaseException], type[BaseException], Any]
 
 def _wait_for_grid(page: Any, timeout_ms: float) -> None:
     page.wait_for_selector('[role="gridcell"][id^="cell-"]', timeout=timeout_ms)
+
+
+COUNT_LABEL_RE = re.compile(r"^\s*(\d[\d,]*)\s*(?:/\s*(\d[\d,]*)\s*)?items\s*$")
+
+
+def _read_toolbar_counts(page: Any) -> dict[str, Any]:
+    label = page.locator(".toolbar-count").first.text_content()
+    if not isinstance(label, str):
+        raise SmokeFailure("Toolbar count label is missing.")
+    match = COUNT_LABEL_RE.match(label.strip())
+    if match is None:
+        raise SmokeFailure(f"Unexpected toolbar count label: {label!r}")
+    current = int(match.group(1).replace(",", ""))
+    total_raw = match.group(2)
+    total = current if total_raw is None else int(total_raw.replace(",", ""))
+    return {
+        "label": label.strip(),
+        "current": current,
+        "total": total,
+    }
+
+
+def _visible_grid_paths(page: Any, limit: int = 12) -> list[str]:
+    raw = page.evaluate(
+        """(maxItems) => {
+          const cells = Array.from(document.querySelectorAll('[role="gridcell"][id^="cell-"]'))
+            .map((el) => {
+              const rect = el.getBoundingClientRect();
+              const id = el.id || '';
+              const encodedPath = id.startsWith('cell-') ? id.slice(5) : '';
+              let path = '';
+              try {
+                path = encodedPath ? decodeURIComponent(encodedPath) : '';
+              } catch {
+                path = '';
+              }
+              return { path, top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right };
+            })
+            .filter((entry) => entry.path && entry.bottom > 0 && entry.right > 0 && entry.top < window.innerHeight && entry.left < window.innerWidth);
+          cells.sort((a, b) => (a.top - b.top) || (a.left - b.left));
+          return cells.slice(0, maxItems).map((entry) => entry.path);
+        }""",
+        limit,
+    )
+    if not isinstance(raw, list):
+        raise SmokeFailure("Failed to capture visible grid paths.")
+    return [candidate for candidate in raw if isinstance(candidate, str) and candidate]
+
+
+def _open_metrics_panel(page: Any, timeout_ms: float) -> None:
+    button = page.locator('button[aria-label="Metrics and Filters"]').first
+    if button.count() == 0:
+        raise SmokeFailure("Metrics panel trigger is missing.")
+    if button.get_attribute("aria-pressed") != "true":
+        button.click()
+    page.wait_for_function(
+        """() => {
+          const button = document.querySelector('button[aria-label="Metrics and Filters"]');
+          return button instanceof HTMLButtonElement && button.getAttribute('aria-pressed') === 'true';
+        }""",
+        timeout=timeout_ms,
+    )
+
+
+def _read_metric_panel_keys(page: Any) -> list[str]:
+    raw = page.evaluate(
+        """() => {
+          const metricSelect = document.querySelector('.app-left-panel select.ui-select');
+          if (!(metricSelect instanceof HTMLSelectElement)) return [];
+          return Array.from(metricSelect.options)
+            .map((option) => option.textContent || '')
+            .map((label) => label.trim())
+            .filter((label) => label.length > 0);
+        }"""
+    )
+    if not isinstance(raw, list):
+        raise SmokeFailure("Failed to read metric panel options.")
+    return [candidate for candidate in raw if isinstance(candidate, str)]
 
 
 def _snapshot_toolbar(page: Any) -> dict[str, Any]:
@@ -685,9 +787,19 @@ def _state_delta_nested(lhs: dict[str, Any], rhs: dict[str, Any], parent_key: st
         return 0.0
 
 
-def run_grid_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float) -> ProbeResult:
+def run_grid_probe(
+    base_url: str,
+    max_delta_px: float,
+    browser_timeout_ms: float,
+    *,
+    expected_metric_key: str | None = None,
+    forbidden_metric_keys: list[str] | None = None,
+    metric_filter_min: float | None = None,
+    metric_filter_max: float | None = None,
+) -> ProbeResult:
     playwright_error, playwright_timeout_error, sync_playwright = _import_playwright()
     sort_panel_selector = '.dropdown-panel[role="listbox"][aria-label="Sort and layout"]'
+    forbidden_metric_keys = forbidden_metric_keys or []
 
     def ensure_sort_trigger(page: Any) -> Any:
         trigger = page.locator('button[aria-label="Sort and layout"]').first
@@ -715,15 +827,13 @@ def run_grid_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float
         panel = page.locator(sort_panel_selector).first
         return trigger, panel
 
-    def detect_metric_sort_label(page: Any) -> str:
+    def list_metric_sort_labels(page: Any) -> list[str]:
         trigger, panel = open_sort_panel(page)
         option_labels = [label.strip() for label in panel.locator("button.dropdown-item").all_inner_texts()]
         builtin_options = {"Grid", "Masonry", "Date added", "Filename", "Random"}
         metric_labels = [label for label in option_labels if label and label not in builtin_options]
         trigger.click()
-        if not metric_labels:
-            raise SmokeFailure(f"No metric sort options found. Available options: {option_labels}")
-        return metric_labels[0]
+        return metric_labels
 
     def set_json_storage(page: Any, payload: dict[str, Any]) -> None:
         serialized: dict[str, str | None] = {}
@@ -740,6 +850,36 @@ def run_grid_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float
         set_json_storage(page, payload)
         page.reload(wait_until="domcontentloaded")
         _wait_for_grid(page, browser_timeout_ms)
+
+    def wait_for_sort_state(page: Any, kind: str, key: str, direction: str) -> None:
+        page.wait_for_function(
+            """(expected) => {
+              try {
+                const rawSortSpec = window.localStorage.getItem('sortSpec');
+                if (!rawSortSpec) return false;
+                const sortSpec = JSON.parse(rawSortSpec);
+                return sortSpec?.kind === expected.kind
+                  && sortSpec?.key === expected.key
+                  && sortSpec?.dir === expected.dir;
+              } catch {
+                return false;
+              }
+            }""",
+            arg={"kind": kind, "key": key, "dir": direction},
+            timeout=browser_timeout_ms,
+        )
+
+    def wait_for_count_change(page: Any, previous_label: str) -> None:
+        page.wait_for_function(
+            """(baselineLabel) => {
+              const node = document.querySelector('.toolbar-count');
+              if (!(node instanceof HTMLElement)) return false;
+              const label = (node.textContent || '').trim();
+              return label.includes('/') || label !== baselineLabel;
+            }""",
+            arg=previous_label,
+            timeout=browser_timeout_ms,
+        )
 
     def wait_for_metric_rail(page: Any, *, active: bool) -> None:
         page.wait_for_function(
@@ -791,6 +931,12 @@ def run_grid_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float
         wait_for_filters_band(page, hidden=True)
 
     metric_sort_label = ""
+    metric_sort_labels: list[str] = []
+    metric_panel_keys: list[str] = []
+    baseline_counts: dict[str, Any] | None = None
+    filtered_counts: dict[str, Any] | None = None
+    metric_desc_visible_paths: list[str] = []
+    metric_asc_visible_paths: list[str] = []
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
@@ -811,6 +957,7 @@ def run_grid_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float
             }
 
             reload_with_state(page, base_payload)
+            baseline_counts = _read_toolbar_counts(page)
 
             # Warm up reservation on the running page so hide/show checks capture steady-state toggles.
             enable_unrated_filter(page)
@@ -825,14 +972,70 @@ def run_grid_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float
             clear_filter_chips(page)
             filters_cleared = _snapshot_grid(page)
 
-            metric_sort_label = detect_metric_sort_label(page)
+            metric_sort_labels = list_metric_sort_labels(page)
+            if not metric_sort_labels:
+                raise SmokeFailure("No metric sort options found in the sort menu.")
+            if expected_metric_key and expected_metric_key not in metric_sort_labels:
+                raise SmokeFailure(
+                    f"Expected metric sort option '{expected_metric_key}' not found. "
+                    f"Available metric options: {metric_sort_labels}"
+                )
+            forbidden_in_sort = [key for key in forbidden_metric_keys if key in metric_sort_labels]
+            if forbidden_in_sort:
+                raise SmokeFailure(f"Forbidden metric sort options found: {forbidden_in_sort}")
+            metric_sort_label = expected_metric_key or metric_sort_labels[0]
+
+            _open_metrics_panel(page, browser_timeout_ms)
+            metric_panel_keys = _read_metric_panel_keys(page)
+            if expected_metric_key and expected_metric_key not in metric_panel_keys:
+                raise SmokeFailure(
+                    f"Expected metric filter option '{expected_metric_key}' not found. "
+                    f"Available metric filters: {metric_panel_keys}"
+                )
+            forbidden_in_panel = [key for key in forbidden_metric_keys if key in metric_panel_keys]
+            if forbidden_in_panel:
+                raise SmokeFailure(f"Forbidden metric filter options found: {forbidden_in_panel}")
+
             select_sort_option(page, metric_sort_label)
             wait_for_metric_rail(page, active=True)
+            wait_for_sort_state(page, "metric", metric_sort_label, "desc")
             metric_mode = _snapshot_grid(page)
+            metric_desc_visible_paths = _visible_grid_paths(page)
+
+            sort_dir_toggle = page.locator('button[aria-label="Toggle sort direction"]').first
+            sort_dir_toggle.click()
+            wait_for_sort_state(page, "metric", metric_sort_label, "asc")
+            page.wait_for_timeout(150)
+            metric_asc_visible_paths = _visible_grid_paths(page)
 
             select_sort_option(page, "Date added")
+            wait_for_sort_state(page, "builtin", "added", "asc")
             wait_for_metric_rail(page, active=False)
             builtin_restored = _snapshot_grid(page)
+
+            filter_metric_key = expected_metric_key or metric_sort_label
+            if metric_filter_min is not None or metric_filter_max is not None:
+                reload_with_state(
+                    page,
+                    {
+                        **base_payload,
+                        "selectedMetric": filter_metric_key,
+                        "filterAst": {
+                            "and": [
+                                {
+                                    "metricRange": {
+                                        "key": filter_metric_key,
+                                        "min": metric_filter_min if metric_filter_min is not None else -1e308,
+                                        "max": metric_filter_max if metric_filter_max is not None else 1e308,
+                                    }
+                                }
+                            ]
+                        },
+                    },
+                )
+                if baseline_counts is not None:
+                    wait_for_count_change(page, baseline_counts["label"])
+                filtered_counts = _read_toolbar_counts(page)
 
             context.close()
             browser.close()
@@ -908,6 +1111,19 @@ def run_grid_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float
         )
     if builtin_restored.get("persistedSortKind") != "builtin":
         violations.append("builtin_restored: expected persisted sort kind to return to builtin")
+    if metric_desc_visible_paths and metric_asc_visible_paths and metric_desc_visible_paths == metric_asc_visible_paths:
+        violations.append("metric sort direction toggle did not reorder visible items")
+    if baseline_counts is not None and filtered_counts is not None:
+        if filtered_counts["current"] >= baseline_counts["current"]:
+            violations.append(
+                "metric range filter did not reduce the visible item count "
+                f"({filtered_counts['label']} vs {baseline_counts['label']})"
+            )
+        if filtered_counts["current"] >= filtered_counts["total"]:
+            violations.append(
+                "metric range filter did not produce a filtered count label "
+                f"({filtered_counts['label']})"
+            )
 
     checks: dict[str, Any] = {
         "top_stack_deltas_px": top_stack_deltas,
@@ -918,6 +1134,12 @@ def run_grid_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float
         "metric_mode_snapshot": metric_mode,
         "builtin_restored_snapshot": builtin_restored,
         "metric_sort_label": metric_sort_label,
+        "metric_sort_labels": metric_sort_labels,
+        "metric_panel_keys": metric_panel_keys,
+        "metric_desc_visible_paths": metric_desc_visible_paths,
+        "metric_asc_visible_paths": metric_asc_visible_paths,
+        "baseline_counts": baseline_counts,
+        "filtered_counts": filtered_counts,
         "violations": violations,
     }
 
@@ -1226,7 +1448,15 @@ def main() -> int:
         if args.scenario == "toolbar":
             result = run_toolbar_probe(base_url, args.max_delta_px, args.browser_timeout_ms)
         elif args.scenario == "grid":
-            result = run_grid_probe(base_url, args.max_delta_px, args.browser_timeout_ms)
+            result = run_grid_probe(
+                base_url,
+                args.max_delta_px,
+                args.browser_timeout_ms,
+                expected_metric_key=args.expected_metric_key,
+                forbidden_metric_keys=list(args.forbid_metric_key),
+                metric_filter_min=args.metric_filter_min,
+                metric_filter_max=args.metric_filter_max,
+            )
         else:
             result = run_inspector_probe(base_url, args.max_delta_px, args.browser_timeout_ms)
 

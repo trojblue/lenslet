@@ -191,7 +191,19 @@ Sprint 2 completed checks on 2026-03-08:
 
 Observed outcome: table-backed recursive folder payloads above `10_000` now succeed in fixture coverage and on the real standalone parquet path, generic filesystem recursive traversal still returns `413` when exercised through `MemoryStorage`, `count_only` remains available for large filesystem folders, and the real parquet recursive payloads for `/` and `/pixai-aes-1.2-train-val-images` return `200` with `metricKeys` containing `quality_score` and excluding `__index_level_0__`.
 
-Overall acceptance is not met until the real parquet scenario can browse and expose `quality_score` for sort/filter without leaking `__index_level_0__` and without widening the local source boundary beyond the safe-root rules already in place.
+Sprint 3 completed checks on 2026-03-08:
+
+    cd frontend && npm run test -- --run src/app/__tests__/appShellSelectors.test.ts src/shared/ui/toolbar/__tests__/Toolbar.test.tsx src/features/metrics/components/__tests__/MetricRangePanel.test.tsx
+    pytest tests/test_playwright_large_tree_smoke.py -q
+    cd frontend && npm run build
+    rsync -a --delete frontend/dist/ src/lenslet/frontend/
+    python -u scripts/playwright_large_tree_smoke.py --source-path /local/yada/dev/aeslib/ongoing/11_retrain_old_scores_on_siglip2/outputs/vqr1_concat.parquet --scope-path /pixai-aes-1.2-train-val-images --metric-key quality_score --forbid-metric-key __index_level_0__ --output-json /tmp/parquet_metric_smoke.json
+    python scripts/gui_smoke_acceptance.py
+    python scripts/lint_repo.py
+
+Observed outcome: normal browse and non-similarity search metric discovery now read `FolderIndex.metricKeys` from the hydrated folder payload instead of scanning loaded browse items, similarity mode keeps its item-derived branch, the toolbar and metrics panel expose `quality_score` while excluding `__index_level_0__`, metric sort direction changes the top visible item on the real standalone parquet child scope, a `quality_score <= 4.5` range filter narrows `/pixai-aes-1.2-train-val-images` from `19,456` items to `7,194`, the packaged frontend bundle is rebuilt and synced into `src/lenslet/frontend/`, the broader GUI smoke acceptance pass stays green, and the reusable large-tree Playwright probe now has metric-flow coverage plus regression tests.
+
+Overall acceptance was met on 2026-03-08: the real parquet scenario now browses recursively, exposes `quality_score` for sort/filter without leaking `__index_level_0__`, and preserves the safe-root rules shipped in Sprint 2.
 
 
 ## Risks and Recovery
@@ -225,8 +237,11 @@ Idempotent retry strategy: after any failed sprint, restore a clean worktree, re
 - [x] 2026-03-08 08:09 UTC Completed T5 with a direct API probe against `/local/yada/dev/aeslib/ongoing/11_retrain_old_scores_on_siglip2/outputs/vqr1_concat.parquet`; `/folders?path=/&recursive=true` returned `200` with `42,270` items and `/folders?path=/pixai-aes-1.2-train-val-images&recursive=true` returned `200` with `19,456` items, both exposing `quality_score` and excluding `__index_level_0__`.
 - [x] 2026-03-08 08:09 UTC Ran Sprint 2 validation (`pytest tests/test_parquet_ingestion.py tests/test_folder_recursive.py -q`, direct real-parquet API probe, and `python scripts/lint_repo.py`); all checks passed and Sprint 2 is ready for the cleanup/review gate.
 - [x] 2026-03-08 08:09 UTC Completed the Sprint 2 cleanup/review gate with no additional code changes required; the narrowed diff already passed lint, diff-check, and regression validation without new blockers.
-- [ ] Next operator: keep the unrelated local `pyproject.toml` edit out of the next commit unless it is explicitly approved.
-- [ ] Next operator: start Sprint 3 in `frontend/src/lib/types.ts`, `frontend/src/api/folders.ts`, `frontend/src/app/hooks/useAppDataScope.ts`, `frontend/src/app/model/appShellSelectors.ts`, and `frontend/src/app/AppShell.tsx` by hard-cutting normal browse metric discovery over to `FolderIndex.metricKeys`.
+- [x] 2026-03-08 08:19 UTC Started Sprint 3 by locking the frontend browse contract to the backend payload: `FolderIndex.metricKeys` is now the only normal-browse metric schema, while similarity mode keeps an explicit item-derived branch.
+- [x] 2026-03-08 08:21 UTC Completed T6 in `frontend/src/lib/types.ts`, `frontend/src/app/hooks/useAppDataScope.ts`, `frontend/src/app/model/appShellSelectors.ts`, and `frontend/src/app/AppShell.tsx` by hard-cutting normal browse metric discovery to `FolderIndex.metricKeys`, accepting the plan-aligned assumption that non-similarity search should consume the same scope schema, and removing the old browse-item scanner from the app shell path.
+- [x] 2026-03-08 08:27 UTC Completed T7 by adding focused metric option visibility tests in `frontend/src/shared/ui/toolbar/__tests__/Toolbar.test.tsx` and `frontend/src/features/metrics/components/__tests__/MetricRangePanel.test.tsx`, extending `scripts/playwright_large_tree_smoke.py` plus `tests/test_playwright_large_tree_smoke.py` for the real standalone parquet metric flow, rebuilding `frontend/dist`, and syncing the packaged assets into `src/lenslet/frontend/`.
+- [x] 2026-03-08 08:32 UTC Ran Sprint 3 validation (`npm run test -- --run ...`, `pytest tests/test_playwright_large_tree_smoke.py -q`, `npm run build`, `rsync -a --delete frontend/dist/ src/lenslet/frontend/`, `python -u scripts/playwright_large_tree_smoke.py --source-path ...`, `python scripts/gui_smoke_acceptance.py`, `python scripts/lint_repo.py`, and `git diff --check`); all checks passed.
+- [x] 2026-03-08 08:32 UTC Completed the Sprint 3 cleanup/review gate with one small naming cleanup (`collectSimilarityMetricKeys`) and a targeted diff review with no remaining blockers. Sprint 3 and the full plan scope are closed.
 
 
 ## Artifacts and Handoff
@@ -279,10 +294,31 @@ Sprint 2 artifacts:
     regression coverage:
     `tests/test_parquet_ingestion.py` proves a `10,001`-item table-backed recursive folder succeeds, and `tests/test_folder_recursive.py` keeps the filesystem `413` guard pinned to explicit `MemoryStorage`.
 
+Sprint 3 artifacts:
+
+    frontend contract change:
+    `frontend/src/lib/types.ts` now requires `FolderIndex.metricKeys`, and `useAppDataScope` publishes that schema directly to the app shell instead of letting normal browse infer metric keys from currently loaded items.
+
+    normal-browse metric source:
+    `frontend/src/app/model/appShellSelectors.ts` now resolves browse/search metric keys from the folder payload while leaving similarity mode on a separate item-derived branch.
+
+    focused UI coverage:
+    `frontend/src/app/__tests__/appShellSelectors.test.ts`, `frontend/src/shared/ui/toolbar/__tests__/Toolbar.test.tsx`, `frontend/src/features/metrics/__tests__/MetricsPanel.test.tsx`, `frontend/src/features/metrics/components/__tests__/MetricRangePanel.test.tsx`, `frontend/src/app/__tests__/liveUpdateCachePatch.test.ts`, and `frontend/src/app/hooks/__tests__/useFolderSessionState.test.ts`.
+
+    real-parquet browser probe:
+    `scripts/gui_jitter_probe.py` now verifies the sort menu and metrics panel expose `quality_score`, confirms `__index_level_0__` stays hidden, checks metric sort direction changes visible items, and proves a metric range filter narrows the real standalone parquet root scope.
+
+    reusable large-tree probe extension:
+    `scripts/playwright_large_tree_smoke.py` now accepts explicit source/scope metric probes, and `tests/test_playwright_large_tree_smoke.py` covers the new scope URL and toolbar count helpers.
+
+    packaged frontend sync:
+    `frontend/dist/` was rebuilt with `npm run build` and synced into `src/lenslet/frontend/` via `rsync -a --delete frontend/dist/ src/lenslet/frontend/`.
+
 Handoff notes:
 
-Continue from the current worktree and keep unrelated edits out of the next diff unless they become intentionally relevant. Sprint 2 is closed; the next slice is Sprint 3 in the frontend browse path, with normal browse metric discovery hard-cut over to `FolderIndex.metricKeys` and the item-derived fallback removed. Treat the real parquet command above plus the sort/filter UI affordances on `/pixai-aes-1.2-train-val-images` as the primary acceptance target for the remaining sprint. Do not expand this work into pagination, search-mode contract changes, or large-folder session-cache redesign unless the primary UI path still fails after the metric contract cutover. When revising this document, add a short note at the bottom describing what changed and why.
+Plan scope is complete. The acceptance target for this document is satisfied on the real standalone parquet command above: recursive browse loads, `quality_score` is the explicit metric schema for sort/filter, `__index_level_0__` stays hidden, and metric sort/filter interactions work in the packaged UI. Future work should start from a new plan rather than extending this recovery document. Do not expand this work into pagination, search-mode contract redesign, or large-folder session-cache work unless a new plan explicitly reopens that scope. When revising this document, add a short note at the bottom describing what changed and why.
 
 Revision note, 2026-03-08: tightened the plan after review feedback to require explicit recursive acceptance checks, remove normal-browse fallback language, collapse browse-mode metric contract work into one hard-cutover task, narrow Sprint 2 to a table-only recursive-limit bypass, add stronger regression-test requirements, add Playwright-backed UI validation, and replace an unsafe worktree-cleanup instruction with a commit-scope instruction.
 Revision note, 2026-03-08 08:01 UTC: recorded Sprint 1 completion, documented the shipped `metricKeys` backend contract and parquet metric hygiene change, added the exact Sprint 1 validation commands/outcomes, and updated handoff notes to point the next operator at the table-only recursive-limit bypass in Sprint 2.
 Revision note, 2026-03-08 08:09 UTC: recorded Sprint 2 completion, documented the storage-owned recursive hard-limit override and the explicit filesystem/table regression split, replaced the old real-parquet `413` notes with the successful recursive API results, and updated handoff notes to point the next operator at the frontend metric contract cutover in Sprint 3.
+Revision note, 2026-03-08 08:31 UTC: recorded Sprint 3 completion, documented the frontend hard cutover to `FolderIndex.metricKeys`, added the targeted vitest coverage plus the reusable large-tree probe extension, captured the real-parquet Playwright probe counts, and closed the plan with acceptance satisfied and no review findings.

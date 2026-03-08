@@ -22,6 +22,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
+from urllib.parse import quote
 from urllib.request import urlopen
 
 from PIL import Image
@@ -72,6 +73,7 @@ class SmokeResult:
     gate_tier: str
     write_mode: bool
     dataset_dir: str
+    source_path: str
     total_images: int
     total_folders: int
     first_grid_visible_seconds: float
@@ -91,6 +93,14 @@ class SmokeResult:
     health_state: str
     indexing_done: int | None
     indexing_total: int | None
+    scope_path: str | None
+    metric_key: str | None
+    forbidden_metric_key: str | None
+    metric_sort_desc_top_path: str | None
+    metric_sort_asc_top_path: str | None
+    metric_filter_count_before: int | None
+    metric_filter_count_after: int | None
+    metric_filter_max: float | None
 
 
 def parse_args() -> argparse.Namespace:
@@ -100,6 +110,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Dataset fixture directory (defaults to selected baseline profile value).",
+    )
+    parser.add_argument(
+        "--source-path",
+        type=Path,
+        default=None,
+        help="Optional Lenslet source path override (for example a parquet file) to probe instead of the fixture dataset.",
     )
     parser.add_argument("--total-images", type=int, default=None, help="Total fixture images.")
     parser.add_argument("--total-folders", type=int, default=None, help="Total fixture folders.")
@@ -176,6 +192,21 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional path to write machine-readable smoke summary JSON.",
+    )
+    parser.add_argument(
+        "--scope-path",
+        default=None,
+        help="Optional scope path to open via hash routing before running browser checks.",
+    )
+    parser.add_argument(
+        "--metric-key",
+        default=None,
+        help="Optional metric key to verify in the sort menu and metrics panel.",
+    )
+    parser.add_argument(
+        "--forbid-metric-key",
+        default=None,
+        help="Optional metric key that must not appear in metric sort/filter controls.",
     )
     return resolve_args_with_baseline(parser.parse_args())
 
@@ -420,6 +451,124 @@ def _coerce_optional_int(value: Any) -> int | None:
     return _coerce_int(value)
 
 
+def normalize_scope_path(raw: str | None) -> str:
+    if raw is None or raw.strip() == "":
+        return "/"
+    normalized = raw.strip()
+    if not normalized.startswith("/"):
+        normalized = f"/{normalized}"
+    normalized = normalized.rstrip("/")
+    return normalized or "/"
+
+
+def scope_url(base_url: str, scope_path: str | None) -> str:
+    normalized = normalize_scope_path(scope_path)
+    if normalized == "/":
+        return base_url
+    return f"{base_url}#{quote(normalized, safe='/@._-')}"
+
+
+def parse_toolbar_count_label(raw: str) -> tuple[int, int | None]:
+    text = raw.strip()
+    if not text.endswith(" items"):
+        raise SmokeFailure(f"unexpected toolbar count label: {raw!r}")
+    body = text[: -len(" items")]
+    parts = [segment.strip() for segment in body.split("/", 1)]
+    try:
+        current = int(parts[0].replace(",", ""))
+    except ValueError as exc:
+        raise SmokeFailure(f"unexpected toolbar count label: {raw!r}") from exc
+    if len(parts) == 1:
+        return current, None
+    try:
+        total = int(parts[1].replace(",", ""))
+    except ValueError as exc:
+        raise SmokeFailure(f"unexpected toolbar count label: {raw!r}") from exc
+    return current, total
+
+
+def top_visible_grid_path(page: Any) -> str:
+    value = page.evaluate(
+        """() => {
+          const cells = Array.from(document.querySelectorAll('[role="gridcell"][id^="cell-"]'))
+            .map((el) => {
+              const rect = el.getBoundingClientRect();
+              const id = el.id || '';
+              const encodedPath = id.startsWith('cell-') ? id.slice(5) : '';
+              let path = '';
+              try {
+                path = encodedPath ? decodeURIComponent(encodedPath) : '';
+              } catch {
+                path = '';
+              }
+              return { path, top: rect.top, left: rect.left, bottom: rect.bottom };
+            })
+            .filter((entry) => entry.path && entry.bottom > 0 && entry.top < window.innerHeight);
+          cells.sort((a, b) => (a.top - b.top) || (a.left - b.left));
+          return cells.length ? cells[0].path : null;
+        }"""
+    )
+    if not value or not isinstance(value, str):
+        raise SmokeFailure("no visible gallery grid path found")
+    return value
+
+
+def wait_for_top_visible_grid_path_change(page: Any, previous_path: str, timeout_ms: float) -> str:
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    latest_path = previous_path
+    while time.monotonic() < deadline:
+        latest_path = top_visible_grid_path(page)
+        if latest_path != previous_path:
+            return latest_path
+        page.wait_for_timeout(120)
+    raise SmokeFailure(
+        f"timed out waiting for top visible grid path to change from {previous_path!r}; last={latest_path!r}"
+    )
+
+
+def read_toolbar_counts(page: Any) -> tuple[int, int | None]:
+    raw = page.locator(".toolbar-count").first.inner_text()
+    return parse_toolbar_count_label(raw)
+
+
+def resolve_metric_filter_max(page: Any, scope_path: str, metric_key: str) -> float:
+    payload = page.evaluate(
+        """async ({scopePath, metricKey}) => {
+          const params = new URLSearchParams({ path: scopePath, recursive: '1' });
+          const response = await fetch(`/folders?${params.toString()}`);
+          const body = await response.json();
+          if (!response.ok) {
+            return { ok: false, status: response.status, detail: body?.detail ?? null };
+          }
+          const metricKeys = Array.isArray(body?.metricKeys) ? body.metricKeys : [];
+          const values = Array.isArray(body?.items)
+            ? body.items
+                .map((item) => item?.metrics?.[metricKey])
+                .filter((value) => Number.isFinite(value))
+                .sort((a, b) => a - b)
+            : [];
+          return { ok: true, metricKeys, values };
+        }""",
+        {"scopePath": scope_path, "metricKey": metric_key},
+    )
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        raise SmokeFailure(
+            f"failed to resolve metric probe data for {metric_key!r} at {scope_path!r}: {payload!r}"
+        )
+    metric_keys = payload.get("metricKeys")
+    if not isinstance(metric_keys, list) or metric_key not in metric_keys:
+        raise SmokeFailure(f"metric key {metric_key!r} missing from recursive payload metricKeys")
+    values = payload.get("values")
+    if not isinstance(values, list) or len(values) < 2:
+        raise SmokeFailure(f"metric key {metric_key!r} did not produce enough values for filtering")
+    first = float(values[0])
+    last = float(values[-1])
+    if first == last:
+        raise SmokeFailure(f"metric key {metric_key!r} is constant across the scoped payload")
+    quantile_index = min(len(values) - 1, max(0, int((len(values) - 1) * 0.35)))
+    return float(values[quantile_index])
+
+
 def assert_request_budget_compliance(hotpath_snapshot: dict[str, Any] | None) -> tuple[dict[str, int], dict[str, int]]:
     if not isinstance(hotpath_snapshot, dict):
         raise SmokeFailure("hotpath telemetry is unavailable; cannot validate request-budget compliance")
@@ -485,12 +634,99 @@ def assert_responsiveness_thresholds(
         )
 
 
+def run_metric_controls_probe(
+    page: Any,
+    *,
+    scope_path: str,
+    metric_key: str,
+    forbidden_metric_key: str | None,
+    browser_timeout_ms: float,
+) -> dict[str, Any]:
+    sort_trigger = page.locator('button[aria-label="Sort and layout"]').first
+    if sort_trigger.is_disabled():
+        switch_button = page.get_by_role("button", name="Switch to Most recent").first
+        if switch_button.count() == 0:
+            raise SmokeFailure("sort controls are disabled and no switch-to-most-recent banner is available")
+        switch_button.click()
+        deadline = time.monotonic() + (browser_timeout_ms / 1000.0)
+        while time.monotonic() < deadline:
+            if not sort_trigger.is_disabled():
+                break
+            page.wait_for_timeout(120)
+        if sort_trigger.is_disabled():
+            raise SmokeFailure("sort controls stayed disabled after switching to most recent")
+    sort_trigger.click()
+    sort_menu = page.locator('[role="listbox"][aria-label="Sort and layout"]').first
+    sort_menu.wait_for(state="visible")
+    if forbidden_metric_key:
+        forbidden_count = sort_menu.get_by_role("menuitem", name=forbidden_metric_key).count()
+        if forbidden_count > 0:
+            raise SmokeFailure(f"forbidden metric key {forbidden_metric_key!r} leaked into sort controls")
+    metric_option = sort_menu.get_by_role("menuitem", name=metric_key).first
+    metric_option.wait_for(state="visible")
+    metric_option.click()
+    page.wait_for_timeout(250)
+    metric_sort_desc_top_path = top_visible_grid_path(page)
+
+    page.get_by_role("button", name="Toggle sort direction").first.click()
+    metric_sort_asc_top_path = wait_for_top_visible_grid_path_change(
+        page,
+        metric_sort_desc_top_path,
+        timeout_ms=browser_timeout_ms,
+    )
+
+    page.get_by_role("button", name="Metrics and Filters").first.click()
+    metric_select = page.locator(".app-left-panel select.ui-select").first
+    metric_option_locator = metric_select.locator(f'option[value="{metric_key}"]')
+    if metric_option_locator.count() == 0:
+        raise SmokeFailure(f"metric key {metric_key!r} is missing from the metrics panel selector")
+    if forbidden_metric_key:
+        forbidden_option_count = metric_select.locator(f'option[value="{forbidden_metric_key}"]').count()
+        if forbidden_option_count > 0:
+            raise SmokeFailure(f"forbidden metric key {forbidden_metric_key!r} leaked into the metrics panel")
+    metric_select.select_option(metric_key)
+
+    metric_filter_count_before, _ = read_toolbar_counts(page)
+    metric_filter_max = resolve_metric_filter_max(page, scope_path, metric_key)
+    metric_card = page.locator(".app-left-panel .ui-card").filter(
+        has=page.get_by_text("Population:")
+    ).first
+    metric_card.wait_for(state="visible")
+    max_input = metric_card.locator('input[type="number"]').nth(1)
+    max_input.fill(f"{metric_filter_max:.6g}")
+    max_input.press("Enter")
+
+    deadline = time.monotonic() + (browser_timeout_ms / 1000.0)
+    metric_filter_count_after = metric_filter_count_before
+    while time.monotonic() < deadline:
+        metric_filter_count_after, _ = read_toolbar_counts(page)
+        if metric_filter_count_after < metric_filter_count_before:
+            break
+        page.wait_for_timeout(120)
+    if metric_filter_count_after >= metric_filter_count_before:
+        raise SmokeFailure(
+            "metric range filter did not narrow the visible result count: "
+            f"before={metric_filter_count_before}, after={metric_filter_count_after}"
+        )
+
+    return {
+        "metric_sort_desc_top_path": metric_sort_desc_top_path,
+        "metric_sort_asc_top_path": metric_sort_asc_top_path,
+        "metric_filter_count_before": metric_filter_count_before,
+        "metric_filter_count_after": metric_filter_count_after,
+        "metric_filter_max": metric_filter_max,
+    }
+
+
 def run_playwright_probe(
     base_url: str,
     browser_timeout_ms: float,
     first_grid_threshold_seconds: float,
     interaction_seconds: float,
-) -> tuple[float, dict[str, float], dict[str, Any] | None, list[str], list[str]]:
+    scope_path: str,
+    metric_key: str | None,
+    forbidden_metric_key: str | None,
+) -> tuple[float, dict[str, float], dict[str, Any] | None, list[str], list[str], dict[str, Any] | None]:
     playwright_error, playwright_timeout_error, sync_playwright = _import_playwright()
     page_errors: list[str] = []
     console_errors: list[str] = []
@@ -509,7 +745,7 @@ def run_playwright_probe(
             )
 
             start = time.monotonic()
-            page.goto(base_url, wait_until="domcontentloaded")
+            page.goto(scope_url(base_url, scope_path), wait_until="domcontentloaded")
             page.get_by_role("grid", name="Gallery").wait_for(state="visible")
             try:
                 page.wait_for_selector(
@@ -615,13 +851,22 @@ def run_playwright_probe(
             hotpath_snapshot = probe_raw.get("hotpath")
             if not isinstance(hotpath_snapshot, dict):
                 hotpath_snapshot = None
+            metric_probe = None
+            if metric_key:
+                metric_probe = run_metric_controls_probe(
+                    page,
+                    scope_path=normalize_scope_path(scope_path),
+                    metric_key=metric_key,
+                    forbidden_metric_key=forbidden_metric_key,
+                    browser_timeout_ms=browser_timeout_ms,
+                )
 
             context.close()
             browser.close()
     except playwright_error as exc:
         raise SmokeFailure(f"playwright probe failed: {exc}") from exc
 
-    return first_grid_visible_seconds, probe_result, hotpath_snapshot, page_errors, console_errors
+    return first_grid_visible_seconds, probe_result, hotpath_snapshot, page_errors, console_errors, metric_probe
 
 
 def main() -> int:
@@ -631,16 +876,7 @@ def main() -> int:
         print(f"[smoke:error] {exc}")
         return 1
 
-    if args.total_images <= 0:
-        print("[smoke:error] --total-images must be > 0")
-        return 1
-    if args.total_folders <= 0:
-        print("[smoke:error] --total-folders must be > 0")
-        return 1
-    if args.total_folders > args.total_images:
-        print("[smoke:error] --total-folders cannot exceed --total-images for this fixture layout")
-        return 1
-
+    scope_path = normalize_scope_path(args.scope_path)
     fixture_spec = FixtureSpec(
         total_images=args.total_images,
         total_folders=args.total_folders,
@@ -649,7 +885,23 @@ def main() -> int:
         jpeg_quality=args.jpeg_quality,
     )
     dataset_dir = args.dataset_dir.resolve()
-    ensure_fixture(dataset_dir, fixture_spec, regenerate=args.regenerate_fixture)
+    if args.source_path is None:
+        if args.total_images <= 0:
+            print("[smoke:error] --total-images must be > 0")
+            return 1
+        if args.total_folders <= 0:
+            print("[smoke:error] --total-folders must be > 0")
+            return 1
+        if args.total_folders > args.total_images:
+            print("[smoke:error] --total-folders cannot exceed --total-images for this fixture layout")
+            return 1
+        ensure_fixture(dataset_dir, fixture_spec, regenerate=args.regenerate_fixture)
+        source_path = dataset_dir
+    else:
+        source_path = args.source_path.resolve()
+        if not source_path.exists():
+            print(f"[smoke:error] --source-path does not exist: {source_path}")
+            return 1
 
     port = choose_port(args.host, args.port)
     base_url = f"http://{args.host}:{port}"
@@ -657,7 +909,7 @@ def main() -> int:
         sys.executable,
         "-m",
         "lenslet.cli",
-        str(dataset_dir),
+        str(source_path),
         "--host",
         args.host,
         "--port",
@@ -667,7 +919,7 @@ def main() -> int:
         command.append("--no-write")
     print(
         f"[smoke] baseline={args.baseline_profile} tier={args.baseline_gate_tier} "
-        f"write_mode={args.write_mode} dataset={dataset_dir}"
+        f"write_mode={args.write_mode} source={source_path}"
     )
     if args.baseline_expectations:
         print(f"[smoke] baseline expectation: {args.baseline_expectations}")
@@ -678,11 +930,14 @@ def main() -> int:
         health_payload = wait_for_health(base_url, args.health_timeout_seconds)
         print(f"[smoke] /health reachable, indexing state={health_payload.get('indexing', {}).get('state')}")
 
-        first_visible, probe_result, hotpath_snapshot, page_errors, console_errors = run_playwright_probe(
+        first_visible, probe_result, hotpath_snapshot, page_errors, console_errors, metric_probe = run_playwright_probe(
             base_url=base_url,
             browser_timeout_ms=args.browser_timeout_ms,
             first_grid_threshold_seconds=args.first_grid_threshold_seconds,
             interaction_seconds=args.interaction_seconds,
+            scope_path=scope_path,
+            metric_key=args.metric_key,
+            forbidden_metric_key=args.forbid_metric_key,
         )
         request_budget_limits, request_budget_peaks = assert_request_budget_compliance(hotpath_snapshot)
         first_grid_hotpath_latency_ms = _coerce_optional_int(
@@ -710,6 +965,7 @@ def main() -> int:
             gate_tier=args.baseline_gate_tier,
             write_mode=bool(args.write_mode),
             dataset_dir=str(dataset_dir),
+            source_path=str(source_path),
             total_images=args.total_images,
             total_folders=args.total_folders,
             first_grid_visible_seconds=first_visible,
@@ -729,6 +985,30 @@ def main() -> int:
             health_state=str(indexing.get("state", "unknown")),
             indexing_done=indexing.get("done"),
             indexing_total=indexing.get("total"),
+            scope_path=scope_path if scope_path != "/" else None,
+            metric_key=args.metric_key,
+            forbidden_metric_key=args.forbid_metric_key,
+            metric_sort_desc_top_path=(
+                str(metric_probe.get("metric_sort_desc_top_path")) if isinstance(metric_probe, dict) else None
+            ),
+            metric_sort_asc_top_path=(
+                str(metric_probe.get("metric_sort_asc_top_path")) if isinstance(metric_probe, dict) else None
+            ),
+            metric_filter_count_before=(
+                _coerce_optional_int(metric_probe.get("metric_filter_count_before"))
+                if isinstance(metric_probe, dict)
+                else None
+            ),
+            metric_filter_count_after=(
+                _coerce_optional_int(metric_probe.get("metric_filter_count_after"))
+                if isinstance(metric_probe, dict)
+                else None
+            ),
+            metric_filter_max=(
+                float(metric_probe.get("metric_filter_max"))
+                if isinstance(metric_probe, dict) and metric_probe.get("metric_filter_max") is not None
+                else None
+            ),
         )
 
         print(
@@ -738,6 +1018,14 @@ def main() -> int:
             f"max-frame-gap={result.max_frame_gap_ms:.1f}ms, peaks={result.request_budget_peak_inflight}, "
             f"frames={result.sampled_frames}"
         )
+        if result.metric_key:
+            print(
+                "[smoke] metric-flow: "
+                f"key={result.metric_key} desc-top={result.metric_sort_desc_top_path} "
+                f"asc-top={result.metric_sort_asc_top_path} "
+                f"count={result.metric_filter_count_before}->{result.metric_filter_count_after} "
+                f"max={result.metric_filter_max}"
+            )
         if page_errors:
             print("[smoke:warn] page errors observed:")
             for message in page_errors:

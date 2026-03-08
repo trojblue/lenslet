@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { Item } from '../../lib/types'
 import {
   buildStarCounts,
-  collectMetricKeys,
   getDisplayItemCount,
   getDisplayTotalCount,
   getSimilarityCountLabel,
   getSimilarityQueryLabel,
   hasMetricSortValues,
+  resolveMetricKeys,
 } from '../model/appShellSelectors'
 
 function makeItem(path: string, options?: { star?: Item['star']; metrics?: Item['metrics'] }): Item {
@@ -60,29 +60,30 @@ describe('appShellSelectors', () => {
     })
   })
 
-  it('collects sorted metric keys and stops scanning when the limit is reached with keys present', () => {
-    const items = Array.from({ length: 300 }, (_, index) => {
-      if (index === 0) {
-        return makeItem(`/item-${index}.jpg`, { metrics: { score: 1, quality: 2 } })
-      }
-      if (index === 299) {
-        return makeItem(`/item-${index}.jpg`, { metrics: { lateKey: 3 } })
-      }
-      return makeItem(`/item-${index}.jpg`)
-    })
+  it('uses folder payload metric keys for normal browse and search mode', () => {
+    const items = [
+      makeItem('/a.jpg', { metrics: { score: 1 } }),
+      makeItem('/b.jpg'),
+    ]
 
-    expect(collectMetricKeys(items)).toEqual(['quality', 'score'])
+    expect(resolveMetricKeys(['quality_score', 'score'], false, items)).toEqual([
+      'quality_score',
+      'score',
+    ])
   })
 
-  it('continues scanning past the limit when no metric keys have been found yet', () => {
-    const items = Array.from({ length: 300 }, (_, index) => {
-      if (index === 260) {
+  it('derives sorted metric keys from similarity items only when similarity mode is active', () => {
+    const items = Array.from({ length: 40 }, (_, index) => {
+      if (index === 0) {
         return makeItem(`/item-${index}.jpg`, { metrics: { score: 1 } })
+      }
+      if (index === 1) {
+        return makeItem(`/item-${index}.jpg`, { metrics: { quality: 2 } })
       }
       return makeItem(`/item-${index}.jpg`)
     })
 
-    expect(collectMetricKeys(items)).toEqual(['score'])
+    expect(resolveMetricKeys(['folder_only'], true, items)).toEqual(['quality', 'score'])
   })
 
   it('formats display counts for similarity and standard browsing modes', () => {

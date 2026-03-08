@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -59,6 +59,7 @@ class Sidecar(BaseModel):
     version: int = 1
     updated_at: str = ""
     updated_by: str = "server"
+    table_fields: dict[str, Any] | None = None
 
 
 class SidecarPatch(BaseModel):

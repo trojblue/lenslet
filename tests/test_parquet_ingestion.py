@@ -81,6 +81,29 @@ def test_parquet_folder_payload_exposes_sorted_metric_keys(tmp_path: Path):
     )
 
 
+def test_parquet_item_payload_exposes_non_metric_row_fields(tmp_path: Path):
+    root = tmp_path
+    img = root / "a.jpg"
+    _make_image(img)
+
+    _write_parquet(root / "items.parquet", {
+        "path": ["a.jpg"],
+        "quality_score": [0.75],
+        "image_id": [123],
+        "score_reasoning": ["high detail and consistent composition"],
+        "__index_level_0__": [7],
+    })
+
+    client = TestClient(create_app(str(root)))
+
+    payload = client.get("/item", params={"path": "/a.jpg"}).json()
+
+    assert payload["table_fields"] == {
+        "image_id": 123,
+        "score_reasoning": "high detail and consistent composition",
+    }
+
+
 def test_table_recursive_large_listing_bypasses_generic_hard_limit() -> None:
     rows = [
         {

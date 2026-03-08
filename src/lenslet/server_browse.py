@@ -34,7 +34,17 @@ def _ensure_image(storage, path: str) -> None:
 
 def _build_sidecar(storage, path: str) -> Sidecar:
     meta = storage.get_metadata(path)
-    return _sidecar_from_meta(meta)
+    return _build_sidecar_from_meta(storage, path, meta)
+
+
+def _build_sidecar_from_meta(storage, path: str, meta: dict) -> Sidecar:
+    sidecar = _sidecar_from_meta(meta)
+    table_fields_for_path = getattr(storage, "table_fields_for_path", None)
+    if callable(table_fields_for_path):
+        table_fields = table_fields_for_path(path)
+        if isinstance(table_fields, dict) and table_fields:
+            sidecar.table_fields = table_fields
+    return sidecar
 
 
 def _build_image_metadata(storage, path: str) -> ImageMetadataResponse:

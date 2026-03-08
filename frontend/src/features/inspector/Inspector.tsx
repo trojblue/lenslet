@@ -596,6 +596,7 @@ export default function Inspector({
       metricsExpanded,
       onToggleMetricsExpanded: toggleMetricsExpanded,
       metricsPreviewLimit: METRICS_PREVIEW_LIMIT,
+      tableFields: data?.table_fields ?? null,
       onFindSimilar,
       canFindSimilar,
       findSimilarDisabledReason,

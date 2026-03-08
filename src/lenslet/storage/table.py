@@ -24,6 +24,7 @@ from .table_facade import (
 )
 from .table_index import (
     build_table_indexes,
+    extract_row_display_fields,
     extract_row_metrics,
     extract_row_metrics_map,
 )
@@ -397,6 +398,9 @@ class TableStorage:
     def _extract_metrics_map(self, row_idx: int) -> dict[str, float]:
         return extract_row_metrics_map(self, row_idx)
 
+    def _extract_display_fields(self, row_idx: int) -> dict[str, Any]:
+        return extract_row_display_fields(self, row_idx)
+
     def _resolve_local_source(self, source: str) -> str:
         return resolve_local_source(
             source,
@@ -517,6 +521,12 @@ class TableStorage:
 
     def path_for_row_index(self, index: int) -> str | None:
         return self._row_to_path.get(index)
+
+    def table_fields_for_path(self, path: str) -> dict[str, Any]:
+        row_idx = self.row_index_for_path(path)
+        if row_idx is None:
+            return {}
+        return self._extract_display_fields(row_idx)
 
     def row_index_map(self) -> dict[int, str]:
         return dict(self._row_to_path)

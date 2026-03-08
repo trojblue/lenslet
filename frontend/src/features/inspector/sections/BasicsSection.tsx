@@ -35,6 +35,7 @@ interface BasicsSectionProps {
   metricsExpanded: boolean
   onToggleMetricsExpanded: () => void
   metricsPreviewLimit: number
+  tableFields?: Record<string, unknown> | null
   sortableId?: InspectorWidgetId
   sortableEnabled?: boolean
 }
@@ -52,6 +53,35 @@ function CopyableInfoValue({ copied, value, className = '', title }: CopyableInf
       <span className={copied ? 'invisible block' : 'block'}>{value}</span>
       {copied && <span className="absolute inset-0 text-left">Copied</span>}
     </span>
+  )
+}
+
+function renderTableFieldValue(value: unknown): JSX.Element {
+  if (typeof value === 'string') {
+    if (value.includes('\n')) {
+      return (
+        <pre className="ui-code-block mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed font-sans">
+          {value}
+        </pre>
+      )
+    }
+    return <span className="ui-kv-value flex-1 text-left break-words">{value}</span>
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return <span className="ui-kv-value flex-1 text-left break-words">{String(value)}</span>
+  }
+
+  let text = ''
+  try {
+    text = JSON.stringify(value, null, 2) ?? ''
+  } catch {
+    text = String(value)
+  }
+  return (
+    <pre className="ui-code-block mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed font-sans">
+      {text}
+    </pre>
   )
 }
 
@@ -75,6 +105,7 @@ export function BasicsSection({
   metricsExpanded,
   onToggleMetricsExpanded,
   metricsPreviewLimit,
+  tableFields,
   sortableId,
   sortableEnabled = false,
 }: BasicsSectionProps): JSX.Element {
@@ -228,6 +259,38 @@ export function BasicsSection({
                   )}
                 </div>
               </div>
+            )
+          })()}
+          {(() => {
+            const entries = tableFields ? Object.entries(tableFields) : []
+            if (!entries.length) return null
+            return (
+              <details className="mt-3">
+                <summary className="cursor-pointer select-none text-[11px] text-muted hover:text-text">
+                  Other table fields ({entries.length})
+                </summary>
+                <div className="mt-2 space-y-2 rounded-lg border border-border/60 bg-surface/30 p-2">
+                  {entries.map(([key, value]) => {
+                    const inlineValue = typeof value === 'string'
+                      ? !value.includes('\n')
+                      : (typeof value === 'number' || typeof value === 'boolean')
+                    if (inlineValue) {
+                      return (
+                        <div key={key} className="ui-kv-row justify-start">
+                          <span className="w-24 shrink-0 ui-kv-label">{key}</span>
+                          {renderTableFieldValue(value)}
+                        </div>
+                      )
+                    }
+                    return (
+                      <div key={key} className="space-y-1">
+                        <div className="ui-kv-label">{key}</div>
+                        {renderTableFieldValue(value)}
+                      </div>
+                    )
+                  })}
+                </div>
+              </details>
             )
           })()}
         </div>

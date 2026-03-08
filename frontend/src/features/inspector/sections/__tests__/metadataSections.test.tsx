@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { buildJsonRenderNode, type CompareMetadataMatrixResult } from '../../model/metadataCompare'
+import { BasicsSection } from '../BasicsSection'
 import { CompareMetadataSection } from '../CompareMetadataSection'
 import { MetadataSection } from '../MetadataSection'
 import { OverviewSection } from '../OverviewSection'
@@ -210,6 +211,48 @@ describe('inspector metadata section rendering', () => {
     expect(html).toContain('&quot;prompt&quot;')
     expect(html).toContain('&quot;score&quot;')
     expect(html).toContain('Copy')
+  })
+
+  it('renders extra table fields behind a closed disclosure in basics', () => {
+    const html = renderToStaticMarkup(
+      <BasicsSection
+        open
+        onToggle={noop}
+        multi={false}
+        onFindSimilar={noop}
+        canFindSimilar
+        findSimilarDisabledReason={null}
+        star={null}
+        onSelectStar={noop}
+        hasStarConflict={false}
+        onApplyConflict={noop}
+        onKeepTheirs={noop}
+        currentItem={{
+          path: '/images/a.jpg',
+          size: 2048,
+          w: 512,
+          h: 512,
+          type: 'image/jpeg',
+          source: '/images/a.jpg',
+          metrics: { quality_score: 0.82 },
+        }}
+        sourceValue="/images/a.jpg"
+        copiedField={null}
+        onCopyInfo={noop}
+        metricsExpanded={false}
+        onToggleMetricsExpanded={noop}
+        metricsPreviewLimit={12}
+        tableFields={{
+          image_id: 123,
+          score_reasoning: 'strong detail retention across the frame',
+        }}
+      />,
+    )
+
+    expect(html).toContain('Other table fields (2)')
+    expect(html).not.toContain('<details open')
+    expect(html).toContain('score_reasoning')
+    expect(html).toContain('strong detail retention across the frame')
   })
 
   it('renders quick view rows with copy feedback and collapsed custom path controls', () => {

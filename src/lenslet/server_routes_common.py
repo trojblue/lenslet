@@ -21,6 +21,7 @@ from .server_browse import (
     _build_folder_index,
     _build_image_metadata,
     _build_sidecar,
+    _build_sidecar_from_meta,
     _ensure_image,
     _search_results,
     _storage_from_request,
@@ -572,7 +573,7 @@ def _update_item(
     *,
     ensure_meta_fields: Callable[[dict], dict],
     now_iso: Callable[[], str],
-    sidecar_from_meta: Callable[[dict], Sidecar],
+    sidecar_from_meta: Callable[[Any, str, dict], Sidecar],
 ) -> Sidecar:
     meta = storage.get_metadata(path)
     meta = ensure_meta_fields(meta)
@@ -583,7 +584,7 @@ def _update_item(
     meta["updated_at"] = now_iso()
     meta["updated_by"] = updated_by
     storage.set_metadata(path, meta)
-    return sidecar_from_meta(meta)
+    return sidecar_from_meta(storage, path, meta)
 
 
 def register_folder_route(
@@ -784,7 +785,7 @@ def register_common_api_routes(
                 updated_by,
                 ensure_meta_fields=_ensure_meta_fields,
                 now_iso=_now_iso,
-                sidecar_from_meta=_sidecar_from_meta,
+                sidecar_from_meta=_build_sidecar_from_meta,
             )
             meta_snapshot = dict(storage.get_metadata(path))
         record_update(path, meta_snapshot)
@@ -829,7 +830,7 @@ def register_common_api_routes(
             meta = storage.get_metadata(path)
             meta = _ensure_meta_fields(meta)
             if expected is not None and expected != meta.get("version", 1):
-                current = _sidecar_from_meta(meta).model_dump()
+                current = _build_sidecar_from_meta(storage, path, meta).model_dump()
                 payload = {"error": "version_conflict", "current": current}
                 idempotency_cache.set(idem_key, 409, payload)
                 return JSONResponse(status_code=409, content=payload)
@@ -847,7 +848,7 @@ def register_common_api_routes(
             if client_id:
                 gallery_id = _gallery_id_from_path(path)
                 touch_presence_edit(presence, broker, gallery_id, client_id)
-        sidecar = _sidecar_from_meta(meta_snapshot).model_dump()
+        sidecar = _build_sidecar_from_meta(storage, path, meta_snapshot).model_dump()
         idempotency_cache.set(idem_key, 200, sidecar)
         return JSONResponse(status_code=200, content=sidecar)
 

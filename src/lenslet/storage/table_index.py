@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -137,6 +138,113 @@ def collect_metric_columns(storage: Any, none_values: list[Any]) -> tuple[tuple[
             continue
         metric_columns.append((column, storage._data.get(column, none_values)))
     return tuple(metric_columns)
+
+
+def _duplicate_display_columns(storage: Any) -> set[str]:
+    return {
+        column
+        for column in (
+            storage._source_column,
+            storage._path_column,
+            storage._name_column,
+            storage._mime_column,
+            storage._width_column,
+            storage._height_column,
+            storage._size_column,
+            storage._mtime_column,
+        )
+        if column
+    }
+
+
+def _normalize_display_value(value: Any, *, depth: int = 0) -> Any | None:
+    if depth > 8 or value is None:
+        return None
+
+    as_py = getattr(value, "as_py", None)
+    if callable(as_py):
+        try:
+            converted = as_py()
+        except Exception:
+            converted = value
+        if converted is not value:
+            return _normalize_display_value(converted, depth=depth + 1)
+
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            converted = item()
+        except Exception:
+            converted = value
+        if converted is not value:
+            return _normalize_display_value(converted, depth=depth + 1)
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        return value
+    if isinstance(value, str):
+        return value if value.strip() else None
+    if isinstance(value, os.PathLike):
+        return os.fspath(value)
+    if isinstance(value, bytes):
+        try:
+            text = value.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        return text if text.strip() else None
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for raw_key, raw_value in value.items():
+            display_value = _normalize_display_value(raw_value, depth=depth + 1)
+            if display_value is None:
+                continue
+            normalized[str(raw_key)] = display_value
+        return normalized or None
+    if isinstance(value, (list, tuple, set)):
+        normalized_items = []
+        for entry in value:
+            display_value = _normalize_display_value(entry, depth=depth + 1)
+            if display_value is None:
+                continue
+            normalized_items.append(display_value)
+        return normalized_items or None
+
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        try:
+            text = isoformat()
+        except Exception:
+            text = None
+        if isinstance(text, str) and text.strip():
+            return text
+
+    text = str(value)
+    if not text.strip() or text in {"<NA>", "NaT"}:
+        return None
+    return text
+
+
+def _normalize_metrics_display_value(storage: Any, value: Any) -> Any | None:
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for raw_key, raw_value in value.items():
+            if _is_internal_metric_key(raw_key):
+                continue
+            if storage._coerce_float(raw_value) is not None:
+                continue
+            display_value = _normalize_display_value(raw_value, depth=1)
+            if display_value is None:
+                continue
+            normalized[str(raw_key)] = display_value
+        return normalized or None
+    if storage._coerce_float(value) is not None:
+        return None
+    return _normalize_display_value(value)
 
 
 def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[..., Any]) -> ScanResult:
@@ -451,3 +559,32 @@ def extract_row_metrics_map(storage: Any, row_idx: int) -> dict[str, float]:
             continue
         result[str(key)] = num
     return result
+
+
+def extract_row_display_fields(storage: Any, row_idx: int) -> dict[str, Any]:
+    none_values: list[Any] = [None] * storage._row_count
+    metric_columns = {
+        column
+        for column, _values in collect_metric_columns(storage, none_values)
+    }
+    duplicate_columns = _duplicate_display_columns(storage)
+
+    display_fields: dict[str, Any] = {}
+    for column in storage._columns:
+        if _is_internal_metric_key(column):
+            continue
+        if column in duplicate_columns:
+            continue
+
+        raw_value = storage._data.get(column, none_values)[row_idx]
+        if column == storage._metrics_column:
+            display_value = _normalize_metrics_display_value(storage, raw_value)
+        else:
+            if column in metric_columns and storage._coerce_float(raw_value) is not None:
+                continue
+            display_value = _normalize_display_value(raw_value)
+        if display_value is None:
+            continue
+        display_fields[column] = display_value
+
+    return display_fields

@@ -51,6 +51,7 @@ export type Sidecar = {
   version: number
   updated_at: string
   updated_by: string
+  table_fields?: Record<string, unknown> | null
 }
 
 export type SidecarPatch = {

@@ -5,7 +5,8 @@ import pyarrow.parquet as pq
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from lenslet.server import create_app
+from lenslet.cli import _prepare_table_cache
+from lenslet.server import create_app, create_app_from_storage
 
 
 def _make_image(path: Path) -> None:
@@ -84,3 +85,37 @@ def test_views_persist(tmp_path: Path):
     saved = client.get("/views")
     assert saved.status_code == 200
     assert saved.json()["views"][0]["id"] == "demo"
+
+
+def test_standalone_parquet_auto_detects_safe_absolute_source_root(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    dataset = tmp_path / "dataset"
+    outputs.mkdir(parents=True, exist_ok=True)
+
+    img_a = dataset / "a.jpg"
+    img_b = dataset / "b.jpg"
+    _make_image(img_a)
+    _make_image(img_b)
+
+    parquet_path = outputs / "items.parquet"
+    _write_parquet(parquet_path, {
+        "path": [str(img_a), str(img_b)],
+        "quality_score": [0.9, 0.4],
+    })
+
+    storage = _prepare_table_cache(
+        parquet_path=parquet_path,
+        base_dir=None,
+        source_column=None,
+        cache_wh=False,
+        skip_indexing=True,
+        auto_detect_root=True,
+    )
+
+    assert storage.root == str(dataset)
+    assert len(storage._items) == 2
+
+    client = TestClient(create_app_from_storage(storage))
+    health = client.get("/health")
+    assert health.status_code == 200
+    assert health.json()["total_images"] == 2

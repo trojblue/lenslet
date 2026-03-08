@@ -196,6 +196,32 @@ def test_absolute_local_source_outside_root_is_blocked(tmp_path: Path) -> None:
     assert "outside.jpg" not in storage._items
 
 
+def test_absolute_local_source_outside_root_reports_boundary(tmp_path: Path, capsys) -> None:
+    outside = tmp_path.parent / "outside-reported.jpg"
+    _make_image(outside)
+
+    TableStorage(
+        [
+            {
+                "source": str(outside),
+                "path": "outside-reported.jpg",
+                "size": int(outside.stat().st_size),
+                "mtime": float(outside.stat().st_mtime),
+                "width": 12,
+                "height": 9,
+            }
+        ],
+        root=str(tmp_path),
+        source_column="source",
+        path_column="path",
+        skip_indexing=True,
+    )
+
+    captured = capsys.readouterr()
+    assert "outside base_dir boundary" in captured.out
+    assert str(tmp_path) in captured.out
+
+
 def test_skip_local_realpath_validation_blocks_absolute_escape(tmp_path: Path) -> None:
     outside = tmp_path.parent / "outside-lexical.jpg"
     _make_image(outside)

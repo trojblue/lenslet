@@ -757,14 +757,14 @@ def _main_browse(argv: list[str] | None = None) -> None:
             indexing_listener=indexing_reporter.handle_update,
         )
     elif is_table_file:
-        base_dir = args.base_dir or str(target.parent)
         storage = _prepare_table_cache(
             parquet_path=target,
-            base_dir=base_dir,
+            base_dir=args.base_dir,
             source_column=args.source_column,
             cache_wh=args.cache_wh,
             skip_indexing=args.skip_indexing,
             embedding_config=embedding_config,
+            auto_detect_root=True,
         )
         if args.no_write:
             workspace = Workspace.for_temp_dataset(str(target))
@@ -850,12 +850,13 @@ def _main_browse(argv: list[str] | None = None) -> None:
 
 def _prepare_table_cache(
     parquet_path: Path,
-    base_dir: str,
+    base_dir: str | None,
     source_column: str | None,
     cache_wh: bool,
     skip_indexing: bool,
     quiet: bool = False,
     embedding_config=None,
+    auto_detect_root: bool = False,
 ) -> TableStorage:
     from .storage.table import TableStorage, load_parquet_table
     columns = None
@@ -880,9 +881,19 @@ def _prepare_table_cache(
         if not quiet:
             print("[lenslet] cache-wh enabled; missing width/height -> indexing to populate cache.")
 
+    effective_root = _resolve_table_root(
+        parquet_path=parquet_path,
+        table=table,
+        source_column=source_column,
+        base_dir=base_dir,
+        auto_detect_root=auto_detect_root,
+    )
+    if auto_detect_root and effective_root and effective_root != base_dir and not quiet:
+        print(f"[lenslet] Auto-detected local source root: {effective_root}")
+
     storage = TableStorage(
         table=table,
-        root=base_dir,
+        root=effective_root,
         source_column=source_column,
         skip_indexing=effective_skip,
     )
@@ -899,6 +910,87 @@ def _prepare_table_cache(
             print(f"[lenslet] Cached width/height into {parquet_path}")
 
     return storage
+
+
+def _resolve_table_root(
+    *,
+    parquet_path: Path,
+    table,
+    source_column: str | None,
+    base_dir: str | None,
+    auto_detect_root: bool,
+) -> str | None:
+    if base_dir:
+        return os.path.abspath(base_dir)
+
+    default_root = os.path.abspath(str(parquet_path.parent))
+    if not auto_detect_root:
+        return default_root
+
+    detected_source = source_column or _detect_source_column(str(parquet_path), default_root)
+    if not detected_source:
+        return default_root
+
+    absolute_local_sources, has_relative_local_sources = _local_source_layout(table, detected_source)
+    if not absolute_local_sources or has_relative_local_sources:
+        return default_root
+
+    if all(_path_is_within_root(source, default_root) for source in absolute_local_sources):
+        return default_root
+
+    try:
+        common_root = os.path.commonpath(absolute_local_sources)
+    except ValueError:
+        return default_root
+
+    common_root = os.path.abspath(common_root)
+    if not common_root or common_root == os.path.sep:
+        return default_root
+    if not _is_safe_auto_root(common_root):
+        return default_root
+    return common_root
+
+
+def _local_source_layout(table, column_name: str) -> tuple[list[str], bool]:
+    try:
+        values = table[column_name].to_pylist()
+    except Exception:
+        return [], False
+
+    absolute_local_sources: list[str] = []
+    has_relative_local_sources = False
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, float) and math.isnan(value):
+            continue
+        if isinstance(value, os.PathLike):
+            value = os.fspath(value)
+        if not isinstance(value, str):
+            continue
+        candidate = value.strip()
+        if not candidate:
+            continue
+        if candidate.startswith("s3://") or candidate.startswith("http://") or candidate.startswith("https://"):
+            continue
+        if os.path.isabs(candidate):
+            absolute_local_sources.append(os.path.abspath(candidate))
+            continue
+        has_relative_local_sources = True
+
+    return absolute_local_sources, has_relative_local_sources
+
+
+def _path_is_within_root(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath([root, path]) == root
+    except ValueError:
+        return False
+
+
+def _is_safe_auto_root(root: str) -> bool:
+    segments = [segment for segment in Path(root).parts if segment not in {"", os.path.sep}]
+    return len(segments) >= 2
 
 
 def _find_column_name(table, target: str) -> str | None:

@@ -35,7 +35,9 @@ class ScannedRow:
 class ScanResult:
     rows: list[ScannedRow]
     remote_tasks: list[tuple[str, Any, str, str]]
-    skipped_local: int
+    skipped_local_disabled: int
+    skipped_local_outside_root: int
+    skipped_local_missing: int
 
 
 class ProgressTicker:
@@ -71,8 +73,16 @@ def build_table_indexes(
 
     if scan.remote_tasks:
         storage._probe_remote_dimensions(scan.remote_tasks)
-    if scan.skipped_local:
-        print(f"[lenslet] Skipped {scan.skipped_local} local path(s) (local sources disabled or invalid).")
+    if scan.skipped_local_disabled:
+        print(f"[lenslet] Skipped {scan.skipped_local_disabled} local path(s): local sources are disabled.")
+    if scan.skipped_local_outside_root:
+        boundary = storage.root or "(unset)"
+        print(
+            f"[lenslet] Skipped {scan.skipped_local_outside_root} local path(s) outside "
+            f"base_dir boundary: {boundary}"
+        )
+    if scan.skipped_local_missing:
+        print(f"[lenslet] Skipped {scan.skipped_local_missing} missing local path(s).")
 
 
 def build_index_columns(storage: Any) -> IndexColumns:
@@ -125,7 +135,9 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
     seen_paths: set[str] = set()
     rows: list[ScannedRow] = []
     remote_tasks: list[tuple[str, Any, str, str]] = []
-    skipped_local = 0
+    skipped_local_disabled = 0
+    skipped_local_outside_root = 0
+    skipped_local_missing = 0
 
     progress = ProgressTicker(
         total=row_count,
@@ -229,7 +241,7 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
 
         if is_local:
             if not allow_local:
-                skipped_local += 1
+                skipped_local_disabled += 1
                 progress.step()
                 continue
             try:
@@ -238,11 +250,11 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
                 else:
                     resolved_local_source = resolve_local_source(source)
             except ValueError:
-                skipped_local += 1
+                skipped_local_outside_root += 1
                 progress.step()
                 continue
             if (not skip_local_realpath_validation) and (not os.path.exists(resolved_local_source)):
-                print(f"[lenslet] Warning: File not found: {resolved_local_source}")
+                skipped_local_missing += 1
                 progress.step()
                 continue
             if size is None:
@@ -336,7 +348,13 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
         progress.step()
 
     progress.finish()
-    return ScanResult(rows=rows, remote_tasks=remote_tasks, skipped_local=skipped_local)
+    return ScanResult(
+        rows=rows,
+        remote_tasks=remote_tasks,
+        skipped_local_disabled=skipped_local_disabled,
+        skipped_local_outside_root=skipped_local_outside_root,
+        skipped_local_missing=skipped_local_missing,
+    )
 
 
 def assemble_indexes(

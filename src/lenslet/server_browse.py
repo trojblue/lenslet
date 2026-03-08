@@ -208,6 +208,25 @@ def _raise_recursive_items_limit() -> None:
     )
 
 
+def _recursive_items_hard_limit(storage) -> int | None:
+    getter = getattr(storage, "recursive_items_hard_limit", None)
+    if not callable(getter):
+        return RECURSIVE_ITEMS_HARD_LIMIT
+    try:
+        limit = getter()
+    except Exception:
+        return RECURSIVE_ITEMS_HARD_LIMIT
+    if limit is None:
+        return None
+    try:
+        parsed_limit = int(limit)
+    except (TypeError, ValueError):
+        return RECURSIVE_ITEMS_HARD_LIMIT
+    if parsed_limit <= 0:
+        return None
+    return parsed_limit
+
+
 
 
 def _collect_recursive_cached_items(
@@ -362,6 +381,7 @@ def _load_or_build_recursive_snapshots(
 ) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
     generation_token = _recursive_cache_generation_token(storage)
     recursive_index = _recursive_index_getter(storage)
+    max_items = _recursive_items_hard_limit(storage)
     for _attempt in range(RECURSIVE_CACHE_BUILD_MAX_RETRIES):
         cached_window = browse_cache.load(canonical_path, sort_mode, generation_token)
         if cached_window is not None:
@@ -381,7 +401,7 @@ def _load_or_build_recursive_snapshots(
             storage,
             canonical_path,
             root_index,
-            max_items=RECURSIVE_ITEMS_HARD_LIMIT,
+            max_items=max_items,
         )
 
         latest_generation = _recursive_cache_generation_token(storage)
@@ -412,7 +432,7 @@ def _load_or_build_recursive_snapshots(
         storage,
         canonical_path,
         root_index,
-        max_items=RECURSIVE_ITEMS_HARD_LIMIT,
+        max_items=max_items,
     )
 
 
@@ -495,7 +515,7 @@ def _build_folder_index(
                     storage,
                     canonical_path,
                     index,
-                    max_items=RECURSIVE_ITEMS_HARD_LIMIT,
+                    max_items=_recursive_items_hard_limit(storage),
                 )
             items = [to_item(storage, snapshot) for snapshot in snapshots]
         if hotpath_metrics is not None:

@@ -7,6 +7,7 @@ from PIL import Image
 
 from lenslet.cli import _prepare_table_cache
 from lenslet.server import create_app, create_app_from_storage
+from lenslet.storage.table import TableStorage
 
 
 def _make_image(path: Path) -> None:
@@ -78,6 +79,33 @@ def test_parquet_folder_payload_exposes_sorted_metric_keys(tmp_path: Path):
         "__index_level_0__" not in (item.get("metrics") or {})
         for item in recursive_payload["items"]
     )
+
+
+def test_table_recursive_large_listing_bypasses_generic_hard_limit() -> None:
+    rows = [
+        {
+            "source": f"https://example.com/gallery/img_{idx:05d}.jpg",
+            "path": f"gallery/img_{idx:05d}.jpg",
+            "width": 8,
+            "height": 6,
+            "size": idx + 1,
+            "mtime": 1_700_000_000 + idx,
+            "quality_score": float(idx) / 10_000.0,
+        }
+        for idx in range(10_001)
+    ]
+
+    storage = TableStorage(rows, skip_indexing=True, allow_local=False)
+    client = TestClient(create_app_from_storage(storage))
+
+    resp = client.get("/folders", params={"path": "/gallery", "recursive": "1"})
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert len(payload["items"]) == 10_001
+    assert payload["metricKeys"] == ["quality_score"]
+    assert payload["items"][0]["path"] == "/gallery/img_00000.jpg"
+    assert payload["items"][-1]["path"] == "/gallery/img_10000.jpg"
 
 
 def test_views_no_write_mode(tmp_path: Path):

@@ -30,3 +30,28 @@ Blockers:
 
 Next step:
 - Start Sprint 2 in `src/lenslet/server_browse.py` with a table-only recursive-limit bypass and backend regression coverage that preserves the filesystem `10_000` recursive safety cap.
+
+## Iteration 2 - 2026-03-08T08:09:00Z
+
+Completed tasks: T3, T4, T5
+
+Files changed:
+- docs/20260308_parquet_browse_metrics_execution_plan.md
+- src/lenslet/server_browse.py
+- src/lenslet/storage/table.py
+- tests/test_folder_recursive.py
+- tests/test_parquet_ingestion.py
+
+Validations:
+- `pytest tests/test_parquet_ingestion.py -q` -> passed (`6 passed`)
+- `pytest tests/test_folder_recursive.py -q` -> passed after correcting the large-listing filesystem assertions to use `MemoryStorage`
+- `pytest tests/test_parquet_ingestion.py tests/test_folder_recursive.py -q` -> passed (`13 passed`)
+- direct API probe against `/local/yada/dev/aeslib/ongoing/11_retrain_old_scores_on_siglip2/outputs/vqr1_concat.parquet` -> passed (`/folders` for `/`, `/&recursive=1`, `/pixai-aes-1.2-train-val-images`, and `/pixai-aes-1.2-train-val-images&recursive=1` all returned `200`; recursive payloads exposed `quality_score` and excluded `__index_level_0__`)
+- `python scripts/lint_repo.py` -> passed
+- `git diff --check -- src/lenslet/server_browse.py src/lenslet/storage/table.py tests/test_parquet_ingestion.py tests/test_folder_recursive.py docs/20260308_parquet_browse_metrics_execution_plan.md` -> passed
+
+Blockers:
+- None.
+
+Next step:
+- Start Sprint 3 in the frontend browse path by hard-cutting normal browse metric discovery to `FolderIndex.metricKeys`, then validate sort/filter UI behavior against the parquet scenario.

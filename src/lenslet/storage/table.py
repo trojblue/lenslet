@@ -487,6 +487,9 @@ class TableStorage:
     def browse_cache_signature(self) -> str:
         return self._browse_signature
 
+    def recursive_items_hard_limit(self) -> int | None:
+        return None
+
     def items_in_scope(self, path: str) -> list[CachedItem]:
         scope_norm = normalize_search_path(path)
         if not scope_norm:

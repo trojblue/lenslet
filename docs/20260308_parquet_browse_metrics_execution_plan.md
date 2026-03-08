@@ -167,6 +167,30 @@ Sprint 1 completed checks on 2026-03-08:
 
 Observed outcome: the new table-index coverage proves synthetic parquet index columns are removed from both scalar metric-column extraction and nested `metrics`-map extraction, table-backed folder payloads now expose sorted `metricKeys` on both non-recursive and recursive fixture paths, and repo lint passes.
 
+Sprint 2 completed checks on 2026-03-08:
+
+    pytest tests/test_parquet_ingestion.py tests/test_folder_recursive.py -q
+    python - <<'PY'
+    from pathlib import Path
+    from fastapi.testclient import TestClient
+    from lenslet.cli import _prepare_table_cache
+    from lenslet.server import create_app_from_storage
+    parquet_path = Path('/local/yada/dev/aeslib/ongoing/11_retrain_old_scores_on_siglip2/outputs/vqr1_concat.parquet')
+    storage = _prepare_table_cache(parquet_path=parquet_path, base_dir=None, source_column=None, cache_wh=False, skip_indexing=True, auto_detect_root=True, quiet=True)
+    client = TestClient(create_app_from_storage(storage))
+    for params in (
+        {'path': '/'},
+        {'path': '/', 'recursive': '1'},
+        {'path': '/pixai-aes-1.2-train-val-images'},
+        {'path': '/pixai-aes-1.2-train-val-images', 'recursive': '1'},
+    ):
+        resp = client.get('/folders', params=params)
+        print(params, resp.status_code)
+    PY
+    python scripts/lint_repo.py
+
+Observed outcome: table-backed recursive folder payloads above `10_000` now succeed in fixture coverage and on the real standalone parquet path, generic filesystem recursive traversal still returns `413` when exercised through `MemoryStorage`, `count_only` remains available for large filesystem folders, and the real parquet recursive payloads for `/` and `/pixai-aes-1.2-train-val-images` return `200` with `metricKeys` containing `quality_score` and excluding `__index_level_0__`.
+
 Overall acceptance is not met until the real parquet scenario can browse and expose `quality_score` for sort/filter without leaking `__index_level_0__` and without widening the local source boundary beyond the safe-root rules already in place.
 
 
@@ -195,20 +219,32 @@ Idempotent retry strategy: after any failed sprint, restore a clean worktree, re
 - [x] 2026-03-08 07:59 UTC Completed T1 in `src/lenslet/storage/table_index.py` by filtering synthetic `__index_level_<n>__` keys from both scalar metric columns and nested `metrics` maps, with focused coverage in `tests/test_table_index_pipeline.py`.
 - [x] 2026-03-08 08:00 UTC Completed T2 in `src/lenslet/server_models.py` and `src/lenslet/server_browse.py` by exposing sorted `metricKeys` on folder payloads and covering both non-recursive and recursive table-backed API responses in `tests/test_parquet_ingestion.py`.
 - [x] 2026-03-08 08:01 UTC Ran Sprint 1 validation (`pytest tests/test_table_index_pipeline.py tests/test_parquet_ingestion.py -q` and `python scripts/lint_repo.py`); all checks passed and no Sprint 1 cleanup/review blockers were found.
+- [x] 2026-03-08 08:06 UTC Started Sprint 2 with the narrowest server contract that fits the problem: recursive browse now asks storage for its hard limit instead of assuming the same `10_000` cap applies to every backend.
+- [x] 2026-03-08 08:07 UTC Completed T3 in `src/lenslet/server_browse.py` and `src/lenslet/storage/table.py` by making the recursive limit storage-owned, preserving the default `10_000` safety cap, and allowing `TableStorage` to opt out for table-backed scope listings.
+- [x] 2026-03-08 08:08 UTC Completed T4 in `tests/test_parquet_ingestion.py` and `tests/test_folder_recursive.py` by adding a `10_001`-item table recursive regression and retargeting the filesystem large-listing assertions to explicit `MemoryStorage` so the `413` invariant is exercised against the real filesystem backend rather than a preindexed table path.
+- [x] 2026-03-08 08:09 UTC Completed T5 with a direct API probe against `/local/yada/dev/aeslib/ongoing/11_retrain_old_scores_on_siglip2/outputs/vqr1_concat.parquet`; `/folders?path=/&recursive=true` returned `200` with `42,270` items and `/folders?path=/pixai-aes-1.2-train-val-images&recursive=true` returned `200` with `19,456` items, both exposing `quality_score` and excluding `__index_level_0__`.
+- [x] 2026-03-08 08:09 UTC Ran Sprint 2 validation (`pytest tests/test_parquet_ingestion.py tests/test_folder_recursive.py -q`, direct real-parquet API probe, and `python scripts/lint_repo.py`); all checks passed and Sprint 2 is ready for the cleanup/review gate.
+- [x] 2026-03-08 08:09 UTC Completed the Sprint 2 cleanup/review gate with no additional code changes required; the narrowed diff already passed lint, diff-check, and regression validation without new blockers.
 - [ ] Next operator: keep the unrelated local `pyproject.toml` edit out of the next commit unless it is explicitly approved.
-- [ ] Next operator: start Sprint 2 in `src/lenslet/server_browse.py` with a table-only recursive-limit bypass and regression coverage that keeps generic filesystem recursive traversal capped at `10_000`.
+- [ ] Next operator: start Sprint 3 in `frontend/src/lib/types.ts`, `frontend/src/api/folders.ts`, `frontend/src/app/hooks/useAppDataScope.ts`, `frontend/src/app/model/appShellSelectors.ts`, and `frontend/src/app/AppShell.tsx` by hard-cutting normal browse metric discovery over to `FolderIndex.metricKeys`.
 
 
 ## Artifacts and Handoff
 
 
-Observed API notes from the real parquet path:
+Observed API notes from the real parquet path after Sprint 2:
+
+    /folders?path=/ -> 200
+    /folders?path=/&recursive=true -> 200
+    recursive root item count -> 42,270
+    recursive root metricKeys contains -> quality_score
+    recursive root metricKeys excludes -> __index_level_0__
 
     /folders?path=/pixai-aes-1.2-train-val-images -> 200
-    first item metrics keys -> ['__index_level_0__', 'quality_score']
-    first item quality_score -> 4.85
-
-    /folders?path=/pixai-aes-1.2-train-val-images&recursive=true -> 413
+    /folders?path=/pixai-aes-1.2-train-val-images&recursive=true -> 200
+    recursive child item count -> 19,456
+    recursive child metricKeys contains -> quality_score
+    recursive child metricKeys excludes -> __index_level_0__
 
 Relevant codepaths already identified:
 
@@ -232,9 +268,21 @@ Sprint 1 artifacts:
     tests/test_table_index_pipeline.py
     tests/test_parquet_ingestion.py
 
+Sprint 2 artifacts:
+
+    backend browse contract:
+    recursive browse now consults `storage.recursive_items_hard_limit()`, defaulting to the existing `10_000` safety cap unless a storage backend overrides it.
+
+    table-backed browse behavior:
+    `TableStorage` returns `None` for the recursive hard limit so large table-backed scopes use the indexed `items_in_scope` path without triggering the generic filesystem cap.
+
+    regression coverage:
+    `tests/test_parquet_ingestion.py` proves a `10,001`-item table-backed recursive folder succeeds, and `tests/test_folder_recursive.py` keeps the filesystem `413` guard pinned to explicit `MemoryStorage`.
+
 Handoff notes:
 
-Continue from the current worktree and keep unrelated edits out of the next diff unless they become intentionally relevant. Sprint 1 is closed; the next slice is the narrow table-only recursive browse fix in `src/lenslet/server_browse.py` plus regression coverage proving filesystem recursive traversal still returns `413` above `10_000` items. Treat the real parquet command above plus the two recursive `/folders` calls as the primary acceptance target for every remaining sprint. Do not expand this work into large-folder session-cache redesign unless the primary path still fails after the narrow table-only browse fix. When revising this document, add a short note at the bottom describing what changed and why.
+Continue from the current worktree and keep unrelated edits out of the next diff unless they become intentionally relevant. Sprint 2 is closed; the next slice is Sprint 3 in the frontend browse path, with normal browse metric discovery hard-cut over to `FolderIndex.metricKeys` and the item-derived fallback removed. Treat the real parquet command above plus the sort/filter UI affordances on `/pixai-aes-1.2-train-val-images` as the primary acceptance target for the remaining sprint. Do not expand this work into pagination, search-mode contract changes, or large-folder session-cache redesign unless the primary UI path still fails after the metric contract cutover. When revising this document, add a short note at the bottom describing what changed and why.
 
 Revision note, 2026-03-08: tightened the plan after review feedback to require explicit recursive acceptance checks, remove normal-browse fallback language, collapse browse-mode metric contract work into one hard-cutover task, narrow Sprint 2 to a table-only recursive-limit bypass, add stronger regression-test requirements, add Playwright-backed UI validation, and replace an unsafe worktree-cleanup instruction with a commit-scope instruction.
 Revision note, 2026-03-08 08:01 UTC: recorded Sprint 1 completion, documented the shipped `metricKeys` backend contract and parquet metric hygiene change, added the exact Sprint 1 validation commands/outcomes, and updated handoff notes to point the next operator at the table-only recursive-limit bypass in Sprint 2.
+Revision note, 2026-03-08 08:09 UTC: recorded Sprint 2 completion, documented the storage-owned recursive hard-limit override and the explicit filesystem/table regression split, replaced the old real-parquet `413` notes with the successful recursive API results, and updated handoff notes to point the next operator at the frontend metric contract cutover in Sprint 3.

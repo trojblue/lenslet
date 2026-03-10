@@ -553,13 +553,7 @@
 
 .grid-top-band-reserve {
   width: 100%;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
-}
-
-.grid-top-band-reserve.is-collapsed {
-  border-bottom: 0;
-  background: transparent;
+  height: 0;
 }
 
 .grid-body {

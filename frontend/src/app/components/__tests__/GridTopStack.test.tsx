@@ -37,6 +37,7 @@ describe('GridTopStack bands', () => {
     expect(html).toContain('data-grid-top-band="status" aria-hidden="true"')
     expect(html).toContain('data-grid-top-band="similarity" aria-hidden="true"')
     expect(html).toContain('data-grid-top-band="filters" aria-hidden="true"')
+    expect(html.match(/class="grid-top-band-reserve"/g) ?? []).toHaveLength(3)
   })
 
   it('shows filter band content when chips are active', () => {
@@ -52,6 +53,7 @@ describe('GridTopStack bands', () => {
     expect(html).toContain('Stars: 5')
     expect(html).toContain('Clear all')
     expect(html).not.toContain('data-grid-top-band="filters" aria-hidden="true"')
+    expect(html.match(/class="grid-top-band-reserve"/g) ?? []).toHaveLength(2)
   })
 
   it('shows status band for action errors even without status banners', () => {
@@ -60,5 +62,6 @@ describe('GridTopStack bands', () => {
     })
     expect(html).toContain('Upload failed')
     expect(html).not.toContain('data-grid-top-band="status" aria-hidden="true"')
+    expect(html.match(/class="grid-top-band-reserve"/g) ?? []).toHaveLength(2)
   })
 })

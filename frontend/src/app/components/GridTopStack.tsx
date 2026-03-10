@@ -1,12 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type Dispatch,
-  type ReactNode,
-  type RefObject,
-  type SetStateAction,
-} from 'react'
+import { type ReactNode } from 'react'
 import StatusBar, { hasStatusBarContent, type StatusBarProps } from './StatusBar'
 
 export type GridTopFilterChip = {
@@ -33,68 +25,18 @@ type GridTopStackProps = {
 }
 
 type BandName = 'status' | 'similarity' | 'filters'
-type BandHeights = Record<BandName, number>
 
 type GridTopBandProps = {
   name: BandName
   visible: boolean
-  reserveHeight: number
-  contentRef: RefObject<HTMLDivElement | null>
   children: ReactNode
-}
-
-function rememberBandHeight(
-  band: BandName,
-  node: HTMLDivElement | null,
-  setBandHeights: Dispatch<SetStateAction<BandHeights>>,
-): void {
-  if (!node) return
-  const measured = Math.ceil(node.getBoundingClientRect().height)
-  if (measured <= 0) return
-  setBandHeights((prev) => (
-    prev[band] === measured
-      ? prev
-      : {
-        ...prev,
-        [band]: measured,
-      }
-  ))
-}
-
-function useBandReservation(
-  band: BandName,
-  visible: boolean,
-  contentRef: RefObject<HTMLDivElement | null>,
-  setBandHeights: Dispatch<SetStateAction<BandHeights>>,
-): void {
-  useEffect(() => {
-    if (!visible) return
-    const node = contentRef.current
-    if (!node) return
-
-    const update = () => rememberBandHeight(band, node, setBandHeights)
-    update()
-
-    const ResizeObserverCtor = (window as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver
-    if (ResizeObserverCtor) {
-      const observer = new ResizeObserverCtor(update)
-      observer.observe(node)
-      return () => observer.disconnect()
-    }
-
-    window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
-  }, [band, contentRef, setBandHeights, visible])
 }
 
 function GridTopBand({
   name,
   visible,
-  reserveHeight,
-  contentRef,
   children,
 }: GridTopBandProps): JSX.Element {
-  const reservePx = Math.max(0, Math.round(reserveHeight))
   return (
     <section
       data-grid-top-band={name}
@@ -102,13 +44,10 @@ function GridTopBand({
       className={`grid-top-band${visible ? '' : ' is-hidden'}`}
     >
       {visible ? (
-        <div ref={contentRef}>
-          {children}
-        </div>
+        children
       ) : (
         <div
-          className={`grid-top-band-reserve ${reservePx > 0 ? '' : 'is-collapsed'}`}
-          style={{ height: `${reservePx}px` }}
+          className="grid-top-band-reserve"
           aria-hidden="true"
         />
       )}
@@ -128,26 +67,11 @@ export default function GridTopStack({
   const showSimilarityBand = similarity !== null
   const showFiltersBand = filterChips.length > 0
 
-  const [bandHeights, setBandHeights] = useState<BandHeights>({
-    status: 0,
-    similarity: 0,
-    filters: 0,
-  })
-  const statusContentRef = useRef<HTMLDivElement | null>(null)
-  const similarityContentRef = useRef<HTMLDivElement | null>(null)
-  const filtersContentRef = useRef<HTMLDivElement | null>(null)
-
-  useBandReservation('status', showStatusBand, statusContentRef, setBandHeights)
-  useBandReservation('similarity', showSimilarityBand, similarityContentRef, setBandHeights)
-  useBandReservation('filters', showFiltersBand, filtersContentRef, setBandHeights)
-
   return (
     <div data-grid-top-stack className="grid-top-stack">
       <GridTopBand
         name="status"
         visible={showStatusBand}
-        reserveHeight={bandHeights.status}
-        contentRef={statusContentRef}
       >
         <StatusBar {...statusBarProps} />
         {actionError && (
@@ -159,8 +83,6 @@ export default function GridTopStack({
       <GridTopBand
         name="similarity"
         visible={showSimilarityBand}
-        reserveHeight={bandHeights.similarity}
-        contentRef={similarityContentRef}
       >
         {similarity && (
           <div className="border-b border-border bg-panel">
@@ -189,8 +111,6 @@ export default function GridTopStack({
       <GridTopBand
         name="filters"
         visible={showFiltersBand}
-        reserveHeight={bandHeights.filters}
-        contentRef={filtersContentRef}
       >
         <div className="px-3 py-2 bg-panel border-b border-border">
           <div className="flex flex-wrap items-center gap-2">

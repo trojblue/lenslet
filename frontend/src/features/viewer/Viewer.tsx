@@ -46,6 +46,7 @@ export default function Viewer({
     handlePointerMove,
     handlePointerUp,
     handlePointerCancel,
+    consumeClickSuppression,
   } = useZoomPan()
   const url = useBlobUrl(() => api.getFile(path), [path])
   const thumbUrl = useBlobUrl(() => api.getThumb(path), [path])
@@ -53,6 +54,15 @@ export default function Viewer({
     setVisible(false)
     window.setTimeout(onClose, 110)
   }, [onClose, setVisible])
+  const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!consumeClickSuppression()) return
+    event.preventDefault()
+    event.stopPropagation()
+  }, [consumeClickSuppression])
+  const handleBackdropClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return
+    closeViewer()
+  }, [closeViewer])
 
   // Load image and thumbnail when path changes
   useEffect(() => {
@@ -118,7 +128,8 @@ export default function Viewer({
       tabIndex={-1}
       className={`toolbar-offset touch-none absolute inset-0 left-[var(--left)] right-[var(--right)] flex items-start justify-start bg-panel z-viewer overflow-hidden transition-opacity duration-[110ms] ease-out cursor-grab focus:outline-none focus-visible:outline-none ${dragging ? 'cursor-grabbing select-none' : ''} ${visible ? 'opacity-100' : 'opacity-0'}`}
       style={{ outline: 'none' }}
-      onClick={closeViewer}
+      onClickCapture={handleClickCapture}
+      onClick={handleBackdropClick}
       onWheel={handleWheel}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

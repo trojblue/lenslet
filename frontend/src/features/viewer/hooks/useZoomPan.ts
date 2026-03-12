@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 const ZOOM_BASE = 1.2
 const MIN_SCALE = 0.05
 const MAX_SCALE = 8.0
+const CLICK_SUPPRESSION_DRAG_DISTANCE_PX = 3
 
 type PointerPoint = {
   x: number
@@ -15,6 +16,7 @@ type PanState = {
   startY: number
   startTx: number
   startTy: number
+  moved: boolean
 }
 
 type PinchState = {
@@ -28,6 +30,17 @@ type PinchState = {
 
 function clampScale(value: number): number {
   return Number(Math.min(MAX_SCALE, Math.max(MIN_SCALE, value)).toFixed(4))
+}
+
+export function didViewerPanMove(start: PointerPoint, next: PointerPoint): boolean {
+  return Math.hypot(next.x - start.x, next.y - start.y) >= CLICK_SUPPRESSION_DRAG_DISTANCE_PX
+}
+
+export function shouldSuppressViewerClickAfterInteraction(params: {
+  panMoved: boolean
+  pinchActive: boolean
+}): boolean {
+  return params.panMoved || params.pinchActive
 }
 
 function getDistance(a: PointerPoint, b: PointerPoint): number {
@@ -70,6 +83,7 @@ export function useZoomPan() {
   const pointersRef = useRef<Map<number, PointerPoint>>(new Map())
   const panRef = useRef<PanState | null>(null)
   const pinchRef = useRef<PinchState | null>(null)
+  const suppressClickRef = useRef(false)
 
   const setOffsets = (nextTx: number, nextTy: number) => {
     txRef.current = nextTx
@@ -91,6 +105,7 @@ export function useZoomPan() {
       startY: point.y,
       startTx: txRef.current,
       startTy: tyRef.current,
+      moved: false,
     }
     pinchRef.current = null
     setDragging(true)
@@ -150,6 +165,7 @@ export function useZoomPan() {
       pointersRef.current.clear()
       panRef.current = null
       pinchRef.current = null
+      suppressClickRef.current = false
     }
   }, [])
 
@@ -223,12 +239,26 @@ export function useZoomPan() {
     if (!pan || pan.pointerId !== e.pointerId) return
     const dx = e.clientX - pan.startX
     const dy = e.clientY - pan.startY
+    if (!pan.moved) {
+      pan.moved = didViewerPanMove(
+        { x: pan.startX, y: pan.startY },
+        { x: e.clientX, y: e.clientY },
+      )
+    }
     setOffsets(pan.startTx + dx, pan.startTy + dy)
   }
 
   const endPointer = (pointerId: number, container: HTMLDivElement) => {
     const pointers = pointersRef.current
     if (!pointers.has(pointerId)) return
+    const pan = panRef.current
+    const pinch = pinchRef.current
+    if (shouldSuppressViewerClickAfterInteraction({
+      panMoved: pan?.pointerId === pointerId ? pan.moved : false,
+      pinchActive: pinch !== null,
+    })) {
+      suppressClickRef.current = true
+    }
     pointers.delete(pointerId)
     tryReleasePointerCapture(container, pointerId)
     if (pointers.size === 0) {
@@ -253,12 +283,18 @@ export function useZoomPan() {
     endPointer(e.pointerId, e.currentTarget)
   }
 
+  const consumeClickSuppression = () => {
+    if (!suppressClickRef.current) return false
+    suppressClickRef.current = false
+    return true
+  }
+
   return {
     // state
     scale, setScale, tx, setTx, ty, setTy, base, setBase, ready, setReady, dragging, setDragging, visible, setVisible,
     // refs
     containerRef, imgRef,
     // helpers/handlers
-    fitAndCenter, handleWheel, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel,
+    fitAndCenter, handleWheel, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, consumeClickSuppression,
   }
 }

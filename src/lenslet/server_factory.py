@@ -41,7 +41,8 @@ from .server_routes_common import (
     register_common_api_routes as _register_common_api_routes,
 )
 from .server_routes_embeddings import register_embedding_routes as _register_embedding_routes
-from .server_routes_index import mount_frontend as _mount_frontend, register_index_routes as _register_index_routes
+from .frontend_serving import mount_frontend as _mount_frontend
+from .server_routes_index import register_index_routes as _register_index_routes
 from .server_routes_og import _og_cache_from_workspace, register_og_routes as _register_og_routes
 from .server_routes_presence import (
     install_presence_prune_loop as _install_presence_prune_loop,

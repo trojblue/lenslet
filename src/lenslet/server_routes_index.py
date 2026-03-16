@@ -3,31 +3,15 @@
 from __future__ import annotations
 
 import html
-from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
-from fastapi.staticfiles import StaticFiles
-from starlette.types import Scope
 
+from .frontend_serving import frontend_dist_path, load_frontend_shell
 from . import og
 from .server_context import get_request_context
 from .server_routes_og import _dataset_count, _dataset_label
 
-
-class NoCacheIndexStaticFiles(StaticFiles):
-    """Serve static assets with no-cache for HTML shell.
-
-    Keeps JS/CSS cacheable while forcing index.html to revalidate so
-    rebuilt frontends are picked up immediately.
-    """
-
-    async def get_response(self, path: str, scope: Scope) -> Response:
-        response = await super().get_response(path, scope)
-        if response.media_type == "text/html":
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
-        return response
+_load_frontend_shell = load_frontend_shell
 
 
 def _inject_meta_tags(html_text: str, tags: str) -> str:
@@ -70,13 +54,8 @@ def _build_index_description(label: str, scope_path: str) -> str:
     return f"Browse {label} gallery in {scope_path}"
 
 
-def _load_frontend_shell(index_path: str, mtime_ns: int) -> str:
-    _ = mtime_ns
-    return Path(index_path).read_text(encoding="utf-8")
-
-
 def register_index_routes(app: FastAPI, og_preview: bool) -> None:
-    frontend_dist = Path(__file__).parent / "frontend"
+    frontend_dist = frontend_dist_path()
     index_path = frontend_dist / "index.html"
     if not index_path.is_file():
         return
@@ -106,9 +85,3 @@ def register_index_routes(app: FastAPI, og_preview: bool) -> None:
 
     app.get("/", include_in_schema=False)(render_index)
     app.get("/index.html", include_in_schema=False)(render_index)
-
-
-def mount_frontend(app: FastAPI) -> None:
-    frontend_dist = Path(__file__).parent / "frontend"
-    if frontend_dist.is_dir():
-        app.mount("/", NoCacheIndexStaticFiles(directory=str(frontend_dist), html=True), name="frontend")

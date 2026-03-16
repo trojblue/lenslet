@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-from ..server_routes_index import mount_frontend
+from ..frontend_serving import mount_frontend
 from .dataset import RankingDatasetError, load_ranking_dataset
 from .persistence import RankingPersistenceError, RankingResultsStore, resolve_results_path
 from .routes import build_ranking_router

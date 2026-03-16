@@ -33,7 +33,7 @@ def _ensure_image(storage, path: str) -> None:
 
 
 def _build_sidecar(storage, path: str) -> Sidecar:
-    meta = storage.get_metadata(path)
+    meta = storage.get_metadata_readonly(path)
     return _build_sidecar_from_meta(storage, path, meta)
 
 

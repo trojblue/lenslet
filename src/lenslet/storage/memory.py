@@ -547,8 +547,8 @@ class MemoryStorage:
             im.save(out, format="WEBP", quality=self.thumb_quality, method=6)
             return out.getvalue(), (w, h)
 
-    def get_metadata(self, path: str) -> dict:
-        """Get metadata for an image (in-memory only)."""
+    def ensure_metadata(self, path: str) -> dict:
+        """Get or create metadata for an image (in-memory only)."""
         key = self._canonical_meta_key(path)
         meta = self._metadata.get(key)
         if meta is not None:

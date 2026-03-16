@@ -76,8 +76,8 @@ class BrowseStorage(Storage, Protocol):
         """Return a detached metadata snapshot for the requested item."""
         ...
 
-    def get_metadata(self, path: str) -> dict[str, Any]:
-        """Return mutable metadata for the requested item."""
+    def ensure_metadata(self, path: str) -> dict[str, Any]:
+        """Return mutable metadata for the requested item, creating cache state when needed."""
         ...
 
     def set_metadata(self, path: str, meta: dict[str, Any]) -> None:

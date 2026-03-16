@@ -637,7 +637,7 @@ def _persistable_meta(meta: dict) -> dict[str, Any]:
 def _apply_persisted_record(storage, path: str, record: dict[str, Any]) -> bool:
     if not isinstance(record, dict):
         return False
-    meta = storage.get_metadata(path)
+    meta = storage.ensure_metadata(path)
     meta = _ensure_meta_fields(meta)
     incoming_version = record.get("version", meta.get("version", 1))
     if not isinstance(incoming_version, int):

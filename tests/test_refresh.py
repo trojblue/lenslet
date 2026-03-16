@@ -41,7 +41,7 @@ def test_invalidate_subtree_drops_cache_and_rebuilds(tmp_path: Path):
 
     storage.get_thumbnail("/a/one.jpg")
     storage.get_dimensions("/a/one.jpg")
-    meta = storage.get_metadata("/a/one.jpg")
+    meta = storage.ensure_metadata("/a/one.jpg")
     meta["notes"] = "stale"
     storage.set_metadata("/a/one.jpg", meta)
     assert storage.get_cached_thumbnail("/a/one.jpg") is not None
@@ -76,7 +76,7 @@ def test_invalidate_subtree_can_preserve_metadata(tmp_path: Path):
     storage.get_thumbnail("/a/one.jpg")
     storage.get_dimensions("/a/one.jpg")
 
-    meta = storage.get_metadata("/a/one.jpg")
+    meta = storage.ensure_metadata("/a/one.jpg")
     meta["notes"] = "keep me"
     meta["tags"] = ["tagged"]
     meta["star"] = 4
@@ -86,7 +86,7 @@ def test_invalidate_subtree_can_preserve_metadata(tmp_path: Path):
 
     assert storage.get_cached_thumbnail("/a/one.jpg") is None
 
-    preserved = storage.get_metadata("/a/one.jpg")
+    preserved = storage.ensure_metadata("/a/one.jpg")
     assert preserved["notes"] == "keep me"
     assert preserved["tags"] == ["tagged"]
     assert preserved["star"] == 4

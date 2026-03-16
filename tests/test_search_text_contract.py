@@ -22,7 +22,7 @@ def _make_image(path: Path) -> None:
 
 
 def _set_search_meta(storage: object, path: str) -> None:
-    meta = storage.get_metadata(path)
+    meta = storage.ensure_metadata(path)
     meta["tags"] = ["feline", "portrait"]
     meta["notes"] = "night scout"
     storage.set_metadata(path, meta)
@@ -152,7 +152,7 @@ def test_memory_search_optional_source_like_metadata_fields(tmp_path: Path) -> N
     storage = MemoryStorage(str(tmp_path))
     storage.get_index("/gallery")
     path = "gallery/local.jpg"
-    meta = storage.get_metadata(path)
+    meta = storage.ensure_metadata(path)
     meta["source"] = "s3://bucket/source-token/local.jpg"
     meta["url"] = "https://cdn.example.com/media/local.jpg"
     storage.set_metadata(path, meta)

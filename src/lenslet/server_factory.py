@@ -692,7 +692,7 @@ def create_app(
         indexing.mark_ready()
 
     def _to_item(storage, cached):
-        meta = storage.get_metadata(cached.path)
+        meta = storage.get_metadata_readonly(cached.path)
         return _build_item(cached, meta)
 
     record_update = _build_record_update(app)
@@ -857,7 +857,7 @@ def create_app_from_datasets(
     embedding_manager: EmbeddingManager | None = None
 
     def _to_item(storage: DatasetStorage, cached):
-        meta = storage.get_metadata(cached.path)
+        meta = storage.get_metadata_readonly(cached.path)
         source = None
         if show_source:
             try:
@@ -1025,7 +1025,7 @@ def _create_browse_app(
         )
 
     def _to_item(storage, cached):
-        meta = storage.get_metadata(cached.path)
+        meta = storage.get_metadata_readonly(cached.path)
         source = getattr(cached, "source", None) if show_source else None
         return _build_item(cached, meta, source=source)
 

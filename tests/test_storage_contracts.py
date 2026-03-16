@@ -18,7 +18,7 @@ class MetadataStorage(Protocol):
     def get_index(self, path: str) -> object | None:
         ...
 
-    def get_metadata(self, path: str) -> dict[str, Any]:
+    def ensure_metadata(self, path: str) -> dict[str, Any]:
         ...
 
     def get_metadata_readonly(self, path: str) -> dict[str, Any]:
@@ -87,14 +87,14 @@ def test_get_metadata_readonly_returns_detached_snapshot(
     tmp_path: Path,
 ) -> None:
     storage, item_path = builder(tmp_path)
-    meta = storage.get_metadata(item_path)
+    meta = storage.ensure_metadata(item_path)
     meta["notes"] = "persisted"
     storage.set_metadata(item_path, meta)
 
     readonly = storage.get_metadata_readonly(item_path)
     readonly["notes"] = "mutated outside storage"
 
-    assert storage.get_metadata(item_path)["notes"] == "persisted"
+    assert storage.ensure_metadata(item_path)["notes"] == "persisted"
 
 
 @pytest.mark.parametrize(

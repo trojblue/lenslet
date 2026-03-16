@@ -334,7 +334,7 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
             return dict(meta)
         return self._default_metadata(norm)
 
-    def get_metadata(self, path: str) -> dict[str, Any]:
+    def ensure_metadata(self, path: str) -> dict[str, Any]:
         norm = self._normalize_item_path(path)
         key = self._canonical_meta_key(norm)
         meta = self._metadata.get(key)

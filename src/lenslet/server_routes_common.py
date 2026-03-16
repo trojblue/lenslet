@@ -576,7 +576,7 @@ def _update_item(
     now_iso: Callable[[], str],
     sidecar_from_meta: Callable[[Any, str, dict], Sidecar],
 ) -> Sidecar:
-    meta = storage.get_metadata(path)
+    meta = storage.ensure_metadata(path)
     meta = ensure_meta_fields(meta)
     meta["tags"] = body.tags
     meta["notes"] = body.notes
@@ -774,7 +774,7 @@ def register_common_api_routes(
                 now_iso=_now_iso,
                 sidecar_from_meta=_build_sidecar_from_meta,
             )
-            meta_snapshot = dict(storage.get_metadata(path))
+            meta_snapshot = dict(storage.ensure_metadata(path))
         record_update(path, meta_snapshot)
         client_id = _client_id_from_request(request)
         if client_id:
@@ -816,7 +816,7 @@ def register_common_api_routes(
 
         updated = False
         with meta_lock:
-            meta = storage.get_metadata(path)
+            meta = storage.ensure_metadata(path)
             meta = _ensure_meta_fields(meta)
             if expected is not None and expected != meta.get("version", 1):
                 current = _build_sidecar_from_meta(storage, path, meta).model_dump()

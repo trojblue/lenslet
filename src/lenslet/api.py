@@ -24,40 +24,30 @@ def launch(
 
     For table-backed launches, use `launch_table(...)`.
     """
-    launch_datasets(
-        datasets,
-        blocking=blocking,
-        port=port,
-        host=host,
-        thumb_size=thumb_size,
-        thumb_quality=thumb_quality,
-        show_source=show_source,
-        verbose=verbose,
-    )
-
-
-def launch_datasets(
-    datasets: dict[str, list[str]],
-    *,
-    blocking: bool = False,
-    port: int = 7070,
-    host: str = "127.0.0.1",
-    thumb_size: int = 256,
-    thumb_quality: int = 70,
-    show_source: bool = True,
-    verbose: bool = False,
-) -> None:
-    """Launch Lenslet from named in-memory datasets."""
     if not isinstance(datasets, dict) or not datasets:
         raise ValueError("datasets must be a non-empty dict")
-    _launch_dataset_mode(
-        datasets=datasets,
-        blocking=blocking,
-        port=port,
-        host=host,
+
+    from .server import BrowseAppOptions, create_app_from_datasets
+
+    app_options = BrowseAppOptions(
         thumb_size=thumb_size,
         thumb_quality=thumb_quality,
-        show_source=show_source,
+    )
+    _launch_programmatic(
+        blocking=blocking,
+        build_app=lambda: create_app_from_datasets(
+            datasets,
+            show_source=show_source,
+            options=app_options,
+        ),
+        announce=lambda process_id=None: _print_dataset_launch_banner(
+            datasets=datasets,
+            host=host,
+            port=port,
+            process_id=process_id,
+        ),
+        port=port,
+        host=host,
         verbose=verbose,
     )
 
@@ -78,112 +68,20 @@ def launch_table(
     """Launch Lenslet from a single table-like payload."""
     if not _is_table_like(table):
         raise ValueError("table must be a table-like object")
-    _launch_table_mode(
-        table=table,
-        blocking=blocking,
-        port=port,
-        host=host,
+    from .server import BrowseAppOptions, create_app_from_table
+
+    app_options = BrowseAppOptions(
         thumb_size=thumb_size,
         thumb_quality=thumb_quality,
-        show_source=show_source,
-        verbose=verbose,
-        source_column=source_column,
-        base_dir=base_dir,
     )
-
-
-def _launch_dataset_mode(
-    *,
-    datasets: dict[str, list[str]],
-    blocking: bool,
-    port: int,
-    host: str,
-    thumb_size: int,
-    thumb_quality: int,
-    show_source: bool,
-    verbose: bool,
-) -> None:
-    if blocking:
-        _launch_blocking_app(
-            build_app=lambda: _build_dataset_programmatic_app(
-                datasets=datasets,
-                thumb_size=thumb_size,
-                thumb_quality=thumb_quality,
-                show_source=show_source,
-            ),
-            announce=lambda process_id=None: _print_dataset_launch_banner(
-                datasets=datasets,
-                host=host,
-                port=port,
-                process_id=process_id,
-            ),
-            port=port,
-            host=host,
-            verbose=verbose,
-        )
-        return
-    _launch_subprocess_app(
-        build_app=lambda: _build_dataset_programmatic_app(
-            datasets=datasets,
-            thumb_size=thumb_size,
-            thumb_quality=thumb_quality,
-            show_source=show_source,
-        ),
-        announce=lambda process_id=None: _print_dataset_launch_banner(
-            datasets=datasets,
-            host=host,
-            port=port,
-            process_id=process_id,
-        ),
-        port=port,
-        host=host,
-        verbose=verbose,
-    )
-
-
-def _launch_table_mode(
-    *,
-    table: object,
-    blocking: bool,
-    port: int,
-    host: str,
-    thumb_size: int,
-    thumb_quality: int,
-    show_source: bool,
-    verbose: bool,
-    source_column: str | None,
-    base_dir: str | None,
-) -> None:
-    if blocking:
-        _launch_blocking_app(
-            build_app=lambda: _build_table_programmatic_app(
-                table=table,
-                thumb_size=thumb_size,
-                thumb_quality=thumb_quality,
-                show_source=show_source,
-                source_column=source_column,
-                base_dir=base_dir,
-            ),
-            announce=lambda process_id=None: _print_table_launch_banner(
-                table=table,
-                host=host,
-                port=port,
-                source_column=source_column,
-                process_id=process_id,
-            ),
-            port=port,
-            host=host,
-            verbose=verbose,
-        )
-        return
-    _launch_subprocess_app(
-        build_app=lambda: _build_table_programmatic_app(
+    _launch_programmatic(
+        blocking=blocking,
+        build_app=lambda: create_app_from_table(
             table=table,
-            thumb_size=thumb_size,
-            thumb_quality=thumb_quality,
-            show_source=show_source,
-            source_column=source_column,
             base_dir=base_dir,
+            source_column=source_column,
+            show_source=show_source,
+            options=app_options,
         ),
         announce=lambda process_id=None: _print_table_launch_banner(
             table=table,
@@ -192,6 +90,33 @@ def _launch_table_mode(
             source_column=source_column,
             process_id=process_id,
         ),
+        port=port,
+        host=host,
+        verbose=verbose,
+    )
+
+
+def _launch_programmatic(
+    *,
+    blocking: bool,
+    build_app: AppBuilder,
+    announce: BannerPrinter,
+    port: int,
+    host: str,
+    verbose: bool,
+) -> None:
+    if blocking:
+        _launch_blocking_app(
+            build_app=build_app,
+            announce=announce,
+            port=port,
+            host=host,
+            verbose=verbose,
+        )
+        return
+    _launch_subprocess_app(
+        build_app=build_app,
+        announce=announce,
         port=port,
         host=host,
         verbose=verbose,
@@ -244,44 +169,6 @@ def _launch_subprocess_app(
     process.start()
 
     announce(process.pid)
-
-
-def _build_dataset_programmatic_app(
-    *,
-    datasets: dict[str, list[str]],
-    thumb_size: int,
-    thumb_quality: int,
-    show_source: bool,
-):
-    from .server import create_app_from_datasets
-
-    return create_app_from_datasets(
-        datasets,
-        thumb_size=thumb_size,
-        thumb_quality=thumb_quality,
-        show_source=show_source,
-    )
-
-
-def _build_table_programmatic_app(
-    *,
-    table: object,
-    thumb_size: int,
-    thumb_quality: int,
-    show_source: bool,
-    source_column: str | None,
-    base_dir: str | None,
-):
-    from .server import create_app_from_table
-
-    return create_app_from_table(
-        table=table,
-        base_dir=base_dir,
-        thumb_size=thumb_size,
-        thumb_quality=thumb_quality,
-        source_column=source_column,
-        show_source=show_source,
-    )
 
 
 def _print_dataset_launch_banner(

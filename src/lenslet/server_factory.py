@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import threading
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +64,33 @@ REFRESH_NOTE_DATASET_STATIC = "dataset mode is static"
 REFRESH_NOTE_TABLE_STATIC = "table mode is static"
 REFRESH_NOTE_PREINDEX_NO_WRITE = "preindex refresh disabled (no-write workspace)"
 DEFAULT_THUMB_CACHE_CAP_BYTES = 200 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class BrowseAppOptions:
+    thumb_size: int = 256
+    thumb_quality: int = 70
+    thumb_cache: bool = True
+    presence_view_ttl: float = 75.0
+    presence_edit_ttl: float = 60.0
+    presence_prune_interval: float = 5.0
+    indexing_listener: IndexingListener | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingAppOptions:
+    config: EmbeddingConfig | None = None
+    cache: bool = True
+    cache_dir: str | None = None
+    preload: bool = False
+
+
+def _browse_options(options: BrowseAppOptions | None) -> BrowseAppOptions:
+    return options or BrowseAppOptions()
+
+
+def _embedding_options(options: EmbeddingAppOptions | None) -> EmbeddingAppOptions:
+    return options or EmbeddingAppOptions()
 
 
 def _create_base_app(*, description: str) -> FastAPI:
@@ -540,25 +567,18 @@ def _ensure_preindex_storage(
 def create_app(
     root_path: str,
     *,
-    thumb_size: int = 256,
-    thumb_quality: int = 70,
     no_write: bool = False,
     source_column: str | None = None,
     skip_indexing: bool = False,
-    thumb_cache: bool = True,
     og_preview: bool = False,
-    embedding_config: EmbeddingConfig | None = None,
-    embedding_cache: bool = True,
-    embedding_cache_dir: str | None = None,
-    embedding_preload: bool = False,
-    presence_view_ttl: float = 75.0,
-    presence_edit_ttl: float = 60.0,
-    presence_prune_interval: float = 5.0,
-    indexing_listener: IndexingListener | None = None,
     workspace: Workspace | None = None,
     preindex_signature: str | None = None,
+    options: BrowseAppOptions | None = None,
+    embedding: EmbeddingAppOptions | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory storage."""
+    options = _browse_options(options)
+    embedding = _embedding_options(embedding)
 
     app = _create_base_app(description="Lightweight image gallery server")
     if workspace is None:
@@ -576,7 +596,7 @@ def create_app(
         columns = None
         try:
             schema = load_parquet_schema(str(items_path))
-            embedding_detection = detect_embeddings(schema, embedding_config or EmbeddingConfig())
+            embedding_detection = detect_embeddings(schema, embedding.config or EmbeddingConfig())
             columns = columns_without_embeddings(schema, embedding_detection)
         except Exception as exc:
             print(f"[lenslet] Warning: Failed to detect embeddings: {exc}")
@@ -585,8 +605,8 @@ def create_app(
             storage = TableStorage(
                 table=table,
                 root=root_path,
-                thumb_size=thumb_size,
-                thumb_quality=thumb_quality,
+                thumb_size=options.thumb_size,
+                thumb_quality=options.thumb_quality,
                 source_column=source_column,
                 skip_indexing=skip_indexing,
             )
@@ -596,24 +616,24 @@ def create_app(
             print(f"[lenslet] Warning: Failed to load table dataset: {exc}")
             storage = MemoryStorage(
                 root=root_path,
-                thumb_size=thumb_size,
-                thumb_quality=thumb_quality,
+                thumb_size=options.thumb_size,
+                thumb_quality=options.thumb_quality,
             )
             storage_mode = "memory"
     else:
         storage, workspace, preindex_signature = _ensure_preindex_storage(
             root_path,
             workspace,
-            thumb_size=thumb_size,
-            thumb_quality=thumb_quality,
+            thumb_size=options.thumb_size,
+            thumb_quality=options.thumb_quality,
             skip_indexing=skip_indexing,
             preindex_signature=preindex_signature,
         )
         if storage is None:
             storage = MemoryStorage(
                 root=root_path,
-                thumb_size=thumb_size,
-                thumb_quality=thumb_quality,
+                thumb_size=options.thumb_size,
+                thumb_quality=options.thumb_quality,
             )
             storage_mode = "memory"
             storage_origin = "memory"
@@ -631,30 +651,30 @@ def create_app(
         app,
         storage=storage,
         workspace=workspace,
-        thumb_cache=thumb_cache,
-        presence_view_ttl=presence_view_ttl,
-        presence_edit_ttl=presence_edit_ttl,
-        presence_prune_interval=presence_prune_interval,
+        thumb_cache=options.thumb_cache,
+        presence_view_ttl=options.presence_view_ttl,
+        presence_edit_ttl=options.presence_edit_ttl,
+        presence_prune_interval=options.presence_prune_interval,
     )
 
     embedding_manager: EmbeddingManager | None = None
     if storage_mode == "table" and items_path.is_file() and isinstance(storage, TableStorage):
         embedding_cache_store = _embedding_cache_from_workspace(
             workspace,
-            enabled=embedding_cache,
-            cache_dir=embedding_cache_dir,
+            enabled=embedding.cache,
+            cache_dir=embedding.cache_dir,
         )
         embedding_manager = _build_embedding_manager(
             str(items_path),
             storage,
             embedding_detection,
             cache=embedding_cache_store,
-            preload=embedding_preload,
+            preload=embedding.preload,
         )
 
     indexing = IndexingLifecycle(scope="/")
-    if indexing_listener is not None:
-        indexing.subscribe(indexing_listener)
+    if options.indexing_listener is not None:
+        indexing.subscribe(options.indexing_listener)
     if hasattr(storage, "get_index"):
         indexing.start(scope="/")
 
@@ -702,7 +722,7 @@ def create_app(
                 storage=context.storage,
                 workspace=context.workspace,
                 runtime=context.runtime,
-                prune_interval_fallback=presence_prune_interval,
+                prune_interval_fallback=options.presence_prune_interval,
             ),
             "root": root_path,
             "indexing": _indexing_health_payload(context.indexing, context.storage),
@@ -723,8 +743,8 @@ def create_app(
             preindex_storage, updated_workspace, _signature = _ensure_preindex_storage(
                 root_path,
                 context.workspace,
-                thumb_size=thumb_size,
-                thumb_quality=thumb_quality,
+                thumb_size=options.thumb_size,
+                thumb_quality=options.thumb_quality,
                 skip_indexing=skip_indexing,
             )
             if preindex_storage is None:
@@ -752,7 +772,7 @@ def create_app(
                 updated_runtime = _runtime_for_workspace(
                     context.runtime,
                     updated_workspace,
-                    thumb_cache_enabled=thumb_cache,
+                    thumb_cache_enabled=options.thumb_cache,
                 )
             updated_context = _set_runtime_context(
                 app,
@@ -803,30 +823,20 @@ def create_app(
 def create_app_from_datasets(
     datasets: dict[str, list[str]],
     *,
-    thumb_size: int = 256,
-    thumb_quality: int = 70,
     show_source: bool = True,
-    thumb_cache: bool = True,
-    og_preview: bool = False,
     embedding_parquet_path: str | None = None,
-    embedding_config: EmbeddingConfig | None = None,
-    embedding_cache: bool = True,
-    embedding_cache_dir: str | None = None,
-    embedding_preload: bool = False,
-    presence_view_ttl: float = 75.0,
-    presence_edit_ttl: float = 60.0,
-    presence_prune_interval: float = 5.0,
-    indexing_listener: IndexingListener | None = None,
+    options: BrowseAppOptions | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory dataset storage."""
+    options = _browse_options(options)
 
     app = _create_base_app(description="Lightweight image gallery server (dataset mode)")
 
     # Create dataset storage
     storage = DatasetStorage(
         datasets=datasets,
-        thumb_size=thumb_size,
-        thumb_quality=thumb_quality,
+        thumb_size=options.thumb_size,
+        thumb_quality=options.thumb_quality,
         include_source_in_search=show_source,
     )
     workspace = Workspace.for_dataset(None, can_write=False)
@@ -834,14 +844,14 @@ def create_app_from_datasets(
         app,
         storage=storage,
         workspace=workspace,
-        thumb_cache=thumb_cache,
-        presence_view_ttl=presence_view_ttl,
-        presence_edit_ttl=presence_edit_ttl,
-        presence_prune_interval=presence_prune_interval,
+        thumb_cache=options.thumb_cache,
+        presence_view_ttl=options.presence_view_ttl,
+        presence_edit_ttl=options.presence_edit_ttl,
+        presence_prune_interval=options.presence_prune_interval,
     )
     indexing = IndexingLifecycle.ready(scope="/")
-    if indexing_listener is not None:
-        indexing.subscribe(indexing_listener, emit_current=True)
+    if options.indexing_listener is not None:
+        indexing.subscribe(options.indexing_listener, emit_current=True)
     _warn_dataset_embedding_search_unavailable(embedding_parquet_path)
     embedding_manager: EmbeddingManager | None = None
 
@@ -885,7 +895,7 @@ def create_app_from_datasets(
                 storage=context.storage,
                 workspace=context.workspace,
                 runtime=context.runtime,
-                prune_interval_fallback=presence_prune_interval,
+                prune_interval_fallback=options.presence_prune_interval,
             ),
             "datasets": dataset_names,
             "total_images": total_images,
@@ -914,31 +924,23 @@ def create_app_from_table(
     table: object,
     *,
     base_dir: str | None = None,
-    thumb_size: int = 256,
-    thumb_quality: int = 70,
     source_column: str | None = None,
     skip_indexing: bool = False,
     allow_local: bool = True,
     show_source: bool = True,
     og_preview: bool = False,
     workspace: Workspace | None = None,
-    thumb_cache: bool = True,
     embedding_parquet_path: str | None = None,
-    embedding_config: EmbeddingConfig | None = None,
-    embedding_cache: bool = True,
-    embedding_cache_dir: str | None = None,
-    embedding_preload: bool = False,
-    presence_view_ttl: float = 75.0,
-    presence_edit_ttl: float = 60.0,
-    presence_prune_interval: float = 5.0,
-    indexing_listener: IndexingListener | None = None,
+    options: BrowseAppOptions | None = None,
+    embedding: EmbeddingAppOptions | None = None,
 ) -> FastAPI:
     """Create FastAPI app with in-memory table storage."""
+    options = _browse_options(options)
     storage = TableStorage(
         table=table,
         root=base_dir,
-        thumb_size=thumb_size,
-        thumb_quality=thumb_quality,
+        thumb_size=options.thumb_size,
+        thumb_quality=options.thumb_quality,
         source_column=source_column,
         skip_indexing=skip_indexing,
         allow_local=allow_local,
@@ -948,16 +950,9 @@ def create_app_from_table(
         show_source=show_source,
         og_preview=og_preview,
         workspace=workspace,
-        thumb_cache=thumb_cache,
         embedding_parquet_path=embedding_parquet_path,
-        embedding_config=embedding_config,
-        embedding_cache=embedding_cache,
-        embedding_cache_dir=embedding_cache_dir,
-        embedding_preload=embedding_preload,
-        presence_view_ttl=presence_view_ttl,
-        presence_edit_ttl=presence_edit_ttl,
-        presence_prune_interval=presence_prune_interval,
-        indexing_listener=indexing_listener,
+        options=options,
+        embedding=embedding,
     )
 
 
@@ -967,16 +962,9 @@ def create_app_from_storage(
     show_source: bool = True,
     og_preview: bool = False,
     workspace: Workspace | None = None,
-    thumb_cache: bool = True,
     embedding_parquet_path: str | None = None,
-    embedding_config: EmbeddingConfig | None = None,
-    embedding_cache: bool = True,
-    embedding_cache_dir: str | None = None,
-    embedding_preload: bool = False,
-    presence_view_ttl: float = 75.0,
-    presence_edit_ttl: float = 60.0,
-    presence_prune_interval: float = 5.0,
-    indexing_listener: IndexingListener | None = None,
+    options: BrowseAppOptions | None = None,
+    embedding: EmbeddingAppOptions | None = None,
 ) -> FastAPI:
     """Create FastAPI app using a pre-built browse storage."""
     return _create_browse_app(
@@ -984,16 +972,9 @@ def create_app_from_storage(
         show_source=show_source,
         og_preview=og_preview,
         workspace=workspace,
-        thumb_cache=thumb_cache,
         embedding_parquet_path=embedding_parquet_path,
-        embedding_config=embedding_config,
-        embedding_cache=embedding_cache,
-        embedding_cache_dir=embedding_cache_dir,
-        embedding_preload=embedding_preload,
-        presence_view_ttl=presence_view_ttl,
-        presence_edit_ttl=presence_edit_ttl,
-        presence_prune_interval=presence_prune_interval,
-        indexing_listener=indexing_listener,
+        options=options,
+        embedding=embedding,
     )
 
 
@@ -1003,18 +984,13 @@ def _create_browse_app(
     show_source: bool,
     og_preview: bool,
     workspace: Workspace | None,
-    thumb_cache: bool,
     embedding_parquet_path: str | None,
-    embedding_config: EmbeddingConfig | None,
-    embedding_cache: bool,
-    embedding_cache_dir: str | None,
-    embedding_preload: bool,
-    presence_view_ttl: float,
-    presence_edit_ttl: float,
-    presence_prune_interval: float,
-    indexing_listener: IndexingListener | None,
+    options: BrowseAppOptions | None,
+    embedding: EmbeddingAppOptions | None,
 ) -> FastAPI:
     """Create the shared browse app runtime for table and in-memory storage."""
+    options = _browse_options(options)
+    embedding = _embedding_options(embedding)
     app = _create_base_app(description="Lightweight image gallery server (browse mode)")
 
     if workspace is None:
@@ -1023,28 +999,28 @@ def _create_browse_app(
         app,
         storage=storage,
         workspace=workspace,
-        thumb_cache=thumb_cache,
-        presence_view_ttl=presence_view_ttl,
-        presence_edit_ttl=presence_edit_ttl,
-        presence_prune_interval=presence_prune_interval,
+        thumb_cache=options.thumb_cache,
+        presence_view_ttl=options.presence_view_ttl,
+        presence_edit_ttl=options.presence_edit_ttl,
+        presence_prune_interval=options.presence_prune_interval,
     )
     indexing = IndexingLifecycle.ready(scope="/")
-    if indexing_listener is not None:
-        indexing.subscribe(indexing_listener, emit_current=True)
+    if options.indexing_listener is not None:
+        indexing.subscribe(options.indexing_listener, emit_current=True)
     embedding_manager: EmbeddingManager | None = None
     if embedding_parquet_path and isinstance(storage, TableStorage):
-        detection = _resolve_embedding_detection(embedding_parquet_path, embedding_config)
+        detection = _resolve_embedding_detection(embedding_parquet_path, embedding.config)
         embed_cache = _embedding_cache_from_workspace(
             workspace,
-            enabled=embedding_cache,
-            cache_dir=embedding_cache_dir,
+            enabled=embedding.cache,
+            cache_dir=embedding.cache_dir,
         )
         embedding_manager = _build_embedding_manager(
             embedding_parquet_path,
             storage,
             detection,
             cache=embed_cache,
-            preload=embedding_preload,
+            preload=embedding.preload,
         )
 
     def _to_item(storage, cached):
@@ -1079,7 +1055,7 @@ def _create_browse_app(
                 storage=context.storage,
                 workspace=context.workspace,
                 runtime=context.runtime,
-                prune_interval_fallback=presence_prune_interval,
+                prune_interval_fallback=options.presence_prune_interval,
             ),
             "total_images": total_items() if callable(total_items) else 0,
             "indexing": _indexing_health_payload(context.indexing, context.storage),

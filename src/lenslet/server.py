@@ -5,6 +5,8 @@ from __future__ import annotations
 from . import og
 from .server_browse import HotpathTelemetry
 from .server_factory import (
+    BrowseAppOptions,
+    EmbeddingAppOptions,
     create_app,
     create_app_from_datasets,
     create_app_from_storage,
@@ -13,6 +15,8 @@ from .server_factory import (
 from .server_media import _file_response, _thumb_response_async
 
 __all__ = (
+    "BrowseAppOptions",
+    "EmbeddingAppOptions",
     "create_app",
     "create_app_from_datasets",
     "create_app_from_storage",

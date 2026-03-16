@@ -726,9 +726,27 @@ def _main_browse(argv: list[str] | None = None) -> None:
     # Start server
     import uvicorn
     from .indexing_status import CliIndexingReporter
-    from .server import create_app, create_app_from_storage, create_app_from_table
+    from .server import (
+        BrowseAppOptions,
+        EmbeddingAppOptions,
+        create_app,
+        create_app_from_storage,
+        create_app_from_table,
+    )
     from .workspace import Workspace
     indexing_reporter = CliIndexingReporter()
+    browse_options = BrowseAppOptions(
+        thumb_size=args.thumb_size,
+        thumb_quality=args.thumb_quality,
+        thumb_cache=args.thumb_cache,
+        indexing_listener=indexing_reporter.handle_update,
+    )
+    embedding_options = EmbeddingAppOptions(
+        config=embedding_config,
+        cache=args.embedding_cache,
+        cache_dir=args.embedding_cache_dir,
+        preload=args.embedding_preload,
+    )
     if is_remote_table:
         try:
             table = _load_remote_table(remote_uri or raw_target)
@@ -739,19 +757,13 @@ def _main_browse(argv: list[str] | None = None) -> None:
         app = create_app_from_table(
             table=table,
             base_dir=args.base_dir,
-            thumb_size=args.thumb_size,
-            thumb_quality=args.thumb_quality,
             source_column=args.source_column,
             skip_indexing=args.skip_indexing,
             allow_local=False,
             og_preview=args.og_preview,
             workspace=workspace,
-            thumb_cache=args.thumb_cache,
-            embedding_config=embedding_config,
-            embedding_cache=args.embedding_cache,
-            embedding_cache_dir=args.embedding_cache_dir,
-            embedding_preload=args.embedding_preload,
-            indexing_listener=indexing_reporter.handle_update,
+            options=browse_options,
+            embedding=embedding_options,
         )
     elif is_table_file:
         storage = _prepare_table_cache(
@@ -771,14 +783,10 @@ def _main_browse(argv: list[str] | None = None) -> None:
             storage,
             show_source=True,
             workspace=workspace,
-            thumb_cache=args.thumb_cache,
             og_preview=args.og_preview,
             embedding_parquet_path=str(target),
-            embedding_config=embedding_config,
-            embedding_cache=args.embedding_cache,
-            embedding_cache_dir=args.embedding_cache_dir,
-            embedding_preload=args.embedding_preload,
-            indexing_listener=indexing_reporter.handle_update,
+            options=browse_options,
+            embedding=embedding_options,
         )
     else:
         items_path = target / "items.parquet"
@@ -794,20 +802,14 @@ def _main_browse(argv: list[str] | None = None) -> None:
             )
         app = create_app(
             root_path=str(target),
-            thumb_size=args.thumb_size,
-            thumb_quality=args.thumb_quality,
             no_write=args.no_write,
             source_column=args.source_column,
             skip_indexing=args.skip_indexing,
-            thumb_cache=args.thumb_cache,
             og_preview=args.og_preview,
-            embedding_config=embedding_config,
-            embedding_cache=args.embedding_cache,
-            embedding_cache_dir=args.embedding_cache_dir,
-            embedding_preload=args.embedding_preload,
-            indexing_listener=indexing_reporter.handle_update,
             workspace=dataset_workspace,
             preindex_signature=preindex_signature,
+            options=browse_options,
+            embedding=embedding_options,
         )
 
     share_tunnel = None

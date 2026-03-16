@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import lenslet.server_factory as server_factory
-from lenslet.server import create_app, create_app_from_datasets, create_app_from_table
+from lenslet.server import BrowseAppOptions, create_app, create_app_from_datasets, create_app_from_table
 from lenslet.server_models import (
     MAX_EXPORT_COMPARISON_PATHS_V2,
     MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
@@ -45,6 +45,8 @@ def _create_memory_app(
     monkeypatch: pytest.MonkeyPatch,
     **kwargs,
 ):
+    indexing_listener = kwargs.pop("indexing_listener", None)
+
     def _disable_preindex(
         _root_path: str,
         workspace,
@@ -61,7 +63,11 @@ def _create_memory_app(
         return None, workspace, preindex_signature
 
     monkeypatch.setattr(server_factory, "_ensure_preindex_storage", _disable_preindex)
-    return create_app(str(root_path), **kwargs)
+    return create_app(
+        str(root_path),
+        options=BrowseAppOptions(indexing_listener=indexing_listener),
+        **kwargs,
+    )
 
 
 def test_memory_health_reports_running_then_ready_indexing_state(

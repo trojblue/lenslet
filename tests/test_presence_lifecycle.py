@@ -8,7 +8,7 @@ from httpx import ASGITransport, AsyncClient
 from PIL import Image
 import pytest
 
-from lenslet.server import create_app
+from lenslet.server import BrowseAppOptions, create_app
 from lenslet.server_sync import EventBroker, PresenceLeaseError, PresenceScopeError, PresenceTracker
 
 
@@ -49,9 +49,11 @@ def _build_test_app(
     _make_image(root / "sample.jpg")
     return create_app(
         str(root),
-        presence_view_ttl=presence_view_ttl,
-        presence_edit_ttl=presence_edit_ttl,
-        presence_prune_interval=presence_prune_interval,
+        options=BrowseAppOptions(
+            presence_view_ttl=presence_view_ttl,
+            presence_edit_ttl=presence_edit_ttl,
+            presence_prune_interval=presence_prune_interval,
+        ),
     )
 
 

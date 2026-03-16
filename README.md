@@ -203,7 +203,7 @@ python scripts/embed_parquet_embeddings.py /data/items.parquet --image-column im
 
 Launch Lenslet directly from Python code or notebooks.
 
-Use `lenslet.launch(...)` / `lenslet.launch_datasets(...)` for named dataset maps:
+Use `lenslet.launch(...)` for named dataset maps:
 
 ```python
 import lenslet

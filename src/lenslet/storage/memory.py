@@ -288,6 +288,20 @@ class MemoryStorage:
         if (not lightweight) and total >= self.LOCAL_INDEX_PARALLEL_MIN_IMAGES:
             workers = self._effective_workers(total)
         last_print = 0.0
+
+        def consume_result(result: tuple[int, MemoryBrowseItem | None, tuple[int, int] | None]) -> None:
+            nonlocal done, last_print
+            idx, item, dims = result
+            if item is not None:
+                items[idx] = item
+                if dims:
+                    self._dimensions[item.path] = dims
+            done += 1
+            now = time.monotonic()
+            if show_progress and (now - last_print > 0.1 or done == total):
+                self._progress(done, total, "local")
+                last_print = now
+
         if workers:
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = [
@@ -302,34 +316,18 @@ class MemoryStorage:
                     for i, name in enumerate(image_files)
                 ]
                 for future in as_completed(futures):
-                    idx, item, dims = future.result()
-                    if item is not None:
-                        items[idx] = item
-                        if dims:
-                            self._dimensions[item.path] = dims
-                    done += 1
-                    now = time.monotonic()
-                    if show_progress and (now - last_print > 0.1 or done == total):
-                        self._progress(done, total, "local")
-                        last_print = now
+                    consume_result(future.result())
         elif total:
             for i, name in enumerate(image_files):
-                idx, item, dims = self._build_item(
-                    path,
-                    name,
-                    i,
-                    include_dimensions=not lightweight,
-                    include_file_stat=not lightweight,
+                consume_result(
+                    self._build_item(
+                        path,
+                        name,
+                        i,
+                        include_dimensions=not lightweight,
+                        include_file_stat=not lightweight,
+                    ),
                 )
-                if item is not None:
-                    items[idx] = item
-                    if dims:
-                        self._dimensions[item.path] = dims
-                done += 1
-                now = time.monotonic()
-                if show_progress and (now - last_print > 0.1 or done == total):
-                    self._progress(done, total, "local")
-                    last_print = now
         else:
             done = total
 

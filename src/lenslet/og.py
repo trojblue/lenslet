@@ -12,6 +12,7 @@ OG_IMAGES_Y = 3
 OG_PIXELS_PER_IMAGE = 6
 OG_TILE_GAP = 2
 OG_STYLE = "pixel-grid"
+OG_STYLES = (OG_STYLE,)
 
 
 def normalize_path(path: str | None) -> str:
@@ -25,6 +26,14 @@ def normalize_path(path: str | None) -> str:
     if len(cleaned) > 1:
         cleaned = cleaned.rstrip("/")
     return cleaned
+
+
+def resolve_style(style: str | None) -> str:
+    value = (style or "").strip() or OG_STYLE
+    if value not in OG_STYLES:
+        supported = ", ".join(OG_STYLES)
+        raise ValueError(f"unsupported style '{value}'; supported styles: {supported}")
+    return value
 
 
 def sample_paths(storage, path: str | None, count: int) -> list[str]:

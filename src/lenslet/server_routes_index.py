@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
 import html
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from . import og
 from .server_context import get_request_context
@@ -21,7 +21,7 @@ class NoCacheIndexStaticFiles(StaticFiles):
     rebuilt frontends are picked up immediately.
     """
 
-    async def get_response(self, path: str, scope):  # type: ignore[override]
+    async def get_response(self, path: str, scope: Scope) -> Response:
         response = await super().get_response(path, scope)
         if response.media_type == "text/html":
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -70,8 +70,8 @@ def _build_index_description(label: str, scope_path: str) -> str:
     return f"Browse {label} gallery in {scope_path}"
 
 
-@lru_cache(maxsize=1)
-def _load_frontend_shell(index_path: str) -> str:
+def _load_frontend_shell(index_path: str, mtime_ns: int) -> str:
+    _ = mtime_ns
     return Path(index_path).read_text(encoding="utf-8")
 
 
@@ -81,8 +81,8 @@ def register_index_routes(app: FastAPI, og_preview: bool) -> None:
     if not index_path.is_file():
         return
 
-    def render_index(request: Request):
-        html_text = _load_frontend_shell(str(index_path))
+    def render_index(request: Request) -> Response:
+        html_text = _load_frontend_shell(str(index_path), index_path.stat().st_mtime_ns)
         if og_preview:
             context = get_request_context(request)
             label = _dataset_label(context.workspace)

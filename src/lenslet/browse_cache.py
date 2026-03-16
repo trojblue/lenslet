@@ -379,7 +379,7 @@ class RecursiveBrowseCache:
 
         try:
             self._warm_executor.submit(_run)
-            return False
+            return True
         except Exception:
             with self._lock:
                 current = self._persist_jobs.get(key)
@@ -427,17 +427,8 @@ class RecursiveBrowseCache:
             return None
         if not path.is_file():
             return None
-        try:
-            with gzip.open(path, "rt", encoding="utf-8") as handle:
-                payload = json.load(handle)
-        except Exception:
-            return None
-
-        if not isinstance(payload, dict):
-            self._safe_unlink(path)
-            return None
-        if payload.get("schema_version") != CACHE_SCHEMA_VERSION:
-            self._safe_unlink(path)
+        payload = self._load_disk_payload(path)
+        if payload is None:
             return None
         if _canonical_scope(str(payload.get("scope_path", ""))) != _canonical_scope(scope_path):
             self._safe_unlink(path)
@@ -563,7 +554,7 @@ class RecursiveBrowseCache:
                 self._safe_unlink(path)
         self._cleanup_empty_dirs()
 
-    def _read_disk_scope(self, path: Path) -> str | None:
+    def _load_disk_payload(self, path: Path) -> dict[str, Any] | None:
         try:
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 payload = json.load(handle)
@@ -575,6 +566,12 @@ class RecursiveBrowseCache:
             return None
         if payload.get("schema_version") != CACHE_SCHEMA_VERSION:
             self._safe_unlink(path)
+            return None
+        return payload
+
+    def _read_disk_scope(self, path: Path) -> str | None:
+        payload = self._load_disk_payload(path)
+        if payload is None:
             return None
         raw_scope = payload.get("scope_path")
         if not isinstance(raw_scope, str):

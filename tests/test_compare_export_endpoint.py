@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-import lenslet.server as server_mod
+import lenslet.server_routes_common as export_mod
 from lenslet.metadata import read_png_info
 from lenslet.server import create_app
 from lenslet.server_models import MAX_EXPORT_COMPARISON_PATHS_V2, MAX_EXPORT_COMPARISON_PATHS_V2_GIF
@@ -42,7 +42,7 @@ def _export_payload_v2(**overrides):
 def _read_comparison_metadata(raw: bytes) -> dict | None:
     parsed = read_png_info(io.BytesIO(raw))
     for chunk in parsed.get("found_text_chunks", []):
-        if chunk.get("keyword") == server_mod.EXPORT_COMPARISON_METADATA_KEY:
+        if chunk.get("keyword") == export_mod.EXPORT_COMPARISON_METADATA_KEY:
             text = chunk.get("text", "")
             return json.loads(text) if text else None
     return None
@@ -131,14 +131,14 @@ def test_export_comparison_gif_slideshow_success(tmp_path: Path) -> None:
     assert response.headers["content-type"].startswith("image/gif")
     disposition = response.headers["content-disposition"]
     assert re.search(r'attachment; filename="comparison_\d{8}_\d{6}\.gif"', disposition)
-    assert len(response.content) <= server_mod.MAX_EXPORT_GIF_MAX_BYTES
+    assert len(response.content) <= export_mod.MAX_EXPORT_GIF_MAX_BYTES
 
     with Image.open(io.BytesIO(response.content)) as exported:
         assert exported.format == "GIF"
         assert bool(getattr(exported, "is_animated", False))
         assert exported.n_frames == 2
-        assert max(exported.size) <= server_mod.MAX_EXPORT_GIF_LONG_SIDE
-        assert exported.info.get("duration") == server_mod.EXPORT_GIF_FRAME_DURATION_MS
+        assert max(exported.size) <= export_mod.MAX_EXPORT_GIF_LONG_SIDE
+        assert exported.info.get("duration") == export_mod.EXPORT_GIF_FRAME_DURATION_MS
 
     metadata_payload = _read_gif_comparison_metadata(response.content)
     assert metadata_payload is not None
@@ -147,8 +147,8 @@ def test_export_comparison_gif_slideshow_success(tmp_path: Path) -> None:
     assert metadata_payload["reversed"] is False
     assert metadata_payload["output_format"] == "gif"
     assert metadata_payload["gif_high_quality"] is False
-    assert metadata_payload["gif_max_long_side"] == server_mod.MAX_EXPORT_GIF_LONG_SIDE
-    assert metadata_payload["gif_frame_duration_ms"] == server_mod.EXPORT_GIF_FRAME_DURATION_MS
+    assert metadata_payload["gif_max_long_side"] == export_mod.MAX_EXPORT_GIF_LONG_SIDE
+    assert metadata_payload["gif_frame_duration_ms"] == export_mod.EXPORT_GIF_FRAME_DURATION_MS
 
 
 def test_export_comparison_gif_high_quality_mode(tmp_path: Path) -> None:
@@ -163,27 +163,27 @@ def test_export_comparison_gif_high_quality_mode(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/gif")
-    assert len(response.content) <= server_mod.MAX_EXPORT_GIF_MAX_BYTES
+    assert len(response.content) <= export_mod.MAX_EXPORT_GIF_MAX_BYTES
 
     with Image.open(io.BytesIO(response.content)) as exported:
         assert exported.format == "GIF"
         assert bool(getattr(exported, "is_animated", False))
         assert exported.n_frames == 2
-        assert max(exported.size) <= server_mod.MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY
-        assert exported.info.get("duration") == server_mod.EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY
+        assert max(exported.size) <= export_mod.MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY
+        assert exported.info.get("duration") == export_mod.EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY
 
     metadata_payload = _read_gif_comparison_metadata(response.content)
     assert metadata_payload is not None
     assert metadata_payload["gif_high_quality"] is True
-    assert metadata_payload["gif_max_long_side"] == server_mod.MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY
-    assert metadata_payload["gif_frame_duration_ms"] == server_mod.EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY
+    assert metadata_payload["gif_max_long_side"] == export_mod.MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY
+    assert metadata_payload["gif_frame_duration_ms"] == export_mod.EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY
 
 
 def test_export_comparison_gif_enforces_size_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _make_png(tmp_path / "a.png", size=(600, 600), color=(255, 0, 0))
     _make_png(tmp_path / "b.png", size=(600, 600), color=(0, 0, 255))
 
-    monkeypatch.setattr(server_mod, "MAX_EXPORT_GIF_MAX_BYTES", 100)
+    monkeypatch.setattr(export_mod, "MAX_EXPORT_GIF_MAX_BYTES", 100)
     client = TestClient(create_app(str(tmp_path)))
     response = client.post(
         "/export-comparison",
@@ -404,13 +404,13 @@ def test_export_comparison_enforces_pixel_bounds(tmp_path: Path, monkeypatch: py
 
     client = TestClient(create_app(str(tmp_path)))
 
-    monkeypatch.setattr(server_mod, "MAX_EXPORT_SOURCE_PIXELS", 200)
+    monkeypatch.setattr(export_mod, "MAX_EXPORT_SOURCE_PIXELS", 200)
     source_limit = client.post("/export-comparison", json=_export_payload())
     assert source_limit.status_code == 400
     assert source_limit.json()["error"] == "export_too_large"
 
-    monkeypatch.setattr(server_mod, "MAX_EXPORT_SOURCE_PIXELS", 64_000_000)
-    monkeypatch.setattr(server_mod, "MAX_EXPORT_STITCHED_PIXELS", 500)
+    monkeypatch.setattr(export_mod, "MAX_EXPORT_SOURCE_PIXELS", 64_000_000)
+    monkeypatch.setattr(export_mod, "MAX_EXPORT_STITCHED_PIXELS", 500)
     stitched_limit = client.post("/export-comparison", json=_export_payload())
     assert stitched_limit.status_code == 400
     assert stitched_limit.json()["error"] == "export_too_large"
@@ -423,7 +423,7 @@ def test_export_comparison_returns_500_when_unibox_is_unavailable(tmp_path: Path
     def _raise_missing():
         raise RuntimeError("unibox is required for comparison export. Install with: pip install unibox")
 
-    monkeypatch.setattr(server_mod, "_get_unibox_image_utils", _raise_missing)
+    monkeypatch.setattr(export_mod, "_get_unibox_image_utils", _raise_missing)
 
     client = TestClient(create_app(str(tmp_path)))
     response = client.post("/export-comparison", json=_export_payload())

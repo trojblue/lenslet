@@ -7,6 +7,7 @@ import math
 from fastapi import FastAPI, HTTPException
 
 from .embeddings.index import EmbeddingIndexError, EmbeddingManager
+from .server_browse import _ensure_image
 from .server_models import (
     EmbeddingRejectedPayload,
     EmbeddingSearchItem,
@@ -15,6 +16,7 @@ from .server_models import (
     EmbeddingSpecPayload,
     EmbeddingsResponse,
 )
+from .server_sync import _canonical_path
 
 
 def _build_embeddings_payload(manager: EmbeddingManager) -> EmbeddingsResponse:
@@ -37,16 +39,14 @@ def register_embedding_routes(
     storage,
     manager: EmbeddingManager | None,
 ) -> None:
-    from . import server as _server
-
     @app.get("/embeddings", response_model=EmbeddingsResponse)
-    def get_embeddings():
+    def get_embeddings() -> EmbeddingsResponse:
         if manager is None:
             return EmbeddingsResponse()
         return _build_embeddings_payload(manager)
 
     @app.post("/embeddings/search", response_model=EmbeddingSearchResponse)
-    def search_embeddings(body: EmbeddingSearchRequest):
+    def search_embeddings(body: EmbeddingSearchRequest) -> EmbeddingSearchResponse:
         if manager is None:
             raise HTTPException(404, "embedding search unavailable")
         if not body.embedding:
@@ -65,12 +65,12 @@ def register_embedding_routes(
 
         try:
             if body.query_path is not None:
-                path = _server._canonical_path(body.query_path)
-                _server._ensure_image(storage, path)
+                path = _canonical_path(body.query_path)
+                _ensure_image(storage, path)
                 row_index = storage.row_index_for_path(path)
                 if row_index is None:
                     raise HTTPException(404, "query_path not found")
-                matches = manager.search_by_path(
+                matches = manager.search_by_row_index(
                     body.embedding,
                     row_index=row_index,
                     top_k=top_k,
@@ -91,7 +91,7 @@ def register_embedding_routes(
             items=[
                 EmbeddingSearchItem(
                     row_index=match.row_index,
-                    path=_server._canonical_path(match.path),
+                    path=_canonical_path(match.path),
                     score=match.score,
                 )
                 for match in matches

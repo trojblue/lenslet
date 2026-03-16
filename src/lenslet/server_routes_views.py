@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from .server_context import get_request_context
 from .server_models import ViewsPayload
+from .server_permissions import deny_if_workspace_read_only
+
+ViewsRouteResponse = ViewsPayload | JSONResponse
 
 
 def register_views_routes(app: FastAPI) -> None:
     @app.get("/views", response_model=ViewsPayload)
-    def get_views(request: Request):
+    def get_views(request: Request) -> ViewsPayload:
         current = get_request_context(request).workspace
-        return current.load_views()
+        return ViewsPayload.model_validate(current.load_views())
 
     @app.put("/views", response_model=ViewsPayload)
-    def put_views(body: ViewsPayload, request: Request):
+    def put_views(body: ViewsPayload, request: Request) -> ViewsRouteResponse:
+        if denied := deny_if_workspace_read_only(request):
+            return denied
         payload = body.model_dump()
         current = get_request_context(request).workspace
         current.save_views(payload)
-        return body
+        return ViewsPayload.model_validate(payload)

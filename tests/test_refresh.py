@@ -44,9 +44,8 @@ def test_invalidate_subtree_drops_cache_and_rebuilds(tmp_path: Path):
     meta = storage.get_metadata("/a/one.jpg")
     meta["notes"] = "stale"
     storage.set_metadata("/a/one.jpg", meta)
-    assert "/a/one.jpg" in storage._thumbnails  # type: ignore[attr-defined]
-    assert "/a/one.jpg" in storage._dimensions  # type: ignore[attr-defined]
-    assert "/a/one.jpg" in storage._metadata  # type: ignore[attr-defined]
+    assert storage.get_cached_thumbnail("/a/one.jpg") is not None
+    assert "/a/one.jpg" in dict(storage.metadata_items())
 
     # Mutate filesystem under /a
     img_a2 = folder_a / "two.jpg"
@@ -61,9 +60,8 @@ def test_invalidate_subtree_drops_cache_and_rebuilds(tmp_path: Path):
     assert len(refreshed.items) == 2
 
     # Cache entries under /a were purged, /b untouched
-    assert "/a/one.jpg" not in storage._thumbnails  # type: ignore[attr-defined]
-    assert "/a/one.jpg" not in storage._dimensions  # type: ignore[attr-defined]
-    assert "/a/one.jpg" not in storage._metadata  # type: ignore[attr-defined]
+    assert storage.get_cached_thumbnail("/a/one.jpg") is None
+    assert "/a/one.jpg" not in dict(storage.metadata_items())
     assert len(storage.get_index("/b").items) == 1
 
 
@@ -86,8 +84,7 @@ def test_invalidate_subtree_can_preserve_metadata(tmp_path: Path):
 
     storage.invalidate_subtree("/a", clear_metadata=False)
 
-    assert "/a/one.jpg" not in storage._thumbnails  # type: ignore[attr-defined]
-    assert "/a/one.jpg" not in storage._dimensions  # type: ignore[attr-defined]
+    assert storage.get_cached_thumbnail("/a/one.jpg") is None
 
     preserved = storage.get_metadata("/a/one.jpg")
     assert preserved["notes"] == "keep me"

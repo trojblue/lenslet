@@ -118,7 +118,7 @@ def install_presence_prune_loop(
             publish_presence_deltas(broker, previous, current)
             previous = current
 
-    async def _start_presence_prune_loop() -> None:
+    def _start_presence_prune_loop() -> None:
         existing = getattr(app.state, "presence_prune_task", None)
         if existing is not None and not existing.done():
             return
@@ -276,15 +276,3 @@ def register_presence_routes(
         payload = presence_payload_for_client(current, client_id, body.lease_id)
         payload["removed"] = removed
         return payload
-
-    @app.post("/presence")
-    def presence_heartbeat(body: PresencePayload):
-        gallery_id = _canonical_path(body.gallery_id)
-        client_id = require_presence_client_id(body.client_id)
-        try:
-            lease_id, counts = presence.touch_view(gallery_id, client_id, lease_id=body.lease_id)
-        except PresenceLeaseError:
-            return _invalid_lease_response(metrics, gallery_id=gallery_id, client_id=client_id)
-        publish_presence_counts(broker, counts)
-        current = presence_count_for_gallery(counts, gallery_id)
-        return presence_payload_for_client(current, client_id, lease_id)

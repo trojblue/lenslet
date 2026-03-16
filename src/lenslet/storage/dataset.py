@@ -11,27 +11,11 @@ from threading import Lock
 from typing import Any
 from urllib.parse import urlparse
 
+from .base import join_storage_path
 from .progress import ProgressBar
-from .table_facade import (
-    get_dimensions as storage_get_dimensions,
-    get_metadata as storage_get_metadata,
-    get_metadata_readonly as storage_get_metadata_readonly,
-    get_presigned_url as storage_get_presigned_url,
-    get_s3_client as storage_get_s3_client,
-    get_thumbnail as storage_get_thumbnail,
-    guess_mime as storage_guess_mime,
-    make_thumbnail as storage_make_thumbnail,
-    read_bytes as storage_read_bytes,
-    search_items as storage_search_items,
-    set_metadata as storage_set_metadata,
-)
+from .source_backed import SourceBackedStorageMixin
 from .table_index import ScannedRow, assemble_indexes
-from .table_media import (
-    read_dimensions_from_bytes,
-    read_jpeg_dimensions,
-    read_png_dimensions,
-    read_webp_dimensions,
-)
+from .table_media import read_dimensions_from_bytes
 from .table_paths import (
     canonical_meta_key,
     dedupe_path,
@@ -43,16 +27,12 @@ from .table_paths import (
     normalize_path,
 )
 from .table_probe import (
-    effective_remote_workers,
-    get_remote_header_bytes,
-    get_remote_header_info,
-    parse_content_range,
     probe_remote_dimensions,
 )
 
 
 @dataclass
-class CachedItem:
+class DatasetBrowseItem:
     """In-memory cached metadata for an image."""
 
     path: str
@@ -63,15 +43,17 @@ class CachedItem:
     size: int
     mtime: float
     url: str | None = None
+    source: str | None = None
+    metrics: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
-class CachedIndex:
+class DatasetBrowseIndex:
     """In-memory cached folder index."""
 
     path: str
     generated_at: str
-    items: list[CachedItem] = field(default_factory=list)
+    items: list[DatasetBrowseItem] = field(default_factory=list)
     dirs: list[str] = field(default_factory=list)
 
 
@@ -192,7 +174,7 @@ def _dataset_relative_path(
     return os.path.basename(resolved)
 
 
-class DatasetStorage:
+class DatasetStorage(SourceBackedStorageMixin[DatasetBrowseItem]):
     """
     In-memory storage for programmatic datasets.
     Supports local file paths, S3 URIs, and HTTP/HTTPS URLs.
@@ -202,6 +184,12 @@ class DatasetStorage:
     REMOTE_HEADER_BYTES = 65536
     REMOTE_DIM_WORKERS = 16
     REMOTE_DIM_WORKERS_MAX = 16
+    _is_s3_uri = staticmethod(is_s3_uri)
+    _is_http_url = staticmethod(is_http_url)
+    _extract_name = staticmethod(extract_name)
+    _normalize_path = staticmethod(normalize_path)
+    _canonical_meta_key = staticmethod(canonical_meta_key)
+    _read_dimensions_from_bytes = staticmethod(read_dimensions_from_bytes)
 
     def __init__(
         self,
@@ -216,8 +204,8 @@ class DatasetStorage:
         self._include_source_in_search = include_source_in_search
         self._progress_bar = ProgressBar()
 
-        self._indexes: dict[str, CachedIndex] = {}
-        self._items: dict[str, CachedItem] = {}
+        self._indexes: dict[str, DatasetBrowseIndex] = {}
+        self._items: dict[str, DatasetBrowseItem] = {}
         self._thumbnails: dict[str, bytes] = {}
         self._metadata: dict[str, dict] = {}
         self._dimensions: dict[str, tuple[int, int]] = {}
@@ -241,83 +229,24 @@ class DatasetStorage:
                 digest.update(source.encode("utf-8"))
         return digest.hexdigest()
 
-    def _is_s3_uri(self, path: str) -> bool:
-        return is_s3_uri(path)
-
-    def _is_http_url(self, path: str) -> bool:
-        return is_http_url(path)
-
     def _is_supported_image(self, name: str) -> bool:
         return is_supported_image(name, self.IMAGE_EXTS)
-
-    def _extract_name(self, value: str) -> str:
-        return extract_name(value)
-
-    def _normalize_path(self, path: str) -> str:
-        return normalize_path(path)
 
     def _normalize_item_path(self, path: str) -> str:
         normalized = normalize_item_path(path)
         return f"/{normalized}" if normalized else "/"
-
-    def _canonical_meta_key(self, path: str) -> str:
-        return canonical_meta_key(path)
 
     def _resolve_local_source(self, source: str) -> str:
         if not source:
             raise ValueError("empty path")
         return os.path.abspath(source)
 
-    def _effective_remote_workers(self, total: int) -> int:
-        return effective_remote_workers(
-            total,
-            baseline_workers=self.REMOTE_DIM_WORKERS,
-            max_workers=self.REMOTE_DIM_WORKERS_MAX,
-            cpu_count=os.cpu_count,
-        )
-
-    def _get_s3_client(self):
-        return storage_get_s3_client(self)
-
     def s3_client_creations(self) -> int:
         return self._s3_client_creations
 
-    def _get_presigned_url(self, s3_uri: str, expires_in: int = 3600) -> str:
-        return storage_get_presigned_url(self, s3_uri, expires_in=expires_in)
-
-    def _parse_content_range(self, header: str) -> int | None:
-        return parse_content_range(header)
-
-    def _get_remote_header_bytes(
-        self,
-        url: str,
-        max_bytes: int | None = None,
-    ) -> tuple[bytes | None, int | None]:
-        return get_remote_header_bytes(
-            url,
-            max_bytes=max_bytes or self.REMOTE_HEADER_BYTES,
-            parse_content_range_fn=self._parse_content_range,
-        )
-
-    def _get_remote_header_info(
-        self,
-        url: str,
-        name: str,
-    ) -> tuple[tuple[int, int] | None, int | None]:
-        return get_remote_header_info(
-            url,
-            name,
-            max_bytes=self.REMOTE_HEADER_BYTES,
-            read_dimensions_from_bytes=self._read_dimensions_from_bytes,
-            get_remote_header_bytes_fn=self._get_remote_header_bytes,
-        )
-
-    def _read_dimensions_from_bytes(self, data: bytes, ext: str | None) -> tuple[int, int] | None:
-        return read_dimensions_from_bytes(data, ext)
-
     def _probe_remote_dimensions(
         self,
-        tasks: list[tuple[str, CachedItem, str, str]],
+        tasks: list[tuple[str, DatasetBrowseItem, str, str]],
         label: str | None = None,
     ) -> None:
         _ = label
@@ -329,7 +258,7 @@ class DatasetStorage:
         self._row_dimensions = [None] * total_sources
 
         rows: list[ScannedRow] = []
-        remote_tasks: list[tuple[str, CachedItem, str, str]] = []
+        remote_tasks: list[tuple[str, DatasetBrowseItem, str, str]] = []
         row_idx = 0
 
         for dataset_name, raw_paths in self.datasets.items():
@@ -389,7 +318,7 @@ class DatasetStorage:
                     except Exception:
                         mtime = time.time()
 
-                item = CachedItem(
+                item = DatasetBrowseItem(
                     path=logical_path,
                     name=name,
                     mime=self._guess_mime(name),
@@ -398,6 +327,7 @@ class DatasetStorage:
                     size=size,
                     mtime=mtime,
                     url=url,
+                    source=source,
                 )
                 folder_norm = normalize_path(os.path.dirname(logical_path))
                 rows.append(
@@ -420,19 +350,19 @@ class DatasetStorage:
             self,
             rows,
             generated_at=generated_at,
-            index_factory=CachedIndex,
+            index_factory=DatasetBrowseIndex,
         )
 
         root_index = self._indexes.setdefault(
             "",
-            CachedIndex(path="/", generated_at=generated_at, items=[], dirs=[]),
+            DatasetBrowseIndex(path="/", generated_at=generated_at, items=[], dirs=[]),
         )
         root_dirs = set(root_index.dirs)
         for dataset_name in self.datasets:
             dataset_norm = normalize_path(dataset_name)
             self._indexes.setdefault(
                 dataset_norm,
-                CachedIndex(
+                DatasetBrowseIndex(
                     path=f"/{dataset_norm}" if dataset_norm else "/",
                     generated_at=generated_at,
                     items=[],
@@ -458,25 +388,16 @@ class DatasetStorage:
     def browse_cache_signature(self) -> str:
         return self._browse_signature
 
-    def get_index(self, path: str) -> CachedIndex:
+    def get_index(self, path: str) -> DatasetBrowseIndex | None:
         norm = self._normalize_path(path)
         if norm in self._indexes:
             return self._indexes[norm]
-        raise FileNotFoundError(f"Dataset not found: {path}")
+        return None
 
     def validate_image_path(self, path: str) -> None:
         norm = self._normalize_item_path(path)
         if not path or norm not in self._items:
             raise FileNotFoundError(path)
-
-    def get_source_path(self, logical_path: str) -> str:
-        norm = self._normalize_item_path(logical_path)
-        if norm not in self._source_paths:
-            raise FileNotFoundError(logical_path)
-        return self._source_paths[norm]
-
-    def read_bytes(self, path: str) -> bytes:
-        return storage_read_bytes(self, path)
 
     def exists(self, path: str) -> bool:
         norm = self._normalize_item_path(path)
@@ -485,10 +406,12 @@ class DatasetStorage:
     def size(self, path: str) -> int:
         norm = self._normalize_item_path(path)
         item = self._items.get(norm)
-        return item.size if item else 0
+        if item is None:
+            raise FileNotFoundError(path)
+        return item.size
 
     def join(self, *parts: str) -> str:
-        return "/" + "/".join(p.strip("/") for p in parts if p.strip("/"))
+        return join_storage_path(*parts)
 
     def etag(self, path: str) -> str | None:
         norm = self._normalize_item_path(path)
@@ -496,40 +419,3 @@ class DatasetStorage:
         if not item:
             return None
         return f"{int(item.mtime)}-{item.size}"
-
-    def get_thumbnail(self, path: str) -> bytes | None:
-        return storage_get_thumbnail(self, path)
-
-    def _make_thumbnail(self, img_bytes: bytes) -> tuple[bytes, tuple[int, int] | None]:
-        return storage_make_thumbnail(
-            img_bytes,
-            thumb_size=self.thumb_size,
-            thumb_quality=self.thumb_quality,
-        )
-
-    def get_dimensions(self, path: str) -> tuple[int, int]:
-        return storage_get_dimensions(self, path)
-
-    def get_metadata(self, path: str) -> dict:
-        return storage_get_metadata(self, path)
-
-    def get_metadata_readonly(self, path: str) -> dict:
-        return storage_get_metadata_readonly(self, path)
-
-    def set_metadata(self, path: str, meta: dict) -> None:
-        storage_set_metadata(self, path, meta)
-
-    def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[CachedItem]:
-        return storage_search_items(self, query=query, path=path, limit=limit)
-
-    def _jpeg_dimensions(self, handle) -> tuple[int, int] | None:
-        return read_jpeg_dimensions(handle)
-
-    def _png_dimensions(self, handle) -> tuple[int, int] | None:
-        return read_png_dimensions(handle)
-
-    def _webp_dimensions(self, handle) -> tuple[int, int] | None:
-        return read_webp_dimensions(handle)
-
-    def _guess_mime(self, name: str) -> str:
-        return storage_guess_mime(name)

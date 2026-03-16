@@ -28,9 +28,9 @@ class MemoryStorage implements Pick<Storage, 'getItem' | 'setItem'> {
 }
 
 describe('useSidebars resize and persistence helpers', () => {
-  it('loads persisted widths with folders fallback to the legacy key', () => {
+  it('loads persisted widths from the current per-pane keys', () => {
     const storage = new MemoryStorage({
-      [SIDEBAR_STORAGE_KEYS.leftLegacy]: '286',
+      [SIDEBAR_STORAGE_KEYS.leftFolders]: '286',
       [SIDEBAR_STORAGE_KEYS.leftMetrics]: '341',
       [SIDEBAR_STORAGE_KEYS.right]: '299',
     })

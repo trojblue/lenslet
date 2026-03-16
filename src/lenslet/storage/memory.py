@@ -8,13 +8,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
 from PIL import Image
+from .base import StorageWriteUnsupportedError, join_storage_path
 from .local import LocalStorage
 from .progress import LeafBatchTracker, ProgressBar
 from .search_text import build_search_haystack, normalize_search_path, path_in_scope
 
 
 @dataclass
-class CachedItem:
+class MemoryBrowseItem:
     """In-memory cached metadata for an image."""
     path: str
     name: str
@@ -23,14 +24,17 @@ class CachedItem:
     height: int  # 0 = not yet loaded
     size: int
     mtime: float
+    url: str | None = None
+    source: str | None = None
+    metrics: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
-class CachedIndex:
+class MemoryBrowseIndex:
     """In-memory cached folder index."""
     path: str
     generated_at: str
-    items: list[CachedItem] = field(default_factory=list)
+    items: list[MemoryBrowseItem] = field(default_factory=list)
     dirs: list[str] = field(default_factory=list)
 
 
@@ -64,8 +68,8 @@ class MemoryStorage:
         )
 
         # In-memory caches
-        self._indexes: dict[str, CachedIndex] = {}
-        self._recursive_indexes: dict[str, CachedIndex] = {}
+        self._indexes: dict[str, MemoryBrowseIndex] = {}
+        self._recursive_indexes: dict[str, MemoryBrowseIndex] = {}
         self._thumbnails: dict[str, bytes] = {}  # path -> thumbnail bytes
         self._metadata: dict[str, dict] = {}  # path -> sidecar-like metadata
         self._dimensions: dict[str, tuple[int, int]] = {}  # path -> (w, h)
@@ -144,8 +148,7 @@ class MemoryStorage:
         return self.local.read_bytes(path)
 
     def write_bytes(self, path: str, data: bytes) -> None:
-        """No-op - we don't write to source directory."""
-        pass
+        raise StorageWriteUnsupportedError("memory storage does not support raw writes")
 
     def exists(self, path: str) -> bool:
         """Check if file exists on disk."""
@@ -156,28 +159,34 @@ class MemoryStorage:
         return self.local.size(path)
 
     def join(self, *parts: str) -> str:
-        return self.local.join(*parts)
+        return join_storage_path(*parts)
 
     def etag(self, path: str) -> str | None:
         return self.local.etag(path)
 
     # --- In-memory index/thumbnail operations ---
 
-    def get_index(self, path: str) -> CachedIndex | None:
-        """Get cached index for a folder, building if needed."""
+    def get_index(self, path: str) -> MemoryBrowseIndex | None:
+        """Get cached index for a folder, or None when the path is absent."""
         norm = self._normalize_path(path)
         if norm in self._indexes:
             return self._indexes[norm]
-        return self._build_index(path, lightweight=False)
+        try:
+            return self._build_index(path, lightweight=False)
+        except (FileNotFoundError, ValueError):
+            return None
 
-    def get_index_for_recursive(self, path: str) -> CachedIndex | None:
+    def get_index_for_recursive(self, path: str) -> MemoryBrowseIndex | None:
         """Get an index optimized for recursive traversal hot paths."""
         norm = self._normalize_path(path)
         if norm in self._indexes:
             return self._indexes[norm]
         if norm in self._recursive_indexes:
             return self._recursive_indexes[norm]
-        return self._build_index(path, lightweight=True)
+        try:
+            return self._build_index(path, lightweight=True)
+        except (FileNotFoundError, ValueError):
+            return None
 
     def validate_image_path(self, path: str) -> None:
         """Ensure path is a supported image and exists on disk."""
@@ -198,8 +207,8 @@ class MemoryStorage:
         *,
         include_dimensions: bool,
         include_file_stat: bool,
-    ) -> tuple[int, CachedItem | None, tuple[int, int] | None]:
-        """Build a CachedItem for a single image file."""
+    ) -> tuple[int, MemoryBrowseItem | None, tuple[int, int] | None]:
+        """Build a browse item for a single image file."""
         try:
             full = self.join(path, name)
             abs_path = None
@@ -224,7 +233,7 @@ class MemoryStorage:
                 except Exception:
                     dims = None
 
-            item = CachedItem(
+            item = MemoryBrowseItem(
                 path=full,
                 name=name,
                 mime=mime,
@@ -232,6 +241,7 @@ class MemoryStorage:
                 height=h,
                 size=size,
                 mtime=mtime,
+                source=full,
             )
             return idx, item, dims
         except Exception:
@@ -255,7 +265,7 @@ class MemoryStorage:
         cpu = os.cpu_count() or 1
         return max(1, min(self.LOCAL_INDEX_WORKERS, cpu, total))
 
-    def _build_index(self, path: str, *, lightweight: bool) -> CachedIndex:
+    def _build_index(self, path: str, *, lightweight: bool) -> MemoryBrowseIndex:
         """Build and cache folder index. Fast - no image reading."""
         norm = self._normalize_path(path)
         files, dirs = self.list_dir(path)
@@ -266,7 +276,7 @@ class MemoryStorage:
         use_leaf_batch = (not lightweight) and self._leaf_batch.use_batch(norm, dirs)
 
         image_files = [f for f in files if self._is_supported_image(f)]
-        items: list[CachedItem | None] = [None] * len(image_files)
+        items: list[MemoryBrowseItem | None] = [None] * len(image_files)
 
         total = len(image_files)
         show_progress = (not lightweight) and total >= self.LOCAL_PROGRESS_MIN_IMAGES and not use_leaf_batch
@@ -323,7 +333,7 @@ class MemoryStorage:
         else:
             done = total
 
-        index = CachedIndex(
+        index = MemoryBrowseIndex(
             path=path,
             generated_at=datetime.now(timezone.utc).isoformat(),
             items=[it for it in items if it is not None],
@@ -456,7 +466,7 @@ class MemoryStorage:
             return w, h
         return None
 
-    def _all_items(self) -> list[CachedItem]:
+    def _all_items(self) -> list[MemoryBrowseItem]:
         """Return cached items; build root index if nothing is cached yet."""
         if self._indexes:
             return [it for idx in self._indexes.values() for it in idx.items]
@@ -479,12 +489,12 @@ class MemoryStorage:
         url_text = str(url).strip() if url is not None else ""
         return (source_text or None, url_text or None)
 
-    def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[CachedItem]:
+    def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[MemoryBrowseItem]:
         """Simple in-memory search over cached indexes."""
         q = (query or "").lower()
         scope_norm = normalize_search_path(path)
 
-        results: list[CachedItem] = []
+        results: list[MemoryBrowseItem] = []
         for item in self._all_items():
             if not path_in_scope(logical_path=item.path, scope_norm=scope_norm):
                 continue
@@ -507,16 +517,18 @@ class MemoryStorage:
 
     def get_thumbnail(self, path: str) -> bytes | None:
         """Get thumbnail, generating if needed."""
-        if path in self._thumbnails:
-            return self._thumbnails[path]
+        cached = self.get_cached_thumbnail(path)
+        if cached is not None:
+            return cached
 
         try:
             raw = self.read_bytes(path)
             thumb, dims = self._make_thumbnail(raw)
-            self._thumbnails[path] = thumb
+            norm = self._normalize_item_path(path)
+            self._thumbnails[norm] = thumb
             # Cache dimensions from thumbnail generation
             if dims:
-                self._dimensions[path] = dims
+                self._dimensions[norm] = dims
             return thumb
         except Exception:
             return None
@@ -552,7 +564,7 @@ class MemoryStorage:
         key = self._canonical_meta_key(path)
         meta = self._metadata.get(key)
         if meta is not None:
-            return meta
+            return dict(meta)
 
         lookup = self._normalize_item_path(path)
         w, h = self._dimensions.get(lookup, (0, 0))
@@ -572,6 +584,49 @@ class MemoryStorage:
         key = self._canonical_meta_key(path)
         self._metadata[key] = meta
 
+    def get_source_path(self, logical_path: str) -> str:
+        norm = self._normalize_item_path(logical_path)
+        if not self.exists(norm):
+            raise FileNotFoundError(logical_path)
+        return norm
+
+    def get_cached_thumbnail(self, path: str) -> bytes | None:
+        norm = self._normalize_item_path(path)
+        return self._thumbnails.get(norm)
+
+    def resolve_local_file_path(self, path: str) -> str | None:
+        try:
+            return self._abs_path(self.get_source_path(path))
+        except (FileNotFoundError, ValueError):
+            return None
+
+    def metadata_items(self) -> list[tuple[str, dict]]:
+        return list(self._metadata.items())
+
+    def replace_metadata(self, metadata: dict[str, dict]) -> None:
+        self._metadata = {
+            self._canonical_meta_key(path): dict(meta)
+            for path, meta in metadata.items()
+        }
+
+    def total_items(self) -> int:
+        total = 0
+        pending = ["/"]
+        seen: set[str] = set()
+        while pending:
+            path = pending.pop()
+            norm = self._normalize_path(path)
+            if norm in seen:
+                continue
+            seen.add(norm)
+            index = self.get_index_for_recursive(path)
+            if index is None:
+                continue
+            total += len(index.items)
+            for child in index.dirs:
+                pending.append(self.join(path, child))
+        return total
+
     def invalidate_cache(self, path: str | None = None) -> None:
         """Clear cached data. If path is None, clear everything."""
         self._bump_browse_generation()
@@ -586,9 +641,9 @@ class MemoryStorage:
             norm = self._normalize_path(path)
             self._indexes.pop(norm, None)
             self._recursive_indexes.pop(norm, None)
-            self._thumbnails.pop(path, None)
+            self._thumbnails.pop(norm, None)
             self._metadata.pop(self._canonical_meta_key(path), None)
-            self._dimensions.pop(path, None)
+            self._dimensions.pop(norm, None)
 
     def invalidate_subtree(self, path: str, clear_metadata: bool = True) -> None:
         """Drop cached entries for a folder subtree.

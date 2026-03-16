@@ -24,19 +24,13 @@ def _thumb_worker_count() -> int:
 
 
 def _get_cached_thumbnail(storage, path: str) -> bytes | None:
-    cache = getattr(storage, "_thumbnails", None)
-    if not isinstance(cache, dict):
+    getter = getattr(storage, "get_cached_thumbnail", None)
+    if not callable(getter):
         return None
-    if path in cache:
-        return cache[path]
-    normalizer = getattr(storage, "_normalize_path", None)
-    if callable(normalizer):
-        try:
-            norm = normalizer(path)
-        except Exception:
-            return None
-        return cache.get(norm)
-    return None
+    try:
+        return getter(path)
+    except Exception:
+        return None
 
 
 async def _await_thumbnail(
@@ -63,18 +57,6 @@ def _thumb_cache_source(storage, path: str) -> str | None:
             source = getter(path)
         except Exception:
             source = None
-    if source is None:
-        mapping = getattr(storage, "_source_paths", None)
-        if isinstance(mapping, dict):
-            source = mapping.get(path)
-            if source is None:
-                normalizer = getattr(storage, "_normalize_path", None)
-                if callable(normalizer):
-                    try:
-                        norm = normalizer(path)
-                        source = mapping.get(norm)
-                    except Exception:
-                        source = None
     if not source:
         source = path
     if not _is_remote_source(source):
@@ -117,25 +99,19 @@ def _existing_local_file(source: str) -> tuple[str, os.stat_result] | None:
 
 
 def _resolve_local_file_path(storage, path: str) -> tuple[str, os.stat_result] | None:
+    resolver = getattr(storage, "resolve_local_file_path", None)
+    if callable(resolver):
+        try:
+            source = resolver(path)
+        except Exception:
+            return None
+        if source is None:
+            return None
+        return _existing_local_file(source)
+
     source = _thumb_cache_source(storage, path)
     if not source or _is_remote_source(source):
         return None
-
-    resolver = getattr(storage, "_resolve_local_source", None)
-    if callable(resolver):
-        try:
-            source = resolver(source)
-        except Exception:
-            return None
-
-    local = getattr(storage, "local", None)
-    local_resolver = getattr(local, "resolve_path", None)
-    if callable(local_resolver):
-        try:
-            source = local_resolver(path)
-        except Exception:
-            return None
-
     return _existing_local_file(source)
 
 

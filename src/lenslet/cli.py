@@ -49,10 +49,7 @@ def _load_remote_table(uri: str):
         ) from exc
     table = ub.loads(uri)
     if hasattr(table, "to_pandas"):
-        try:
-            table = table.to_pandas()
-        except TypeError:
-            table = table.to_pandas()
+        table = table.to_pandas()
     return table
 
 
@@ -746,6 +743,7 @@ def _main_browse(argv: list[str] | None = None) -> None:
             thumb_quality=args.thumb_quality,
             source_column=args.source_column,
             skip_indexing=args.skip_indexing,
+            allow_local=False,
             og_preview=args.og_preview,
             workspace=workspace,
             thumb_cache=args.thumb_cache,
@@ -753,7 +751,6 @@ def _main_browse(argv: list[str] | None = None) -> None:
             embedding_cache=args.embedding_cache,
             embedding_cache_dir=args.embedding_cache_dir,
             embedding_preload=args.embedding_preload,
-            allow_local=False,
             indexing_listener=indexing_reporter.handle_update,
         )
     elif is_table_file:

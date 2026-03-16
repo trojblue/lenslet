@@ -1,14 +1,43 @@
 """Simple test script for the programmatic API."""
-import tempfile
 import os
+import re
+import signal
+import subprocess
+import os
+import tempfile
 import time
 import json
 import urllib.request
 from pathlib import Path
 from PIL import Image
 
-def test_local_images():
-    """Test with local images only."""
+
+def _terminate_process_on_port(port: int) -> None:
+    try:
+        output = subprocess.check_output(["ss", "-ltnp"], text=True)
+    except Exception:
+        return
+
+    pid: int | None = None
+    for line in output.splitlines():
+        if f":{port}" not in line:
+            continue
+        match = re.search(r"pid=(\d+)", line)
+        if match:
+            pid = int(match.group(1))
+            break
+
+    if pid is None:
+        return
+
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.kill(pid, sig)
+        except OSError:
+            return
+        time.sleep(0.2)
+
+def _run_local_images() -> bool:
     print("\n" + "="*60)
     print("TEST 1: Local Images")
     print("="*60)
@@ -37,7 +66,7 @@ def test_local_images():
     print(f"✓ Prepared datasets: {list(datasets.keys())}")
     print(f"\nLaunching lenslet on port 7072 (quiet mode)...")
     
-    lenslet.launch(datasets, blocking=False, port=7072, verbose=False)
+    lenslet.launch_datasets(datasets, blocking=False, port=7072, verbose=False)
     
     # Wait for server to start
     time.sleep(3)
@@ -95,13 +124,16 @@ def test_local_images():
         except:
             pass
         
-        # Kill the server
-        os.system("pkill -f 'uvicorn.*7072'")
+        _terminate_process_on_port(7072)
         time.sleep(1)
 
 
-def test_blocking_mode():
-    """Test blocking parameter (just verify it can be called)."""
+def test_local_images() -> None:
+    """Test with local images only."""
+    assert _run_local_images()
+
+
+def _run_api_signature_check() -> bool:
     print("\n" + "="*60)
     print("TEST 2: API Signature")
     print("="*60)
@@ -122,11 +154,11 @@ def test_blocking_mode():
         "thumb_quality",
         "show_source",
         "verbose",
-        "source_column",
-        "base_dir",
     ]
     assert params == expected, f"Expected {expected}, got {params}"
     print(f"✓ Function signature correct: {params}")
+    assert hasattr(lenslet, "launch_datasets")
+    assert hasattr(lenslet, "launch_table")
     
     # Verify defaults
     assert sig.parameters["blocking"].default == False
@@ -134,12 +166,32 @@ def test_blocking_mode():
     assert sig.parameters["host"].default == "127.0.0.1"
     assert sig.parameters["show_source"].default == True
     assert sig.parameters["verbose"].default == False
-    assert sig.parameters["source_column"].default is None
-    assert sig.parameters["base_dir"].default is None
+
+    table_sig = inspect.signature(lenslet.launch_table)
+    table_params = list(table_sig.parameters.keys())
+    assert table_params == [
+        "table",
+        "blocking",
+        "port",
+        "host",
+        "thumb_size",
+        "thumb_quality",
+        "show_source",
+        "verbose",
+        "source_column",
+        "base_dir",
+    ]
+    assert table_sig.parameters["source_column"].default is None
+    assert table_sig.parameters["base_dir"].default is None
     print("✓ Default parameters correct")
     
     print("\n✅ API signature test passed!\n")
     return True
+
+
+def test_blocking_mode() -> None:
+    """Test blocking parameter (just verify it can be called)."""
+    assert _run_api_signature_check()
 
 
 if __name__ == "__main__":
@@ -150,8 +202,8 @@ if __name__ == "__main__":
     results = []
     
     # Run tests
-    results.append(("API Signature", test_blocking_mode()))
-    results.append(("Local Images", test_local_images()))
+    results.append(("API Signature", _run_api_signature_check()))
+    results.append(("Local Images", _run_local_images()))
     
     # Summary
     print("\n" + "="*60)

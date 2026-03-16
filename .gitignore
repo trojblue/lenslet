@@ -162,6 +162,7 @@ venv.bak/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+.desloppify/
 
 # Pyre type checker
 .pyre/

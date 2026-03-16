@@ -496,6 +496,8 @@ def _build_folder_index(
                 raise FileNotFoundError(canonical_path)
         else:
             index = storage.get_index(canonical_path)
+            if index is None:
+                raise FileNotFoundError(canonical_path)
     except ValueError:
         raise HTTPException(400, "invalid path")
     except FileNotFoundError:

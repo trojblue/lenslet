@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 
 from . import og
 from .server_context import get_request_context
@@ -108,7 +108,7 @@ def _og_cache_from_workspace(workspace: Workspace, enabled: bool) -> OgImageCach
 
 def register_og_routes(app: FastAPI, enabled: bool) -> None:
     @app.get("/og-image", include_in_schema=False, name="og_image")
-    def og_image(request: Request, style: str = og.OG_STYLE, path: str | None = None):
+    def og_image(request: Request, style: str = og.OG_STYLE, path: str | None = None) -> Response:
         context = get_request_context(request)
         current_storage = context.storage
         current_workspace = context.workspace
@@ -116,7 +116,10 @@ def register_og_routes(app: FastAPI, enabled: bool) -> None:
         label = _dataset_label(current_workspace)
         if not enabled:
             return Response(content=og.fallback_og_image(label), media_type="image/png")
-        style_key = style if style == og.OG_STYLE else og.OG_STYLE
+        try:
+            style_key = og.resolve_style(style)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         sample_path = _og_path_from_request(path, request)
         signature = _dataset_signature(current_storage, current_workspace)
         cache_key = _og_cache_key(current_workspace, style_key, signature, sample_path)

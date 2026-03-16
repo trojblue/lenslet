@@ -1,34 +1,28 @@
-# Lenscat-lite (Frontend Boilerplate)
-Fast, minimal gallery UI. Bring your own FastAPI.
+# Lenslet Frontend
 
-## Why this is not bloat
-- No global store, no UI kit, no CSS-in-JS.
-- Query cache + virtual grid only.
-- CSS variables for theming.
-- Abortable fetch helper, 30 lines total infra.
+React + Vite frontend for Lenslet browse and ranking mode.
 
-## Env
-- `VITE_API_BASE` -> backend base URL
+## Structure
 
-## Perf checklist
-- Thumbnails only in grid (server should serve `<file>.thumbnail`).
-- Use folder manifests (`_index.json`) for aspect boxes to avoid CLS.
-- Overscan small (4 rows), AbortController cancels offscreen fetches.
+- `src/app/` owns the app shell, mode switching, presence wiring, and layout state.
+- `src/features/` contains browse, inspector, metrics, compare, and ranking feature slices.
+- `src/api/` contains the browser API client, SSE handling, and request-budget logic.
+- `src/shared/` and `src/theme/` hold reusable UI primitives, hooks, and theme/storage helpers.
 
-## Extend
-- Add more sources by extending backend; UI stays the same.
-- Drop-in Tauri later by swapping `api/client.ts` with host bridge.
+## Development
 
----
+```bash
+npm install
+npm run dev
+```
 
-The boilerplate is complete and ready for development:
+Set `VITE_API_BASE` only when the frontend is talking to a backend on a different origin. The default local dev flow is the Vite app proxied to the Lenslet server running on `127.0.0.1:7070`.
 
-1. `npm install` to install dependencies
+## Build
 
-2. Set VITE_API_BASE environment variable
+```bash
+npm run build
+cp -r dist/* ../src/lenslet/frontend/
+```
 
-3. `npm run dev` to start development server
-
-4. Backend should serve the API endpoints defined in the PRD
-
-5. (run: )`npm run build` to build the frontend
+`src/lenslet/frontend/` is the packaged static bundle served by the Python app.

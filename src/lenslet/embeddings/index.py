@@ -146,7 +146,7 @@ class EmbeddingManager:
             except EmbeddingIndexError as exc:
                 print(f"[lenslet] Warning: failed to preload embedding '{name}': {exc}")
 
-    def search_by_path(
+    def search_by_row_index(
         self,
         name: str,
         row_index: int,

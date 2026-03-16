@@ -37,6 +37,7 @@ from .server_models import (
     Sidecar,
     SidecarPatch,
 )
+from .server_permissions import deny_if_workspace_read_only
 from .server_routes_presence import register_presence_routes, touch_presence_edit
 from .server_sync import (
     PresenceTracker,
@@ -598,20 +599,6 @@ def register_folder_route(
         recursive: bool = False,
         count_only: bool = False,
     ):
-        unsupported = [
-            name
-            for name in ("page", "page_size", "legacy_recursive")
-            if name in request.query_params
-        ]
-        if unsupported:
-            unsupported_list = ", ".join(unsupported)
-            supported_list = ", ".join(("path", "recursive", "count_only"))
-            return _error_response(
-                400,
-                "unsupported_query_params",
-                f"unsupported query parameters: {unsupported_list}; "
-                f"supported parameters: {supported_list}",
-            )
         storage = _storage_from_request(request)
         context = get_request_context(request)
         return _build_folder_index(
@@ -664,10 +651,8 @@ def register_common_api_routes(
     presence_metrics,
     idempotency_cache,
     record_update: RecordUpdateFn,
-    comparison_export_runtime: Callable[[], ComparisonExportRuntime] | None = None,
 ) -> None:
     register_folder_route(app, to_item)
-    resolve_export_runtime = comparison_export_runtime or _default_comparison_export_runtime
 
     def _resolve_image_request(path: str, request: Request):
         storage = _storage_from_request(request)
@@ -711,7 +696,7 @@ def register_common_api_routes(
                 return _path_validation_error_response(exc)
 
         try:
-            export_runtime = resolve_export_runtime()
+            export_runtime = _default_comparison_export_runtime()
             normalized_labels = _normalize_export_labels(
                 body.labels,
                 max_labels=len(canonical_paths),
@@ -775,6 +760,8 @@ def register_common_api_routes(
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request):
+        if denied := deny_if_workspace_read_only(request):
+            return denied
         storage, path = _resolve_image_request(path, request)
         updated_by = _updated_by_from_request(request)
         with meta_lock:
@@ -797,6 +784,8 @@ def register_common_api_routes(
 
     @app.patch("/item")
     def patch_item(path: str, body: SidecarPatch, request: Request):
+        if denied := deny_if_workspace_read_only(request):
+            return denied
         storage, path = _resolve_image_request(path, request)
         idem_key = request.headers.get("Idempotency-Key")
         if not idem_key:

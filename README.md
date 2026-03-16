@@ -201,7 +201,9 @@ python scripts/embed_parquet_embeddings.py /data/items.parquet --image-column im
 
 ### Programmatic API (Python/Jupyter)
 
-Launch lenslet directly from Python code or notebooks:
+Launch Lenslet directly from Python code or notebooks.
+
+Use `lenslet.launch(...)` / `lenslet.launch_datasets(...)` for named dataset maps:
 
 ```python
 import lenslet
@@ -218,49 +220,79 @@ datasets = {
 lenslet.launch(datasets, blocking=False, port=7070)
 ```
 
+Use `lenslet.launch_table(...)` for a single table-like payload:
+
+```python
+import lenslet
+
+rows = [
+    {"path": "gallery/a.jpg", "source": "/data/gallery/a.jpg"},
+    {"path": "gallery/b.jpg", "source": "/data/gallery/b.jpg"},
+]
+
+lenslet.launch_table(rows, blocking=False, port=7070, base_dir="/data")
+```
+
 **Key Features:**
 - 🚀 **Jupyter-friendly**: Non-blocking mode for notebooks
 - ☁️ **S3 support**: Automatically handles S3 URIs via presigned URLs
 - 📁 **Multiple datasets**: Organize images into named collections
 - 🔗 **Mixed sources**: Combine local files, S3 URIs, and HTTP URLs
 
-See [Programmatic API Documentation](docs/PROGRAMMATIC_API.md) for details and examples.
+The dataset and table launch paths are now explicit, so table-only options such as `source_column` and `base_dir` live on `launch_table(...)` instead of the dataset launcher.
 
 ## Module Map (Post-Refactor Baseline)
 
-The refactor keeps public interfaces stable while moving domain logic behind explicit module boundaries.
+The current architecture keeps a small public entry surface and pushes mode-specific behavior into server, storage, and ranking subdomains.
 
-Backend facade and route/runtime modules:
+Backend entrypoints and runtime assembly:
 
-- `src/lenslet/server.py` - stable public facade (`create_app*`, compatibility touchpoints).
-- `src/lenslet/server_runtime.py` - shared runtime assembly (`AppRuntime`, runtime wiring).
-- `src/lenslet/server_browse.py` - folder traversal and browse path helpers.
-- `src/lenslet/server_factory.py` - app factory composition.
-- `src/lenslet/server_routes_common.py` - folders/item/metadata/export/events/thumb/file/search routes.
-- `src/lenslet/server_routes_presence.py` - presence lifecycle, diagnostics, and prune wiring.
-- `src/lenslet/server_routes_embeddings.py` - embeddings routes.
-- `src/lenslet/server_routes_views.py` - views routes.
-- `src/lenslet/server_routes_index.py` - index/static shell routes.
-- `src/lenslet/server_routes_og.py` - OG preview route wiring.
-- `src/lenslet/server_media.py` - media/file/thumb response helpers.
-- `src/lenslet/server_sync.py` - collaboration event broker and presence tracker internals.
+- `src/lenslet/server.py` - public import facade for app builders and a few compatibility helpers.
+- `src/lenslet/server_factory.py` - browse-mode app construction for directory, table, and pre-built storage launches.
+- `src/lenslet/server_runtime.py` - runtime collaborator assembly (`AppRuntime`, caches, broker, snapshotter).
+- `src/lenslet/server_context.py` - request/app context wiring.
+- `src/lenslet/server_browse.py` - browse payload building, folder traversal, and search helpers.
+- `src/lenslet/server_media.py` - file and thumbnail response helpers.
+- `src/lenslet/server_sync.py` - metadata patching, SSE event broker, and presence state internals.
 
-Table storage facade and collaborators:
+Route modules:
 
-- `src/lenslet/storage/table.py` - `TableStorage` compatibility facade.
-- `src/lenslet/storage/table_facade.py` - delegated read/search/metadata/presign operations.
-- `src/lenslet/storage/table_schema.py` - source column and schema coercion logic.
-- `src/lenslet/storage/table_paths.py` - path/source resolution and safety checks.
-- `src/lenslet/storage/table_index.py` - index-build pipeline (`build_index_columns`, `scan_rows`, `assemble_indexes`).
-- `src/lenslet/storage/table_probe.py` - remote header/dimension probing helpers.
-- `src/lenslet/storage/table_media.py` - local media dimension/thumbnail helpers.
+- `src/lenslet/server_routes_common.py` - folders, search, metadata, export, file, thumb, and event routes.
+- `src/lenslet/server_routes_presence.py` - presence join/move/leave lifecycle and diagnostics.
+- `src/lenslet/server_routes_views.py` - workspace view persistence routes.
+- `src/lenslet/server_routes_embeddings.py` - embedding discovery and similarity search routes.
+- `src/lenslet/server_routes_index.py` - frontend shell mounting and OG tag injection.
+- `src/lenslet/server_routes_og.py` - OG image generation and cache wiring.
+
+Storage backends and collaborators:
+
+- `src/lenslet/storage/base.py` - shared browse/storage protocols and contract helpers.
+- `src/lenslet/storage/local.py` - filesystem-backed read-only primitives.
+- `src/lenslet/storage/memory.py` - local browse storage with in-memory indexes, thumbs, and metadata.
+- `src/lenslet/storage/source_backed.py` - shared dataset/table behavior for source-backed media.
+- `src/lenslet/storage/table.py` - table-backed browse storage.
+- `src/lenslet/storage/dataset.py` - in-memory dataset-map browse storage for the programmatic API.
+- `src/lenslet/storage/table_schema.py` - source-column detection and schema coercion.
+- `src/lenslet/storage/table_paths.py` - logical-path derivation and local-path safety checks.
+- `src/lenslet/storage/table_index.py` - table row scan and index assembly pipeline.
+- `src/lenslet/storage/table_probe.py` - remote header and dimension probing.
+- `src/lenslet/storage/table_media.py` - media sniffing and dimension extraction.
+
+Other backend domains:
+
+- `src/lenslet/workspace.py` - workspace paths, persisted views, snapshots, and labels log helpers.
+- `src/lenslet/browse_cache.py`, `src/lenslet/thumb_cache.py`, `src/lenslet/og_cache.py` - browse, thumbnail, and OG cache layers.
+- `src/lenslet/indexing_status.py` and `src/lenslet/preindex.py` - indexing lifecycle and local preindex support.
+- `src/lenslet/ranking/` - ranking-mode backend, persistence, validation, and CLI helpers.
 
 Frontend decomposition seams:
 
-- `frontend/src/app/AppShell.tsx` + domain hooks under `frontend/src/app/hooks/`.
-- `frontend/src/app/model/appShellSelectors.ts` for pure AppShell selectors.
-- `frontend/src/features/inspector/Inspector.tsx` + `sections/`, `hooks/`, and `model/metadataCompare.ts`.
-- `frontend/src/features/metrics/MetricsPanel.tsx` + split `components/`, `hooks/`, and `model/` (`histogram.ts`, `metricValues.ts`).
+- `frontend/src/app/` - top-level shell, routing mode, presence sync, and layout state.
+- `frontend/src/api/` - browser API client, SSE wiring, and request-budget helpers.
+- `frontend/src/features/browse/` - grid, filters, folder navigation, and browse-state model.
+- `frontend/src/features/inspector/` - inspector sections, compare/export actions, and metadata diffing.
+- `frontend/src/features/ranking/` - ranking-mode board and session state.
+- `frontend/src/shared/` and `frontend/src/theme/` - shared UI primitives, hooks, and theme persistence.
 
 ## Maintainer Workflows
 
@@ -313,7 +345,7 @@ rsync -a --delete frontend/dist/ src/lenslet/frontend/
 ## Hotpath API Notes (2026-02)
 
 - `GET /folders?recursive=1` returns the full list in a single response; pagination params are ignored and page metadata is `null`.
-- `legacy_recursive=1` is accepted but no longer changes the recursive response shape.
+- Retired recursive paging params are ignored; `path`, `recursive`, and `count_only` are the active query contract.
 - `GET /file` now streams local file-backed sources and falls back to byte responses for non-local/remote sources.
 - Full-file prefetch is restricted to viewer/compare contexts and sends `x-lenslet-prefetch: viewer|compare`.
 - `GET /health` exposes hotpath runtime counters/timers under `hotpath.counters` and `hotpath.timers_ms`.

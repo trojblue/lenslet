@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const LEGACY_CLIENT_ID_KEY = 'lenslet.client_id'
 const SESSION_CLIENT_ID_KEY = 'lenslet.client_id.session'
 
 class MemoryStorage implements Storage {
@@ -74,7 +73,6 @@ afterEach(() => {
 describe('presence client identity', () => {
   it('uses tab-scoped session ids and keeps id stable across refresh for that tab', async () => {
     const sharedLocal = new MemoryStorage()
-    sharedLocal.setItem(LEGACY_CLIENT_ID_KEY, 'legacy-shared-id')
     const tab1Session = new MemoryStorage()
     const tab2Session = new MemoryStorage()
 
@@ -85,7 +83,7 @@ describe('presence client identity', () => {
     const tab1Id = client.getClientId()
     expect(tab1Id).toBeTruthy()
     expect(tab1Session.getItem(SESSION_CLIENT_ID_KEY)).toBe(tab1Id)
-    expect(sharedLocal.getItem(LEGACY_CLIENT_ID_KEY)).toBeNull()
+    expect(sharedLocal.length).toBe(0)
 
     client.__resetClientStateForTests()
     const tab1RefreshId = client.getClientId()

@@ -45,7 +45,6 @@ function fileUrl(path: string): string {
   return `${BASE}/file?path=${encodeURIComponent(path)}`
 }
 
-const CLIENT_ID_KEY = 'lenslet.client_id'
 const CLIENT_ID_SESSION_KEY = 'lenslet.client_id.session'
 const LAST_EVENT_ID_KEY = 'lenslet.last_event_id'
 const RECONNECT_BASE_MS = 1000
@@ -138,7 +137,6 @@ function getWindowStorage(kind: 'local' | 'session'): Storage | null {
 
 export function getClientId(): string {
   if (cachedClientId) return cachedClientId
-  const local = getWindowStorage('local')
   const session = getWindowStorage('session')
 
   const sessionClientId = safeStorageGet(session, CLIENT_ID_SESSION_KEY)
@@ -146,26 +144,10 @@ export function getClientId(): string {
     return cacheClientId(sessionClientId)
   }
 
-  const legacyClientId = safeStorageGet(local, CLIENT_ID_KEY)
   if (session) {
-    // v2 identity is tab-scoped. If a legacy localStorage id exists, migrate by
-    // generating a fresh session id and clearing the shared key.
     const nextSessionClientId = generateClientId()
     safeStorageSet(session, CLIENT_ID_SESSION_KEY, nextSessionClientId)
-    if (legacyClientId) {
-      safeStorageRemove(local, CLIENT_ID_KEY)
-    }
     return cacheClientId(nextSessionClientId)
-  }
-
-  if (legacyClientId) {
-    return cacheClientId(legacyClientId)
-  }
-
-  if (local) {
-    const generated = generateClientId()
-    safeStorageSet(local, CLIENT_ID_KEY, generated)
-    return cacheClientId(generated)
   }
 
   const fallback = `fp_${hashFingerprint(buildFingerprintSeed())}_${Math.random().toString(36).slice(2, 8)}`
@@ -641,17 +623,6 @@ export const api = {
    */
   leavePresence: (galleryId: string, leaseId: string, clientId?: string): Promise<PresenceLeaveResponse> => {
     return postPresenceJSON<PresenceLeaveResponse>('/presence/leave', {
-      gallery_id: galleryId,
-      client_id: resolvePresenceClientId(clientId),
-      lease_id: leaseId,
-    })
-  },
-
-  /**
-   * Legacy heartbeat route kept for compatibility.
-   */
-  postPresence: (galleryId: string, leaseId?: string, clientId?: string): Promise<PresenceSessionResponse> => {
-    return postPresenceJSON<PresenceSessionResponse>('/presence', {
       gallery_id: galleryId,
       client_id: resolvePresenceClientId(clientId),
       lease_id: leaseId,

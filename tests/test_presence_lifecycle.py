@@ -383,7 +383,7 @@ async def _run_presence_multi_client_convergence(app) -> None:
         assert move_payload["to_scope"]["viewing"] == 1
 
         reconnect_touch = await client.post(
-            "/presence",
+            "/presence/join",
             json={"gallery_id": "/room/sub", "client_id": "tab-b", "lease_id": lease_b},
         )
         assert reconnect_touch.status_code == 200
@@ -418,4 +418,3 @@ async def _run_presence_multi_client_convergence(app) -> None:
 def test_presence_multi_client_refresh_move_reconnect_convergence(tmp_path: Path) -> None:
     app = _build_test_app(tmp_path, presence_view_ttl=0.2, presence_edit_ttl=0.2, presence_prune_interval=0.1)
     asyncio.run(_run_presence_multi_client_convergence(app))
-

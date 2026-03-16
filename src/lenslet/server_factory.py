@@ -37,7 +37,6 @@ from .server_browse import (
 from .server_context import AppContext, bind_request_context, get_app_context, get_request_context, set_app_context
 from .server_media import _thumb_worker_count
 from .server_routes_common import (
-    ComparisonExportRuntime,
     RecordUpdateFn,
     register_common_api_routes as _register_common_api_routes,
 )
@@ -365,7 +364,6 @@ def _register_common_routes(
         presence_metrics=runtime.presence_metrics,
         idempotency_cache=runtime.idempotency_cache,
         record_update=record_update,
-        comparison_export_runtime=_comparison_export_runtime_from_server_facade,
     )
 
 
@@ -374,24 +372,6 @@ def _register_static_refresh_route(app: FastAPI, note: str) -> None:
     def refresh(path: str = "/"):
         _ = path
         return {"ok": True, "note": note}
-
-
-def _comparison_export_runtime_from_server_facade() -> ComparisonExportRuntime:
-    from . import server as server_mod
-
-    return ComparisonExportRuntime(
-        max_source_pixels=server_mod.MAX_EXPORT_SOURCE_PIXELS,
-        max_stitched_pixels=server_mod.MAX_EXPORT_STITCHED_PIXELS,
-        max_metadata_bytes=server_mod.MAX_EXPORT_METADATA_BYTES,
-        max_label_chars=server_mod.MAX_EXPORT_LABEL_CHARS,
-        max_gif_long_side=server_mod.MAX_EXPORT_GIF_LONG_SIDE,
-        max_gif_long_side_high_quality=server_mod.MAX_EXPORT_GIF_LONG_SIDE_HIGH_QUALITY,
-        max_gif_bytes=server_mod.MAX_EXPORT_GIF_MAX_BYTES,
-        gif_frame_duration_ms=server_mod.EXPORT_GIF_FRAME_DURATION_MS,
-        gif_frame_duration_ms_high_quality=server_mod.EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY,
-        metadata_key=server_mod.EXPORT_COMPARISON_METADATA_KEY,
-        load_unibox_image_utils=server_mod._get_unibox_image_utils,
-    )
 
 
 def _warn_dataset_embedding_search_unavailable(embedding_parquet_path: str | None) -> None:
@@ -559,6 +539,7 @@ def _ensure_preindex_storage(
 
 def create_app(
     root_path: str,
+    *,
     thumb_size: int = 256,
     thumb_quality: int = 70,
     no_write: bool = False,
@@ -751,13 +732,15 @@ def create_app(
             if isinstance(storage, TableStorage) and isinstance(preindex_storage, TableStorage):
                 valid_keys = {
                     preindex_storage._canonical_meta_key(item_path)
-                    for item_path in preindex_storage._items.keys()
+                    for item_path in preindex_storage.row_index_map().values()
                 }
-                preindex_storage._metadata = {
-                    key: value
-                    for key, value in storage._metadata.items()
-                    if key in valid_keys
-                }
+                preindex_storage.replace_metadata(
+                    {
+                        key: value
+                        for key, value in storage.metadata_items()
+                        if key in valid_keys
+                    }
+                )
             if context.recursive_browse_cache is not None:
                 context.recursive_browse_cache.invalidate_path(path)
             updated_runtime = context.runtime
@@ -819,6 +802,7 @@ def create_app(
 
 def create_app_from_datasets(
     datasets: dict[str, list[str]],
+    *,
     thumb_size: int = 256,
     thumb_quality: int = 70,
     show_source: bool = True,
@@ -928,13 +912,14 @@ def create_app_from_datasets(
 
 def create_app_from_table(
     table: object,
+    *,
     base_dir: str | None = None,
     thumb_size: int = 256,
     thumb_quality: int = 70,
     source_column: str | None = None,
     skip_indexing: bool = False,
-    show_source: bool = True,
     allow_local: bool = True,
+    show_source: bool = True,
     og_preview: bool = False,
     workspace: Workspace | None = None,
     thumb_cache: bool = True,
@@ -958,7 +943,7 @@ def create_app_from_table(
         skip_indexing=skip_indexing,
         allow_local=allow_local,
     )
-    return create_app_from_storage(
+    return _create_browse_app(
         storage,
         show_source=show_source,
         og_preview=og_preview,
@@ -977,7 +962,8 @@ def create_app_from_table(
 
 
 def create_app_from_storage(
-    storage: TableStorage,
+    storage: TableStorage | MemoryStorage,
+    *,
     show_source: bool = True,
     og_preview: bool = False,
     workspace: Workspace | None = None,
@@ -992,9 +978,44 @@ def create_app_from_storage(
     presence_prune_interval: float = 5.0,
     indexing_listener: IndexingListener | None = None,
 ) -> FastAPI:
-    """Create FastAPI app using a pre-built TableStorage."""
+    """Create FastAPI app using a pre-built browse storage."""
+    return _create_browse_app(
+        storage,
+        show_source=show_source,
+        og_preview=og_preview,
+        workspace=workspace,
+        thumb_cache=thumb_cache,
+        embedding_parquet_path=embedding_parquet_path,
+        embedding_config=embedding_config,
+        embedding_cache=embedding_cache,
+        embedding_cache_dir=embedding_cache_dir,
+        embedding_preload=embedding_preload,
+        presence_view_ttl=presence_view_ttl,
+        presence_edit_ttl=presence_edit_ttl,
+        presence_prune_interval=presence_prune_interval,
+        indexing_listener=indexing_listener,
+    )
 
-    app = _create_base_app(description="Lightweight image gallery server (table mode)")
+
+def _create_browse_app(
+    storage: TableStorage | MemoryStorage,
+    *,
+    show_source: bool,
+    og_preview: bool,
+    workspace: Workspace | None,
+    thumb_cache: bool,
+    embedding_parquet_path: str | None,
+    embedding_config: EmbeddingConfig | None,
+    embedding_cache: bool,
+    embedding_cache_dir: str | None,
+    embedding_preload: bool,
+    presence_view_ttl: float,
+    presence_edit_ttl: float,
+    presence_prune_interval: float,
+    indexing_listener: IndexingListener | None,
+) -> FastAPI:
+    """Create the shared browse app runtime for table and in-memory storage."""
+    app = _create_base_app(description="Lightweight image gallery server (browse mode)")
 
     if workspace is None:
         workspace = Workspace.for_dataset(None, can_write=False)
@@ -1011,7 +1032,7 @@ def create_app_from_storage(
     if indexing_listener is not None:
         indexing.subscribe(indexing_listener, emit_current=True)
     embedding_manager: EmbeddingManager | None = None
-    if embedding_parquet_path:
+    if embedding_parquet_path and isinstance(storage, TableStorage):
         detection = _resolve_embedding_detection(embedding_parquet_path, embedding_config)
         embed_cache = _embedding_cache_from_workspace(
             workspace,
@@ -1026,9 +1047,9 @@ def create_app_from_storage(
             preload=embedding_preload,
         )
 
-    def _to_item(storage: TableStorage, cached):
+    def _to_item(storage, cached):
         meta = storage.get_metadata(cached.path)
-        source = cached.source if show_source else None
+        source = getattr(cached, "source", None) if show_source else None
         return _build_item(cached, meta, source=source)
 
     record_update = _build_record_update(app)
@@ -1048,6 +1069,7 @@ def create_app_from_storage(
     @app.get("/health")
     def health():
         context = get_app_context(app)
+        total_items = getattr(context.storage, "total_items", None)
         return {
             **_base_health_payload(
                 app,
@@ -1059,7 +1081,7 @@ def create_app_from_storage(
                 runtime=context.runtime,
                 prune_interval_fallback=presence_prune_interval,
             ),
-            "total_images": len(context.storage._items),
+            "total_images": total_items() if callable(total_items) else 0,
             "indexing": _indexing_health_payload(context.indexing, context.storage),
         }
 

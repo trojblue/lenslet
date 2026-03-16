@@ -1,10 +1,11 @@
 import asyncio
 from pathlib import Path
 
+from fastapi.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
 from PIL import Image
 
-from lenslet.server import create_app, create_app_from_datasets
+from lenslet.server import create_app, create_app_from_datasets, create_app_from_table
 
 
 def _make_image(path: Path) -> None:
@@ -17,9 +18,8 @@ def test_patch_requires_idempotency_and_base_version(tmp_path: Path) -> None:
     _make_image(image_path)
 
     app = create_app(str(tmp_path))
-    dataset_app = create_app_from_datasets({"demo": [str(image_path)]})
 
-    async def _run(app, path: str) -> None:
+    async def _run(path: str) -> None:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.patch("/item", params={"path": path}, json={"base_version": 1})
@@ -35,8 +35,74 @@ def test_patch_requires_idempotency_and_base_version(tmp_path: Path) -> None:
             body = resp.json()
             assert body.get("error") == "missing_base_version"
 
-    asyncio.run(_run(app, "/sample.jpg"))
-    asyncio.run(_run(dataset_app, "/demo/sample.jpg"))
+    asyncio.run(_run("/sample.jpg"))
+
+
+def test_read_only_workspace_rejects_item_mutations(tmp_path: Path) -> None:
+    image_path = tmp_path / "sample.jpg"
+    _make_image(image_path)
+
+    for app, path in (
+        (create_app_from_datasets({"demo": [str(image_path)]}), "/demo/sample.jpg"),
+        (
+            create_app_from_table(
+                [{"path": "/gallery/sample.jpg", "source": str(image_path)}],
+            ),
+            "/gallery/sample.jpg",
+        ),
+    ):
+        client = TestClient(app)
+        put_response = client.put(
+            "/item",
+            params={"path": path},
+            json={"tags": [], "notes": "blocked", "star": 1},
+        )
+        assert put_response.status_code == 403
+        assert put_response.json() == {
+            "error": "read_only_workspace",
+            "message": "workspace is read-only",
+        }
+
+        patch_response = client.patch(
+            "/item",
+            params={"path": path},
+            headers={"Idempotency-Key": "readonly"},
+            json={"base_version": 1, "set_notes": "blocked"},
+        )
+        assert patch_response.status_code == 403
+        assert patch_response.json() == {
+            "error": "read_only_workspace",
+            "message": "workspace is read-only",
+        }
+
+
+def test_read_only_workspace_rejects_view_mutations(tmp_path: Path) -> None:
+    image_path = tmp_path / "sample.jpg"
+    _make_image(image_path)
+
+    payload = {
+        "version": 1,
+        "views": [
+            {
+                "id": "demo",
+                "name": "Demo",
+                "pool": {"kind": "folder", "path": "/"},
+                "view": {"filters": {"and": []}, "sort": {"kind": "builtin", "key": "added", "dir": "desc"}},
+            }
+        ],
+    }
+
+    for app in (
+        create_app_from_datasets({"demo": [str(image_path)]}),
+        create_app_from_table([{"path": "/gallery/sample.jpg", "source": str(image_path)}]),
+    ):
+        client = TestClient(app)
+        response = client.put("/views", json=payload)
+        assert response.status_code == 403
+        assert response.json() == {
+            "error": "read_only_workspace",
+            "message": "workspace is read-only",
+        }
 
 
 def test_patch_idempotency_and_conflict(tmp_path: Path) -> None:

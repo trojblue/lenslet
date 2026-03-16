@@ -588,17 +588,20 @@ class SnapshotWriter:
 
 
 def _build_snapshot_payload(storage, last_event_id: int) -> dict[str, Any]:
-    meta_map = getattr(storage, "_metadata", None)
     items: dict[str, Any] = {}
-    if isinstance(meta_map, dict):
-        for path, meta in list(meta_map.items()):
-            if not isinstance(meta, dict):
-                continue
-            meta = _ensure_meta_fields(meta)
-            if not _should_persist_meta(meta):
-                continue
-            key = _canonical_path(path)
-            items[key] = _persistable_meta(meta)
+    metadata_items = getattr(storage, "metadata_items", None)
+    if callable(metadata_items):
+        entries = metadata_items()
+    else:
+        entries = []
+    for path, meta in list(entries):
+        if not isinstance(meta, dict):
+            continue
+        meta = _ensure_meta_fields(meta)
+        if not _should_persist_meta(meta):
+            continue
+        key = _canonical_path(path)
+        items[key] = _persistable_meta(meta)
     return {"version": 1, "last_event_id": last_event_id, "items": items}
 
 

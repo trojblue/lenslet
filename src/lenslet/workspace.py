@@ -108,15 +108,17 @@ class Workspace:
         payload = {"version": version, "views": views}
         return _remember(payload)
 
+    def ensure_writable(self) -> None:
+        if not self.can_write:
+            raise PermissionError("workspace is read-only")
+
     def save_views(self, payload: dict[str, Any]) -> None:
-        if not self.can_write or self.views_path is None:
-            self.memory_views = payload
-            return
         self.write_views(payload)
 
     def write_views(self, payload: dict[str, Any]) -> None:
         path = self.views_path
-        if not self.can_write or path is None:
+        self.ensure_writable()
+        if path is None:
             raise PermissionError("workspace is read-only")
         self.ensure()
         temp = path.with_suffix(".tmp")
@@ -199,7 +201,8 @@ class Workspace:
 
     def write_labels_snapshot(self, payload: dict[str, Any]) -> None:
         path = self.labels_snapshot_path()
-        if not self.can_write or path is None:
+        self.ensure_writable()
+        if path is None:
             raise PermissionError("workspace is read-only")
         self.ensure()
         serialized = json.dumps(payload, indent=2, sort_keys=True)
@@ -207,7 +210,8 @@ class Workspace:
 
     def append_labels_log(self, payload: dict[str, Any]) -> None:
         path = self.labels_log_path()
-        if not self.can_write or path is None:
+        self.ensure_writable()
+        if path is None:
             raise PermissionError("workspace is read-only")
         self.ensure()
         line = json.dumps(payload, separators=(",", ":"))

@@ -11,7 +11,7 @@ from typing import Iterable
 from PIL import Image
 
 from .storage.progress import ProgressBar
-from .storage.table_facade import guess_mime
+from .storage.source_backed import guess_mime
 from .storage.table_media import read_dimensions_fast
 from .storage.table_paths import normalize_item_path
 from .workspace import Workspace

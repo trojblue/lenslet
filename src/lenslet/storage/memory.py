@@ -191,6 +191,9 @@ class MemoryStorage:
     def etag(self, path: str) -> str | None:
         return self.local.etag(path)
 
+    def s3_client_creations(self) -> int | None:
+        return None
+
     # --- In-memory index/thumbnail operations ---
 
     def get_index(self, path: str) -> MemoryBrowseIndex | None:

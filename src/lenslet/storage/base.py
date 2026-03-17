@@ -168,6 +168,10 @@ class BrowseStorage(Storage, Protocol):
         """Return the hard limit for recursive browse expansion."""
         ...
 
+    def s3_client_creations(self) -> int | None:
+        """Return the number of lazily-created S3 clients, when applicable."""
+        ...
+
 
 class RefreshableBrowseStorage(BrowseStorage, Protocol):
     """Browse storage that can refresh a subtree in place."""

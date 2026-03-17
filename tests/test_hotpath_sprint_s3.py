@@ -10,6 +10,7 @@ from PIL import Image
 
 from lenslet.server import HotpathTelemetry, _thumb_response_async, create_app
 from lenslet.storage.dataset import DatasetStorage
+from lenslet.storage.memory import MemoryStorage
 from lenslet.storage.table import TableStorage
 from lenslet.thumbs import ThumbnailScheduler
 
@@ -227,3 +228,11 @@ def test_health_exposes_hotpath_metrics(tmp_path: Path) -> None:
     assert counters["file_response_local_stream_total"] >= 2
     assert counters["file_prefetch_viewer_total"] >= 1
     assert timers["folders_recursive_traversal_ms"]["count"] >= 1
+
+
+def test_memory_storage_omits_s3_metric_from_hotpath_snapshot(tmp_path: Path) -> None:
+    _make_image(tmp_path / "sample.jpg")
+    storage = MemoryStorage(str(tmp_path))
+
+    assert storage.s3_client_creations() is None
+    assert "s3_client_create_total" not in HotpathTelemetry().snapshot(storage)["counters"]

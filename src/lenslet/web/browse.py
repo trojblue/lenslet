@@ -211,17 +211,17 @@ def _labels_health_payload(workspace: Workspace, *, writes_enabled: bool | None 
     }
 
 
-def _storage_s3_client_creations(storage) -> int | None:
-    getter = getattr(storage, "s3_client_creations", None)
-    if callable(getter):
-        try:
-            return int(getter())
-        except Exception:
-            return None
-    raw = getattr(storage, "_s3_client_creations", None)
-    if isinstance(raw, int):
-        return raw
-    return None
+def _storage_s3_client_creations(storage: BrowseStorage) -> int | None:
+    try:
+        value = storage.s3_client_creations()
+    except Exception:
+        return None
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _raise_recursive_items_limit() -> None:

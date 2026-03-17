@@ -95,6 +95,26 @@ class ScanResult:
     skipped_local_missing: int
 
 
+@dataclass(frozen=True)
+class RowIdentity:
+    source: str
+    name: str
+    logical_path: str
+    mime: str
+    is_s3: bool
+    is_http: bool
+
+    @property
+    def is_local(self) -> bool:
+        return not self.is_s3 and not self.is_http
+
+
+@dataclass(frozen=True)
+class LocalSourceResolution:
+    resolved_path: str | None
+    skip_reason: str | None = None
+
+
 def _is_internal_metric_key(raw_key: Any) -> bool:
     key = str(raw_key).strip()
     if not key.startswith("__index_level_") or not key.endswith("__"):
@@ -304,6 +324,157 @@ def _normalize_metrics_display_value(storage: TableIndexScanHost, value: Any) ->
     return _normalize_display_value(value)
 
 
+def _coerce_source_value(source_value: Any) -> str | None:
+    if source_value is None:
+        return None
+    if isinstance(source_value, os.PathLike):
+        source_value = os.fspath(source_value)
+    if not isinstance(source_value, str):
+        return None
+    source = source_value.strip()
+    return source or None
+
+
+def _resolve_row_identity(
+    storage: TableIndexScanHost,
+    columns: IndexColumns,
+    idx: int,
+    seen_paths: set[str],
+) -> RowIdentity | None:
+    source = _coerce_source_value(columns.source_values[idx])
+    if source is None:
+        return None
+
+    fallback_name = storage._extract_name(source)
+    name_value = columns.name_values[idx]
+    name = str(name_value).strip() if name_value else fallback_name
+    if not storage._is_supported_image(name):
+        if storage._is_supported_image(fallback_name):
+            name = fallback_name
+        else:
+            return None
+
+    logical_value = columns.path_values[idx] if storage._path_column is not None else None
+    logical_path = str(logical_value).strip() if logical_value else storage._derive_logical_path(source)
+    if logical_path and os.path.isabs(logical_path) and storage._local_prefix:
+        try:
+            rel = os.path.relpath(logical_path, storage._local_prefix)
+            if not rel.startswith(".."):
+                logical_path = rel
+        except ValueError:
+            pass
+
+    logical_path = storage._normalize_item_path(logical_path)
+    if not logical_path:
+        return None
+
+    logical_path = storage._dedupe_path(logical_path, seen_paths)
+    seen_paths.add(logical_path)
+
+    mime_value = columns.mime_values[idx]
+    mime = str(mime_value).strip() if mime_value else storage._guess_mime(name or fallback_name or source)
+    is_s3 = storage._is_s3_uri(source)
+    is_http = storage._is_http_url(source)
+    return RowIdentity(
+        source=source,
+        name=name,
+        logical_path=logical_path,
+        mime=mime,
+        is_s3=is_s3,
+        is_http=is_http,
+    )
+
+
+def _resolve_local_source(
+    storage: TableIndexScanHost,
+    source: str,
+) -> LocalSourceResolution:
+    if not storage._allow_local:
+        return LocalSourceResolution(resolved_path=None, skip_reason="disabled")
+    try:
+        if storage._skip_local_realpath_validation:
+            resolved = storage._resolve_local_source_lexical(source)
+        else:
+            resolved = storage._resolve_local_source(source)
+    except ValueError:
+        return LocalSourceResolution(resolved_path=None, skip_reason="outside_root")
+    if (not storage._skip_local_realpath_validation) and (not os.path.exists(resolved)):
+        return LocalSourceResolution(resolved_path=None, skip_reason="missing")
+    return LocalSourceResolution(resolved_path=resolved)
+
+
+def _resolve_row_media_fields(
+    storage: TableIndexScanHost,
+    columns: IndexColumns,
+    idx: int,
+    identity: RowIdentity,
+    local_source: LocalSourceResolution,
+) -> tuple[int, float, int, int, tuple[int, int] | None]:
+    size = storage._coerce_int(columns.size_values[idx])
+    if size is None:
+        if local_source.resolved_path is not None:
+            try:
+                size = os.path.getsize(local_source.resolved_path)
+            except Exception:
+                size = 0
+        else:
+            size = 0
+
+    mtime = storage._coerce_timestamp(columns.mtime_values[idx])
+    if mtime is None:
+        if local_source.resolved_path is not None:
+            try:
+                mtime = os.path.getmtime(local_source.resolved_path)
+            except Exception:
+                mtime = time.time()
+        else:
+            mtime = time.time()
+
+    width = storage._coerce_int(columns.width_values[idx]) or 0
+    height = storage._coerce_int(columns.height_values[idx]) or 0
+    discovered_dims = None
+    if (width == 0 or height == 0) and identity.is_local and not storage._skip_indexing:
+        local_path = local_source.resolved_path
+        if local_path is not None:
+            try:
+                dims = storage._read_dimensions_fast(local_path)
+                if dims:
+                    width, height = dims
+                    discovered_dims = dims
+            except Exception:
+                pass
+
+    return size, mtime, width, height, discovered_dims
+
+
+def _collect_row_metrics(
+    storage: TableIndexScanHost,
+    columns: IndexColumns,
+    idx: int,
+) -> dict[str, float]:
+    metrics: dict[str, float] = {}
+    for metric_key, metric_values in columns.metric_columns:
+        num = storage._coerce_float(metric_values[idx])
+        if num is None:
+            continue
+        metrics[metric_key] = num
+
+    if storage._metrics_column is None:
+        return metrics
+
+    raw_metrics = columns.metrics_values[idx]
+    if not isinstance(raw_metrics, dict):
+        return metrics
+    for raw_key, raw_value in raw_metrics.items():
+        if _is_internal_metric_key(raw_key):
+            continue
+        num = storage._coerce_float(raw_value)
+        if num is None:
+            continue
+        metrics[str(raw_key)] = num
+    return metrics
+
+
 def scan_rows(
     storage: TableIndexScanHost,
     columns: IndexColumns,
@@ -324,207 +495,67 @@ def scan_rows(
         emit=storage._progress,
     )
 
-    source_values = columns.source_values
-    path_values = columns.path_values
-    name_values = columns.name_values
-    mime_values = columns.mime_values
-    width_values = columns.width_values
-    height_values = columns.height_values
-    size_values = columns.size_values
-    mtime_values = columns.mtime_values
-    metrics_values = columns.metrics_values
-
-    has_path_column = storage._path_column is not None
-    local_prefix = storage._local_prefix
-    allow_local = storage._allow_local
-    skip_indexing = storage._skip_indexing
-    skip_local_realpath_validation = getattr(storage, "_skip_local_realpath_validation", False)
-
-    extract_name = storage._extract_name
-    is_supported_image = storage._is_supported_image
-    is_s3_uri = storage._is_s3_uri
-    is_http_url = storage._is_http_url
-    derive_logical_path = storage._derive_logical_path
-    normalize_item_path = storage._normalize_item_path
-    normalize_path = storage._normalize_path
-    dedupe_path = storage._dedupe_path
-    guess_mime = storage._guess_mime
-    coerce_int = storage._coerce_int
-    coerce_timestamp = storage._coerce_timestamp
-    coerce_float = storage._coerce_float
-    resolve_local_source = storage._resolve_local_source
-    resolve_local_source_lexical = getattr(storage, "_resolve_local_source_lexical", None)
-    read_dimensions_fast = storage._read_dimensions_fast
-
-    metric_columns = columns.metric_columns
-    has_metrics_column = storage._metrics_column is not None
-
     for idx in range(row_count):
-        source_value = source_values[idx]
-        if source_value is None:
+        identity = _resolve_row_identity(storage, columns, idx, seen_paths)
+        if identity is None:
             progress.step()
             continue
-        if isinstance(source_value, os.PathLike):
-            source_value = os.fspath(source_value)
-        if not isinstance(source_value, str):
+        local_source = (
+            _resolve_local_source(storage, identity.source)
+            if identity.is_local
+            else LocalSourceResolution(resolved_path=None)
+        )
+        if local_source.skip_reason == "disabled":
+            skipped_local_disabled += 1
             progress.step()
             continue
-
-        source = source_value.strip()
-        if not source:
+        if local_source.skip_reason == "outside_root":
+            skipped_local_outside_root += 1
             progress.step()
             continue
-
-        fallback_name = extract_name(source)
-        name_value = name_values[idx]
-        name = str(name_value).strip() if name_value else fallback_name
-        if not is_supported_image(name):
-            if is_supported_image(fallback_name):
-                name = fallback_name
-            else:
-                progress.step()
-                continue
-
-        logical_value = None
-        if has_path_column:
-            logical_value = path_values[idx]
-        logical_path = str(logical_value).strip() if logical_value else derive_logical_path(source)
-        if logical_path and os.path.isabs(logical_path) and local_prefix:
-            try:
-                rel = os.path.relpath(logical_path, local_prefix)
-                if not rel.startswith(".."):
-                    logical_path = rel
-            except ValueError:
-                pass
-
-        logical_path = normalize_item_path(logical_path)
-        if not logical_path:
+        if local_source.skip_reason == "missing":
+            skipped_local_missing += 1
             progress.step()
             continue
 
-        logical_path = dedupe_path(logical_path, seen_paths)
-        seen_paths.add(logical_path)
-
-        mime_value = mime_values[idx]
-        mime = str(mime_value).strip() if mime_value else guess_mime(name or fallback_name or source)
-
-        size = coerce_int(size_values[idx])
-        mtime = coerce_timestamp(mtime_values[idx])
-        width = coerce_int(width_values[idx])
-        height = coerce_int(height_values[idx])
-
-        is_s3 = is_s3_uri(source)
-        is_http = is_http_url(source)
-        is_local = not is_s3 and not is_http
-        resolved_local_source: str | None = None
-
-        if is_local:
-            if not allow_local:
-                skipped_local_disabled += 1
-                progress.step()
-                continue
-            try:
-                if skip_local_realpath_validation and callable(resolve_local_source_lexical):
-                    resolved_local_source = resolve_local_source_lexical(source)
-                else:
-                    resolved_local_source = resolve_local_source(source)
-            except ValueError:
-                skipped_local_outside_root += 1
-                progress.step()
-                continue
-            if (not skip_local_realpath_validation) and (not os.path.exists(resolved_local_source)):
-                skipped_local_missing += 1
-                progress.step()
-                continue
-            if size is None:
-                try:
-                    size = os.path.getsize(resolved_local_source)
-                except Exception:
-                    size = 0
-
-        if size is None:
-            size = 0
-
-        if mtime is None:
-            if is_local:
-                try:
-                    if resolved_local_source is not None:
-                        local_source = resolved_local_source
-                    elif skip_local_realpath_validation and callable(resolve_local_source_lexical):
-                        local_source = resolve_local_source_lexical(source)
-                    else:
-                        local_source = resolve_local_source(source)
-                    mtime = os.path.getmtime(local_source)
-                except Exception:
-                    mtime = time.time()
-            else:
-                mtime = time.time()
-
-        discovered_dims = None
-        w = width or 0
-        h = height or 0
-        if (w == 0 or h == 0) and is_local and not skip_indexing:
-            try:
-                if resolved_local_source is not None:
-                    local_source = resolved_local_source
-                elif skip_local_realpath_validation and callable(resolve_local_source_lexical):
-                    local_source = resolve_local_source_lexical(source)
-                else:
-                    local_source = resolve_local_source(source)
-                dims = read_dimensions_fast(local_source)
-                if dims:
-                    w, h = dims
-                    discovered_dims = dims
-            except Exception:
-                pass
-
-        metrics: dict[str, float] = {}
-        for metric_key, metric_values in metric_columns:
-            num = coerce_float(metric_values[idx])
-            if num is None:
-                continue
-            metrics[metric_key] = num
-
-        if has_metrics_column:
-            raw_metrics = metrics_values[idx]
-            if isinstance(raw_metrics, dict):
-                for raw_key, raw_value in raw_metrics.items():
-                    if _is_internal_metric_key(raw_key):
-                        continue
-                    num = coerce_float(raw_value)
-                    if num is None:
-                        continue
-                    metrics[str(raw_key)] = num
+        size, mtime, width, height, discovered_dims = _resolve_row_media_fields(
+            storage,
+            columns,
+            idx,
+            identity,
+            local_source,
+        )
+        metrics = _collect_row_metrics(storage, columns, idx)
 
         item = item_factory(
-            path=logical_path,
-            name=name,
-            mime=mime,
-            width=w,
-            height=h,
+            path=identity.logical_path,
+            name=identity.name,
+            mime=identity.mime,
+            width=width,
+            height=height,
             size=size,
             mtime=mtime or 0.0,
-            url=source if is_http else None,
-            source=source,
+            url=identity.source if identity.is_http else None,
+            source=identity.source,
             metrics=metrics,
         )
 
-        folder = os.path.dirname(logical_path).replace("\\", "/")
-        folder_norm = normalize_path(folder)
+        folder = os.path.dirname(identity.logical_path).replace("\\", "/")
+        folder_norm = storage._normalize_path(folder)
 
         rows.append(
             ScannedRow(
                 row_idx=idx,
-                logical_path=logical_path,
-                source=source,
+                logical_path=identity.logical_path,
+                source=identity.source,
                 folder_norm=folder_norm,
                 item=item,
                 discovered_dims=discovered_dims,
             )
         )
 
-        if (is_s3 or is_http) and (w == 0 or h == 0) and not skip_indexing:
-            remote_tasks.append((logical_path, item, source, name))
+        if (identity.is_s3 or identity.is_http) and (width == 0 or height == 0) and not storage._skip_indexing:
+            remote_tasks.append((identity.logical_path, item, identity.source, identity.name))
 
         progress.step()
 

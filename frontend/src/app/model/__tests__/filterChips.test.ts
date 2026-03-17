@@ -23,7 +23,6 @@ describe('filterChips', () => {
   it('builds labels and clear handlers for all supported clause types', () => {
     const filters: FilterAST = {
       and: [
-        { stars: [5, 0] },
         { starsIn: { values: [3, 1] } },
         { starsNotIn: { values: [4, 0] } },
         { nameContains: { value: '  cat  ' } },
@@ -43,7 +42,6 @@ describe('filterChips', () => {
     const chips = buildFilterChips(filters, actions)
 
     expect(chips.map((chip) => ({ id: chip.id, label: chip.label }))).toEqual([
-      { id: 'stars', label: 'Rating in: 5, None' },
       { id: 'stars-in', label: 'Rating in: 3, 1' },
       { id: 'stars-not-in', label: 'Rating not in: 4, None' },
       { id: 'name-contains', label: 'Filename contains: cat' },
@@ -60,7 +58,7 @@ describe('filterChips', () => {
 
     for (const chip of chips) chip.onRemove()
 
-    expect(actions.clearStars).toHaveBeenCalledTimes(2)
+    expect(actions.clearStars).toHaveBeenCalledTimes(1)
     expect(actions.clearStarsNotIn).toHaveBeenCalledTimes(1)
     expect(actions.clearNameContains).toHaveBeenCalledTimes(1)
     expect(actions.clearNameNotContains).toHaveBeenCalledTimes(1)
@@ -78,7 +76,6 @@ describe('filterChips', () => {
   it('skips empty star/text/date clauses', () => {
     const filters: FilterAST = {
       and: [
-        { stars: [] },
         { starsIn: { values: [] } },
         { starsNotIn: { values: [] } },
         { nameContains: { value: '   ' } },

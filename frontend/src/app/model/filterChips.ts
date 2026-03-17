@@ -28,7 +28,6 @@ type FilterChipTemplate = {
 }
 
 type FilterClauseKey =
-  | 'stars'
   | 'starsIn'
   | 'starsNotIn'
   | 'nameContains'
@@ -50,17 +49,6 @@ type FilterChipRegistryEntry<K extends FilterClauseKey> = {
 }
 
 const FILTER_CHIP_REGISTRY: { [K in FilterClauseKey]: FilterChipRegistryEntry<K> } = {
-  stars: {
-    read: (clause) => {
-      const stars = clause.stars || []
-      if (!stars.length) return null
-      return {
-        id: 'stars',
-        label: `Rating in: ${formatStarValues(stars)}`,
-      }
-    },
-    clear: (_clause, actions) => actions.clearStars(),
-  },
   starsIn: {
     read: (clause) => {
       const stars = clause.starsIn.values || []
@@ -187,7 +175,6 @@ function visitFilterClause(
   clause: FilterClause,
   visit: <K extends FilterClauseKey>(key: K, typedClause: FilterClauseByKey<K>) => void
 ): void {
-  if ('stars' in clause) return visit('stars', clause)
   if ('starsIn' in clause) return visit('starsIn', clause)
   if ('starsNotIn' in clause) return visit('starsNotIn', clause)
   if ('nameContains' in clause) return visit('nameContains', clause)

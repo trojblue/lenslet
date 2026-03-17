@@ -202,7 +202,6 @@ export type SortSpec =
   | { kind: 'metric'; key: string; dir: 'asc' | 'desc' }
 
 export type FilterClause =
-  | { stars: number[] }
   | { starsIn: { values: number[] } }
   | { starsNotIn: { values: number[] } }
   | { nameContains: { value: string } }

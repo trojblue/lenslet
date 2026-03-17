@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyFilterAst,
+  normalizeFilterAst,
   setCommentsContainsFilter,
   setCommentsNotContainsFilter,
   setDateRangeFilter,
@@ -50,6 +51,12 @@ describe('filter AST', () => {
     const filters = setStarsNotInFilter({ and: [] }, [2, 0])
     const result = applyFilterAst(items, filters)
     expect(result.map((i) => i.path)).toEqual(['a'])
+  })
+
+  it('normalizes legacy stars clauses to starsIn at ingress', () => {
+    expect(normalizeFilterAst({ and: [{ stars: [5, 0] }] })).toEqual({
+      and: [{ starsIn: { values: [5, 0] } }],
+    })
   })
 
   it('filters by metric range', () => {

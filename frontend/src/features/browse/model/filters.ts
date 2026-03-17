@@ -19,12 +19,6 @@ function matchesAll(item: Item, clauses: FilterClause[]): boolean {
 }
 
 function matchesClause(item: Item, clause: FilterClause): boolean {
-  if ('stars' in clause) {
-    const active = clause.stars
-    if (!active || !active.length) return true
-    const val = item.star ?? 0
-    return active.includes(val)
-  }
   if ('starsIn' in clause) {
     const active = clause.starsIn.values
     if (!active || !active.length) return true
@@ -127,10 +121,7 @@ export function normalizeFilterAst(raw: unknown): FilterAST | null {
 }
 
 export function getStarFilter(filters: FilterAST): number[] {
-  const legacy = filters.and.find((c) => 'stars' in c) as { stars: number[] } | undefined
-  const include = filters.and.find((c) => 'starsIn' in c) as { starsIn: { values: number[] } } | undefined
-  if (include?.starsIn?.values) return include.starsIn.values
-  return legacy?.stars ?? []
+  return getStarsInFilter(filters)
 }
 
 export function setStarFilter(filters: FilterAST, stars: number[]): FilterAST {
@@ -144,7 +135,7 @@ export function getStarsInFilter(filters: FilterAST): number[] {
 
 export function setStarsInFilter(filters: FilterAST, values: number[]): FilterAST {
   const normalized = normalizeStarValues(values)
-  const rest = filters.and.filter((c) => !('starsIn' in c) && !('stars' in c))
+  const rest = filters.and.filter((c) => !('starsIn' in c))
   if (!normalized.length) return { and: rest }
   return { and: [{ starsIn: { values: normalized } }, ...rest] }
 }

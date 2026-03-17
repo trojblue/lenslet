@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any
 from PIL import Image
+from ..media_errors import MediaDecodeError, MediaReadError
 from .base import StorageWriteUnsupportedError, join_storage_path
 from .local import LocalStorage
 from .progress import LeafBatchTracker, ProgressBar
@@ -373,8 +374,12 @@ class MemoryStorage:
                 w, h = im.size
                 self._dimensions[path] = (w, h)
                 return w, h
-        except Exception:
-            return 0, 0
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise MediaDecodeError.from_exception(path, exc) from exc
+        except Exception as exc:
+            raise MediaReadError.from_exception(path, exc) from exc
 
     def _read_dimensions_fast(self, filepath: str) -> tuple[int, int] | None:
         """Read image dimensions from header only (fast)."""
@@ -518,7 +523,7 @@ class MemoryStorage:
                     break
         return results
 
-    def get_thumbnail(self, path: str) -> bytes | None:
+    def get_thumbnail(self, path: str) -> bytes:
         """Get thumbnail, generating if needed."""
         cached = self.get_cached_thumbnail(path)
         if cached is not None:
@@ -526,15 +531,19 @@ class MemoryStorage:
 
         try:
             raw = self.read_bytes(path)
+        except FileNotFoundError:
+            raise
+        except Exception as exc:
+            raise MediaReadError.from_exception(path, exc) from exc
+        try:
             thumb, dims = self._make_thumbnail(raw)
-            norm = self._normalize_item_path(path)
-            self._thumbnails[norm] = thumb
-            # Cache dimensions from thumbnail generation
-            if dims:
-                self._dimensions[norm] = dims
-            return thumb
-        except Exception:
-            return None
+        except Exception as exc:
+            raise MediaDecodeError.from_exception(path, exc) from exc
+        norm = self._normalize_item_path(path)
+        self._thumbnails[norm] = thumb
+        if dims:
+            self._dimensions[norm] = dims
+        return thumb
 
     def _make_thumbnail(self, img_bytes: bytes) -> tuple[bytes, tuple[int, int] | None]:
         """Generate a WebP thumbnail. Returns (thumb_bytes, (w, h))."""

@@ -109,8 +109,8 @@ class BrowseStorage(Storage, Protocol):
         """Return the backing source path/URL for a logical browse path."""
         ...
 
-    def get_thumbnail(self, path: str) -> bytes | None:
-        """Return or build the thumbnail bytes for the requested item."""
+    def get_thumbnail(self, path: str) -> bytes:
+        """Return or build thumbnail bytes, raising on missing/read/decode failures."""
         ...
 
     def get_cached_thumbnail(self, path: str) -> bytes | None:

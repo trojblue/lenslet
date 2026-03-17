@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, Response
 
 from . import og
+from .media_errors import MediaError
 from .og_cache import OgImageCache
 from .server_context import get_request_context
 from .storage.base import BrowseStorage
 from .workspace import Workspace
+
+logger = logging.getLogger(__name__)
 
 
 def _og_cache_key(workspace: Workspace, style: str, signature: str, path: str) -> str:
@@ -126,9 +130,11 @@ def register_og_routes(app: FastAPI, enabled: bool) -> None:
         for sample_path_entry in og.sample_paths(current_storage, sample_path, sample_count):
             try:
                 thumb = current_storage.get_thumbnail(sample_path_entry)
-            except Exception:
-                thumb = None
-            if not thumb:
+            except FileNotFoundError:
+                logger.warning("og thumbnail source missing for %s", sample_path_entry)
+                continue
+            except MediaError as exc:
+                logger.warning("og thumbnail generation failed for %s: %s", sample_path_entry, exc.reason)
                 continue
             grid = og.pixel_tile_grid(thumb, og.OG_PIXELS_PER_IMAGE)
             if grid is not None:

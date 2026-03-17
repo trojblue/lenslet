@@ -10,6 +10,7 @@ from typing import Any, Literal
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
+from .media_errors import MediaDecodeError, MediaReadError
 from .storage.base import BrowseStorage
 from .thumb_cache import ThumbCache
 from .thumbs import ThumbnailScheduler
@@ -52,6 +53,16 @@ def _thumb_cache_key(storage: BrowseStorage, path: str) -> str | None:
         return storage.thumbnail_cache_key(path)
     except Exception:
         return None
+
+
+def _thumbnail_failure_to_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, FileNotFoundError):
+        return HTTPException(404, "file not found")
+    if isinstance(exc, MediaDecodeError):
+        return HTTPException(422, "failed to decode source image")
+    if isinstance(exc, MediaReadError):
+        return HTTPException(500, "failed to read source image")
+    return HTTPException(500, "failed to generate thumbnail")
 
 
 def _existing_local_file(source: str) -> tuple[str, os.stat_result] | None:
@@ -108,9 +119,9 @@ async def _thumb_response_async(
             if cancel_state in ("queued", "inflight"):
                 hotpath_metrics.increment(f"thumb_disconnect_cancel_{cancel_state}_total")
         return Response(status_code=204)
+    except Exception as exc:
+        raise _thumbnail_failure_to_http_error(exc) from exc
 
-    if thumb is None:
-        raise HTTPException(500, "failed to generate thumbnail")
     if thumb_cache is not None and cache_key:
         thumb_cache.set(cache_key, thumb)
     return Response(content=thumb, media_type="image/webp")

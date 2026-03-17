@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from PIL import Image
 
+from ..media_errors import MediaDecodeError, MediaReadError
 from .s3 import S3_DEPENDENCY_ERROR, create_s3_client
 from .search_text import build_search_haystack, normalize_search_path, path_in_scope
 from .table_probe import effective_remote_workers, get_remote_header_bytes, get_remote_header_info, parse_content_range
@@ -246,23 +247,28 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
         with open(resolved, "rb") as handle:
             return handle.read()
 
-    def get_thumbnail(self, path: str) -> bytes | None:
+    def get_thumbnail(self, path: str) -> bytes:
         norm = self._normalize_item_path(path)
         if norm in self._thumbnails:
             return self._thumbnails[norm]
 
         try:
             raw = self.read_bytes(norm)
+        except FileNotFoundError:
+            raise
+        except Exception as exc:
+            raise MediaReadError.from_exception(path, exc) from exc
+        try:
             thumb, dims = self._make_thumbnail(raw)
-            self._thumbnails[norm] = thumb
-            if dims:
-                self._dimensions[norm] = dims
-                item = self._lookup_item(norm)
-                if item is not None:
-                    item.width, item.height = dims
-            return thumb
-        except Exception:
-            return None
+        except Exception as exc:
+            raise MediaDecodeError.from_exception(path, exc) from exc
+        self._thumbnails[norm] = thumb
+        if dims:
+            self._dimensions[norm] = dims
+            item = self._lookup_item(norm)
+            if item is not None:
+                item.width, item.height = dims
+        return thumb
 
     def get_dimensions(self, path: str) -> tuple[int, int]:
         norm = self._normalize_item_path(path)
@@ -271,7 +277,7 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
 
         item = self._lookup_item(norm)
         if item is None:
-            return 0, 0
+            raise FileNotFoundError(path)
 
         source = self._lookup_source_path(path)
         if source and (self._is_s3_uri(source) or self._is_http_url(source)):
@@ -294,8 +300,12 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
             raw = self.read_bytes(norm)
             with Image.open(BytesIO(raw)) as image:
                 width, height = image.size
-        except Exception:
-            return 0, 0
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise MediaDecodeError.from_exception(path, exc) from exc
+        except Exception as exc:
+            raise MediaReadError.from_exception(path, exc) from exc
 
         dims = (width, height)
         self._dimensions[norm] = dims

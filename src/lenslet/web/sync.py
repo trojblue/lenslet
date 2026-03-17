@@ -12,10 +12,10 @@ from uuid import uuid4
 
 from fastapi import Request
 
-from .server_auth import request_actor_id, request_client_id
-from .server_models import Sidecar, SidecarPatch
-from .storage.base import BrowseStorage
-from .workspace import Workspace, WorkspaceReadResult
+from .auth import request_actor_id, request_client_id
+from .models import Sidecar, SidecarPatch
+from ..storage.base import BrowseStorage
+from ..workspace import Workspace, WorkspaceReadResult
 
 
 def _canonical_path(path: str | None) -> str:

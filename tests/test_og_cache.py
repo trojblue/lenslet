@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from lenslet.og_cache import OgImageCache
+from lenslet.web.cache.og import OgImageCache
 
 
 def _png_files(root):

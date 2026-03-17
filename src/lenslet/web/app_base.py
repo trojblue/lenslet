@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 
-from .server_auth import install_request_identity_middleware
+from .auth import install_request_identity_middleware
 
 
 def create_api_app(*, description: str) -> FastAPI:

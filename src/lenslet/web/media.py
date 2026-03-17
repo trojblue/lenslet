@@ -10,10 +10,10 @@ from typing import Any, Literal
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
-from .media_errors import MediaDecodeError, MediaReadError
-from .storage.base import BrowseStorage
-from .thumb_cache import ThumbCache
-from .thumbs import ThumbnailScheduler
+from ..media_errors import MediaDecodeError, MediaReadError
+from ..storage.base import BrowseStorage
+from .cache.thumbs import ThumbCache
+from ..thumbs import ThumbnailScheduler
 
 
 class _ClientDisconnected(Exception):

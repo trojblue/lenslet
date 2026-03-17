@@ -6,7 +6,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from ..server_permissions import deny_if_mutation_forbidden
+from ..web.permissions import deny_if_mutation_forbidden
 from .dataset import RankingDataset
 from .persistence import RankingResultsStore
 from .validation import RankingValidationError, derive_progress, validate_save_payload

@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from lenslet.server_factory import create_app
-from lenslet.server_sync import _load_label_state
+from lenslet.web.factory import create_app
+from lenslet.web.sync import _load_label_state
 from lenslet.workspace import Workspace
 
 

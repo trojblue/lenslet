@@ -7,10 +7,10 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-import lenslet.server_routes_common as export_mod
+import lenslet.web.routes.common as export_mod
 from lenslet.metadata import read_png_info
 from lenslet.server import create_app
-from lenslet.server_models import MAX_EXPORT_COMPARISON_PATHS_V2, MAX_EXPORT_COMPARISON_PATHS_V2_GIF
+from lenslet.web.models import MAX_EXPORT_COMPARISON_PATHS_V2, MAX_EXPORT_COMPARISON_PATHS_V2_GIF
 
 
 def _make_png(path: Path, *, size: tuple[int, int] = (12, 8), color=(64, 64, 64), mode: str = "RGB") -> None:

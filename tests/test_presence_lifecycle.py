@@ -9,8 +9,8 @@ from PIL import Image
 import pytest
 
 from lenslet.server import BrowseAppOptions, create_app
-from lenslet.server_routes_presence import run_presence_prune_cycle
-from lenslet.server_sync import EventBroker, PresenceLeaseError, PresenceScopeError, PresenceTracker
+from lenslet.web.routes.presence import run_presence_prune_cycle
+from lenslet.web.sync import EventBroker, PresenceLeaseError, PresenceScopeError, PresenceTracker
 
 
 def _make_image(path: Path) -> None:
@@ -221,7 +221,7 @@ async def _run_idle_prune(app, *, clock: _FakeClock) -> None:
 
 def test_presence_prune_loop_cleans_idle_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     clock = _FakeClock()
-    monkeypatch.setattr("lenslet.server_sync.time.monotonic", clock.monotonic)
+    monkeypatch.setattr("lenslet.web.sync.time.monotonic", clock.monotonic)
     app = _build_test_app(tmp_path, presence_view_ttl=0.2, presence_edit_ttl=0.2, presence_prune_interval=0.1)
     asyncio.run(_run_idle_prune(app, clock=clock))
 
@@ -439,6 +439,6 @@ def test_presence_multi_client_refresh_move_reconnect_convergence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clock = _FakeClock()
-    monkeypatch.setattr("lenslet.server_sync.time.monotonic", clock.monotonic)
+    monkeypatch.setattr("lenslet.web.sync.time.monotonic", clock.monotonic)
     app = _build_test_app(tmp_path, presence_view_ttl=0.2, presence_edit_ttl=0.2, presence_prune_interval=0.1)
     asyncio.run(_run_presence_multi_client_convergence(app, clock=clock))

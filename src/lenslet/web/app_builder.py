@@ -7,18 +7,18 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 
-from .browse_cache import RecursiveBrowseCache
-from .frontend_serving import mount_frontend
-from .indexing_status import IndexingLifecycle
-from .server_context import AppContext, bind_request_context, set_app_context
-from .server_routes_common import RecordUpdateFn, register_common_api_routes
-from .server_routes_embeddings import register_embedding_routes
-from .server_routes_index import register_index_routes
-from .server_routes_og import _og_cache_from_workspace, register_og_routes
-from .server_routes_views import register_views_routes
-from .server_runtime import AppRuntime
-from .storage.base import BrowseStorage
-from .workspace import Workspace
+from .cache.browse import RecursiveBrowseCache
+from .frontend import mount_frontend
+from ..indexing_status import IndexingLifecycle
+from .context import AppContext, bind_request_context, set_app_context
+from .routes.common import RecordUpdateFn, register_common_api_routes
+from .routes.embeddings import register_embedding_routes
+from .routes.index import register_index_routes
+from .routes.og import _og_cache_from_workspace, register_og_routes
+from .routes.views import register_views_routes
+from .runtime import AppRuntime
+from ..storage.base import BrowseStorage
+from ..workspace import Workspace
 
 ToItemFn = Callable[[BrowseStorage, Any], Any]
 HealthPayloadFn = Callable[[Request], dict[str, Any]]

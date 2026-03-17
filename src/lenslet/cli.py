@@ -712,7 +712,7 @@ def _launch_browse_server(app: object, args: BrowseCliArgs, port: int) -> None:
     try:
         if args.share:
             try:
-                from .server_browse import warm_recursive_cache
+                from .web.browse import warm_recursive_cache
 
                 storage = getattr(app.state, "storage", None)
                 browse_cache = getattr(app.state, "recursive_browse_cache", None)

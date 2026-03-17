@@ -5,9 +5,9 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from .server_context import get_request_context
-from .server_models import ViewsPayload
-from .server_permissions import deny_if_mutation_forbidden
+from ..context import get_request_context
+from ..models import ViewsPayload
+from ..permissions import deny_if_mutation_forbidden
 
 ViewsRouteResponse = ViewsPayload | JSONResponse
 

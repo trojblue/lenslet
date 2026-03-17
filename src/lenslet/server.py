@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from . import og
-from .server_browse import HotpathTelemetry
-from .server_factory import (
+from .web.browse import HotpathTelemetry
+from .web.factory import (
     BrowseAppOptions,
     EmbeddingAppOptions,
     create_app,
@@ -12,7 +12,7 @@ from .server_factory import (
     create_app_from_storage,
     create_app_from_table,
 )
-from .server_media import _file_response, _thumb_response_async
+from .web.media import _file_response, _thumb_response_async
 
 __all__ = (
     "BrowseAppOptions",

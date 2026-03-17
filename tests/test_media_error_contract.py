@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from lenslet.media_errors import MediaDecodeError
-from lenslet.server_factory import create_app_from_storage
+from lenslet.web.factory import create_app_from_storage
 from lenslet.storage.memory import MemoryStorage
 
 

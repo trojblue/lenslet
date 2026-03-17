@@ -9,9 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-import lenslet.server_factory as server_factory
+import lenslet.web.factory as server_factory
 from lenslet.server import BrowseAppOptions, create_app, create_app_from_datasets, create_app_from_table
-from lenslet.server_models import (
+from lenslet.web.models import (
     MAX_EXPORT_COMPARISON_PATHS_V2,
     MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
 )

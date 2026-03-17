@@ -12,13 +12,13 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 
 from .app_base import create_api_app
-from .browse_app_builder import finalize_browse_app, set_runtime_context
-from .embeddings.cache import EmbeddingCache
-from .embeddings.config import EmbeddingConfig
-from .embeddings.detect import columns_without_embeddings, detect_embeddings, EmbeddingDetection
-from .embeddings.index import EmbeddingManager
-from .indexing_status import IndexingLifecycle, IndexingListener, coerce_progress_count
-from .preindex import (
+from .app_builder import finalize_browse_app, set_runtime_context
+from ..embeddings.cache import EmbeddingCache
+from ..embeddings.config import EmbeddingConfig
+from ..embeddings.detect import columns_without_embeddings, detect_embeddings, EmbeddingDetection
+from ..embeddings.index import EmbeddingManager
+from ..indexing_status import IndexingLifecycle, IndexingListener, coerce_progress_count
+from ..preindex import (
     PREINDEX_PATH_COLUMN,
     PREINDEX_SOURCE_COLUMN,
     compute_signature,
@@ -28,38 +28,38 @@ from .preindex import (
     preindex_paths,
     scan_local_images,
 )
-from .server_auth import (
+from .auth import (
     MutationPolicy,
     READ_ONLY_MUTATION_POLICY,
     TRUSTED_LOCAL_MUTATION_POLICY,
     request_can_mutate,
     set_mutation_policy,
 )
-from .server_browse import (
+from .browse import (
     _build_item,
     _create_hotpath_metrics,
     _labels_health_payload,
 )
-from .server_context import get_app_context, get_request_context
-from .server_media import _thumb_worker_count
-from .server_permissions import deny_if_mutation_forbidden
-from .server_routes_common import RecordUpdateFn
-from .server_routes_presence import (
+from .context import get_app_context, get_request_context
+from .media import _thumb_worker_count
+from .permissions import deny_if_mutation_forbidden
+from .routes.common import RecordUpdateFn
+from .routes.presence import (
     install_presence_prune_loop as _install_presence_prune_loop,
     presence_runtime_payload as _presence_runtime_payload,
 )
-from .server_runtime import AppRuntime, build_app_runtime
-from .server_sync import SnapshotWriter, _canonical_path, _sidecar_payload
-from .server_models import (
+from .runtime import AppRuntime, build_app_runtime
+from .sync import SnapshotWriter, _canonical_path, _sidecar_payload
+from .models import (
     MAX_EXPORT_COMPARISON_PATHS_V2,
     MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
 )
-from .storage.base import BrowseStorage
-from .storage.dataset import DatasetStorage
-from .storage.memory import MemoryStorage
-from .storage.table import TableStorage, load_parquet_schema, load_parquet_table
-from .thumb_cache import ThumbCache
-from .workspace import Workspace
+from ..storage.base import BrowseStorage
+from ..storage.dataset import DatasetStorage
+from ..storage.memory import MemoryStorage
+from ..storage.table import TableStorage, load_parquet_schema, load_parquet_table
+from .cache.thumbs import ThumbCache
+from ..workspace import Workspace
 
 REFRESH_NOTE_DATASET_STATIC = "dataset mode is static"
 REFRESH_NOTE_TABLE_STATIC = "table mode is static"

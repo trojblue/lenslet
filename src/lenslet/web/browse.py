@@ -11,10 +11,10 @@ from typing import Any, Callable, Iterable
 
 from fastapi import FastAPI, HTTPException, Request
 
-from .browse_cache import RecursiveBrowseCache, RecursiveCachedItemSnapshot
-from .metadata import read_jpeg_info, read_png_info, read_webp_info
-from .server_context import get_request_context
-from .server_models import (
+from .cache.browse import RecursiveBrowseCache, RecursiveCachedItemSnapshot
+from ..metadata import read_jpeg_info, read_png_info, read_webp_info
+from .context import get_request_context
+from .models import (
     BrowseFolderEntryPayload,
     BrowseFolderPayload,
     BrowseItemPayload,
@@ -22,9 +22,9 @@ from .server_models import (
     ImageMetadataResponse,
     Sidecar,
 )
-from .server_sync import _canonical_path, _sidecar_from_meta
-from .storage.base import BrowseItem, BrowseStorage
-from .workspace import Workspace
+from .sync import _canonical_path, _sidecar_from_meta
+from ..storage.base import BrowseItem, BrowseStorage
+from ..workspace import Workspace
 
 
 BrowseItemRecord = BrowseItem | RecursiveCachedItemSnapshot

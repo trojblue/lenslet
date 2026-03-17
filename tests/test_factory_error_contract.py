@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from lenslet import preindex
-from lenslet import server_factory
 from lenslet.preindex import PreindexResult
 from lenslet.server import create_app, create_app_from_datasets
+import lenslet.web.factory as server_factory
 from lenslet.workspace import Workspace
 
 

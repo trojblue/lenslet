@@ -1,3 +1,5 @@
+"""Shared static frontend serving helpers for Lenslet web apps."""
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -21,7 +23,7 @@ class NoCacheIndexStaticFiles(StaticFiles):
 
 
 def frontend_dist_path() -> Path:
-    return Path(__file__).parent / "frontend"
+    return Path(__file__).resolve().parents[1] / "frontend"
 
 
 @lru_cache(maxsize=8)

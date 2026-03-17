@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from .cache_signals import BestEffortCacheMixin
+from ...cache_signals import BestEffortCacheMixin
 
 CACHE_SCHEMA_VERSION = 1
 DEFAULT_BROWSE_CACHE_CAP_BYTES = 200 * 1024 * 1024

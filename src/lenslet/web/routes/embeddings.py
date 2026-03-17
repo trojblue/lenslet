@@ -6,9 +6,9 @@ import math
 
 from fastapi import FastAPI, HTTPException
 
-from .embeddings.index import EmbeddingIndexError, EmbeddingManager
-from .server_browse import _ensure_image
-from .server_models import (
+from ...embeddings.index import EmbeddingIndexError, EmbeddingManager
+from ..browse import _ensure_image
+from ..models import (
     EmbeddingRejectedPayload,
     EmbeddingSearchItem,
     EmbeddingSearchRequest,
@@ -16,8 +16,8 @@ from .server_models import (
     EmbeddingSpecPayload,
     EmbeddingsResponse,
 )
-from .server_sync import _canonical_path
-from .storage.base import BrowseStorage
+from ..sync import _canonical_path
+from ...storage.base import BrowseStorage
 
 
 def _build_embeddings_payload(manager: EmbeddingManager) -> EmbeddingsResponse:

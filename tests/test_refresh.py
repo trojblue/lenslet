@@ -3,10 +3,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from PIL import Image
 
-import lenslet.server_factory as server_factory
-import lenslet.server_routes_index as server_routes_index
+import lenslet.web.factory as server_factory
+import lenslet.web.routes.index as server_routes_index
 from lenslet.server import create_app, create_app_from_datasets
-from lenslet.server_context import get_app_context
+from lenslet.web.context import get_app_context
 from lenslet.storage.memory import MemoryStorage
 from lenslet.storage.table import TableStorage
 from lenslet.workspace import Workspace
@@ -326,7 +326,7 @@ def test_index_shell_is_cached_once_per_process(tmp_path: Path, monkeypatch) -> 
     server_routes_index._load_frontend_shell.cache_clear()
     app = create_app(str(tmp_path), og_preview=True)
 
-    index_path = Path(server_routes_index.__file__).resolve().parent / "frontend" / "index.html"
+    index_path = server_routes_index.frontend_dist_path() / "index.html"
     original_read_text = Path.read_text
     calls = {"count": 0}
 

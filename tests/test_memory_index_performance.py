@@ -2,8 +2,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from lenslet.browse_cache import RecursiveBrowseCache
-from lenslet.server_browse import warm_recursive_cache
+from lenslet.web.cache.browse import RecursiveBrowseCache
+from lenslet.web.browse import warm_recursive_cache
 from lenslet.storage.memory import MemoryStorage
 
 

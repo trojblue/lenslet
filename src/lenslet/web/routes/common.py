@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from PIL import Image, ImageDraw, ImageFont, PngImagePlugin, UnidentifiedImageError
 from pydantic import ValidationError
 
-from .server_browse import (
+from ..browse import (
     ToItemFn,
     _build_folder_index,
     _build_image_metadata,
@@ -27,9 +27,9 @@ from .server_browse import (
     _search_results,
     _storage_from_request,
 )
-from .server_context import get_request_context
-from .server_media import _file_response, _thumb_response_async
-from .server_models import (
+from ..context import get_request_context
+from ..media import _file_response, _thumb_response_async
+from ..models import (
     BrowseFolderPathsPayload,
     BrowseFolderPayload,
     BrowseSearchResultsPayload,
@@ -38,10 +38,10 @@ from .server_models import (
     Sidecar,
     SidecarPatch,
 )
-from .server_permissions import deny_if_mutation_forbidden
-from .server_routes_presence import register_presence_routes
-from .server_runtime import PresenceMetrics
-from .server_sync import (
+from ..permissions import deny_if_mutation_forbidden
+from .presence import register_presence_routes
+from ..runtime import PresenceMetrics
+from ..sync import (
     EventBroker,
     IdempotencyCache,
     PresenceTracker,
@@ -55,7 +55,7 @@ from .server_sync import (
     _sidecar_from_meta,
     _updated_by_from_request,
 )
-from .storage.base import BrowseStorage
+from ...storage.base import BrowseStorage
 
 
 MAX_EXPORT_SOURCE_PIXELS = 64_000_000

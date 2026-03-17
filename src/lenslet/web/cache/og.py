@@ -5,7 +5,7 @@ import os
 import time
 from pathlib import Path
 
-from .cache_signals import BestEffortCacheMixin
+from ...cache_signals import BestEffortCacheMixin
 
 
 class OgImageCache(BestEffortCacheMixin):

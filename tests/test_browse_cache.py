@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 
-from lenslet.browse_cache import RecursiveBrowseCache, RecursiveCachedItemSnapshot
+from lenslet.web.cache.browse import RecursiveBrowseCache, RecursiveCachedItemSnapshot
 
 
 def _snapshot(path: str, seed: int) -> RecursiveCachedItemSnapshot:

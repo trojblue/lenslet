@@ -9,10 +9,10 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from .server_auth import request_client_id
-from .server_models import PresenceLeavePayload, PresenceMovePayload, PresencePayload
-from .server_runtime import PresenceMetrics
-from .server_sync import (
+from ..auth import request_client_id
+from ..models import PresenceLeavePayload, PresenceMovePayload, PresencePayload
+from ..runtime import PresenceMetrics
+from ..sync import (
     PresenceCount,
     PresenceLeaseError,
     PresenceScopeError,

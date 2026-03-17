@@ -4,9 +4,9 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 
-from ..app_base import create_api_app
-from ..frontend_serving import mount_frontend
-from ..server_auth import TRUSTED_LOCAL_MUTATION_POLICY, request_can_mutate, set_mutation_policy
+from ..web.app_base import create_api_app
+from ..web.frontend import mount_frontend
+from ..web.auth import TRUSTED_LOCAL_MUTATION_POLICY, request_can_mutate, set_mutation_policy
 from .dataset import RankingDatasetError, load_ranking_dataset
 from .persistence import RankingPersistenceError, RankingResultsStore, resolve_results_path
 from .routes import build_ranking_router

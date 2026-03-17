@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from lenslet.server_factory import DEFAULT_THUMB_CACHE_CAP_BYTES, _thumb_cache_from_workspace
-from lenslet.thumb_cache import ThumbCache
+from lenslet.web.factory import DEFAULT_THUMB_CACHE_CAP_BYTES, _thumb_cache_from_workspace
+from lenslet.web.cache.thumbs import ThumbCache
 from lenslet.workspace import Workspace
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from .server_auth import get_mutation_policy, request_can_mutate
+from .auth import get_mutation_policy, request_can_mutate
 
 READ_ONLY_WORKSPACE_ERROR = "read_only_workspace"
 READ_ONLY_WORKSPACE_MESSAGE = "workspace is read-only"

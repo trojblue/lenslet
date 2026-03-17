@@ -46,10 +46,10 @@ DYNAMIC_IMPORT_PATTERN = re.compile(
     r"""import\(\s*["'](?P<dynamic>[^"']+)["']\s*\)"""
 )
 SPRINT1_ROUTE_FILES = (
-    REPO_ROOT / "src" / "lenslet" / "server_routes_common.py",
-    REPO_ROOT / "src" / "lenslet" / "server_routes_index.py",
-    REPO_ROOT / "src" / "lenslet" / "server_routes_og.py",
-    REPO_ROOT / "src" / "lenslet" / "server_routes_views.py",
+    REPO_ROOT / "src" / "lenslet" / "web" / "routes" / "common.py",
+    REPO_ROOT / "src" / "lenslet" / "web" / "routes" / "index.py",
+    REPO_ROOT / "src" / "lenslet" / "web" / "routes" / "og.py",
+    REPO_ROOT / "src" / "lenslet" / "web" / "routes" / "views.py",
 )
 
 

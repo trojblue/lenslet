@@ -7,7 +7,7 @@ import pyarrow.parquet as pq
 from PIL import Image
 
 from lenslet.preindex import ensure_local_preindex
-from lenslet import server_factory
+import lenslet.web.factory as server_factory
 from lenslet.workspace import Workspace
 
 

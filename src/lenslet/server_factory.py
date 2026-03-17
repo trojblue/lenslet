@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.gzip import GZipMiddleware
 
+from .app_base import create_api_app
 from .browse_cache import RecursiveBrowseCache
 from .embeddings.cache import EmbeddingCache
 from .embeddings.config import EmbeddingConfig
@@ -32,7 +32,6 @@ from .server_auth import (
     MutationPolicy,
     READ_ONLY_MUTATION_POLICY,
     TRUSTED_LOCAL_MUTATION_POLICY,
-    install_request_identity_middleware,
     request_can_mutate,
     set_mutation_policy,
 )
@@ -107,15 +106,6 @@ def _mutation_policy_for_workspace(workspace: Workspace) -> MutationPolicy:
     if workspace.can_write:
         return TRUSTED_LOCAL_MUTATION_POLICY
     return READ_ONLY_MUTATION_POLICY
-
-
-def _create_base_app(*, description: str) -> FastAPI:
-    app = FastAPI(
-        title="Lenslet",
-        description=description,
-    )
-    app.add_middleware(GZipMiddleware, minimum_size=1000)
-    return app
 
 
 def _attach_request_context(app: FastAPI) -> None:
@@ -587,8 +577,7 @@ def create_app(
     options = _browse_options(options)
     embedding = _embedding_options(embedding)
 
-    app = _create_base_app(description="Lightweight image gallery server")
-    install_request_identity_middleware(app)
+    app = create_api_app(description="Lightweight image gallery server")
     if workspace is None:
         if no_write:
             workspace = Workspace.for_temp_dataset(root_path)
@@ -826,8 +815,7 @@ def create_app_from_datasets(
     """Create FastAPI app with in-memory dataset storage."""
     options = _browse_options(options)
 
-    app = _create_base_app(description="Lightweight image gallery server (dataset mode)")
-    install_request_identity_middleware(app)
+    app = create_api_app(description="Lightweight image gallery server (dataset mode)")
 
     # Create dataset storage
     storage = DatasetStorage(
@@ -990,11 +978,10 @@ def _create_browse_app(
     """Create the shared browse app runtime for table and in-memory storage."""
     options = _browse_options(options)
     embedding = _embedding_options(embedding)
-    app = _create_base_app(description="Lightweight image gallery server (browse mode)")
+    app = create_api_app(description="Lightweight image gallery server (browse mode)")
 
     if workspace is None:
         workspace = Workspace.for_dataset(None, can_write=False)
-    install_request_identity_middleware(app)
     set_mutation_policy(app, _mutation_policy_for_workspace(workspace))
     runtime = _initialize_runtime(
         app,

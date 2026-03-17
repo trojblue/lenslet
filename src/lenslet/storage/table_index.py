@@ -5,7 +5,61 @@ import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Protocol, TypeAlias
+
+
+RemoteDimensionTask: TypeAlias = tuple[str, Any, str, str]
+
+
+class TableIndexScanHost(Protocol):
+    root: str | None
+    RESERVED_COLUMNS: set[str]
+
+    _row_count: int
+    _data: dict[str, list[Any]]
+    _columns: list[str]
+    _source_column: str
+    _path_column: str | None
+    _name_column: str | None
+    _mime_column: str | None
+    _width_column: str | None
+    _height_column: str | None
+    _size_column: str | None
+    _mtime_column: str | None
+    _metrics_column: str | None
+    _local_prefix: str | None
+    _allow_local: bool
+    _skip_indexing: bool
+    _skip_local_realpath_validation: bool
+
+    _progress: Callable[[int, int, str], None]
+    _extract_name: Callable[[str], str]
+    _is_supported_image: Callable[[str], bool]
+    _is_s3_uri: Callable[[str], bool]
+    _is_http_url: Callable[[str], bool]
+    _derive_logical_path: Callable[[str], str]
+    _normalize_item_path: Callable[[str], str]
+    _normalize_path: Callable[[str], str]
+    _dedupe_path: Callable[[str, set[str]], str]
+    _guess_mime: Callable[[str], str]
+    _coerce_int: Callable[[Any], int | None]
+    _coerce_timestamp: Callable[[Any], float | None]
+    _coerce_float: Callable[[Any], float | None]
+    _resolve_local_source: Callable[[str], str]
+    _resolve_local_source_lexical: Callable[[str], str]
+    _read_dimensions_fast: Callable[[str], tuple[int, int] | None]
+
+
+class TableIndexStoreHost(TableIndexScanHost, Protocol):
+    _indexes: dict[str, Any]
+    _items: dict[str, Any]
+    _source_paths: dict[str, str]
+    _row_dimensions: list[tuple[int, int] | None]
+    _path_to_row: dict[str, int]
+    _row_to_path: dict[int, str]
+    _dimensions: dict[str, tuple[int, int]]
+
+    _probe_remote_dimensions: Callable[[list[RemoteDimensionTask]], None]
 
 
 @dataclass(frozen=True)
@@ -69,7 +123,7 @@ class ProgressTicker:
 
 
 def build_table_indexes(
-    storage: Any,
+    storage: TableIndexStoreHost,
     *,
     item_factory: Callable[..., Any],
     index_factory: Callable[..., Any],
@@ -93,7 +147,7 @@ def build_table_indexes(
         print(f"[lenslet] Skipped {scan.skipped_local_missing} missing local path(s).")
 
 
-def build_index_columns(storage: Any) -> IndexColumns:
+def build_index_columns(storage: TableIndexScanHost) -> IndexColumns:
     row_count = storage._row_count
     none_values: list[Any] = [None] * row_count
 
@@ -116,7 +170,10 @@ def build_index_columns(storage: Any) -> IndexColumns:
     )
 
 
-def collect_metric_columns(storage: Any, none_values: list[Any]) -> tuple[tuple[str, list[Any]], ...]:
+def collect_metric_columns(
+    storage: TableIndexScanHost,
+    none_values: list[Any],
+) -> tuple[tuple[str, list[Any]], ...]:
     used_columns = {
         storage._source_column,
         storage._path_column,
@@ -140,7 +197,7 @@ def collect_metric_columns(storage: Any, none_values: list[Any]) -> tuple[tuple[
     return tuple(metric_columns)
 
 
-def _duplicate_display_columns(storage: Any) -> set[str]:
+def _duplicate_display_columns(storage: TableIndexScanHost) -> set[str]:
     return {
         column
         for column in (
@@ -229,7 +286,7 @@ def _normalize_display_value(value: Any, *, depth: int = 0) -> Any | None:
     return text
 
 
-def _normalize_metrics_display_value(storage: Any, value: Any) -> Any | None:
+def _normalize_metrics_display_value(storage: TableIndexScanHost, value: Any) -> Any | None:
     if isinstance(value, dict):
         normalized: dict[str, Any] = {}
         for raw_key, raw_value in value.items():
@@ -247,11 +304,16 @@ def _normalize_metrics_display_value(storage: Any, value: Any) -> Any | None:
     return _normalize_display_value(value)
 
 
-def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[..., Any]) -> ScanResult:
+def scan_rows(
+    storage: TableIndexScanHost,
+    columns: IndexColumns,
+    *,
+    item_factory: Callable[..., Any],
+) -> ScanResult:
     row_count = storage._row_count
     seen_paths: set[str] = set()
     rows: list[ScannedRow] = []
-    remote_tasks: list[tuple[str, Any, str, str]] = []
+    remote_tasks: list[RemoteDimensionTask] = []
     skipped_local_disabled = 0
     skipped_local_outside_root = 0
     skipped_local_missing = 0
@@ -477,7 +539,7 @@ def scan_rows(storage: Any, columns: IndexColumns, *, item_factory: Callable[...
 
 
 def assemble_indexes(
-    storage: Any,
+    storage: TableIndexStoreHost,
     rows: list[ScannedRow],
     *,
     generated_at: str,
@@ -529,7 +591,7 @@ def assemble_indexes(
         index.dirs = sorted(children)
 
 
-def extract_row_metrics(storage: Any, row_idx: int) -> dict[str, float]:
+def extract_row_metrics(storage: TableIndexScanHost, row_idx: int) -> dict[str, float]:
     none_values: list[Any] = [None] * storage._row_count
     metric_columns = collect_metric_columns(storage, none_values)
 
@@ -542,7 +604,7 @@ def extract_row_metrics(storage: Any, row_idx: int) -> dict[str, float]:
     return metrics
 
 
-def extract_row_metrics_map(storage: Any, row_idx: int) -> dict[str, float]:
+def extract_row_metrics_map(storage: TableIndexScanHost, row_idx: int) -> dict[str, float]:
     if not storage._metrics_column:
         return {}
 
@@ -561,7 +623,7 @@ def extract_row_metrics_map(storage: Any, row_idx: int) -> dict[str, float]:
     return result
 
 
-def extract_row_display_fields(storage: Any, row_idx: int) -> dict[str, Any]:
+def extract_row_display_fields(storage: TableIndexScanHost, row_idx: int) -> dict[str, Any]:
     none_values: list[Any] = [None] * storage._row_count
     metric_columns = {
         column

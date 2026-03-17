@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import os
 from bisect import bisect_left, bisect_right
-from threading import Lock
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -12,6 +11,8 @@ from .progress import ProgressBar
 from .source_backed import SourceBackedStorageMixin
 from .table_index import (
     build_table_indexes,
+    extract_row_metrics,
+    extract_row_metrics_map,
     extract_row_display_fields,
 )
 from .table_media import (
@@ -225,27 +226,18 @@ class TableStorage(SourceBackedStorageMixin[TableBrowseItem]):
         self._root_real = os.path.realpath(self.root) if self.root else None
         self._allow_local = allow_local
         self._skip_local_realpath_validation = bool(skip_local_realpath_validation)
-        self.thumb_size = thumb_size
-        self.thumb_quality = thumb_quality
+        self._initialize_source_backed_state(
+            thumb_size=thumb_size,
+            thumb_quality=thumb_quality,
+            include_source_in_search=include_source_in_search,
+        )
         self.sample_size = sample_size
         self.loadable_threshold = loadable_threshold
-        self._include_source_in_search = include_source_in_search
         self._skip_indexing = skip_indexing
         self._progress_bar = ProgressBar()
 
         self._indexes: dict[str, TableBrowseIndex] = {}
-        self._items: dict[str, TableBrowseItem] = {}
-        self._thumbnails: dict[str, bytes] = {}
-        self._metadata: dict[str, dict] = {}
-        self._dimensions: dict[str, tuple[int, int]] = {}
-        self._source_paths: dict[str, str] = {}
         self._row_dimensions: list[tuple[int, int] | None] = []
-        self._path_to_row: dict[str, int] = {}
-        self._row_to_path: dict[int, str] = {}
-        self._s3_client_lock = Lock()
-        self._s3_session: Any | None = None
-        self._s3_client: Any | None = None
-        self._s3_client_creations = 0
         self._sorted_paths: list[str] = []
         self._sorted_items: list[TableBrowseItem] = []
 
@@ -452,6 +444,12 @@ class TableStorage(SourceBackedStorageMixin[TableBrowseItem]):
         if row_idx is None:
             return {}
         return extract_row_display_fields(self, row_idx)
+
+    def _extract_metrics(self, row_idx: int) -> dict[str, float]:
+        return extract_row_metrics(self, row_idx)
+
+    def _extract_metrics_map(self, row_idx: int) -> dict[str, float]:
+        return extract_row_metrics_map(self, row_idx)
 
     def row_index_map(self) -> dict[int, str]:
         return dict(self._row_to_path)

@@ -3,7 +3,22 @@ from __future__ import annotations
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable
+from typing import Any, Callable, Protocol, TypeAlias
+
+
+RemoteDimensionTask: TypeAlias = tuple[str, Any, str, str]
+
+
+class RemoteDimensionProbeHost(Protocol):
+    _dimensions: dict[str, tuple[int, int]]
+    _path_to_row: dict[str, int]
+    _row_dimensions: list[tuple[int, int] | None]
+
+    _effective_remote_workers: Callable[[int], int]
+    _is_s3_uri: Callable[[str], bool]
+    _get_presigned_url: Callable[[str], str]
+    _get_remote_header_info: Callable[[str, str], tuple[tuple[int, int] | None, int | None]]
+    _progress: Callable[[int, int, str], None]
 
 
 def effective_remote_workers(
@@ -82,7 +97,10 @@ def get_remote_header_info(
     return read_dimensions_from_bytes(header, ext), total
 
 
-def probe_remote_dimensions(storage: Any, tasks: list[tuple[str, Any, str, str]]) -> None:
+def probe_remote_dimensions(
+    storage: RemoteDimensionProbeHost,
+    tasks: list[RemoteDimensionTask],
+) -> None:
     total = len(tasks)
     if total == 0:
         return
@@ -91,7 +109,7 @@ def probe_remote_dimensions(storage: Any, tasks: list[tuple[str, Any, str, str]]
     if workers <= 0:
         return
 
-    def _work(task: tuple[str, Any, str, str]):
+    def _work(task: RemoteDimensionTask):
         logical_path, item, source_path, name = task
         url = source_path
         if storage._is_s3_uri(source_path):

@@ -3,6 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from io import BytesIO
+import os
+from threading import Lock
 from typing import Any, Generic, Protocol, TypeVar
 from urllib.parse import urlparse
 
@@ -55,6 +57,29 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
     _s3_session: Any | None
     _s3_client: Any | None
     _s3_client_creations: int
+
+    def _initialize_source_backed_state(
+        self,
+        *,
+        thumb_size: int,
+        thumb_quality: int,
+        include_source_in_search: bool,
+    ) -> None:
+        self.thumb_size = thumb_size
+        self.thumb_quality = thumb_quality
+        self._include_source_in_search = include_source_in_search
+        self._items = {}
+        self._thumbnails = {}
+        self._metadata = {}
+        self._dimensions = {}
+        self._source_paths = {}
+        self._row_dimensions = []
+        self._path_to_row = {}
+        self._row_to_path = {}
+        self._s3_client_lock = Lock()
+        self._s3_session = None
+        self._s3_client = None
+        self._s3_client_creations = 0
 
     @abstractmethod
     def _normalize_item_path(self, path: str) -> str:
@@ -129,6 +154,7 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
             total,
             baseline_workers=self.REMOTE_DIM_WORKERS,
             max_workers=self.REMOTE_DIM_WORKERS_MAX,
+            cpu_count=os.cpu_count,
         )
 
     def _parse_content_range(self, header: str) -> int | None:

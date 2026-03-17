@@ -7,7 +7,6 @@ import posixpath
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from threading import Lock
 from typing import Any
 from urllib.parse import urlparse
 
@@ -199,24 +198,15 @@ class DatasetStorage(SourceBackedStorageMixin[DatasetBrowseItem]):
         include_source_in_search: bool = True,
     ):
         self.datasets = datasets
-        self.thumb_size = thumb_size
-        self.thumb_quality = thumb_quality
-        self._include_source_in_search = include_source_in_search
+        self._initialize_source_backed_state(
+            thumb_size=thumb_size,
+            thumb_quality=thumb_quality,
+            include_source_in_search=include_source_in_search,
+        )
         self._progress_bar = ProgressBar()
 
         self._indexes: dict[str, DatasetBrowseIndex] = {}
-        self._items: dict[str, DatasetBrowseItem] = {}
-        self._thumbnails: dict[str, bytes] = {}
-        self._metadata: dict[str, dict] = {}
-        self._dimensions: dict[str, tuple[int, int]] = {}
-        self._source_paths: dict[str, str] = {}
         self._row_dimensions: list[tuple[int, int] | None] = []
-        self._path_to_row: dict[str, int] = {}
-        self._row_to_path: dict[int, str] = {}
-        self._s3_client_lock = Lock()
-        self._s3_session: Any | None = None
-        self._s3_client: Any | None = None
-        self._s3_client_creations = 0
 
         self._build_all_indexes()
         self._browse_signature = self._compute_browse_signature()

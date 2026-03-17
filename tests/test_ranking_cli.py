@@ -34,6 +34,37 @@ def _write_dataset(tmp_path: Path) -> Path:
     return dataset_path
 
 
+def _browse_args(**overrides: Any) -> cli.BrowseCliArgs:
+    base: dict[str, Any] = {
+        "directory": "/tmp/gallery",
+        "host": "127.0.0.1",
+        "port": None,
+        "thumb_size": 256,
+        "thumb_quality": 70,
+        "source_column": None,
+        "base_dir": None,
+        "cache_wh": True,
+        "skip_indexing": True,
+        "thumb_cache": True,
+        "og_preview": True,
+        "reload": False,
+        "no_write": False,
+        "embedding_column": None,
+        "embedding_metric": None,
+        "embed": False,
+        "batch_size": 32,
+        "parquet_batch_size": 256,
+        "num_workers": 8,
+        "embedding_preload": False,
+        "embedding_cache": True,
+        "embedding_cache_dir": None,
+        "verbose": False,
+        "share": False,
+    }
+    base.update(overrides)
+    return cli.BrowseCliArgs(**base)
+
+
 def test_cli_rank_subcommand_dispatch(monkeypatch, tmp_path: Path) -> None:
     dataset_path = _write_dataset(tmp_path)
     captured: dict[str, Any] = {}
@@ -113,6 +144,19 @@ def test_cli_browse_invocation_still_routes_to_existing_factory(monkeypatch, tmp
     assert captured["port"] == 7070
     assert captured["reload"] is False
     assert captured["log_level"] == "warning"
+
+
+def test_normalize_browse_args_disables_cache_write_for_no_write(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    args = _browse_args(no_write=True, cache_wh=True)
+
+    normalized = cli._normalize_browse_args(args)
+
+    assert normalized.cache_wh is False
+    assert args.cache_wh is True
+    captured = capsys.readouterr()
+    assert "--no-write disables parquet caching" in captured.out
 
 
 def test_cli_browse_reports_factory_init_failure(monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

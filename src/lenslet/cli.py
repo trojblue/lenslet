@@ -12,7 +12,7 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
@@ -336,6 +336,18 @@ class BrowseCliArgs:
             verbose=bool(args.verbose),
             share=bool(args.share),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class BrowseLaunchPlan:
+    args: BrowseCliArgs
+    target_info: BrowseTarget
+    port: int
+    embedding_config: Any
+    dataset_workspace: Any | None
+    preindex_signature: str | None
+    browse_options: Any
+    embedding_options: Any
 
 
 def _resolve_embedding_config_or_exit(args: BrowseCliArgs) -> "EmbeddingConfig":
@@ -912,31 +924,52 @@ def _parse_browse_args_or_exit(argv: list[str] | None) -> BrowseCliArgs:
     return BrowseCliArgs.from_namespace(args)
 
 
-def _run_browse(args: BrowseCliArgs) -> None:
+def _normalize_browse_args(args: BrowseCliArgs) -> BrowseCliArgs:
+    if args.no_write and args.cache_wh:
+        print("[lenslet] --no-write disables parquet caching; use --no-cache-wh to silence.")
+        return replace(args, cache_wh=False)
+    return args
+
+
+def _plan_browse_launch_or_exit(args: BrowseCliArgs) -> BrowseLaunchPlan:
     embedding_config = _resolve_embedding_config_or_exit(args)
     target_info = _resolve_browse_target_or_exit(args.directory)
     target_info = _maybe_embed_browse_target_or_exit(args, target_info)
     port = _resolve_browse_port_or_exit(args.host, args.port)
-
-    if args.no_write and args.cache_wh:
-        print("[lenslet] --no-write disables parquet caching; use --no-cache-wh to silence.")
-        args = replace(args, cache_wh=False)
-
-    _print_browse_banner(args, target_info, port)
-    _warn_multi_worker_mode()
-
-    dataset_workspace, preindex_signature = _prepare_dataset_workspace_or_exit(args, target_info)
-    browse_options, embedding_options = _build_browse_runtime_options(args, embedding_config)
-    app = _create_browse_app_or_exit(
-        args,
-        target_info,
+    normalized_args = _normalize_browse_args(args)
+    dataset_workspace, preindex_signature = _prepare_dataset_workspace_or_exit(normalized_args, target_info)
+    browse_options, embedding_options = _build_browse_runtime_options(normalized_args, embedding_config)
+    return BrowseLaunchPlan(
+        args=normalized_args,
+        target_info=target_info,
+        port=port,
+        embedding_config=embedding_config,
         dataset_workspace=dataset_workspace,
         preindex_signature=preindex_signature,
-        embedding_config=embedding_config,
         browse_options=browse_options,
         embedding_options=embedding_options,
     )
-    _launch_browse_server(app, args, port)
+
+
+def _create_browse_app_for_plan_or_exit(plan: BrowseLaunchPlan):
+    return _create_browse_app_or_exit(
+        plan.args,
+        plan.target_info,
+        dataset_workspace=plan.dataset_workspace,
+        preindex_signature=plan.preindex_signature,
+        embedding_config=plan.embedding_config,
+        browse_options=plan.browse_options,
+        embedding_options=plan.embedding_options,
+    )
+
+
+def _run_browse(args: BrowseCliArgs) -> None:
+    plan = _plan_browse_launch_or_exit(args)
+    _print_browse_banner(plan.args, plan.target_info, plan.port)
+    _warn_multi_worker_mode()
+
+    app = _create_browse_app_for_plan_or_exit(plan)
+    _launch_browse_server(app, plan.args, plan.port)
 
 
 def _main_rank(argv: list[str] | None = None) -> None:

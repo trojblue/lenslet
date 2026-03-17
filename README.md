@@ -34,6 +34,12 @@ Lenslet is a self-contained image gallery server designed for simplicity and spe
 pip install lenslet
 ```
 
+Tested source install for the pinned Python 3.13 runtime stack used in this repo:
+
+```bash
+pip install -c requirements/runtime-constraints-py313.txt -e ".[dev]"
+```
+
 Optional extras for embedding search:
 
 ```bash

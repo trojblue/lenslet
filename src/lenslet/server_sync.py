@@ -567,6 +567,14 @@ class SnapshotWriter:
                 return
             self._since = 0
             self._last_write = now
+        self.flush(storage, last_event_id)
+
+    def flush(self, storage: BrowseStorage, last_event_id: int) -> bool:
+        if not self._workspace.can_write:
+            return False
+        with self._lock:
+            self._since = 0
+            self._last_write = time.monotonic()
         if self._meta_lock is None:
             payload = _build_snapshot_payload(storage, last_event_id)
         else:
@@ -576,9 +584,9 @@ class SnapshotWriter:
             self._workspace.write_labels_snapshot(payload)
         except Exception as exc:
             print(f"[lenslet] Warning: failed to write labels snapshot: {exc}")
-            return
+            return False
         if self._compact_threshold <= 0:
-            return
+            return True
         try:
             if self._log_lock is None:
                 self._workspace.compact_labels_log(last_event_id, max_bytes=self._compact_threshold)
@@ -587,6 +595,8 @@ class SnapshotWriter:
                     self._workspace.compact_labels_log(last_event_id, max_bytes=self._compact_threshold)
         except Exception as exc:
             print(f"[lenslet] Warning: failed to compact labels log: {exc}")
+            return False
+        return True
 
 
 def _build_snapshot_payload(storage: BrowseStorage, last_event_id: int) -> dict[str, Any]:

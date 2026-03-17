@@ -6,6 +6,7 @@ from PIL import Image
 import lenslet.server_factory as server_factory
 import lenslet.server_routes_index as server_routes_index
 from lenslet.server import create_app, create_app_from_datasets
+from lenslet.server_context import get_app_context
 from lenslet.storage.memory import MemoryStorage
 from lenslet.storage.table import TableStorage
 from lenslet.workspace import Workspace
@@ -271,6 +272,7 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         health_after_payload = health_after.json()
         assert health_after_payload["browse_cache"]["path"] == str(workspace_b.browse_cache_dir())
         assert health_after_payload["labels"]["log"] == str(workspace_b.labels_log_path())
+        assert health_after_payload["labels"]["snapshot"] == str(workspace_b.labels_snapshot_path())
         assert health_after_payload["indexing"]["generation"] != health_before_payload["indexing"]["generation"]
 
         views_after = client.get("/views")
@@ -290,6 +292,11 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
             json={"tags": ["beta"], "notes": "workspace-b", "star": 5},
         )
         assert update_after.status_code == 200
+        context = get_app_context(app)
+        assert context.runtime.snapshotter.flush(
+            context.storage,
+            context.runtime.sync_state["last_event_id"],
+        )
 
         og_after = client.get("/og-image", params={"path": "/shots"})
         assert og_after.status_code == 200
@@ -298,6 +305,8 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
     thumb_cache_b = workspace_b.thumb_cache_dir()
     assert thumb_cache_b is not None
     assert list(thumb_cache_b.rglob("*.webp")), "expected refreshed thumb cache writes in workspace_b"
+    snapshot_b = workspace_b.labels_snapshot_path()
+    assert snapshot_b is not None and snapshot_b.exists()
     assert any(
         entry.get("path") == "/shots/first.jpg" and entry.get("notes") == "workspace-b"
         for entry in workspace_b.read_labels_log()
@@ -306,6 +315,9 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
     thumb_cache_a = workspace_a.thumb_cache_dir()
     if thumb_cache_a is not None:
         assert not list(thumb_cache_a.rglob("*.webp"))
+    snapshot_a = workspace_a.labels_snapshot_path()
+    if snapshot_a is not None:
+        assert not snapshot_a.exists()
     assert not workspace_a.read_labels_log()
 
 

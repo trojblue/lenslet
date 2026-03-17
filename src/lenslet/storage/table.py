@@ -4,7 +4,10 @@ import hashlib
 import os
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 from .base import join_storage_path
 from .progress import ProgressBar
@@ -461,7 +464,7 @@ class TableStorage(SourceBackedStorageMixin[TableBrowseItem]):
         return self._s3_client_creations
 
 
-def load_parquet_table(path: str, columns: list[str] | None = None):
+def load_parquet_table(path: str, columns: list[str] | None = None) -> pa.Table:
     try:
         import pyarrow.parquet as pq
     except ImportError as exc:  # pragma: no cover - optional dependency
@@ -471,7 +474,7 @@ def load_parquet_table(path: str, columns: list[str] | None = None):
     return pq.read_table(path, columns=columns)
 
 
-def load_parquet_schema(path: str):
+def load_parquet_schema(path: str) -> pa.Schema:
     try:
         import pyarrow.parquet as pq
     except ImportError as exc:  # pragma: no cover - optional dependency

@@ -18,6 +18,7 @@ from PIL import Image, ImageDraw, ImageFont, PngImagePlugin, UnidentifiedImageEr
 from pydantic import ValidationError
 
 from .server_browse import (
+    ToItemFn,
     _build_folder_index,
     _build_image_metadata,
     _build_sidecar,
@@ -39,7 +40,10 @@ from .server_models import (
 )
 from .server_permissions import deny_if_mutation_forbidden
 from .server_routes_presence import register_presence_routes
+from .server_runtime import PresenceMetrics
 from .server_sync import (
+    EventBroker,
+    IdempotencyCache,
     PresenceTracker,
     _apply_patch_to_meta,
     _canonical_path,
@@ -566,7 +570,7 @@ def _fallback_add_annotation(image: Image.Image, label: str) -> Image.Image:
 
 
 def _update_item(
-    storage,
+    storage: BrowseStorage,
     path: str,
     body: Sidecar,
     updated_by: str,
@@ -589,7 +593,7 @@ def _update_item(
 
 def register_folder_route(
     app: FastAPI,
-    to_item,
+    to_item: ToItemFn,
 ) -> None:
     @app.get("/folders", response_model=FolderIndex)
     def get_folder(
@@ -639,13 +643,13 @@ def _collect_folder_paths(storage: BrowseStorage) -> list[str]:
 
 def register_common_api_routes(
     app: FastAPI,
-    to_item,
+    to_item: ToItemFn,
     *,
     meta_lock: threading.Lock,
     presence: PresenceTracker,
-    broker,
-    presence_metrics,
-    idempotency_cache,
+    broker: EventBroker,
+    presence_metrics: PresenceMetrics,
+    idempotency_cache: IdempotencyCache,
     record_update: RecordUpdateFn,
 ) -> None:
     register_folder_route(app, to_item)

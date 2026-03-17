@@ -16,8 +16,12 @@ from .metadata import read_jpeg_info, read_png_info, read_webp_info
 from .server_context import get_request_context
 from .server_models import DirEntry, FolderIndex, ImageMetadataResponse, Item, SearchResult, Sidecar
 from .server_sync import _canonical_path, _sidecar_from_meta
-from .storage.base import BrowseStorage
+from .storage.base import BrowseItem, BrowseStorage
 from .workspace import Workspace
+
+
+BrowseItemRecord = BrowseItem | RecursiveCachedItemSnapshot
+ToItemFn = Callable[[BrowseStorage, BrowseItemRecord], Item]
 
 
 def _storage_from_request(request: Request) -> BrowseStorage:
@@ -70,7 +74,11 @@ def _build_image_metadata(storage: BrowseStorage, path: str) -> ImageMetadataRes
     return ImageMetadataResponse(path=path, format=fmt, meta=meta)
 
 
-def _build_item(cached, meta: dict, source: str | None = None) -> Item:
+def _build_item(
+    cached: BrowseItemRecord,
+    meta: dict[str, Any],
+    source: str | None = None,
+) -> Item:
     if source is None:
         source = getattr(cached, "source", None)
     canonical = _canonical_path(cached.path)
@@ -442,9 +450,9 @@ def warm_recursive_cache(
 
 
 def _build_folder_index(
-    storage,
+    storage: BrowseStorage,
     path: str,
-    to_item,
+    to_item: ToItemFn,
     recursive: bool = False,
     count_only: bool = False,
     browse_cache: RecursiveBrowseCache | None = None,

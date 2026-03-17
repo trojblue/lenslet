@@ -5,6 +5,8 @@ from collections import deque
 
 from PIL import Image, ImageDraw, ImageFont
 
+from .storage.base import BrowseStorage
+
 OG_IMAGE_WIDTH = 1200
 OG_IMAGE_HEIGHT = 630
 OG_IMAGES_X = 6
@@ -36,7 +38,7 @@ def resolve_style(style: str | None) -> str:
     return value
 
 
-def sample_paths(storage, path: str | None, count: int) -> list[str]:
+def sample_paths(storage: BrowseStorage, path: str | None, count: int) -> list[str]:
     target = normalize_path(path)
     index = _safe_index(storage, target)
     if index is None and target != "/":
@@ -56,7 +58,7 @@ def sample_paths(storage, path: str | None, count: int) -> list[str]:
     return [p for _, p in records[:count]]
 
 
-def subtree_image_count(storage, path: str | None) -> int | None:
+def subtree_image_count(storage: BrowseStorage, path: str | None) -> int | None:
     target = normalize_path(path)
     index = _safe_index(storage, target)
     if index is None:

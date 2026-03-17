@@ -15,7 +15,7 @@ from fastapi import Request
 from .server_auth import request_actor_id, request_client_id
 from .server_models import Sidecar, SidecarPatch
 from .storage.base import BrowseStorage
-from .workspace import Workspace
+from .workspace import Workspace, WorkspaceReadResult
 
 
 def _canonical_path(path: str | None) -> str:
@@ -673,7 +673,9 @@ def _load_label_state(storage, workspace: Workspace) -> int:
         return 0
     max_event_id = 0
     last_snapshot_id = 0
-    snapshot = workspace.read_labels_snapshot()
+    snapshot_result = workspace.read_labels_snapshot_result()
+    _raise_for_workspace_state("labels snapshot", snapshot_result)
+    snapshot = snapshot_result.value
     if isinstance(snapshot, dict):
         last_snapshot_id = snapshot.get("last_event_id", 0) or 0
         items = snapshot.get("items", {})
@@ -683,7 +685,9 @@ def _load_label_state(storage, workspace: Workspace) -> int:
                 _apply_persisted_record(storage, path, record if isinstance(record, dict) else {})
         if isinstance(last_snapshot_id, int):
             max_event_id = max(max_event_id, last_snapshot_id)
-    for entry in workspace.read_labels_log():
+    log_result = workspace.read_labels_log_result()
+    _raise_for_workspace_state("labels log", log_result)
+    for entry in log_result.value:
         if not isinstance(entry, dict):
             continue
         event_id = entry.get("id", 0) or 0
@@ -697,6 +701,16 @@ def _load_label_state(storage, workspace: Workspace) -> int:
         if isinstance(event_id, int):
             max_event_id = max(max_event_id, event_id)
     return max_event_id
+
+
+def _raise_for_workspace_state(
+    label: str,
+    result: WorkspaceReadResult[Any],
+) -> None:
+    if result.status in {"missing", "ok"}:
+        return
+    detail = result.detail or result.status
+    raise RuntimeError(f"workspace {label} is unreadable: {detail}")
 
 
 def _updated_by_from_request(request: Request | None) -> str:

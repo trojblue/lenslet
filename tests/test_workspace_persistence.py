@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
 
+from lenslet.server_factory import create_app
+from lenslet.server_sync import _load_label_state
 from lenslet.workspace import Workspace
 
 
@@ -93,3 +97,94 @@ def test_temp_workspace_key_is_stable_for_same_dataset_root(tmp_path: Path) -> N
     assert stable_a.root == stable_b.root
     assert stable_a.root != other.root
     assert stable_a.is_temp_workspace() is True
+
+
+def test_workspace_read_results_distinguish_missing_and_invalid_views(tmp_path: Path) -> None:
+    workspace = Workspace(root=tmp_path / ".lenslet", can_write=True)
+
+    missing = workspace.load_views_result()
+    assert missing.status == "missing"
+    assert missing.value == {"version": 1, "views": []}
+
+    workspace.ensure()
+    assert workspace.views_path is not None
+    workspace.views_path.write_text("{invalid json", encoding="utf-8")
+
+    invalid = workspace.load_views_result()
+    assert invalid.status == "invalid"
+    assert invalid.value == {"version": 1, "views": []}
+
+
+def test_workspace_read_results_distinguish_missing_and_invalid_snapshot(tmp_path: Path) -> None:
+    workspace = Workspace(root=tmp_path / ".lenslet", can_write=True)
+
+    missing = workspace.read_labels_snapshot_result()
+    assert missing.status == "missing"
+    assert missing.value is None
+
+    workspace.ensure()
+    snapshot_path = workspace.labels_snapshot_path()
+    assert snapshot_path is not None
+    snapshot_path.write_text("{invalid json", encoding="utf-8")
+
+    invalid = workspace.read_labels_snapshot_result()
+    assert invalid.status == "invalid"
+    assert invalid.value is None
+
+
+def test_workspace_read_results_report_partial_log_corruption(tmp_path: Path) -> None:
+    workspace = Workspace(root=tmp_path / ".lenslet", can_write=True)
+    workspace.ensure()
+    log_path = workspace.labels_log_path()
+    assert log_path is not None
+    log_path.write_text(
+        "\n".join(
+            [
+                '{"id":1,"path":"/shots/first.jpg","version":2}',
+                "not-json",
+                '{"id":2,"path":"/shots/second.jpg","version":3}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = workspace.read_labels_log_result()
+
+    assert result.status == "partial"
+    assert result.invalid_entries == 1
+    assert [entry["id"] for entry in result.value] == [1, 2]
+
+
+def test_load_label_state_fails_on_corrupt_workspace_persistence(tmp_path: Path) -> None:
+    workspace = Workspace(root=tmp_path / ".lenslet", can_write=True)
+    workspace.ensure()
+    snapshot_path = workspace.labels_snapshot_path()
+    assert snapshot_path is not None
+    snapshot_path.write_text("{invalid json", encoding="utf-8")
+
+    class _Storage:
+        def ensure_metadata(self, _path: str) -> dict:
+            return {"version": 1}
+
+        def set_metadata(self, _path: str, _meta: dict) -> None:
+            return None
+
+    with pytest.raises(RuntimeError, match="workspace labels snapshot is unreadable"):
+        _load_label_state(_Storage(), workspace)
+
+
+def test_views_route_fails_when_workspace_views_are_corrupt(tmp_path: Path) -> None:
+    root = tmp_path / "gallery"
+    root.mkdir()
+    Image.new("RGB", (4, 4), color=(32, 64, 128)).save(root / "sample.jpg", format="JPEG")
+    views_path = root / ".lenslet" / "views.json"
+    views_path.parent.mkdir(parents=True, exist_ok=True)
+    views_path.write_text("{invalid json", encoding="utf-8")
+
+    client = TestClient(create_app(str(root)))
+
+    response = client.get("/views")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "workspace views are unreadable"

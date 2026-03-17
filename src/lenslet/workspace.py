@@ -4,7 +4,22 @@ import os
 from dataclasses import dataclass
 import hashlib
 from pathlib import Path
-from typing import Any
+from typing import Any, Generic, TypeVar
+
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceReadResult(Generic[T]):
+    status: str
+    value: T
+    detail: str | None = None
+    invalid_entries: int = 0
+
+    @property
+    def has_issue(self) -> bool:
+        return self.status in {"invalid", "error", "partial"}
 
 
 @dataclass
@@ -87,26 +102,50 @@ class Workspace:
                 self.memory_views = payload
             return payload
 
+        result = self.load_views_result()
+        if result.has_issue:
+            self._warn_read_issue("views", self.views_path, result)
+        return _remember(result.value)
+
+    def load_views_result(self) -> WorkspaceReadResult[dict[str, Any]]:
+        if not self.can_write and self.memory_views is not None:
+            return WorkspaceReadResult(status="ok", value=self.memory_views)
+
         default = {"version": 1, "views": []}
         path = self.views_path
         if path is None or not path.exists():
-            return _remember(default)
+            return WorkspaceReadResult(status="missing", value=default)
         try:
             raw = path.read_text(encoding="utf-8")
             data = json.loads(raw)
-        except Exception as exc:
-            print(f"[lenslet] Warning: failed to read views.json: {exc}")
-            return _remember(default)
+        except json.JSONDecodeError as exc:
+            return WorkspaceReadResult(status="invalid", value=default, detail=str(exc))
+        except OSError as exc:
+            return WorkspaceReadResult(status="error", value=default, detail=str(exc))
         if not isinstance(data, dict):
-            return _remember(default)
+            return WorkspaceReadResult(
+                status="invalid",
+                value=default,
+                detail="views payload must be a JSON object",
+            )
         views = data.get("views")
         if not isinstance(views, list):
-            views = []
+            return WorkspaceReadResult(
+                status="invalid",
+                value=default,
+                detail="views payload must contain a list under 'views'",
+            )
         version = data.get("version", 1)
         if not isinstance(version, int):
-            version = 1
-        payload = {"version": version, "views": views}
-        return _remember(payload)
+            return WorkspaceReadResult(
+                status="invalid",
+                value=default,
+                detail="views payload must contain an integer 'version'",
+            )
+        return WorkspaceReadResult(
+            status="ok",
+            value={"version": version, "views": views},
+        )
 
     def ensure_writable(self) -> None:
         if not self.can_write:
@@ -186,18 +225,57 @@ class Workspace:
         return self.root / "labels.snapshot.json"
 
     def read_labels_snapshot(self) -> dict[str, Any] | None:
+        result = self.read_labels_snapshot_result()
+        if result.has_issue:
+            self._warn_read_issue("labels snapshot", self.labels_snapshot_path(), result)
+        return result.value
+
+    def read_labels_snapshot_result(self) -> WorkspaceReadResult[dict[str, Any] | None]:
         path = self.labels_snapshot_path()
         if path is None or not path.exists():
-            return None
+            return WorkspaceReadResult(status="missing", value=None)
         try:
             raw = path.read_text(encoding="utf-8")
             data = json.loads(raw)
-        except Exception as exc:
-            print(f"[lenslet] Warning: failed to read labels snapshot: {exc}")
-            return None
+        except json.JSONDecodeError as exc:
+            return WorkspaceReadResult(status="invalid", value=None, detail=str(exc))
+        except OSError as exc:
+            return WorkspaceReadResult(status="error", value=None, detail=str(exc))
         if not isinstance(data, dict):
-            return None
-        return data
+            return WorkspaceReadResult(
+                status="invalid",
+                value=None,
+                detail="labels snapshot must be a JSON object",
+            )
+        items = data.get("items", {})
+        last_event_id = data.get("last_event_id", 0)
+        version = data.get("version", 1)
+        if not isinstance(items, dict):
+            return WorkspaceReadResult(
+                status="invalid",
+                value=None,
+                detail="labels snapshot 'items' must be a JSON object",
+            )
+        if not isinstance(last_event_id, int):
+            return WorkspaceReadResult(
+                status="invalid",
+                value=None,
+                detail="labels snapshot 'last_event_id' must be an integer",
+            )
+        if not isinstance(version, int):
+            return WorkspaceReadResult(
+                status="invalid",
+                value=None,
+                detail="labels snapshot 'version' must be an integer",
+            )
+        return WorkspaceReadResult(
+            status="ok",
+            value={
+                "version": version,
+                "last_event_id": last_event_id,
+                "items": items,
+            },
+        )
 
     def write_labels_snapshot(self, payload: dict[str, Any]) -> None:
         path = self.labels_snapshot_path()
@@ -265,10 +343,17 @@ class Workspace:
         return True
 
     def read_labels_log(self) -> list[dict[str, Any]]:
+        result = self.read_labels_log_result()
+        if result.has_issue:
+            self._warn_read_issue("labels log", self.labels_log_path(), result)
+        return result.value
+
+    def read_labels_log_result(self) -> WorkspaceReadResult[list[dict[str, Any]]]:
         path = self.labels_log_path()
         if path is None or not path.exists():
-            return []
+            return WorkspaceReadResult(status="missing", value=[])
         entries: list[dict[str, Any]] = []
+        invalid_entries = 0
         try:
             with path.open("r", encoding="utf-8") as handle:
                 for line in handle:
@@ -277,13 +362,35 @@ class Workspace:
                         continue
                     try:
                         data = json.loads(raw)
-                    except Exception:
+                    except json.JSONDecodeError:
+                        invalid_entries += 1
                         continue
                     if isinstance(data, dict):
                         entries.append(data)
-        except Exception as exc:
-            print(f"[lenslet] Warning: failed to read labels log: {exc}")
-        return entries
+                        continue
+                    invalid_entries += 1
+        except OSError as exc:
+            return WorkspaceReadResult(status="error", value=[], detail=str(exc))
+        if invalid_entries:
+            return WorkspaceReadResult(
+                status="partial",
+                value=entries,
+                detail=f"ignored {invalid_entries} malformed log entr{'y' if invalid_entries == 1 else 'ies'}",
+                invalid_entries=invalid_entries,
+            )
+        return WorkspaceReadResult(status="ok", value=entries)
+
+    def _warn_read_issue(
+        self,
+        label: str,
+        path: Path | None,
+        result: WorkspaceReadResult[Any],
+    ) -> None:
+        if not result.has_issue:
+            return
+        location = str(path) if path is not None else "<memory>"
+        detail = result.detail or result.status
+        print(f"[lenslet] Warning: failed to read {label} at {location}: {detail}")
 
     def _atomic_write_text(self, path: Path, payload: str) -> None:
         temp = path.with_suffix(".tmp")

@@ -7,7 +7,6 @@ import argparse
 import json
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -17,14 +16,16 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
-from urllib.error import URLError
-from urllib.request import urlopen
 
 from PIL import Image, PngImagePlugin
-
-
-class SmokeFailure(RuntimeError):
-    """Raised when jitter constraints fail."""
+from scripts.smoke_harness import (
+    SmokeFailure,
+    choose_port,
+    import_playwright,
+    launch_lenslet,
+    stop_process,
+    wait_for_health,
+)
 
 
 @dataclass(frozen=True)
@@ -237,57 +238,6 @@ def _write_png_with_metadata(
         meta.add_itxt(key, value)
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (48, 32), color=(72, 36, 120)).save(path, format="PNG", pnginfo=meta)
-
-
-def choose_port(host: str, preferred: int) -> int:
-    if _port_available(host, preferred):
-        return preferred
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((host, 0))
-        sock.listen(1)
-        return int(sock.getsockname()[1])
-
-
-def _port_available(host: str, port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            sock.bind((host, port))
-        except OSError:
-            return False
-    return True
-
-
-def wait_for_health(base_url: str, timeout_seconds: float) -> dict[str, Any]:
-    deadline = time.monotonic() + timeout_seconds
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        try:
-            with urlopen(f"{base_url}/health", timeout=1.5) as response:
-                if response.status != 200:
-                    raise SmokeFailure(f"Unexpected /health status: {response.status}")
-                payload = json.load(response)
-                if not isinstance(payload, dict):
-                    raise SmokeFailure("Unexpected /health payload type.")
-                return payload
-        except URLError as exc:
-            last_error = exc
-        except TimeoutError as exc:  # pragma: no cover - runtime guard
-            last_error = exc
-        time.sleep(0.2)
-    raise SmokeFailure(f"/health was unavailable after {timeout_seconds:.1f}s: {last_error!r}")
-
-
-def _import_playwright() -> tuple[type[BaseException], type[BaseException], Any]:
-    try:
-        from playwright.sync_api import Error as playwright_error
-        from playwright.sync_api import TimeoutError as playwright_timeout_error
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise SmokeFailure(
-            "playwright is required: pip install -e '.[dev]' && python -m playwright install chromium"
-        ) from exc
-    return playwright_error, playwright_timeout_error, sync_playwright
 
 
 def _wait_for_grid(page: Any, timeout_ms: float) -> None:
@@ -540,7 +490,7 @@ def _open_viewer_with_fallback(
 
 
 def run_toolbar_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float) -> ProbeResult:
-    playwright_error, playwright_timeout_error, sync_playwright = _import_playwright()
+    playwright_error, playwright_timeout_error, sync_playwright = import_playwright()
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
@@ -797,7 +747,7 @@ def run_grid_probe(
     metric_filter_min: float | None = None,
     metric_filter_max: float | None = None,
 ) -> ProbeResult:
-    playwright_error, playwright_timeout_error, sync_playwright = _import_playwright()
+    playwright_error, playwright_timeout_error, sync_playwright = import_playwright()
     sort_panel_selector = '.dropdown-panel[role="listbox"][aria-label="Sort and layout"]'
     forbidden_metric_keys = forbidden_metric_keys or []
 
@@ -1232,7 +1182,7 @@ def _select_grid_path(page: Any, path: str, browser_timeout_ms: float) -> None:
 
 
 def run_inspector_probe(base_url: str, max_delta_px: float, browser_timeout_ms: float) -> ProbeResult:
-    playwright_error, playwright_timeout_error, sync_playwright = _import_playwright()
+    playwright_error, playwright_timeout_error, sync_playwright = import_playwright()
     quick_zero_path = "/quick_00_meta.png"
     quick_one_path = "/quick_01_meta.png"
     plain_path = "/quick_02_plain.png"
@@ -1426,18 +1376,13 @@ def main() -> int:
 
     port = choose_port(args.host, args.port)
     base_url = f"http://{args.host}:{port}"
-    command = [
-        sys.executable,
-        "-m",
-        "lenslet.cli",
-        str(dataset_dir),
-        "--host",
-        args.host,
-        "--port",
-        str(port),
-        "--verbose",
-    ]
-    process = subprocess.Popen(command, cwd=str(Path(__file__).resolve().parents[1]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    process = launch_lenslet(
+        dataset_dir,
+        host=args.host,
+        port=port,
+        extra_args=["--verbose"],
+        cwd=Path(__file__).resolve().parents[1],
+    )
 
     summary: dict[str, Any]
     try:
@@ -1489,13 +1434,7 @@ def main() -> int:
         _write_output_json(args.output_json, summary)
         return 1
     finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=10)
+        stop_process(process, kill_timeout_seconds=10.0)
         if cleanup_dataset:
             shutil.rmtree(dataset_dir, ignore_errors=True)
 

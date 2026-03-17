@@ -12,30 +12,30 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import socket
 import subprocess
-import sys
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.error import URLError
 from urllib.parse import quote
-from urllib.request import urlopen
 
 from PIL import Image
+from scripts.smoke_harness import (
+    SmokeFailure,
+    choose_port,
+    import_playwright,
+    launch_lenslet,
+    stop_process,
+    wait_for_health,
+)
 
 FIXTURE_VERSION = 1
 BROWSE_ENDPOINTS = ("folders", "thumb", "file")
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_BASELINE_FILE = SCRIPT_DIR / "playwright_large_tree_smoke_baselines.json"
 DEFAULT_BASELINE_PROFILE = "primary_large_no_write"
-
-
-class SmokeFailure(RuntimeError):
-    """Raised when smoke assertions fail."""
 
 
 @dataclass(frozen=True)
@@ -324,25 +324,6 @@ def resolve_args_with_baseline(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
-def choose_port(host: str, preferred: int) -> int:
-    if _port_available(host, preferred):
-        return preferred
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((host, 0))
-        sock.listen(1)
-        return int(sock.getsockname()[1])
-
-
-def _port_available(host: str, port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            sock.bind((host, port))
-        except OSError:
-            return False
-    return True
-
-
 def _build_jpeg_payload(width: int, height: int, quality: int) -> bytes:
     buffer = BytesIO()
     Image.new("RGB", (width, height), color=(44, 88, 132)).save(buffer, format="JPEG", quality=quality)
@@ -400,36 +381,6 @@ def ensure_fixture(root: Path, spec: FixtureSpec, regenerate: bool) -> None:
     manifest = {"version": FIXTURE_VERSION, "spec": asdict(spec), "generated_at_unix": time.time()}
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(f"[fixture] generated {generated} image files.")
-
-
-def wait_for_health(base_url: str, timeout_seconds: float) -> dict:
-    deadline = time.monotonic() + timeout_seconds
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        try:
-            with urlopen(f"{base_url}/health", timeout=2.0) as response:
-                if response.status != 200:
-                    raise SmokeFailure(f"unexpected /health status: {response.status}")
-                payload = json.load(response)
-                if not isinstance(payload, dict):
-                    raise SmokeFailure("unexpected /health payload")
-                return payload
-        except URLError as exc:
-            last_error = exc
-        time.sleep(0.2)
-    raise SmokeFailure(f"/health unavailable after {timeout_seconds:.1f}s: {last_error!r}")
-
-
-def _import_playwright() -> tuple[type[BaseException], type[BaseException], Callable[[], Any]]:
-    try:
-        from playwright.sync_api import Error as playwright_error
-        from playwright.sync_api import TimeoutError as playwright_timeout_error
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:  # pragma: no cover - runtime dependency guard
-        raise SmokeFailure(
-            "playwright is required: pip install -e '.[dev]' && python -m playwright install chromium"
-        ) from exc
-    return playwright_error, playwright_timeout_error, sync_playwright
 
 
 def _coerce_int(value: Any) -> int:
@@ -727,7 +678,7 @@ def run_playwright_probe(
     metric_key: str | None,
     forbidden_metric_key: str | None,
 ) -> tuple[float, dict[str, float], dict[str, Any] | None, list[str], list[str], dict[str, Any] | None]:
-    playwright_error, playwright_timeout_error, sync_playwright = _import_playwright()
+    playwright_error, playwright_timeout_error, sync_playwright = import_playwright()
     page_errors: list[str] = []
     console_errors: list[str] = []
     try:
@@ -905,29 +856,29 @@ def main() -> int:
 
     port = choose_port(args.host, args.port)
     base_url = f"http://{args.host}:{port}"
-    command = [
-        sys.executable,
-        "-m",
-        "lenslet.cli",
-        str(source_path),
-        "--host",
-        args.host,
-        "--port",
-        str(port),
-    ]
+    extra_args: list[str] = []
     if not args.write_mode:
-        command.append("--no-write")
+        extra_args.append("--no-write")
     print(
         f"[smoke] baseline={args.baseline_profile} tier={args.baseline_gate_tier} "
         f"write_mode={args.write_mode} source={source_path}"
     )
     if args.baseline_expectations:
         print(f"[smoke] baseline expectation: {args.baseline_expectations}")
-    print(f"[smoke] starting lenslet: {' '.join(command)}")
-    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print(
+        "[smoke] starting lenslet: "
+        f"python -m lenslet.cli {source_path} --host {args.host} --port {port}"
+        f"{' --no-write' if not args.write_mode else ''}"
+    )
+    process = launch_lenslet(
+        source_path,
+        host=args.host,
+        port=port,
+        extra_args=extra_args,
+    )
 
     try:
-        health_payload = wait_for_health(base_url, args.health_timeout_seconds)
+        health_payload = wait_for_health(base_url, args.health_timeout_seconds, request_timeout=2.0)
         print(f"[smoke] /health reachable, indexing state={health_payload.get('indexing', {}).get('state')}")
 
         first_visible, probe_result, hotpath_snapshot, page_errors, console_errors, metric_probe = run_playwright_probe(
@@ -957,7 +908,7 @@ def main() -> int:
             first_thumbnail_threshold_ms=args.first_thumbnail_threshold_ms,
         )
 
-        health_after = wait_for_health(base_url, timeout_seconds=10.0)
+        health_after = wait_for_health(base_url, timeout_seconds=10.0, request_timeout=2.0)
         indexing = health_after.get("indexing", {}) if isinstance(health_after, dict) else {}
         result = SmokeResult(
             baseline_file=str(args.baseline_file.resolve()),
@@ -1044,13 +995,7 @@ def main() -> int:
         print(f"[smoke:error] {exc}")
         return 1
     finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+        stop_process(process)
 
 
 if __name__ == "__main__":

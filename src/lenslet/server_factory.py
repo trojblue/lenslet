@@ -533,6 +533,10 @@ def create_app(
             workspace = Workspace.for_temp_dataset(root_path)
         else:
             workspace = Workspace.for_dataset(root_path, can_write=True)
+    try:
+        workspace.ensure()
+    except Exception as exc:
+        raise RuntimeError(f"failed to initialize workspace: {exc}") from exc
     set_mutation_policy(app, _mutation_policy_for_workspace(workspace))
 
     # Create storage (prefer table dataset if present)
@@ -582,11 +586,6 @@ def create_app(
         else:
             storage_mode = "table"
             storage_origin = "preindex"
-
-    try:
-        workspace.ensure()
-    except Exception as exc:
-        raise RuntimeError(f"failed to initialize workspace: {exc}") from exc
 
     runtime = _initialize_runtime(
         app,

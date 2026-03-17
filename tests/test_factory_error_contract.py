@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from lenslet import preindex
 from lenslet import server_factory
 from lenslet.preindex import PreindexResult
 from lenslet.server import create_app, create_app_from_datasets
@@ -41,6 +42,19 @@ def test_create_app_raises_when_workspace_init_fails(monkeypatch, tmp_path: Path
 
     with pytest.raises(RuntimeError, match="failed to initialize workspace: disk full"):
         create_app(str(tmp_path))
+
+
+def test_preindex_does_not_downgrade_writable_workspace_failures(monkeypatch, tmp_path: Path) -> None:
+    _make_image(tmp_path / "sample.jpg")
+    workspace = Workspace.for_dataset(str(tmp_path), can_write=True)
+
+    def _raise(self) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Workspace, "ensure", _raise)
+
+    with pytest.raises(OSError, match="disk full"):
+        preindex.ensure_local_preindex(tmp_path, workspace)
 
 
 def test_create_app_raises_when_preindex_build_fails(monkeypatch, tmp_path: Path) -> None:

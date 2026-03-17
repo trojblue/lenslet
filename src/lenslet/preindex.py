@@ -333,11 +333,8 @@ def _preindex_payload_exists(paths: PreindexPaths, meta: dict) -> bool:
 
 def _resolve_preindex_workspace(root: Path, workspace: Workspace, signature: str) -> Workspace:
     if workspace.can_write:
-        try:
-            workspace.ensure()
-            return workspace
-        except Exception:
-            workspace.can_write = False
+        workspace.ensure()
+        return workspace
 
     temp_root = Workspace.TEMP_ROOT / signature
     temp_workspace = Workspace(root=temp_root, can_write=True, is_temp=True)

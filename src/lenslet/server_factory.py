@@ -405,13 +405,10 @@ def _register_static_refresh_route(app: FastAPI, note: str) -> None:
         return {"ok": True, "note": note}
 
 
-def _warn_dataset_embedding_search_unavailable(embedding_parquet_path: str | None) -> None:
+def _validate_dataset_embedding_options(embedding_parquet_path: str | None) -> None:
     if not embedding_parquet_path:
         return
-    print(
-        "[lenslet] Warning: embedding search is unavailable in dataset mode; "
-        "ignoring embedding_parquet_path",
-    )
+    raise ValueError("embedding search is unavailable in dataset mode")
 
 
 def _storage_indexing_progress(storage: BrowseStorage) -> tuple[int | None, int | None]:
@@ -611,13 +608,7 @@ def create_app(
             storage_mode = "table"
             storage_origin = "parquet"
         except Exception as exc:
-            print(f"[lenslet] Warning: Failed to load table dataset: {exc}")
-            storage = MemoryStorage(
-                root=root_path,
-                thumb_size=options.thumb_size,
-                thumb_quality=options.thumb_quality,
-            )
-            storage_mode = "memory"
+            raise RuntimeError(f"failed to initialize table dataset '{items_path}': {exc}") from exc
     else:
         storage, workspace, preindex_signature = _ensure_preindex_storage(
             root_path,
@@ -642,9 +633,7 @@ def create_app(
     try:
         workspace.ensure()
     except Exception as exc:
-        print(f"[lenslet] Warning: failed to initialize workspace: {exc}")
-        workspace.can_write = False
-        set_mutation_policy(app, _mutation_policy_for_workspace(workspace))
+        raise RuntimeError(f"failed to initialize workspace: {exc}") from exc
 
     runtime = _initialize_runtime(
         app,
@@ -838,7 +827,7 @@ def create_app_from_datasets(
     indexing = IndexingLifecycle.ready(scope="/")
     if options.indexing_listener is not None:
         indexing.subscribe(options.indexing_listener, emit_current=True)
-    _warn_dataset_embedding_search_unavailable(embedding_parquet_path)
+    _validate_dataset_embedding_options(embedding_parquet_path)
     embedding_manager: EmbeddingManager | None = None
 
     def _to_item(storage: DatasetStorage, cached):

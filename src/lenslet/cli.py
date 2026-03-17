@@ -749,70 +749,74 @@ def _main_browse(argv: list[str] | None = None) -> None:
         cache_dir=args.embedding_cache_dir,
         preload=args.embedding_preload,
     )
-    if is_remote_table:
-        try:
-            table = _load_remote_table(remote_uri or raw_target)
-        except Exception as exc:
-            print(f"Error: failed to load remote table '{remote_uri or raw_target}': {exc}", file=sys.stderr)
-            sys.exit(1)
-        workspace = Workspace.for_dataset(None, can_write=False)
-        app = create_app_from_table(
-            table=table,
-            base_dir=args.base_dir,
-            source_column=args.source_column,
-            skip_indexing=args.skip_indexing,
-            allow_local=False,
-            og_preview=args.og_preview,
-            workspace=workspace,
-            options=browse_options,
-            embedding=embedding_options,
-        )
-    elif is_table_file:
-        storage = _prepare_table_cache(
-            parquet_path=target,
-            base_dir=args.base_dir,
-            source_column=args.source_column,
-            cache_wh=args.cache_wh,
-            skip_indexing=args.skip_indexing,
-            embedding_config=embedding_config,
-            auto_detect_root=True,
-        )
-        if args.no_write:
-            workspace = Workspace.for_temp_dataset(str(target))
-        else:
-            workspace = Workspace.for_parquet(target, can_write=True)
-        app = create_app_from_storage(
-            storage,
-            show_source=True,
-            workspace=workspace,
-            og_preview=args.og_preview,
-            embedding_parquet_path=str(target),
-            options=browse_options,
-            embedding=embedding_options,
-        )
-    else:
-        items_path = target / "items.parquet"
-        if items_path.is_file() and args.cache_wh:
-            _prepare_table_cache(
-                parquet_path=items_path,
-                base_dir=str(target),
+    try:
+        if is_remote_table:
+            try:
+                table = _load_remote_table(remote_uri or raw_target)
+            except Exception as exc:
+                print(f"Error: failed to load remote table '{remote_uri or raw_target}': {exc}", file=sys.stderr)
+                sys.exit(1)
+            workspace = Workspace.for_dataset(None, can_write=False)
+            app = create_app_from_table(
+                table=table,
+                base_dir=args.base_dir,
+                source_column=args.source_column,
+                skip_indexing=args.skip_indexing,
+                allow_local=False,
+                og_preview=args.og_preview,
+                workspace=workspace,
+                options=browse_options,
+                embedding=embedding_options,
+            )
+        elif is_table_file:
+            storage = _prepare_table_cache(
+                parquet_path=target,
+                base_dir=args.base_dir,
                 source_column=args.source_column,
                 cache_wh=args.cache_wh,
                 skip_indexing=args.skip_indexing,
-                quiet=True,
                 embedding_config=embedding_config,
+                auto_detect_root=True,
             )
-        app = create_app(
-            root_path=str(target),
-            no_write=args.no_write,
-            source_column=args.source_column,
-            skip_indexing=args.skip_indexing,
-            og_preview=args.og_preview,
-            workspace=dataset_workspace,
-            preindex_signature=preindex_signature,
-            options=browse_options,
-            embedding=embedding_options,
-        )
+            if args.no_write:
+                workspace = Workspace.for_temp_dataset(str(target))
+            else:
+                workspace = Workspace.for_parquet(target, can_write=True)
+            app = create_app_from_storage(
+                storage,
+                show_source=True,
+                workspace=workspace,
+                og_preview=args.og_preview,
+                embedding_parquet_path=str(target),
+                options=browse_options,
+                embedding=embedding_options,
+            )
+        else:
+            items_path = target / "items.parquet"
+            if items_path.is_file() and args.cache_wh:
+                _prepare_table_cache(
+                    parquet_path=items_path,
+                    base_dir=str(target),
+                    source_column=args.source_column,
+                    cache_wh=args.cache_wh,
+                    skip_indexing=args.skip_indexing,
+                    quiet=True,
+                    embedding_config=embedding_config,
+                )
+            app = create_app(
+                root_path=str(target),
+                no_write=args.no_write,
+                source_column=args.source_column,
+                skip_indexing=args.skip_indexing,
+                og_preview=args.og_preview,
+                workspace=dataset_workspace,
+                preindex_signature=preindex_signature,
+                options=browse_options,
+                embedding=embedding_options,
+            )
+    except Exception as exc:
+        print(f"Error: failed to initialize browse mode: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     share_tunnel = None
     try:

@@ -8,8 +8,8 @@ function createActions() {
     clearStarsNotIn: vi.fn(),
     clearNameContains: vi.fn(),
     clearNameNotContains: vi.fn(),
-    clearCommentsContains: vi.fn(),
-    clearCommentsNotContains: vi.fn(),
+    clearNotesContains: vi.fn(),
+    clearNotesNotContains: vi.fn(),
     clearUrlContains: vi.fn(),
     clearUrlNotContains: vi.fn(),
     clearDateRange: vi.fn(),
@@ -27,8 +27,8 @@ describe('filterChips', () => {
         { starsNotIn: { values: [4, 0] } },
         { nameContains: { value: '  cat  ' } },
         { nameNotContains: { value: 'dog' } },
-        { commentsContains: { value: 'bright' } },
-        { commentsNotContains: { value: 'blur' } },
+        { notesContains: { value: 'bright' } },
+        { notesNotContains: { value: 'blur' } },
         { urlContains: { value: 'cdn' } },
         { urlNotContains: { value: 'tmp' } },
         { dateRange: { from: '2025-01-01', to: '2025-01-31' } },
@@ -46,8 +46,8 @@ describe('filterChips', () => {
       { id: 'stars-not-in', label: 'Rating not in: 4, None' },
       { id: 'name-contains', label: 'Filename contains: cat' },
       { id: 'name-not-contains', label: 'Filename not: dog' },
-      { id: 'comments-contains', label: 'Comments contain: bright' },
-      { id: 'comments-not-contains', label: 'Comments not: blur' },
+      { id: 'notes-contains', label: 'Notes contain: bright' },
+      { id: 'notes-not-contains', label: 'Notes not: blur' },
       { id: 'url-contains', label: 'URL contains: cdn' },
       { id: 'url-not-contains', label: 'URL not: tmp' },
       { id: 'date-range', label: 'Date: 2025-01-01 to 2025-01-31' },
@@ -62,8 +62,8 @@ describe('filterChips', () => {
     expect(actions.clearStarsNotIn).toHaveBeenCalledTimes(1)
     expect(actions.clearNameContains).toHaveBeenCalledTimes(1)
     expect(actions.clearNameNotContains).toHaveBeenCalledTimes(1)
-    expect(actions.clearCommentsContains).toHaveBeenCalledTimes(1)
-    expect(actions.clearCommentsNotContains).toHaveBeenCalledTimes(1)
+    expect(actions.clearNotesContains).toHaveBeenCalledTimes(1)
+    expect(actions.clearNotesNotContains).toHaveBeenCalledTimes(1)
     expect(actions.clearUrlContains).toHaveBeenCalledTimes(1)
     expect(actions.clearUrlNotContains).toHaveBeenCalledTimes(1)
     expect(actions.clearDateRange).toHaveBeenCalledTimes(1)
@@ -80,8 +80,8 @@ describe('filterChips', () => {
         { starsNotIn: { values: [] } },
         { nameContains: { value: '   ' } },
         { nameNotContains: { value: '' } },
-        { commentsContains: { value: ' ' } },
-        { commentsNotContains: { value: '' } },
+        { notesContains: { value: ' ' } },
+        { notesNotContains: { value: '' } },
         { urlContains: { value: '' } },
         { urlNotContains: { value: '   ' } },
         { dateRange: {} },

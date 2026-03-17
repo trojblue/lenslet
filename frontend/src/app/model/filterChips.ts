@@ -12,8 +12,8 @@ export type FilterChipActions = {
   clearStarsNotIn: () => void
   clearNameContains: () => void
   clearNameNotContains: () => void
-  clearCommentsContains: () => void
-  clearCommentsNotContains: () => void
+  clearNotesContains: () => void
+  clearNotesNotContains: () => void
   clearUrlContains: () => void
   clearUrlNotContains: () => void
   clearDateRange: () => void
@@ -32,8 +32,8 @@ type FilterClauseKey =
   | 'starsNotIn'
   | 'nameContains'
   | 'nameNotContains'
-  | 'commentsContains'
-  | 'commentsNotContains'
+  | 'notesContains'
+  | 'notesNotContains'
   | 'urlContains'
   | 'urlNotContains'
   | 'dateRange'
@@ -93,27 +93,27 @@ const FILTER_CHIP_REGISTRY: { [K in FilterClauseKey]: FilterChipRegistryEntry<K>
     },
     clear: (_clause, actions) => actions.clearNameNotContains(),
   },
-  commentsContains: {
+  notesContains: {
     read: (clause) => {
-      const value = clause.commentsContains.value?.trim()
+      const value = clause.notesContains.value?.trim()
       if (!value) return null
       return {
-        id: 'comments-contains',
-        label: `Comments contain: ${value}`,
+        id: 'notes-contains',
+        label: `Notes contain: ${value}`,
       }
     },
-    clear: (_clause, actions) => actions.clearCommentsContains(),
+    clear: (_clause, actions) => actions.clearNotesContains(),
   },
-  commentsNotContains: {
+  notesNotContains: {
     read: (clause) => {
-      const value = clause.commentsNotContains.value?.trim()
+      const value = clause.notesNotContains.value?.trim()
       if (!value) return null
       return {
-        id: 'comments-not-contains',
-        label: `Comments not: ${value}`,
+        id: 'notes-not-contains',
+        label: `Notes not: ${value}`,
       }
     },
-    clear: (_clause, actions) => actions.clearCommentsNotContains(),
+    clear: (_clause, actions) => actions.clearNotesNotContains(),
   },
   urlContains: {
     read: (clause) => {
@@ -179,8 +179,8 @@ function visitFilterClause(
   if ('starsNotIn' in clause) return visit('starsNotIn', clause)
   if ('nameContains' in clause) return visit('nameContains', clause)
   if ('nameNotContains' in clause) return visit('nameNotContains', clause)
-  if ('commentsContains' in clause) return visit('commentsContains', clause)
-  if ('commentsNotContains' in clause) return visit('commentsNotContains', clause)
+  if ('notesContains' in clause) return visit('notesContains', clause)
+  if ('notesNotContains' in clause) return visit('notesNotContains', clause)
   if ('urlContains' in clause) return visit('urlContains', clause)
   if ('urlNotContains' in clause) return visit('urlNotContains', clause)
   if ('dateRange' in clause) return visit('dateRange', clause)

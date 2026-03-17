@@ -7,9 +7,9 @@ import { InspectorSection } from './InspectorSection'
 interface BasicsInspectorItem {
   path: string
   size: number
-  w: number
-  h: number
-  type: string
+  width: number
+  height: number
+  mime: string
   source?: string | null
   star?: number | null
   metrics?: Record<string, number | null> | null
@@ -174,11 +174,11 @@ export function BasicsSection({
           <div className="ui-kv-row justify-start">
             <span
               className="ui-kv-label ui-kv-label-action w-24 shrink-0"
-              onClick={() => onCopyInfo('dimensions', `${currentItem.w}×${currentItem.h}`)}
+              onClick={() => onCopyInfo('dimensions', `${currentItem.width}×${currentItem.height}`)}
             >
               Dimensions
             </span>
-            <CopyableInfoValue copied={copiedField === 'dimensions'} value={`${currentItem.w}×${currentItem.h}`} />
+            <CopyableInfoValue copied={copiedField === 'dimensions'} value={`${currentItem.width}×${currentItem.height}`} />
           </div>
           <div className="ui-kv-row justify-start">
             <span
@@ -192,11 +192,11 @@ export function BasicsSection({
           <div className="ui-kv-row justify-start">
             <span
               className="ui-kv-label ui-kv-label-action w-24 shrink-0"
-              onClick={() => onCopyInfo('type', currentItem.type)}
+              onClick={() => onCopyInfo('type', currentItem.mime)}
             >
               Type
             </span>
-            <CopyableInfoValue copied={copiedField === 'type'} value={currentItem.type} className="break-all" />
+            <CopyableInfoValue copied={copiedField === 'type'} value={currentItem.mime} className="break-all" />
           </div>
           <div className="ui-kv-row justify-start">
             <span

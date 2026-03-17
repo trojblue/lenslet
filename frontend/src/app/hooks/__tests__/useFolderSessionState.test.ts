@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { FolderIndex, Item } from '../../../lib/types'
+import type { BrowseFolderPayload, BrowseItemPayload } from '../../../lib/types'
 import {
   extractTopAnchorPath,
   invalidateFolderSession,
@@ -11,27 +11,27 @@ import {
   type FolderSessionState,
 } from '../useFolderSessionState'
 
-function makeItem(path: string): Item {
+function makeItem(path: string): BrowseItemPayload {
   const name = path.split('/').pop() ?? path
   return {
     path,
     name,
-    type: 'image/jpeg',
-    w: 1,
-    h: 1,
+    mime: 'image/jpeg',
+    width: 1,
+    height: 1,
     size: 1,
-    hasThumb: true,
-    hasMeta: true,
+    hasThumbnail: true,
+    hasMetadata: true,
   }
 }
 
-function makeFolder(path: string, itemPaths: string[], generatedAt = '2026-02-12T00:00:00Z'): FolderIndex {
+function makeFolder(path: string, itemPaths: string[], generatedAt = '2026-02-12T00:00:00Z'): BrowseFolderPayload {
   return {
-    v: 1,
+    version: 1,
     path,
     generatedAt,
     metricKeys: [],
-    dirs: [],
+    folders: [],
     items: itemPaths.map((itemPath) => makeItem(itemPath)),
     totalItems: itemPaths.length,
   }

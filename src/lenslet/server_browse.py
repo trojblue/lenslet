@@ -14,14 +14,21 @@ from fastapi import FastAPI, HTTPException, Request
 from .browse_cache import RecursiveBrowseCache, RecursiveCachedItemSnapshot
 from .metadata import read_jpeg_info, read_png_info, read_webp_info
 from .server_context import get_request_context
-from .server_models import DirEntry, FolderIndex, ImageMetadataResponse, Item, SearchResult, Sidecar
+from .server_models import (
+    BrowseFolderEntryPayload,
+    BrowseFolderPayload,
+    BrowseItemPayload,
+    BrowseSearchResultsPayload,
+    ImageMetadataResponse,
+    Sidecar,
+)
 from .server_sync import _canonical_path, _sidecar_from_meta
 from .storage.base import BrowseItem, BrowseStorage
 from .workspace import Workspace
 
 
 BrowseItemRecord = BrowseItem | RecursiveCachedItemSnapshot
-ToItemFn = Callable[[BrowseStorage, BrowseItemRecord], Item]
+ToItemFn = Callable[[BrowseStorage, BrowseItemRecord], BrowseItemPayload]
 
 
 def _storage_from_request(request: Request) -> BrowseStorage:
@@ -78,7 +85,7 @@ def _build_item(
     cached: BrowseItemRecord,
     meta: dict[str, Any],
     source: str | None = None,
-) -> Item:
+) -> BrowseItemPayload:
     if source is None:
         source = getattr(cached, "source", None)
     canonical = _canonical_path(cached.path)
@@ -89,18 +96,18 @@ def _build_item(
     mtime = float(getattr(cached, "mtime", 0) or 0)
     if mtime > 0:
         added_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
-    return Item(
+    return BrowseItemPayload(
         path=canonical,
         name=cached.name,
-        type=cached.mime,
-        w=cached.width,
-        h=cached.height,
+        mime=cached.mime,
+        width=cached.width,
+        height=cached.height,
         size=cached.size,
-        hasThumb=True,
-        hasMeta=True,
+        hasThumbnail=True,
+        hasMetadata=True,
         addedAt=added_at,
         star=meta.get("star"),
-        comments=meta.get("notes", ""),
+        notes=meta.get("notes", ""),
         url=getattr(cached, "url", None),
         source=source,
         metrics=metrics,
@@ -457,7 +464,7 @@ def _build_folder_index(
     count_only: bool = False,
     browse_cache: RecursiveBrowseCache | None = None,
     hotpath_metrics: HotpathTelemetry | None = None,
-) -> FolderIndex:
+) -> BrowseFolderPayload:
     canonical_path = _canonical_path(path)
     try:
         if recursive:
@@ -515,7 +522,7 @@ def _build_folder_index(
             items = [to_item(storage, it) for it in index.items]
             total_items = None
 
-    dirs = [DirEntry(name=d, kind="branch") for d in sorted(index.dirs)]
+    folders = [BrowseFolderEntryPayload(name=d, kind="branch") for d in sorted(index.dirs)]
     metric_keys = _metric_keys_for_folder(
         storage,
         canonical_path,
@@ -524,11 +531,11 @@ def _build_folder_index(
         snapshots=snapshots,
     )
 
-    return FolderIndex(
+    return BrowseFolderPayload(
         path=canonical_path,
         generatedAt=index.generated_at,
         items=items,
-        dirs=dirs,
+        folders=folders,
         metricKeys=metric_keys,
         page=None,
         pageSize=None,
@@ -537,6 +544,12 @@ def _build_folder_index(
     )
 
 
-def _search_results(storage, to_item, q: str, path: str, limit: int) -> SearchResult:
+def _search_results(
+    storage,
+    to_item,
+    q: str,
+    path: str,
+    limit: int,
+) -> BrowseSearchResultsPayload:
     hits = storage.search(query=q, path=path, limit=limit)
-    return SearchResult(items=[to_item(storage, it) for it in hits])
+    return BrowseSearchResultsPayload(items=[to_item(storage, it) for it in hits])

@@ -30,11 +30,11 @@ from .server_browse import (
 from .server_context import get_request_context
 from .server_media import _file_response, _thumb_response_async
 from .server_models import (
+    BrowseFolderPathsPayload,
+    BrowseFolderPayload,
+    BrowseSearchResultsPayload,
     ExportComparisonRequest,
-    FolderIndex,
-    FolderPathsResponse,
     ImageMetadataResponse,
-    SearchResult,
     Sidecar,
     SidecarPatch,
 )
@@ -595,7 +595,7 @@ def register_folder_route(
     app: FastAPI,
     to_item: ToItemFn,
 ) -> None:
-    @app.get("/folders", response_model=FolderIndex)
+    @app.get("/folders", response_model=BrowseFolderPayload)
     def get_folder(
         request: Request,
         path: str = "/",
@@ -660,10 +660,10 @@ def register_common_api_routes(
         _ensure_image(storage, canonical_path)
         return storage, canonical_path
 
-    @app.get("/folders/paths", response_model=FolderPathsResponse)
+    @app.get("/folders/paths", response_model=BrowseFolderPathsPayload)
     def get_folder_paths(request: Request):
         storage = _storage_from_request(request)
-        return FolderPathsResponse(paths=_collect_folder_paths(storage))
+        return BrowseFolderPathsPayload(paths=_collect_folder_paths(storage))
 
     @app.get("/item")
     def get_item(path: str, request: Request):
@@ -888,7 +888,7 @@ def register_common_api_routes(
         runtime = get_request_context(request).runtime
         return _file_response(storage, path, request=request, hotpath_metrics=runtime.hotpath_metrics)
 
-    @app.get("/search", response_model=SearchResult)
+    @app.get("/search", response_model=BrowseSearchResultsPayload)
     def search(request: Request, q: str = "", path: str = "/", limit: int = 100):
         storage = _storage_from_request(request)
         return _search_results(storage, to_item, q, _canonical_path(path), limit)

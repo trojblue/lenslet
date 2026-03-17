@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import type { Item, ViewMode } from '../../../lib/types'
+import type { BrowseItemPayload, ViewMode } from '../../../lib/types'
 import ThumbCard from './ThumbCard'
 import { api } from '../../../api/client'
 import { getBrowseHotpathSnapshot, markFirstGridItemVisible } from '../../../lib/browseHotpath'
@@ -63,7 +63,7 @@ function renderHighlightedName(name: string, highlight?: string): React.ReactNod
 }
 
 interface VirtualGridProps {
-  items: Item[]
+  items: BrowseItemPayload[]
   selected: string[]
   restoreToSelectionToken?: number
   restoreToTopAnchorToken?: number
@@ -633,7 +633,7 @@ export default function VirtualGrid({
     >
       <div key={`${viewMode}-${effectiveColumns}`} className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
         {virtualRows.map(row => {
-          let rowItems: { item: Item, displayW: number, displayH: number }[] = []
+          let rowItems: { item: BrowseItemPayload, displayW: number, displayH: number }[] = []
           let rowStyle: React.CSSProperties = {}
           let rowClass = ""
 
@@ -782,7 +782,7 @@ export default function VirtualGrid({
                     <div className="text-xs font-medium leading-[16px] thumb-filename line-clamp-2 break-words hyphens-auto text-center" title={it.name}>
                       {renderHighlightedName(it.name, highlight)}
                     </div>
-                    <div className="text-[10px] leading-[14px] text-muted">{it.w} × {it.h}</div>
+                    <div className="text-[10px] leading-[14px] text-muted">{it.width} × {it.height}</div>
                   </div>
                 </div>
               )})}

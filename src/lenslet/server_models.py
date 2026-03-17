@@ -8,35 +8,35 @@ Mime = Literal["image/webp", "image/jpeg", "image/png"]
 ExportComparisonOutputFormat = Literal["png", "gif"]
 
 
-class Item(BaseModel):
+class BrowseItemPayload(BaseModel):
     path: str
     name: str
-    type: Mime
-    w: int
-    h: int
+    mime: Mime
+    width: int
+    height: int
     size: int
-    hasThumb: bool = True  # Always true in memory mode
-    hasMeta: bool = True   # Always true in memory mode
+    hasThumbnail: bool = True  # Always true in memory mode
+    hasMetadata: bool = True   # Always true in memory mode
     hash: str | None = None
     addedAt: str | None = None
     star: int | None = None
-    comments: str | None = None
+    notes: str | None = None
     url: str | None = None
     source: str | None = None
     metrics: dict[str, float] | None = None
 
 
-class DirEntry(BaseModel):
+class BrowseFolderEntryPayload(BaseModel):
     name: str
     kind: Literal["branch", "leaf-real", "leaf-pointer"] = "branch"
 
 
-class FolderIndex(BaseModel):
-    v: int = 1
+class BrowseFolderPayload(BaseModel):
+    version: int = 1
     path: str
     generatedAt: str
-    items: list[Item] = Field(default_factory=list)
-    dirs: list[DirEntry] = Field(default_factory=list)
+    items: list[BrowseItemPayload] = Field(default_factory=list)
+    folders: list[BrowseFolderEntryPayload] = Field(default_factory=list)
     metricKeys: list[str] = Field(default_factory=list)
     page: int | None = None
     pageSize: int | None = None
@@ -44,7 +44,7 @@ class FolderIndex(BaseModel):
     totalItems: int | None = None
 
 
-class FolderPathsResponse(BaseModel):
+class BrowseFolderPathsPayload(BaseModel):
     paths: list[str] = Field(default_factory=list)
 
 
@@ -87,8 +87,8 @@ class PresenceLeavePayload(BaseModel):
     lease_id: str
 
 
-class SearchResult(BaseModel):
-    items: list[Item]
+class BrowseSearchResultsPayload(BaseModel):
+    items: list[BrowseItemPayload]
 
 
 class ImageMetadataResponse(BaseModel):

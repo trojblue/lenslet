@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
-import type { CompareOrderMode, Item } from '../../lib/types'
+import type { CompareOrderMode, BrowseItemPayload } from '../../lib/types'
 import { replaceHash, writeHash } from '../routing/hash'
 
 type UseAppSelectionViewerCompareParams = {
   current: string
   itemPaths: string[]
-  items: Item[]
-  selectionPool: Item[]
+  items: BrowseItemPayload[]
+  selectionPool: BrowseItemPayload[]
   compareOrderMode: CompareOrderMode
   focusGridCell: (path: string | null | undefined) => void
 }
@@ -19,12 +19,12 @@ type UseAppSelectionViewerCompareResult = {
   compareOpen: boolean
   restoreGridToSelectionToken: number
   bumpRestoreGridToSelectionToken: () => void
-  selectedItems: Item[]
-  compareItems: Item[]
+  selectedItems: BrowseItemPayload[]
+  compareItems: BrowseItemPayload[]
   comparePaths: string[]
   compareIndexClamped: number
-  compareA: Item | null
-  compareB: Item | null
+  compareA: BrowseItemPayload | null
+  compareB: BrowseItemPayload | null
   canComparePrev: boolean
   canCompareNext: boolean
   compareEnabled: boolean
@@ -67,21 +67,21 @@ export function resolveOverlayPopstateResult(
 
 export function resolveSelectionOrderedItems(
   selectedPaths: readonly string[],
-  selectionPool: readonly Item[],
-  items: readonly Item[],
-): Item[] {
+  selectionPool: readonly BrowseItemPayload[],
+  items: readonly BrowseItemPayload[],
+): BrowseItemPayload[] {
   if (!selectedPaths.length) return []
   const poolByPath = new Map(selectionPool.map((it) => [it.path, it]))
   const itemsByPath = new Map(items.map((it) => [it.path, it]))
   return selectedPaths
     .map((path) => poolByPath.get(path) ?? itemsByPath.get(path))
-    .filter((it): it is Item => !!it)
+    .filter((it): it is BrowseItemPayload => !!it)
 }
 
 export function resolveGalleryOrderedItems(
   selectedPaths: readonly string[],
-  items: readonly Item[],
-): Item[] {
+  items: readonly BrowseItemPayload[],
+): BrowseItemPayload[] {
   if (!selectedPaths.length) return []
   const selectedSet = new Set(selectedPaths)
   return items.filter((item) => selectedSet.has(item.path))
@@ -89,10 +89,10 @@ export function resolveGalleryOrderedItems(
 
 export function resolveCompareOrderedItems(
   selectedPaths: readonly string[],
-  selectionPool: readonly Item[],
-  items: readonly Item[],
+  selectionPool: readonly BrowseItemPayload[],
+  items: readonly BrowseItemPayload[],
   compareOrderMode: CompareOrderMode,
-): Item[] {
+): BrowseItemPayload[] {
   if (compareOrderMode === 'selection') {
     return resolveSelectionOrderedItems(selectedPaths, selectionPool, items)
   }

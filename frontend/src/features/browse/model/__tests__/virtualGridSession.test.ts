@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Item } from '../../../../lib/types'
+import type { BrowseItemPayload } from '../../../../lib/types'
 import {
   collectVisiblePaths,
   getRestoreScrollTopForPath,
@@ -9,21 +9,21 @@ import {
   type VirtualGridLayoutLike,
 } from '../virtualGridSession'
 
-function makeItem(path: string): Item {
+function makeItem(path: string): BrowseItemPayload {
   const name = path.split('/').pop() ?? path
   return {
     path,
     name,
-    type: 'image/jpeg',
-    w: 1,
-    h: 1,
+    mime: 'image/jpeg',
+    width: 1,
+    height: 1,
     size: 1,
-    hasThumb: true,
-    hasMeta: true,
+    hasThumbnail: true,
+    hasMetadata: true,
   }
 }
 
-function makePathToIndex(items: Item[]): Map<string, number> {
+function makePathToIndex(items: BrowseItemPayload[]): Map<string, number> {
   const map = new Map<string, number>()
   items.forEach((item, index) => {
     map.set(item.path, index)

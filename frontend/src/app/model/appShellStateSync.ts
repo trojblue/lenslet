@@ -2,9 +2,9 @@ import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import type {
   CompareOrderMode,
   FilterAST,
-  FolderIndex,
-  Item,
-  SearchResult,
+  BrowseFolderPayload,
+  BrowseItemPayload,
+  BrowseSearchResultsPayload,
   SortSpec,
   StarRating,
   ViewMode,
@@ -22,7 +22,7 @@ export type ItemCacheUpdatePayload = {
   path: string
   star?: StarRating | null
   metrics?: Record<string, number | null> | null
-  comments?: string | null
+  notes?: string | null
 }
 
 export type PersistedAppShellSettings = {
@@ -43,6 +43,9 @@ export type DeferredWriteScheduler<T> = {
   flush: () => void
   cancel: () => void
 }
+
+type TimeoutHandle = ReturnType<typeof globalThis.setTimeout>
+type IdleCommitHandle = number | TimeoutHandle
 
 function isIndexedQueryKey(queryKey: QueryKey): boolean {
   return Array.isArray(queryKey) && (queryKey[0] === 'folder' || queryKey[0] === 'search')
@@ -66,12 +69,12 @@ function queryId(query: QueryLike): string {
   return query.queryHash ?? JSON.stringify(query.queryKey)
 }
 
-function updateIndexedItem(item: Item, payload: ItemCacheUpdatePayload): Item {
+function updateIndexedItem(item: BrowseItemPayload, payload: ItemCacheUpdatePayload): BrowseItemPayload {
   if (item.path !== payload.path) return item
 
   const hasStar = Object.prototype.hasOwnProperty.call(payload, 'star')
   const hasMetrics = payload.metrics !== undefined
-  const hasComments = payload.comments !== undefined
+  const hasNotes = payload.notes !== undefined
   let next = item
 
   if (hasStar && item.star !== payload.star) {
@@ -80,13 +83,13 @@ function updateIndexedItem(item: Item, payload: ItemCacheUpdatePayload): Item {
   if (hasMetrics) {
     next = { ...next, metrics: payload.metrics ?? undefined }
   }
-  if (hasComments && item.comments !== payload.comments) {
-    next = { ...next, comments: payload.comments ?? '' }
+  if (hasNotes && item.notes !== payload.notes) {
+    next = { ...next, notes: payload.notes ?? '' }
   }
   return next
 }
 
-export function patchItemCollection<T extends { items: Item[] }>(
+export function patchItemCollection<T extends { items: BrowseItemPayload[] }>(
   oldData: T | undefined,
   payload: ItemCacheUpdatePayload,
 ): T | undefined {
@@ -195,19 +198,19 @@ export function patchIndexedItemQueries(
 ): void {
   const hasStar = Object.prototype.hasOwnProperty.call(payload, 'star')
   const hasMetrics = payload.metrics !== undefined
-  const hasComments = payload.comments !== undefined
-  if (!hasStar && !hasMetrics && !hasComments) return
+  const hasNotes = payload.notes !== undefined
+  if (!hasStar && !hasMetrics && !hasNotes) return
 
   for (const queryKey of index.getQueryKeys(payload.path)) {
     if (!queryClient.getQueryState(queryKey)) continue
-    queryClient.setQueryData<FolderIndex | SearchResult | undefined>(
+    queryClient.setQueryData<BrowseFolderPayload | BrowseSearchResultsPayload | undefined>(
       queryKey,
       (oldData) => patchItemCollection(oldData, payload),
     )
   }
 }
 
-function scheduleIdleCommit(callback: () => void): number {
+function scheduleIdleCommit(callback: () => void): IdleCommitHandle {
   const requestIdle = (globalThis as {
     requestIdleCallback?: (cb: () => void) => number
   }).requestIdleCallback
@@ -217,23 +220,23 @@ function scheduleIdleCommit(callback: () => void): number {
   return globalThis.setTimeout(callback, 0)
 }
 
-function cancelIdleCommit(handle: number): void {
+function cancelIdleCommit(handle: IdleCommitHandle): void {
   const cancelIdle = (globalThis as {
     cancelIdleCallback?: (id: number) => void
   }).cancelIdleCallback
-  if (typeof cancelIdle === 'function') {
+  if (typeof cancelIdle === 'function' && typeof handle === 'number') {
     cancelIdle(handle)
     return
   }
-  globalThis.clearTimeout(handle)
+  globalThis.clearTimeout(handle as TimeoutHandle)
 }
 
 export function createDeferredWriteScheduler<T>(
   write: (snapshot: T) => void,
   delayMs = 200,
 ): DeferredWriteScheduler<T> {
-  let timeoutId: number | null = null
-  let idleId: number | null = null
+  let timeoutId: TimeoutHandle | null = null
+  let idleId: IdleCommitHandle | null = null
   let pending: T | null = null
 
   const clearScheduled = () => {

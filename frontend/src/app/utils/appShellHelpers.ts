@@ -1,4 +1,4 @@
-import type { Item, SavedView, StarRating } from '../../lib/types'
+import type { BrowseItemPayload, SavedView, StarRating } from '../../lib/types'
 
 export function makeUniqueViewId(name: string, views: SavedView[]): string {
   const base = slugify(name) || 'view'
@@ -70,24 +70,24 @@ function formatNumber(value: number): string {
   return value.toFixed(3)
 }
 
-function guessMimeFromPath(path: string): Item['type'] {
+function guessMimeFromPath(path: string): BrowseItemPayload['mime'] {
   const lower = path.toLowerCase()
   if (lower.endsWith('.png')) return 'image/png'
   if (lower.endsWith('.webp')) return 'image/webp'
   return 'image/jpeg'
 }
 
-export function buildFallbackItem(path: string, starOverride?: StarRating): Item {
+export function buildFallbackItem(path: string, starOverride?: StarRating): BrowseItemPayload {
   const name = path.split('/').pop() ?? path
   return {
     path,
     name,
-    type: guessMimeFromPath(path),
-    w: 0,
-    h: 0,
+    mime: guessMimeFromPath(path),
+    width: 0,
+    height: 0,
     size: 0,
-    hasThumb: true,
-    hasMeta: false,
+    hasThumbnail: true,
+    hasMetadata: false,
     star: starOverride ?? null,
   }
 }

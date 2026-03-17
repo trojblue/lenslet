@@ -1,4 +1,4 @@
-import type { Item } from '../../../lib/types'
+import type { BrowseItemPayload } from '../../../lib/types'
 
 export type RatingRecord = {
   path: string
@@ -42,7 +42,7 @@ export function toRatingsCsv(items: RatingRecord[]): string {
 }
 
 // Helper to map displayed items (without sidecars) into rating records quickly
-export function mapItemsToRatings(items: Item[]): RatingRecord[] {
+export function mapItemsToRatings(items: BrowseItemPayload[]): RatingRecord[] {
   return items.map(it => {
     const parts = it.path.split('/').filter(Boolean)
     parts.pop() // remove filename
@@ -52,10 +52,10 @@ export function mapItemsToRatings(items: Item[]): RatingRecord[] {
       folder,
       name: it.name,
       star: (it as any).star ?? null,
-      type: (it as any).type,
-      size: (it as any).size,
-      width: (it as any).w,
-      height: (it as any).h,
+      type: it.mime,
+      size: it.size,
+      width: (it as any).width,
+      height: (it as any).height,
       // tags/notes are not available without sidecar fetch; keep empty
     }
   })

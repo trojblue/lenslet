@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import type { DragEvent as ReactDragEvent } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { FolderIndex } from '../../../lib/types'
+import type { BrowseFolderPayload } from '../../../lib/types'
 import { api } from '../../../api/client'
 
 interface FolderTreeDragDropOptions {
@@ -73,7 +73,7 @@ export function useFolderTreeDragDrop({ path, isLeaf }: FolderTreeDragDropOption
       }
       qc.invalidateQueries({ queryKey: ['folder', srcDir] })
       qc.invalidateQueries({ queryKey: ['folder', destPath] })
-      qc.setQueryData<FolderIndex | undefined>(['folder', srcDir], (old) => {
+      qc.setQueryData<BrowseFolderPayload | undefined>(['folder', srcDir], (old) => {
         if (!old || !Array.isArray(old.items)) return old
         return { ...old, items: old.items.filter((i) => !filtered.includes(i.path)) }
       })

@@ -1,10 +1,10 @@
-import type { Item } from '../../../lib/types'
+import type { BrowseItemPayload } from '../../../lib/types'
 
 export type MetricValuesByKey = Map<string, number[]>
 
 const EMPTY_VALUES: number[] = []
 
-export function collectMetricValuesByKey(items: Item[], metricKeys?: readonly string[]): MetricValuesByKey {
+export function collectMetricValuesByKey(items: BrowseItemPayload[], metricKeys?: readonly string[]): MetricValuesByKey {
   if (metricKeys?.length) {
     return collectMetricValuesForKeys(items, metricKeys)
   }
@@ -25,7 +25,7 @@ export function collectMetricValuesByKey(items: Item[], metricKeys?: readonly st
   return valuesByKey
 }
 
-function collectMetricValuesForKeys(items: Item[], metricKeys: readonly string[]): MetricValuesByKey {
+function collectMetricValuesForKeys(items: BrowseItemPayload[], metricKeys: readonly string[]): MetricValuesByKey {
   const buckets = metricKeys.map((key) => ({ key, values: [] as number[] }))
 
   for (const it of items) {

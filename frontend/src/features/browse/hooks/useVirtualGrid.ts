@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { flatLayout } from '../model/layouts'
 import { computeAdaptiveRows } from '../model/adaptive'
-import type { Item, ViewMode } from '../../../lib/types'
+import type { BrowseItemPayload, ViewMode } from '../../../lib/types'
 
 type GridOptions = {
   gap: number
@@ -24,7 +24,7 @@ type GridLayout = {
 
 type Layout = AdaptiveLayout | GridLayout
 
-function buildAdaptiveLayout(width: number, items: Item[], opts: GridOptions): AdaptiveLayout {
+function buildAdaptiveLayout(width: number, items: BrowseItemPayload[], opts: GridOptions): AdaptiveLayout {
   const rows = computeAdaptiveRows({
     items,
     containerWidth: width,
@@ -35,7 +35,7 @@ function buildAdaptiveLayout(width: number, items: Item[], opts: GridOptions): A
   return { mode: 'adaptive', rows }
 }
 
-function buildGridLayout(width: number, items: Item[], opts: GridOptions): GridLayout {
+function buildGridLayout(width: number, items: BrowseItemPayload[], opts: GridOptions): GridLayout {
   const { columns, cellW, mediaH, rowH } = flatLayout({
     containerW: width,
     gap: opts.gap,
@@ -49,7 +49,7 @@ function buildGridLayout(width: number, items: Item[], opts: GridOptions): GridL
 
 export function useVirtualGrid(
   containerRef: React.RefObject<HTMLElement | null>,
-  items: Item[],
+  items: BrowseItemPayload[],
   opts: GridOptions
 ) {
   const [width, setWidth] = useState(0)

@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import type { Item } from '../../../../lib/types'
+import type { BrowseItemPayload } from '../../../../lib/types'
 import { getNextIndexForKeyNav } from '../useKeyboardNav'
 
-function makeItems(paths: string[]): Item[] {
+function makeItems(paths: string[]): BrowseItemPayload[] {
   return paths.map((path) => ({
     path,
     name: path.split('/').pop() ?? path,
-    type: 'image/jpeg',
-    w: 1,
-    h: 1,
+    mime: 'image/jpeg',
+    width: 1,
+    height: 1,
     size: 1,
-    hasThumb: true,
-    hasMeta: true,
+    hasThumbnail: true,
+    hasMetadata: true,
   }))
 }
 

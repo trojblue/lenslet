@@ -1,37 +1,37 @@
 import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
-import type { FolderIndex, Item, SearchResult } from '../../lib/types'
+import type { BrowseFolderPayload, BrowseItemPayload, BrowseSearchResultsPayload } from '../../lib/types'
 import {
   ItemQueryPathIndex,
   patchIndexedItemQueries,
 } from '../model/appShellStateSync'
 
-function makeItem(path: string, overrides: Partial<Item> = {}): Item {
+function makeItem(path: string, overrides: Partial<BrowseItemPayload> = {}): BrowseItemPayload {
   return {
     path,
     name: path.split('/').pop() ?? path,
-    type: 'image/jpeg',
-    w: 100,
-    h: 100,
+    mime: 'image/jpeg',
+    width: 100,
+    height: 100,
     size: 1,
-    hasThumb: true,
-    hasMeta: true,
+    hasThumbnail: true,
+    hasMetadata: true,
     ...overrides,
   }
 }
 
-function makeFolder(path: string, items: Item[]): FolderIndex {
+function makeFolder(path: string, items: BrowseItemPayload[]): BrowseFolderPayload {
   return {
-    v: 1,
+    version: 1,
     path,
     generatedAt: '2026-03-07T00:00:00Z',
     metricKeys: [],
     items,
-    dirs: [],
+    folders: [],
   }
 }
 
-function makeSearch(items: Item[]): SearchResult {
+function makeSearch(items: BrowseItemPayload[]): BrowseSearchResultsPayload {
   return { items }
 }
 
@@ -56,20 +56,20 @@ describe('live update cache patching', () => {
     patchIndexedItemQueries(queryClient, index, {
       path: '/shots/b.jpg',
       star: 5,
-      comments: 'fresh note',
+      notes: 'fresh note',
     })
 
-    const nextFolderShots = queryClient.getQueryData<FolderIndex>(['folder', '/shots'])
-    const nextFolderArchive = queryClient.getQueryData<FolderIndex>(['folder', '/archive'])
-    const nextSearchB = queryClient.getQueryData<SearchResult>(['search', 'b', '/'])
+    const nextFolderShots = queryClient.getQueryData<BrowseFolderPayload>(['folder', '/shots'])
+    const nextFolderArchive = queryClient.getQueryData<BrowseFolderPayload>(['folder', '/archive'])
+    const nextSearchB = queryClient.getQueryData<BrowseSearchResultsPayload>(['search', 'b', '/'])
 
     expect(nextFolderShots).not.toBe(folderShots)
     expect(nextSearchB).not.toBe(searchB)
     expect(nextFolderArchive).toBe(folderArchive)
     expect(nextFolderShots?.items[1].star).toBe(5)
-    expect(nextFolderShots?.items[1].comments).toBe('fresh note')
+    expect(nextFolderShots?.items[1].notes).toBe('fresh note')
     expect(nextSearchB?.items[0].star).toBe(5)
-    expect(nextSearchB?.items[0].comments).toBe('fresh note')
+    expect(nextSearchB?.items[0].notes).toBe('fresh note')
   })
 
   it('drops stale memberships after a query result set changes', () => {
@@ -88,7 +88,7 @@ describe('live update cache patching', () => {
       star: 4,
     })
 
-    const nextSearch = queryClient.getQueryData<SearchResult>(['search', 'shots', '/'])
+    const nextSearch = queryClient.getQueryData<BrowseSearchResultsPayload>(['search', 'shots', '/'])
     expect(nextSearch?.items[0].path).toBe('/shots/z.jpg')
     expect(nextSearch?.items[0].star).toBeUndefined()
   })

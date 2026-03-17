@@ -1,4 +1,4 @@
-import type { FilterAST, FilterClause, Item } from '../../../lib/types'
+import type { FilterAST, FilterClause, BrowseItemPayload } from '../../../lib/types'
 
 type CompareOp = '<' | '<=' | '>' | '>='
 
@@ -6,19 +6,19 @@ const STAR_VALUES = new Set([0, 1, 2, 3, 4, 5])
 const COMPARE_OPS = new Set<CompareOp>(['<', '<=', '>', '>='])
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 
-export function applyFilterAst(items: Item[], filters: FilterAST | null): Item[] {
+export function applyFilterAst(items: BrowseItemPayload[], filters: FilterAST | null): BrowseItemPayload[] {
   if (!filters || !filters.and.length) return items
   return items.filter((it) => matchesAll(it, filters.and))
 }
 
-function matchesAll(item: Item, clauses: FilterClause[]): boolean {
+function matchesAll(item: BrowseItemPayload, clauses: FilterClause[]): boolean {
   for (const clause of clauses) {
     if (!matchesClause(item, clause)) return false
   }
   return true
 }
 
-function matchesClause(item: Item, clause: FilterClause): boolean {
+function matchesClause(item: BrowseItemPayload, clause: FilterClause): boolean {
   if ('starsIn' in clause) {
     const active = clause.starsIn.values
     if (!active || !active.length) return true
@@ -43,19 +43,19 @@ function matchesClause(item: Item, clause: FilterClause): boolean {
     const name = item.name ?? ''
     return !name.toLowerCase().includes(value.toLowerCase())
   }
-  if ('commentsContains' in clause) {
-    const value = clause.commentsContains.value?.trim()
+  if ('notesContains' in clause) {
+    const value = clause.notesContains.value?.trim()
     if (!value) return true
-    const comments = item.comments ?? ''
-    if (!comments) return false
-    return comments.toLowerCase().includes(value.toLowerCase())
+    const notes = item.notes ?? ''
+    if (!notes) return false
+    return notes.toLowerCase().includes(value.toLowerCase())
   }
-  if ('commentsNotContains' in clause) {
-    const value = clause.commentsNotContains.value?.trim()
+  if ('notesNotContains' in clause) {
+    const value = clause.notesNotContains.value?.trim()
     if (!value) return true
-    const comments = item.comments ?? ''
-    if (!comments) return false
-    return !comments.toLowerCase().includes(value.toLowerCase())
+    const notes = item.notes ?? ''
+    if (!notes) return false
+    return !notes.toLowerCase().includes(value.toLowerCase())
   }
   if ('urlContains' in clause) {
     const value = clause.urlContains.value?.trim()
@@ -86,14 +86,14 @@ function matchesClause(item: Item, clause: FilterClause): boolean {
   if ('widthCompare' in clause) {
     const { op, value } = clause.widthCompare
     if (!Number.isFinite(value)) return true
-    const w = item.w
+    const w = item.width
     if (!Number.isFinite(w) || w <= 0) return false
     return compareNumber(w, op, value)
   }
   if ('heightCompare' in clause) {
     const { op, value } = clause.heightCompare
     if (!Number.isFinite(value)) return true
-    const h = item.h
+    const h = item.height
     if (!Number.isFinite(h) || h <= 0) return false
     return compareNumber(h, op, value)
   }
@@ -176,28 +176,28 @@ export function setNameNotContainsFilter(filters: FilterAST, value: string | nul
   return { and: [{ nameNotContains: { value: normalized } }, ...rest] }
 }
 
-export function getCommentsContainsFilter(filters: FilterAST): string | null {
-  const clause = filters.and.find((c) => 'commentsContains' in c) as { commentsContains: { value: string } } | undefined
-  return clause?.commentsContains?.value ?? null
+export function getNotesContainsFilter(filters: FilterAST): string | null {
+  const clause = filters.and.find((c) => 'notesContains' in c) as { notesContains: { value: string } } | undefined
+  return clause?.notesContains?.value ?? null
 }
 
-export function setCommentsContainsFilter(filters: FilterAST, value: string | null): FilterAST {
+export function setNotesContainsFilter(filters: FilterAST, value: string | null): FilterAST {
   const normalized = normalizeTextValue(value)
-  const rest = filters.and.filter((c) => !('commentsContains' in c))
+  const rest = filters.and.filter((c) => !('notesContains' in c))
   if (!normalized) return { and: rest }
-  return { and: [{ commentsContains: { value: normalized } }, ...rest] }
+  return { and: [{ notesContains: { value: normalized } }, ...rest] }
 }
 
-export function getCommentsNotContainsFilter(filters: FilterAST): string | null {
-  const clause = filters.and.find((c) => 'commentsNotContains' in c) as { commentsNotContains: { value: string } } | undefined
-  return clause?.commentsNotContains?.value ?? null
+export function getNotesNotContainsFilter(filters: FilterAST): string | null {
+  const clause = filters.and.find((c) => 'notesNotContains' in c) as { notesNotContains: { value: string } } | undefined
+  return clause?.notesNotContains?.value ?? null
 }
 
-export function setCommentsNotContainsFilter(filters: FilterAST, value: string | null): FilterAST {
+export function setNotesNotContainsFilter(filters: FilterAST, value: string | null): FilterAST {
   const normalized = normalizeTextValue(value)
-  const rest = filters.and.filter((c) => !('commentsNotContains' in c))
+  const rest = filters.and.filter((c) => !('notesNotContains' in c))
   if (!normalized) return { and: rest }
-  return { and: [{ commentsNotContains: { value: normalized } }, ...rest] }
+  return { and: [{ notesNotContains: { value: normalized } }, ...rest] }
 }
 
 export function getUrlContainsFilter(filters: FilterAST): string | null {
@@ -318,15 +318,15 @@ function normalizeClause(clause: unknown): FilterClause | null {
     if (!value) return null
     return { nameNotContains: { value } }
   }
-  if ('commentsContains' in clause) {
-    const value = normalizeTextValue((clause as { commentsContains?: { value?: unknown } }).commentsContains?.value)
+  if ('notesContains' in clause) {
+    const value = normalizeTextValue((clause as { notesContains?: { value?: unknown } }).notesContains?.value)
     if (!value) return null
-    return { commentsContains: { value } }
+    return { notesContains: { value } }
   }
-  if ('commentsNotContains' in clause) {
-    const value = normalizeTextValue((clause as { commentsNotContains?: { value?: unknown } }).commentsNotContains?.value)
+  if ('notesNotContains' in clause) {
+    const value = normalizeTextValue((clause as { notesNotContains?: { value?: unknown } }).notesNotContains?.value)
     if (!value) return null
-    return { commentsNotContains: { value } }
+    return { notesNotContains: { value } }
   }
   if ('urlContains' in clause) {
     const value = normalizeTextValue((clause as { urlContains?: { value?: unknown } }).urlContains?.value)

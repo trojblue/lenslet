@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import { isInputElement } from '../../lib/keyboard'
-import type { Item } from '../../lib/types'
+import type { BrowseItemPayload } from '../../lib/types'
 import { useCompareZoomPan } from './hooks/useCompareZoomPan'
 
 interface CompareViewerProps {
-  aItem: Item | null
-  bItem: Item | null
+  aItem: BrowseItemPayload | null
+  bItem: BrowseItemPayload | null
   index: number
   total: number
   canPrev: boolean

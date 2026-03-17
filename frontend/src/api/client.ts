@@ -8,13 +8,13 @@ import {
   resetBrowseRequestBudgetForTests,
 } from './requestBudget'
 import type {
-  FolderIndex,
-  FolderPathsResponse,
+  BrowseFolderPayload,
+  BrowseFolderPathsPayload,
   Sidecar,
   SidecarPatch,
   FileOpResponse,
   RefreshResponse,
-  SearchResult,
+  BrowseSearchResultsPayload,
   ImageMetadataResponse,
   ExportComparisonRequest,
   ViewsPayload,
@@ -465,25 +465,25 @@ export const api = {
    * @param path - Folder path
    * @param options - Recursive options
    */
-  getFolder: (path: string, options?: GetFolderOptions): Promise<FolderIndex> => {
+  getFolder: (path: string, options?: GetFolderOptions): Promise<BrowseFolderPayload> => {
     return runWithRequestBudget('folders', () =>
-      fetchJSON<FolderIndex>(`${BASE}/folders?${buildFolderQuery(path, options)}`),
+      fetchJSON<BrowseFolderPayload>(`${BASE}/folders?${buildFolderQuery(path, options)}`),
     ).promise
   },
 
   /**
    * Fetch recursive folder count only (no items payload).
    */
-  getFolderCount: (path: string): Promise<FolderIndex> => {
+  getFolderCount: (path: string): Promise<BrowseFolderPayload> => {
     return runWithRequestBudget('folders', () =>
-      fetchJSON<FolderIndex>(
+      fetchJSON<BrowseFolderPayload>(
         `${BASE}/folders?${buildFolderQuery(path, { recursive: true, countOnly: true })}`,
       ),
     ).promise
   },
 
-  getFolderPaths: (): Promise<FolderPathsResponse> => {
-    return fetchJSON<FolderPathsResponse>(`${BASE}/folders/paths`).promise
+  getFolderPaths: (): Promise<BrowseFolderPathsPayload> => {
+    return fetchJSON<BrowseFolderPathsPayload>(`${BASE}/folders/paths`).promise
   },
 
   /**
@@ -491,11 +491,11 @@ export const api = {
    * @param q - Search query
    * @param path - Base path to search within
    */
-  search: (q: string, path: string): Promise<SearchResult> => {
+  search: (q: string, path: string): Promise<BrowseSearchResultsPayload> => {
     const params = new URLSearchParams()
     if (q) params.set('q', q)
     if (path) params.set('path', path)
-    return fetchJSON<SearchResult>(`${BASE}/search?${params}`).promise
+    return fetchJSON<BrowseSearchResultsPayload>(`${BASE}/search?${params}`).promise
   },
 
   /**

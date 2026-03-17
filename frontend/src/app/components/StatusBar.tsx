@@ -152,7 +152,7 @@ export default function StatusBar({
         )}
         {showZoomWarning && (
           <div className="ui-banner ui-banner-accent text-xs">
-            <span className="font-semibold">Browser zoom {Math.round(zoomPercent)}%.</span> For best results, set it to 100% so UI elements stay in correct proportions.
+            <span className="font-semibold">Browser zoom {Math.round(zoomPercent ?? 100)}%.</span> For best results, set it to 100% so UI elements stay in correct proportions.
           </div>
         )}
         {offViewSummary && (

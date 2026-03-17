@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { usePollingEnabled } from './polling'
-import type { FolderIndex } from '../lib/types'
+import type { BrowseFolderPayload } from '../lib/types'
 import type { GetFolderOptions } from './client'
 
 export const DEFAULT_FOLDER_GC_TIME_MS = 5 * 60_000
@@ -58,7 +58,7 @@ export function shouldRemoveRecursiveFolderQuery(
 
 const FALLBACK_REFETCH_INTERVAL = 15_000
 
-function fetchFolder(path: string, options?: GetFolderOptions): Promise<FolderIndex> {
+function fetchFolder(path: string, options?: GetFolderOptions): Promise<BrowseFolderPayload> {
   return api.getFolder(path, options)
 }
 
@@ -151,12 +151,12 @@ export function useOptimisticFolderUpdate() {
   
   return (
     path: string,
-    updater: (old: FolderIndex | undefined) => FolderIndex | undefined,
+    updater: (old: BrowseFolderPayload | undefined) => BrowseFolderPayload | undefined,
     recursive = false
   ) => {
     const key = folderQueryKey(path, { recursive })
-    const previous = queryClient.getQueryData<FolderIndex>(key)
-    queryClient.setQueryData<FolderIndex | undefined>(key, updater)
+    const previous = queryClient.getQueryData<BrowseFolderPayload>(key)
+    queryClient.setQueryData<BrowseFolderPayload | undefined>(key, updater)
     return () => queryClient.setQueryData(key, previous)
   }
 }

@@ -11,7 +11,7 @@ import {
 } from '../../api/client'
 import type { ConnectionStatus, SyncEvent } from '../../api/client'
 import { sidecarQueryKey, updateConflictFromServer } from '../../api/items'
-import type { HealthMode, HealthResponse, Item, PresenceEvent, Sidecar, StarRating } from '../../lib/types'
+import type { HealthMode, HealthResponse, BrowseItemPayload, PresenceEvent, Sidecar, StarRating } from '../../lib/types'
 import { FetchError } from '../../lib/fetcher'
 import { formatAbsoluteTime, formatRelativeTime, parseTimestampMs } from '../../lib/util'
 import {
@@ -40,7 +40,7 @@ type UseAppPresenceSyncParams = {
   current: string
   currentGalleryId: string
   itemPaths: string[]
-  items: Item[]
+  items: BrowseItemPayload[]
   queryClient: QueryClient
   updateItemCaches: (payload: ItemCacheUpdatePayload) => void
   setLocalStarOverrides: Dispatch<SetStateAction<Record<string, StarRating>>>
@@ -376,7 +376,7 @@ export function useAppPresenceSync({
           path,
           star: payload.star ?? null,
           metrics: payload.metrics,
-          comments: payload.notes ?? '',
+          notes: payload.notes ?? '',
         })
         updateConflictFromServer(path, sidecar)
         markRecentActivity(path, 'item-updated', evt.id)

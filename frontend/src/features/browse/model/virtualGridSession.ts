@@ -1,4 +1,4 @@
-import type { Item } from '../../../lib/types'
+import type { BrowseItemPayload } from '../../../lib/types'
 
 type GridLayoutLike = {
   mode: 'grid'
@@ -73,7 +73,7 @@ export function findAdaptiveRowIndex(
 }
 
 export function collectVisiblePaths(
-  items: Item[],
+  items: BrowseItemPayload[],
   layout: VirtualGridLayoutLike,
   virtualRows: readonly VirtualRowLike[],
 ): Set<string> {
@@ -98,7 +98,7 @@ export function collectVisiblePaths(
 }
 
 export function getTopAnchorPathForVisibleRows(
-  items: Item[],
+  items: BrowseItemPayload[],
   layout: VirtualGridLayoutLike,
   virtualRows: readonly VirtualRowLike[],
   scrollTop: number,

@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import type { Item } from '../../../lib/types'
+import type { BrowseItemPayload } from '../../../lib/types'
 
 const BIN_COUNT = 48
 const QUANTILES = [0.1, 0.24, 0.5, 0.74, 0.9]
 
 interface MetricScrollbarProps {
-  items: Item[]
+  items: BrowseItemPayload[]
   metricKey: string
   scrollRef: React.RefObject<HTMLDivElement>
   sortDir: 'asc' | 'desc'

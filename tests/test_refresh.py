@@ -360,7 +360,7 @@ def test_folders_recursive_includes_descendants(tmp_path: Path):
     assert direct.status_code == 200
     direct_payload = direct.json()
     assert len(direct_payload["items"]) == 1
-    assert {entry["name"] for entry in direct_payload["dirs"]} == {"child"}
+    assert {entry["name"] for entry in direct_payload["folders"]} == {"child"}
 
     recursive = client.get("/folders", params={"path": "/parent", "recursive": "1"})
     assert recursive.status_code == 200
@@ -371,7 +371,7 @@ def test_folders_recursive_includes_descendants(tmp_path: Path):
         "/parent/child/nested.jpg",
         "/parent/child/grand/deep.jpg",
     }
-    assert {entry["name"] for entry in recursive_payload["dirs"]} == {"child"}
+    assert {entry["name"] for entry in recursive_payload["folders"]} == {"child"}
 
 
 def test_refresh_invalidates_recursive_cache_for_ancestor_scope(

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import Toolbar from '../../Toolbar'
 
-const mediaQueryMock = vi.fn<(query: string) => boolean>(() => false)
+const mediaQueryMock = vi.fn((query: string) => false)
 
 vi.mock('../../Dropdown', () => ({
   default: ({

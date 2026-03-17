@@ -1,34 +1,34 @@
 export type Mime = 'image/webp' | 'image/jpeg' | 'image/png'
 
-export type Item = {
+export type BrowseItemPayload = {
   path: string
   name: string
-  type: Mime
-  w: number
-  h: number
+  mime: Mime
+  width: number
+  height: number
   size: number
-  hasThumb: boolean
-  hasMeta: boolean
+  hasThumbnail: boolean
+  hasMetadata: boolean
   hash?: string | null
   addedAt?: string | null
   star?: StarRating | null
-  comments?: string | null
+  notes?: string | null
   url?: string | null
   source?: string | null
   metrics?: Record<string, number | null>
 }
 
-export type DirEntry = {
+export type BrowseFolderEntryPayload = {
   name: string
   kind: 'branch' | 'leaf-real' | 'leaf-pointer'
 }
 
-export type FolderIndex = {
-  v: 1
+export type BrowseFolderPayload = {
+  version: 1
   path: string
   generatedAt: string
-  items: Item[]
-  dirs: DirEntry[]
+  items: BrowseItemPayload[]
+  folders: BrowseFolderEntryPayload[]
   metricKeys: string[]
   page?: number
   pageSize?: number
@@ -36,7 +36,7 @@ export type FolderIndex = {
   totalItems?: number
 }
 
-export type FolderPathsResponse = {
+export type BrowseFolderPathsPayload = {
   paths: string[]
 }
 
@@ -124,7 +124,7 @@ export type HealthResponse = {
   }
 }
 
-export type SearchResult = { items: Item[] }
+export type BrowseSearchResultsPayload = { items: BrowseItemPayload[] }
 
 export type EmbeddingSpec = {
   name: string
@@ -206,8 +206,8 @@ export type FilterClause =
   | { starsNotIn: { values: number[] } }
   | { nameContains: { value: string } }
   | { nameNotContains: { value: string } }
-  | { commentsContains: { value: string } }
-  | { commentsNotContains: { value: string } }
+  | { notesContains: { value: string } }
+  | { notesNotContains: { value: string } }
   | { urlContains: { value: string } }
   | { urlNotContains: { value: string } }
   | { dateRange: { from?: string; to?: string } }

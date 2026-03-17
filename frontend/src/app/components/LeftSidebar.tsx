@@ -1,7 +1,7 @@
 import type { MouseEvent, PointerEvent } from 'react'
 import FolderTree from '../../features/folders/FolderTree'
 import MetricsPanel from '../../features/metrics/MetricsPanel'
-import type { CompareOrderMode, FilterAST, FolderIndex, Item, SavedView } from '../../lib/types'
+import type { CompareOrderMode, FilterAST, BrowseFolderPayload, BrowseItemPayload, SavedView } from '../../lib/types'
 import type { ThemePresetId } from '../../theme/runtime'
 import ThemeSettingsMenu from './ThemeSettingsMenu'
 
@@ -17,16 +17,16 @@ type LeftSidebarProps = {
   onActivateView: (view: SavedView) => void
   onSaveView: () => void
   current: string
-  data?: FolderIndex
+  data?: BrowseFolderPayload
   onOpenFolder: (path: string) => void
   onOpenFolderActions: (path: string, anchor: { x: number; y: number }) => void
   onPullRefreshFolders?: () => Promise<void>
   onContextMenu: (event: MouseEvent, path: string) => void
   countVersion: number
-  items: Item[]
-  filteredItems: Item[]
+  items: BrowseItemPayload[]
+  filteredItems: BrowseItemPayload[]
   metricKeys: string[]
-  selectedItems?: Item[]
+  selectedItems?: BrowseItemPayload[]
   selectedMetric?: string
   onSelectMetric: (key: string) => void
   filters: FilterAST

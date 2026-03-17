@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   applyFilterAst,
   normalizeFilterAst,
-  setCommentsContainsFilter,
-  setCommentsNotContainsFilter,
+  setNotesContainsFilter,
+  setNotesNotContainsFilter,
   setDateRangeFilter,
   setHeightCompareFilter,
   setMetricRangeFilter,
@@ -14,18 +14,18 @@ import {
   setUrlContainsFilter,
   setWidthCompareFilter,
 } from '../filters'
-import type { Item } from '../../../../lib/types'
+import type { BrowseItemPayload } from '../../../../lib/types'
 
-const baseItem = (overrides: Partial<Item>): Item => ({
+const baseItem = (overrides: Partial<BrowseItemPayload>): BrowseItemPayload => ({
   path: 'a',
   name: 'a',
-  type: 'image/jpeg',
-  w: 0,
-  h: 0,
+  mime: 'image/jpeg',
+  width: 0,
+  height: 0,
   size: 0,
-  hasThumb: true,
-  hasMeta: true,
-  comments: null,
+  hasThumbnail: true,
+  hasMetadata: true,
+  notes: null,
   url: null,
   ...overrides,
 })
@@ -84,15 +84,15 @@ describe('filter AST', () => {
 
   it('filters by comments contains and not contains', () => {
     const items = [
-      baseItem({ path: 'a', comments: 'Hero shot' }),
-      baseItem({ path: 'b', comments: 'needs crop' }),
-      baseItem({ path: 'c', comments: null }),
+      baseItem({ path: 'a', notes: 'Hero shot' }),
+      baseItem({ path: 'b', notes: 'needs crop' }),
+      baseItem({ path: 'c', notes: null }),
     ]
-    let filters = setCommentsContainsFilter({ and: [] }, 'hero')
+    let filters = setNotesContainsFilter({ and: [] }, 'hero')
     const containsResult = applyFilterAst(items, filters)
     expect(containsResult.map((i) => i.path)).toEqual(['a'])
 
-    filters = setCommentsNotContainsFilter({ and: [] }, 'hero')
+    filters = setNotesNotContainsFilter({ and: [] }, 'hero')
     const notContainsResult = applyFilterAst(items, filters)
     expect(notContainsResult.map((i) => i.path)).toEqual(['b'])
   })
@@ -121,9 +121,9 @@ describe('filter AST', () => {
 
   it('filters by width and height comparisons', () => {
     const items = [
-      baseItem({ path: 'a', w: 2048, h: 1024 }),
-      baseItem({ path: 'b', w: 1024, h: 2048 }),
-      baseItem({ path: 'c', w: 0, h: 0 }),
+      baseItem({ path: 'a', width: 2048, height: 1024 }),
+      baseItem({ path: 'b', width: 1024, height: 2048 }),
+      baseItem({ path: 'c', width: 0, height: 0 }),
     ]
     let filters = setWidthCompareFilter({ and: [] }, { op: '>=', value: 2000 })
     filters = setHeightCompareFilter(filters, { op: '<', value: 1500 })

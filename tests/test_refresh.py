@@ -248,6 +248,7 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         assert health_before_payload["mode"] == "table"
         assert health_before_payload["refresh"]["enabled"] is True
         assert health_before_payload["browse_cache"]["path"] == str(workspace_a.browse_cache_dir())
+        assert health_before_payload["labels"]["log"] == str(workspace_a.labels_log_path())
 
         views_before = client.get("/views")
         assert views_before.status_code == 200
@@ -269,9 +270,8 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         assert health_after.status_code == 200
         health_after_payload = health_after.json()
         assert health_after_payload["browse_cache"]["path"] == str(workspace_b.browse_cache_dir())
+        assert health_after_payload["labels"]["log"] == str(workspace_b.labels_log_path())
         assert health_after_payload["indexing"]["generation"] != health_before_payload["indexing"]["generation"]
-        assert app.state.runtime.snapshotter._workspace.root == workspace_b.root  # type: ignore[attr-defined]
-        assert app.state.runtime.thumb_cache.root == workspace_b.thumb_cache_dir()  # type: ignore[union-attr]
 
         views_after = client.get("/views")
         assert views_after.status_code == 200
@@ -282,8 +282,6 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         assert "Lenslet: beta" in html_after.text
         assert "(2 images)" in html_after.text
 
-        app.state.runtime.snapshotter._min_updates = 1
-        app.state.runtime.snapshotter._min_interval = 0.0
         thumb_after = client.get("/thumb", params={"path": "/shots/first.jpg"})
         assert thumb_after.status_code == 200
         update_after = client.put(
@@ -300,15 +298,15 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
     thumb_cache_b = workspace_b.thumb_cache_dir()
     assert thumb_cache_b is not None
     assert list(thumb_cache_b.rglob("*.webp")), "expected refreshed thumb cache writes in workspace_b"
-    snapshot_b = workspace_b.labels_snapshot_path()
-    assert snapshot_b is not None and snapshot_b.exists()
+    assert any(
+        entry.get("path") == "/shots/first.jpg" and entry.get("notes") == "workspace-b"
+        for entry in workspace_b.read_labels_log()
+    )
 
     thumb_cache_a = workspace_a.thumb_cache_dir()
     if thumb_cache_a is not None:
         assert not list(thumb_cache_a.rglob("*.webp"))
-    snapshot_a = workspace_a.labels_snapshot_path()
-    if snapshot_a is not None:
-        assert not snapshot_a.exists()
+    assert not workspace_a.read_labels_log()
 
 
 def test_index_shell_is_cached_once_per_process(tmp_path: Path, monkeypatch) -> None:

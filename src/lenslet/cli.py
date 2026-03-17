@@ -10,12 +10,16 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
+    from .embeddings.config import EmbeddingConfig
+    from .server import BrowseAppOptions, EmbeddingAppOptions
     from .storage.table import TableStorage
+    from .workspace import Workspace
 
 
 def _is_remote_uri(value: str) -> bool:
@@ -253,99 +257,482 @@ def _print_share_url(url: str) -> None:
     print(f"Share URL: {url}", file=sys.stderr, flush=True)
 
 
-def _main_rank(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
-        prog="lenslet rank",
-        description="Lenslet ranking mode server",
-        epilog="Example: lenslet rank ./ranking_dataset.json --port 7070",
-    )
-    parser.add_argument(
-        "dataset_json",
-        type=str,
-        help="Path to ranking dataset JSON",
-    )
-    parser.add_argument(
-        "-p", "--port",
-        type=int,
-        default=None,
-        help="Port to listen on (default: 7070; auto-increment if in use)",
-    )
-    parser.add_argument(
-        "-H", "--host",
-        type=str,
-        default="127.0.0.1",
-        help="Host to bind to (default: 127.0.0.1)",
-    )
-    parser.add_argument(
-        "--reload",
-        action="store_true",
-        help="Enable auto-reload for development",
-    )
-    parser.add_argument(
-        "--results-path",
-        type=str,
-        default=None,
-        help="Optional results JSONL path. Relative values resolve from the dataset JSON directory.",
-    )
-    args = parser.parse_args(argv)
+@dataclass(frozen=True)
+class BrowseTarget:
+    raw_target: str
+    target: Path | None
+    is_table_file: bool
+    is_remote_table: bool
+    remote_kind: str | None = None
+    remote_uri: str | None = None
 
-    dataset_path = Path(args.dataset_json).expanduser()
-    if not dataset_path.exists():
-        print(f"Error: dataset file does not exist: {args.dataset_json}", file=sys.stderr)
-        sys.exit(1)
-    if not dataset_path.is_file():
-        print(f"Error: dataset path must be a file: {args.dataset_json}", file=sys.stderr)
-        sys.exit(1)
-    dataset_path = dataset_path.resolve()
+    @property
+    def is_dataset_dir(self) -> bool:
+        return not self.is_remote_table and not self.is_table_file
 
-    port = args.port
-    if port is None:
-        try:
-            port = _find_available_port(args.host, 7070)
-        except RuntimeError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        if port != 7070:
-            print(f"[lenslet] Port 7070 is in use; using {port} instead.")
+    def with_target(self, target: Path) -> "BrowseTarget":
+        return BrowseTarget(
+            raw_target=self.raw_target,
+            target=target,
+            is_table_file=True,
+            is_remote_table=False,
+            remote_kind=None,
+            remote_uri=None,
+        )
 
-    import uvicorn
-    from .ranking.app import create_ranking_app
+
+@dataclass(frozen=True, slots=True)
+class BrowseCliArgs:
+    directory: str
+    host: str
+    port: int | None
+    thumb_size: int
+    thumb_quality: int
+    source_column: str | None
+    base_dir: str | None
+    cache_wh: bool
+    skip_indexing: bool
+    thumb_cache: bool
+    og_preview: bool
+    reload: bool
+    no_write: bool
+    embedding_column: list[str] | None
+    embedding_metric: list[str] | None
+    embed: bool
+    batch_size: int
+    parquet_batch_size: int
+    num_workers: int
+    embedding_preload: bool
+    embedding_cache: bool
+    embedding_cache_dir: str | None
+    verbose: bool
+    share: bool
+
+    @classmethod
+    def from_namespace(cls, args: argparse.Namespace) -> "BrowseCliArgs":
+        return cls(
+            directory=str(args.directory),
+            host=str(args.host),
+            port=args.port,
+            thumb_size=int(args.thumb_size),
+            thumb_quality=int(args.thumb_quality),
+            source_column=args.source_column,
+            base_dir=args.base_dir,
+            cache_wh=bool(args.cache_wh),
+            skip_indexing=bool(args.skip_indexing),
+            thumb_cache=bool(args.thumb_cache),
+            og_preview=bool(args.og_preview),
+            reload=bool(args.reload),
+            no_write=bool(args.no_write),
+            embedding_column=list(args.embedding_column) if args.embedding_column else None,
+            embedding_metric=list(args.embedding_metric) if args.embedding_metric else None,
+            embed=bool(args.embed),
+            batch_size=int(args.batch_size),
+            parquet_batch_size=int(args.parquet_batch_size),
+            num_workers=int(args.num_workers),
+            embedding_preload=bool(args.embedding_preload),
+            embedding_cache=bool(args.embedding_cache),
+            embedding_cache_dir=args.embedding_cache_dir,
+            verbose=bool(args.verbose),
+            share=bool(args.share),
+        )
+
+
+def _resolve_embedding_config_or_exit(args: BrowseCliArgs) -> "EmbeddingConfig":
+    from .embeddings.config import EmbeddingConfig, parse_embedding_columns, parse_embedding_metrics
 
     try:
-        app = create_ranking_app(
-            dataset_path,
-            results_path=args.results_path,
+        return EmbeddingConfig(
+            explicit_columns=parse_embedding_columns(args.embedding_column),
+            metric_overrides=parse_embedding_metrics(args.embedding_metric),
         )
-    except Exception as exc:
-        print(f"Error: failed to initialize ranking mode: {exc}", file=sys.stderr)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    results_path = getattr(app.state, "ranking_results_path", None)
-    dataset_label = str(dataset_path)
-    display_results = str(results_path) if results_path is not None else "unknown"
+
+def _resolve_browse_target_or_exit(raw_target: str) -> BrowseTarget:
+    candidate = Path(raw_target).expanduser()
+    if candidate.exists():
+        target = candidate.resolve()
+        is_table_file = target.is_file() and target.suffix.lower() == ".parquet"
+        if target.is_file() and not is_table_file:
+            print(f"Error: '{raw_target}' is not a .parquet file", file=sys.stderr)
+            sys.exit(1)
+        if not target.is_file() and not target.is_dir():
+            print(f"Error: '{raw_target}' is not a valid directory or .parquet file", file=sys.stderr)
+            sys.exit(1)
+        return BrowseTarget(
+            raw_target=raw_target,
+            target=target,
+            is_table_file=is_table_file,
+            is_remote_table=False,
+        )
+    if _is_remote_uri(raw_target):
+        return BrowseTarget(
+            raw_target=raw_target,
+            target=None,
+            is_table_file=False,
+            is_remote_table=True,
+            remote_kind="remote",
+            remote_uri=raw_target,
+        )
+    if _looks_like_hf_dataset(raw_target):
+        return BrowseTarget(
+            raw_target=raw_target,
+            target=None,
+            is_table_file=False,
+            is_remote_table=True,
+            remote_kind="hf",
+            remote_uri=f"hf://{raw_target}",
+        )
+    print(f"Error: '{raw_target}' does not exist", file=sys.stderr)
+    sys.exit(1)
+
+
+def _local_browse_target_or_exit(target_info: BrowseTarget) -> Path:
+    if target_info.target is None:
+        print("Error: browse target must resolve to a local path", file=sys.stderr)
+        sys.exit(1)
+    return target_info.target
+
+
+def _maybe_embed_browse_target_or_exit(args: BrowseCliArgs, target_info: BrowseTarget) -> BrowseTarget:
+    if args.embed and target_info.is_remote_table:
+        print("Error: --embed requires a local parquet file", file=sys.stderr)
+        sys.exit(1)
+    if not (args.embed and target_info.is_table_file):
+        return target_info
+
+    candidate = _local_browse_target_or_exit(target_info)
+    try:
+        from .embeddings.config import parse_embedding_columns
+        from .embeddings.embedder import EmbedConfig, embed_parquet
+        from .storage.table import load_parquet_schema
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    base_dir = args.base_dir or str(candidate.parent)
+    image_column = args.source_column
+    if image_column is None:
+        try:
+            image_column = _detect_source_column(str(candidate), base_dir)
+        except Exception as exc:
+            print(f"Error: failed to detect image column: {exc}", file=sys.stderr)
+            sys.exit(1)
+    if image_column is None:
+        print("Error: --embed requires --source-column (or a detectable image column)", file=sys.stderr)
+        sys.exit(1)
+
+    embed_output_path: Path | None = None
+    embed_columns = parse_embedding_columns(args.embedding_column)
+    embed_column = embed_columns[0] if embed_columns else "embedding_mobilenet_v3_small"
+    if embed_columns and len(embed_columns) > 1:
+        print("[lenslet] Warning: --embed uses the first --embedding-column value only.")
+
+    try:
+        schema = load_parquet_schema(str(candidate))
+        if embed_column in schema.names:
+            print(f"[lenslet] Embedding column '{embed_column}' already exists; skipping --embed.")
+        else:
+            config = EmbedConfig(
+                embedding_column=embed_column,
+                batch_size=args.batch_size,
+                parquet_batch_size=args.parquet_batch_size,
+                num_workers=args.num_workers,
+                base_dir=base_dir,
+            )
+            embed_output_path = embed_parquet(
+                parquet_path=candidate,
+                image_column=image_column,
+                config=config,
+            )
+            print(f"[lenslet] Wrote embeddings to {embed_output_path}")
+    except Exception as exc:
+        print(f"Error: embedding failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if embed_output_path is None:
+        return target_info
+    return target_info.with_target(embed_output_path.resolve())
+
+
+def _resolve_browse_port_or_exit(host: str, requested_port: int | None) -> int:
+    if requested_port is not None:
+        return requested_port
+    try:
+        port = _find_available_port(host, 7070)
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if port != 7070:
+        print(f"[lenslet] Port 7070 is in use; using {port} instead.")
+    return port
+
+
+def _display_target_for_banner(target_info: BrowseTarget) -> str:
+    if target_info.is_remote_table:
+        return target_info.remote_uri or target_info.raw_target
+    return str(_local_browse_target_or_exit(target_info))
+
+
+def _storage_label_for_banner(target_info: BrowseTarget) -> str:
+    if target_info.is_remote_table:
+        return "Table index (hf dataset)" if target_info.remote_kind == "hf" else "Table index (remote)"
+    target = _local_browse_target_or_exit(target_info)
+    if target_info.is_table_file:
+        return "Table index (parquet file)"
+    has_parquet = (target / "items.parquet").is_file()
+    return "Table index (items.parquet)" if has_parquet else "Filesystem dataset (auto index)"
+
+
+def _workspace_label_for_banner(args: BrowseCliArgs, target_info: BrowseTarget) -> str:
+    if target_info.is_remote_table:
+        return "read-only (remote table)"
+    if args.share:
+        return "local-write / shared-read-only"
+    if args.no_write:
+        return "temp cache (--no-write)"
+    if target_info.is_table_file:
+        return "writable (parquet sidecar)"
+    return "writable (.lenslet workspace)"
+
+
+def _print_browse_banner(args: BrowseCliArgs, target_info: BrowseTarget, port: int) -> None:
+    display_target = _display_target_for_banner(target_info)
+    storage_label = _storage_label_for_banner(target_info)
+    workspace_label = _workspace_label_for_banner(args, target_info)
     banner_lines = [
         "┌─────────────────────────────────────────────────┐",
         "│                   🔍 Lenslet                    │",
-        "│               Ranking Mode Server               │",
+        "│         Lightweight Image Gallery Server        │",
         "├─────────────────────────────────────────────────┤",
-        f"│  Dataset:   {dataset_label[:35]:<35} │",
+        f"│  Target:    {display_target[:35]:<35} │",
         f"│  Server:    http://{args.host}:{port:<24} │",
-        f"│  Results:   {display_results[:35]:<35} │",
-        "└─────────────────────────────────────────────────┘",
-        "",
     ]
+    if args.share:
+        banner_lines.append("│  Share:     starting...                         │")
+    banner_lines.extend(
+        [
+            f"│  Storage:   {storage_label:<35} │",
+            f"│  Workspace: {workspace_label:<35} │",
+            "└─────────────────────────────────────────────────┘",
+            "",
+        ]
+    )
     print("\n".join(banner_lines))
 
-    uvicorn.run(
-        app,
-        host=args.host,
-        port=port,
-        reload=args.reload,
-        log_level="warning",
+
+def _warn_multi_worker_mode() -> None:
+    for env_name in ("UVICORN_WORKERS", "WEB_CONCURRENCY"):
+        raw = os.getenv(env_name)
+        if not raw:
+            continue
+        try:
+            workers = int(raw)
+        except ValueError:
+            continue
+        if workers > 1:
+            print(
+                f"[lenslet] Warning: {env_name}={workers} detected. "
+                "Collaboration sync requires a single worker to avoid divergence."
+            )
+            return
+
+
+def _prepare_dataset_workspace_or_exit(
+    args: BrowseCliArgs,
+    target_info: BrowseTarget,
+) -> tuple["Workspace | None", str | None]:
+    if not target_info.is_dataset_dir:
+        return None, None
+
+    from .workspace import Workspace
+
+    target = _local_browse_target_or_exit(target_info)
+    if args.no_write:
+        dataset_workspace = Workspace.for_temp_dataset(str(target))
+    else:
+        dataset_workspace = Workspace.for_dataset(str(target), can_write=True)
+    preindex_signature = None
+    if args.share:
+        from .preindex import ensure_local_preindex
+
+        try:
+            preindex_result = ensure_local_preindex(target, dataset_workspace)
+        except Exception as exc:
+            print(f"Error: preindex failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        if preindex_result is None:
+            print("[lenslet] Preindex skipped: no images found.")
+        else:
+            if preindex_result.workspace.root != dataset_workspace.root:
+                print(f"[lenslet] Preindex workspace: {preindex_result.workspace.root}")
+            if preindex_result.reused:
+                print(f"[lenslet] Preindex cache hit: {preindex_result.image_count} images.")
+            else:
+                print(f"[lenslet] Preindex ready: {preindex_result.image_count} images.")
+            preindex_signature = preindex_result.signature
+            dataset_workspace = preindex_result.workspace
+    if args.no_write:
+        print(
+            f"[lenslet] No-write: using temp workspace {dataset_workspace.root} "
+            "(thumb cache cap 200 MB)."
+        )
+    return dataset_workspace, preindex_signature
+
+
+def _build_browse_runtime_options(
+    args: BrowseCliArgs,
+    embedding_config: "EmbeddingConfig",
+) -> tuple["BrowseAppOptions", "EmbeddingAppOptions"]:
+    from .indexing_status import CliIndexingReporter
+    from .server import BrowseAppOptions, EmbeddingAppOptions
+
+    indexing_reporter = CliIndexingReporter()
+    browse_options = BrowseAppOptions(
+        thumb_size=args.thumb_size,
+        thumb_quality=args.thumb_quality,
+        thumb_cache=args.thumb_cache,
+        indexing_listener=indexing_reporter.handle_update,
     )
+    embedding_options = EmbeddingAppOptions(
+        config=embedding_config,
+        cache=args.embedding_cache,
+        cache_dir=args.embedding_cache_dir,
+        preload=args.embedding_preload,
+    )
+    return browse_options, embedding_options
 
 
-def _main_browse(argv: list[str] | None = None) -> None:
+def _create_browse_app_or_exit(
+    args: BrowseCliArgs,
+    target_info: BrowseTarget,
+    *,
+    dataset_workspace: "Workspace | None",
+    preindex_signature: str | None,
+    embedding_config: "EmbeddingConfig",
+    browse_options: "BrowseAppOptions",
+    embedding_options: "EmbeddingAppOptions",
+) -> object:
+    from .server import create_app, create_app_from_storage, create_app_from_table
+    from .workspace import Workspace
+
+    try:
+        if target_info.is_remote_table:
+            remote_label = target_info.remote_uri or target_info.raw_target
+            try:
+                table = _load_remote_table(remote_label)
+            except Exception as exc:
+                print(f"Error: failed to load remote table '{remote_label}': {exc}", file=sys.stderr)
+                sys.exit(1)
+            workspace = Workspace.for_dataset(None, can_write=False)
+            return create_app_from_table(
+                table=table,
+                base_dir=args.base_dir,
+                source_column=args.source_column,
+                skip_indexing=args.skip_indexing,
+                allow_local=False,
+                og_preview=args.og_preview,
+                workspace=workspace,
+                options=browse_options,
+                embedding=embedding_options,
+            )
+
+        target = _local_browse_target_or_exit(target_info)
+        if target_info.is_table_file:
+            storage = _prepare_table_cache(
+                parquet_path=target,
+                base_dir=args.base_dir,
+                source_column=args.source_column,
+                cache_wh=args.cache_wh,
+                skip_indexing=args.skip_indexing,
+                embedding_config=embedding_config,
+                auto_detect_root=True,
+            )
+            if args.no_write:
+                workspace = Workspace.for_temp_dataset(str(target))
+            else:
+                workspace = Workspace.for_parquet(target, can_write=True)
+            return create_app_from_storage(
+                storage,
+                show_source=True,
+                workspace=workspace,
+                og_preview=args.og_preview,
+                embedding_parquet_path=str(target),
+                options=browse_options,
+                embedding=embedding_options,
+            )
+
+        items_path = target / "items.parquet"
+        if items_path.is_file() and args.cache_wh:
+            _prepare_table_cache(
+                parquet_path=items_path,
+                base_dir=str(target),
+                source_column=args.source_column,
+                cache_wh=args.cache_wh,
+                skip_indexing=args.skip_indexing,
+                quiet=True,
+                embedding_config=embedding_config,
+            )
+        return create_app(
+            root_path=str(target),
+            no_write=args.no_write,
+            source_column=args.source_column,
+            skip_indexing=args.skip_indexing,
+            og_preview=args.og_preview,
+            workspace=dataset_workspace,
+            preindex_signature=preindex_signature,
+            options=browse_options,
+            embedding=embedding_options,
+        )
+    except Exception as exc:
+        print(f"Error: failed to initialize browse mode: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _launch_browse_server(app: object, args: BrowseCliArgs, port: int) -> None:
+    import uvicorn
+
+    share_tunnel = None
+    try:
+        if args.share:
+            try:
+                from .server_browse import warm_recursive_cache
+
+                storage = getattr(app.state, "storage", None)
+                browse_cache = getattr(app.state, "recursive_browse_cache", None)
+                if storage is not None:
+                    print("[lenslet] Warming recursive browse cache...")
+                    warmed = warm_recursive_cache(
+                        storage,
+                        "/",
+                        browse_cache,
+                        hotpath_metrics=getattr(app.state, "hotpath_metrics", None),
+                    )
+                    if warmed:
+                        print(f"[lenslet] Recursive browse cache ready: {warmed} items.")
+            except Exception as exc:
+                print(f"[lenslet] Warning: failed to warm recursive browse cache: {exc}")
+            try:
+                share_tunnel = _start_share_tunnel(port, args.host, args.verbose)
+            except Exception as exc:
+                print(f"[lenslet] Failed to start share tunnel: {exc}", file=sys.stderr)
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=port,
+            reload=args.reload,
+            log_level="info" if args.verbose else "warning",
+        )
+    finally:
+        if share_tunnel is not None:
+            share_tunnel.stop()
+
+
+def _build_browse_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lenslet",
         description="Lenslet - Lightweight image gallery server",
@@ -505,115 +892,97 @@ def _main_browse(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Show version and exit",
     )
+    return parser
 
+
+def _parse_browse_args_or_exit(argv: list[str] | None) -> BrowseCliArgs:
+    parser = _build_browse_parser()
     args = parser.parse_args(argv)
 
     if args.version:
         from . import __version__
+
         print(f"lenslet {__version__}")
         sys.exit(0)
 
-    # Directory is required unless --version
     if not args.directory:
         parser.print_help()
         sys.exit(1)
 
-    from .embeddings.config import EmbeddingConfig, parse_embedding_columns, parse_embedding_metrics
-    try:
-        embedding_config = EmbeddingConfig(
-            explicit_columns=parse_embedding_columns(args.embedding_column),
-            metric_overrides=parse_embedding_metrics(args.embedding_metric),
-        )
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+    return BrowseCliArgs.from_namespace(args)
+
+
+def _run_browse(args: BrowseCliArgs) -> None:
+    embedding_config = _resolve_embedding_config_or_exit(args)
+    target_info = _resolve_browse_target_or_exit(args.directory)
+    target_info = _maybe_embed_browse_target_or_exit(args, target_info)
+    port = _resolve_browse_port_or_exit(args.host, args.port)
+
+    if args.no_write and args.cache_wh:
+        print("[lenslet] --no-write disables parquet caching; use --no-cache-wh to silence.")
+        args = replace(args, cache_wh=False)
+
+    _print_browse_banner(args, target_info, port)
+    _warn_multi_worker_mode()
+
+    dataset_workspace, preindex_signature = _prepare_dataset_workspace_or_exit(args, target_info)
+    browse_options, embedding_options = _build_browse_runtime_options(args, embedding_config)
+    app = _create_browse_app_or_exit(
+        args,
+        target_info,
+        dataset_workspace=dataset_workspace,
+        preindex_signature=preindex_signature,
+        embedding_config=embedding_config,
+        browse_options=browse_options,
+        embedding_options=embedding_options,
+    )
+    _launch_browse_server(app, args, port)
+
+
+def _main_rank(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="lenslet rank",
+        description="Lenslet ranking mode server",
+        epilog="Example: lenslet rank ./ranking_dataset.json --port 7070",
+    )
+    parser.add_argument(
+        "dataset_json",
+        type=str,
+        help="Path to ranking dataset JSON",
+    )
+    parser.add_argument(
+        "-p", "--port",
+        type=int,
+        default=None,
+        help="Port to listen on (default: 7070; auto-increment if in use)",
+    )
+    parser.add_argument(
+        "-H", "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host to bind to (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable auto-reload for development",
+    )
+    parser.add_argument(
+        "--results-path",
+        type=str,
+        default=None,
+        help="Optional results JSONL path. Relative values resolve from the dataset JSON directory.",
+    )
+    args = parser.parse_args(argv)
+
+    dataset_path = Path(args.dataset_json).expanduser()
+    if not dataset_path.exists():
+        print(f"Error: dataset file does not exist: {args.dataset_json}", file=sys.stderr)
         sys.exit(1)
-
-    # Resolve and validate target
-    raw_target = args.directory
-    candidate = Path(raw_target).expanduser()
-    is_local = candidate.exists()
-    is_table_file = False
-    is_remote_table = False
-    remote_kind = None
-    remote_uri = None
-    if is_local:
-        target = candidate.resolve()
-        is_table_file = target.is_file() and target.suffix.lower() == ".parquet"
-        if target.is_file():
-            if not is_table_file:
-                print(f"Error: '{args.directory}' is not a .parquet file", file=sys.stderr)
-                sys.exit(1)
-        elif not target.is_dir():
-            print(f"Error: '{args.directory}' is not a valid directory or .parquet file", file=sys.stderr)
-            sys.exit(1)
-    elif _is_remote_uri(raw_target):
-        is_remote_table = True
-        remote_kind = "remote"
-        remote_uri = raw_target
-    elif _looks_like_hf_dataset(raw_target):
-        is_remote_table = True
-        remote_kind = "hf"
-        remote_uri = f"hf://{raw_target}"
-    else:
-        print(f"Error: '{args.directory}' does not exist", file=sys.stderr)
+    if not dataset_path.is_file():
+        print(f"Error: dataset path must be a file: {args.dataset_json}", file=sys.stderr)
         sys.exit(1)
-
-    if args.embed and is_remote_table:
-        print("Error: --embed requires a local parquet file", file=sys.stderr)
-        sys.exit(1)
-
-    embed_output_path = None
-    if args.embed and is_table_file:
-        try:
-            from .embeddings.embedder import EmbedConfig, embed_parquet
-            from .storage.table import load_parquet_schema
-        except Exception as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
-
-        base_dir = args.base_dir or str(candidate.parent)
-        image_column = args.source_column
-        if image_column is None:
-            try:
-                image_column = _detect_source_column(str(candidate), base_dir)
-            except Exception as exc:
-                print(f"Error: failed to detect image column: {exc}", file=sys.stderr)
-                sys.exit(1)
-        if image_column is None:
-            print("Error: --embed requires --source-column (or a detectable image column)", file=sys.stderr)
-            sys.exit(1)
-
-        embed_columns = parse_embedding_columns(args.embedding_column)
-        embed_column = embed_columns[0] if embed_columns else "embedding_mobilenet_v3_small"
-        if embed_columns and len(embed_columns) > 1:
-            print("[lenslet] Warning: --embed uses the first --embedding-column value only.")
-
-        try:
-            schema = load_parquet_schema(str(candidate))
-            if embed_column in schema.names:
-                print(f"[lenslet] Embedding column '{embed_column}' already exists; skipping --embed.")
-            else:
-                config = EmbedConfig(
-                    embedding_column=embed_column,
-                    batch_size=args.batch_size,
-                    parquet_batch_size=args.parquet_batch_size,
-                    num_workers=args.num_workers,
-                    base_dir=base_dir,
-                )
-                embed_output_path = embed_parquet(
-                    parquet_path=candidate,
-                    image_column=image_column,
-                    config=config,
-                )
-                print(f"[lenslet] Wrote embeddings to {embed_output_path}")
-        except Exception as exc:
-            print(f"Error: embedding failed: {exc}", file=sys.stderr)
-            sys.exit(1)
-
-    if embed_output_path is not None:
-        candidate = embed_output_path
-        is_table_file = True
-        target = candidate.resolve()
+    dataset_path = dataset_path.resolve()
 
     port = args.port
     if port is None:
@@ -625,232 +994,45 @@ def _main_browse(argv: list[str] | None = None) -> None:
         if port != 7070:
             print(f"[lenslet] Port 7070 is in use; using {port} instead.")
 
-    if args.no_write:
-        if args.cache_wh:
-            print("[lenslet] --no-write disables parquet caching; use --no-cache-wh to silence.")
-            args.cache_wh = False
+    import uvicorn
+    from .ranking.app import create_ranking_app
 
-    # Print startup banner
-    if is_remote_table:
-        storage_label = "Table index (hf dataset)" if remote_kind == "hf" else "Table index (remote)"
-        display_target = remote_uri or raw_target
-    elif is_table_file:
-        storage_label = "Table index (parquet file)"
-        display_target = str(target)
-    else:
-        has_parquet = (target / "items.parquet").is_file()
-        storage_label = "Table index (items.parquet)" if has_parquet else "Filesystem dataset (auto index)"
-        display_target = str(target)
+    try:
+        app = create_ranking_app(
+            dataset_path,
+            results_path=args.results_path,
+        )
+    except Exception as exc:
+        print(f"Error: failed to initialize ranking mode: {exc}", file=sys.stderr)
+        sys.exit(1)
 
-    if is_remote_table:
-        workspace_label = "read-only (remote table)"
-    elif args.share:
-        workspace_label = "local-write / shared-read-only"
-    elif args.no_write:
-        workspace_label = "temp cache (--no-write)"
-    elif is_table_file:
-        workspace_label = "writable (parquet sidecar)"
-    else:
-        workspace_label = "writable (.lenslet workspace)"
-
+    results_path = getattr(app.state, "ranking_results_path", None)
+    dataset_label = str(dataset_path)
+    display_results = str(results_path) if results_path is not None else "unknown"
     banner_lines = [
         "┌─────────────────────────────────────────────────┐",
         "│                   🔍 Lenslet                    │",
-        "│         Lightweight Image Gallery Server        │",
+        "│               Ranking Mode Server               │",
         "├─────────────────────────────────────────────────┤",
-        f"│  Target:    {display_target[:35]:<35} │",
+        f"│  Dataset:   {dataset_label[:35]:<35} │",
         f"│  Server:    http://{args.host}:{port:<24} │",
+        f"│  Results:   {display_results[:35]:<35} │",
+        "└─────────────────────────────────────────────────┘",
+        "",
     ]
-    if args.share:
-        banner_lines.append("│  Share:     starting...                         │")
-    banner_lines.extend(
-        [
-            f"│  Storage:   {storage_label:<35} │",
-            f"│  Workspace: {workspace_label:<35} │",
-            "└─────────────────────────────────────────────────┘",
-            "",
-        ]
-    )
     print("\n".join(banner_lines))
 
-    # Guard against multi-worker mode (in-memory sync is single-process only)
-    for env_name in ("UVICORN_WORKERS", "WEB_CONCURRENCY"):
-        raw = os.getenv(env_name)
-        if not raw:
-            continue
-        try:
-            workers = int(raw)
-        except ValueError:
-            continue
-        if workers > 1:
-            print(
-                f"[lenslet] Warning: {env_name}={workers} detected. "
-                "Collaboration sync requires a single worker to avoid divergence."
-            )
-            break
-
-    dataset_workspace = None
-    preindex_result = None
-    preindex_signature = None
-    if (not is_remote_table) and (not is_table_file):
-        from .workspace import Workspace
-
-        if args.no_write:
-            dataset_workspace = Workspace.for_temp_dataset(str(target))
-        else:
-            dataset_workspace = Workspace.for_dataset(str(target), can_write=True)
-        if args.share:
-            from .preindex import ensure_local_preindex
-
-            try:
-                preindex_result = ensure_local_preindex(target, dataset_workspace)
-            except Exception as exc:
-                print(f"Error: preindex failed: {exc}", file=sys.stderr)
-                sys.exit(1)
-
-            if preindex_result is None:
-                print("[lenslet] Preindex skipped: no images found.")
-            else:
-                if preindex_result.workspace.root != dataset_workspace.root:
-                    print(f"[lenslet] Preindex workspace: {preindex_result.workspace.root}")
-                if preindex_result.reused:
-                    print(f"[lenslet] Preindex cache hit: {preindex_result.image_count} images.")
-                else:
-                    print(f"[lenslet] Preindex ready: {preindex_result.image_count} images.")
-                preindex_signature = preindex_result.signature
-                dataset_workspace = preindex_result.workspace
-        if args.no_write and dataset_workspace is not None:
-            print(
-                f"[lenslet] No-write: using temp workspace {dataset_workspace.root} "
-                "(thumb cache cap 200 MB)."
-            )
-
-    # Start server
-    import uvicorn
-    from .indexing_status import CliIndexingReporter
-    from .server import (
-        BrowseAppOptions,
-        EmbeddingAppOptions,
-        create_app,
-        create_app_from_storage,
-        create_app_from_table,
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=port,
+        reload=args.reload,
+        log_level="warning",
     )
-    from .workspace import Workspace
-    indexing_reporter = CliIndexingReporter()
-    browse_options = BrowseAppOptions(
-        thumb_size=args.thumb_size,
-        thumb_quality=args.thumb_quality,
-        thumb_cache=args.thumb_cache,
-        indexing_listener=indexing_reporter.handle_update,
-    )
-    embedding_options = EmbeddingAppOptions(
-        config=embedding_config,
-        cache=args.embedding_cache,
-        cache_dir=args.embedding_cache_dir,
-        preload=args.embedding_preload,
-    )
-    try:
-        if is_remote_table:
-            try:
-                table = _load_remote_table(remote_uri or raw_target)
-            except Exception as exc:
-                print(f"Error: failed to load remote table '{remote_uri or raw_target}': {exc}", file=sys.stderr)
-                sys.exit(1)
-            workspace = Workspace.for_dataset(None, can_write=False)
-            app = create_app_from_table(
-                table=table,
-                base_dir=args.base_dir,
-                source_column=args.source_column,
-                skip_indexing=args.skip_indexing,
-                allow_local=False,
-                og_preview=args.og_preview,
-                workspace=workspace,
-                options=browse_options,
-                embedding=embedding_options,
-            )
-        elif is_table_file:
-            storage = _prepare_table_cache(
-                parquet_path=target,
-                base_dir=args.base_dir,
-                source_column=args.source_column,
-                cache_wh=args.cache_wh,
-                skip_indexing=args.skip_indexing,
-                embedding_config=embedding_config,
-                auto_detect_root=True,
-            )
-            if args.no_write:
-                workspace = Workspace.for_temp_dataset(str(target))
-            else:
-                workspace = Workspace.for_parquet(target, can_write=True)
-            app = create_app_from_storage(
-                storage,
-                show_source=True,
-                workspace=workspace,
-                og_preview=args.og_preview,
-                embedding_parquet_path=str(target),
-                options=browse_options,
-                embedding=embedding_options,
-            )
-        else:
-            items_path = target / "items.parquet"
-            if items_path.is_file() and args.cache_wh:
-                _prepare_table_cache(
-                    parquet_path=items_path,
-                    base_dir=str(target),
-                    source_column=args.source_column,
-                    cache_wh=args.cache_wh,
-                    skip_indexing=args.skip_indexing,
-                    quiet=True,
-                    embedding_config=embedding_config,
-                )
-            app = create_app(
-                root_path=str(target),
-                no_write=args.no_write,
-                source_column=args.source_column,
-                skip_indexing=args.skip_indexing,
-                og_preview=args.og_preview,
-                workspace=dataset_workspace,
-                preindex_signature=preindex_signature,
-                options=browse_options,
-                embedding=embedding_options,
-            )
-    except Exception as exc:
-        print(f"Error: failed to initialize browse mode: {exc}", file=sys.stderr)
-        sys.exit(1)
 
-    share_tunnel = None
-    try:
-        if args.share:
-            try:
-                from .server_browse import warm_recursive_cache
-                storage = getattr(app.state, "storage", None)
-                browse_cache = getattr(app.state, "recursive_browse_cache", None)
-                if storage is not None:
-                    print("[lenslet] Warming recursive browse cache...")
-                    warmed = warm_recursive_cache(
-                        storage,
-                        "/",
-                        browse_cache,
-                        hotpath_metrics=getattr(app.state, "hotpath_metrics", None),
-                    )
-                    if warmed:
-                        print(f"[lenslet] Recursive browse cache ready: {warmed} items.")
-            except Exception as exc:
-                print(f"[lenslet] Warning: failed to warm recursive browse cache: {exc}")
-            try:
-                share_tunnel = _start_share_tunnel(port, args.host, args.verbose)
-            except Exception as exc:
-                print(f"[lenslet] Failed to start share tunnel: {exc}", file=sys.stderr)
-        uvicorn.run(
-            app,
-            host=args.host,
-            port=port,
-            reload=args.reload,
-            log_level="info" if args.verbose else "warning",
-        )
-    finally:
-        if share_tunnel is not None:
-            share_tunnel.stop()
+
+def _main_browse(argv: list[str] | None = None) -> None:
+    _run_browse(_parse_browse_args_or_exit(argv))
 
 
 def _prepare_table_cache(

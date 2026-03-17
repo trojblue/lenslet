@@ -151,6 +151,31 @@ def test_memory_health_reports_error_when_warm_index_fails(
     assert errored.get("finished_at")
 
 
+def test_memory_health_reports_error_when_item_indexing_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _make_image(tmp_path / "good.jpg")
+    _make_image(tmp_path / "broken.jpg")
+
+    original_abs_path = MemoryStorage._abs_path
+
+    def _failing_abs_path(self: MemoryStorage, path: str) -> str:
+        if path.endswith("/broken.jpg"):
+            raise OSError("forced item failure")
+        return original_abs_path(self, path)
+
+    monkeypatch.setattr(MemoryStorage, "_abs_path", _failing_abs_path)
+
+    app = _create_memory_app(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        errored = _wait_for_indexing_state(client, "error")
+
+    assert errored["scope"] == "/"
+    assert errored.get("generation")
+    assert errored.get("error") == "failed to build index"
+
+
 def test_memory_indexing_listener_receives_error_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

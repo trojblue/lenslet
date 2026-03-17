@@ -16,6 +16,30 @@ from .progress import LeafBatchTracker, ProgressBar
 from .search_text import build_search_haystack, normalize_search_path, path_in_scope
 
 
+def _indexing_reason(exc: BaseException) -> str:
+    text = str(exc).strip()
+    return text or type(exc).__name__
+
+
+class MemoryIndexBuildError(RuntimeError):
+    """Raised when a folder index cannot represent its source files honestly."""
+
+    def __init__(self, item_path: str, stage: str, reason: str) -> None:
+        self.item_path = item_path
+        self.stage = stage
+        self.reason = reason
+        super().__init__(f"failed to index {item_path} during {stage}: {reason}")
+
+    @classmethod
+    def from_exception(
+        cls,
+        item_path: str,
+        stage: str,
+        exc: BaseException,
+    ) -> "MemoryIndexBuildError":
+        return cls(item_path, stage, _indexing_reason(exc))
+
+
 @dataclass
 class MemoryBrowseItem:
     """In-memory cached metadata for an image."""
@@ -213,45 +237,48 @@ class MemoryStorage:
         *,
         include_dimensions: bool,
         include_file_stat: bool,
-    ) -> tuple[int, MemoryBrowseItem | None, tuple[int, int] | None]:
+    ) -> tuple[int, MemoryBrowseItem, tuple[int, int] | None]:
         """Build a browse item for a single image file."""
-        try:
-            full = self.join(path, name)
-            abs_path = None
-            if include_dimensions or include_file_stat:
+        full = self.join(path, name)
+        abs_path = None
+        if include_dimensions or include_file_stat:
+            try:
                 abs_path = self._abs_path(full)
+            except Exception as exc:
+                raise MemoryIndexBuildError.from_exception(full, "path resolution", exc) from exc
 
-            size = 0
-            mtime = 0.0
-            if include_file_stat and abs_path is not None:
+        size = 0
+        mtime = 0.0
+        if include_file_stat and abs_path is not None:
+            try:
                 stat = os.stat(abs_path)
-                size = stat.st_size
-                mtime = stat.st_mtime
-            mime = self._guess_mime(name)
+            except Exception as exc:
+                raise MemoryIndexBuildError.from_exception(full, "stat", exc) from exc
+            size = stat.st_size
+            mtime = stat.st_mtime
+        mime = self._guess_mime(name)
 
-            w, h = self._dimensions.get(full, (0, 0))
-            dims = None
-            if include_dimensions and (w == 0 or h == 0) and abs_path is not None:
-                try:
-                    dims = self._read_dimensions_fast(abs_path)
-                    if dims:
-                        w, h = dims
-                except Exception:
-                    dims = None
+        w, h = self._dimensions.get(full, (0, 0))
+        dims = None
+        if include_dimensions and (w == 0 or h == 0) and abs_path is not None:
+            try:
+                dims = self._read_dimensions_fast(abs_path)
+            except Exception as exc:
+                raise MemoryIndexBuildError.from_exception(full, "dimension probe", exc) from exc
+            if dims:
+                w, h = dims
 
-            item = MemoryBrowseItem(
-                path=full,
-                name=name,
-                mime=mime,
-                width=w,
-                height=h,
-                size=size,
-                mtime=mtime,
-                source=full,
-            )
-            return idx, item, dims
-        except Exception:
-            return idx, None, None
+        item = MemoryBrowseItem(
+            path=full,
+            name=name,
+            mime=mime,
+            width=w,
+            height=h,
+            size=size,
+            mtime=mtime,
+            source=full,
+        )
+        return idx, item, dims
 
     def _progress(self, done: int, total: int, label: str) -> None:
         self._progress_bar.update(done, total, label)
@@ -295,13 +322,12 @@ class MemoryStorage:
             workers = self._effective_workers(total)
         last_print = 0.0
 
-        def consume_result(result: tuple[int, MemoryBrowseItem | None, tuple[int, int] | None]) -> None:
+        def consume_result(result: tuple[int, MemoryBrowseItem, tuple[int, int] | None]) -> None:
             nonlocal done, last_print
             idx, item, dims = result
-            if item is not None:
-                items[idx] = item
-                if dims:
-                    self._dimensions[item.path] = dims
+            items[idx] = item
+            if dims:
+                self._dimensions[item.path] = dims
             done += 1
             now = time.monotonic()
             if show_progress and (now - last_print > 0.1 or done == total):
@@ -478,10 +504,10 @@ class MemoryStorage:
         """Return cached items; build root index if nothing is cached yet."""
         if self._indexes:
             return [it for idx in self._indexes.values() for it in idx.items]
-        try:
-            return list(self.get_index("/").items)
-        except Exception:
+        index = self.get_index("/")
+        if index is None:
             return []
+        return list(index.items)
 
     def _metadata_source_fields(self, meta: dict) -> tuple[str | None, str | None]:
         """Extract optional source-like search fields from metadata."""

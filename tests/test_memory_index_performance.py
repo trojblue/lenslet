@@ -1,10 +1,11 @@
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from lenslet.web.cache.browse import RecursiveBrowseCache
 from lenslet.web.browse import warm_recursive_cache
-from lenslet.storage.memory import MemoryStorage
+from lenslet.storage.memory import MemoryIndexBuildError, MemoryStorage
 
 
 def _make_image(path: Path) -> None:
@@ -76,6 +77,23 @@ def test_full_index_rebuilds_after_recursive_lightweight_cache(tmp_path: Path):
     assert full is not None
     assert all(item.width > 0 for item in full.items)
     assert all(item.height > 0 for item in full.items)
+
+
+def test_index_build_raises_for_unreadable_item(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _make_image(tmp_path / "task_a" / "one.jpg")
+    _make_image(tmp_path / "task_a" / "two.jpg")
+    storage = MemoryStorage(str(tmp_path))
+    original_abs_path = storage._abs_path
+
+    def _failing_abs_path(path: str) -> str:
+        if path.endswith("/two.jpg"):
+            raise OSError("stat blocked")
+        return original_abs_path(path)
+
+    monkeypatch.setattr(storage, "_abs_path", _failing_abs_path)
+
+    with pytest.raises(MemoryIndexBuildError, match=r"/task_a/two\.jpg"):
+        storage.get_index("/task_a")
 
 
 def test_warm_recursive_cache_uses_lightweight_indexes(tmp_path: Path, monkeypatch):

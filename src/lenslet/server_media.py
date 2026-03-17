@@ -49,42 +49,11 @@ async def _await_thumbnail(
             raise _ClientDisconnected()
 
 
-def _thumb_cache_source(storage, path: str) -> str | None:
-    source = None
-    getter = getattr(storage, "get_source_path", None)
-    if callable(getter):
-        try:
-            source = getter(path)
-        except Exception:
-            source = None
-    if not source:
-        source = path
-    if not _is_remote_source(source):
-        root = getattr(storage, "root", None)
-        if root and not os.path.isabs(source):
-            source = os.path.join(root, source)
-    return source
-
-
-def _is_remote_source(source: str) -> bool:
-    return source.startswith("s3://") or source.startswith("http://") or source.startswith("https://")
-
-
 def _thumb_cache_key(storage, path: str) -> str | None:
-    source = _thumb_cache_source(storage, path)
-    if not source:
+    try:
+        return storage.thumbnail_cache_key(path)
+    except Exception:
         return None
-    size = getattr(storage, "thumb_size", "")
-    quality = getattr(storage, "thumb_quality", "")
-    parts = [source, str(size), str(quality)]
-    if not _is_remote_source(source):
-        try:
-            etag = storage.etag(path)
-        except Exception:
-            etag = None
-        if etag:
-            parts.append(str(etag))
-    return "|".join(parts)
 
 
 def _existing_local_file(source: str) -> tuple[str, os.stat_result] | None:
@@ -99,18 +68,11 @@ def _existing_local_file(source: str) -> tuple[str, os.stat_result] | None:
 
 
 def _resolve_local_file_path(storage, path: str) -> tuple[str, os.stat_result] | None:
-    resolver = getattr(storage, "resolve_local_file_path", None)
-    if callable(resolver):
-        try:
-            source = resolver(path)
-        except Exception:
-            return None
-        if source is None:
-            return None
-        return _existing_local_file(source)
-
-    source = _thumb_cache_source(storage, path)
-    if not source or _is_remote_source(source):
+    try:
+        source = storage.resolve_local_file_path(path)
+    except Exception:
+        return None
+    if source is None:
         return None
     return _existing_local_file(source)
 
@@ -177,7 +139,7 @@ def _file_response(
     if prefetch_context is not None and hotpath_metrics is not None:
         hotpath_metrics.increment(f"file_prefetch_{prefetch_context}_total")
 
-    media_type = storage._guess_mime(path)
+    media_type = storage.guess_mime(path)
     local_hit = _resolve_local_file_path(storage, path)
     if local_hit is not None:
         local_path, stat_result = local_hit

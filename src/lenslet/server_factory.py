@@ -751,16 +751,8 @@ def create_app(
             if preindex_storage is None:
                 raise HTTPException(500, "failed to rebuild preindex table")
             if isinstance(storage, TableStorage) and isinstance(preindex_storage, TableStorage):
-                valid_keys = {
-                    preindex_storage._canonical_meta_key(item_path)
-                    for item_path in preindex_storage.row_index_map().values()
-                }
                 preindex_storage.replace_metadata(
-                    {
-                        key: value
-                        for key, value in storage.metadata_items()
-                        if key in valid_keys
-                    }
+                    storage.metadata_snapshot_for_paths(preindex_storage.row_index_map().values())
                 )
             if context.recursive_browse_cache is not None:
                 context.recursive_browse_cache.invalidate_path(path)
@@ -790,15 +782,11 @@ def create_app(
             return {"ok": True}
 
         try:
-            target = storage._abs_path(path)
+            storage.refresh_subtree(path, preserve_metadata=True)
         except ValueError:
             raise HTTPException(400, "invalid path")
-
-        if not os.path.isdir(target):
+        except FileNotFoundError:
             raise HTTPException(404, "folder not found")
-
-        # Keep in-memory sidecar metadata so annotations survive refresh.
-        storage.invalidate_subtree(path, clear_metadata=False)
         if context.recursive_browse_cache is not None:
             context.recursive_browse_cache.invalidate_path(path)
         return {"ok": True}

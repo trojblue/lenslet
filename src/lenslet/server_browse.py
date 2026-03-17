@@ -48,7 +48,7 @@ def _build_sidecar_from_meta(storage, path: str, meta: dict) -> Sidecar:
 
 
 def _build_image_metadata(storage, path: str) -> ImageMetadataResponse:
-    mime = storage._guess_mime(path)  # type: ignore[attr-defined]
+    mime = storage.guess_mime(path)
     if mime not in ("image/png", "image/jpeg", "image/webp"):
         raise HTTPException(415, "metadata reading supports PNG, JPEG, and WebP images only")
 

@@ -55,7 +55,7 @@ def test_file_response_uses_streaming_when_local_source_path_exists(tmp_path: Pa
             self._source_path = source_path
             self.read_calls = 0
 
-        def get_source_path(self, _logical_path: str) -> str:
+        def resolve_local_file_path(self, _logical_path: str) -> str:
             return str(self._source_path)
 
         def read_bytes(self, _path: str) -> bytes:
@@ -63,7 +63,7 @@ def test_file_response_uses_streaming_when_local_source_path_exists(tmp_path: Pa
             return b"unexpected"
 
         @staticmethod
-        def _guess_mime(_path: str) -> str:
+        def guess_mime(_path: str) -> str:
             return "image/jpeg"
 
     storage = _LocalSourceStorage(local_path)
@@ -82,15 +82,15 @@ def test_file_response_falls_back_for_non_local_sources() -> None:
             self.read_calls = 0
 
         @staticmethod
-        def get_source_path(_logical_path: str) -> str:
-            return "s3://bucket/key.jpg"
+        def resolve_local_file_path(_logical_path: str) -> str | None:
+            return None
 
         def read_bytes(self, _path: str) -> bytes:
             self.read_calls += 1
             return b"remote-bytes"
 
         @staticmethod
-        def _guess_mime(_path: str) -> str:
+        def guess_mime(_path: str) -> str:
             return "image/jpeg"
 
     storage = _RemoteSourceStorage()
@@ -103,26 +103,20 @@ def test_file_response_falls_back_for_non_local_sources() -> None:
 
 
 def test_file_response_falls_back_when_local_resolver_rejects_path() -> None:
-    class _RejectingLocal:
-        @staticmethod
-        def resolve_path(_path: str) -> str:
-            raise ValueError("invalid path")
-
     class _StorageWithRejectingLocal:
         def __init__(self):
-            self.local = _RejectingLocal()
             self.read_calls = 0
 
         @staticmethod
-        def get_source_path(_logical_path: str) -> str:
-            return "../secret.jpg"
+        def resolve_local_file_path(_logical_path: str) -> str:
+            raise ValueError("invalid path")
 
         def read_bytes(self, _path: str) -> bytes:
             self.read_calls += 1
             return b"safe-fallback"
 
         @staticmethod
-        def _guess_mime(_path: str) -> str:
+        def guess_mime(_path: str) -> str:
             return "image/jpeg"
 
     storage = _StorageWithRejectingLocal()

@@ -592,6 +592,19 @@ class MemoryStorage:
         norm = self._normalize_item_path(path)
         return self._thumbnails.get(norm)
 
+    def thumbnail_cache_key(self, path: str) -> str | None:
+        source = self.resolve_local_file_path(path)
+        if not source:
+            return None
+        parts = [source, str(self.thumb_size), str(self.thumb_quality)]
+        try:
+            etag = self.etag(path)
+        except Exception:
+            etag = None
+        if etag:
+            parts.append(str(etag))
+        return "|".join(parts)
+
     def resolve_local_file_path(self, path: str) -> str | None:
         try:
             return self._abs_path(self.get_source_path(path))
@@ -600,6 +613,15 @@ class MemoryStorage:
 
     def metadata_items(self) -> list[tuple[str, dict]]:
         return list(self._metadata.items())
+
+    def metadata_snapshot_for_paths(self, paths: list[str] | tuple[str, ...] | set[str]) -> dict[str, dict]:
+        snapshot: dict[str, dict] = {}
+        for path in paths:
+            key = self._canonical_meta_key(path)
+            meta = self._metadata.get(key)
+            if meta is not None:
+                snapshot[key] = dict(meta)
+        return snapshot
 
     def replace_metadata(self, metadata: dict[str, dict]) -> None:
         self._metadata = {
@@ -693,10 +715,20 @@ class MemoryStorage:
                     self._metadata.pop(key, None)
 
     @staticmethod
-    def _guess_mime(name: str) -> str:
+    def guess_mime(name: str) -> str:
         n = name.lower()
         if n.endswith(".webp"):
             return "image/webp"
         if n.endswith(".png"):
             return "image/png"
         return "image/jpeg"
+
+    @staticmethod
+    def _guess_mime(name: str) -> str:
+        return MemoryStorage.guess_mime(name)
+
+    def refresh_subtree(self, path: str, *, preserve_metadata: bool = True) -> None:
+        target = self._abs_path(path)
+        if not os.path.isdir(target):
+            raise FileNotFoundError(path)
+        self.invalidate_subtree(path, clear_metadata=not preserve_metadata)

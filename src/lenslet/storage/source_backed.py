@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from io import BytesIO
 from typing import Any, Generic, Protocol, TypeVar
 from urllib.parse import urlparse
@@ -102,8 +103,11 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
                 return source
         return None
 
-    def _guess_mime(self, name: str) -> str:
+    def guess_mime(self, name: str) -> str:
         return guess_mime(name)
+
+    def _guess_mime(self, name: str) -> str:
+        return self.guess_mime(name)
 
     def _make_thumbnail(self, img_bytes: bytes) -> tuple[bytes, tuple[int, int] | None]:
         with Image.open(BytesIO(img_bytes)) as image:
@@ -302,6 +306,21 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
                 return thumb
         return None
 
+    def thumbnail_cache_key(self, path: str) -> str | None:
+        try:
+            source = self.get_source_path(path)
+        except FileNotFoundError:
+            return None
+        parts = [source, str(self.thumb_size), str(self.thumb_quality)]
+        if not (self._is_s3_uri(source) or self._is_http_url(source)):
+            try:
+                etag = self.etag(path)
+            except Exception:
+                etag = None
+            if etag:
+                parts.append(str(etag))
+        return "|".join(parts)
+
     def resolve_local_file_path(self, path: str) -> str | None:
         try:
             source = self.get_source_path(path)
@@ -316,6 +335,19 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
 
     def metadata_items(self) -> list[tuple[str, dict[str, Any]]]:
         return list(self._metadata.items())
+
+    def metadata_snapshot_for_paths(
+        self,
+        paths: Iterable[str],
+    ) -> dict[str, dict[str, Any]]:
+        snapshot: dict[str, dict[str, Any]] = {}
+        for path in paths:
+            norm = self._normalize_item_path(path)
+            key = self._canonical_meta_key(norm)
+            meta = self._metadata.get(key)
+            if meta is not None:
+                snapshot[key] = dict(meta)
+        return snapshot
 
     def replace_metadata(self, metadata: dict[str, dict[str, Any]]) -> None:
         self._metadata = {

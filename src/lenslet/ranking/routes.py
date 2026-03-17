@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from ..server_permissions import deny_if_mutation_forbidden
 from .dataset import RankingDataset
 from .persistence import RankingResultsStore
 from .validation import RankingValidationError, derive_progress, validate_save_payload
@@ -29,7 +30,9 @@ def build_ranking_router(
         return FileResponse(str(image.abs_path))
 
     @router.post("/save")
-    def save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def save(request: Request, payload: dict[str, Any] = Body(...)):
+        if denied := deny_if_mutation_forbidden(request, writes_enabled=True):
+            return denied
         try:
             entry = validate_save_payload(payload, dataset)
         except RankingValidationError as exc:

@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from .browse_cache import RecursiveBrowseCache
@@ -29,6 +28,14 @@ from .preindex import (
     preindex_paths,
     scan_local_images,
 )
+from .server_auth import (
+    MutationPolicy,
+    READ_ONLY_MUTATION_POLICY,
+    TRUSTED_LOCAL_MUTATION_POLICY,
+    install_request_identity_middleware,
+    request_can_mutate,
+    set_mutation_policy,
+)
 from .server_browse import (
     _build_item,
     _create_hotpath_metrics,
@@ -36,6 +43,7 @@ from .server_browse import (
 )
 from .server_context import AppContext, bind_request_context, get_app_context, get_request_context, set_app_context
 from .server_media import _thumb_worker_count
+from .server_permissions import deny_if_mutation_forbidden
 from .server_routes_common import (
     RecordUpdateFn,
     register_common_api_routes as _register_common_api_routes,
@@ -95,16 +103,16 @@ def _embedding_options(options: EmbeddingAppOptions | None) -> EmbeddingAppOptio
     return options or EmbeddingAppOptions()
 
 
+def _mutation_policy_for_workspace(workspace: Workspace) -> MutationPolicy:
+    if workspace.can_write:
+        return TRUSTED_LOCAL_MUTATION_POLICY
+    return READ_ONLY_MUTATION_POLICY
+
+
 def _create_base_app(*, description: str) -> FastAPI:
     app = FastAPI(
         title="Lenslet",
         description=description,
-    )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
     )
     app.add_middleware(GZipMiddleware, minimum_size=1000)
     return app
@@ -272,6 +280,7 @@ def _presence_health_payload(
 def _base_health_payload(
     app: FastAPI,
     *,
+    request: Request,
     mode: str,
     workspace_id: str | None,
     storage_origin: str | None,
@@ -280,18 +289,19 @@ def _base_health_payload(
     runtime: AppRuntime,
     prune_interval_fallback: float,
 ) -> dict[str, Any]:
+    writes_enabled = request_can_mutate(request, writes_enabled=workspace.can_write)
     payload = {
         "ok": True,
         "mode": mode,
-        "can_write": workspace.can_write,
+        "can_write": writes_enabled,
         "refresh": _refresh_health_payload(
             mode=mode,
             storage_origin=storage_origin,
-            workspace=workspace,
+            writes_enabled=writes_enabled,
         ),
         "browse_cache": _browse_cache_health_payload(app),
         "compare_export": _compare_export_health_payload(),
-        "labels": _labels_health_payload(workspace),
+        "labels": _labels_health_payload(workspace, writes_enabled=writes_enabled),
         "presence": _presence_health_payload(
             app,
             runtime,
@@ -330,15 +340,17 @@ def _refresh_health_payload(
     *,
     mode: str,
     storage_origin: str | None,
-    workspace: Workspace,
+    writes_enabled: bool,
 ) -> dict[str, Any]:
     if mode == "dataset":
         return {"enabled": False, "note": REFRESH_NOTE_DATASET_STATIC}
     if mode == "table":
         if storage_origin != "preindex":
             return {"enabled": False, "note": REFRESH_NOTE_TABLE_STATIC}
-        if not workspace.can_write:
+        if not writes_enabled:
             return {"enabled": False, "note": REFRESH_NOTE_PREINDEX_NO_WRITE}
+    if not writes_enabled:
+        return {"enabled": False, "note": TRUSTED_LOCAL_MUTATION_POLICY.denial_message}
     return {"enabled": True}
 
 
@@ -576,11 +588,13 @@ def create_app(
     embedding = _embedding_options(embedding)
 
     app = _create_base_app(description="Lightweight image gallery server")
+    install_request_identity_middleware(app)
     if workspace is None:
         if no_write:
             workspace = Workspace.for_temp_dataset(root_path)
         else:
             workspace = Workspace.for_dataset(root_path, can_write=True)
+    set_mutation_policy(app, _mutation_policy_for_workspace(workspace))
 
     # Create storage (prefer table dataset if present)
     items_path = Path(root_path) / "items.parquet"
@@ -641,6 +655,7 @@ def create_app(
     except Exception as exc:
         print(f"[lenslet] Warning: failed to initialize workspace: {exc}")
         workspace.can_write = False
+        set_mutation_policy(app, _mutation_policy_for_workspace(workspace))
 
     runtime = _initialize_runtime(
         app,
@@ -703,11 +718,12 @@ def create_app(
     # --- Routes ---
 
     @app.get("/health")
-    def health():
+    def health(request: Request):
         context = get_app_context(app)
         return {
             **_base_health_payload(
                 app,
+                request=request,
                 mode=context.storage_mode,
                 workspace_id=_workspace_id_for_root_path(root_path),
                 storage_origin=context.storage_origin,
@@ -723,6 +739,8 @@ def create_app(
     @app.post("/refresh")
     def refresh(request: Request, path: str = "/"):
         context = get_request_context(request)
+        if denied := deny_if_mutation_forbidden(request, writes_enabled=context.workspace.can_write):
+            return denied
         if context.storage_mode == "table" and context.storage_origin != "preindex":
             return {"ok": True, "note": REFRESH_NOTE_TABLE_STATIC}
 
@@ -730,8 +748,6 @@ def create_app(
         path = _canonical_path(path)
 
         if context.storage_mode == "table":
-            if not context.workspace.can_write:
-                return {"ok": True, "note": REFRESH_NOTE_PREINDEX_NO_WRITE}
             preindex_storage, updated_workspace, _signature = _ensure_preindex_storage(
                 root_path,
                 context.workspace,
@@ -811,6 +827,7 @@ def create_app_from_datasets(
     options = _browse_options(options)
 
     app = _create_base_app(description="Lightweight image gallery server (dataset mode)")
+    install_request_identity_middleware(app)
 
     # Create dataset storage
     storage = DatasetStorage(
@@ -820,6 +837,7 @@ def create_app_from_datasets(
         include_source_in_search=show_source,
     )
     workspace = Workspace.for_dataset(None, can_write=False)
+    set_mutation_policy(app, _mutation_policy_for_workspace(workspace))
     runtime = _initialize_runtime(
         app,
         storage=storage,
@@ -862,13 +880,14 @@ def create_app_from_datasets(
     # --- Routes ---
 
     @app.get("/health")
-    def health():
+    def health(request: Request):
         context = get_app_context(app)
         dataset_names = list(datasets.keys())
         total_images = sum(len(paths) for paths in datasets.values())
         return {
             **_base_health_payload(
                 app,
+                request=request,
                 mode=context.storage_mode,
                 workspace_id=_workspace_id_for_dataset_storage(context.storage),
                 storage_origin=context.storage_origin,
@@ -975,6 +994,8 @@ def _create_browse_app(
 
     if workspace is None:
         workspace = Workspace.for_dataset(None, can_write=False)
+    install_request_identity_middleware(app)
+    set_mutation_policy(app, _mutation_policy_for_workspace(workspace))
     runtime = _initialize_runtime(
         app,
         storage=storage,
@@ -1023,11 +1044,12 @@ def _create_browse_app(
     _attach_request_context(app)
 
     @app.get("/health")
-    def health():
+    def health(request: Request):
         context = get_app_context(app)
         return {
             **_base_health_payload(
                 app,
+                request=request,
                 mode=context.storage_mode,
                 workspace_id=_workspace_id_for_table_storage(context.storage, context.workspace),
                 storage_origin=context.storage_origin,

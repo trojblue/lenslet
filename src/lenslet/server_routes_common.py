@@ -37,16 +37,14 @@ from .server_models import (
     Sidecar,
     SidecarPatch,
 )
-from .server_permissions import deny_if_workspace_read_only
-from .server_routes_presence import register_presence_routes, touch_presence_edit
+from .server_permissions import deny_if_mutation_forbidden
+from .server_routes_presence import register_presence_routes
 from .server_sync import (
     PresenceTracker,
     _apply_patch_to_meta,
     _canonical_path,
-    _client_id_from_request,
     _ensure_meta_fields,
     _format_sse,
-    _gallery_id_from_path,
     _last_event_id_from_request,
     _now_iso,
     _parse_if_match,
@@ -758,7 +756,8 @@ def register_common_api_routes(
 
     @app.put("/item")
     def put_item(path: str, body: Sidecar, request: Request):
-        if denied := deny_if_workspace_read_only(request):
+        context = get_request_context(request)
+        if denied := deny_if_mutation_forbidden(request, writes_enabled=context.workspace.can_write):
             return denied
         storage, path = _resolve_image_request(path, request)
         updated_by = _updated_by_from_request(request)
@@ -774,15 +773,12 @@ def register_common_api_routes(
             )
             meta_snapshot = dict(storage.ensure_metadata(path))
         record_update(path, meta_snapshot)
-        client_id = _client_id_from_request(request)
-        if client_id:
-            gallery_id = _gallery_id_from_path(path)
-            touch_presence_edit(presence, broker, gallery_id, client_id)
         return sidecar
 
     @app.patch("/item")
     def patch_item(path: str, body: SidecarPatch, request: Request):
-        if denied := deny_if_workspace_read_only(request):
+        context = get_request_context(request)
+        if denied := deny_if_mutation_forbidden(request, writes_enabled=context.workspace.can_write):
             return denied
         storage, path = _resolve_image_request(path, request)
         idem_key = request.headers.get("Idempotency-Key")
@@ -831,10 +827,6 @@ def register_common_api_routes(
             meta_snapshot = dict(meta)
         if updated:
             record_update(path, meta_snapshot)
-            client_id = _client_id_from_request(request)
-            if client_id:
-                gallery_id = _gallery_id_from_path(path)
-                touch_presence_edit(presence, broker, gallery_id, client_id)
         sidecar = _build_sidecar_from_meta(storage, path, meta_snapshot).model_dump()
         idempotency_cache.set(idem_key, 200, sidecar)
         return JSONResponse(status_code=200, content=sidecar)

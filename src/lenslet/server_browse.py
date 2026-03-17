@@ -184,8 +184,10 @@ def _create_hotpath_metrics(app: FastAPI) -> HotpathTelemetry:
     return metrics
 
 
-def _labels_health_payload(workspace: Workspace) -> dict[str, Any]:
-    if not workspace.can_write:
+def _labels_health_payload(workspace: Workspace, *, writes_enabled: bool | None = None) -> dict[str, Any]:
+    if writes_enabled is None:
+        writes_enabled = workspace.can_write
+    if not writes_enabled:
         return {"enabled": False, "log": None, "snapshot": None}
     return {
         "enabled": True,

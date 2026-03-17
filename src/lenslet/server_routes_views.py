@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 from .server_context import get_request_context
 from .server_models import ViewsPayload
-from .server_permissions import deny_if_workspace_read_only
+from .server_permissions import deny_if_mutation_forbidden
 
 ViewsRouteResponse = ViewsPayload | JSONResponse
 
@@ -20,9 +20,9 @@ def register_views_routes(app: FastAPI) -> None:
 
     @app.put("/views", response_model=ViewsPayload)
     def put_views(body: ViewsPayload, request: Request) -> ViewsRouteResponse:
-        if denied := deny_if_workspace_read_only(request):
+        current = get_request_context(request).workspace
+        if denied := deny_if_mutation_forbidden(request, writes_enabled=current.can_write):
             return denied
         payload = body.model_dump()
-        current = get_request_context(request).workspace
         current.save_views(payload)
         return ViewsPayload.model_validate(payload)

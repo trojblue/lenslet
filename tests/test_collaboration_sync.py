@@ -225,3 +225,63 @@ def test_labels_persist_via_snapshot_and_log(tmp_path: Path) -> None:
             assert payload["star"] == 4
 
     asyncio.run(_verify())
+
+
+def test_spoofed_write_headers_do_not_control_updated_by(tmp_path: Path) -> None:
+    image_path = tmp_path / "sample.jpg"
+    _make_image(image_path)
+    app = create_app(str(tmp_path))
+    client = TestClient(app, base_url="http://localhost")
+
+    base = client.get("/item", params={"path": "/sample.jpg"})
+    assert base.status_code == 200
+    base_version = base.json()["version"]
+
+    response = client.patch(
+        "/item",
+        params={"path": "/sample.jpg"},
+        headers={
+            "Idempotency-Key": "idem-spoof",
+            "If-Match": str(base_version),
+            "x-client-id": "spoofed-client",
+            "x-updated-by": "spoofed-user",
+        },
+        json={"base_version": base_version, "set_notes": "server-owned"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["updated_by"].startswith("session:")
+    assert payload["updated_by"] != "spoofed-user"
+    assert payload["updated_by"] != "spoofed-client"
+
+
+def test_non_local_origin_rejects_mutations_before_write_flow(tmp_path: Path) -> None:
+    image_path = tmp_path / "sample.jpg"
+    _make_image(image_path)
+    app = create_app(str(tmp_path))
+    remote_client = TestClient(app, base_url="https://public.trycloudflare.com")
+
+    health = remote_client.get("/health")
+    assert health.status_code == 200
+    assert health.json()["can_write"] is False
+
+    patch_response = remote_client.patch(
+        "/item",
+        params={"path": "/sample.jpg"},
+        json={"base_version": 1, "set_notes": "blocked"},
+    )
+    assert patch_response.status_code == 403
+    assert patch_response.json() == {
+        "error": "local_origin_required",
+        "message": "mutations require a local Lenslet origin",
+    }
+
+    view_response = remote_client.put(
+        "/views",
+        json={"version": 1, "views": []},
+    )
+    assert view_response.status_code == 403
+    assert view_response.json() == {
+        "error": "local_origin_required",
+        "message": "mutations require a local Lenslet origin",
+    }

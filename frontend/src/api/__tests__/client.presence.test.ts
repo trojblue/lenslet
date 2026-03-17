@@ -108,7 +108,7 @@ describe('presence leave transport', () => {
     setFetch(fetchSpy)
 
     const client = await import('../client')
-    const dispatched = client.dispatchPresenceLeave('/gallery', 'lease-123', 'client-1')
+    const dispatched = client.dispatchPresenceLeave('/gallery', 'lease-123')
 
     expect(dispatched).toBe(true)
     expect(sendBeacon).toHaveBeenCalledTimes(1)
@@ -126,7 +126,7 @@ describe('presence leave transport', () => {
     setFetch(fetchSpy)
 
     const client = await import('../client')
-    const dispatched = client.dispatchPresenceLeave('/gallery', 'lease-123', 'client-1')
+    const dispatched = client.dispatchPresenceLeave('/gallery', 'lease-123')
 
     expect(dispatched).toBe(true)
     expect(fetchSpy).toHaveBeenCalledTimes(1)

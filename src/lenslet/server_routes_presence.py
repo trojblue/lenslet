@@ -6,9 +6,10 @@ import asyncio
 import contextlib
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from .server_auth import request_client_id
 from .server_models import PresenceLeavePayload, PresenceMovePayload, PresencePayload
 from .server_runtime import PresenceMetrics
 from .server_sync import (
@@ -157,16 +158,11 @@ def presence_scope_mismatch_payload(
         "client_id": client_id,
     }
 
-
-def touch_presence_edit(presence: PresenceTracker, broker, gallery_id: str, client_id: str) -> None:
-    _, counts = presence.touch_edit(gallery_id, client_id)
-    publish_presence_counts(broker, counts)
-
-
-def require_presence_client_id(client_id: str) -> str:
-    if not client_id:
-        raise HTTPException(400, "client_id required")
-    return client_id
+def require_presence_client_id(request: Request) -> str:
+    client_id = request_client_id(request)
+    if client_id:
+        return client_id
+    raise HTTPException(500, "presence identity unavailable")
 
 
 def _invalid_lease_response(
@@ -215,9 +211,9 @@ def register_presence_routes(
         return _presence_diag()
 
     @app.post("/presence/join")
-    def presence_join(body: PresencePayload):
+    def presence_join(body: PresencePayload, request: Request):
         gallery_id = _canonical_path(body.gallery_id)
-        client_id = require_presence_client_id(body.client_id)
+        client_id = require_presence_client_id(request)
         try:
             lease_id, counts = presence.join(gallery_id, client_id, lease_id=body.lease_id)
         except PresenceLeaseError:
@@ -227,10 +223,10 @@ def register_presence_routes(
         return presence_payload_for_client(current, client_id, lease_id)
 
     @app.post("/presence/move")
-    def presence_move(body: PresenceMovePayload):
+    def presence_move(body: PresenceMovePayload, request: Request):
         from_gallery_id = _canonical_path(body.from_gallery_id)
         to_gallery_id = _canonical_path(body.to_gallery_id)
-        client_id = require_presence_client_id(body.client_id)
+        client_id = require_presence_client_id(request)
         try:
             response_lease_id = body.lease_id
             counts = presence.move(
@@ -258,9 +254,9 @@ def register_presence_routes(
         }
 
     @app.post("/presence/leave")
-    def presence_leave(body: PresenceLeavePayload):
+    def presence_leave(body: PresenceLeavePayload, request: Request):
         gallery_id = _canonical_path(body.gallery_id)
-        client_id = require_presence_client_id(body.client_id)
+        client_id = require_presence_client_id(request)
         try:
             removed, counts = presence.leave(gallery_id=gallery_id, client_id=client_id, lease_id=body.lease_id)
         except PresenceLeaseError:

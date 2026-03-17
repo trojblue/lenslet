@@ -644,6 +644,8 @@ def _main_browse(argv: list[str] | None = None) -> None:
 
     if is_remote_table:
         workspace_label = "read-only (remote table)"
+    elif args.share:
+        workspace_label = "local-write / shared-read-only"
     elif args.no_write:
         workspace_label = "temp cache (--no-write)"
     elif is_table_file:

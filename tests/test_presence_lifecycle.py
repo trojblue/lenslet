@@ -33,7 +33,7 @@ async def _test_client(app) -> AsyncIterator[AsyncClient]:
     await app.router.startup()
     try:
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(transport=transport, base_url="http://localhost") as client:
             yield client
     finally:
         await app.router.shutdown()
@@ -112,20 +112,22 @@ def test_event_broker_replay_latest_event_returns_empty_without_replay_miss() ->
 
 async def _run_presence_lifecycle_api(app) -> None:
     async with _test_client(app) as client:
-        join = await client.post("/presence/join", json={"gallery_id": "/animals", "client_id": "tab-1"})
+        join = await client.post("/presence/join", json={"gallery_id": "/animals"})
         assert join.status_code == 200
         join_body = join.json()
         lease_id = join_body["lease_id"]
+        client_id = join_body["client_id"]
         assert join_body["gallery_id"] == "/animals"
         assert join_body["viewing"] == 1
         assert join_body["editing"] == 0
 
         join_retry = await client.post(
             "/presence/join",
-            json={"gallery_id": "/animals", "client_id": "tab-1", "lease_id": lease_id},
+            json={"gallery_id": "/animals", "lease_id": lease_id},
         )
         assert join_retry.status_code == 200
         assert join_retry.json()["lease_id"] == lease_id
+        assert join_retry.json()["client_id"] == client_id
         assert join_retry.json()["viewing"] == 1
 
         moved = await client.post(
@@ -133,7 +135,6 @@ async def _run_presence_lifecycle_api(app) -> None:
             json={
                 "from_gallery_id": "/animals",
                 "to_gallery_id": "/animals/cats",
-                "client_id": "tab-1",
                 "lease_id": lease_id,
             },
         )
@@ -149,7 +150,6 @@ async def _run_presence_lifecycle_api(app) -> None:
             json={
                 "from_gallery_id": "/animals/cats",
                 "to_gallery_id": "/animals/dogs",
-                "client_id": "tab-1",
                 "lease_id": "bad-lease",
             },
         )
@@ -158,14 +158,14 @@ async def _run_presence_lifecycle_api(app) -> None:
 
         bad_leave = await client.post(
             "/presence/leave",
-            json={"gallery_id": "/animals/cats", "client_id": "tab-1", "lease_id": "bad-lease"},
+            json={"gallery_id": "/animals/cats", "lease_id": "bad-lease"},
         )
         assert bad_leave.status_code == 409
         assert bad_leave.json()["error"] == "invalid_lease"
 
         leave = await client.post(
             "/presence/leave",
-            json={"gallery_id": "/animals/cats", "client_id": "tab-1", "lease_id": lease_id},
+            json={"gallery_id": "/animals/cats", "lease_id": lease_id},
         )
         assert leave.status_code == 200
         assert leave.json()["removed"] is True
@@ -173,7 +173,7 @@ async def _run_presence_lifecycle_api(app) -> None:
 
         leave_again = await client.post(
             "/presence/leave",
-            json={"gallery_id": "/animals/cats", "client_id": "tab-1", "lease_id": lease_id},
+            json={"gallery_id": "/animals/cats", "lease_id": lease_id},
         )
         assert leave_again.status_code == 200
         assert leave_again.json()["removed"] is False
@@ -186,7 +186,7 @@ def test_presence_lifecycle_routes(tmp_path: Path) -> None:
 
 async def _run_idle_prune(app) -> None:
     async with _test_client(app) as client:
-        join = await client.post("/presence/join", json={"gallery_id": "/idle", "client_id": "ghost-tab"})
+        join = await client.post("/presence/join", json={"gallery_id": "/idle"})
         assert join.status_code == 200
         lease_id = join.json()["lease_id"]
 
@@ -201,7 +201,7 @@ async def _run_idle_prune(app) -> None:
 
         leave = await client.post(
             "/presence/leave",
-            json={"gallery_id": "/idle", "client_id": "ghost-tab", "lease_id": lease_id},
+            json={"gallery_id": "/idle", "lease_id": lease_id},
         )
         assert leave.status_code == 200
         assert leave.json()["removed"] is False
@@ -304,7 +304,7 @@ def test_presence_tracker_race_move_leave_touch_is_consistent() -> None:
 
 async def _run_presence_diagnostics_counters(app) -> None:
     async with _test_client(app) as client:
-        join = await client.post("/presence/join", json={"gallery_id": "/diag", "client_id": "diag-tab"})
+        join = await client.post("/presence/join", json={"gallery_id": "/diag"})
         assert join.status_code == 200
         lease_id = join.json()["lease_id"]
 
@@ -313,7 +313,6 @@ async def _run_presence_diagnostics_counters(app) -> None:
             json={
                 "from_gallery_id": "/diag",
                 "to_gallery_id": "/diag/sub",
-                "client_id": "diag-tab",
                 "lease_id": "bad-lease",
             },
         )
@@ -343,7 +342,7 @@ async def _run_presence_diagnostics_counters(app) -> None:
 
         leave = await client.post(
             "/presence/leave",
-            json={"gallery_id": "/diag", "client_id": "diag-tab", "lease_id": lease_id},
+            json={"gallery_id": "/diag", "lease_id": lease_id},
         )
         assert leave.status_code == 200
 
@@ -355,66 +354,70 @@ def test_presence_diagnostics_counters(tmp_path: Path) -> None:
 
 async def _run_presence_multi_client_convergence(app) -> None:
     async with _test_client(app) as client:
-        join_a = await client.post("/presence/join", json={"gallery_id": "/room", "client_id": "tab-a"})
-        assert join_a.status_code == 200
-        lease_a_1 = join_a.json()["lease_id"]
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://localhost") as other_client:
+            join_a = await client.post("/presence/join", json={"gallery_id": "/room"})
+            assert join_a.status_code == 200
+            lease_a_1 = join_a.json()["lease_id"]
+            client_a_id = join_a.json()["client_id"]
 
-        join_b = await client.post("/presence/join", json={"gallery_id": "/room", "client_id": "tab-b"})
-        assert join_b.status_code == 200
-        lease_b = join_b.json()["lease_id"]
-        assert join_b.json()["viewing"] == 2
+            join_b = await other_client.post("/presence/join", json={"gallery_id": "/room"})
+            assert join_b.status_code == 200
+            lease_b = join_b.json()["lease_id"]
+            assert join_b.json()["client_id"] != client_a_id
+            assert join_b.json()["viewing"] == 2
 
-        refresh_a = await client.post("/presence/join", json={"gallery_id": "/room", "client_id": "tab-a"})
-        assert refresh_a.status_code == 200
-        lease_a_2 = refresh_a.json()["lease_id"]
-        assert lease_a_2 != lease_a_1
-        assert refresh_a.json()["viewing"] == 2
+            refresh_a = await client.post("/presence/join", json={"gallery_id": "/room"})
+            assert refresh_a.status_code == 200
+            lease_a_2 = refresh_a.json()["lease_id"]
+            assert refresh_a.json()["client_id"] == client_a_id
+            assert lease_a_2 != lease_a_1
+            assert refresh_a.json()["viewing"] == 2
 
-        move_b = await client.post(
-            "/presence/move",
-            json={
-                "from_gallery_id": "/room",
-                "to_gallery_id": "/room/sub",
-                "client_id": "tab-b",
-                "lease_id": lease_b,
-            },
-        )
-        assert move_b.status_code == 200
-        move_payload = move_b.json()
-        assert move_payload["from_scope"]["viewing"] == 1
-        assert move_payload["to_scope"]["viewing"] == 1
+            move_b = await other_client.post(
+                "/presence/move",
+                json={
+                    "from_gallery_id": "/room",
+                    "to_gallery_id": "/room/sub",
+                    "lease_id": lease_b,
+                },
+            )
+            assert move_b.status_code == 200
+            move_payload = move_b.json()
+            assert move_payload["from_scope"]["viewing"] == 1
+            assert move_payload["to_scope"]["viewing"] == 1
 
-        reconnect_touch = await client.post(
-            "/presence/join",
-            json={"gallery_id": "/room/sub", "client_id": "tab-b", "lease_id": lease_b},
-        )
-        assert reconnect_touch.status_code == 200
-        assert reconnect_touch.json()["viewing"] == 1
+            reconnect_touch = await other_client.post(
+                "/presence/join",
+                json={"gallery_id": "/room/sub", "lease_id": lease_b},
+            )
+            assert reconnect_touch.status_code == 200
+            assert reconnect_touch.json()["viewing"] == 1
 
-        leave_b = await client.post(
-            "/presence/leave",
-            json={"gallery_id": "/room/sub", "client_id": "tab-b", "lease_id": lease_b},
-        )
-        assert leave_b.status_code == 200
-        assert leave_b.json()["removed"] is True
-        assert leave_b.json()["viewing"] == 0
+            leave_b = await other_client.post(
+                "/presence/leave",
+                json={"gallery_id": "/room/sub", "lease_id": lease_b},
+            )
+            assert leave_b.status_code == 200
+            assert leave_b.json()["removed"] is True
+            assert leave_b.json()["viewing"] == 0
 
-        await asyncio.sleep(0.55)
+            await asyncio.sleep(0.55)
 
-        broker = app.state.sync_broker
-        replay = broker.replay(0)
-        room_presence = _latest_presence_for_gallery(replay, "/room")
-        sub_presence = _latest_presence_for_gallery(replay, "/room/sub")
-        assert room_presence is not None
-        assert room_presence["viewing"] == 0
-        assert sub_presence is not None
-        assert sub_presence["viewing"] == 0
+            broker = app.state.sync_broker
+            replay = broker.replay(0)
+            room_presence = _latest_presence_for_gallery(replay, "/room")
+            sub_presence = _latest_presence_for_gallery(replay, "/room/sub")
+            assert room_presence is not None
+            assert room_presence["viewing"] == 0
+            assert sub_presence is not None
+            assert sub_presence["viewing"] == 0
 
-        diagnostics = await client.get("/presence/diagnostics")
-        assert diagnostics.status_code == 200
-        diag_payload = diagnostics.json()
-        assert diag_payload["active_clients"] == 0
-        assert diag_payload["stale_pruned_total"] >= 1
+            diagnostics = await client.get("/presence/diagnostics")
+            assert diagnostics.status_code == 200
+            diag_payload = diagnostics.json()
+            assert diag_payload["active_clients"] == 0
+            assert diag_payload["stale_pruned_total"] >= 1
 
 
 def test_presence_multi_client_refresh_move_reconnect_convergence(tmp_path: Path) -> None:

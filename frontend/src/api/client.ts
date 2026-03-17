@@ -428,16 +428,11 @@ function postPresenceKeepalive(path: string, payload: unknown): boolean {
   }
 }
 
-export function dispatchPresenceLeave(galleryId: string, leaseId: string, clientId?: string): boolean {
+export function dispatchPresenceLeave(galleryId: string, leaseId: string): boolean {
   return postPresenceKeepalive('/presence/leave', {
     gallery_id: galleryId,
     lease_id: leaseId,
-    client_id: clientId ?? getClientId(),
   })
-}
-
-function resolvePresenceClientId(clientId?: string): string {
-  return clientId ?? getClientId()
 }
 
 function postPresenceJSON<TResponse>(path: string, payload: unknown): Promise<TResponse> {
@@ -550,8 +545,6 @@ export const api = {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Idempotency-Key': idempotencyKey,
-      'x-client-id': getClientId(),
-      'x-updated-by': 'web',
     }
     if (opts?.ifMatch != null) headers['If-Match'] = String(opts.ifMatch)
     return fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`, {
@@ -576,8 +569,6 @@ export const api = {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'x-client-id': getClientId(),
-        'x-updated-by': 'web',
       },
       body: JSON.stringify(body),
     }).promise
@@ -593,10 +584,9 @@ export const api = {
   /**
    * Join presence for a gallery scope and get a server lease.
    */
-  joinPresence: (galleryId: string, leaseId?: string, clientId?: string): Promise<PresenceSessionResponse> => {
+  joinPresence: (galleryId: string, leaseId?: string): Promise<PresenceSessionResponse> => {
     return postPresenceJSON<PresenceSessionResponse>('/presence/join', {
       gallery_id: galleryId,
-      client_id: resolvePresenceClientId(clientId),
       lease_id: leaseId,
     })
   },
@@ -608,12 +598,10 @@ export const api = {
     fromGalleryId: string,
     toGalleryId: string,
     leaseId: string,
-    clientId?: string
   ): Promise<PresenceMoveResponse> => {
     return postPresenceJSON<PresenceMoveResponse>('/presence/move', {
       from_gallery_id: fromGalleryId,
       to_gallery_id: toGalleryId,
-      client_id: resolvePresenceClientId(clientId),
       lease_id: leaseId,
     })
   },
@@ -621,10 +609,9 @@ export const api = {
   /**
    * Leave the current presence scope using the active lease.
    */
-  leavePresence: (galleryId: string, leaseId: string, clientId?: string): Promise<PresenceLeaveResponse> => {
+  leavePresence: (galleryId: string, leaseId: string): Promise<PresenceLeaveResponse> => {
     return postPresenceJSON<PresenceLeaveResponse>('/presence/leave', {
       gallery_id: galleryId,
-      client_id: resolvePresenceClientId(clientId),
       lease_id: leaseId,
     })
   },

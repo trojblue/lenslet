@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from fastapi import Request
 
+from .server_auth import request_actor_id, request_client_id
 from .server_models import Sidecar, SidecarPatch
 from .storage.base import BrowseStorage
 from .workspace import Workspace
@@ -689,13 +690,11 @@ def _load_label_state(storage, workspace: Workspace) -> int:
 
 
 def _updated_by_from_request(request: Request | None) -> str:
-    if request is None:
-        return "server"
-    return request.headers.get("x-updated-by") or request.headers.get("x-client-id") or "server"
+    return request_actor_id(request)
 
 
 def _client_id_from_request(request: Request | None) -> str | None:
-    return request.headers.get("x-client-id") if request else None
+    return request_client_id(request)
 
 
 def _apply_patch_to_meta(meta: dict, body: SidecarPatch) -> bool:

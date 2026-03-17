@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from .cache_signals import BestEffortCacheMixin
+
 CACHE_SCHEMA_VERSION = 1
 DEFAULT_BROWSE_CACHE_CAP_BYTES = 200 * 1024 * 1024
 DEFAULT_BROWSE_MEMORY_ENTRY_LIMIT = 6
@@ -147,7 +149,7 @@ class RecursiveSnapshotWindow:
         return len(self.items)
 
 
-class RecursiveBrowseCache:
+class RecursiveBrowseCache(BestEffortCacheMixin):
     """Hybrid in-memory/on-disk cache for recursive browse windows."""
 
     def __init__(
@@ -157,6 +159,8 @@ class RecursiveBrowseCache:
         max_disk_bytes: int = DEFAULT_BROWSE_CACHE_CAP_BYTES,
         max_memory_entries: int = DEFAULT_BROWSE_MEMORY_ENTRY_LIMIT,
     ) -> None:
+        self._cache_name = "browse"
+        self._last_failure = None
         self._lock = threading.Lock()
         self._memory: dict[tuple[str, str, str], RecursiveSnapshotWindow] = {}
         self._memory_access: dict[tuple[str, str, str], float] = {}
@@ -290,7 +294,8 @@ class RecursiveBrowseCache:
                 if snapshots is None or cancel_event.is_set():
                     return
                 _window, wrote_persisted = self.save(scope_path, sort_mode, generation, snapshots)
-            except Exception:
+            except Exception as exc:
+                self._record_failure("warm", target=self._cache_dir, exc=exc)
                 return
             finally:
                 if on_saved is not None:
@@ -304,7 +309,8 @@ class RecursiveBrowseCache:
         try:
             self._warm_executor.submit(_run)
             return True
-        except Exception:
+        except Exception as exc:
+            self._record_failure("warm-submit", target=self._cache_dir, exc=exc)
             with self._lock:
                 self._warm_jobs.pop(key, None)
             return False
@@ -380,7 +386,8 @@ class RecursiveBrowseCache:
         try:
             self._warm_executor.submit(_run)
             return True
-        except Exception:
+        except Exception as exc:
+            self._record_failure("persist-submit", target=self._cache_dir, exc=exc)
             with self._lock:
                 current = self._persist_jobs.get(key)
                 if current is cancel_event:
@@ -396,7 +403,8 @@ class RecursiveBrowseCache:
             probe.write_text("ok", encoding="utf-8")
             probe.unlink(missing_ok=True)
             return True
-        except Exception:
+        except Exception as exc:
+            self._record_failure("enable-persistence", target=self._cache_dir, exc=exc)
             return False
 
     def _disk_path_for(self, scope_path: str, sort_mode: str, generation: str) -> Path:
@@ -423,7 +431,12 @@ class RecursiveBrowseCache:
     ) -> RecursiveSnapshotWindow | None:
         try:
             path = self._disk_path_for(scope_path, sort_mode, generation)
-        except Exception:
+        except Exception as exc:
+            self._record_failure(
+                "resolve-path",
+                target=self._cache_dir,
+                exc=exc,
+            )
             return None
         if not path.is_file():
             return None
@@ -454,8 +467,8 @@ class RecursiveBrowseCache:
 
         try:
             os.utime(path, None)
-        except OSError:
-            pass
+        except OSError as exc:
+            self._record_failure("touch", target=path, exc=exc)
 
         return RecursiveSnapshotWindow(
             scope_path=_canonical_scope(scope_path),
@@ -497,12 +510,13 @@ class RecursiveBrowseCache:
                 return False
             self._evict_disk_to_cap()
             return path.exists()
-        except Exception:
+        except Exception as exc:
+            self._record_failure("write", target=tmp or self._cache_dir, exc=exc)
             if tmp is not None:
                 try:
                     tmp.unlink(missing_ok=True)
-                except Exception:
-                    pass
+                except Exception as cleanup_exc:
+                    self._record_failure("cleanup", target=tmp, exc=cleanup_exc)
             return False
 
     def _evict_disk_to_cap(self) -> None:
@@ -558,13 +572,16 @@ class RecursiveBrowseCache:
         try:
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 payload = json.load(handle)
-        except Exception:
+        except Exception as exc:
+            self._record_failure("read", target=path, exc=exc)
             self._safe_unlink(path)
             return None
         if not isinstance(payload, dict):
+            self._record_failure("read", target=path, detail="invalid cache payload")
             self._safe_unlink(path)
             return None
         if payload.get("schema_version") != CACHE_SCHEMA_VERSION:
+            self._record_failure("read", target=path, detail="unsupported cache schema")
             self._safe_unlink(path)
             return None
         return payload
@@ -584,7 +601,8 @@ class RecursiveBrowseCache:
             path.unlink()
         except FileNotFoundError:
             return
-        except Exception:
+        except Exception as exc:
+            self._record_failure("cleanup", target=path, exc=exc)
             return
 
     def _cleanup_empty_dirs(self) -> None:
@@ -592,12 +610,15 @@ class RecursiveBrowseCache:
             return
         try:
             candidates = sorted(self._cache_dir.rglob("*"), reverse=True)
-        except Exception:
+        except Exception as exc:
+            self._record_failure("scan", target=self._cache_dir, exc=exc)
             return
         for path in candidates:
             if not path.is_dir():
                 continue
             try:
                 path.rmdir()
-            except OSError:
+            except OSError as exc:
+                if path.exists():
+                    self._record_failure("cleanup", target=path, exc=exc)
                 continue

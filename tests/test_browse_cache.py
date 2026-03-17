@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 
@@ -160,3 +161,21 @@ def test_recursive_browse_cache_invalidate_path_cancels_pending_warm(tmp_path):
 
     assert cache.pending_warm_count() == 0
     assert cache.load("/gallery", "scan", "gen-1") is None
+
+
+def test_recursive_browse_cache_records_invalid_disk_payload(tmp_path, caplog):
+    cache = RecursiveBrowseCache(
+        cache_dir=tmp_path / "browse-cache",
+        max_disk_bytes=20_000,
+        max_memory_entries=2,
+    )
+    disk_path = cache._disk_path_for("/gallery", "scan", "gen-1")
+    disk_path.parent.mkdir(parents=True, exist_ok=True)
+    disk_path.write_bytes(b"not a gzip payload")
+
+    with caplog.at_level(logging.WARNING):
+        assert cache.load("/gallery", "scan", "gen-1") is None
+
+    assert cache.last_failure is not None
+    assert cache.last_failure.operation == "read"
+    assert "browse cache read failed" in caplog.text

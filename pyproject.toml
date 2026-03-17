@@ -3,7 +3,7 @@ name = "lenslet"
 version = "0.3.1"
 description = "Lightweight image gallery server - no database, no files left behind"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 license = {text = "MIT"}
 authors = [
     {name = "yada", email = "trojblue@gmail.com"}
@@ -27,12 +27,12 @@ classifiers = [
 ]
 
 dependencies = [
-    "fastapi>=0.115",
-    "pydantic>=2.0,<3",
-    "uvicorn[standard]>=0.30",
-    "pillow>=10.4",
-    "pyarrow>=14.0",
-    "tqdm>=4.66",
+    "fastapi>=0.135,<0.136",
+    "pydantic>=2.12,<2.13",
+    "uvicorn[standard]>=0.41,<0.42",
+    "pillow>=12.1,<13",
+    "pyarrow>=23.0,<24",
+    "tqdm>=4.67,<5",
 ]
 
 [project.optional-dependencies]

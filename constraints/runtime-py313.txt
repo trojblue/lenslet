@@ -1,0 +1,10 @@
+# Validated runtime dependency set for the current repository branch.
+# Use with:
+#   python -m pip install -c constraints/runtime-py313.txt -e .
+#   python -m pip install -c constraints/runtime-py313.txt -e ".[dev]"
+fastapi==0.135.1
+pydantic==2.12.5
+uvicorn[standard]==0.41.0
+pillow==12.1.1
+pyarrow==23.0.1
+tqdm==4.67.3

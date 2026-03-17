@@ -7,6 +7,7 @@ from typing import Any, Callable
 from fastapi import FastAPI
 
 from .server_sync import PresenceTracker, _init_sync_state
+from .storage.base import BrowseStorage
 from .thumbs import ThumbnailScheduler
 from .workspace import Workspace
 
@@ -43,7 +44,7 @@ class AppRuntime:
 def build_app_runtime(
     app: FastAPI,
     *,
-    storage,
+    storage: BrowseStorage,
     workspace: Workspace,
     presence_view_ttl: float,
     presence_edit_ttl: float,

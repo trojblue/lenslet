@@ -17,6 +17,7 @@ from .server_models import (
     EmbeddingsResponse,
 )
 from .server_sync import _canonical_path
+from .storage.base import BrowseStorage
 
 
 def _build_embeddings_payload(manager: EmbeddingManager) -> EmbeddingsResponse:
@@ -36,7 +37,7 @@ def _build_embeddings_payload(manager: EmbeddingManager) -> EmbeddingsResponse:
 
 def register_embedding_routes(
     app: FastAPI,
-    storage,
+    storage: BrowseStorage,
     manager: EmbeddingManager | None,
 ) -> None:
     @app.get("/embeddings", response_model=EmbeddingsResponse)

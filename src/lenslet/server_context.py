@@ -11,6 +11,7 @@ from .browse_cache import RecursiveBrowseCache
 from .indexing_status import IndexingLifecycle
 from .og_cache import OgImageCache
 from .server_runtime import AppRuntime
+from .storage.base import BrowseStorage
 from .workspace import Workspace
 
 _APP_CONTEXT_ATTR = "lenslet_app_context"
@@ -19,7 +20,7 @@ _REQUEST_CONTEXT_ATTR = "lenslet_app_context"
 
 @dataclass
 class AppContext:
-    storage: Any
+    storage: BrowseStorage
     workspace: Workspace
     runtime: AppRuntime
     recursive_browse_cache: RecursiveBrowseCache | None

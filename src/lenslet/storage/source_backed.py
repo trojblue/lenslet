@@ -306,6 +306,9 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
                 return thumb
         return None
 
+    def get_recursive_index(self, path: str):
+        return self.get_index(path)
+
     def thumbnail_cache_key(self, path: str) -> str | None:
         try:
             source = self.get_source_path(path)
@@ -357,6 +360,33 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
 
     def total_items(self) -> int:
         return len(self._items)
+
+    def items_in_scope(self, path: str) -> list[ItemT]:
+        scope_norm = normalize_search_path(path)
+        return [
+            item
+            for item in self._items.values()
+            if path_in_scope(logical_path=item.path, scope_norm=scope_norm)
+        ]
+
+    def count_in_scope(self, path: str) -> int:
+        scope_norm = normalize_search_path(path)
+        return sum(
+            1
+            for item in self._items.values()
+            if path_in_scope(logical_path=item.path, scope_norm=scope_norm)
+        )
+
+    def row_index_for_path(self, path: str) -> int | None:
+        _ = path
+        return None
+
+    def table_fields_for_path(self, path: str) -> dict[str, Any]:
+        _ = path
+        return {}
+
+    def recursive_items_hard_limit(self) -> int | None:
+        return None
 
     def get_metadata_readonly(self, path: str) -> dict[str, Any]:
         norm = self._normalize_item_path(path)

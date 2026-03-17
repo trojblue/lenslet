@@ -13,6 +13,7 @@ from uuid import uuid4
 from fastapi import Request
 
 from .server_models import Sidecar, SidecarPatch
+from .storage.base import BrowseStorage
 from .workspace import Workspace
 
 
@@ -555,7 +556,7 @@ class SnapshotWriter:
         self._log_lock = log_lock
         self._compact_threshold = compact_threshold_bytes
 
-    def maybe_write(self, storage, last_event_id: int) -> None:
+    def maybe_write(self, storage: BrowseStorage, last_event_id: int) -> None:
         if not self._workspace.can_write:
             return
         now = time.monotonic()
@@ -587,14 +588,9 @@ class SnapshotWriter:
             print(f"[lenslet] Warning: failed to compact labels log: {exc}")
 
 
-def _build_snapshot_payload(storage, last_event_id: int) -> dict[str, Any]:
+def _build_snapshot_payload(storage: BrowseStorage, last_event_id: int) -> dict[str, Any]:
     items: dict[str, Any] = {}
-    metadata_items = getattr(storage, "metadata_items", None)
-    if callable(metadata_items):
-        entries = metadata_items()
-    else:
-        entries = []
-    for path, meta in list(entries):
+    for path, meta in list(storage.metadata_items()):
         if not isinstance(meta, dict):
             continue
         meta = _ensure_meta_fields(meta)

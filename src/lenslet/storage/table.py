@@ -373,6 +373,9 @@ class TableStorage(SourceBackedStorageMixin[TableBrowseItem]):
             return self._indexes[norm]
         return None
 
+    def get_recursive_index(self, path: str) -> TableBrowseIndex | None:
+        return self.get_index(path)
+
     def validate_image_path(self, path: str) -> None:
         if not path:
             raise ValueError("empty path")

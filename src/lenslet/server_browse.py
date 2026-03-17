@@ -16,14 +16,15 @@ from .metadata import read_jpeg_info, read_png_info, read_webp_info
 from .server_context import get_request_context
 from .server_models import DirEntry, FolderIndex, ImageMetadataResponse, Item, SearchResult, Sidecar
 from .server_sync import _canonical_path, _sidecar_from_meta
+from .storage.base import BrowseStorage
 from .workspace import Workspace
 
 
-def _storage_from_request(request: Request):
+def _storage_from_request(request: Request) -> BrowseStorage:
     return get_request_context(request).storage
 
 
-def _ensure_image(storage, path: str) -> None:
+def _ensure_image(storage: BrowseStorage, path: str) -> None:
     try:
         storage.validate_image_path(path)
     except FileNotFoundError:
@@ -32,22 +33,20 @@ def _ensure_image(storage, path: str) -> None:
         raise HTTPException(400, str(exc))
 
 
-def _build_sidecar(storage, path: str) -> Sidecar:
+def _build_sidecar(storage: BrowseStorage, path: str) -> Sidecar:
     meta = storage.get_metadata_readonly(path)
     return _build_sidecar_from_meta(storage, path, meta)
 
 
-def _build_sidecar_from_meta(storage, path: str, meta: dict) -> Sidecar:
+def _build_sidecar_from_meta(storage: BrowseStorage, path: str, meta: dict) -> Sidecar:
     sidecar = _sidecar_from_meta(meta)
-    table_fields_for_path = getattr(storage, "table_fields_for_path", None)
-    if callable(table_fields_for_path):
-        table_fields = table_fields_for_path(path)
-        if isinstance(table_fields, dict) and table_fields:
-            sidecar.table_fields = table_fields
+    table_fields = storage.table_fields_for_path(path)
+    if table_fields:
+        sidecar.table_fields = table_fields
     return sidecar
 
 
-def _build_image_metadata(storage, path: str) -> ImageMetadataResponse:
+def _build_image_metadata(storage: BrowseStorage, path: str) -> ImageMetadataResponse:
     mime = storage.guess_mime(path)
     if mime not in ("image/png", "image/jpeg", "image/webp"):
         raise HTTPException(415, "metadata reading supports PNG, JPEG, and WebP images only")
@@ -119,7 +118,7 @@ def _metric_keys_from_cached_items(cached_items: Iterable[Any]) -> list[str]:
 
 
 def _metric_keys_for_folder(
-    storage,
+    storage: BrowseStorage,
     canonical_path: str,
     index: Any,
     *,
@@ -129,10 +128,7 @@ def _metric_keys_for_folder(
     if recursive:
         if snapshots is not None:
             return _metric_keys_from_cached_items(snapshots)
-        scope_items = getattr(storage, "items_in_scope", None)
-        if callable(scope_items):
-            return _metric_keys_from_cached_items(scope_items(canonical_path))
-        return []
+        return _metric_keys_from_cached_items(storage.items_in_scope(canonical_path))
     return _metric_keys_from_cached_items(getattr(index, "items", []) or [])
 
 
@@ -218,12 +214,9 @@ def _raise_recursive_items_limit() -> None:
     )
 
 
-def _recursive_items_hard_limit(storage) -> int | None:
-    getter = getattr(storage, "recursive_items_hard_limit", None)
-    if not callable(getter):
-        return RECURSIVE_ITEMS_HARD_LIMIT
+def _recursive_items_hard_limit(storage: BrowseStorage) -> int | None:
     try:
-        limit = getter()
+        limit = storage.recursive_items_hard_limit()
     except Exception:
         return RECURSIVE_ITEMS_HARD_LIMIT
     if limit is None:
@@ -240,7 +233,7 @@ def _recursive_items_hard_limit(storage) -> int | None:
 
 
 def _collect_recursive_cached_items(
-    storage,
+    storage: BrowseStorage,
     root_path: str,
     root_index: Any,
     *,
@@ -292,11 +285,8 @@ def _collect_recursive_cached_items(
     return [cached for _, cached in items], total_items
 
 
-def _recursive_index_getter(storage) -> Callable[[str], Any]:
-    getter = getattr(storage, "get_index_for_recursive", None)
-    if callable(getter):
-        return getter
-    return storage.get_index
+def _recursive_index_getter(storage: BrowseStorage) -> Callable[[str], Any]:
+    return storage.get_recursive_index
 
 
 def _snapshots_from_cached_items(
@@ -309,70 +299,44 @@ def _snapshots_from_cached_items(
 
 
 def _build_recursive_snapshots(
-    storage,
+    storage: BrowseStorage,
     canonical_path: str,
     root_index: Any,
     *,
     max_items: int | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
-    scope_items = getattr(storage, "items_in_scope", None)
-    if callable(scope_items):
-        snapshots = _snapshots_from_cached_items(scope_items(canonical_path))
-        if max_items is not None and len(snapshots) > max_items:
-            _raise_recursive_items_limit()
-        return snapshots, len(snapshots)
-
-    cached_items, total_items = _collect_recursive_cached_items(
-        storage,
-        canonical_path,
-        root_index,
-        max_items=max_items,
-        cancelled=cancelled,
-    )
-    return _snapshots_from_cached_items(cached_items), total_items
+    _ = root_index, cancelled
+    snapshots = _snapshots_from_cached_items(storage.items_in_scope(canonical_path))
+    if max_items is not None and len(snapshots) > max_items:
+        _raise_recursive_items_limit()
+    return snapshots, len(snapshots)
 
 
 def _count_recursive_items(
-    storage,
+    storage: BrowseStorage,
     canonical_path: str,
     root_index: Any,
 ) -> int:
-    count_in_scope = getattr(storage, "count_in_scope", None)
-    if callable(count_in_scope):
-        return int(count_in_scope(canonical_path))
-
-    scope_items = getattr(storage, "items_in_scope", None)
-    if callable(scope_items):
-        return sum(1 for _ in scope_items(canonical_path))
-
-    _cached_items, total_items = _collect_recursive_cached_items(
-        storage,
-        canonical_path,
-        root_index,
-    )
-    return total_items
+    _ = root_index
+    return int(storage.count_in_scope(canonical_path))
 
 
-def _recursive_cache_generation_token(storage) -> str:
+def _recursive_cache_generation_token(storage: BrowseStorage) -> str:
     parts: list[str] = []
-    signature_fn = getattr(storage, "browse_cache_signature", None)
-    if callable(signature_fn):
-        try:
-            signature = str(signature_fn()).strip()
-        except Exception:
-            signature = ""
-        if signature:
-            parts.append(signature)
+    try:
+        signature = str(storage.browse_cache_signature()).strip()
+    except Exception:
+        signature = ""
+    if signature:
+        parts.append(signature)
 
-    generation_fn = getattr(storage, "browse_generation", None)
-    if callable(generation_fn):
-        try:
-            generation = str(generation_fn()).strip()
-        except Exception:
-            generation = ""
-        if generation:
-            parts.append(generation)
+    try:
+        generation = str(storage.browse_generation()).strip()
+    except Exception:
+        generation = ""
+    if generation:
+        parts.append(generation)
 
     if not parts:
         return "default"
@@ -380,7 +344,7 @@ def _recursive_cache_generation_token(storage) -> str:
 
 
 def _load_or_build_recursive_snapshots(
-    storage,
+    storage: BrowseStorage,
     canonical_path: str,
     root_index: Any,
     *,
@@ -447,17 +411,14 @@ def _load_or_build_recursive_snapshots(
 
 
 def warm_recursive_cache(
-    storage,
+    storage: BrowseStorage,
     path: str,
     browse_cache: RecursiveBrowseCache | None,
     *,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> int:
     if browse_cache is None:
-        scope_count = getattr(storage, "count_in_scope", None)
-        if callable(scope_count):
-            return int(scope_count(path))
-        return 0
+        return int(storage.count_in_scope(path))
     recursive_index = _recursive_index_getter(storage)
     try:
         root_index = recursive_index(path)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any, Protocol
 
 
@@ -66,10 +67,30 @@ class BrowseIndex(Protocol):
 
 
 class BrowseStorage(Storage, Protocol):
-    """Browse-oriented storage contract used by the server/runtime layer."""
+    """Server-facing browse storage contract used by the runtime and routes."""
 
     def get_index(self, path: str) -> BrowseIndex | None:
         """Return a folder index, or None when the path is outside the browse tree."""
+        ...
+
+    def get_recursive_index(self, path: str) -> BrowseIndex | None:
+        """Return the recursive-traversal index for a folder."""
+        ...
+
+    def items_in_scope(self, path: str) -> list[BrowseItem]:
+        """Return all items beneath a logical scope."""
+        ...
+
+    def count_in_scope(self, path: str) -> int:
+        """Return the total number of items beneath a logical scope."""
+        ...
+
+    def validate_image_path(self, path: str) -> None:
+        """Raise when the path does not resolve to a valid image item."""
+        ...
+
+    def guess_mime(self, path: str) -> str:
+        """Return the MIME type for the requested logical path."""
         ...
 
     def get_metadata_readonly(self, path: str) -> dict[str, Any]:
@@ -88,8 +109,16 @@ class BrowseStorage(Storage, Protocol):
         """Return the backing source path/URL for a logical browse path."""
         ...
 
+    def get_thumbnail(self, path: str) -> bytes | None:
+        """Return or build the thumbnail bytes for the requested item."""
+        ...
+
     def get_cached_thumbnail(self, path: str) -> bytes | None:
         """Return an in-memory thumbnail if present, without generating one."""
+        ...
+
+    def thumbnail_cache_key(self, path: str) -> str | None:
+        """Return the shared thumbnail cache key for the requested item."""
         ...
 
     def resolve_local_file_path(self, path: str) -> str | None:
@@ -100,12 +129,51 @@ class BrowseStorage(Storage, Protocol):
         """Return storage metadata entries for persistence/export helpers."""
         ...
 
+    def metadata_snapshot_for_paths(
+        self,
+        paths: Iterable[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Return a canonicalized metadata snapshot limited to the supplied logical paths."""
+        ...
+
     def replace_metadata(self, metadata: dict[str, dict[str, Any]]) -> None:
         """Replace storage metadata entries from a caller-owned snapshot."""
         ...
 
     def total_items(self) -> int:
         """Return the number of indexed browse items."""
+        ...
+
+    def row_index_for_path(self, path: str) -> int | None:
+        """Return the row index backing a logical path, or None when unavailable."""
+        ...
+
+    def table_fields_for_path(self, path: str) -> dict[str, Any]:
+        """Return displayable table fields for a logical path."""
+        ...
+
+    def indexing_progress(self) -> dict[str, int | str | bool | None]:
+        """Return the current indexing progress snapshot."""
+        ...
+
+    def browse_generation(self) -> int:
+        """Return the current browse generation token."""
+        ...
+
+    def browse_cache_signature(self) -> str:
+        """Return the stable browse cache signature."""
+        ...
+
+    def recursive_items_hard_limit(self) -> int | None:
+        """Return the hard limit for recursive browse expansion."""
+        ...
+
+
+class RefreshableBrowseStorage(BrowseStorage, Protocol):
+    """Browse storage that can refresh a subtree in place."""
+
+    def refresh_subtree(self, path: str, *, preserve_metadata: bool = True) -> None:
+        """Refresh a folder subtree, optionally retaining mutable metadata."""
         ...
 
 

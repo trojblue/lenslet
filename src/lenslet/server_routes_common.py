@@ -53,6 +53,7 @@ from .server_sync import (
     _sidecar_from_meta,
     _updated_by_from_request,
 )
+from .storage.base import BrowseStorage
 
 
 MAX_EXPORT_SOURCE_PIXELS = 64_000_000
@@ -612,14 +613,11 @@ def register_folder_route(
         )
 
 
-def _folder_index_getter(storage) -> Callable[[str], Any]:
-    getter = getattr(storage, "get_index_for_recursive", None)
-    if callable(getter):
-        return getter
-    return storage.get_index
+def _folder_index_getter(storage: BrowseStorage) -> Callable[[str], Any]:
+    return storage.get_recursive_index
 
 
-def _collect_folder_paths(storage) -> list[str]:
+def _collect_folder_paths(storage: BrowseStorage) -> list[str]:
     get_index = _folder_index_getter(storage)
     queue: deque[str] = deque(["/"])
     seen: set[str] = set()

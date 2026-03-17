@@ -8,8 +8,9 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Request, Response
 
 from . import og
-from .server_context import get_request_context
 from .og_cache import OgImageCache
+from .server_context import get_request_context
+from .storage.base import BrowseStorage
 from .workspace import Workspace
 
 
@@ -37,7 +38,7 @@ def _dataset_mtime(workspace: Workspace) -> float | None:
     return None
 
 
-def _dataset_signature(current_storage, current_workspace: Workspace) -> str:
+def _dataset_signature(current_storage: BrowseStorage, current_workspace: Workspace) -> str:
     mtime = _dataset_mtime(current_workspace)
     if mtime is not None:
         return f"parquet:{int(mtime)}"
@@ -45,7 +46,9 @@ def _dataset_signature(current_storage, current_workspace: Workspace) -> str:
         index = current_storage.get_index("/")
     except Exception:
         return "unknown"
-    items = getattr(index, "items", [])
+    if index is None:
+        return "empty"
+    items = index.items
     if not items:
         return "empty"
     max_mtime = 0.0
@@ -80,21 +83,11 @@ def _dataset_label(current_workspace: Workspace) -> str:
     return "dataset"
 
 
-def _dataset_count(current_storage) -> int | None:
-    items = getattr(current_storage, "_items", None)
-    if isinstance(items, dict):
-        return len(items)
-    if isinstance(items, list):
-        return len(items)
-    indexes = getattr(current_storage, "_indexes", None)
-    if isinstance(indexes, dict):
-        root = indexes.get("") or indexes.get("/")
-        if root is not None and hasattr(root, "items"):
-            try:
-                return len(root.items)
-            except Exception:
-                return None
-    return None
+def _dataset_count(current_storage: BrowseStorage) -> int | None:
+    try:
+        return current_storage.total_items()
+    except Exception:
+        return None
 
 
 def _og_cache_from_workspace(workspace: Workspace, enabled: bool) -> OgImageCache | None:

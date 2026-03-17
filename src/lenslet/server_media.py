@@ -10,6 +10,7 @@ from typing import Any, Literal
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
+from .storage.base import BrowseStorage
 from .thumb_cache import ThumbCache
 from .thumbs import ThumbnailScheduler
 
@@ -23,12 +24,9 @@ def _thumb_worker_count() -> int:
     return max(1, min(4, cpu))
 
 
-def _get_cached_thumbnail(storage, path: str) -> bytes | None:
-    getter = getattr(storage, "get_cached_thumbnail", None)
-    if not callable(getter):
-        return None
+def _get_cached_thumbnail(storage: BrowseStorage, path: str) -> bytes | None:
     try:
-        return getter(path)
+        return storage.get_cached_thumbnail(path)
     except Exception:
         return None
 
@@ -49,7 +47,7 @@ async def _await_thumbnail(
             raise _ClientDisconnected()
 
 
-def _thumb_cache_key(storage, path: str) -> str | None:
+def _thumb_cache_key(storage: BrowseStorage, path: str) -> str | None:
     try:
         return storage.thumbnail_cache_key(path)
     except Exception:
@@ -67,7 +65,10 @@ def _existing_local_file(source: str) -> tuple[str, os.stat_result] | None:
     return source_path, stat_result
 
 
-def _resolve_local_file_path(storage, path: str) -> tuple[str, os.stat_result] | None:
+def _resolve_local_file_path(
+    storage: BrowseStorage,
+    path: str,
+) -> tuple[str, os.stat_result] | None:
     try:
         source = storage.resolve_local_file_path(path)
     except Exception:
@@ -78,7 +79,7 @@ def _resolve_local_file_path(storage, path: str) -> tuple[str, os.stat_result] |
 
 
 async def _thumb_response_async(
-    storage,
+    storage: BrowseStorage,
     path: str,
     request: Request,
     queue: ThumbnailScheduler,
@@ -130,7 +131,7 @@ def _file_prefetch_context(request: Request | None) -> FilePrefetchContext | Non
 
 
 def _file_response(
-    storage,
+    storage: BrowseStorage,
     path: str,
     request: Request | None = None,
     hotpath_metrics: Any | None = None,

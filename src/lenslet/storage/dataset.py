@@ -394,6 +394,10 @@ class DatasetStorage(SourceBackedStorageMixin[DatasetBrowseItem]):
             return self._indexes[norm]
         return None
 
+    def row_index_for_path(self, path: str) -> int | None:
+        norm = self._normalize_item_path(path)
+        return self._path_to_row.get(norm)
+
     def validate_image_path(self, path: str) -> None:
         norm = self._normalize_item_path(path)
         if not path or norm not in self._items:

@@ -55,6 +55,7 @@ from .server_models import (
     MAX_EXPORT_COMPARISON_PATHS_V2,
     MAX_EXPORT_COMPARISON_PATHS_V2_GIF,
 )
+from .storage.base import BrowseStorage
 from .storage.dataset import DatasetStorage
 from .storage.memory import MemoryStorage
 from .storage.table import TableStorage, load_parquet_schema, load_parquet_table
@@ -186,7 +187,7 @@ def _build_record_update(
 def _set_runtime_context(
     app: FastAPI,
     *,
-    storage,
+    storage: BrowseStorage,
     workspace: Workspace,
     runtime: AppRuntime,
     storage_mode: str,
@@ -229,7 +230,7 @@ def _runtime_for_workspace(
 def _initialize_runtime(
     app: FastAPI,
     *,
-    storage,
+    storage: BrowseStorage,
     workspace: Workspace,
     thumb_cache: bool,
     presence_view_ttl: float,
@@ -411,12 +412,9 @@ def _warn_dataset_embedding_search_unavailable(embedding_parquet_path: str | Non
     )
 
 
-def _storage_indexing_progress(storage) -> tuple[int | None, int | None]:
-    snapshot_fn = getattr(storage, "indexing_progress", None)
-    if not callable(snapshot_fn):
-        return None, None
+def _storage_indexing_progress(storage: BrowseStorage) -> tuple[int | None, int | None]:
     try:
-        snapshot = snapshot_fn()
+        snapshot = storage.indexing_progress()
     except Exception:
         return None, None
     if not isinstance(snapshot, dict):
@@ -428,32 +426,28 @@ def _storage_indexing_progress(storage) -> tuple[int | None, int | None]:
     return done, total
 
 
-def _storage_indexing_generation(storage) -> str:
+def _storage_indexing_generation(storage: BrowseStorage) -> str:
     parts: list[str] = []
-    signature_fn = getattr(storage, "browse_cache_signature", None)
-    if callable(signature_fn):
-        try:
-            signature = str(signature_fn()).strip()
-        except Exception:
-            signature = ""
-        if signature:
-            parts.append(signature)
+    try:
+        signature = str(storage.browse_cache_signature()).strip()
+    except Exception:
+        signature = ""
+    if signature:
+        parts.append(signature)
 
-    generation_fn = getattr(storage, "browse_generation", None)
-    if callable(generation_fn):
-        try:
-            generation = str(generation_fn()).strip()
-        except Exception:
-            generation = ""
-        if generation:
-            parts.append(generation)
+    try:
+        generation = str(storage.browse_generation()).strip()
+    except Exception:
+        generation = ""
+    if generation:
+        parts.append(generation)
 
     if not parts:
         return "default"
     return "|".join(parts)
 
 
-def _indexing_health_payload(indexing: IndexingLifecycle, storage) -> dict[str, Any]:
+def _indexing_health_payload(indexing: IndexingLifecycle, storage: BrowseStorage) -> dict[str, Any]:
     done, total = _storage_indexing_progress(storage)
     payload = indexing.snapshot(done=done, total=total)
     if payload.get("state") == "error" and isinstance(payload.get("error"), str):
@@ -676,20 +670,17 @@ def create_app(
     indexing = IndexingLifecycle(scope="/")
     if options.indexing_listener is not None:
         indexing.subscribe(options.indexing_listener)
-    if hasattr(storage, "get_index"):
-        indexing.start(scope="/")
+    indexing.start(scope="/")
 
-        def _warm_index() -> None:
-            try:
-                storage.get_index("/")  # type: ignore[call-arg]
-                indexing.mark_ready()
-            except Exception as exc:
-                print(f"[lenslet] Warning: failed to build index: {exc}")
-                indexing.mark_error(str(exc) or "failed to build index")
+    def _warm_index() -> None:
+        try:
+            storage.get_index("/")
+            indexing.mark_ready()
+        except Exception as exc:
+            print(f"[lenslet] Warning: failed to build index: {exc}")
+            indexing.mark_error(str(exc) or "failed to build index")
 
-        threading.Thread(target=_warm_index, daemon=True).start()
-    else:
-        indexing.mark_ready()
+    threading.Thread(target=_warm_index, daemon=True).start()
 
     def _to_item(storage, cached):
         meta = storage.get_metadata_readonly(cached.path)
@@ -946,7 +937,7 @@ def create_app_from_table(
 
 
 def create_app_from_storage(
-    storage: TableStorage | MemoryStorage,
+    storage: BrowseStorage,
     *,
     show_source: bool = True,
     og_preview: bool = False,
@@ -968,7 +959,7 @@ def create_app_from_storage(
 
 
 def _create_browse_app(
-    storage: TableStorage | MemoryStorage,
+    storage: BrowseStorage,
     *,
     show_source: bool,
     og_preview: bool,
@@ -1034,7 +1025,6 @@ def _create_browse_app(
     @app.get("/health")
     def health():
         context = get_app_context(app)
-        total_items = getattr(context.storage, "total_items", None)
         return {
             **_base_health_payload(
                 app,
@@ -1046,7 +1036,7 @@ def _create_browse_app(
                 runtime=context.runtime,
                 prune_interval_fallback=options.presence_prune_interval,
             ),
-            "total_images": total_items() if callable(total_items) else 0,
+            "total_images": context.storage.total_items(),
             "indexing": _indexing_health_payload(context.indexing, context.storage),
         }
 

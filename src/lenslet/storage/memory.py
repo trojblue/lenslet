@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
+from typing import Any
 from PIL import Image
 from .base import StorageWriteUnsupportedError, join_storage_path
 from .local import LocalStorage
@@ -51,6 +52,7 @@ class MemoryStorage:
     LOCAL_PROGRESS_MIN_IMAGES = 64
     LEAF_BATCH_MAX_DIRS = 128
     LEAF_BATCH_THRESHOLD = 10
+    RECURSIVE_ITEMS_HARD_LIMIT = 10_000
 
     def __init__(self, root: str, thumb_size: int = 256, thumb_quality: int = 70):
         self.local = LocalStorage(root)
@@ -176,7 +178,7 @@ class MemoryStorage:
         except (FileNotFoundError, ValueError):
             return None
 
-    def get_index_for_recursive(self, path: str) -> MemoryBrowseIndex | None:
+    def get_recursive_index(self, path: str) -> MemoryBrowseIndex | None:
         """Get an index optimized for recursive traversal hot paths."""
         norm = self._normalize_path(path)
         if norm in self._indexes:
@@ -187,6 +189,9 @@ class MemoryStorage:
             return self._build_index(path, lightweight=True)
         except (FileNotFoundError, ValueError):
             return None
+
+    def get_index_for_recursive(self, path: str) -> MemoryBrowseIndex | None:
+        return self.get_recursive_index(path)
 
     def validate_image_path(self, path: str) -> None:
         """Ensure path is a supported image and exists on disk."""
@@ -639,13 +644,46 @@ class MemoryStorage:
             if norm in seen:
                 continue
             seen.add(norm)
-            index = self.get_index_for_recursive(path)
+            index = self.get_recursive_index(path)
             if index is None:
                 continue
             total += len(index.items)
             for child in index.dirs:
                 pending.append(self.join(path, child))
         return total
+
+    def items_in_scope(self, path: str) -> list[MemoryBrowseItem]:
+        pending = [path or "/"]
+        seen: set[str] = set()
+        items: list[MemoryBrowseItem] = []
+        while pending:
+            current = pending.pop()
+            norm = self._normalize_path(current)
+            if norm in seen:
+                continue
+            seen.add(norm)
+            index = self.get_recursive_index(current)
+            if index is None:
+                continue
+            items.extend(index.items)
+            for child in index.dirs:
+                pending.append(self.join(current, child))
+        items.sort(key=lambda item: item.path)
+        return items
+
+    def count_in_scope(self, path: str) -> int:
+        return len(self.items_in_scope(path))
+
+    def row_index_for_path(self, path: str) -> int | None:
+        _ = path
+        return None
+
+    def table_fields_for_path(self, path: str) -> dict[str, Any]:
+        _ = path
+        return {}
+
+    def recursive_items_hard_limit(self) -> int | None:
+        return self.RECURSIVE_ITEMS_HARD_LIMIT
 
     def invalidate_cache(self, path: str | None = None) -> None:
         """Clear cached data. If path is None, clear everything."""

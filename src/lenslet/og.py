@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import errno
 from collections import deque
 
 from PIL import Image, ImageDraw, ImageFont
@@ -15,6 +16,24 @@ OG_PIXELS_PER_IMAGE = 6
 OG_TILE_GAP = 2
 OG_STYLE = "pixel-grid"
 OG_STYLES = (OG_STYLE,)
+
+
+def _reason_text(exc: BaseException) -> str:
+    text = str(exc).strip()
+    return text or type(exc).__name__
+
+
+class OgDataUnavailableError(RuntimeError):
+    """Raised when OG generation cannot read browse data honestly."""
+
+    def __init__(self, path: str, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"failed to load OG browse data for {path}: {reason}")
+
+    @classmethod
+    def from_exception(cls, path: str, exc: BaseException) -> "OgDataUnavailableError":
+        return cls(path, _reason_text(exc))
 
 
 def normalize_path(path: str | None) -> str:
@@ -40,10 +59,10 @@ def resolve_style(style: str | None) -> str:
 
 def sample_paths(storage: BrowseStorage, path: str | None, count: int) -> list[str]:
     target = normalize_path(path)
-    index = _safe_index(storage, target)
+    index = load_index_or_none(storage, target)
     if index is None and target != "/":
         target = "/"
-        index = _safe_index(storage, target)
+        index = load_index_or_none(storage, target)
     if index is None:
         return []
 
@@ -60,7 +79,7 @@ def sample_paths(storage: BrowseStorage, path: str | None, count: int) -> list[s
 
 def subtree_image_count(storage: BrowseStorage, path: str | None) -> int | None:
     target = normalize_path(path)
-    index = _safe_index(storage, target)
+    index = load_index_or_none(storage, target)
     if index is None:
         return None
 
@@ -76,7 +95,7 @@ def subtree_image_count(storage: BrowseStorage, path: str | None) -> int | None:
         if current in seen:
             continue
         seen.add(current)
-        sub_index = _safe_index(storage, current)
+        sub_index = load_index_or_none(storage, current)
         if sub_index is None:
             continue
         total += len(getattr(sub_index, "items", []) or [])
@@ -240,14 +259,17 @@ def _index_records(index) -> list[tuple[float, str]]:
     return records
 
 
-def _safe_index(storage, path: str):
-    getter = getattr(storage, "get_index", None)
-    if not callable(getter):
-        return None
+def load_index_or_none(storage: BrowseStorage, path: str):
     try:
-        return getter(path)
-    except Exception:
+        return storage.get_index(path)
+    except (FileNotFoundError, ValueError):
         return None
+    except OSError as exc:
+        if exc.errno in {errno.ENOENT, errno.ENOTDIR}:
+            return None
+        raise OgDataUnavailableError.from_exception(path, exc) from exc
+    except Exception as exc:
+        raise OgDataUnavailableError.from_exception(path, exc) from exc
 
 
 def _subfolder_records(storage, index, base_path: str, count: int) -> list[tuple[float, str]]:
@@ -266,7 +288,7 @@ def _subfolder_records(storage, index, base_path: str, count: int) -> list[tuple
         if current in seen:
             continue
         seen.add(current)
-        sub_index = _safe_index(storage, current)
+        sub_index = load_index_or_none(storage, current)
         if sub_index is None:
             continue
         sub_records = _index_records(sub_index)

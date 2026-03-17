@@ -9,13 +9,14 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Request, Response
 
 from ... import og
-from ...media_errors import MediaError
+from ...media_errors import MediaDecodeError, MediaError
 from ..cache.og import OgImageCache
 from ..context import get_request_context
 from ...storage.base import BrowseStorage
 from ...workspace import Workspace
 
 logger = logging.getLogger(__name__)
+OG_PREVIEW_FAILURE_DETAIL = "failed to build og preview"
 
 
 def _og_cache_key(workspace: Workspace, style: str, signature: str, path: str) -> str:
@@ -46,10 +47,7 @@ def _dataset_signature(current_storage: BrowseStorage, current_workspace: Worksp
     mtime = _dataset_mtime(current_workspace)
     if mtime is not None:
         return f"parquet:{int(mtime)}"
-    try:
-        index = current_storage.get_index("/")
-    except Exception:
-        return "unknown"
+    index = og.load_index_or_none(current_storage, "/")
     if index is None:
         return "empty"
     items = index.items
@@ -90,7 +88,8 @@ def _dataset_label(current_workspace: Workspace) -> str:
 def _dataset_count(current_storage: BrowseStorage) -> int | None:
     try:
         return current_storage.total_items()
-    except Exception:
+    except Exception as exc:
+        logger.warning("dataset count unavailable: %s", exc)
         return None
 
 
@@ -104,6 +103,11 @@ def _og_cache_from_workspace(workspace: Workspace, enabled: bool) -> OgImageCach
 
 
 def register_og_routes(app: FastAPI, enabled: bool) -> None:
+    def _og_http_exception(exc: Exception) -> HTTPException:
+        if isinstance(exc, MediaDecodeError):
+            return HTTPException(422, "failed to decode source image")
+        return HTTPException(500, OG_PREVIEW_FAILURE_DETAIL)
+
     @app.get("/og-image", include_in_schema=False, name="og_image")
     def og_image(request: Request, style: str = og.OG_STYLE, path: str | None = None) -> Response:
         context = get_request_context(request)
@@ -118,7 +122,11 @@ def register_og_routes(app: FastAPI, enabled: bool) -> None:
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         sample_path = _og_path_from_request(path, request)
-        signature = _dataset_signature(current_storage, current_workspace)
+        try:
+            signature = _dataset_signature(current_storage, current_workspace)
+        except og.OgDataUnavailableError as exc:
+            logger.warning("og signature unavailable for %s: %s", exc.path, exc.reason)
+            raise HTTPException(500, OG_PREVIEW_FAILURE_DETAIL) from exc
         cache_key = _og_cache_key(current_workspace, style_key, signature, sample_path)
         if og_cache is not None:
             cached = og_cache.get(cache_key)
@@ -127,13 +135,24 @@ def register_og_routes(app: FastAPI, enabled: bool) -> None:
 
         sample_count = og.OG_IMAGES_X * og.OG_IMAGES_Y
         tiles: list[list[list[tuple[int, int, int]]]] = []
-        for sample_path_entry in og.sample_paths(current_storage, sample_path, sample_count):
+        try:
+            sample_paths = og.sample_paths(current_storage, sample_path, sample_count)
+        except og.OgDataUnavailableError as exc:
+            logger.warning("og browse data unavailable for %s: %s", exc.path, exc.reason)
+            raise HTTPException(500, OG_PREVIEW_FAILURE_DETAIL) from exc
+
+        first_failure: Exception | None = None
+        for sample_path_entry in sample_paths:
             try:
                 thumb = current_storage.get_thumbnail(sample_path_entry)
-            except FileNotFoundError:
+            except FileNotFoundError as exc:
+                if first_failure is None:
+                    first_failure = exc
                 logger.warning("og thumbnail source missing for %s", sample_path_entry)
                 continue
             except MediaError as exc:
+                if first_failure is None:
+                    first_failure = exc
                 logger.warning("og thumbnail generation failed for %s: %s", sample_path_entry, exc.reason)
                 continue
             grid = og.pixel_tile_grid(thumb, og.OG_PIXELS_PER_IMAGE)
@@ -143,6 +162,10 @@ def register_og_routes(app: FastAPI, enabled: bool) -> None:
                 break
 
         if not tiles:
+            if sample_paths:
+                if first_failure is not None:
+                    raise _og_http_exception(first_failure)
+                raise HTTPException(500, OG_PREVIEW_FAILURE_DETAIL)
             data = og.fallback_og_image(label)
         else:
             data = og.render_pixel_mosaic(

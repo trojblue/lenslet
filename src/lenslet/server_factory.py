@@ -67,6 +67,10 @@ REFRESH_NOTE_PREINDEX_NO_WRITE = "preindex refresh disabled (no-write workspace)
 DEFAULT_THUMB_CACHE_CAP_BYTES = 200 * 1024 * 1024
 
 
+class PreindexStartupError(RuntimeError):
+    """Raised when a preindex-backed startup path fails unexpectedly."""
+
+
 @dataclass(frozen=True, slots=True)
 class BrowseAppOptions:
     thumb_size: int = 256
@@ -404,6 +408,12 @@ def _load_preindex_storage(
     skip_indexing: bool,
     preindex_signature: str | None = None,
 ) -> TableStorage | None:
+    """Load a reusable preindex table.
+
+    Returns `None` only when no compatible preindex payload is available.
+    Unexpected validation/load/initialization failures raise instead of
+    silently downgrading startup into a different storage mode.
+    """
     paths = preindex_paths(workspace)
     if paths is None:
         return None
@@ -426,8 +436,7 @@ def _load_preindex_storage(
             entries.sort(key=lambda entry: entry.rel_path)
             current = compute_signature(Path(root_path), entries)
         except Exception as exc:
-            print(f"[lenslet] Warning: failed to validate preindex signature: {exc}")
-            return None
+            raise PreindexStartupError(f"failed to validate preindex signature: {exc}") from exc
         if current != signature:
             print("[lenslet] Warning: preindex signature mismatch; rebuilding.")
             return None
@@ -436,8 +445,7 @@ def _load_preindex_storage(
     except FileNotFoundError:
         return None
     except Exception as exc:
-        print(f"[lenslet] Warning: failed to load preindex data: {exc}")
-        return None
+        raise PreindexStartupError(f"failed to load preindex data: {exc}") from exc
 
     try:
         return TableStorage(
@@ -450,8 +458,7 @@ def _load_preindex_storage(
             skip_indexing=skip_indexing,
         )
     except Exception as exc:
-        print(f"[lenslet] Warning: failed to initialize preindex storage: {exc}")
-        return None
+        raise PreindexStartupError(f"failed to initialize preindex storage: {exc}") from exc
 
 
 def _ensure_preindex_storage(
@@ -463,6 +470,11 @@ def _ensure_preindex_storage(
     skip_indexing: bool,
     preindex_signature: str | None = None,
 ) -> tuple[TableStorage | None, Workspace, str | None]:
+    """Return preindex storage when available.
+
+    `storage is None` is reserved for the intentional "no local images" path.
+    Any unexpected preindex bootstrap failure raises.
+    """
     if preindex_signature:
         storage = _load_preindex_storage(
             root_path,
@@ -478,8 +490,7 @@ def _ensure_preindex_storage(
     try:
         preindex_result = ensure_local_preindex(Path(root_path), workspace)
     except Exception as exc:
-        print(f"[lenslet] Warning: preindex failed: {exc}")
-        return None, workspace, preindex_signature
+        raise PreindexStartupError(f"preindex build failed: {exc}") from exc
 
     if preindex_result is None:
         return None, workspace, preindex_signature
@@ -495,6 +506,8 @@ def _ensure_preindex_storage(
         skip_indexing=skip_indexing,
         preindex_signature=preindex_result.signature,
     )
+    if storage is None:
+        raise PreindexStartupError("preindex build completed but produced no readable storage")
     return storage, workspace, preindex_result.signature
 
 
@@ -652,13 +665,16 @@ def create_app(
             path = _canonical_path(path)
 
             if context.storage_mode == "table":
-                preindex_storage, updated_workspace, _signature = _ensure_preindex_storage(
-                    root_path,
-                    context.workspace,
-                    thumb_size=options.thumb_size,
-                    thumb_quality=options.thumb_quality,
-                    skip_indexing=skip_indexing,
-                )
+                try:
+                    preindex_storage, updated_workspace, _signature = _ensure_preindex_storage(
+                        root_path,
+                        context.workspace,
+                        thumb_size=options.thumb_size,
+                        thumb_quality=options.thumb_quality,
+                        skip_indexing=skip_indexing,
+                    )
+                except PreindexStartupError as exc:
+                    raise HTTPException(500, str(exc)) from exc
                 if preindex_storage is None:
                     raise HTTPException(500, "failed to rebuild preindex table")
                 if isinstance(current_storage, TableStorage) and isinstance(preindex_storage, TableStorage):

@@ -439,11 +439,14 @@ class TableStorage(SourceBackedStorageMixin[TableBrowseItem]):
     def path_for_row_index(self, index: int) -> str | None:
         return self._row_to_path.get(index)
 
-    def table_fields_for_path(self, path: str) -> dict[str, Any]:
+    def sidecar_enrichment_for_path(self, path: str) -> dict[str, Any]:
         row_idx = self.row_index_for_path(path)
         if row_idx is None:
             return {}
-        return extract_row_display_fields(self, row_idx)
+        table_fields = extract_row_display_fields(self, row_idx)
+        if not table_fields:
+            return {}
+        return {"table_fields": table_fields}
 
     def _extract_metrics(self, row_idx: int) -> dict[str, float]:
         return extract_row_metrics(self, row_idx)

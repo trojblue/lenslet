@@ -148,8 +148,8 @@ class BrowseStorage(Storage, Protocol):
         """Return the row index backing a logical path, or None when unavailable."""
         ...
 
-    def table_fields_for_path(self, path: str) -> dict[str, Any]:
-        """Return displayable table fields for a logical path."""
+    def sidecar_enrichment_for_path(self, path: str) -> dict[str, Any]:
+        """Return storage-specific sidecar payload enrichments for a logical path."""
         ...
 
     def indexing_progress(self) -> dict[str, int | str | bool | None]:

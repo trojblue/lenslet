@@ -40,10 +40,10 @@ def _build_sidecar(storage: BrowseStorage, path: str) -> Sidecar:
 
 def _build_sidecar_from_meta(storage: BrowseStorage, path: str, meta: dict) -> Sidecar:
     sidecar = _sidecar_from_meta(meta)
-    table_fields = storage.table_fields_for_path(path)
-    if table_fields:
-        sidecar.table_fields = table_fields
-    return sidecar
+    enrichment = storage.sidecar_enrichment_for_path(path)
+    if not enrichment:
+        return sidecar
+    return sidecar.model_copy(update=enrichment)
 
 
 def _build_image_metadata(storage: BrowseStorage, path: str) -> ImageMetadataResponse:

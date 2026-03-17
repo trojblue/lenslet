@@ -678,7 +678,7 @@ class MemoryStorage:
         _ = path
         return None
 
-    def table_fields_for_path(self, path: str) -> dict[str, Any]:
+    def sidecar_enrichment_for_path(self, path: str) -> dict[str, Any]:
         _ = path
         return {}
 

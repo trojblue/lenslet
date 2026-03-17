@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-import lenslet.web.routes.common as export_mod
+import lenslet.web.comparison_export as export_mod
 from lenslet.metadata import read_png_info
 from lenslet.server import create_app
 from lenslet.web.models import MAX_EXPORT_COMPARISON_PATHS_V2, MAX_EXPORT_COMPARISON_PATHS_V2_GIF

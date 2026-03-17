@@ -553,3 +553,12 @@ def _search_results(
 ) -> BrowseSearchResultsPayload:
     hits = storage.search(query=q, path=path, limit=limit)
     return BrowseSearchResultsPayload(items=[to_item(storage, it) for it in hits])
+
+
+storage_from_request = _storage_from_request
+ensure_image = _ensure_image
+build_sidecar = _build_sidecar
+build_sidecar_from_meta = _build_sidecar_from_meta
+build_image_metadata = _build_image_metadata
+build_folder_index = _build_folder_index
+search_results = _search_results

@@ -162,3 +162,7 @@ def _file_response(
         hotpath_metrics.increment("file_response_fallback_bytes_total")
     data = storage.read_bytes(path)
     return Response(content=data, media_type=media_type)
+
+
+thumb_response_async = _thumb_response_async
+file_response = _file_response

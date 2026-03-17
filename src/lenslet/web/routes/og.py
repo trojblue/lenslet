@@ -181,3 +181,7 @@ def register_og_routes(app: FastAPI, enabled: bool) -> None:
         if og_cache is not None:
             og_cache.set(cache_key, data)
         return Response(content=data, media_type="image/png")
+
+
+dataset_label = _dataset_label
+dataset_count = _dataset_count

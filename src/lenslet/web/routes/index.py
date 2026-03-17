@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request, Response
 from ..frontend import frontend_dist_path, load_frontend_shell
 from ... import og
 from ..context import get_request_context
-from .og import _dataset_count, _dataset_label
+from .og import dataset_count, dataset_label
 
 _load_frontend_shell = load_frontend_shell
 
@@ -64,9 +64,9 @@ def register_index_routes(app: FastAPI, og_preview: bool) -> None:
         html_text = _load_frontend_shell(str(index_path), index_path.stat().st_mtime_ns)
         if og_preview:
             context = get_request_context(request)
-            label = _dataset_label(context.workspace)
+            label = dataset_label(context.workspace)
             scope_path = og.normalize_path(request.query_params.get("path"))
-            title = _build_index_title(label, _dataset_count(context.storage))
+            title = _build_index_title(label, dataset_count(context.storage))
             description = _build_index_description(label, scope_path)
             image_url = request.url_for("og_image")
             path_param = request.query_params.get("path")

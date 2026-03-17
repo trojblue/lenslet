@@ -772,3 +772,14 @@ def _init_sync_state(
     idempotency = IdempotencyCache(ttl_seconds=600)
     snapshotter = SnapshotWriter(workspace, meta_lock=meta_lock, log_lock=log_lock)
     return broker, idempotency, snapshotter, max_event_id
+
+
+canonical_path = _canonical_path
+now_iso = _now_iso
+parse_if_match = _parse_if_match
+last_event_id_from_request = _last_event_id_from_request
+ensure_meta_fields = _ensure_meta_fields
+sidecar_from_meta = _sidecar_from_meta
+format_sse = _format_sse
+updated_by_from_request = _updated_by_from_request
+apply_patch_to_meta = _apply_patch_to_meta

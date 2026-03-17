@@ -9,6 +9,7 @@ from PIL import Image
 import pytest
 
 from lenslet.server import BrowseAppOptions, create_app
+from lenslet.server_routes_presence import run_presence_prune_cycle
 from lenslet.server_sync import EventBroker, PresenceLeaseError, PresenceScopeError, PresenceTracker
 
 
@@ -26,6 +27,17 @@ def _latest_presence_for_gallery(records: list[dict], gallery_id: str) -> dict |
         if data.get("gallery_id") == gallery_id:
             latest = data
     return latest
+
+
+class _FakeClock:
+    def __init__(self, start: float = 1_000.0) -> None:
+        self.current = start
+
+    def monotonic(self) -> float:
+        return self.current
+
+    def advance(self, delta: float) -> None:
+        self.current += delta
 
 
 @asynccontextmanager
@@ -184,14 +196,15 @@ def test_presence_lifecycle_routes(tmp_path: Path) -> None:
     asyncio.run(_run_presence_lifecycle_api(app))
 
 
-async def _run_idle_prune(app) -> None:
+async def _run_idle_prune(app, *, clock: _FakeClock) -> None:
     async with _test_client(app) as client:
         join = await client.post("/presence/join", json={"gallery_id": "/idle"})
         assert join.status_code == 200
         lease_id = join.json()["lease_id"]
 
-        await asyncio.sleep(0.45)
-
+        previous = app.state.presence_tracker.snapshot_counts()
+        clock.advance(0.45)
+        run_presence_prune_cycle(app.state.presence_tracker, app.state.sync_broker, previous)
         broker = app.state.sync_broker
         replay = broker.replay(0)
         idle_presence = _latest_presence_for_gallery(replay, "/idle")
@@ -206,10 +219,11 @@ async def _run_idle_prune(app) -> None:
         assert leave.status_code == 200
         assert leave.json()["removed"] is False
 
-
-def test_presence_prune_loop_cleans_idle_sessions(tmp_path: Path) -> None:
+def test_presence_prune_loop_cleans_idle_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr("lenslet.server_sync.time.monotonic", clock.monotonic)
     app = _build_test_app(tmp_path, presence_view_ttl=0.2, presence_edit_ttl=0.2, presence_prune_interval=0.1)
-    asyncio.run(_run_idle_prune(app))
+    asyncio.run(_run_idle_prune(app, clock=clock))
 
 
 def test_presence_tracker_race_move_leave_touch_is_consistent() -> None:
@@ -352,7 +366,7 @@ def test_presence_diagnostics_counters(tmp_path: Path) -> None:
     asyncio.run(_run_presence_diagnostics_counters(app))
 
 
-async def _run_presence_multi_client_convergence(app) -> None:
+async def _run_presence_multi_client_convergence(app, *, clock: _FakeClock) -> None:
     async with _test_client(app) as client:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://localhost") as other_client:
@@ -402,8 +416,9 @@ async def _run_presence_multi_client_convergence(app) -> None:
             assert leave_b.json()["removed"] is True
             assert leave_b.json()["viewing"] == 0
 
-            await asyncio.sleep(0.55)
-
+            previous = app.state.presence_tracker.snapshot_counts()
+            clock.advance(0.55)
+            run_presence_prune_cycle(app.state.presence_tracker, app.state.sync_broker, previous)
             broker = app.state.sync_broker
             replay = broker.replay(0)
             room_presence = _latest_presence_for_gallery(replay, "/room")
@@ -419,7 +434,11 @@ async def _run_presence_multi_client_convergence(app) -> None:
             assert diag_payload["active_clients"] == 0
             assert diag_payload["stale_pruned_total"] >= 1
 
-
-def test_presence_multi_client_refresh_move_reconnect_convergence(tmp_path: Path) -> None:
+def test_presence_multi_client_refresh_move_reconnect_convergence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr("lenslet.server_sync.time.monotonic", clock.monotonic)
     app = _build_test_app(tmp_path, presence_view_ttl=0.2, presence_edit_ttl=0.2, presence_prune_interval=0.1)
-    asyncio.run(_run_presence_multi_client_convergence(app))
+    asyncio.run(_run_presence_multi_client_convergence(app, clock=clock))

@@ -100,6 +100,16 @@ def publish_presence_deltas(
         )
 
 
+def run_presence_prune_cycle(
+    presence: PresenceTracker,
+    broker,
+    previous: dict[str, PresenceCount],
+) -> dict[str, PresenceCount]:
+    current = presence.snapshot_counts()
+    publish_presence_deltas(broker, previous, current)
+    return current
+
+
 def install_presence_prune_loop(
     app: FastAPI,
     presence: PresenceTracker,
@@ -115,9 +125,7 @@ def install_presence_prune_loop(
         previous = presence.snapshot_counts()
         while True:
             await asyncio.sleep(interval)
-            current = presence.snapshot_counts()
-            publish_presence_deltas(broker, previous, current)
-            previous = current
+            previous = run_presence_prune_cycle(presence, broker, previous)
 
     def _start_presence_prune_loop() -> None:
         existing = getattr(app.state, "presence_prune_task", None)

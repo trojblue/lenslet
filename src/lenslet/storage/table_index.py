@@ -92,6 +92,7 @@ class ScanResult:
     remote_tasks: list[tuple[str, Any, str, str]]
     skipped_local_disabled: int
     skipped_local_outside_root: int
+    skipped_local_resolved_outside_root: int
     skipped_local_missing: int
 
 
@@ -162,6 +163,13 @@ def build_table_indexes(
         print(
             f"[lenslet] Skipped {scan.skipped_local_outside_root} local path(s) outside "
             f"base_dir boundary: {boundary}"
+        )
+    if scan.skipped_local_resolved_outside_root:
+        boundary = storage.root or "(unset)"
+        print(
+            f"[lenslet] Skipped {scan.skipped_local_resolved_outside_root} local path(s) that are "
+            f"inside base_dir but resolve outside it: {boundary}. "
+            "This commonly means symlinks point outside the launched directory."
         )
     if scan.skipped_local_missing:
         print(f"[lenslet] Skipped {scan.skipped_local_missing} missing local path(s).")
@@ -396,7 +404,9 @@ def _resolve_local_source(
             resolved = storage._resolve_local_source_lexical(source)
         else:
             resolved = storage._resolve_local_source(source)
-    except ValueError:
+    except ValueError as exc:
+        if getattr(exc, "reason", None) == "resolved_outside_root":
+            return LocalSourceResolution(resolved_path=None, skip_reason="resolved_outside_root")
         return LocalSourceResolution(resolved_path=None, skip_reason="outside_root")
     if (not storage._skip_local_realpath_validation) and (not os.path.exists(resolved)):
         return LocalSourceResolution(resolved_path=None, skip_reason="missing")
@@ -487,6 +497,7 @@ def scan_rows(
     remote_tasks: list[RemoteDimensionTask] = []
     skipped_local_disabled = 0
     skipped_local_outside_root = 0
+    skipped_local_resolved_outside_root = 0
     skipped_local_missing = 0
 
     progress = ProgressTicker(
@@ -511,6 +522,10 @@ def scan_rows(
             continue
         if local_source.skip_reason == "outside_root":
             skipped_local_outside_root += 1
+            progress.step()
+            continue
+        if local_source.skip_reason == "resolved_outside_root":
+            skipped_local_resolved_outside_root += 1
             progress.step()
             continue
         if local_source.skip_reason == "missing":
@@ -565,6 +580,7 @@ def scan_rows(
         remote_tasks=remote_tasks,
         skipped_local_disabled=skipped_local_disabled,
         skipped_local_outside_root=skipped_local_outside_root,
+        skipped_local_resolved_outside_root=skipped_local_resolved_outside_root,
         skipped_local_missing=skipped_local_missing,
     )
 

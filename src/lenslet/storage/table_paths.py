@@ -5,6 +5,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 
+class LocalSourcePathError(ValueError):
+    def __init__(self, message: str, *, reason: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
 def is_s3_uri(path: str) -> bool:
     return path.startswith("s3://")
 
@@ -195,16 +201,24 @@ def resolve_local_source(
     if not root:
         return source
 
-    candidate = source if os.path.isabs(source) else os.path.join(root, source)
+    root_abs = os.path.abspath(root)
+    candidate = source if os.path.isabs(source) else os.path.join(root_abs, source)
     candidate = os.path.abspath(candidate)
+    try:
+        lexical_common = os.path.commonpath([root_abs, candidate])
+    except Exception:
+        raise LocalSourcePathError("invalid path", reason="invalid")
+    if lexical_common != root_abs:
+        raise LocalSourcePathError("path escapes base_dir", reason="outside_root")
+
     real = os.path.realpath(candidate)
-    resolved_root_real = root_real or os.path.realpath(root)
+    resolved_root_real = root_real or os.path.realpath(root_abs)
     try:
         common = os.path.commonpath([resolved_root_real, real])
     except Exception:
-        raise ValueError("invalid path")
+        raise LocalSourcePathError("invalid path", reason="invalid")
     if common != resolved_root_real:
-        raise ValueError("path escapes base_dir")
+        raise LocalSourcePathError("path resolves outside base_dir", reason="resolved_outside_root")
     return real
 
 

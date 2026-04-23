@@ -262,6 +262,41 @@ def test_absolute_local_source_outside_root_reports_boundary(tmp_path: Path, cap
     assert str(tmp_path) in captured.out
 
 
+def test_local_symlink_target_outside_root_reports_resolved_boundary(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    root = tmp_path / "gallery"
+    outside = tmp_path / "source-images" / "outside.jpg"
+    symlink = root / "linked.jpg"
+    _make_image(outside)
+    symlink.parent.mkdir(parents=True, exist_ok=True)
+    symlink.symlink_to(outside)
+
+    storage = TableStorage(
+        [
+            {
+                "source": "linked.jpg",
+                "path": "linked.jpg",
+                "size": int(outside.stat().st_size),
+                "mtime": float(outside.stat().st_mtime),
+                "width": 12,
+                "height": 9,
+            }
+        ],
+        root=str(root),
+        source_column="source",
+        path_column="path",
+        skip_indexing=True,
+    )
+
+    captured = capsys.readouterr()
+    assert "linked.jpg" not in storage._items
+    assert "inside base_dir but resolve outside it" in captured.out
+    assert "symlinks point outside the launched directory" in captured.out
+    assert str(root) in captured.out
+
+
 def test_skip_local_realpath_validation_blocks_absolute_escape(tmp_path: Path) -> None:
     outside = tmp_path.parent / "outside-lexical.jpg"
     _make_image(outside)

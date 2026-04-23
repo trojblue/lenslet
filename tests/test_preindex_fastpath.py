@@ -72,6 +72,38 @@ def test_create_app_folder_items_parquet_uses_strict_local_validation(
     assert captured.get("skip_local_realpath_validation", False) is False
 
 
+def test_preindex_storage_reports_symlink_target_outside_root(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    root = tmp_path / "gallery"
+    outside = tmp_path / "source-images" / "a.jpg"
+    symlink = root / "linked" / "a.jpg"
+    _make_image(outside)
+    symlink.parent.mkdir(parents=True, exist_ok=True)
+    symlink.symlink_to(outside)
+
+    workspace = Workspace.for_dataset(str(root), can_write=True)
+    preindex = ensure_local_preindex(root, workspace)
+    assert preindex is not None
+    capsys.readouterr()
+
+    storage = server_factory._load_preindex_storage(
+        str(root),
+        preindex.workspace,
+        thumb_size=256,
+        thumb_quality=70,
+        skip_indexing=False,
+        preindex_signature=preindex.signature,
+    )
+
+    captured = capsys.readouterr()
+    assert storage is not None
+    assert storage.total_items() == 0
+    assert "inside base_dir but resolve outside it" in captured.out
+    assert "symlinks point outside the launched directory" in captured.out
+
+
 def test_preindex_reports_scan_phase(
     tmp_path: Path,
     capsys,

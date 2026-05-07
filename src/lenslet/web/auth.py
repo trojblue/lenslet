@@ -9,6 +9,7 @@ from typing import Literal
 
 from fastapi import FastAPI, Request
 from starlette.responses import Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 SESSION_COOKIE_NAME = "lenslet_session"
 SESSION_COOKIE_PATH = "/"
@@ -43,13 +44,31 @@ TRUSTED_LOCAL_MUTATION_POLICY = MutationPolicy(
 )
 
 
-def install_request_identity_middleware(app: FastAPI) -> None:
-    @app.middleware("http")
-    async def attach_request_identity(request: Request, call_next):
+class RequestIdentityMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive=receive)
         bind_request_identity(request)
-        response = await call_next(request)
-        persist_request_identity(request, response)
-        return response
+
+        async def send_with_identity(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                cookie_headers = _session_cookie_headers(request)
+                if cookie_headers:
+                    message = dict(message)
+                    message["headers"] = list(message.get("headers", [])) + cookie_headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_identity)
+
+
+def install_request_identity_middleware(app: FastAPI) -> None:
+    app.add_middleware(RequestIdentityMiddleware)
 
 
 def set_mutation_policy(app: FastAPI, policy: MutationPolicy) -> MutationPolicy:
@@ -95,6 +114,12 @@ def persist_request_identity(request: Request, response: Response) -> None:
         samesite="lax",
         path=SESSION_COOKIE_PATH,
     )
+
+
+def _session_cookie_headers(request: Request) -> list[tuple[bytes, bytes]]:
+    response = Response()
+    persist_request_identity(request, response)
+    return [header for header in response.raw_headers if header[0].lower() == b"set-cookie"]
 
 
 def request_actor_id(request: Request | None) -> str:

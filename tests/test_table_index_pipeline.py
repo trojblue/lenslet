@@ -210,6 +210,119 @@ def test_s3_rows_honor_explicit_path_column(tmp_path: Path) -> None:
     assert storage.path_for_row_index(1) == "logical/nested/beta.jpg"
 
 
+def test_s3key_source_column_allows_extensionless_urls_without_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fail_probe(self: TableStorage, source: str) -> bool:
+        raise AssertionError(f"s3key should not need an extensionless probe: {source}")
+
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", _fail_probe)
+    rows = [
+        {
+            "s3key": "https://images.example.test/r2/encoded-image-key",
+            "width": 12,
+            "height": 9,
+        }
+    ]
+
+    storage = TableStorage(rows, skip_indexing=True)
+
+    assert storage._source_column == "s3key"
+    assert storage.count_in_scope("/") == 1
+    assert storage.path_for_row_index(0) == "images.example.test/r2/encoded-image-key"
+
+
+def test_explicit_extensionless_source_column_uses_one_image_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probed: list[str] = []
+
+    def _probe(self: TableStorage, source: str) -> bool:
+        probed.append(source)
+        return True
+
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", _probe)
+    rows = [
+        {
+            "asset_url": "https://images.example.test/r2/encoded-image-key",
+            "width": 12,
+            "height": 9,
+        },
+        {
+            "asset_url": "https://images.example.test/r2/second-encoded-key",
+            "width": 11,
+            "height": 8,
+        },
+    ]
+
+    storage = TableStorage(rows, source_column="asset_url", skip_indexing=True)
+
+    assert probed == ["https://images.example.test/r2/encoded-image-key"]
+    assert storage.count_in_scope("/") == 2
+
+
+def test_explicit_extensionless_probe_trust_is_limited_to_sample_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", lambda self, source: True)
+    rows = [
+        {
+            "asset_url": "https://images.example.test/r2/encoded-image-key",
+            "width": 12,
+            "height": 9,
+        },
+        {
+            "asset_url": "https://other.example.test/r2/second-encoded-key",
+            "width": 11,
+            "height": 8,
+        },
+    ]
+
+    storage = TableStorage(rows, source_column="asset_url", skip_indexing=True)
+
+    assert storage.count_in_scope("/") == 1
+    assert storage.path_for_row_index(0) == "images.example.test/r2/encoded-image-key"
+    assert storage.path_for_row_index(1) is None
+
+
+def test_auto_detected_extensionless_source_column_does_not_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fail_probe(self: TableStorage, source: str) -> bool:
+        raise AssertionError(f"auto-detection must not probe extensionless URLs: {source}")
+
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", _fail_probe)
+    rows = [
+        {
+            "asset_url": "https://images.example.test/r2/encoded-image-key",
+            "width": 12,
+            "height": 9,
+        }
+    ]
+
+    storage = TableStorage(rows, skip_indexing=True)
+
+    assert storage._source_column == "asset_url"
+    assert storage.count_in_scope("/") == 0
+
+
+def test_explicit_extensionless_source_column_skips_rows_when_probe_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", lambda self, source: False)
+    rows = [
+        {
+            "asset_url": "https://images.example.test/r2/encoded-image-key",
+            "width": 12,
+            "height": 9,
+        }
+    ]
+
+    storage = TableStorage(rows, source_column="asset_url", skip_indexing=True)
+
+    assert storage.count_in_scope("/") == 0
+
+
 def test_absolute_local_source_outside_root_is_blocked(tmp_path: Path) -> None:
     outside = tmp_path.parent / "outside.jpg"
     _make_image(outside)

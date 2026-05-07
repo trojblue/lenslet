@@ -13,7 +13,13 @@ from PIL import Image
 from ..media_errors import MediaDecodeError, MediaReadError
 from .s3 import S3_DEPENDENCY_ERROR, create_s3_client
 from .search_text import build_search_haystack, normalize_search_path, path_in_scope
-from .table_probe import effective_remote_workers, get_remote_header_bytes, get_remote_header_info, parse_content_range
+from .table_probe import (
+    effective_remote_workers,
+    get_remote_header_bytes,
+    get_remote_header_info,
+    get_safe_remote_header_info,
+    parse_content_range,
+)
 
 
 class SourceBackedItem(Protocol):
@@ -183,6 +189,18 @@ class SourceBackedStorageMixin(Generic[ItemT], ABC):
             max_bytes=self.REMOTE_HEADER_BYTES,
             read_dimensions_from_bytes=self._read_dimensions_from_bytes,
             get_remote_header_bytes_fn=self._get_remote_header_bytes,
+        )
+
+    def _get_safe_remote_header_info(
+        self,
+        url: str,
+        name: str,
+    ) -> tuple[tuple[int, int] | None, int | None]:
+        return get_safe_remote_header_info(
+            url,
+            name,
+            max_bytes=self.REMOTE_HEADER_BYTES,
+            read_dimensions_from_bytes=self._read_dimensions_from_bytes,
         )
 
     def _get_s3_client(self):

@@ -45,6 +45,7 @@ class TableIndexScanHost(Protocol):
     _coerce_int: Callable[[Any], int | None]
     _coerce_timestamp: Callable[[Any], float | None]
     _coerce_float: Callable[[Any], float | None]
+    _allows_extensionless_source_image: Callable[[str], bool]
     _resolve_local_source: Callable[[str], str]
     _resolve_local_source_lexical: Callable[[str], str]
     _read_dimensions_fast: Callable[[str], tuple[int, int] | None]
@@ -343,6 +344,19 @@ def _coerce_source_value(source_value: Any) -> str | None:
     return source or None
 
 
+def _supported_image_name(
+    storage: TableIndexScanHost,
+    *,
+    explicit_name: str,
+    fallback_name: str,
+    logical_path: str,
+) -> str | None:
+    for candidate in (explicit_name, fallback_name, storage._extract_name(logical_path)):
+        if candidate and storage._is_supported_image(candidate):
+            return candidate
+    return None
+
+
 def _resolve_row_identity(
     storage: TableIndexScanHost,
     columns: IndexColumns,
@@ -356,11 +370,6 @@ def _resolve_row_identity(
     fallback_name = storage._extract_name(source)
     name_value = columns.name_values[idx]
     name = str(name_value).strip() if name_value else fallback_name
-    if not storage._is_supported_image(name):
-        if storage._is_supported_image(fallback_name):
-            name = fallback_name
-        else:
-            return None
 
     logical_value = columns.path_values[idx] if storage._path_column is not None else None
     logical_path = str(logical_value).strip() if logical_value else storage._derive_logical_path(source)
@@ -375,6 +384,19 @@ def _resolve_row_identity(
     logical_path = storage._normalize_item_path(logical_path)
     if not logical_path:
         return None
+
+    supported_name = _supported_image_name(
+        storage,
+        explicit_name=name,
+        fallback_name=fallback_name,
+        logical_path=logical_path,
+    )
+    if supported_name is not None:
+        name = supported_name
+    elif not storage._allows_extensionless_source_image(source):
+        return None
+    elif not name:
+        name = fallback_name or storage._extract_name(logical_path) or "image"
 
     logical_path = storage._dedupe_path(logical_path, seen_paths)
     seen_paths.add(logical_path)

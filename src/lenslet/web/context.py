@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from fastapi import FastAPI, Request
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .cache.browse import RecursiveBrowseCache
 from ..indexing_status import IndexingLifecycle
@@ -28,6 +29,16 @@ class AppContext:
     storage_mode: str
     storage_origin: str | None
     indexing: IndexingLifecycle
+
+
+class RequestContextMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            bind_request_context(Request(scope, receive=receive))
+        await self.app(scope, receive, send)
 
 
 def set_app_context(app: FastAPI, context: AppContext) -> AppContext:

@@ -5,6 +5,7 @@ import os
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -41,6 +42,7 @@ from .table_schema import (
     coerce_float,
     coerce_int,
     coerce_timestamp,
+    iter_sample,
     resolve_named_column,
     resolve_path_column,
     resolve_source_column,
@@ -114,6 +116,7 @@ class TableStorage(SourceBackedStorageMixin[TableBrowseItem]):
     """
 
     IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+    EXTENSIONLESS_IMAGE_SOURCE_COLUMNS = frozenset({"s3key"})
     REMOTE_HEADER_BYTES = 65536
     REMOTE_DIM_WORKERS = 16  # baseline concurrency for remote header probing
     REMOTE_DIM_WORKERS_MAX = 128  # avoid unbounded thread creation on huge hosts
@@ -252,6 +255,7 @@ class TableStorage(SourceBackedStorageMixin[TableBrowseItem]):
         self._data = data
         self._row_count = row_count
         self._row_dimensions = [None] * row_count
+        self._source_column_was_explicit = source_column is not None
 
         self._source_column = self._resolve_source_column(
             columns,
@@ -276,6 +280,8 @@ class TableStorage(SourceBackedStorageMixin[TableBrowseItem]):
             if col.lower() == "metrics":
                 self._metrics_column = col
                 break
+
+        self._extensionless_source_trust_scope = self._selected_extensionless_source_trust_scope()
 
         build_table_indexes(self, item_factory=TableBrowseItem, index_factory=TableBrowseIndex)
         self._build_path_index()
@@ -332,6 +338,72 @@ class TableStorage(SourceBackedStorageMixin[TableBrowseItem]):
 
     def _is_supported_image(self, name: str) -> bool:
         return is_supported_image(name, self.IMAGE_EXTS)
+
+    def _selected_extensionless_source_trust_scope(self) -> str | None:
+        if self._source_column.lower() in self.EXTENSIONLESS_IMAGE_SOURCE_COLUMNS:
+            return "*"
+        if not self._source_column_was_explicit:
+            return None
+        return self._probe_extensionless_source_scope()
+
+    def _allows_extensionless_source_image(self, source: str) -> bool:
+        scope = self._extensionless_source_trust_scope
+        if scope == "*":
+            return True
+        return scope is not None and scope == self._extensionless_source_scope(source)
+
+    def _probe_extensionless_source_scope(self) -> str | None:
+        for source in iter_sample(self._data.get(self._source_column, [])):
+            if self._is_supported_image(self._extract_name(source)):
+                continue
+            if self._source_header_is_image(source):
+                return self._extensionless_source_scope(source)
+            return None
+        return None
+
+    def _extensionless_source_scope(self, source: str) -> str | None:
+        if self._is_s3_uri(source):
+            parsed = urlparse(source)
+            return f"s3://{parsed.netloc.lower()}" if parsed.netloc else None
+        if self._is_http_url(source):
+            parsed = urlparse(source)
+            if parsed.username or parsed.password or not parsed.hostname:
+                return None
+            if parsed.port not in {None, 80, 443}:
+                return None
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            return f"{parsed.scheme}://{parsed.hostname.lower()}:{port}"
+        return "local"
+
+    def _source_header_is_image(self, source: str) -> bool:
+        name = self._extract_name(source)
+        if self._is_s3_uri(source):
+            try:
+                url = self._get_presigned_url(source)
+            except Exception:
+                return False
+            dims, _total = self._get_safe_remote_header_info(url, name)
+            return dims is not None
+
+        if self._is_http_url(source):
+            dims, _total = self._get_safe_remote_header_info(source, name)
+            return dims is not None
+
+        if not self._allow_local:
+            return False
+        try:
+            if self._skip_local_realpath_validation:
+                resolved = self._resolve_local_source_lexical(source)
+            else:
+                resolved = self._resolve_local_source(source)
+        except ValueError:
+            return False
+        try:
+            with open(resolved, "rb") as handle:
+                header = handle.read(self.REMOTE_HEADER_BYTES)
+        except OSError:
+            return False
+        return self._read_dimensions_from_bytes(header, None) is not None
 
     def _derive_logical_path(self, source: str) -> str:
         return derive_logical_path(

@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from .cache.browse import RecursiveBrowseCache
 from .frontend import mount_frontend
 from ..indexing_status import IndexingLifecycle
-from .context import AppContext, bind_request_context, set_app_context
+from .context import AppContext, RequestContextMiddleware, set_app_context
 from .routes.common import RecordUpdateFn, register_common_api_routes
 from .routes.embeddings import register_embedding_routes
 from .routes.index import register_index_routes
@@ -106,7 +106,4 @@ def set_runtime_context(
 
 
 def _attach_request_context(app: FastAPI) -> None:
-    @app.middleware("http")
-    async def attach_request_context(request: Request, call_next):
-        bind_request_context(request)
-        return await call_next(request)
+    app.add_middleware(RequestContextMiddleware)

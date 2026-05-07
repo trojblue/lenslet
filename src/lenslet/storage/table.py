@@ -3,37 +3,25 @@ from __future__ import annotations
 import hashlib
 import os
 from bisect import bisect_left, bisect_right
-from threading import Lock
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
+if TYPE_CHECKING:
+    import pyarrow as pa
+
+from .base import join_storage_path
 from .progress import ProgressBar
-from .table_facade import (
-    get_dimensions as storage_get_dimensions,
-    get_metadata as storage_get_metadata,
-    get_metadata_readonly as storage_get_metadata_readonly,
-    get_presigned_url as storage_get_presigned_url,
-    get_s3_client as storage_get_s3_client,
-    get_thumbnail as storage_get_thumbnail,
-    guess_mime as storage_guess_mime,
-    make_thumbnail as storage_make_thumbnail,
-    read_bytes as storage_read_bytes,
-    search_items as storage_search_items,
-    set_metadata as storage_set_metadata,
-    table_to_columns,
-)
+from .source_backed import SourceBackedStorageMixin
 from .table_index import (
     build_table_indexes,
-    extract_row_display_fields,
     extract_row_metrics,
     extract_row_metrics_map,
+    extract_row_display_fields,
 )
 from .table_media import (
     read_dimensions_fast,
     read_dimensions_from_bytes,
-    read_jpeg_dimensions,
-    read_png_dimensions,
-    read_webp_dimensions,
 )
 from .table_paths import (
     canonical_meta_key,
@@ -55,19 +43,11 @@ from .table_schema import (
     coerce_int,
     coerce_timestamp,
     iter_sample,
-    loadable_score,
-    resolve_column,
     resolve_named_column,
     resolve_path_column,
     resolve_source_column,
 )
-from .table_probe import (
-    effective_remote_workers,
-    get_remote_header_bytes,
-    get_remote_header_info,
-    parse_content_range,
-    probe_remote_dimensions,
-)
+from .table_probe import probe_remote_dimensions
 from .search_text import normalize_search_path
 
 # S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
@@ -78,7 +58,7 @@ from .search_text import normalize_search_path
 
 
 @dataclass
-class CachedItem:
+class TableBrowseItem:
     """In-memory cached metadata for an image loaded from a table."""
     path: str
     name: str
@@ -93,21 +73,50 @@ class CachedItem:
 
 
 @dataclass
-class CachedIndex:
+class TableBrowseIndex:
     """In-memory cached folder index."""
     path: str
     generated_at: str
-    items: list[CachedItem] = field(default_factory=list)
+    items: list[TableBrowseItem] = field(default_factory=list)
     dirs: list[str] = field(default_factory=list)
 
 
-class TableStorage:
+def _table_to_columns(table: Any) -> tuple[list[str], dict[str, list[Any]], int]:
+    if hasattr(table, "to_pydict"):
+        data = table.to_pydict()
+        columns = list(getattr(table, "schema", None).names if hasattr(table, "schema") else data.keys())
+    elif hasattr(table, "columns") and hasattr(table, "to_dict"):
+        columns = list(table.columns)
+        data = {col: table[col].tolist() for col in columns}
+    elif isinstance(table, list):
+        if not table:
+            return [], {}, 0
+        if not all(isinstance(row, dict) for row in table):
+            raise ValueError("table list must contain dict rows")
+        columns = list(table[0].keys())
+        for row in table[1:]:
+            for key in row.keys():
+                if key not in columns:
+                    columns.append(key)
+        data = {col: [] for col in columns}
+        for row in table:
+            for col in columns:
+                data[col].append(row.get(col))
+    else:
+        raise TypeError("table must be a pandas DataFrame, pyarrow.Table, or list of dicts")
+
+    row_count = len(data.get(columns[0], [])) if columns else 0
+    return columns, data, row_count
+
+
+class TableStorage(SourceBackedStorageMixin[TableBrowseItem]):
     """
     In-memory storage backed by a single table (DataFrame or Parquet).
     Supports local paths, S3 URIs, and HTTP/HTTPS URLs as sources.
     """
 
     IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+    EXTENSIONLESS_IMAGE_SOURCE_COLUMNS = frozenset({"s3key"})
     REMOTE_HEADER_BYTES = 65536
     REMOTE_DIM_WORKERS = 16  # baseline concurrency for remote header probing
     REMOTE_DIM_WORKERS_MAX = 128  # avoid unbounded thread creation on huge hosts
@@ -190,6 +199,19 @@ class TableStorage:
         "collection",
         "metrics",
     }
+    _is_s3_uri = staticmethod(is_s3_uri)
+    _is_http_url = staticmethod(is_http_url)
+    _extract_name = staticmethod(extract_name)
+    _normalize_path = staticmethod(normalize_path)
+    _normalize_item_path = staticmethod(normalize_item_path)
+    _canonical_meta_key = staticmethod(canonical_meta_key)
+    _dedupe_path = staticmethod(dedupe_path)
+    _coerce_float = staticmethod(coerce_float)
+    _coerce_int = staticmethod(coerce_int)
+    _coerce_timestamp = staticmethod(coerce_timestamp)
+    _read_dimensions_from_bytes = staticmethod(read_dimensions_from_bytes)
+    _read_dimensions_fast = staticmethod(read_dimensions_fast)
+    _probe_remote_dimensions = probe_remote_dimensions
 
     def __init__(
         self,
@@ -210,31 +232,22 @@ class TableStorage:
         self._root_real = os.path.realpath(self.root) if self.root else None
         self._allow_local = allow_local
         self._skip_local_realpath_validation = bool(skip_local_realpath_validation)
-        self.thumb_size = thumb_size
-        self.thumb_quality = thumb_quality
+        self._initialize_source_backed_state(
+            thumb_size=thumb_size,
+            thumb_quality=thumb_quality,
+            include_source_in_search=include_source_in_search,
+        )
         self.sample_size = sample_size
         self.loadable_threshold = loadable_threshold
-        self._include_source_in_search = include_source_in_search
         self._skip_indexing = skip_indexing
         self._progress_bar = ProgressBar()
 
-        self._indexes: dict[str, CachedIndex] = {}
-        self._items: dict[str, CachedItem] = {}
-        self._thumbnails: dict[str, bytes] = {}
-        self._metadata: dict[str, dict] = {}
-        self._dimensions: dict[str, tuple[int, int]] = {}
-        self._source_paths: dict[str, str] = {}
+        self._indexes: dict[str, TableBrowseIndex] = {}
         self._row_dimensions: list[tuple[int, int] | None] = []
-        self._path_to_row: dict[str, int] = {}
-        self._row_to_path: dict[int, str] = {}
-        self._s3_client_lock = Lock()
-        self._s3_session: Any | None = None
-        self._s3_client: Any | None = None
-        self._s3_client_creations = 0
         self._sorted_paths: list[str] = []
-        self._sorted_items: list[CachedItem] = []
+        self._sorted_items: list[TableBrowseItem] = []
 
-        columns, data, row_count = self._table_to_columns(table)
+        columns, data, row_count = _table_to_columns(table)
         if row_count == 0:
             raise ValueError("table is empty")
 
@@ -242,6 +255,7 @@ class TableStorage:
         self._data = data
         self._row_count = row_count
         self._row_dimensions = [None] * row_count
+        self._source_column_was_explicit = source_column is not None
 
         self._source_column = self._resolve_source_column(
             columns,
@@ -250,20 +264,26 @@ class TableStorage:
         )
         self._s3_prefixes, self._s3_use_bucket = self._compute_s3_prefixes()
         self._local_prefix = self._compute_local_prefix()
-        self._path_column = self._resolve_path_column(columns, path_column)
-        self._name_column = self._resolve_named_column(columns, self.NAME_COLUMNS)
-        self._mime_column = self._resolve_named_column(columns, self.MIME_COLUMNS)
-        self._width_column = self._resolve_named_column(columns, self.WIDTH_COLUMNS)
-        self._height_column = self._resolve_named_column(columns, self.HEIGHT_COLUMNS)
-        self._size_column = self._resolve_named_column(columns, self.SIZE_COLUMNS)
-        self._mtime_column = self._resolve_named_column(columns, self.MTIME_COLUMNS)
+        self._path_column = resolve_path_column(
+            columns,
+            path_column,
+            logical_path_columns=self.LOGICAL_PATH_COLUMNS,
+        )
+        self._name_column = resolve_named_column(columns, self.NAME_COLUMNS)
+        self._mime_column = resolve_named_column(columns, self.MIME_COLUMNS)
+        self._width_column = resolve_named_column(columns, self.WIDTH_COLUMNS)
+        self._height_column = resolve_named_column(columns, self.HEIGHT_COLUMNS)
+        self._size_column = resolve_named_column(columns, self.SIZE_COLUMNS)
+        self._mtime_column = resolve_named_column(columns, self.MTIME_COLUMNS)
         self._metrics_column = None
         for col in columns:
             if col.lower() == "metrics":
                 self._metrics_column = col
                 break
 
-        self._build_indexes()
+        self._extensionless_source_trust_scope = self._selected_extensionless_source_trust_scope()
+
+        build_table_indexes(self, item_factory=TableBrowseItem, index_factory=TableBrowseIndex)
         self._build_path_index()
         self._browse_signature = self._compute_browse_signature()
 
@@ -274,12 +294,6 @@ class TableStorage:
         for path in self._items.keys():
             digest.update(path.encode("utf-8"))
         return digest.hexdigest()
-
-    def _table_to_columns(self, table: Any) -> tuple[list[str], dict[str, list[Any]], int]:
-        return table_to_columns(table)
-
-    def _resolve_named_column(self, columns: list[str], candidates: tuple[str, ...]) -> str | None:
-        return resolve_named_column(columns, candidates)
 
     def _resolve_source_column(
         self,
@@ -307,26 +321,6 @@ class TableStorage:
         values = self._data.get(self._source_column, []) if hasattr(self, "_data") else []
         return compute_local_prefix(values)
 
-    def _resolve_path_column(self, columns: list[str], path_column: str | None) -> str | None:
-        return resolve_path_column(
-            columns,
-            path_column,
-            logical_path_columns=self.LOGICAL_PATH_COLUMNS,
-        )
-
-    def _resolve_column(self, columns: list[str], name: str) -> str | None:
-        return resolve_column(columns, name)
-
-    def _loadable_score(self, values: list[Any]) -> tuple[int, int]:
-        return loadable_score(
-            values,
-            sample_size=self.sample_size,
-            is_loadable_value=self._is_loadable_value,
-        )
-
-    def _iter_sample(self, values: list[Any]):
-        return iter_sample(values)
-
     def _is_loadable_value(self, value: str) -> bool:
         if self._is_s3_uri(value) or self._is_http_url(value):
             return True
@@ -342,29 +336,74 @@ class TableStorage:
             return os.path.exists(resolved)
         return False
 
-    def _is_s3_uri(self, path: str) -> bool:
-        return is_s3_uri(path)
-
-    def _is_http_url(self, path: str) -> bool:
-        return is_http_url(path)
-
     def _is_supported_image(self, name: str) -> bool:
         return is_supported_image(name, self.IMAGE_EXTS)
 
-    def _extract_name(self, value: str) -> str:
-        return extract_name(value)
+    def _selected_extensionless_source_trust_scope(self) -> str | None:
+        if self._source_column.lower() in self.EXTENSIONLESS_IMAGE_SOURCE_COLUMNS:
+            return "*"
+        if not self._source_column_was_explicit:
+            return None
+        return self._probe_extensionless_source_scope()
 
-    def _normalize_path(self, path: str) -> str:
-        return normalize_path(path)
+    def _allows_extensionless_source_image(self, source: str) -> bool:
+        scope = self._extensionless_source_trust_scope
+        if scope == "*":
+            return True
+        return scope is not None and scope == self._extensionless_source_scope(source)
 
-    def _normalize_item_path(self, path: str) -> str:
-        return normalize_item_path(path)
+    def _probe_extensionless_source_scope(self) -> str | None:
+        for source in iter_sample(self._data.get(self._source_column, [])):
+            if self._is_supported_image(self._extract_name(source)):
+                continue
+            if self._source_header_is_image(source):
+                return self._extensionless_source_scope(source)
+            return None
+        return None
 
-    def _canonical_meta_key(self, path: str) -> str:
-        return canonical_meta_key(path)
+    def _extensionless_source_scope(self, source: str) -> str | None:
+        if self._is_s3_uri(source):
+            parsed = urlparse(source)
+            return f"s3://{parsed.netloc.lower()}" if parsed.netloc else None
+        if self._is_http_url(source):
+            parsed = urlparse(source)
+            if parsed.username or parsed.password or not parsed.hostname:
+                return None
+            if parsed.port not in {None, 80, 443}:
+                return None
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            return f"{parsed.scheme}://{parsed.hostname.lower()}:{port}"
+        return "local"
 
-    def _dedupe_path(self, path: str, seen: set[str]) -> str:
-        return dedupe_path(path, seen)
+    def _source_header_is_image(self, source: str) -> bool:
+        name = self._extract_name(source)
+        if self._is_s3_uri(source):
+            try:
+                url = self._get_presigned_url(source)
+            except Exception:
+                return False
+            dims, _total = self._get_safe_remote_header_info(url, name)
+            return dims is not None
+
+        if self._is_http_url(source):
+            dims, _total = self._get_safe_remote_header_info(source, name)
+            return dims is not None
+
+        if not self._allow_local:
+            return False
+        try:
+            if self._skip_local_realpath_validation:
+                resolved = self._resolve_local_source_lexical(source)
+            else:
+                resolved = self._resolve_local_source(source)
+        except ValueError:
+            return False
+        try:
+            with open(resolved, "rb") as handle:
+                header = handle.read(self.REMOTE_HEADER_BYTES)
+        except OSError:
+            return False
+        return self._read_dimensions_from_bytes(header, None) is not None
 
     def _derive_logical_path(self, source: str) -> str:
         return derive_logical_path(
@@ -375,31 +414,10 @@ class TableStorage:
             s3_use_bucket=self._s3_use_bucket if hasattr(self, "_s3_use_bucket") else False,
         )
 
-    def _coerce_float(self, value: Any) -> float | None:
-        return coerce_float(value)
-
-    def _coerce_int(self, value: Any) -> int | None:
-        return coerce_int(value)
-
-    def _coerce_timestamp(self, value: Any) -> float | None:
-        return coerce_timestamp(value)
-
-    def _build_indexes(self) -> None:
-        build_table_indexes(self, item_factory=CachedItem, index_factory=CachedIndex)
-
     def _build_path_index(self) -> None:
         paths = sorted(self._items.keys())
         self._sorted_paths = paths
         self._sorted_items = [self._items[path] for path in paths]
-
-    def _extract_metrics(self, row_idx: int) -> dict[str, float]:
-        return extract_row_metrics(self, row_idx)
-
-    def _extract_metrics_map(self, row_idx: int) -> dict[str, float]:
-        return extract_row_metrics_map(self, row_idx)
-
-    def _extract_display_fields(self, row_idx: int) -> dict[str, Any]:
-        return extract_row_display_fields(self, row_idx)
 
     def _resolve_local_source(self, source: str) -> str:
         return resolve_local_source(
@@ -416,11 +434,14 @@ class TableStorage:
             allow_local=self._allow_local,
         )
 
-    def get_index(self, path: str) -> CachedIndex:
+    def get_index(self, path: str) -> TableBrowseIndex | None:
         norm = self._normalize_path(path)
         if norm in self._indexes:
             return self._indexes[norm]
-        raise FileNotFoundError(path)
+        return None
+
+    def get_recursive_index(self, path: str) -> TableBrowseIndex | None:
+        return self.get_index(path)
 
     def validate_image_path(self, path: str) -> None:
         if not path:
@@ -429,9 +450,6 @@ class TableStorage:
         if norm not in self._items:
             raise FileNotFoundError(path)
 
-    def read_bytes(self, path: str) -> bytes:
-        return storage_read_bytes(self, path)
-
     def exists(self, path: str) -> bool:
         norm = self._normalize_item_path(path)
         return norm in self._items
@@ -439,10 +457,12 @@ class TableStorage:
     def size(self, path: str) -> int:
         norm = self._normalize_item_path(path)
         item = self._items.get(norm)
-        return item.size if item else 0
+        if item is None:
+            raise FileNotFoundError(path)
+        return item.size
 
     def join(self, *parts: str) -> str:
-        return "/".join([p.strip("/") for p in parts if p])
+        return join_storage_path(*parts)
 
     def etag(self, path: str) -> str | None:
         norm = self._normalize_item_path(path)
@@ -450,34 +470,6 @@ class TableStorage:
         if not item:
             return None
         return f"{int(item.mtime)}-{item.size}"
-
-    def get_thumbnail(self, path: str) -> bytes | None:
-        return storage_get_thumbnail(self, path)
-
-    def _make_thumbnail(self, img_bytes: bytes) -> tuple[bytes, tuple[int, int] | None]:
-        return storage_make_thumbnail(
-            img_bytes,
-            thumb_size=self.thumb_size,
-            thumb_quality=self.thumb_quality,
-        )
-
-    def get_dimensions(self, path: str) -> tuple[int, int]:
-        return storage_get_dimensions(self, path)
-
-    def get_metadata(self, path: str) -> dict:
-        return storage_get_metadata(self, path)
-
-    def get_metadata_readonly(self, path: str) -> dict:
-        return storage_get_metadata_readonly(self, path)
-
-    def set_metadata(self, path: str, meta: dict) -> None:
-        storage_set_metadata(self, path, meta)
-
-    def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[CachedItem]:
-        return storage_search_items(self, query=query, path=path, limit=limit)
-
-    def _probe_remote_dimensions(self, tasks: list[tuple[str, CachedItem, str, str]]) -> None:
-        probe_remote_dimensions(self, tasks)
 
     def _progress(self, done: int, total: int, label: str) -> None:
         self._progress_bar.update(done, total, label)
@@ -494,7 +486,7 @@ class TableStorage:
     def recursive_items_hard_limit(self) -> int | None:
         return None
 
-    def items_in_scope(self, path: str) -> list[CachedItem]:
+    def items_in_scope(self, path: str) -> list[TableBrowseItem]:
         scope_norm = normalize_search_path(path)
         if not scope_norm:
             return list(self._sorted_items)
@@ -522,71 +514,29 @@ class TableStorage:
     def path_for_row_index(self, index: int) -> str | None:
         return self._row_to_path.get(index)
 
-    def table_fields_for_path(self, path: str) -> dict[str, Any]:
+    def sidecar_enrichment_for_path(self, path: str) -> dict[str, Any]:
         row_idx = self.row_index_for_path(path)
         if row_idx is None:
             return {}
-        return self._extract_display_fields(row_idx)
+        table_fields = extract_row_display_fields(self, row_idx)
+        if not table_fields:
+            return {}
+        return {"table_fields": table_fields}
+
+    def _extract_metrics(self, row_idx: int) -> dict[str, float]:
+        return extract_row_metrics(self, row_idx)
+
+    def _extract_metrics_map(self, row_idx: int) -> dict[str, float]:
+        return extract_row_metrics_map(self, row_idx)
 
     def row_index_map(self) -> dict[int, str]:
         return dict(self._row_to_path)
 
-    def _effective_remote_workers(self, total: int) -> int:
-        return effective_remote_workers(
-            total,
-            baseline_workers=self.REMOTE_DIM_WORKERS,
-            max_workers=self.REMOTE_DIM_WORKERS_MAX,
-            cpu_count=os.cpu_count,
-        )
-
-    def _get_s3_client(self):
-        return storage_get_s3_client(self)
-
     def s3_client_creations(self) -> int:
         return self._s3_client_creations
 
-    def _get_presigned_url(self, s3_uri: str, expires_in: int = 3600) -> str:
-        return storage_get_presigned_url(self, s3_uri, expires_in=expires_in)
 
-    def _parse_content_range(self, header: str) -> int | None:
-        return parse_content_range(header)
-
-    def _get_remote_header_bytes(self, url: str, max_bytes: int | None = None) -> tuple[bytes | None, int | None]:
-        return get_remote_header_bytes(
-            url,
-            max_bytes=max_bytes or self.REMOTE_HEADER_BYTES,
-            parse_content_range_fn=self._parse_content_range,
-        )
-
-    def _get_remote_header_info(self, url: str, name: str) -> tuple[tuple[int, int] | None, int | None]:
-        return get_remote_header_info(
-            url,
-            name,
-            max_bytes=self.REMOTE_HEADER_BYTES,
-            read_dimensions_from_bytes=self._read_dimensions_from_bytes,
-            get_remote_header_bytes_fn=self._get_remote_header_bytes,
-        )
-
-    def _read_dimensions_from_bytes(self, data: bytes, ext: str | None) -> tuple[int, int] | None:
-        return read_dimensions_from_bytes(data, ext)
-
-    def _read_dimensions_fast(self, filepath: str) -> tuple[int, int] | None:
-        return read_dimensions_fast(filepath)
-
-    def _jpeg_dimensions(self, f) -> tuple[int, int] | None:
-        return read_jpeg_dimensions(f)
-
-    def _png_dimensions(self, f) -> tuple[int, int] | None:
-        return read_png_dimensions(f)
-
-    def _webp_dimensions(self, f) -> tuple[int, int] | None:
-        return read_webp_dimensions(f)
-
-    def _guess_mime(self, name: str) -> str:
-        return storage_guess_mime(name)
-
-
-def load_parquet_table(path: str, columns: list[str] | None = None):
+def load_parquet_table(path: str, columns: list[str] | None = None) -> pa.Table:
     try:
         import pyarrow.parquet as pq
     except ImportError as exc:  # pragma: no cover - optional dependency
@@ -596,7 +546,7 @@ def load_parquet_table(path: str, columns: list[str] | None = None):
     return pq.read_table(path, columns=columns)
 
 
-def load_parquet_schema(path: str):
+def load_parquet_schema(path: str) -> pa.Schema:
     try:
         import pyarrow.parquet as pq
     except ImportError as exc:  # pragma: no cover - optional dependency

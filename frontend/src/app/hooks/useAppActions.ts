@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ChangeEvent, Dispatch, RefObject, SetStateAction } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { ContextMenuState, FolderPathsResponse } from '../../lib/types'
+import type { ContextMenuState, BrowseFolderPathsPayload } from '../../lib/types'
 import { FetchError } from '../../lib/fetcher'
 import { getPathName, sanitizePath } from '../routing/hash'
 
@@ -82,7 +82,7 @@ function normalizeMoveDestinationPaths(paths: readonly string[]): string[] {
 }
 
 export async function loadMoveDestinationPaths(
-  getFolderPaths: () => Promise<FolderPathsResponse> = () => api.getFolderPaths(),
+  getFolderPaths: () => Promise<BrowseFolderPathsPayload> = () => api.getFolderPaths(),
 ): Promise<string[]> {
   const response = await getFolderPaths()
   return normalizeMoveDestinationPaths(response.paths ?? [])

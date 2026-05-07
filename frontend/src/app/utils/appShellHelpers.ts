@@ -1,4 +1,4 @@
-import type { Item, SavedView, StarRating } from '../../lib/types'
+import type { BrowseItemPayload, SavedView, StarRating } from '../../lib/types'
 
 export function makeUniqueViewId(name: string, views: SavedView[]): string {
   const base = slugify(name) || 'view'
@@ -59,6 +59,21 @@ export function resolveScopeFromHashTarget(
   return folderTarget
 }
 
+export function getBrowserZoomWarningBucket(percent: number | null): number | null {
+  if (typeof percent !== 'number' || !Number.isFinite(percent)) return null
+  if (Math.abs(percent - 100) < 2) return null
+  return Math.round(percent / 5) * 5
+}
+
+export function resolveVisibleBrowserZoomPercent(
+  percent: number | null,
+  dismissedBucket: number | null,
+): number | null {
+  const bucket = getBrowserZoomWarningBucket(percent)
+  if (bucket === null || bucket === dismissedBucket) return null
+  return percent
+}
+
 export function formatRange(min: number, max: number): string {
   return `${formatNumber(min)}–${formatNumber(max)}`
 }
@@ -70,24 +85,24 @@ function formatNumber(value: number): string {
   return value.toFixed(3)
 }
 
-function guessMimeFromPath(path: string): Item['type'] {
+function guessMimeFromPath(path: string): BrowseItemPayload['mime'] {
   const lower = path.toLowerCase()
   if (lower.endsWith('.png')) return 'image/png'
   if (lower.endsWith('.webp')) return 'image/webp'
   return 'image/jpeg'
 }
 
-export function buildFallbackItem(path: string, starOverride?: StarRating): Item {
+export function buildFallbackItem(path: string, starOverride?: StarRating): BrowseItemPayload {
   const name = path.split('/').pop() ?? path
   return {
     path,
     name,
-    type: guessMimeFromPath(path),
-    w: 0,
-    h: 0,
+    mime: guessMimeFromPath(path),
+    width: 0,
+    height: 0,
     size: 0,
-    hasThumb: true,
-    hasMeta: false,
+    hasThumbnail: true,
+    hasMetadata: false,
     star: starOverride ?? null,
   }
 }

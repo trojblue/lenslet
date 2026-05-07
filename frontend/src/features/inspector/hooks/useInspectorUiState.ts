@@ -10,6 +10,12 @@ import {
   parseQuickViewCustomPathsInput,
   parseStoredQuickViewCustomPaths,
 } from '../model/quickViewFields'
+import {
+  readInspectorStoredBool,
+  readInspectorStoredValue,
+  writeInspectorStoredBool,
+  writeInspectorStoredJson,
+} from './inspectorStorage'
 
 export type InspectorSectionKey = 'quickView' | 'overview' | 'compare' | 'basics' | 'metadata' | 'notes'
 
@@ -211,96 +217,81 @@ export function useInspectorUiState({
   }, [])
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(INSPECTOR_SECTION_ORDER_STORAGE_KEY)
-      const parsedOrder = parseStoredInspectorWidgetOrder(raw)
-      setSectionOrder(parsedOrder.order)
-      if (parsedOrder.shouldRewrite) {
-        localStorage.setItem(INSPECTOR_SECTION_ORDER_STORAGE_KEY, JSON.stringify(parsedOrder.order))
-      }
-    } catch {
-      // Ignore localStorage parsing errors
-    }
+    setSectionOrder(
+      readInspectorStoredValue(
+        INSPECTOR_SECTION_ORDER_STORAGE_KEY,
+        (raw) => {
+          const parsed = parseStoredInspectorWidgetOrder(raw)
+          return {
+            value: parsed.order,
+            rewriteValue: parsed.shouldRewrite ? JSON.stringify(parsed.order) : undefined,
+          }
+        },
+        [...INSPECTOR_WIDGET_DEFAULT_ORDER],
+      ),
+    )
   }, [])
 
   useEffect(() => {
-    try {
-      localStorage.setItem(INSPECTOR_SECTION_ORDER_STORAGE_KEY, JSON.stringify(sectionOrder))
-    } catch {
-      // Ignore localStorage write errors
-    }
+    writeInspectorStoredJson(INSPECTOR_SECTION_ORDER_STORAGE_KEY, sectionOrder)
   }, [sectionOrder])
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY)
-      const parsed = parseStoredQuickViewCustomPaths(raw)
-      setQuickViewCustomPaths(parsed.paths)
-      setQuickViewCustomPathsDraft(parsed.paths.join('\n'))
-      if (parsed.shouldRewrite) {
-        localStorage.setItem(INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY, JSON.stringify(parsed.paths))
-      }
-    } catch {
-      // Ignore localStorage parsing errors
-    }
+    const parsed = readInspectorStoredValue(
+      INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY,
+      (raw) => {
+        const stored = parseStoredQuickViewCustomPaths(raw)
+        return {
+          value: stored,
+          rewriteValue: stored.shouldRewrite ? JSON.stringify(stored.paths) : undefined,
+        }
+      },
+      { paths: [], shouldRewrite: false },
+    )
+    setQuickViewCustomPaths(parsed.paths)
+    setQuickViewCustomPathsDraft(parsed.paths.join('\n'))
   }, [])
 
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY,
-        JSON.stringify(quickViewCustomPaths),
-      )
-    } catch {
-      // Ignore localStorage write errors
-    }
+    writeInspectorStoredJson(INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY, quickViewCustomPaths)
   }, [quickViewCustomPaths])
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(INSPECTOR_SECTION_STORAGE_KEY)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as Record<string, unknown>
-      if (!parsed || typeof parsed !== 'object') return
-      const restored: Partial<Record<InspectorSectionKey, boolean>> = {}
-      for (const key of INSPECTOR_SECTION_KEYS) {
-        if (typeof parsed[key] === 'boolean') restored[key] = parsed[key] as boolean
-      }
-      if (Object.keys(restored).length > 0) {
-        setOpenSections((prev) => ({ ...prev, ...restored }))
-      }
-    } catch {
-      // Ignore localStorage parsing errors
+    const restored = readInspectorStoredValue(
+      INSPECTOR_SECTION_STORAGE_KEY,
+      (raw) => {
+        if (!raw) {
+          return { value: {} as Partial<Record<InspectorSectionKey, boolean>> }
+        }
+        const parsed = JSON.parse(raw) as Record<string, unknown>
+        if (!parsed || typeof parsed !== 'object') {
+          return { value: {} as Partial<Record<InspectorSectionKey, boolean>> }
+        }
+        const next: Partial<Record<InspectorSectionKey, boolean>> = {}
+        for (const key of INSPECTOR_SECTION_KEYS) {
+          if (typeof parsed[key] === 'boolean') {
+            next[key] = parsed[key]
+          }
+        }
+        return { value: next }
+      },
+      {},
+    )
+    if (Object.keys(restored).length > 0) {
+      setOpenSections((prev) => ({ ...prev, ...restored }))
     }
   }, [])
 
   useEffect(() => {
-    try {
-      localStorage.setItem(INSPECTOR_SECTION_STORAGE_KEY, JSON.stringify(openSections))
-    } catch {
-      // Ignore localStorage write errors
-    }
+    writeInspectorStoredJson(INSPECTOR_SECTION_STORAGE_KEY, openSections)
   }, [openSections])
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(INSPECTOR_METRICS_EXPANDED_KEY)
-      if (raw === '1' || raw === 'true') {
-        setMetricsExpanded(true)
-      } else if (raw === '0' || raw === 'false') {
-        setMetricsExpanded(false)
-      }
-    } catch {
-      // Ignore localStorage parsing errors
-    }
+    setMetricsExpanded(readInspectorStoredBool(INSPECTOR_METRICS_EXPANDED_KEY, false))
   }, [])
 
   useEffect(() => {
-    try {
-      localStorage.setItem(INSPECTOR_METRICS_EXPANDED_KEY, metricsExpanded ? '1' : '0')
-    } catch {
-      // Ignore localStorage write errors
-    }
+    writeInspectorStoredBool(INSPECTOR_METRICS_EXPANDED_KEY, metricsExpanded)
   }, [metricsExpanded])
 
   useEffect(() => {

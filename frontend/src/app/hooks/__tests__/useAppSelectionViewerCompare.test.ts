@@ -6,18 +6,18 @@ import {
   resolveOverlayPopstateResult,
   shouldCloseCompareForSelectionChange,
 } from '../useAppSelectionViewerCompare'
-import type { Item } from '../../../lib/types'
+import type { BrowseItemPayload } from '../../../lib/types'
 
-function buildItem(path: string, name: string): Item {
+function buildItem(path: string, name: string): BrowseItemPayload {
   return {
     path,
     name,
-    type: 'image/png',
-    w: 100,
-    h: 100,
+    mime: 'image/png',
+    width: 100,
+    height: 100,
     size: 1,
-    hasThumb: true,
-    hasMeta: false,
+    hasThumbnail: true,
+    hasMetadata: false,
   }
 }
 

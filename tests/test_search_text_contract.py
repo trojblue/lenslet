@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from lenslet.storage.dataset import DatasetStorage
-from lenslet.storage.memory import MemoryStorage
+from lenslet.storage.memory import MemoryIndexBuildError, MemoryStorage
 from lenslet.storage.search_text import (
     build_search_haystack,
     normalize_search_path,
@@ -22,7 +22,7 @@ def _make_image(path: Path) -> None:
 
 
 def _set_search_meta(storage: object, path: str) -> None:
-    meta = storage.get_metadata(path)
+    meta = storage.ensure_metadata(path)
     meta["tags"] = ["feline", "portrait"]
     meta["notes"] = "night scout"
     storage.set_metadata(path, meta)
@@ -152,13 +152,34 @@ def test_memory_search_optional_source_like_metadata_fields(tmp_path: Path) -> N
     storage = MemoryStorage(str(tmp_path))
     storage.get_index("/gallery")
     path = "gallery/local.jpg"
-    meta = storage.get_metadata(path)
+    meta = storage.ensure_metadata(path)
     meta["source"] = "s3://bucket/source-token/local.jpg"
     meta["url"] = "https://cdn.example.com/media/local.jpg"
     storage.set_metadata(path, meta)
 
     assert path in _result_paths(storage.search(query="source-token"))
     assert path in _result_paths(storage.search(query="cdn.example.com"))
+
+
+def test_memory_search_raises_when_root_index_build_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _make_image(tmp_path / "cat.jpg")
+    _make_image(tmp_path / "dog.jpg")
+
+    storage = MemoryStorage(str(tmp_path))
+    original_abs_path = storage._abs_path
+
+    def _failing_abs_path(path: str) -> str:
+        if path.endswith("/dog.jpg"):
+            raise OSError("stat blocked")
+        return original_abs_path(path)
+
+    monkeypatch.setattr(storage, "_abs_path", _failing_abs_path)
+
+    with pytest.raises(MemoryIndexBuildError, match=r"/dog\.jpg"):
+        storage.search(query="cat")
 
 
 def test_table_search_source_and_url_fields_respect_toggle(tmp_path: Path) -> None:

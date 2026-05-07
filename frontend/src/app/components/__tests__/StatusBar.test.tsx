@@ -71,4 +71,14 @@ describe('StatusBar indexing banner lifecycle', () => {
     expect(html).toContain('Indexing complete.')
     expect(html).toContain('Switch to Most recent')
   })
+
+  it('renders a dismiss action for the browser zoom warning', () => {
+    const html = renderStatusBar({
+      browserZoomPercent: 110,
+      onDismissBrowserZoomWarning: noop,
+    })
+
+    expect(html).toContain('Browser zoom 110%.')
+    expect(html).toContain('aria-label="Dismiss browser zoom warning"')
+  })
 })

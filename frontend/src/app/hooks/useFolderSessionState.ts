@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useRef } from 'react'
-import type { FolderIndex } from '../../lib/types'
+import type { BrowseFolderPayload } from '../../lib/types'
 
 const MAX_HYDRATED_SNAPSHOT_ITEMS = 10_000
 
 export type FolderSessionEntry = {
   path: string
-  hydratedSnapshot: FolderIndex | null
+  hydratedSnapshot: BrowseFolderPayload | null
   hydratedGeneratedAt: string | null
   hydratedItemCount: number
   hydratedAtMs: number | null
@@ -49,7 +49,7 @@ export function extractTopAnchorPath(visiblePaths: ReadonlySet<string>): string 
 export function upsertFolderSessionSnapshot(
   state: FolderSessionState,
   path: string,
-  snapshot: FolderIndex,
+  snapshot: BrowseFolderPayload,
   nowMs: number,
 ): FolderSessionState {
   const existing = getOrCreateSession(state, path)
@@ -145,9 +145,9 @@ export function invalidateIncompatibleScopeTransition(
 
 export type UseFolderSessionStateResult = {
   getSession: (path: string) => FolderSessionEntry | null
-  getHydratedSnapshot: (path: string) => FolderIndex | null
+  getHydratedSnapshot: (path: string) => BrowseFolderPayload | null
   getTopAnchorPath: (path: string) => string | null
-  saveHydratedSnapshot: (path: string, snapshot: FolderIndex) => void
+  saveHydratedSnapshot: (path: string, snapshot: BrowseFolderPayload) => void
   saveTopAnchorPath: (path: string, topAnchorPath: string | null) => void
   saveTopAnchorFromVisiblePaths: (path: string, visiblePaths: ReadonlySet<string>) => void
   invalidatePath: (path: string) => void
@@ -163,7 +163,7 @@ export function useFolderSessionState(): UseFolderSessionStateResult {
     return stateRef.current[normalizePath(path)] ?? null
   }, [])
 
-  const getHydratedSnapshot = useCallback((path: string): FolderIndex | null => {
+  const getHydratedSnapshot = useCallback((path: string): BrowseFolderPayload | null => {
     return stateRef.current[normalizePath(path)]?.hydratedSnapshot ?? null
   }, [])
 
@@ -171,7 +171,7 @@ export function useFolderSessionState(): UseFolderSessionStateResult {
     return stateRef.current[normalizePath(path)]?.topAnchorPath ?? null
   }, [])
 
-  const saveHydratedSnapshot = useCallback((path: string, snapshot: FolderIndex): void => {
+  const saveHydratedSnapshot = useCallback((path: string, snapshot: BrowseFolderPayload): void => {
     stateRef.current = upsertFolderSessionSnapshot(stateRef.current, path, snapshot, Date.now())
   }, [])
 

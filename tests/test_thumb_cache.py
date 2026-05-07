@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from lenslet.server_factory import DEFAULT_THUMB_CACHE_CAP_BYTES, _thumb_cache_from_workspace
-from lenslet.thumb_cache import ThumbCache
+import logging
+from pathlib import Path
+
+from lenslet.web.factory import DEFAULT_THUMB_CACHE_CAP_BYTES, _thumb_cache_from_workspace
+from lenslet.web.cache.thumbs import ThumbCache
 from lenslet.workspace import Workspace
 
 
@@ -24,3 +27,18 @@ def test_thumb_cache_from_workspace_uses_default_cap(tmp_path):
 
     assert isinstance(cache, ThumbCache)
     assert cache.max_disk_bytes == DEFAULT_THUMB_CACHE_CAP_BYTES
+
+
+def test_thumb_cache_records_read_failures(tmp_path, monkeypatch, caplog):
+    cache = ThumbCache(tmp_path / "thumbs")
+
+    def _fail(_self: Path) -> bytes:
+        raise OSError("forced read failure")
+
+    monkeypatch.setattr(Path, "read_bytes", _fail)
+    with caplog.at_level(logging.WARNING):
+        assert cache.get("a") is None
+
+    assert cache.last_failure is not None
+    assert cache.last_failure.operation == "read"
+    assert "thumb cache read failed" in caplog.text

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
+from fastapi import FastAPI, Request
 
-from ..server_routes_index import mount_frontend
+from ..web.app_base import create_api_app
+from ..web.frontend import mount_frontend
+from ..web.auth import TRUSTED_LOCAL_MUTATION_POLICY, request_can_mutate, set_mutation_policy
 from .dataset import RankingDatasetError, load_ranking_dataset
 from .persistence import RankingPersistenceError, RankingResultsStore, resolve_results_path
 from .routes import build_ranking_router
@@ -25,26 +25,18 @@ def create_ranking_app(
     )
     results_store = RankingResultsStore(resolved_results_path)
 
-    app = FastAPI(
-        title="Lenslet",
-        description="Lightweight image ranking server",
-    )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    app.add_middleware(GZipMiddleware, minimum_size=1000)
+    app = create_api_app(description="Lightweight image ranking server")
+    set_mutation_policy(app, TRUSTED_LOCAL_MUTATION_POLICY)
 
     app.state.ranking_dataset = dataset
     app.state.ranking_results_path = results_store.results_path
 
     @app.get("/health")
-    def health() -> dict[str, object]:
+    def health(request: Request) -> dict[str, object]:
         return {
             "ok": True,
             "mode": "ranking",
+            "can_write": request_can_mutate(request, writes_enabled=True),
             "dataset_path": str(dataset.dataset_path),
             "results_path": str(results_store.results_path),
             "instance_count": dataset.instance_count,

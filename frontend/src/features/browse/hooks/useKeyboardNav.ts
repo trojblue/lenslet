@@ -1,7 +1,7 @@
-import type { Item } from '../../../lib/types'
+import type { BrowseItemPayload } from '../../../lib/types'
 
 // Computes the next index for grid key navigation. Returns a number, 'open' for Enter, or null for unhandled.
-export function getNextIndexForKeyNav(items: Item[], columns: number, activePath: string | null, e: KeyboardEvent): number | 'open' | null {
+export function getNextIndexForKeyNav(items: BrowseItemPayload[], columns: number, activePath: string | null, e: KeyboardEvent): number | 'open' | null {
   if (!items.length) return null
   const idx = activePath ? items.findIndex(i => i.path === activePath) : 0
   const col = Math.max(1, columns)

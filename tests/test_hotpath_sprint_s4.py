@@ -202,7 +202,11 @@ def test_table_mode_og_shell_path_skips_subtree_count(
 ) -> None:
     _seed_gallery(tmp_path)
     rows = [{"path": "/gallery/a.jpg", "source": str(tmp_path / "gallery" / "a.jpg")}]
-    app = create_app_from_table(rows, base_dir=None, og_preview=True)
+    app = create_app_from_table(
+        rows,
+        base_dir=None,
+        og_preview=True,
+    )
 
     def _fail_subtree_count(*_args, **_kwargs):
         raise AssertionError("subtree_image_count must not be called by /index.html")

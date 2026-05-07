@@ -48,7 +48,7 @@ def embed_parquet(
     embed_type = pa.list_(pa.float32(), dim)
 
     pf = pq.ParquetFile(str(parquet_path))
-    if image_column not in pf.schema.names:
+    if image_column not in pf.schema_arrow.names:
         raise ValueError(f"Column not found: {image_column}")
 
     total_rows = pf.metadata.num_rows if pf.metadata else None

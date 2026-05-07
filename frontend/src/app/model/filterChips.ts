@@ -12,8 +12,8 @@ export type FilterChipActions = {
   clearStarsNotIn: () => void
   clearNameContains: () => void
   clearNameNotContains: () => void
-  clearCommentsContains: () => void
-  clearCommentsNotContains: () => void
+  clearNotesContains: () => void
+  clearNotesNotContains: () => void
   clearUrlContains: () => void
   clearUrlNotContains: () => void
   clearDateRange: () => void
@@ -28,13 +28,12 @@ type FilterChipTemplate = {
 }
 
 type FilterClauseKey =
-  | 'stars'
   | 'starsIn'
   | 'starsNotIn'
   | 'nameContains'
   | 'nameNotContains'
-  | 'commentsContains'
-  | 'commentsNotContains'
+  | 'notesContains'
+  | 'notesNotContains'
   | 'urlContains'
   | 'urlNotContains'
   | 'dateRange'
@@ -50,17 +49,6 @@ type FilterChipRegistryEntry<K extends FilterClauseKey> = {
 }
 
 const FILTER_CHIP_REGISTRY: { [K in FilterClauseKey]: FilterChipRegistryEntry<K> } = {
-  stars: {
-    read: (clause) => {
-      const stars = clause.stars || []
-      if (!stars.length) return null
-      return {
-        id: 'stars',
-        label: `Rating in: ${formatStarValues(stars)}`,
-      }
-    },
-    clear: (_clause, actions) => actions.clearStars(),
-  },
   starsIn: {
     read: (clause) => {
       const stars = clause.starsIn.values || []
@@ -105,27 +93,27 @@ const FILTER_CHIP_REGISTRY: { [K in FilterClauseKey]: FilterChipRegistryEntry<K>
     },
     clear: (_clause, actions) => actions.clearNameNotContains(),
   },
-  commentsContains: {
+  notesContains: {
     read: (clause) => {
-      const value = clause.commentsContains.value?.trim()
+      const value = clause.notesContains.value?.trim()
       if (!value) return null
       return {
-        id: 'comments-contains',
-        label: `Comments contain: ${value}`,
+        id: 'notes-contains',
+        label: `Notes contain: ${value}`,
       }
     },
-    clear: (_clause, actions) => actions.clearCommentsContains(),
+    clear: (_clause, actions) => actions.clearNotesContains(),
   },
-  commentsNotContains: {
+  notesNotContains: {
     read: (clause) => {
-      const value = clause.commentsNotContains.value?.trim()
+      const value = clause.notesNotContains.value?.trim()
       if (!value) return null
       return {
-        id: 'comments-not-contains',
-        label: `Comments not: ${value}`,
+        id: 'notes-not-contains',
+        label: `Notes not: ${value}`,
       }
     },
-    clear: (_clause, actions) => actions.clearCommentsNotContains(),
+    clear: (_clause, actions) => actions.clearNotesNotContains(),
   },
   urlContains: {
     read: (clause) => {
@@ -187,13 +175,12 @@ function visitFilterClause(
   clause: FilterClause,
   visit: <K extends FilterClauseKey>(key: K, typedClause: FilterClauseByKey<K>) => void
 ): void {
-  if ('stars' in clause) return visit('stars', clause)
   if ('starsIn' in clause) return visit('starsIn', clause)
   if ('starsNotIn' in clause) return visit('starsNotIn', clause)
   if ('nameContains' in clause) return visit('nameContains', clause)
   if ('nameNotContains' in clause) return visit('nameNotContains', clause)
-  if ('commentsContains' in clause) return visit('commentsContains', clause)
-  if ('commentsNotContains' in clause) return visit('commentsNotContains', clause)
+  if ('notesContains' in clause) return visit('notesContains', clause)
+  if ('notesNotContains' in clause) return visit('notesNotContains', clause)
   if ('urlContains' in clause) return visit('urlContains', clause)
   if ('urlNotContains' in clause) return visit('urlNotContains', clause)
   if ('dateRange' in clause) return visit('dateRange', clause)

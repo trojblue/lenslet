@@ -46,7 +46,7 @@ def test_recursive_returns_full_sorted_list(tmp_path: Path) -> None:
     }
 
 
-def test_recursive_rejects_paging_params_and_legacy_flag(tmp_path: Path) -> None:
+def test_recursive_ignores_retired_query_params(tmp_path: Path) -> None:
     root = tmp_path
     for idx in range(6):
         _make_image(root / f"shots/img_{idx:03d}.jpg")
@@ -61,11 +61,9 @@ def test_recursive_rejects_paging_params_and_legacy_flag(tmp_path: Path) -> None
         legacy_recursive="1",
     )
 
-    assert resp.status_code == 400
+    assert resp.status_code == 200
     payload = resp.json()
-    assert payload["error"] == "unsupported_query_params"
-    for key in ("page", "page_size", "legacy_recursive"):
-        assert key in payload["message"]
+    assert len(payload["items"]) == 6
 
 
 def test_recursive_cache_reuses_snapshot_between_calls(

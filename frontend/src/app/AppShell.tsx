@@ -15,8 +15,8 @@ import {
   countActiveFilters,
   getStarFilter,
   normalizeFilterAst,
-  setCommentsContainsFilter,
-  setCommentsNotContainsFilter,
+  setNotesContainsFilter,
+  setNotesNotContainsFilter,
   setDateRangeFilter,
   setHeightCompareFilter,
   setMetricRangeFilter,
@@ -40,7 +40,7 @@ import type {
   CompareOrderMode,
   FilterAST,
   HealthMode,
-  Item,
+  BrowseItemPayload,
   SavedView,
   SortSpec,
   StarRating,
@@ -76,8 +76,10 @@ import { shouldShowGridLoading } from './model/loadingState'
 import {
   downloadBlob,
   formatScopeLabel,
+  getBrowserZoomWarningBucket,
   makeUniqueViewId,
   resolveScopeFromHashTarget,
+  resolveVisibleBrowserZoomPercent,
 } from './utils/appShellHelpers'
 import { useAppDataScope, type SimilarityState } from './hooks/useAppDataScope'
 import { useAppSelectionViewerCompare } from './hooks/useAppSelectionViewerCompare'
@@ -207,6 +209,7 @@ export default function AppShell({
 
   // Browser zoom (best-effort) for UI proportion warning
   const [browserZoomPercent, setBrowserZoomPercent] = useState<number | null>(null)
+  const [dismissedBrowserZoomBucket, setDismissedBrowserZoomBucket] = useState<number | null>(null)
   
   // View state (filters + sort)
   const [viewState, setViewState] = useState<ViewState>(() => ({
@@ -756,8 +759,8 @@ export default function AppShell({
     clearStarsNotIn: () => updateFilters((filters) => setStarsNotInFilter(filters, [])),
     clearNameContains: () => updateFilters((filters) => setNameContainsFilter(filters, '')),
     clearNameNotContains: () => updateFilters((filters) => setNameNotContainsFilter(filters, '')),
-    clearCommentsContains: () => updateFilters((filters) => setCommentsContainsFilter(filters, '')),
-    clearCommentsNotContains: () => updateFilters((filters) => setCommentsNotContainsFilter(filters, '')),
+    clearNotesContains: () => updateFilters((filters) => setNotesContainsFilter(filters, '')),
+    clearNotesNotContains: () => updateFilters((filters) => setNotesNotContainsFilter(filters, '')),
     clearUrlContains: () => updateFilters((filters) => setUrlContainsFilter(filters, '')),
     clearUrlNotContains: () => updateFilters((filters) => setUrlNotContainsFilter(filters, '')),
     clearDateRange: () => updateFilters((filters) => setDateRangeFilter(filters, null)),
@@ -988,6 +991,20 @@ export default function AppShell({
     }
   }, [])
 
+  useEffect(() => {
+    if (getBrowserZoomWarningBucket(browserZoomPercent) === null) {
+      setDismissedBrowserZoomBucket(null)
+    }
+  }, [browserZoomPercent])
+
+  const visibleBrowserZoomPercent = useMemo(() => (
+    resolveVisibleBrowserZoomPercent(browserZoomPercent, dismissedBrowserZoomBucket)
+  ), [browserZoomPercent, dismissedBrowserZoomBucket])
+
+  const dismissBrowserZoomWarning = useCallback(() => {
+    setDismissedBrowserZoomBucket(getBrowserZoomWarningBucket(browserZoomPercent))
+  }, [browserZoomPercent])
+
   const persistedSettings = useMemo<PersistedAppShellSettings>(() => ({
     sortSpec: viewState.sort,
     starFilters: getStarFilter(viewState.filters),
@@ -1135,7 +1152,7 @@ export default function AppShell({
     appRef,
     uploadInputRef,
     current,
-    currentDirCount: data?.dirs?.length ?? 0,
+    currentDirCount: data?.folders?.length ?? 0,
     selectedPaths,
     setSelectedPaths,
     refetch,
@@ -1398,7 +1415,8 @@ export default function AppShell({
             canRevealOffView: showFilteredCounts,
             onRevealOffView: handleRevealOffView,
             onClearOffView: clearOffViewActivity,
-            browserZoomPercent,
+            browserZoomPercent: visibleBrowserZoomPercent,
+            onDismissBrowserZoomWarning: dismissBrowserZoomWarning,
           }}
           actionError={actionError}
           similarity={similarityState ? {

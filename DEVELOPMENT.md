@@ -61,12 +61,18 @@ lenslet/
 git clone <repo-url>
 cd lenslet
 
-# Install in editable mode
-pip install -e .
-
-# Install dev dependencies
-pip install -e ".[dev]"
+# Install the validated Python 3.13 runtime stack used in this repo
+python -m pip install -c constraints/runtime-py313.txt -e .
+python -m pip install -c constraints/runtime-py313.txt -e ".[dev]"
 ```
+
+For a fresh checkout that also needs frontend dependencies and browser smoke support:
+
+```bash
+python scripts/setup_dev.py
+```
+
+The setup script installs `.[dev]`, runs `npm ci` in `frontend/`, and installs Playwright Chromium. On Linux it uses Playwright's `--with-deps` mode by default so headless Chromium has its required system libraries; pass `--skip-browser-system-deps` when those packages are already managed elsewhere.
 
 ### Frontend Development
 
@@ -76,7 +82,7 @@ The frontend is a React + Vite application:
 cd frontend
 
 # Install dependencies
-npm install
+npm ci
 
 # Start dev server (with proxy to backend)
 npm run dev
@@ -162,8 +168,8 @@ python -m lenslet.cli /path/to/images --reload
 ### Test the CLI
 
 ```bash
-# Install in editable mode
-pip install -e .
+# Install the validated Python 3.13 runtime stack used in this repo
+python -m pip install -c constraints/runtime-py313.txt -e .
 
 # Test with sample data
 lenslet /path/to/images --port 7070
@@ -172,8 +178,8 @@ lenslet /path/to/images --port 7070
 ### Build the Package
 
 ```bash
-# Ensure dev extras are installed (includes build>=1.2)
-pip install -e ".[dev]"
+# Ensure the validated runtime stack and dev extras are installed
+python -m pip install -c constraints/runtime-py313.txt -e ".[dev]"
 
 # Build wheel and source distribution
 python -m build

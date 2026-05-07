@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import type { FilterAST, Item } from '../../../lib/types'
+import type { FilterAST, BrowseItemPayload } from '../../../lib/types'
 import type { Range } from '../model/histogram'
 import {
   collectMetricValuesByKey,
@@ -9,8 +9,8 @@ import {
 import MetricHistogramCard from './MetricHistogramCard'
 
 interface MetricRangePanelProps {
-  items: Item[]
-  filteredItems: Item[]
+  items: BrowseItemPayload[]
+  filteredItems: BrowseItemPayload[]
   metricKeys: string[]
   selectedValuesByKey?: MetricValuesByKey | null
   selectedMetric?: string

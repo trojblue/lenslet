@@ -41,7 +41,7 @@ describe('settings persistence scheduling', () => {
     const cancelIdleCallback = vi.fn()
     Object.assign(globalThis, { requestIdleCallback, cancelIdleCallback })
 
-    const scheduler = createDeferredWriteScheduler((snapshot) => {
+    const scheduler = createDeferredWriteScheduler<PersistedAppShellSettings>((snapshot) => {
       writes.push(snapshot)
     }, 100)
 
@@ -58,7 +58,7 @@ describe('settings persistence scheduling', () => {
 
   it('flushes the pending snapshot immediately', () => {
     const writes: PersistedAppShellSettings[] = []
-    const scheduler = createDeferredWriteScheduler((snapshot) => {
+    const scheduler = createDeferredWriteScheduler<PersistedAppShellSettings>((snapshot) => {
       writes.push(snapshot)
     }, 100)
 

@@ -16,8 +16,8 @@ import type {
   EmbeddingRejected,
   EmbeddingSearchItem,
   EmbeddingSpec,
-  FolderIndex,
-  Item,
+  BrowseFolderPayload,
+  BrowseItemPayload,
   StarRating,
   ViewState,
 } from '../../lib/types'
@@ -42,12 +42,12 @@ type UseAppDataScopeParams = {
   randomSeed: number
   localStarOverrides: Record<string, StarRating>
   sessionResetToken?: number
-  onFolderHydratedSnapshot?: (path: string, snapshot: FolderIndex) => void
-  getCachedHydratedSnapshot?: (path: string) => FolderIndex | null
+  onFolderHydratedSnapshot?: (path: string, snapshot: BrowseFolderPayload) => void
+  getCachedHydratedSnapshot?: (path: string) => BrowseFolderPayload | null
 }
 
 type UseAppDataScopeResult = {
-  data: FolderIndex | undefined
+  data: BrowseFolderPayload | undefined
   refetch: () => Promise<unknown>
   isLoading: boolean
   isError: boolean
@@ -59,10 +59,10 @@ type UseAppDataScopeResult = {
   embeddingsAvailable: boolean
   embeddingsLoading: boolean
   embeddingsError: string | null
-  poolItems: Item[]
-  similarityItems: Item[]
+  poolItems: BrowseItemPayload[]
+  similarityItems: BrowseItemPayload[]
   metricKeys: string[]
-  items: Item[]
+  items: BrowseItemPayload[]
   totalCount: number
   filteredCount: number
   scopeTotal: number
@@ -96,7 +96,7 @@ export function useAppDataScope({
     isError,
   } = useFolder(current, true)
   const { data: rootCount } = useFolderCount('/', { enabled: current !== '/' })
-  const [data, setData] = useState<FolderIndex | undefined>()
+  const [data, setData] = useState<BrowseFolderPayload | undefined>()
   const loadTokenRef = useRef(0)
   const refetch = useCallback(() => refetchRecursiveFolder(), [refetchRecursiveFolder])
 
@@ -143,7 +143,7 @@ export function useAppDataScope({
   const embeddingsAvailable = embeddings.length > 0
   const embeddingsError = getEmbeddingsError(embeddingsQuery.isError, embeddingsQuery.error)
 
-  const poolItems = useMemo((): Item[] => {
+  const poolItems = useMemo((): BrowseItemPayload[] => {
     const base = searching ? (search.data?.items ?? []) : (data?.items ?? [])
     return base.map((it) => ({
       ...it,
@@ -152,7 +152,7 @@ export function useAppDataScope({
   }, [searching, search.data, data, localStarOverrides])
 
   const poolItemsByPath = useMemo(() => {
-    const map = new Map<string, Item>()
+    const map = new Map<string, BrowseItemPayload>()
     for (const it of poolItems) {
       map.set(it.path, it)
     }
@@ -165,7 +165,7 @@ export function useAppDataScope({
     return map
   }, [poolItems, search.data, localStarOverrides])
 
-  const similarityItems = useMemo((): Item[] => {
+  const similarityItems = useMemo((): BrowseItemPayload[] => {
     if (!similarityState) return []
     return similarityState.items.map((entry) => {
       const existing = poolItemsByPath.get(entry.path)
@@ -178,7 +178,7 @@ export function useAppDataScope({
     resolveMetricKeys(data?.metricKeys, similarityActive, similarityItems)
   ), [data?.metricKeys, similarityActive, similarityItems])
 
-  const items = useMemo((): Item[] => {
+  const items = useMemo((): BrowseItemPayload[] => {
     if (similarityState) {
       return applyFilters(similarityItems, viewState.filters)
     }

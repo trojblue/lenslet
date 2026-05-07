@@ -9,15 +9,13 @@ import {
   buildComparisonExportFilename,
   buildExportComparisonPayload,
 } from '../compareExportBoundary'
+import {
+  readInspectorStoredBool,
+  writeInspectorStoredBool,
+} from './inspectorStorage'
 
 const INSPECTOR_EXPORT_REVERSE_ORDER_KEY = 'lenslet.inspector.export.reverseOrder'
 const INSPECTOR_EXPORT_HIGH_QUALITY_GIF_KEY = 'lenslet.inspector.export.highQualityGif'
-
-function parseStoredBool(raw: string | null, fallback: boolean): boolean {
-  if (raw === '1' || raw === 'true') return true
-  if (raw === '0' || raw === 'false') return false
-  return fallback
-}
 
 type UseInspectorCompareExportParams = {
   selectedPaths: string[]
@@ -79,38 +77,16 @@ export function useInspectorCompareExport({
   const compareExportBusy = compareExportMode !== null
 
   useEffect(() => {
-    try {
-      setCompareExportReverseOrder(
-        parseStoredBool(localStorage.getItem(INSPECTOR_EXPORT_REVERSE_ORDER_KEY), false),
-      )
-      setCompareExportHighQualityGif(
-        parseStoredBool(localStorage.getItem(INSPECTOR_EXPORT_HIGH_QUALITY_GIF_KEY), false),
-      )
-    } catch {
-      // Ignore localStorage read errors.
-    }
+    setCompareExportReverseOrder(readInspectorStoredBool(INSPECTOR_EXPORT_REVERSE_ORDER_KEY, false))
+    setCompareExportHighQualityGif(readInspectorStoredBool(INSPECTOR_EXPORT_HIGH_QUALITY_GIF_KEY, false))
   }, [])
 
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        INSPECTOR_EXPORT_REVERSE_ORDER_KEY,
-        compareExportReverseOrder ? '1' : '0',
-      )
-    } catch {
-      // Ignore localStorage write errors.
-    }
+    writeInspectorStoredBool(INSPECTOR_EXPORT_REVERSE_ORDER_KEY, compareExportReverseOrder)
   }, [compareExportReverseOrder])
 
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        INSPECTOR_EXPORT_HIGH_QUALITY_GIF_KEY,
-        compareExportHighQualityGif ? '1' : '0',
-      )
-    } catch {
-      // Ignore localStorage write errors.
-    }
+    writeInspectorStoredBool(INSPECTOR_EXPORT_HIGH_QUALITY_GIF_KEY, compareExportHighQualityGif)
   }, [compareExportHighQualityGif])
 
   useEffect(() => {

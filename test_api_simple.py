@@ -122,8 +122,6 @@ def test_blocking_mode():
         "thumb_quality",
         "show_source",
         "verbose",
-        "source_column",
-        "base_dir",
     ]
     assert params == expected, f"Expected {expected}, got {params}"
     print(f"✓ Function signature correct: {params}")
@@ -134,8 +132,6 @@ def test_blocking_mode():
     assert sig.parameters["host"].default == "127.0.0.1"
     assert sig.parameters["show_source"].default == True
     assert sig.parameters["verbose"].default == False
-    assert sig.parameters["source_column"].default is None
-    assert sig.parameters["base_dir"].default is None
     print("✓ Default parameters correct")
     
     print("\n✅ API signature test passed!\n")
@@ -170,7 +166,6 @@ if __name__ == "__main__":
     else:
         print("\n❌ Some tests failed")
         exit(1)
-
 
 
 

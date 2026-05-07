@@ -12,30 +12,30 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import socket
 import subprocess
-import sys
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.error import URLError
 from urllib.parse import quote
-from urllib.request import urlopen
 
 from PIL import Image
+from scripts.smoke_harness import (
+    SmokeFailure,
+    choose_port,
+    import_playwright,
+    launch_lenslet,
+    stop_process,
+    wait_for_health,
+)
 
 FIXTURE_VERSION = 1
 BROWSE_ENDPOINTS = ("folders", "thumb", "file")
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_BASELINE_FILE = SCRIPT_DIR / "playwright_large_tree_smoke_baselines.json"
 DEFAULT_BASELINE_PROFILE = "primary_large_no_write"
-
-
-class SmokeFailure(RuntimeError):
-    """Raised when smoke assertions fail."""
 
 
 @dataclass(frozen=True)
@@ -101,6 +101,16 @@ class SmokeResult:
     metric_filter_count_before: int | None
     metric_filter_count_after: int | None
     metric_filter_max: float | None
+
+
+@dataclass(frozen=True)
+class PlaywrightProbeOutcome:
+    first_grid_visible_seconds: float
+    probe_result: dict[str, float]
+    hotpath_snapshot: dict[str, Any] | None
+    page_errors: list[str]
+    console_errors: list[str]
+    metric_probe: dict[str, Any] | None
 
 
 def parse_args() -> argparse.Namespace:
@@ -324,25 +334,6 @@ def resolve_args_with_baseline(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
-def choose_port(host: str, preferred: int) -> int:
-    if _port_available(host, preferred):
-        return preferred
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((host, 0))
-        sock.listen(1)
-        return int(sock.getsockname()[1])
-
-
-def _port_available(host: str, port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            sock.bind((host, port))
-        except OSError:
-            return False
-    return True
-
-
 def _build_jpeg_payload(width: int, height: int, quality: int) -> bytes:
     buffer = BytesIO()
     Image.new("RGB", (width, height), color=(44, 88, 132)).save(buffer, format="JPEG", quality=quality)
@@ -400,36 +391,6 @@ def ensure_fixture(root: Path, spec: FixtureSpec, regenerate: bool) -> None:
     manifest = {"version": FIXTURE_VERSION, "spec": asdict(spec), "generated_at_unix": time.time()}
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(f"[fixture] generated {generated} image files.")
-
-
-def wait_for_health(base_url: str, timeout_seconds: float) -> dict:
-    deadline = time.monotonic() + timeout_seconds
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        try:
-            with urlopen(f"{base_url}/health", timeout=2.0) as response:
-                if response.status != 200:
-                    raise SmokeFailure(f"unexpected /health status: {response.status}")
-                payload = json.load(response)
-                if not isinstance(payload, dict):
-                    raise SmokeFailure("unexpected /health payload")
-                return payload
-        except URLError as exc:
-            last_error = exc
-        time.sleep(0.2)
-    raise SmokeFailure(f"/health unavailable after {timeout_seconds:.1f}s: {last_error!r}")
-
-
-def _import_playwright() -> tuple[type[BaseException], type[BaseException], Callable[[], Any]]:
-    try:
-        from playwright.sync_api import Error as playwright_error
-        from playwright.sync_api import TimeoutError as playwright_timeout_error
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:  # pragma: no cover - runtime dependency guard
-        raise SmokeFailure(
-            "playwright is required: pip install -e '.[dev]' && python -m playwright install chromium"
-        ) from exc
-    return playwright_error, playwright_timeout_error, sync_playwright
 
 
 def _coerce_int(value: Any) -> int:
@@ -634,6 +595,148 @@ def assert_responsiveness_thresholds(
         )
 
 
+def _open_playwright_context(
+    playwright: Any, browser_timeout_ms: float
+) -> tuple[Any, Any, Any, list[str], list[str]]:
+    browser = playwright.chromium.launch(headless=True)
+    context = browser.new_context(viewport={"width": 1680, "height": 980})
+    page = context.new_page()
+    page.set_default_timeout(browser_timeout_ms)
+    page_errors: list[str] = []
+    console_errors: list[str] = []
+    page.on("pageerror", lambda exc: page_errors.append(str(exc)))
+    page.on(
+        "console",
+        lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
+    )
+    return browser, context, page, page_errors, console_errors
+
+
+def _await_first_grid_cell(
+    page: Any,
+    base_url: str,
+    scope_path: str,
+    first_grid_threshold_seconds: float,
+    playwright_timeout_error: type[BaseException],
+) -> float:
+    start = time.monotonic()
+    page.goto(scope_url(base_url, scope_path), wait_until="domcontentloaded")
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible")
+    try:
+        page.wait_for_selector(
+            '[role="gridcell"][id^="cell-"]',
+            state="visible",
+            timeout=max(1, int(first_grid_threshold_seconds * 1_000)),
+        )
+    except playwright_timeout_error as exc:
+        elapsed = time.monotonic() - start
+        raise SmokeFailure(
+            f"first grid cell did not become visible within {first_grid_threshold_seconds:.2f}s "
+            f"(elapsed={elapsed:.2f}s)"
+        ) from exc
+    return time.monotonic() - start
+
+
+def _wait_for_hotpath_window(
+    page: Any,
+    first_grid_threshold_seconds: float,
+    playwright_timeout_error: type[BaseException],
+) -> None:
+    try:
+        page.wait_for_function(
+            """() => {
+              const hotpath = window.__lensletBrowseHotpath;
+              if (!hotpath || !hotpath.requestBudget) return false;
+              return hotpath.firstGridItemLatencyMs !== null && hotpath.firstThumbnailLatencyMs !== null;
+            }""",
+            timeout=max(1, int(first_grid_threshold_seconds * 1_000)),
+        )
+    except playwright_timeout_error as exc:
+        raise SmokeFailure(
+            "timed out waiting for hotpath request-budget, first-grid, and first-thumbnail telemetry"
+        ) from exc
+
+
+def _collect_scroll_probe(page: Any, interaction_seconds: float) -> tuple[dict[str, float], dict[str, Any] | None]:
+    probe_raw = page.evaluate(
+        """async ({durationMs, scrollStepPx}) => {
+          const grid = document.querySelector('[role="grid"]');
+          if (!grid) {
+            return {
+              frames: 0,
+              maxGapMs: Number.POSITIVE_INFINITY,
+              avgGapMs: Number.POSITIVE_INFINITY,
+              hotpath: window.__lensletBrowseHotpath ?? null,
+            };
+          }
+
+          const findScrollContainer = (node) => {
+            let current = node;
+            while (current) {
+              if (current.scrollHeight > current.clientHeight + 4) {
+                return current;
+              }
+              current = current.parentElement;
+            }
+            return document.scrollingElement || document.documentElement;
+          };
+
+          const scroller = findScrollContainer(grid);
+          const start = performance.now();
+          let last = start;
+          let maxGapMs = 0;
+          let totalGapMs = 0;
+          let sampledFrames = 0;
+
+          return await new Promise((resolve) => {
+            const step = (now) => {
+              const gap = now - last;
+              if (sampledFrames > 0) {
+                maxGapMs = Math.max(maxGapMs, gap);
+                totalGapMs += gap;
+              }
+              sampledFrames += 1;
+              last = now;
+
+              if (typeof scroller.scrollTop === 'number') {
+                scroller.scrollTop += scrollStepPx;
+              } else {
+                window.scrollBy(0, scrollStepPx);
+              }
+
+              if (now - start < durationMs) {
+                requestAnimationFrame(step);
+                return;
+              }
+
+              const divisor = Math.max(1, sampledFrames - 1);
+              resolve({
+                frames: sampledFrames,
+                maxGapMs,
+                avgGapMs: totalGapMs / divisor,
+                hotpath: window.__lensletBrowseHotpath ?? null,
+              });
+            };
+            requestAnimationFrame(step);
+          });
+        }""",
+        {"durationMs": max(500, int(interaction_seconds * 1000)), "scrollStepPx": 280},
+    )
+
+    if not isinstance(probe_raw, dict):
+        raise SmokeFailure("playwright probe returned invalid payload")
+
+    probe_result: dict[str, float] = {
+        "frames": float(_coerce_int(probe_raw.get("frames"))),
+        "maxGapMs": float(probe_raw.get("maxGapMs", 0.0)),
+        "avgGapMs": float(probe_raw.get("avgGapMs", 0.0)),
+    }
+    hotpath_snapshot = probe_raw.get("hotpath")
+    if not isinstance(hotpath_snapshot, dict):
+        hotpath_snapshot = None
+    return probe_result, hotpath_snapshot
+
+
 def run_metric_controls_probe(
     page: Any,
     *,
@@ -726,147 +829,200 @@ def run_playwright_probe(
     scope_path: str,
     metric_key: str | None,
     forbidden_metric_key: str | None,
-) -> tuple[float, dict[str, float], dict[str, Any] | None, list[str], list[str], dict[str, Any] | None]:
-    playwright_error, playwright_timeout_error, sync_playwright = _import_playwright()
-    page_errors: list[str] = []
-    console_errors: list[str] = []
+) -> PlaywrightProbeOutcome:
+    playwright_error, playwright_timeout_error, sync_playwright = import_playwright()
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
-            context = browser.new_context(viewport={"width": 1680, "height": 980})
-            page = context.new_page()
-            page.set_default_timeout(browser_timeout_ms)
-            page.on("pageerror", lambda exc: page_errors.append(str(exc)))
-            page.on(
-                "console",
-                lambda msg: console_errors.append(msg.text)
-                if msg.type == "error"
-                else None,
+            browser, context, page, page_errors, console_errors = _open_playwright_context(
+                playwright, browser_timeout_ms
             )
-
-            start = time.monotonic()
-            page.goto(scope_url(base_url, scope_path), wait_until="domcontentloaded")
-            page.get_by_role("grid", name="Gallery").wait_for(state="visible")
             try:
-                page.wait_for_selector(
-                    '[role="gridcell"][id^="cell-"]',
-                    state="visible",
-                    timeout=max(1, int(first_grid_threshold_seconds * 1_000)),
-                )
-            except playwright_timeout_error as exc:
-                elapsed = time.monotonic() - start
-                raise SmokeFailure(
-                    f"first grid cell did not become visible within {first_grid_threshold_seconds:.2f}s "
-                    f"(elapsed={elapsed:.2f}s)"
-                ) from exc
-            first_grid_visible_seconds = time.monotonic() - start
-
-            try:
-                page.wait_for_function(
-                    """() => {
-                      const hotpath = window.__lensletBrowseHotpath;
-                      if (!hotpath || !hotpath.requestBudget) return false;
-                      return hotpath.firstGridItemLatencyMs !== null && hotpath.firstThumbnailLatencyMs !== null;
-                    }""",
-                    timeout=max(1, int(first_grid_threshold_seconds * 1_000)),
-                )
-            except playwright_timeout_error as exc:
-                raise SmokeFailure(
-                    "timed out waiting for hotpath request-budget, first-grid, and first-thumbnail telemetry"
-                ) from exc
-
-            probe_raw = page.evaluate(
-                """async ({durationMs, scrollStepPx}) => {
-                  const grid = document.querySelector('[role="grid"]');
-                  if (!grid) {
-                    return {
-                      frames: 0,
-                      maxGapMs: Number.POSITIVE_INFINITY,
-                      avgGapMs: Number.POSITIVE_INFINITY,
-                      hotpath: window.__lensletBrowseHotpath ?? null,
-                    };
-                  }
-
-                  const findScrollContainer = (node) => {
-                    let current = node;
-                    while (current) {
-                      if (current.scrollHeight > current.clientHeight + 4) {
-                        return current;
-                      }
-                      current = current.parentElement;
-                    }
-                    return document.scrollingElement || document.documentElement;
-                  };
-
-                  const scroller = findScrollContainer(grid);
-                  const start = performance.now();
-                  let last = start;
-                  let maxGapMs = 0;
-                  let totalGapMs = 0;
-                  let sampledFrames = 0;
-
-                  return await new Promise((resolve) => {
-                    const step = (now) => {
-                      const gap = now - last;
-                      if (sampledFrames > 0) {
-                        maxGapMs = Math.max(maxGapMs, gap);
-                        totalGapMs += gap;
-                      }
-                      sampledFrames += 1;
-                      last = now;
-
-                      if (typeof scroller.scrollTop === 'number') {
-                        scroller.scrollTop += scrollStepPx;
-                      } else {
-                        window.scrollBy(0, scrollStepPx);
-                      }
-
-                      if (now - start < durationMs) {
-                        requestAnimationFrame(step);
-                        return;
-                      }
-
-                      const divisor = Math.max(1, sampledFrames - 1);
-                      resolve({
-                        frames: sampledFrames,
-                        maxGapMs,
-                        avgGapMs: totalGapMs / divisor,
-                        hotpath: window.__lensletBrowseHotpath ?? null,
-                      });
-                    };
-                    requestAnimationFrame(step);
-                  });
-                }""",
-                {"durationMs": max(500, int(interaction_seconds * 1000)), "scrollStepPx": 280},
-            )
-
-            if not isinstance(probe_raw, dict):
-                raise SmokeFailure("playwright probe returned invalid payload")
-
-            probe_result: dict[str, float] = {
-                "frames": float(_coerce_int(probe_raw.get("frames"))),
-                "maxGapMs": float(probe_raw.get("maxGapMs", 0.0)),
-                "avgGapMs": float(probe_raw.get("avgGapMs", 0.0)),
-            }
-            hotpath_snapshot = probe_raw.get("hotpath")
-            if not isinstance(hotpath_snapshot, dict):
-                hotpath_snapshot = None
-            metric_probe = None
-            if metric_key:
-                metric_probe = run_metric_controls_probe(
+                first_grid_visible_seconds = _await_first_grid_cell(
                     page,
-                    scope_path=normalize_scope_path(scope_path),
-                    metric_key=metric_key,
-                    forbidden_metric_key=forbidden_metric_key,
-                    browser_timeout_ms=browser_timeout_ms,
+                    base_url,
+                    scope_path,
+                    first_grid_threshold_seconds,
+                    playwright_timeout_error,
                 )
-
-            context.close()
-            browser.close()
+                _wait_for_hotpath_window(page, first_grid_threshold_seconds, playwright_timeout_error)
+                probe_result, hotpath_snapshot = _collect_scroll_probe(
+                    page,
+                    interaction_seconds,
+                )
+                metric_probe = None
+                if metric_key:
+                    metric_probe = run_metric_controls_probe(
+                        page,
+                        scope_path=normalize_scope_path(scope_path),
+                        metric_key=metric_key,
+                        forbidden_metric_key=forbidden_metric_key,
+                        browser_timeout_ms=browser_timeout_ms,
+                    )
+            finally:
+                context.close()
+                browser.close()
     except playwright_error as exc:
         raise SmokeFailure(f"playwright probe failed: {exc}") from exc
 
-    return first_grid_visible_seconds, probe_result, hotpath_snapshot, page_errors, console_errors, metric_probe
+    return PlaywrightProbeOutcome(
+        first_grid_visible_seconds=first_grid_visible_seconds,
+        probe_result=probe_result,
+        hotpath_snapshot=hotpath_snapshot,
+        page_errors=page_errors,
+        console_errors=console_errors,
+        metric_probe=metric_probe,
+    )
+
+
+def _resolve_dataset_and_source(args: argparse.Namespace, spec: FixtureSpec) -> tuple[Path, Path]:
+    dataset_dir = args.dataset_dir.resolve()
+    if args.source_path is None:
+        if args.total_images <= 0:
+            raise SmokeFailure("--total-images must be > 0")
+        if args.total_folders <= 0:
+            raise SmokeFailure("--total-folders must be > 0")
+        if args.total_folders > args.total_images:
+            raise SmokeFailure("--total-folders cannot exceed --total-images for this fixture layout")
+        ensure_fixture(dataset_dir, spec, regenerate=args.regenerate_fixture)
+        return dataset_dir, dataset_dir
+    source_path = args.source_path.resolve()
+    if not source_path.exists():
+        raise SmokeFailure(f"--source-path does not exist: {source_path}")
+    return dataset_dir, source_path
+
+
+def _log_baseline_start(args: argparse.Namespace, source_path: Path, port: int) -> None:
+    print(
+        f"[smoke] baseline={args.baseline_profile} tier={args.baseline_gate_tier} "
+        f"write_mode={args.write_mode} source={source_path}"
+    )
+    if args.baseline_expectations:
+        print(f"[smoke] baseline expectation: {args.baseline_expectations}")
+    print(
+        "[smoke] starting lenslet: "
+        f"python -m lenslet.cli {source_path} --host {args.host} --port {port}"
+        f"{' --no-write' if not args.write_mode else ''}"
+    )
+
+
+def _start_lenslet_process(args: argparse.Namespace, source_path: Path) -> tuple[subprocess.Popen, str, int]:
+    port = choose_port(args.host, args.port)
+    _log_baseline_start(args, source_path, port)
+    extra_args: list[str] = []
+    if not args.write_mode:
+        extra_args.append("--no-write")
+    process = launch_lenslet(
+        source_path,
+        host=args.host,
+        port=port,
+        extra_args=extra_args,
+    )
+    return process, f"http://{args.host}:{port}", port
+
+
+def _build_smoke_result(
+    args: argparse.Namespace,
+    dataset_dir: Path,
+    source_path: Path,
+    scope_path: str,
+    probe_outcome: PlaywrightProbeOutcome,
+    request_budget_limits: dict[str, int],
+    request_budget_peaks: dict[str, int],
+    indexing: dict[str, Any],
+    first_grid_hotpath_latency_ms: int | None,
+    first_thumbnail_latency_ms: int | None,
+) -> SmokeResult:
+    metric_probe = probe_outcome.metric_probe
+    scope_value = scope_path if scope_path != "/" else None
+    return SmokeResult(
+        baseline_file=str(args.baseline_file.resolve()),
+        baseline_profile=args.baseline_profile,
+        gate_tier=args.baseline_gate_tier,
+        write_mode=bool(args.write_mode),
+        dataset_dir=str(dataset_dir),
+        source_path=str(source_path),
+        total_images=args.total_images,
+        total_folders=args.total_folders,
+        first_grid_visible_seconds=probe_outcome.first_grid_visible_seconds,
+        first_grid_threshold_seconds=args.first_grid_threshold_seconds,
+        first_grid_hotpath_latency_ms=first_grid_hotpath_latency_ms,
+        first_grid_hotpath_threshold_ms=args.first_grid_hotpath_threshold_ms,
+        first_thumbnail_latency_ms=first_thumbnail_latency_ms,
+        first_thumbnail_threshold_ms=args.first_thumbnail_threshold_ms,
+        max_frame_gap_ms=float(probe_outcome.probe_result["maxGapMs"]),
+        max_frame_gap_threshold_ms=args.max_frame_gap_ms,
+        average_frame_gap_ms=float(probe_outcome.probe_result["avgGapMs"]),
+        sampled_frames=int(probe_outcome.probe_result["frames"]),
+        request_budget_limits=request_budget_limits,
+        request_budget_peak_inflight=request_budget_peaks,
+        page_errors=len(probe_outcome.page_errors),
+        console_errors=len(probe_outcome.console_errors),
+        health_state=str(indexing.get("state", "unknown")),
+        indexing_done=indexing.get("done"),
+        indexing_total=indexing.get("total"),
+        scope_path=scope_value,
+        metric_key=args.metric_key,
+        forbidden_metric_key=args.forbid_metric_key,
+        metric_sort_desc_top_path=(
+            str(metric_probe.get("metric_sort_desc_top_path")) if isinstance(metric_probe, dict) else None
+        ),
+        metric_sort_asc_top_path=(
+            str(metric_probe.get("metric_sort_asc_top_path")) if isinstance(metric_probe, dict) else None
+        ),
+        metric_filter_count_before=(
+            _coerce_optional_int(metric_probe.get("metric_filter_count_before"))
+            if isinstance(metric_probe, dict)
+            else None
+        ),
+        metric_filter_count_after=(
+            _coerce_optional_int(metric_probe.get("metric_filter_count_after"))
+            if isinstance(metric_probe, dict)
+            else None
+        ),
+        metric_filter_max=(
+            float(metric_probe.get("metric_filter_max"))
+            if isinstance(metric_probe, dict) and metric_probe.get("metric_filter_max") is not None
+            else None
+        ),
+    )
+
+
+def _log_smoke_result(
+    result: SmokeResult,
+    metric_probe: dict[str, Any] | None,
+    page_errors: list[str],
+    console_errors: list[str],
+) -> None:
+    print(
+        "[smoke] pass: first-grid="
+        f"{result.first_grid_visible_seconds:.2f}s (hotpath={result.first_grid_hotpath_latency_ms}ms), "
+        f"first-thumb={result.first_thumbnail_latency_ms}ms, "
+        f"max-frame-gap={result.max_frame_gap_ms:.1f}ms, peaks={result.request_budget_peak_inflight}, "
+        f"frames={result.sampled_frames}"
+    )
+    if metric_probe:
+        print(
+            "[smoke] metric-flow: "
+            f"key={result.metric_key} desc-top={result.metric_sort_desc_top_path} "
+            f"asc-top={result.metric_sort_asc_top_path} "
+            f"count={result.metric_filter_count_before}->{result.metric_filter_count_after} "
+            f"max={result.metric_filter_max}"
+        )
+    if page_errors:
+        print("[smoke:warn] page errors observed:")
+        for message in page_errors:
+            print(f"  - {message}")
+    if console_errors:
+        print("[smoke:warn] console errors observed:")
+        for message in console_errors:
+            print(f"  - {message}")
+
+
+def _write_result_summary(args: argparse.Namespace, result: SmokeResult) -> None:
+    if args.output_json is not None:
+        args.output_json.parent.mkdir(parents=True, exist_ok=True)
+        args.output_json.write_text(json.dumps(asdict(result), indent=2), encoding="utf-8")
+        print(f"[smoke] wrote summary: {args.output_json}")
 
 
 def main() -> int:
@@ -884,53 +1040,14 @@ def main() -> int:
         image_height=args.image_height,
         jpeg_quality=args.jpeg_quality,
     )
-    dataset_dir = args.dataset_dir.resolve()
-    if args.source_path is None:
-        if args.total_images <= 0:
-            print("[smoke:error] --total-images must be > 0")
-            return 1
-        if args.total_folders <= 0:
-            print("[smoke:error] --total-folders must be > 0")
-            return 1
-        if args.total_folders > args.total_images:
-            print("[smoke:error] --total-folders cannot exceed --total-images for this fixture layout")
-            return 1
-        ensure_fixture(dataset_dir, fixture_spec, regenerate=args.regenerate_fixture)
-        source_path = dataset_dir
-    else:
-        source_path = args.source_path.resolve()
-        if not source_path.exists():
-            print(f"[smoke:error] --source-path does not exist: {source_path}")
-            return 1
-
-    port = choose_port(args.host, args.port)
-    base_url = f"http://{args.host}:{port}"
-    command = [
-        sys.executable,
-        "-m",
-        "lenslet.cli",
-        str(source_path),
-        "--host",
-        args.host,
-        "--port",
-        str(port),
-    ]
-    if not args.write_mode:
-        command.append("--no-write")
-    print(
-        f"[smoke] baseline={args.baseline_profile} tier={args.baseline_gate_tier} "
-        f"write_mode={args.write_mode} source={source_path}"
-    )
-    if args.baseline_expectations:
-        print(f"[smoke] baseline expectation: {args.baseline_expectations}")
-    print(f"[smoke] starting lenslet: {' '.join(command)}")
-    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    dataset_dir, source_path = _resolve_dataset_and_source(args, fixture_spec)
+    process, base_url, _port = _start_lenslet_process(args, source_path)
 
     try:
-        health_payload = wait_for_health(base_url, args.health_timeout_seconds)
+        health_payload = wait_for_health(base_url, args.health_timeout_seconds, request_timeout=2.0)
         print(f"[smoke] /health reachable, indexing state={health_payload.get('indexing', {}).get('state')}")
 
-        first_visible, probe_result, hotpath_snapshot, page_errors, console_errors, metric_probe = run_playwright_probe(
+        probe_outcome = run_playwright_probe(
             base_url=base_url,
             browser_timeout_ms=args.browser_timeout_ms,
             first_grid_threshold_seconds=args.first_grid_threshold_seconds,
@@ -939,118 +1056,53 @@ def main() -> int:
             metric_key=args.metric_key,
             forbidden_metric_key=args.forbid_metric_key,
         )
-        request_budget_limits, request_budget_peaks = assert_request_budget_compliance(hotpath_snapshot)
+        request_budget_limits, request_budget_peaks = assert_request_budget_compliance(
+            probe_outcome.hotpath_snapshot
+        )
         first_grid_hotpath_latency_ms = _coerce_optional_int(
-            hotpath_snapshot.get("firstGridItemLatencyMs") if isinstance(hotpath_snapshot, dict) else None
+            probe_outcome.hotpath_snapshot.get("firstGridItemLatencyMs")
+            if isinstance(probe_outcome.hotpath_snapshot, dict)
+            else None
         )
         first_thumbnail_latency_ms = _coerce_optional_int(
-            hotpath_snapshot.get("firstThumbnailLatencyMs") if isinstance(hotpath_snapshot, dict) else None
+            probe_outcome.hotpath_snapshot.get("firstThumbnailLatencyMs")
+            if isinstance(probe_outcome.hotpath_snapshot, dict)
+            else None
         )
         assert_responsiveness_thresholds(
-            first_grid_visible_seconds=first_visible,
+            first_grid_visible_seconds=probe_outcome.first_grid_visible_seconds,
             first_grid_threshold_seconds=args.first_grid_threshold_seconds,
             first_grid_hotpath_latency_ms=first_grid_hotpath_latency_ms,
             first_grid_hotpath_threshold_ms=args.first_grid_hotpath_threshold_ms,
-            max_frame_gap_ms=float(probe_result["maxGapMs"]),
+            max_frame_gap_ms=float(probe_outcome.probe_result["maxGapMs"]),
             max_frame_gap_threshold_ms=args.max_frame_gap_ms,
             first_thumbnail_latency_ms=first_thumbnail_latency_ms,
             first_thumbnail_threshold_ms=args.first_thumbnail_threshold_ms,
         )
 
-        health_after = wait_for_health(base_url, timeout_seconds=10.0)
+        health_after = wait_for_health(base_url, timeout_seconds=10.0, request_timeout=2.0)
         indexing = health_after.get("indexing", {}) if isinstance(health_after, dict) else {}
-        result = SmokeResult(
-            baseline_file=str(args.baseline_file.resolve()),
-            baseline_profile=args.baseline_profile,
-            gate_tier=args.baseline_gate_tier,
-            write_mode=bool(args.write_mode),
-            dataset_dir=str(dataset_dir),
-            source_path=str(source_path),
-            total_images=args.total_images,
-            total_folders=args.total_folders,
-            first_grid_visible_seconds=first_visible,
-            first_grid_threshold_seconds=args.first_grid_threshold_seconds,
-            first_grid_hotpath_latency_ms=first_grid_hotpath_latency_ms,
-            first_grid_hotpath_threshold_ms=args.first_grid_hotpath_threshold_ms,
-            first_thumbnail_latency_ms=first_thumbnail_latency_ms,
-            first_thumbnail_threshold_ms=args.first_thumbnail_threshold_ms,
-            max_frame_gap_ms=float(probe_result["maxGapMs"]),
-            max_frame_gap_threshold_ms=args.max_frame_gap_ms,
-            average_frame_gap_ms=float(probe_result["avgGapMs"]),
-            sampled_frames=int(probe_result["frames"]),
+        result = _build_smoke_result(
+            args=args,
+            dataset_dir=dataset_dir,
+            source_path=source_path,
+            scope_path=scope_path,
+            probe_outcome=probe_outcome,
             request_budget_limits=request_budget_limits,
-            request_budget_peak_inflight=request_budget_peaks,
-            page_errors=len(page_errors),
-            console_errors=len(console_errors),
-            health_state=str(indexing.get("state", "unknown")),
-            indexing_done=indexing.get("done"),
-            indexing_total=indexing.get("total"),
-            scope_path=scope_path if scope_path != "/" else None,
-            metric_key=args.metric_key,
-            forbidden_metric_key=args.forbid_metric_key,
-            metric_sort_desc_top_path=(
-                str(metric_probe.get("metric_sort_desc_top_path")) if isinstance(metric_probe, dict) else None
-            ),
-            metric_sort_asc_top_path=(
-                str(metric_probe.get("metric_sort_asc_top_path")) if isinstance(metric_probe, dict) else None
-            ),
-            metric_filter_count_before=(
-                _coerce_optional_int(metric_probe.get("metric_filter_count_before"))
-                if isinstance(metric_probe, dict)
-                else None
-            ),
-            metric_filter_count_after=(
-                _coerce_optional_int(metric_probe.get("metric_filter_count_after"))
-                if isinstance(metric_probe, dict)
-                else None
-            ),
-            metric_filter_max=(
-                float(metric_probe.get("metric_filter_max"))
-                if isinstance(metric_probe, dict) and metric_probe.get("metric_filter_max") is not None
-                else None
-            ),
+            request_budget_peaks=request_budget_peaks,
+            indexing=indexing,
+            first_grid_hotpath_latency_ms=first_grid_hotpath_latency_ms,
+            first_thumbnail_latency_ms=first_thumbnail_latency_ms,
         )
 
-        print(
-            "[smoke] pass: first-grid="
-            f"{result.first_grid_visible_seconds:.2f}s (hotpath={result.first_grid_hotpath_latency_ms}ms), "
-            f"first-thumb={result.first_thumbnail_latency_ms}ms, "
-            f"max-frame-gap={result.max_frame_gap_ms:.1f}ms, peaks={result.request_budget_peak_inflight}, "
-            f"frames={result.sampled_frames}"
-        )
-        if result.metric_key:
-            print(
-                "[smoke] metric-flow: "
-                f"key={result.metric_key} desc-top={result.metric_sort_desc_top_path} "
-                f"asc-top={result.metric_sort_asc_top_path} "
-                f"count={result.metric_filter_count_before}->{result.metric_filter_count_after} "
-                f"max={result.metric_filter_max}"
-            )
-        if page_errors:
-            print("[smoke:warn] page errors observed:")
-            for message in page_errors:
-                print(f"  - {message}")
-        if console_errors:
-            print("[smoke:warn] console errors observed:")
-            for message in console_errors:
-                print(f"  - {message}")
-
-        if args.output_json is not None:
-            args.output_json.parent.mkdir(parents=True, exist_ok=True)
-            args.output_json.write_text(json.dumps(asdict(result), indent=2), encoding="utf-8")
-            print(f"[smoke] wrote summary: {args.output_json}")
+        _log_smoke_result(result, probe_outcome.metric_probe, probe_outcome.page_errors, probe_outcome.console_errors)
+        _write_result_summary(args, result)
         return 0
     except SmokeFailure as exc:
         print(f"[smoke:error] {exc}")
         return 1
     finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+        stop_process(process)
 
 
 if __name__ == "__main__":

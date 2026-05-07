@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from './client'
 import { usePollingEnabled } from './polling'
-import type { SearchResult } from '../lib/types'
+import type { BrowseSearchResultsPayload } from '../lib/types'
 
 /** Query key for search results */
 export const searchQueryKey = (q: string, path: string) => ['search', q, path] as const
@@ -64,7 +64,7 @@ export function useSearch(q: string, path: string) {
   return useQuery({
     enabled: request !== null,
     queryKey,
-    queryFn: (): Promise<SearchResult> => {
+    queryFn: (): Promise<BrowseSearchResultsPayload> => {
       if (!request) return Promise.resolve({ items: [] })
       return api.search(request.q, request.path)
     },

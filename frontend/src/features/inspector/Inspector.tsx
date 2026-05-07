@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict } from '../../api/items'
 import { api, makeIdempotencyKey } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
-import type { Item, SortSpec, StarRating } from '../../lib/types'
+import type { BrowseItemPayload, SortSpec, StarRating } from '../../lib/types'
 import { isInputElement } from '../../lib/keyboard'
 import {
   buildMetadataPathCopyPayload,
@@ -39,9 +39,9 @@ import { useInspectorUiState } from './hooks/useInspectorUiState'
 interface InspectorItem {
   path: string
   size: number
-  w: number
-  h: number
-  type: string
+  width: number
+  height: number
+  mime: string
   source?: string | null
   star?: StarRating | null
   metrics?: Record<string, number | null> | null
@@ -53,8 +53,8 @@ interface InspectorProps {
   comparePaths?: string[]
   items?: InspectorItem[]
   viewerCompareActive?: boolean
-  compareA?: Item | null
-  compareB?: Item | null
+  compareA?: BrowseItemPayload | null
+  compareB?: BrowseItemPayload | null
   onOpenCompare?: () => void
   onResize?: (e: React.PointerEvent<HTMLDivElement>) => void
   onStarChanged?: (paths: string[], val: StarRating) => void
@@ -276,8 +276,8 @@ export default function Inspector({
       return filename.slice(filename.lastIndexOf('.') + 1).toUpperCase()
     }
     const it = items.find((i) => i.path === path)
-    if (it?.type?.includes('/')) {
-      return it.type.split('/')[1].toUpperCase()
+    if (it?.mime?.includes('/')) {
+      return it.mime.split('/')[1].toUpperCase()
     }
     return ''
   }, [filename, items, path])

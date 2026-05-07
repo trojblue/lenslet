@@ -1,23 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import type { FilterAST } from '../../../lib/types'
 import {
-  getCommentsContainsFilter,
-  getCommentsNotContainsFilter,
   getDateRangeFilter,
   getHeightCompareFilter,
   getNameContainsFilter,
   getNameNotContainsFilter,
+  getNotesContainsFilter,
+  getNotesNotContainsFilter,
   getStarsInFilter,
   getStarsNotInFilter,
   getUrlContainsFilter,
   getUrlNotContainsFilter,
   getWidthCompareFilter,
-  setCommentsContainsFilter,
-  setCommentsNotContainsFilter,
   setDateRangeFilter,
   setHeightCompareFilter,
   setNameContainsFilter,
   setNameNotContainsFilter,
+  setNotesContainsFilter,
+  setNotesNotContainsFilter,
   setStarsInFilter,
   setStarsNotInFilter,
   setUrlContainsFilter,
@@ -40,8 +40,8 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
   const starsNotIn = useMemo(() => getStarsNotInFilter(filters), [filters])
   const nameContains = useMemo(() => getNameContainsFilter(filters) ?? '', [filters])
   const nameNotContains = useMemo(() => getNameNotContainsFilter(filters) ?? '', [filters])
-  const commentsContains = useMemo(() => getCommentsContainsFilter(filters) ?? '', [filters])
-  const commentsNotContains = useMemo(() => getCommentsNotContainsFilter(filters) ?? '', [filters])
+  const notesContains = useMemo(() => getNotesContainsFilter(filters) ?? '', [filters])
+  const notesNotContains = useMemo(() => getNotesNotContainsFilter(filters) ?? '', [filters])
   const urlContains = useMemo(() => getUrlContainsFilter(filters) ?? '', [filters])
   const urlNotContains = useMemo(() => getUrlNotContainsFilter(filters) ?? '', [filters])
   const dateRange = useMemo(() => getDateRangeFilter(filters) ?? {}, [filters])
@@ -189,24 +189,24 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
         </div>
 
         <div>
-          <div className="ui-subsection-title mb-2">Comments</div>
+          <div className="ui-subsection-title mb-2">Notes</div>
           <div className="grid grid-cols-1 gap-2">
             <div>
               <label className="ui-label">Contains</label>
               <input
                 className="ui-input w-full"
-                value={commentsContains}
+                value={notesContains}
                 placeholder="e.g. hero"
-                onChange={(e) => onChangeFilters(setCommentsContainsFilter(filters, e.target.value))}
+                onChange={(e) => onChangeFilters(setNotesContainsFilter(filters, e.target.value))}
               />
             </div>
             <div>
               <label className="ui-label">Does not contain</label>
               <input
                 className="ui-input w-full"
-                value={commentsNotContains}
+                value={notesNotContains}
                 placeholder="e.g. todo"
-                onChange={(e) => onChangeFilters(setCommentsNotContainsFilter(filters, e.target.value))}
+                onChange={(e) => onChangeFilters(setNotesNotContainsFilter(filters, e.target.value))}
               />
             </div>
           </div>

@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import type { Item } from '../../lib/types'
+import type { BrowseItemPayload } from '../../lib/types'
 import { buildRecentSummary, buildRecentTouchesDisplay, type RecentActivity } from '../presenceActivity'
 
-function makeItem(path: string, name: string): Item {
+function makeItem(path: string, name: string): BrowseItemPayload {
   return {
     path,
     name,
-    type: 'image/jpeg',
-    w: 100,
-    h: 100,
+    mime: 'image/jpeg',
+    width: 100,
+    height: 100,
     size: 1,
-    hasThumb: true,
-    hasMeta: true,
+    hasThumbnail: true,
+    hasMetadata: true,
   }
 }
 

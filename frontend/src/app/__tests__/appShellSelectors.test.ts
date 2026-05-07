@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Item } from '../../lib/types'
+import type { BrowseItemPayload } from '../../lib/types'
 import {
   buildStarCounts,
   getDisplayItemCount,
@@ -10,16 +10,16 @@ import {
   resolveMetricKeys,
 } from '../model/appShellSelectors'
 
-function makeItem(path: string, options?: { star?: Item['star']; metrics?: Item['metrics'] }): Item {
+function makeItem(path: string, options?: { star?: BrowseItemPayload['star']; metrics?: BrowseItemPayload['metrics'] }): BrowseItemPayload {
   return {
     path,
     name: path.split('/').pop() ?? path,
-    type: 'image/jpeg',
-    w: 100,
-    h: 100,
+    mime: 'image/jpeg',
+    width: 100,
+    height: 100,
     size: 1,
-    hasThumb: true,
-    hasMeta: true,
+    hasThumbnail: true,
+    hasMetadata: true,
     star: options?.star,
     metrics: options?.metrics,
   }

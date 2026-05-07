@@ -7,14 +7,41 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
+from typing import Any
 from PIL import Image
+from ..media_errors import MediaDecodeError, MediaReadError
+from .base import StorageWriteUnsupportedError, join_storage_path
 from .local import LocalStorage
 from .progress import LeafBatchTracker, ProgressBar
 from .search_text import build_search_haystack, normalize_search_path, path_in_scope
 
 
+def _indexing_reason(exc: BaseException) -> str:
+    text = str(exc).strip()
+    return text or type(exc).__name__
+
+
+class MemoryIndexBuildError(RuntimeError):
+    """Raised when a folder index cannot represent its source files honestly."""
+
+    def __init__(self, item_path: str, stage: str, reason: str) -> None:
+        self.item_path = item_path
+        self.stage = stage
+        self.reason = reason
+        super().__init__(f"failed to index {item_path} during {stage}: {reason}")
+
+    @classmethod
+    def from_exception(
+        cls,
+        item_path: str,
+        stage: str,
+        exc: BaseException,
+    ) -> "MemoryIndexBuildError":
+        return cls(item_path, stage, _indexing_reason(exc))
+
+
 @dataclass
-class CachedItem:
+class MemoryBrowseItem:
     """In-memory cached metadata for an image."""
     path: str
     name: str
@@ -23,14 +50,17 @@ class CachedItem:
     height: int  # 0 = not yet loaded
     size: int
     mtime: float
+    url: str | None = None
+    source: str | None = None
+    metrics: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
-class CachedIndex:
+class MemoryBrowseIndex:
     """In-memory cached folder index."""
     path: str
     generated_at: str
-    items: list[CachedItem] = field(default_factory=list)
+    items: list[MemoryBrowseItem] = field(default_factory=list)
     dirs: list[str] = field(default_factory=list)
 
 
@@ -47,6 +77,7 @@ class MemoryStorage:
     LOCAL_PROGRESS_MIN_IMAGES = 64
     LEAF_BATCH_MAX_DIRS = 128
     LEAF_BATCH_THRESHOLD = 10
+    RECURSIVE_ITEMS_HARD_LIMIT = 10_000
 
     def __init__(self, root: str, thumb_size: int = 256, thumb_quality: int = 70):
         self.local = LocalStorage(root)
@@ -64,8 +95,8 @@ class MemoryStorage:
         )
 
         # In-memory caches
-        self._indexes: dict[str, CachedIndex] = {}
-        self._recursive_indexes: dict[str, CachedIndex] = {}
+        self._indexes: dict[str, MemoryBrowseIndex] = {}
+        self._recursive_indexes: dict[str, MemoryBrowseIndex] = {}
         self._thumbnails: dict[str, bytes] = {}  # path -> thumbnail bytes
         self._metadata: dict[str, dict] = {}  # path -> sidecar-like metadata
         self._dimensions: dict[str, tuple[int, int]] = {}  # path -> (w, h)
@@ -144,8 +175,7 @@ class MemoryStorage:
         return self.local.read_bytes(path)
 
     def write_bytes(self, path: str, data: bytes) -> None:
-        """No-op - we don't write to source directory."""
-        pass
+        raise StorageWriteUnsupportedError("memory storage does not support raw writes")
 
     def exists(self, path: str) -> bool:
         """Check if file exists on disk."""
@@ -156,28 +186,40 @@ class MemoryStorage:
         return self.local.size(path)
 
     def join(self, *parts: str) -> str:
-        return self.local.join(*parts)
+        return join_storage_path(*parts)
 
     def etag(self, path: str) -> str | None:
         return self.local.etag(path)
 
+    def s3_client_creations(self) -> int | None:
+        return None
+
     # --- In-memory index/thumbnail operations ---
 
-    def get_index(self, path: str) -> CachedIndex | None:
-        """Get cached index for a folder, building if needed."""
+    def get_index(self, path: str) -> MemoryBrowseIndex | None:
+        """Get cached index for a folder, or None when the path is absent."""
         norm = self._normalize_path(path)
         if norm in self._indexes:
             return self._indexes[norm]
-        return self._build_index(path, lightweight=False)
+        try:
+            return self._build_index(path, lightweight=False)
+        except (FileNotFoundError, ValueError):
+            return None
 
-    def get_index_for_recursive(self, path: str) -> CachedIndex | None:
+    def get_recursive_index(self, path: str) -> MemoryBrowseIndex | None:
         """Get an index optimized for recursive traversal hot paths."""
         norm = self._normalize_path(path)
         if norm in self._indexes:
             return self._indexes[norm]
         if norm in self._recursive_indexes:
             return self._recursive_indexes[norm]
-        return self._build_index(path, lightweight=True)
+        try:
+            return self._build_index(path, lightweight=True)
+        except (FileNotFoundError, ValueError):
+            return None
+
+    def get_index_for_recursive(self, path: str) -> MemoryBrowseIndex | None:
+        return self.get_recursive_index(path)
 
     def validate_image_path(self, path: str) -> None:
         """Ensure path is a supported image and exists on disk."""
@@ -198,44 +240,48 @@ class MemoryStorage:
         *,
         include_dimensions: bool,
         include_file_stat: bool,
-    ) -> tuple[int, CachedItem | None, tuple[int, int] | None]:
-        """Build a CachedItem for a single image file."""
-        try:
-            full = self.join(path, name)
-            abs_path = None
-            if include_dimensions or include_file_stat:
+    ) -> tuple[int, MemoryBrowseItem, tuple[int, int] | None]:
+        """Build a browse item for a single image file."""
+        full = self.join(path, name)
+        abs_path = None
+        if include_dimensions or include_file_stat:
+            try:
                 abs_path = self._abs_path(full)
+            except Exception as exc:
+                raise MemoryIndexBuildError.from_exception(full, "path resolution", exc) from exc
 
-            size = 0
-            mtime = 0.0
-            if include_file_stat and abs_path is not None:
+        size = 0
+        mtime = 0.0
+        if include_file_stat and abs_path is not None:
+            try:
                 stat = os.stat(abs_path)
-                size = stat.st_size
-                mtime = stat.st_mtime
-            mime = self._guess_mime(name)
+            except Exception as exc:
+                raise MemoryIndexBuildError.from_exception(full, "stat", exc) from exc
+            size = stat.st_size
+            mtime = stat.st_mtime
+        mime = self._guess_mime(name)
 
-            w, h = self._dimensions.get(full, (0, 0))
-            dims = None
-            if include_dimensions and (w == 0 or h == 0) and abs_path is not None:
-                try:
-                    dims = self._read_dimensions_fast(abs_path)
-                    if dims:
-                        w, h = dims
-                except Exception:
-                    dims = None
+        w, h = self._dimensions.get(full, (0, 0))
+        dims = None
+        if include_dimensions and (w == 0 or h == 0) and abs_path is not None:
+            try:
+                dims = self._read_dimensions_fast(abs_path)
+            except Exception as exc:
+                raise MemoryIndexBuildError.from_exception(full, "dimension probe", exc) from exc
+            if dims:
+                w, h = dims
 
-            item = CachedItem(
-                path=full,
-                name=name,
-                mime=mime,
-                width=w,
-                height=h,
-                size=size,
-                mtime=mtime,
-            )
-            return idx, item, dims
-        except Exception:
-            return idx, None, None
+        item = MemoryBrowseItem(
+            path=full,
+            name=name,
+            mime=mime,
+            width=w,
+            height=h,
+            size=size,
+            mtime=mtime,
+            source=full,
+        )
+        return idx, item, dims
 
     def _progress(self, done: int, total: int, label: str) -> None:
         self._progress_bar.update(done, total, label)
@@ -255,7 +301,7 @@ class MemoryStorage:
         cpu = os.cpu_count() or 1
         return max(1, min(self.LOCAL_INDEX_WORKERS, cpu, total))
 
-    def _build_index(self, path: str, *, lightweight: bool) -> CachedIndex:
+    def _build_index(self, path: str, *, lightweight: bool) -> MemoryBrowseIndex:
         """Build and cache folder index. Fast - no image reading."""
         norm = self._normalize_path(path)
         files, dirs = self.list_dir(path)
@@ -266,7 +312,7 @@ class MemoryStorage:
         use_leaf_batch = (not lightweight) and self._leaf_batch.use_batch(norm, dirs)
 
         image_files = [f for f in files if self._is_supported_image(f)]
-        items: list[CachedItem | None] = [None] * len(image_files)
+        items: list[MemoryBrowseItem | None] = [None] * len(image_files)
 
         total = len(image_files)
         show_progress = (not lightweight) and total >= self.LOCAL_PROGRESS_MIN_IMAGES and not use_leaf_batch
@@ -278,6 +324,19 @@ class MemoryStorage:
         if (not lightweight) and total >= self.LOCAL_INDEX_PARALLEL_MIN_IMAGES:
             workers = self._effective_workers(total)
         last_print = 0.0
+
+        def consume_result(result: tuple[int, MemoryBrowseItem, tuple[int, int] | None]) -> None:
+            nonlocal done, last_print
+            idx, item, dims = result
+            items[idx] = item
+            if dims:
+                self._dimensions[item.path] = dims
+            done += 1
+            now = time.monotonic()
+            if show_progress and (now - last_print > 0.1 or done == total):
+                self._progress(done, total, "local")
+                last_print = now
+
         if workers:
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = [
@@ -292,38 +351,22 @@ class MemoryStorage:
                     for i, name in enumerate(image_files)
                 ]
                 for future in as_completed(futures):
-                    idx, item, dims = future.result()
-                    if item is not None:
-                        items[idx] = item
-                        if dims:
-                            self._dimensions[item.path] = dims
-                    done += 1
-                    now = time.monotonic()
-                    if show_progress and (now - last_print > 0.1 or done == total):
-                        self._progress(done, total, "local")
-                        last_print = now
+                    consume_result(future.result())
         elif total:
             for i, name in enumerate(image_files):
-                idx, item, dims = self._build_item(
-                    path,
-                    name,
-                    i,
-                    include_dimensions=not lightweight,
-                    include_file_stat=not lightweight,
+                consume_result(
+                    self._build_item(
+                        path,
+                        name,
+                        i,
+                        include_dimensions=not lightweight,
+                        include_file_stat=not lightweight,
+                    ),
                 )
-                if item is not None:
-                    items[idx] = item
-                    if dims:
-                        self._dimensions[item.path] = dims
-                done += 1
-                now = time.monotonic()
-                if show_progress and (now - last_print > 0.1 or done == total):
-                    self._progress(done, total, "local")
-                    last_print = now
         else:
             done = total
 
-        index = CachedIndex(
+        index = MemoryBrowseIndex(
             path=path,
             generated_at=datetime.now(timezone.utc).isoformat(),
             items=[it for it in items if it is not None],
@@ -360,8 +403,12 @@ class MemoryStorage:
                 w, h = im.size
                 self._dimensions[path] = (w, h)
                 return w, h
-        except Exception:
-            return 0, 0
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise MediaDecodeError.from_exception(path, exc) from exc
+        except Exception as exc:
+            raise MediaReadError.from_exception(path, exc) from exc
 
     def _read_dimensions_fast(self, filepath: str) -> tuple[int, int] | None:
         """Read image dimensions from header only (fast)."""
@@ -456,14 +503,14 @@ class MemoryStorage:
             return w, h
         return None
 
-    def _all_items(self) -> list[CachedItem]:
+    def _all_items(self) -> list[MemoryBrowseItem]:
         """Return cached items; build root index if nothing is cached yet."""
         if self._indexes:
             return [it for idx in self._indexes.values() for it in idx.items]
-        try:
-            return list(self.get_index("/").items)
-        except Exception:
+        index = self.get_index("/")
+        if index is None:
             return []
+        return list(index.items)
 
     def _metadata_source_fields(self, meta: dict) -> tuple[str | None, str | None]:
         """Extract optional source-like search fields from metadata."""
@@ -479,12 +526,12 @@ class MemoryStorage:
         url_text = str(url).strip() if url is not None else ""
         return (source_text or None, url_text or None)
 
-    def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[CachedItem]:
+    def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[MemoryBrowseItem]:
         """Simple in-memory search over cached indexes."""
         q = (query or "").lower()
         scope_norm = normalize_search_path(path)
 
-        results: list[CachedItem] = []
+        results: list[MemoryBrowseItem] = []
         for item in self._all_items():
             if not path_in_scope(logical_path=item.path, scope_norm=scope_norm):
                 continue
@@ -505,21 +552,27 @@ class MemoryStorage:
                     break
         return results
 
-    def get_thumbnail(self, path: str) -> bytes | None:
+    def get_thumbnail(self, path: str) -> bytes:
         """Get thumbnail, generating if needed."""
-        if path in self._thumbnails:
-            return self._thumbnails[path]
+        cached = self.get_cached_thumbnail(path)
+        if cached is not None:
+            return cached
 
         try:
             raw = self.read_bytes(path)
+        except FileNotFoundError:
+            raise
+        except Exception as exc:
+            raise MediaReadError.from_exception(path, exc) from exc
+        try:
             thumb, dims = self._make_thumbnail(raw)
-            self._thumbnails[path] = thumb
-            # Cache dimensions from thumbnail generation
-            if dims:
-                self._dimensions[path] = dims
-            return thumb
-        except Exception:
-            return None
+        except Exception as exc:
+            raise MediaDecodeError.from_exception(path, exc) from exc
+        norm = self._normalize_item_path(path)
+        self._thumbnails[norm] = thumb
+        if dims:
+            self._dimensions[norm] = dims
+        return thumb
 
     def _make_thumbnail(self, img_bytes: bytes) -> tuple[bytes, tuple[int, int] | None]:
         """Generate a WebP thumbnail. Returns (thumb_bytes, (w, h))."""
@@ -537,8 +590,8 @@ class MemoryStorage:
             im.save(out, format="WEBP", quality=self.thumb_quality, method=6)
             return out.getvalue(), (w, h)
 
-    def get_metadata(self, path: str) -> dict:
-        """Get metadata for an image (in-memory only)."""
+    def ensure_metadata(self, path: str) -> dict:
+        """Get or create metadata for an image (in-memory only)."""
         key = self._canonical_meta_key(path)
         meta = self._metadata.get(key)
         if meta is not None:
@@ -552,7 +605,7 @@ class MemoryStorage:
         key = self._canonical_meta_key(path)
         meta = self._metadata.get(key)
         if meta is not None:
-            return meta
+            return dict(meta)
 
         lookup = self._normalize_item_path(path)
         w, h = self._dimensions.get(lookup, (0, 0))
@@ -572,6 +625,104 @@ class MemoryStorage:
         key = self._canonical_meta_key(path)
         self._metadata[key] = meta
 
+    def get_source_path(self, logical_path: str) -> str:
+        norm = self._normalize_item_path(logical_path)
+        if not self.exists(norm):
+            raise FileNotFoundError(logical_path)
+        return norm
+
+    def get_cached_thumbnail(self, path: str) -> bytes | None:
+        norm = self._normalize_item_path(path)
+        return self._thumbnails.get(norm)
+
+    def thumbnail_cache_key(self, path: str) -> str | None:
+        source = self.resolve_local_file_path(path)
+        if not source:
+            return None
+        parts = [source, str(self.thumb_size), str(self.thumb_quality)]
+        try:
+            etag = self.etag(path)
+        except Exception:
+            etag = None
+        if etag:
+            parts.append(str(etag))
+        return "|".join(parts)
+
+    def resolve_local_file_path(self, path: str) -> str | None:
+        try:
+            return self._abs_path(self.get_source_path(path))
+        except (FileNotFoundError, ValueError):
+            return None
+
+    def metadata_items(self) -> list[tuple[str, dict]]:
+        return list(self._metadata.items())
+
+    def metadata_snapshot_for_paths(self, paths: list[str] | tuple[str, ...] | set[str]) -> dict[str, dict]:
+        snapshot: dict[str, dict] = {}
+        for path in paths:
+            key = self._canonical_meta_key(path)
+            meta = self._metadata.get(key)
+            if meta is not None:
+                snapshot[key] = dict(meta)
+        return snapshot
+
+    def replace_metadata(self, metadata: dict[str, dict]) -> None:
+        self._metadata = {
+            self._canonical_meta_key(path): dict(meta)
+            for path, meta in metadata.items()
+        }
+
+    def total_items(self) -> int:
+        total = 0
+        pending = ["/"]
+        seen: set[str] = set()
+        while pending:
+            path = pending.pop()
+            norm = self._normalize_path(path)
+            if norm in seen:
+                continue
+            seen.add(norm)
+            index = self.get_recursive_index(path)
+            if index is None:
+                continue
+            total += len(index.items)
+            for child in index.dirs:
+                pending.append(self.join(path, child))
+        return total
+
+    def items_in_scope(self, path: str) -> list[MemoryBrowseItem]:
+        pending = [path or "/"]
+        seen: set[str] = set()
+        items: list[MemoryBrowseItem] = []
+        while pending:
+            current = pending.pop()
+            norm = self._normalize_path(current)
+            if norm in seen:
+                continue
+            seen.add(norm)
+            index = self.get_recursive_index(current)
+            if index is None:
+                continue
+            items.extend(index.items)
+            for child in index.dirs:
+                pending.append(self.join(current, child))
+        items.sort(key=lambda item: item.path)
+        return items
+
+    def count_in_scope(self, path: str) -> int:
+        return len(self.items_in_scope(path))
+
+    def row_index_for_path(self, path: str) -> int | None:
+        _ = path
+        return None
+
+    def sidecar_enrichment_for_path(self, path: str) -> dict[str, Any]:
+        _ = path
+        return {}
+
+    def recursive_items_hard_limit(self) -> int | None:
+        return self.RECURSIVE_ITEMS_HARD_LIMIT
+
     def invalidate_cache(self, path: str | None = None) -> None:
         """Clear cached data. If path is None, clear everything."""
         self._bump_browse_generation()
@@ -586,9 +737,9 @@ class MemoryStorage:
             norm = self._normalize_path(path)
             self._indexes.pop(norm, None)
             self._recursive_indexes.pop(norm, None)
-            self._thumbnails.pop(path, None)
+            self._thumbnails.pop(norm, None)
             self._metadata.pop(self._canonical_meta_key(path), None)
-            self._dimensions.pop(path, None)
+            self._dimensions.pop(norm, None)
 
     def invalidate_subtree(self, path: str, clear_metadata: bool = True) -> None:
         """Drop cached entries for a folder subtree.
@@ -640,10 +791,20 @@ class MemoryStorage:
                     self._metadata.pop(key, None)
 
     @staticmethod
-    def _guess_mime(name: str) -> str:
+    def guess_mime(name: str) -> str:
         n = name.lower()
         if n.endswith(".webp"):
             return "image/webp"
         if n.endswith(".png"):
             return "image/png"
         return "image/jpeg"
+
+    @staticmethod
+    def _guess_mime(name: str) -> str:
+        return MemoryStorage.guess_mime(name)
+
+    def refresh_subtree(self, path: str, *, preserve_metadata: bool = True) -> None:
+        target = self._abs_path(path)
+        if not os.path.isdir(target):
+            raise FileNotFoundError(path)
+        self.invalidate_subtree(path, clear_metadata=not preserve_metadata)

@@ -1,0 +1,8 @@
+# Tested runtime dependency set for the active Python 3.13 development environment.
+# Update this file only after validating the repo against the new stack.
+fastapi==0.135.1
+pydantic==2.12.5
+uvicorn[standard]==0.41.0
+Pillow==12.1.1
+pyarrow==23.0.1
+tqdm==4.67.3

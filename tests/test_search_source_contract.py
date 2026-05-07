@@ -41,7 +41,10 @@ def _build_table_app(
         include_source_in_search=include_source_in_search,
         skip_indexing=True,
     )
-    return create_app_from_storage(storage, show_source=include_source_in_search)
+    return create_app_from_storage(
+        storage,
+        show_source=include_source_in_search,
+    )
 
 
 def _build_dataset_app(

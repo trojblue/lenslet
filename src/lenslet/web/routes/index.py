@@ -1,0 +1,87 @@
+"""Index/frontend route registration for Lenslet."""
+
+from __future__ import annotations
+
+import html
+
+from fastapi import FastAPI, Request, Response
+
+from ..frontend import frontend_dist_path, load_frontend_shell
+from ... import og
+from ..context import get_request_context
+from .og import dataset_count, dataset_label
+
+_load_frontend_shell = load_frontend_shell
+
+
+def _inject_meta_tags(html_text: str, tags: str) -> str:
+    marker = "</head>"
+    idx = html_text.lower().find(marker)
+    if idx == -1:
+        return html_text + tags
+    return html_text[:idx] + tags + html_text[idx:]
+
+
+def _build_meta_tags(title: str, description: str, image_url: str, logo_url: str | None = None) -> str:
+    safe_title = html.escape(title, quote=True)
+    safe_desc = html.escape(description, quote=True)
+    safe_image = html.escape(image_url, quote=True)
+    safe_logo = html.escape(logo_url, quote=True) if logo_url else None
+    return "\n".join([
+        f'    <meta property="og:title" content="{safe_title}" />',
+        f'    <meta property="og:description" content="{safe_desc}" />',
+        f'    <meta property="og:image" content="{safe_image}" />',
+        f'    <meta property="og:logo" content="{safe_logo}" />' if safe_logo else '',
+        '    <meta property="og:type" content="website" />',
+        '    <meta name="twitter:card" content="summary_large_image" />',
+        f'    <meta name="twitter:title" content="{safe_title}" />',
+        f'    <meta name="twitter:description" content="{safe_desc}" />',
+        f'    <meta name="twitter:image" content="{safe_image}" />',
+        "",
+    ])
+
+
+def _build_index_title(label: str, total_count: int | None) -> str:
+    title = f"Lenslet: {label}"
+    if total_count is None:
+        return title
+    return f"{title} ({total_count:,} images)"
+
+
+def _build_index_description(label: str, scope_path: str) -> str:
+    if scope_path == "/":
+        return f"Browse {label} gallery"
+    return f"Browse {label} gallery in {scope_path}"
+
+
+def register_index_routes(app: FastAPI, og_preview: bool) -> None:
+    frontend_dist = frontend_dist_path()
+    index_path = frontend_dist / "index.html"
+    if not index_path.is_file():
+        return
+
+    def render_index(request: Request) -> Response:
+        html_text = _load_frontend_shell(str(index_path), index_path.stat().st_mtime_ns)
+        if og_preview:
+            context = get_request_context(request)
+            label = dataset_label(context.workspace)
+            scope_path = og.normalize_path(request.query_params.get("path"))
+            title = _build_index_title(label, dataset_count(context.storage))
+            description = _build_index_description(label, scope_path)
+            image_url = request.url_for("og_image")
+            path_param = request.query_params.get("path")
+            if path_param:
+                image_url = image_url.include_query_params(path=path_param)
+            image_url = str(image_url)
+            base = str(request.base_url)
+            logo_url = f"{base}favicon.ico"
+            tags = _build_meta_tags(title, description, image_url, logo_url)
+            html_text = _inject_meta_tags(html_text, tags)
+        response = Response(content=html_text, media_type="text/html")
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
+    app.get("/", include_in_schema=False)(render_index)
+    app.get("/index.html", include_in_schema=False)(render_index)

@@ -1,8 +1,8 @@
-import type { FilterAST, Item, SortSpec } from '../../../lib/types'
+import type { FilterAST, BrowseItemPayload, SortSpec } from '../../../lib/types'
 import { applyFilterAst } from './filters'
 import { sortByAdded, sortByMetric, sortByName } from './sorters'
 
-export function applyFilters(items: Item[], filters: FilterAST | null): Item[] {
+export function applyFilters(items: BrowseItemPayload[], filters: FilterAST | null): BrowseItemPayload[] {
   return applyFilterAst(items, filters)
 }
 
@@ -26,7 +26,7 @@ function shuffleWithSeed<T>(items: T[], seed: number): T[] {
   return arr
 }
 
-export function applySort(items: Item[], sort: SortSpec, randomSeed?: number): Item[] {
+export function applySort(items: BrowseItemPayload[], sort: SortSpec, randomSeed?: number): BrowseItemPayload[] {
   if (sort.kind === 'builtin' && sort.key === 'random') {
     const seed = randomSeed ?? Date.now()
     return shuffleWithSeed(items, seed)

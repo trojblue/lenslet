@@ -1,11 +1,11 @@
-import type { Item, StarRating } from '../../lib/types'
+import type { BrowseItemPayload, StarRating } from '../../lib/types'
 
 type SimilarityStateLike = {
   queryPath: string | null
   queryVector: string | null
 } | null
 
-export function hasMetricSortValues(items: readonly Item[], metricSortKey: string | null): boolean {
+export function hasMetricSortValues(items: readonly BrowseItemPayload[], metricSortKey: string | null): boolean {
   if (!metricSortKey) return false
   return items.some((item) => {
     const raw = item.metrics?.[metricSortKey]
@@ -13,7 +13,7 @@ export function hasMetricSortValues(items: readonly Item[], metricSortKey: strin
   })
 }
 
-function collectSimilarityMetricKeys(items: readonly Item[], scanLimit = 250): string[] {
+function collectSimilarityMetricKeys(items: readonly BrowseItemPayload[], scanLimit = 250): string[] {
   const keys = new Set<string>()
   let scanned = 0
   for (const item of items) {
@@ -32,14 +32,14 @@ function collectSimilarityMetricKeys(items: readonly Item[], scanLimit = 250): s
 export function resolveMetricKeys(
   folderMetricKeys: readonly string[] | undefined,
   similarityActive: boolean,
-  similarityItems: readonly Item[],
+  similarityItems: readonly BrowseItemPayload[],
 ): string[] {
   if (!similarityActive) return folderMetricKeys ? [...folderMetricKeys] : []
   return collectSimilarityMetricKeys(similarityItems)
 }
 
 export function buildStarCounts(
-  items: readonly Item[],
+  items: readonly BrowseItemPayload[],
   localStarOverrides: Record<string, StarRating>
 ): Record<string, number> {
   const counts: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 }

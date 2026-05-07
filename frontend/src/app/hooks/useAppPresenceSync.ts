@@ -6,13 +6,12 @@ import {
   connectEvents,
   disconnectEvents,
   dispatchPresenceLeave,
-  getClientId,
   subscribeEvents,
   subscribeEventStatus,
 } from '../../api/client'
 import type { ConnectionStatus, SyncEvent } from '../../api/client'
 import { sidecarQueryKey, updateConflictFromServer } from '../../api/items'
-import type { HealthMode, HealthResponse, Item, PresenceEvent, Sidecar, StarRating } from '../../lib/types'
+import type { HealthMode, HealthResponse, BrowseItemPayload, PresenceEvent, Sidecar, StarRating } from '../../lib/types'
 import { FetchError } from '../../lib/fetcher'
 import { formatAbsoluteTime, formatRelativeTime, parseTimestampMs } from '../../lib/util'
 import {
@@ -41,7 +40,7 @@ type UseAppPresenceSyncParams = {
   current: string
   currentGalleryId: string
   itemPaths: string[]
-  items: Item[]
+  items: BrowseItemPayload[]
   queryClient: QueryClient
   updateItemCaches: (payload: ItemCacheUpdatePayload) => void
   setLocalStarOverrides: Dispatch<SetStateAction<Record<string, StarRating>>>
@@ -135,7 +134,6 @@ export function useAppPresenceSync({
   updateItemCaches,
   setLocalStarOverrides,
 }: UseAppPresenceSyncParams): UseAppPresenceSyncResult {
-  const presenceClientIdRef = useRef<string>(getClientId())
   const presenceLeaseIdRef = useRef<string | null>(null)
   const activePresenceGalleryRef = useRef<string | null>(null)
   const pendingPresenceGalleryRef = useRef<string | null>(null)
@@ -235,9 +233,8 @@ export function useAppPresenceSync({
   }, [applyPresenceCounts])
 
   const joinPresenceScope = useCallback(async (galleryId: string, forceNewLease = false) => {
-    const clientId = presenceClientIdRef.current
     const preferredLease = forceNewLease ? undefined : (presenceLeaseIdRef.current ?? undefined)
-    const join = (leaseId?: string) => api.joinPresence(galleryId, leaseId, clientId)
+    const join = (leaseId?: string) => api.joinPresence(galleryId, leaseId)
     try {
       applyJoinedPresence(await join(preferredLease))
       return
@@ -267,7 +264,6 @@ export function useAppPresenceSync({
         fromGalleryId,
         toGalleryId,
         leaseId,
-        presenceClientIdRef.current,
       )
       activePresenceGalleryRef.current = response.to_scope.gallery_id
       applyPresenceCounts([response.from_scope, response.to_scope])
@@ -343,7 +339,7 @@ export function useAppPresenceSync({
     const galleryId = activePresenceGalleryRef.current
     const leaseId = presenceLeaseIdRef.current
     if (!galleryId || !leaseId) return
-    dispatchPresenceLeave(galleryId, leaseId, presenceClientIdRef.current)
+    dispatchPresenceLeave(galleryId, leaseId)
     if (clearLocal) {
       clearPresenceScope(galleryId)
     }
@@ -380,7 +376,7 @@ export function useAppPresenceSync({
           path,
           star: payload.star ?? null,
           metrics: payload.metrics,
-          comments: payload.notes ?? '',
+          notes: payload.notes ?? '',
         })
         updateConflictFromServer(path, sidecar)
         markRecentActivity(path, 'item-updated', evt.id)

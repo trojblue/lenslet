@@ -11,7 +11,7 @@ from typing import Iterable
 from PIL import Image
 
 from .storage.progress import ProgressBar
-from .storage.table_facade import guess_mime
+from .storage.source_backed import guess_mime
 from .storage.table_media import read_dimensions_fast
 from .storage.table_paths import normalize_item_path
 from .workspace import Workspace
@@ -333,11 +333,8 @@ def _preindex_payload_exists(paths: PreindexPaths, meta: dict) -> bool:
 
 def _resolve_preindex_workspace(root: Path, workspace: Workspace, signature: str) -> Workspace:
     if workspace.can_write:
-        try:
-            workspace.ensure()
-            return workspace
-        except Exception:
-            workspace.can_write = False
+        workspace.ensure()
+        return workspace
 
     temp_root = Workspace.TEMP_ROOT / signature
     temp_workspace = Workspace(root=temp_root, can_write=True, is_temp=True)

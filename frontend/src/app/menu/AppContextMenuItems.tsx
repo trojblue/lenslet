@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../../features/ratings/services/exportRatings'
 import { FIND_SIMILAR_SELECT_SINGLE_REASON } from '../../features/inspector/model/findSimilarAvailability'
 import { api } from '../../api/client'
-import type { ContextMenuState, Item } from '../../lib/types'
+import type { ContextMenuState, BrowseItemPayload } from '../../lib/types'
 import ContextMenu, { type MenuItem } from './ContextMenu'
 import { getPathName, isTrashPath } from '../routing/hash'
 import { downloadBlob } from '../utils/appShellHelpers'
@@ -10,7 +10,7 @@ import { downloadBlob } from '../utils/appShellHelpers'
 interface AppContextMenuItemsProps {
   ctx: ContextMenuState
   current: string
-  items: Item[]
+  items: BrowseItemPayload[]
   setCtx: (ctx: ContextMenuState | null) => void
   refreshEnabled: boolean
   refreshDisabledReason?: string | null
@@ -84,7 +84,7 @@ function getExportMime(format: ExportFormat): string {
   return format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8'
 }
 
-function buildRatingsExportContent(items: Item[], format: ExportFormat): string {
+function buildRatingsExportContent(items: BrowseItemPayload[], format: ExportFormat): string {
   const ratings = mapItemsToRatings(items)
   return format === 'csv' ? toRatingsCsv(ratings) : toRatingsJson(ratings)
 }
@@ -93,7 +93,7 @@ function timestampLabel(): string {
   return new Date().toISOString().replace(/[:.]/g, '-')
 }
 
-async function fetchRecursiveFolderItems(path: string): Promise<Item[]> {
+async function fetchRecursiveFolderItems(path: string): Promise<BrowseItemPayload[]> {
   const payload = await api.getFolder(path, { recursive: true })
   return payload.items
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ITEM_HIGHLIGHT_MIN_VISIBLE_MS } from '../lib/constants'
-import type { Item } from '../lib/types'
+import type { BrowseItemPayload } from '../lib/types'
 import { parseTimestampMs } from '../lib/util'
 
 const MAX_HIGHLIGHT_EVENT_IDS = 2048
@@ -39,7 +39,7 @@ type UsePresenceActivityResult = {
   clearOffViewActivity: () => void
 }
 
-function buildItemNameLookup(items: Item[]): Map<string, string> {
+function buildItemNameLookup(items: BrowseItemPayload[]): Map<string, string> {
   const namesByPath = new Map<string, string>()
   for (const item of items) {
     namesByPath.set(item.path, item.name)
@@ -68,7 +68,7 @@ function trimAndUpsert(
   return next.slice(0, limit)
 }
 
-export function buildRecentSummary(recentActivity: RecentActivity[], items: Item[]): RecentSummary | null {
+export function buildRecentSummary(recentActivity: RecentActivity[], items: BrowseItemPayload[]): RecentSummary | null {
   if (!recentActivity.length) return null
 
   const namesByPath = buildItemNameLookup(items)
@@ -90,7 +90,7 @@ export function buildRecentSummary(recentActivity: RecentActivity[], items: Item
 
 export function buildRecentTouchesDisplay(
   recentTouches: RecentActivity[],
-  items: Item[],
+  items: BrowseItemPayload[],
   nowMs: number,
   formatTimestamp: TimestampFormatter,
 ): RecentTouchDisplay[] {

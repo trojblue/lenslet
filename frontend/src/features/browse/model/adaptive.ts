@@ -1,18 +1,18 @@
-import type { Item } from '../../../lib/types'
+import type { BrowseItemPayload } from '../../../lib/types'
 
 export type AdaptiveRow = {
   index: number
   height: number // Total row height including caption/gap
   imageH: number // Just the image height
   items: {
-    item: Item
+    item: BrowseItemPayload
     displayW: number
     displayH: number
     originalIndex: number
   }[]
 }
 
-type RowItem = { item: Item; aspect: number; originalIndex: number }
+type RowItem = { item: BrowseItemPayload; aspect: number; originalIndex: number }
 
 const DEFAULT_ASPECT = 1.333
 
@@ -23,7 +23,7 @@ export function computeAdaptiveRows({
   gap,
   captionH,
 }: {
-  items: Item[]
+  items: BrowseItemPayload[]
   containerWidth: number
   targetHeight: number
   gap: number
@@ -51,7 +51,7 @@ export function computeAdaptiveRows({
     const item = items[i]
 
     // Fix: Handle missing dimensions (0x0) by defaulting to 4:3
-    const aspect = item.w > 0 && item.h > 0 ? item.w / item.h : DEFAULT_ASPECT
+    const aspect = item.width > 0 && item.height > 0 ? item.width / item.height : DEFAULT_ASPECT
 
     currentRowItems.push({ item, aspect, originalIndex: i })
     currentAspectSum += aspect

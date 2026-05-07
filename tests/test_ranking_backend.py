@@ -168,6 +168,31 @@ def test_ranking_routes_end_to_end(tmp_path: Path) -> None:
     assert export_completed.json()["count"] == 1
 
 
+def test_ranking_save_requires_local_origin(tmp_path: Path) -> None:
+    dataset_path = _write_dataset(tmp_path)
+    app = create_ranking_app(dataset_path)
+    client = TestClient(app, base_url="https://public.trycloudflare.com")
+
+    health = client.get("/health")
+    assert health.status_code == 200
+    assert health.json()["can_write"] is False
+
+    response = client.post(
+        "/rank/save",
+        json={
+            "instance_id": "one",
+            "final_ranks": [["0", "1"]],
+            "completed": True,
+            "save_seq": 1,
+        },
+    )
+    assert response.status_code == 403
+    assert response.json() == {
+        "error": "local_origin_required",
+        "message": "mutations require a local Lenslet origin",
+    }
+
+
 def test_save_rejects_incomplete_completed_payload(tmp_path: Path) -> None:
     dataset_path = _write_dataset(tmp_path)
     app = create_ranking_app(dataset_path)

@@ -1,20 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import type { Item } from '../../../../lib/types'
+import type { BrowseItemPayload } from '../../../../lib/types'
 import {
   collectMetricValuesByKey,
   getMetricValues,
 } from '../metricValues'
 
-function makeItem(metrics?: Record<string, number | null>): Item {
+function makeItem(metrics?: Record<string, number | null>): BrowseItemPayload {
   return {
     path: '/tmp/example.jpg',
     name: 'example.jpg',
-    type: 'image/jpeg',
-    w: 1,
-    h: 1,
+    mime: 'image/jpeg',
+    width: 1,
+    height: 1,
     size: 1,
-    hasThumb: false,
-    hasMeta: false,
+    hasThumbnail: false,
+    hasMetadata: false,
     metrics,
   }
 }

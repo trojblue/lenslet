@@ -3,9 +3,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from PIL import Image
 
-import lenslet.server_factory as server_factory
-import lenslet.server_routes_index as server_routes_index
+import lenslet.web.factory as server_factory
+import lenslet.web.routes.index as server_routes_index
 from lenslet.server import create_app, create_app_from_datasets
+from lenslet.web.context import get_app_context
 from lenslet.storage.memory import MemoryStorage
 from lenslet.storage.table import TableStorage
 from lenslet.workspace import Workspace
@@ -41,12 +42,11 @@ def test_invalidate_subtree_drops_cache_and_rebuilds(tmp_path: Path):
 
     storage.get_thumbnail("/a/one.jpg")
     storage.get_dimensions("/a/one.jpg")
-    meta = storage.get_metadata("/a/one.jpg")
+    meta = storage.ensure_metadata("/a/one.jpg")
     meta["notes"] = "stale"
     storage.set_metadata("/a/one.jpg", meta)
-    assert "/a/one.jpg" in storage._thumbnails  # type: ignore[attr-defined]
-    assert "/a/one.jpg" in storage._dimensions  # type: ignore[attr-defined]
-    assert "/a/one.jpg" in storage._metadata  # type: ignore[attr-defined]
+    assert storage.get_cached_thumbnail("/a/one.jpg") is not None
+    assert "/a/one.jpg" in dict(storage.metadata_items())
 
     # Mutate filesystem under /a
     img_a2 = folder_a / "two.jpg"
@@ -61,9 +61,8 @@ def test_invalidate_subtree_drops_cache_and_rebuilds(tmp_path: Path):
     assert len(refreshed.items) == 2
 
     # Cache entries under /a were purged, /b untouched
-    assert "/a/one.jpg" not in storage._thumbnails  # type: ignore[attr-defined]
-    assert "/a/one.jpg" not in storage._dimensions  # type: ignore[attr-defined]
-    assert "/a/one.jpg" not in storage._metadata  # type: ignore[attr-defined]
+    assert storage.get_cached_thumbnail("/a/one.jpg") is None
+    assert "/a/one.jpg" not in dict(storage.metadata_items())
     assert len(storage.get_index("/b").items) == 1
 
 
@@ -78,7 +77,7 @@ def test_invalidate_subtree_can_preserve_metadata(tmp_path: Path):
     storage.get_thumbnail("/a/one.jpg")
     storage.get_dimensions("/a/one.jpg")
 
-    meta = storage.get_metadata("/a/one.jpg")
+    meta = storage.ensure_metadata("/a/one.jpg")
     meta["notes"] = "keep me"
     meta["tags"] = ["tagged"]
     meta["star"] = 4
@@ -86,10 +85,9 @@ def test_invalidate_subtree_can_preserve_metadata(tmp_path: Path):
 
     storage.invalidate_subtree("/a", clear_metadata=False)
 
-    assert "/a/one.jpg" not in storage._thumbnails  # type: ignore[attr-defined]
-    assert "/a/one.jpg" not in storage._dimensions  # type: ignore[attr-defined]
+    assert storage.get_cached_thumbnail("/a/one.jpg") is None
 
-    preserved = storage.get_metadata("/a/one.jpg")
+    preserved = storage.ensure_metadata("/a/one.jpg")
     assert preserved["notes"] == "keep me"
     assert preserved["tags"] == ["tagged"]
     assert preserved["star"] == 4
@@ -251,6 +249,7 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         assert health_before_payload["mode"] == "table"
         assert health_before_payload["refresh"]["enabled"] is True
         assert health_before_payload["browse_cache"]["path"] == str(workspace_a.browse_cache_dir())
+        assert health_before_payload["labels"]["log"] == str(workspace_a.labels_log_path())
 
         views_before = client.get("/views")
         assert views_before.status_code == 200
@@ -272,9 +271,9 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         assert health_after.status_code == 200
         health_after_payload = health_after.json()
         assert health_after_payload["browse_cache"]["path"] == str(workspace_b.browse_cache_dir())
+        assert health_after_payload["labels"]["log"] == str(workspace_b.labels_log_path())
+        assert health_after_payload["labels"]["snapshot"] == str(workspace_b.labels_snapshot_path())
         assert health_after_payload["indexing"]["generation"] != health_before_payload["indexing"]["generation"]
-        assert app.state.runtime.snapshotter._workspace.root == workspace_b.root  # type: ignore[attr-defined]
-        assert app.state.runtime.thumb_cache.root == workspace_b.thumb_cache_dir()  # type: ignore[union-attr]
 
         views_after = client.get("/views")
         assert views_after.status_code == 200
@@ -285,8 +284,6 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         assert "Lenslet: beta" in html_after.text
         assert "(2 images)" in html_after.text
 
-        app.state.runtime.snapshotter._min_updates = 1
-        app.state.runtime.snapshotter._min_interval = 0.0
         thumb_after = client.get("/thumb", params={"path": "/shots/first.jpg"})
         assert thumb_after.status_code == 200
         update_after = client.put(
@@ -295,6 +292,11 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
             json={"tags": ["beta"], "notes": "workspace-b", "star": 5},
         )
         assert update_after.status_code == 200
+        context = get_app_context(app)
+        assert context.runtime.snapshotter.flush(
+            context.storage,
+            context.runtime.sync_state["last_event_id"],
+        )
 
         og_after = client.get("/og-image", params={"path": "/shots"})
         assert og_after.status_code == 200
@@ -305,6 +307,10 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
     assert list(thumb_cache_b.rglob("*.webp")), "expected refreshed thumb cache writes in workspace_b"
     snapshot_b = workspace_b.labels_snapshot_path()
     assert snapshot_b is not None and snapshot_b.exists()
+    assert any(
+        entry.get("path") == "/shots/first.jpg" and entry.get("notes") == "workspace-b"
+        for entry in workspace_b.read_labels_log()
+    )
 
     thumb_cache_a = workspace_a.thumb_cache_dir()
     if thumb_cache_a is not None:
@@ -312,6 +318,7 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
     snapshot_a = workspace_a.labels_snapshot_path()
     if snapshot_a is not None:
         assert not snapshot_a.exists()
+    assert not workspace_a.read_labels_log()
 
 
 def test_index_shell_is_cached_once_per_process(tmp_path: Path, monkeypatch) -> None:
@@ -319,7 +326,7 @@ def test_index_shell_is_cached_once_per_process(tmp_path: Path, monkeypatch) -> 
     server_routes_index._load_frontend_shell.cache_clear()
     app = create_app(str(tmp_path), og_preview=True)
 
-    index_path = Path(server_routes_index.__file__).resolve().parent / "frontend" / "index.html"
+    index_path = server_routes_index.frontend_dist_path() / "index.html"
     original_read_text = Path.read_text
     calls = {"count": 0}
 
@@ -353,7 +360,7 @@ def test_folders_recursive_includes_descendants(tmp_path: Path):
     assert direct.status_code == 200
     direct_payload = direct.json()
     assert len(direct_payload["items"]) == 1
-    assert {entry["name"] for entry in direct_payload["dirs"]} == {"child"}
+    assert {entry["name"] for entry in direct_payload["folders"]} == {"child"}
 
     recursive = client.get("/folders", params={"path": "/parent", "recursive": "1"})
     assert recursive.status_code == 200
@@ -364,7 +371,7 @@ def test_folders_recursive_includes_descendants(tmp_path: Path):
         "/parent/child/nested.jpg",
         "/parent/child/grand/deep.jpg",
     }
-    assert {entry["name"] for entry in recursive_payload["dirs"]} == {"child"}
+    assert {entry["name"] for entry in recursive_payload["folders"]} == {"child"}
 
 
 def test_refresh_invalidates_recursive_cache_for_ancestor_scope(

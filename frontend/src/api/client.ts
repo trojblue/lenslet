@@ -8,13 +8,13 @@ import {
   resetBrowseRequestBudgetForTests,
 } from './requestBudget'
 import type {
-  FolderIndex,
-  FolderPathsResponse,
+  BrowseFolderPayload,
+  BrowseFolderPathsPayload,
   Sidecar,
   SidecarPatch,
   FileOpResponse,
   RefreshResponse,
-  SearchResult,
+  BrowseSearchResultsPayload,
   ImageMetadataResponse,
   ExportComparisonRequest,
   ViewsPayload,
@@ -45,7 +45,6 @@ function fileUrl(path: string): string {
   return `${BASE}/file?path=${encodeURIComponent(path)}`
 }
 
-const CLIENT_ID_KEY = 'lenslet.client_id'
 const CLIENT_ID_SESSION_KEY = 'lenslet.client_id.session'
 const LAST_EVENT_ID_KEY = 'lenslet.last_event_id'
 const RECONNECT_BASE_MS = 1000
@@ -138,7 +137,6 @@ function getWindowStorage(kind: 'local' | 'session'): Storage | null {
 
 export function getClientId(): string {
   if (cachedClientId) return cachedClientId
-  const local = getWindowStorage('local')
   const session = getWindowStorage('session')
 
   const sessionClientId = safeStorageGet(session, CLIENT_ID_SESSION_KEY)
@@ -146,26 +144,10 @@ export function getClientId(): string {
     return cacheClientId(sessionClientId)
   }
 
-  const legacyClientId = safeStorageGet(local, CLIENT_ID_KEY)
   if (session) {
-    // v2 identity is tab-scoped. If a legacy localStorage id exists, migrate by
-    // generating a fresh session id and clearing the shared key.
     const nextSessionClientId = generateClientId()
     safeStorageSet(session, CLIENT_ID_SESSION_KEY, nextSessionClientId)
-    if (legacyClientId) {
-      safeStorageRemove(local, CLIENT_ID_KEY)
-    }
     return cacheClientId(nextSessionClientId)
-  }
-
-  if (legacyClientId) {
-    return cacheClientId(legacyClientId)
-  }
-
-  if (local) {
-    const generated = generateClientId()
-    safeStorageSet(local, CLIENT_ID_KEY, generated)
-    return cacheClientId(generated)
   }
 
   const fallback = `fp_${hashFingerprint(buildFingerprintSeed())}_${Math.random().toString(36).slice(2, 8)}`
@@ -446,16 +428,11 @@ function postPresenceKeepalive(path: string, payload: unknown): boolean {
   }
 }
 
-export function dispatchPresenceLeave(galleryId: string, leaseId: string, clientId?: string): boolean {
+export function dispatchPresenceLeave(galleryId: string, leaseId: string): boolean {
   return postPresenceKeepalive('/presence/leave', {
     gallery_id: galleryId,
     lease_id: leaseId,
-    client_id: clientId ?? getClientId(),
   })
-}
-
-function resolvePresenceClientId(clientId?: string): string {
-  return clientId ?? getClientId()
 }
 
 function postPresenceJSON<TResponse>(path: string, payload: unknown): Promise<TResponse> {
@@ -488,25 +465,25 @@ export const api = {
    * @param path - Folder path
    * @param options - Recursive options
    */
-  getFolder: (path: string, options?: GetFolderOptions): Promise<FolderIndex> => {
+  getFolder: (path: string, options?: GetFolderOptions): Promise<BrowseFolderPayload> => {
     return runWithRequestBudget('folders', () =>
-      fetchJSON<FolderIndex>(`${BASE}/folders?${buildFolderQuery(path, options)}`),
+      fetchJSON<BrowseFolderPayload>(`${BASE}/folders?${buildFolderQuery(path, options)}`),
     ).promise
   },
 
   /**
    * Fetch recursive folder count only (no items payload).
    */
-  getFolderCount: (path: string): Promise<FolderIndex> => {
+  getFolderCount: (path: string): Promise<BrowseFolderPayload> => {
     return runWithRequestBudget('folders', () =>
-      fetchJSON<FolderIndex>(
+      fetchJSON<BrowseFolderPayload>(
         `${BASE}/folders?${buildFolderQuery(path, { recursive: true, countOnly: true })}`,
       ),
     ).promise
   },
 
-  getFolderPaths: (): Promise<FolderPathsResponse> => {
-    return fetchJSON<FolderPathsResponse>(`${BASE}/folders/paths`).promise
+  getFolderPaths: (): Promise<BrowseFolderPathsPayload> => {
+    return fetchJSON<BrowseFolderPathsPayload>(`${BASE}/folders/paths`).promise
   },
 
   /**
@@ -514,11 +491,11 @@ export const api = {
    * @param q - Search query
    * @param path - Base path to search within
    */
-  search: (q: string, path: string): Promise<SearchResult> => {
+  search: (q: string, path: string): Promise<BrowseSearchResultsPayload> => {
     const params = new URLSearchParams()
     if (q) params.set('q', q)
     if (path) params.set('path', path)
-    return fetchJSON<SearchResult>(`${BASE}/search?${params}`).promise
+    return fetchJSON<BrowseSearchResultsPayload>(`${BASE}/search?${params}`).promise
   },
 
   /**
@@ -568,8 +545,6 @@ export const api = {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Idempotency-Key': idempotencyKey,
-      'x-client-id': getClientId(),
-      'x-updated-by': 'web',
     }
     if (opts?.ifMatch != null) headers['If-Match'] = String(opts.ifMatch)
     return fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`, {
@@ -594,8 +569,6 @@ export const api = {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'x-client-id': getClientId(),
-        'x-updated-by': 'web',
       },
       body: JSON.stringify(body),
     }).promise
@@ -611,10 +584,9 @@ export const api = {
   /**
    * Join presence for a gallery scope and get a server lease.
    */
-  joinPresence: (galleryId: string, leaseId?: string, clientId?: string): Promise<PresenceSessionResponse> => {
+  joinPresence: (galleryId: string, leaseId?: string): Promise<PresenceSessionResponse> => {
     return postPresenceJSON<PresenceSessionResponse>('/presence/join', {
       gallery_id: galleryId,
-      client_id: resolvePresenceClientId(clientId),
       lease_id: leaseId,
     })
   },
@@ -626,12 +598,10 @@ export const api = {
     fromGalleryId: string,
     toGalleryId: string,
     leaseId: string,
-    clientId?: string
   ): Promise<PresenceMoveResponse> => {
     return postPresenceJSON<PresenceMoveResponse>('/presence/move', {
       from_gallery_id: fromGalleryId,
       to_gallery_id: toGalleryId,
-      client_id: resolvePresenceClientId(clientId),
       lease_id: leaseId,
     })
   },
@@ -639,21 +609,9 @@ export const api = {
   /**
    * Leave the current presence scope using the active lease.
    */
-  leavePresence: (galleryId: string, leaseId: string, clientId?: string): Promise<PresenceLeaveResponse> => {
+  leavePresence: (galleryId: string, leaseId: string): Promise<PresenceLeaveResponse> => {
     return postPresenceJSON<PresenceLeaveResponse>('/presence/leave', {
       gallery_id: galleryId,
-      client_id: resolvePresenceClientId(clientId),
-      lease_id: leaseId,
-    })
-  },
-
-  /**
-   * Legacy heartbeat route kept for compatibility.
-   */
-  postPresence: (galleryId: string, leaseId?: string, clientId?: string): Promise<PresenceSessionResponse> => {
-    return postPresenceJSON<PresenceSessionResponse>('/presence', {
-      gallery_id: galleryId,
-      client_id: resolvePresenceClientId(clientId),
       lease_id: leaseId,
     })
   },

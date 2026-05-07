@@ -8,8 +8,8 @@ function createActions() {
     clearStarsNotIn: vi.fn(),
     clearNameContains: vi.fn(),
     clearNameNotContains: vi.fn(),
-    clearCommentsContains: vi.fn(),
-    clearCommentsNotContains: vi.fn(),
+    clearNotesContains: vi.fn(),
+    clearNotesNotContains: vi.fn(),
     clearUrlContains: vi.fn(),
     clearUrlNotContains: vi.fn(),
     clearDateRange: vi.fn(),
@@ -23,13 +23,12 @@ describe('filterChips', () => {
   it('builds labels and clear handlers for all supported clause types', () => {
     const filters: FilterAST = {
       and: [
-        { stars: [5, 0] },
         { starsIn: { values: [3, 1] } },
         { starsNotIn: { values: [4, 0] } },
         { nameContains: { value: '  cat  ' } },
         { nameNotContains: { value: 'dog' } },
-        { commentsContains: { value: 'bright' } },
-        { commentsNotContains: { value: 'blur' } },
+        { notesContains: { value: 'bright' } },
+        { notesNotContains: { value: 'blur' } },
         { urlContains: { value: 'cdn' } },
         { urlNotContains: { value: 'tmp' } },
         { dateRange: { from: '2025-01-01', to: '2025-01-31' } },
@@ -43,13 +42,12 @@ describe('filterChips', () => {
     const chips = buildFilterChips(filters, actions)
 
     expect(chips.map((chip) => ({ id: chip.id, label: chip.label }))).toEqual([
-      { id: 'stars', label: 'Rating in: 5, None' },
       { id: 'stars-in', label: 'Rating in: 3, 1' },
       { id: 'stars-not-in', label: 'Rating not in: 4, None' },
       { id: 'name-contains', label: 'Filename contains: cat' },
       { id: 'name-not-contains', label: 'Filename not: dog' },
-      { id: 'comments-contains', label: 'Comments contain: bright' },
-      { id: 'comments-not-contains', label: 'Comments not: blur' },
+      { id: 'notes-contains', label: 'Notes contain: bright' },
+      { id: 'notes-not-contains', label: 'Notes not: blur' },
       { id: 'url-contains', label: 'URL contains: cdn' },
       { id: 'url-not-contains', label: 'URL not: tmp' },
       { id: 'date-range', label: 'Date: 2025-01-01 to 2025-01-31' },
@@ -60,12 +58,12 @@ describe('filterChips', () => {
 
     for (const chip of chips) chip.onRemove()
 
-    expect(actions.clearStars).toHaveBeenCalledTimes(2)
+    expect(actions.clearStars).toHaveBeenCalledTimes(1)
     expect(actions.clearStarsNotIn).toHaveBeenCalledTimes(1)
     expect(actions.clearNameContains).toHaveBeenCalledTimes(1)
     expect(actions.clearNameNotContains).toHaveBeenCalledTimes(1)
-    expect(actions.clearCommentsContains).toHaveBeenCalledTimes(1)
-    expect(actions.clearCommentsNotContains).toHaveBeenCalledTimes(1)
+    expect(actions.clearNotesContains).toHaveBeenCalledTimes(1)
+    expect(actions.clearNotesNotContains).toHaveBeenCalledTimes(1)
     expect(actions.clearUrlContains).toHaveBeenCalledTimes(1)
     expect(actions.clearUrlNotContains).toHaveBeenCalledTimes(1)
     expect(actions.clearDateRange).toHaveBeenCalledTimes(1)
@@ -78,13 +76,12 @@ describe('filterChips', () => {
   it('skips empty star/text/date clauses', () => {
     const filters: FilterAST = {
       and: [
-        { stars: [] },
         { starsIn: { values: [] } },
         { starsNotIn: { values: [] } },
         { nameContains: { value: '   ' } },
         { nameNotContains: { value: '' } },
-        { commentsContains: { value: ' ' } },
-        { commentsNotContains: { value: '' } },
+        { notesContains: { value: ' ' } },
+        { notesNotContains: { value: '' } },
         { urlContains: { value: '' } },
         { urlNotContains: { value: '   ' } },
         { dateRange: {} },

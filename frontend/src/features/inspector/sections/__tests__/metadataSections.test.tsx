@@ -230,9 +230,9 @@ describe('inspector metadata section rendering', () => {
         currentItem={{
           path: '/images/a.jpg',
           size: 2048,
-          w: 512,
-          h: 512,
-          type: 'image/jpeg',
+          width: 512,
+          height: 512,
+          mime: 'image/jpeg',
           source: '/images/a.jpg',
           metrics: { quality_score: 0.82 },
         }}

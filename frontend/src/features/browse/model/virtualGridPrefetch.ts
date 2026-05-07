@@ -1,4 +1,4 @@
-import type { Item } from '../../../lib/types'
+import type { BrowseItemPayload } from '../../../lib/types'
 
 type VirtualRowLike = {
   index: number
@@ -6,7 +6,7 @@ type VirtualRowLike = {
 
 type AdaptiveLayoutLike = {
   mode: 'adaptive'
-  rows: Array<{ items: Array<{ item: Pick<Item, 'path'> }> }>
+  rows: Array<{ items: Array<{ item: Pick<BrowseItemPayload, 'path'> }> }>
 }
 
 type GridLayoutLike = {
@@ -19,7 +19,7 @@ type LayoutLike = AdaptiveLayoutLike | GridLayoutLike
 export function getAdjacentThumbPrefetchPaths(
   virtualRows: readonly VirtualRowLike[],
   layout: LayoutLike,
-  items: readonly Pick<Item, 'path'>[],
+  items: readonly Pick<BrowseItemPayload, 'path'>[],
 ): string[] {
   if (virtualRows.length === 0) return []
   const visibleRows = Array.from(new Set(virtualRows.map((row) => row.index))).sort((a, b) => a - b)

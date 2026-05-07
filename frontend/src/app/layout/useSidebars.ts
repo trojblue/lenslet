@@ -4,7 +4,6 @@ import { getMinCenterWidth } from '../../lib/breakpoints'
 export const SIDEBAR_STORAGE_KEYS = {
   leftFolders: 'leftW.folders',
   leftMetrics: 'leftW.metrics',
-  leftLegacy: 'leftW',
   right: 'rightW',
 } as const
 
@@ -37,7 +36,6 @@ export function readPersistedSidebarWidths(storage: Pick<Storage, 'getItem'>): {
   rightW: number | null
 } {
   const leftFoldersW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.leftFolders))
-    ?? parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.leftLegacy))
   const leftMetricsW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.leftMetrics))
   const rightW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.right))
   return { leftFoldersW, leftMetricsW, rightW }

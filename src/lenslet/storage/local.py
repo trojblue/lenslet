@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os
-from .base import Storage
+from .base import Storage, StorageWriteUnsupportedError, join_storage_path
 
 
 class LocalStorage(Storage):
@@ -47,8 +47,7 @@ class LocalStorage(Storage):
             return f.read()
 
     def write_bytes(self, path: str, data: bytes) -> None:
-        # No-op in clean mode - we don't write to the source directory
-        pass
+        raise StorageWriteUnsupportedError("local storage is read-only")
 
     def exists(self, path: str) -> bool:
         try:
@@ -60,7 +59,7 @@ class LocalStorage(Storage):
         return os.path.getsize(self.resolve_path(path))
 
     def join(self, *parts: str) -> str:
-        return "/".join([p.strip("/") for p in parts if p])
+        return join_storage_path(*parts)
 
     def etag(self, path: str) -> str | None:
         try:

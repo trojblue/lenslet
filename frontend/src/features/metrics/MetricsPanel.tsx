@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-import type { FilterAST, Item } from '../../lib/types'
+import type { FilterAST, BrowseItemPayload } from '../../lib/types'
 import AttributesPanel from './components/AttributesPanel'
 import MetricRangePanel from './components/MetricRangePanel'
 import { formatNumber, type Range } from './model/histogram'
@@ -15,10 +15,10 @@ import {
 // - T23 optimization seam: histogram reuse across population/filtered/selected computations.
 
 interface MetricsPanelProps {
-  items: Item[]
-  filteredItems: Item[]
+  items: BrowseItemPayload[]
+  filteredItems: BrowseItemPayload[]
   metricKeys: string[]
-  selectedItems?: Item[]
+  selectedItems?: BrowseItemPayload[]
   selectedMetric?: string
   onSelectMetric: (key: string) => void
   filters: FilterAST

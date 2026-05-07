@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { sortByMetric } from '../sorters'
-import type { Item } from '../../../../lib/types'
+import type { BrowseItemPayload } from '../../../../lib/types'
 
-const baseItem = (overrides: Partial<Item>): Item => ({
+const baseItem = (overrides: Partial<BrowseItemPayload>): BrowseItemPayload => ({
   path: 'a',
   name: 'a',
-  type: 'image/jpeg',
-  w: 0,
-  h: 0,
+  mime: 'image/jpeg',
+  width: 0,
+  height: 0,
   size: 0,
-  hasThumb: true,
-  hasMeta: true,
+  hasThumbnail: true,
+  hasMetadata: true,
   ...overrides,
 })
 

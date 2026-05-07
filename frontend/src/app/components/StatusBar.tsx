@@ -13,9 +13,10 @@ export type StatusBarProps = {
   canRevealOffView?: boolean
   onClearOffView: () => void
   browserZoomPercent?: number | null
+  onDismissBrowserZoomWarning?: () => void
 }
 
-type StatusBarStateInput = Omit<StatusBarProps, 'onClearOffView'>
+type StatusBarStateInput = Omit<StatusBarProps, 'onClearOffView' | 'onDismissBrowserZoomWarning'>
 
 type StatusBarState = {
   offViewLabel: string
@@ -88,6 +89,7 @@ export default function StatusBar({
   canRevealOffView = false,
   onClearOffView,
   browserZoomPercent,
+  onDismissBrowserZoomWarning,
 }: StatusBarProps): JSX.Element | null {
   const {
     offViewLabel,
@@ -151,8 +153,20 @@ export default function StatusBar({
           </div>
         )}
         {showZoomWarning && (
-          <div className="ui-banner ui-banner-accent text-xs">
-            <span className="font-semibold">Browser zoom {Math.round(zoomPercent ?? 100)}%.</span> For best results, set it to 100% so UI elements stay in correct proportions.
+          <div className="ui-banner ui-banner-accent text-xs flex items-center justify-between gap-3">
+            <span>
+              <span className="font-semibold">Browser zoom {Math.round(zoomPercent ?? 100)}%.</span> For best results, set it to 100% so UI elements stay in correct proportions.
+            </span>
+            {onDismissBrowserZoomWarning && (
+              <button
+                type="button"
+                className="text-muted hover:text-text transition-colors text-base leading-none shrink-0"
+                onClick={onDismissBrowserZoomWarning}
+                aria-label="Dismiss browser zoom warning"
+              >
+                ×
+              </button>
+            )}
           </div>
         )}
         {offViewSummary && (

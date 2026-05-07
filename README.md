@@ -41,6 +41,14 @@ python -m pip install -c constraints/runtime-py313.txt -e .
 python -m pip install -c constraints/runtime-py313.txt -e ".[dev]"
 ```
 
+Fresh development checkout, including frontend packages and Playwright Chromium:
+
+```bash
+python scripts/setup_dev.py
+```
+
+On Linux, this also asks Playwright to install Chromium system packages so browser smokes work in fresh containers. Use `--skip-browser-system-deps` if your OS packages are managed separately.
+
 Optional extras for embedding search:
 
 ```bash

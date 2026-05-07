@@ -12,7 +12,7 @@ React + Vite frontend for Lenslet browse and ranking mode.
 ## Development
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 

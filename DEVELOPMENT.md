@@ -66,6 +66,14 @@ python -m pip install -c constraints/runtime-py313.txt -e .
 python -m pip install -c constraints/runtime-py313.txt -e ".[dev]"
 ```
 
+For a fresh checkout that also needs frontend dependencies and browser smoke support:
+
+```bash
+python scripts/setup_dev.py
+```
+
+The setup script installs `.[dev]`, runs `npm ci` in `frontend/`, and installs Playwright Chromium. On Linux it uses Playwright's `--with-deps` mode by default so headless Chromium has its required system libraries; pass `--skip-browser-system-deps` when those packages are already managed elsewhere.
+
 ### Frontend Development
 
 The frontend is a React + Vite application:
@@ -74,7 +82,7 @@ The frontend is a React + Vite application:
 cd frontend
 
 # Install dependencies
-npm install
+npm ci
 
 # Start dev server (with proxy to backend)
 npm run dev

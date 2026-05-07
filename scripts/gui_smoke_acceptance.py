@@ -40,7 +40,7 @@ try:
     from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
 except ImportError as exc:  # pragma: no cover - runtime dependency guard
     raise SystemExit(
-        "playwright is required: pip install playwright && python -m playwright install chromium"
+        "playwright is required: run python scripts/setup_dev.py from the repo root"
     ) from exc
 
 

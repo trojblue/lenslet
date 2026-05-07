@@ -51,7 +51,7 @@ def import_playwright() -> tuple[type[BaseException], type[BaseException], Calla
         from playwright.sync_api import sync_playwright
     except ImportError as exc:  # pragma: no cover - runtime dependency guard
         raise SmokeFailure(
-            "playwright is required: pip install -e '.[dev]' && python -m playwright install chromium"
+            "playwright is required: run python scripts/setup_dev.py from the repo root"
         ) from exc
     return playwright_error, playwright_timeout_error, sync_playwright
 

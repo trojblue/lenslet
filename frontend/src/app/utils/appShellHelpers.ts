@@ -59,6 +59,21 @@ export function resolveScopeFromHashTarget(
   return folderTarget
 }
 
+export function getBrowserZoomWarningBucket(percent: number | null): number | null {
+  if (typeof percent !== 'number' || !Number.isFinite(percent)) return null
+  if (Math.abs(percent - 100) < 2) return null
+  return Math.round(percent / 5) * 5
+}
+
+export function resolveVisibleBrowserZoomPercent(
+  percent: number | null,
+  dismissedBucket: number | null,
+): number | null {
+  const bucket = getBrowserZoomWarningBucket(percent)
+  if (bucket === null || bucket === dismissedBucket) return null
+  return percent
+}
+
 export function formatRange(min: number, max: number): string {
   return `${formatNumber(min)}–${formatNumber(max)}`
 }

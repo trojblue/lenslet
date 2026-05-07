@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from ..app_base import register_lifecycle_handlers
 from ..auth import request_client_id
 from ..models import PresenceLeavePayload, PresenceMovePayload, PresencePayload
 from ..runtime import PresenceMetrics
@@ -142,8 +143,11 @@ def install_presence_prune_loop(
             await task
         app.state.presence_prune_task = None
 
-    app.add_event_handler("startup", _start_presence_prune_loop)
-    app.add_event_handler("shutdown", _stop_presence_prune_loop)
+    register_lifecycle_handlers(
+        app,
+        startup=_start_presence_prune_loop,
+        shutdown=_stop_presence_prune_loop,
+    )
 
 
 def presence_invalid_lease_payload(gallery_id: str, client_id: str) -> dict[str, str]:

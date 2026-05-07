@@ -1108,7 +1108,14 @@ def _prepare_table_cache(
         base_dir=base_dir,
         auto_detect_root=auto_detect_root,
     )
-    if auto_detect_root and effective_root and effective_root != base_dir and not quiet:
+    default_root = os.path.abspath(str(parquet_path.parent))
+    if (
+        auto_detect_root
+        and base_dir is None
+        and effective_root
+        and effective_root != default_root
+        and not quiet
+    ):
         print(f"[lenslet] Auto-detected local source root: {effective_root}")
 
     storage = TableStorage(
@@ -1310,7 +1317,7 @@ def _detect_source_column(parquet_path: str, base_dir: str | None, sample_size: 
     if pf.metadata is not None and pf.metadata.num_rows == 0:
         return None
 
-    columns = pf.schema.names
+    columns = pf.schema_arrow.names
     if not columns:
         return None
 

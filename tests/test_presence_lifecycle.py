@@ -42,13 +42,10 @@ class _FakeClock:
 
 @asynccontextmanager
 async def _test_client(app) -> AsyncIterator[AsyncClient]:
-    await app.router.startup()
-    try:
+    async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://localhost") as client:
             yield client
-    finally:
-        await app.router.shutdown()
 
 
 def _build_test_app(

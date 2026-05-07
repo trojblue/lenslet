@@ -5,7 +5,7 @@ import pyarrow.parquet as pq
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from lenslet.cli import _prepare_table_cache
+from lenslet.cli import _detect_source_column, _prepare_table_cache
 from lenslet.server import create_app, create_app_from_storage
 from lenslet.storage.table import TableStorage
 
@@ -203,3 +203,51 @@ def test_standalone_parquet_auto_detects_safe_absolute_source_root(tmp_path: Pat
     health = client.get("/health")
     assert health.status_code == 200
     assert health.json()["total_images"] == 2
+
+
+def test_parquet_source_detection_ignores_nested_leaf_field_names(tmp_path: Path):
+    root = tmp_path
+    img_a = root / "dataset" / "a.jpg"
+    img_b = root / "dataset" / "b.jpg"
+    _make_image(img_a)
+    _make_image(img_b)
+
+    themes_type = pa.list_(pa.field("element", pa.string()))
+    table = pa.table(
+        {
+            "themes": pa.array([["portrait"], ["landscape"]], type=themes_type),
+            "path": pa.array([str(img_a), str(img_b)]),
+        }
+    )
+    parquet_path = root / "items.parquet"
+    pq.write_table(table, parquet_path)
+
+    assert _detect_source_column(str(parquet_path), str(root)) == "path"
+
+
+def test_explicit_remote_source_column_does_not_report_default_root_as_auto_detected(
+    tmp_path: Path,
+    capsys,
+):
+    parquet_path = tmp_path / "items.parquet"
+    _write_parquet(
+        parquet_path,
+        {
+            "s3key": [
+                "https://example.test/images/a.jpg",
+                "https://example.test/images/b.jpg",
+            ],
+        },
+    )
+
+    _prepare_table_cache(
+        parquet_path=parquet_path,
+        base_dir=None,
+        source_column="s3key",
+        cache_wh=False,
+        skip_indexing=True,
+        auto_detect_root=True,
+        quiet=False,
+    )
+
+    assert "Auto-detected local source root" not in capsys.readouterr().out

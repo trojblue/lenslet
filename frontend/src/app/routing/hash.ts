@@ -1,6 +1,12 @@
 /** Allowed characters in paths - alphanumeric, slashes, dots, underscores, hyphens, @ */
 export const ALLOWED_PATH = /^[\/@a-zA-Z0-9._\-\/]{1,512}$/
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp']
+const IMAGE_HASH_PREFIX = '!'
+
+export type HashTargets = {
+  folderTarget: string
+  imageTarget: string | null
+}
 
 /**
  * Normalize and sanitize a path string.
@@ -45,11 +51,37 @@ export function writeHash(p: string): void {
 }
 
 /**
+ * Write a viewer path to the URL hash.
+ *
+ * Folder hashes are plain paths. Viewer hashes use a hashbang marker so
+ * extensionless image ids cannot be mistaken for folders.
+ */
+export function writeImageHash(p: string): void {
+  const normalized = sanitizePath(p)
+  const h = `#!${encodeURI(normalized)}`
+  if (window.location.hash !== h) {
+    window.location.hash = h
+  }
+}
+
+/**
  * Replace the current hash without adding a history entry.
  */
 export function replaceHash(p: string): void {
   const normalized = sanitizePath(p)
   const h = `#${encodeURI(normalized)}`
+  if (window.location.hash !== h) {
+    const url = `${window.location.pathname}${window.location.search}${h}`
+    window.history.replaceState(window.history.state, '', url)
+  }
+}
+
+/**
+ * Replace the current viewer hash without adding a history entry.
+ */
+export function replaceImageHash(p: string): void {
+  const normalized = sanitizePath(p)
+  const h = `#!${encodeURI(normalized)}`
   if (window.location.hash !== h) {
     const url = `${window.location.pathname}${window.location.search}${h}`
     window.history.replaceState(window.history.state, '', url)
@@ -85,6 +117,35 @@ export function getParentPath(path: string): string {
   const parts = normalized.split('/').filter(Boolean)
   if (parts.length <= 1) return '/'
   return '/' + parts.slice(0, -1).join('/')
+}
+
+/**
+ * Resolve a raw hash into the browse scope and optional viewer image.
+ *
+ * New viewer URLs are explicit (`#!/path`). Legacy extension-based image hashes
+ * are still accepted, and loaded item paths cover old links inside the current
+ * browse state.
+ */
+export function resolveHashTargets(
+  raw: string,
+  knownImagePaths?: ReadonlySet<string>,
+): HashTargets {
+  if (raw.startsWith(IMAGE_HASH_PREFIX)) {
+    const imageTarget = sanitizePath(raw.slice(IMAGE_HASH_PREFIX.length))
+    if (imageTarget === '/') {
+      return { folderTarget: '/', imageTarget: null }
+    }
+    return { folderTarget: getParentPath(imageTarget), imageTarget }
+  }
+
+  const normalized = sanitizePath(raw)
+  const imageTarget = isLikelyImagePath(normalized) || knownImagePaths?.has(normalized)
+    ? normalized
+    : null
+  return {
+    folderTarget: imageTarget ? getParentPath(imageTarget) : normalized,
+    imageTarget,
+  }
 }
 
 /**

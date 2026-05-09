@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type { CompareOrderMode, BrowseItemPayload } from '../../lib/types'
-import { replaceHash, writeHash } from '../routing/hash'
+import { replaceHash, replaceImageHash, writeImageHash } from '../routing/hash'
 
 type UseAppSelectionViewerCompareParams = {
   current: string
@@ -174,7 +174,7 @@ export function useAppSelectionViewerCompare({
   const openViewer = useCallback((path: string) => {
     setViewer(path)
     viewerHistoryPushedRef.current = true
-    writeHash(path)
+    writeImageHash(path)
   }, [])
 
   const closeViewer = useCallback(() => {
@@ -236,7 +236,7 @@ export function useAppSelectionViewerCompare({
     if (!nextPath || nextPath === currentPath) return
     if (viewer) {
       setViewer(nextPath)
-      replaceHash(nextPath)
+      replaceImageHash(nextPath)
     }
     setSelectedPaths([nextPath])
   }, [itemPaths, selectedPaths, viewer])

@@ -10,7 +10,7 @@ import { api } from '../api/client'
 import type { FullFilePrefetchContext } from '../api/client'
 import { useOldestInflightAgeMs, useSyncStatus } from '../api/items'
 import { usePollingEnabled } from '../api/polling'
-import { readHash, writeHash, sanitizePath, getParentPath, isLikelyImagePath } from './routing/hash'
+import { readHash, resolveHashTargets, writeHash, sanitizePath, getParentPath } from './routing/hash'
 import {
   countActiveFilters,
   getStarFilter,
@@ -349,6 +349,7 @@ export default function AppShell({
   const starFilters = useMemo(() => getStarFilter(viewState.filters), [viewState.filters])
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
+  const itemPathSet = useMemo(() => new Set(itemPaths), [itemPaths])
   const focusGridCell = useCallback((path: string | null | undefined) => {
     if (!path) return
     const el = document.getElementById(`cell-${encodeURIComponent(path)}`)
@@ -393,6 +394,7 @@ export default function AppShell({
     focusGridCell,
   })
   const syncHashImageSelectionRef = useLatestRef(syncHashImageSelection)
+  const itemPathSetRef = useLatestRef(itemPathSet)
   const bumpRestoreGridToSelectionTokenRef = useLatestRef(bumpRestoreGridToSelectionToken)
   const leftOpenRef = useLatestRef(leftOpen)
   const rightOpenRef = useLatestRef(rightOpen)
@@ -400,9 +402,7 @@ export default function AppShell({
   // Initialize current folder from URL hash and keep in sync.
   useEffect(() => {
     const applyHash = (raw: string) => {
-      const norm = sanitizePath(raw)
-      const imageTarget = isLikelyImagePath(norm) ? norm : null
-      const folderTarget = imageTarget ? getParentPath(norm) : norm
+      const { folderTarget, imageTarget } = resolveHashTargets(raw, itemPathSetRef.current)
       const isInitialHashSync = !initialHashSyncRef.current
       initialHashSyncRef.current = true
       syncHashImageSelectionRef.current(imageTarget)
@@ -424,7 +424,7 @@ export default function AppShell({
     const onHash = () => applyHash(readHash())
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [bumpRestoreGridToSelectionTokenRef, syncHashImageSelectionRef])
+  }, [bumpRestoreGridToSelectionTokenRef, itemPathSetRef, syncHashImageSelectionRef])
   const metricsBaseItems = selectionPool
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
   const hasMetricScrollbar = useMemo(

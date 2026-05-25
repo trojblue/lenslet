@@ -145,4 +145,23 @@ describe('Toolbar refresh trigger', () => {
     expect(html).toContain('quality_score')
     expect(html).not.toContain('__index_level_0__')
   })
+
+  it('labels adaptive layout as justified rows while preserving the internal option value', () => {
+    const html = renderToStaticMarkup(
+      <Toolbar
+        onSearch={() => {}}
+        viewMode="adaptive"
+        themePreset="teal"
+        onThemePresetChange={() => {}}
+        autoloadImageMetadata={false}
+        onAutoloadImageMetadataChange={() => {}}
+        compareOrderMode="gallery"
+        onCompareOrderModeChange={() => {}}
+      />,
+    )
+
+    expect(html).toContain('data-dropdown-option="layout:masonry"')
+    expect(html).toContain('Justified rows')
+    expect(html).not.toContain('Masonry')
+  })
 })

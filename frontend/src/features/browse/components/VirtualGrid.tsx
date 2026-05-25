@@ -633,14 +633,16 @@ export default function VirtualGrid({
     >
       <div key={`${viewMode}-${effectiveColumns}`} className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
         {virtualRows.map(row => {
-          let rowItems: { item: BrowseItemPayload, displayW: number, displayH: number }[] = []
+          let rowItems: { item: BrowseItemPayload, displayW: number, displayH: number, fit?: 'contain' }[] = []
           let rowStyle: React.CSSProperties = {}
           let rowClass = ""
+          let adaptiveImageHeight: number | undefined
 
           if (layout.mode === 'adaptive') {
              const rowData = layout.rows[row.index]
              if (!rowData) return null
              rowItems = rowData.items
+             adaptiveImageHeight = rowData.imageH
              rowStyle = {
                  height: rowData.height,
                  transform: `translate3d(0, ${row.start}px, 0)`,
@@ -669,9 +671,10 @@ export default function VirtualGrid({
               key={row.key} 
               className={rowClass}
               role="row" 
+              data-adaptive-image-height={adaptiveImageHeight}
               style={rowStyle}
             >
-              {rowItems.map(({ item: it, displayW, displayH }) => {
+              {rowItems.map(({ item: it, displayW, displayH, fit }) => {
                 const isVisuallySelected = !suppressSelectionHighlight && ((active===it.path) || selectedSet.has(it.path))
                 const selectionOrder = selectionOrderByPath.get(it.path) ?? null
                 const recentUpdateKey = recentlyUpdated?.get(it.path) ?? null
@@ -689,6 +692,7 @@ export default function VirtualGrid({
                   key={it.path} 
                   className="relative min-w-0"
                   role="gridcell" 
+                  data-adaptive-fit={fit}
                   aria-selected={isVisuallySelected} 
                   tabIndex={focused===it.path?0:-1}
                   onFocus={()=> setFocused(it.path)} 
@@ -738,6 +742,7 @@ export default function VirtualGrid({
                         selectionOrder={selectionOrder}
                         displayW={displayW}
                         displayH={displayH}
+                        fit={fit}
                         ioRoot={parentRef.current}
                         isScrolling={isScrolling}
                         priority={isTopmostVisibleRow}

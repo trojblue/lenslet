@@ -13,6 +13,7 @@ interface ThumbCardProps {
   selectionOrder?: number | null
   displayW?: number
   displayH?: number
+  fit?: 'contain'
   ioRoot?: Element | null
   isScrolling?: boolean
   priority?: boolean
@@ -28,6 +29,7 @@ export default function ThumbCard({
   selectionOrder = null,
   displayW,
   displayH,
+  fit,
   ioRoot,
   isScrolling,
   priority,
@@ -116,7 +118,7 @@ export default function ThumbCard({
       )}
       {url ? (
         <img
-          className={`w-full h-full object-cover block pointer-events-none select-none opacity-0 transition-opacity duration-[160ms] ${loaded ? 'opacity-100' : ''}`}
+          className={`w-full h-full ${fit === 'contain' ? 'object-contain' : 'object-cover'} block pointer-events-none select-none opacity-0 transition-opacity duration-[160ms] ${loaded ? 'opacity-100' : ''}`}
           src={url}
           alt={name}
           loading="lazy"

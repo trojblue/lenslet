@@ -75,6 +75,8 @@ describe('ToolbarMobileDrawer theme mount', () => {
 
     expect(html).toContain('data-toolbar-control="drawer-layout-grid"')
     expect(html).toContain('data-toolbar-control="drawer-layout-masonry"')
+    expect(html).toContain('Justified rows')
+    expect(html).not.toContain('Masonry')
     expect(html).toContain('data-toolbar-control="drawer-sort"')
     expect(html).toContain('data-toolbar-control="drawer-filters"')
     expect(html).toContain('data-toolbar-control="drawer-refresh"')

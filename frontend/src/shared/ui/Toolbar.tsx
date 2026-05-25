@@ -198,7 +198,7 @@ export default function Toolbar({
       label: 'Layout',
       options: [
         { value: 'layout:grid', label: 'Grid' },
-        { value: 'layout:masonry', label: 'Masonry' },
+        { value: 'layout:masonry', label: 'Justified rows' },
       ],
     },
     {

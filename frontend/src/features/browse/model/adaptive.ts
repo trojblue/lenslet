@@ -8,6 +8,7 @@ export type AdaptiveRow = {
     item: BrowseItemPayload
     displayW: number
     displayH: number
+    fit?: 'contain'
     originalIndex: number
   }[]
 }
@@ -15,6 +16,9 @@ export type AdaptiveRow = {
 type RowItem = { item: BrowseItemPayload; aspect: number; originalIndex: number }
 
 const DEFAULT_ASPECT = 1.333
+const MIN_ROW_HEIGHT_FACTOR = 0.65
+const MAX_ROW_HEIGHT_FACTOR = 1.35
+const TALL_OUTLIER_ASPECT = 0.25
 
 export function computeAdaptiveRows({
   items,
@@ -32,8 +36,9 @@ export function computeAdaptiveRows({
   if (containerWidth <= 0) return []
 
   const rows: AdaptiveRow[] = []
+  const minImageHeight = Math.max(1, targetHeight * MIN_ROW_HEIGHT_FACTOR)
+  const maxImageHeight = Math.max(minImageHeight, targetHeight * MAX_ROW_HEIGHT_FACTOR)
   let currentRowItems: RowItem[] = []
-  let currentAspectSum = 0
 
   const buildRow = (rowItems: RowItem[], height: number): AdaptiveRow => ({
     index: rows.length,
@@ -47,41 +52,129 @@ export function computeAdaptiveRows({
     })),
   })
 
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]
+  const pushScaledRow = (rowItems: RowItem[], height: number) => {
+    rows.push(buildRow(rowItems, height))
+  }
 
-    // Fix: Handle missing dimensions (0x0) by defaulting to 4:3
-    const aspect = item.width > 0 && item.height > 0 ? item.width / item.height : DEFAULT_ASPECT
+  const pushContainedRow = (rowItem: RowItem) => {
+    const height = Math.min(maxImageHeight, Math.max(minImageHeight, targetHeight))
+    rows.push({
+      index: rows.length,
+      height: height + captionH + gap,
+      imageH: height,
+      items: [{
+        item: rowItem.item,
+        displayW: containerWidth,
+        displayH: height,
+        fit: 'contain',
+        originalIndex: rowItem.originalIndex,
+      }],
+    })
+  }
 
-    currentRowItems.push({ item, aspect, originalIndex: i })
-    currentAspectSum += aspect
+  const getAspectSum = (rowItems: RowItem[]) => (
+    rowItems.reduce((sum, rowItem) => sum + rowItem.aspect, 0)
+  )
 
-    // Width needed if we use targetHeight: sum(w) + (n-1)*gap
-    // w = aspect * h
-    const totalGap = (currentRowItems.length - 1) * gap
-    const widthAtTarget = currentAspectSum * targetHeight + totalGap
+  const getTotalGap = (rowItems: RowItem[]) => Math.max(0, rowItems.length - 1) * gap
 
-    if (widthAtTarget >= containerWidth) {
-      // We found a breakpoint. Calculate exact height to fit containerWidth.
-      // containerWidth = h * sum(aspect) + totalGap
-      // h = (containerWidth - totalGap) / sum(aspect)
-      const height = (containerWidth - totalGap) / currentAspectSum
+  const getWidthAtHeight = (rowItems: RowItem[], height: number) => (
+    getAspectSum(rowItems) * height + getTotalGap(rowItems)
+  )
 
-      // Only accept if it's not ridiculously small (e.g. < 50% of target)
-      // If it is, we might have added one too many items.
-      // But usually "justified" means we accept it.
-      // To avoid tiny rows, we could peek ahead, but simple greedy approach works well for typical aspect ratios.
-      rows.push(buildRow(currentRowItems, height))
+  const getJustifiedHeight = (rowItems: RowItem[]) => {
+    const availableWidth = Math.max(1, containerWidth - getTotalGap(rowItems))
+    return availableWidth / getAspectSum(rowItems)
+  }
 
-      currentRowItems = []
-      currentAspectSum = 0
+  const getTrailingHeight = (rowItems: RowItem[]) => {
+    if (getWidthAtHeight(rowItems, targetHeight) <= containerWidth) {
+      return targetHeight
+    }
+    return getJustifiedHeight(rowItems)
+  }
+
+  const shouldContainSingleItem = (rowItem: RowItem) => (
+    rowItem.aspect <= TALL_OUTLIER_ASPECT || rowItem.aspect * minImageHeight > containerWidth
+  )
+
+  const pushTrailingRows = (rowItems: RowItem[]) => {
+    let pending: RowItem[] = []
+    for (const rowItem of rowItems) {
+      const candidate = [...pending, rowItem]
+      if (getWidthAtHeight(candidate, targetHeight) <= containerWidth) {
+        pending = candidate
+        continue
+      }
+
+      if (pending.length > 0) {
+        pushScaledRow(pending, getTrailingHeight(pending))
+        pending = [rowItem]
+        continue
+      }
+
+      const fitHeight = getJustifiedHeight(candidate)
+      if (fitHeight >= minImageHeight) {
+        pushScaledRow(candidate, fitHeight)
+      } else {
+        pushContainedRow(rowItem)
+      }
+      pending = []
+    }
+
+    if (pending.length > 0) {
+      pushScaledRow(pending, getTrailingHeight(pending))
     }
   }
 
-  // Last row
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+
+    const aspect = item.width > 0 && item.height > 0 ? item.width / item.height : DEFAULT_ASPECT
+    const rowItem = { item, aspect, originalIndex: i }
+
+    if (shouldContainSingleItem(rowItem)) {
+      pushTrailingRows(currentRowItems)
+      currentRowItems = []
+      pushContainedRow(rowItem)
+      continue
+    }
+
+    if (currentRowItems.length === 0) {
+      currentRowItems = [rowItem]
+      continue
+    }
+
+    const candidate = [...currentRowItems, rowItem]
+    const candidateHeight = getJustifiedHeight(candidate)
+    if (candidateHeight > targetHeight) {
+      currentRowItems = candidate
+      continue
+    }
+
+    const currentHeight = getJustifiedHeight(currentRowItems)
+    const candidateValid = candidateHeight >= minImageHeight
+    const currentValid = currentHeight <= maxImageHeight
+    const candidateError = Math.abs(candidateHeight - targetHeight)
+    const currentError = Math.abs(currentHeight - targetHeight)
+
+    if (candidateValid && (!currentValid || candidateError <= currentError)) {
+      pushScaledRow(candidate, candidateHeight)
+      currentRowItems = []
+    } else if (currentValid) {
+      pushScaledRow(currentRowItems, currentHeight)
+      currentRowItems = [rowItem]
+    } else if (candidateValid) {
+      pushScaledRow(candidate, candidateHeight)
+      currentRowItems = []
+    } else {
+      pushScaledRow(currentRowItems, Math.min(maxImageHeight, currentHeight))
+      currentRowItems = [rowItem]
+    }
+  }
+
   if (currentRowItems.length > 0) {
-    // Left align, keep target height
-    rows.push(buildRow(currentRowItems, targetHeight))
+    pushTrailingRows(currentRowItems)
   }
 
   return rows

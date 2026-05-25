@@ -780,7 +780,7 @@ def run_grid_probe(
     def list_metric_sort_labels(page: Any) -> list[str]:
         trigger, panel = open_sort_panel(page)
         option_labels = [label.strip() for label in panel.locator("button.dropdown-item").all_inner_texts()]
-        builtin_options = {"Grid", "Masonry", "Date added", "Filename", "Random"}
+        builtin_options = {"Grid", "Justified rows", "Date added", "Filename", "Random"}
         metric_labels = [label for label in option_labels if label and label not in builtin_options]
         trigger.click()
         return metric_labels

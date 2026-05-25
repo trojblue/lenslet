@@ -13,6 +13,7 @@ import argparse
 import json
 import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -22,7 +23,12 @@ from typing import Any
 from urllib.parse import quote
 
 from PIL import Image
-from scripts.smoke_harness import (
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from smoke_harness import (
     SmokeFailure,
     choose_port,
     import_playwright,
@@ -33,7 +39,6 @@ from scripts.smoke_harness import (
 
 FIXTURE_VERSION = 1
 BROWSE_ENDPOINTS = ("folders", "thumb", "file")
-SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_BASELINE_FILE = SCRIPT_DIR / "playwright_large_tree_smoke_baselines.json"
 DEFAULT_BASELINE_PROFILE = "primary_large_no_write"
 

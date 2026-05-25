@@ -118,7 +118,7 @@ export default function ToolbarMobileDrawer({
           onClick={() => onViewMode?.('adaptive')}
           aria-pressed={viewMode === 'adaptive'}
         >
-          Masonry
+          Justified rows
         </button>
         <div className="mobile-drawer-theme" data-toolbar-control="drawer-theme">
           <ThemeSettingsMenu

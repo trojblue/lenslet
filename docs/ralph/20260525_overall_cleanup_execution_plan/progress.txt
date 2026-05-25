@@ -31,3 +31,87 @@ Cleanup and review:
 Blockers: none.
 
 Next step: Sprint 2 begins with OCR-3 adaptive row geometry tests before changing `computeAdaptiveRows`.
+
+## Iteration 2 - 2026-05-25T04:40:00Z
+
+Completed task IDs: OCR-3, OCR-5. OCR-4 implementation and browser assertions are complete, but OCR-4/Sprint 2 acceptance remains blocked on the primary large-tree gate.
+
+Files changed:
+- `frontend/src/features/browse/model/adaptive.ts`
+- `frontend/src/features/browse/model/__tests__/adaptive.test.ts`
+- `frontend/src/features/browse/components/VirtualGrid.tsx`
+- `frontend/src/features/browse/components/ThumbCard.tsx`
+- `frontend/src/shared/ui/Toolbar.tsx`
+- `frontend/src/shared/ui/toolbar/ToolbarMobileDrawer.tsx`
+- `frontend/src/shared/ui/toolbar/__tests__/Toolbar.test.tsx`
+- `frontend/src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx`
+- `scripts/overall_cleanup_browser.py`
+- `scripts/gui_jitter_probe.py`
+- `src/lenslet/frontend/index.html`
+- `src/lenslet/frontend/assets/*` (rebuilt Vite bundle filenames changed)
+- `docs/20260525_overall_cleanup_execution_plan.md`
+- `docs/ralph/20260525_overall_cleanup_execution_plan/progress.txt`
+
+Validations run:
+- `cd frontend && npm run test -- src/features/browse/model/__tests__/adaptive.test.ts` - first run failed against the old greedy row implementation as required for OCR-3 (`10:1` panorama collapsed to 76px, tall outlier was mixed into a normal row, and wide leftovers overfilled a row).
+- `cd frontend && npm run test -- src/features/browse/model/__tests__/adaptive.test.ts src/shared/ui/toolbar/__tests__/Toolbar.test.tsx src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx` - passed, 14 tests.
+- `cd frontend && npm run build` - passed; existing >500 kB main chunk warning remains for Sprint 5.
+- Packaged frontend assets synced from `frontend/dist/` into `src/lenslet/frontend/`; `rsync` was unavailable, so the generated directory was cleared and copied with `cp -a`.
+- `python scripts/overall_cleanup_browser.py --output-json /tmp/lenslet-overall-cleanup-sprint2.json` - passed; wrote adaptive geometry evidence for `320x700`, `390x700`, `760x430`, `1024x480`, and half-screen desktop plus comparison export evidence.
+- `python -m ruff check scripts/overall_cleanup_browser.py scripts/gui_jitter_probe.py` - passed.
+- `cd frontend && npm run test` - passed, 72 files / 328 tests.
+- `python scripts/lint_repo.py` - passed; existing warn-only file-size notes remain.
+- `git diff --check` - passed.
+
+Blockers:
+- `data/fixtures/large_tree_40k` is absent. Per the plan Recovery item, Sprint 2 cannot be marked complete until the primary large-tree fixture is generated/restored and `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json /tmp/lenslet-large-tree-overall-cleanup.json` passes, or the user explicitly approves a substitute/defer decision.
+- Cleanup/review subagent routines and a commit were not run because Sprint 2 is not closed.
+
+Next step: get approval to generate or restore `data/fixtures/large_tree_40k` and run the primary large-tree gate, then complete Sprint 2 cleanup/review and commit if it passes.
+
+## Approval - 2026-05-25T04:42:00Z
+
+User approved generating or restoring `data/fixtures/large_tree_40k` and running the primary Sprint 2 large-tree gate:
+
+- `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json /tmp/lenslet-large-tree-overall-cleanup.json`
+
+Proceed with the approved primary gate, then complete Sprint 2 cleanup/review routines if it passes.
+
+## Iteration 3 - 2026-05-25T04:52:39Z
+
+Completed task IDs: OCR-3, OCR-4, OCR-5
+
+Files changed:
+- `frontend/src/features/browse/model/adaptive.ts`
+- `frontend/src/features/browse/model/__tests__/adaptive.test.ts`
+- `frontend/src/features/browse/components/VirtualGrid.tsx`
+- `frontend/src/features/browse/components/ThumbCard.tsx`
+- `frontend/src/shared/ui/Toolbar.tsx`
+- `frontend/src/shared/ui/toolbar/ToolbarMobileDrawer.tsx`
+- `frontend/src/shared/ui/toolbar/__tests__/Toolbar.test.tsx`
+- `frontend/src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx`
+- `scripts/gui_jitter_probe.py`
+- `scripts/overall_cleanup_browser.py`
+- `scripts/playwright_large_tree_smoke.py`
+- `src/lenslet/frontend/index.html`
+- `src/lenslet/frontend/assets/*` (rebuilt Vite bundle filenames changed)
+- `docs/20260525_overall_cleanup_execution_plan.md`
+- `docs/ralph/20260525_overall_cleanup_execution_plan/progress.txt`
+
+Validations run:
+- `python -m ruff check scripts/playwright_large_tree_smoke.py` - passed.
+- `pytest -q tests/test_playwright_large_tree_smoke.py` - passed, 6 tests.
+- `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json /tmp/lenslet-large-tree-overall-cleanup.json` - passed; first grid `4.34s`, hotpath `3974ms`, first thumbnail `4052ms`, max frame gap `350.1ms`, zero `/file` requests.
+- Cleanup subagent validation: `cd frontend && npm run test -- src/features/browse/model/__tests__/adaptive.test.ts src/shared/ui/toolbar/__tests__/Toolbar.test.tsx src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx` - passed, 14 tests.
+- Cleanup subagent validation: `python -m ruff check scripts/overall_cleanup_browser.py scripts/playwright_large_tree_smoke.py scripts/gui_jitter_probe.py` - passed.
+- Cleanup subagent validation: `git diff --check` - passed.
+- Cleanup subagent validation: `python scripts/overall_cleanup_browser.py --output-json /tmp/lenslet-overall-cleanup-sprint2-cleanup.json` - passed.
+- `python scripts/lint_repo.py` - passed; existing warn-only file-size notes remain.
+
+Cleanup and review:
+- Code-simplifier pass applied only non-semantic wrapping cleanup in `scripts/overall_cleanup_browser.py`.
+- Fresh code-review pass reported no actionable findings. Residual notes: no randomized/property adaptive aspect-ratio coverage, and the browser evidence assumes the default `220px` target height in a fresh context.
+
+Blockers: none.
+
+Next step: Sprint 3 begins with OCR-6 visible viewport bounds, then OCR-7 menu positioning/semantics and OCR-8 abortable bounded hover preview.

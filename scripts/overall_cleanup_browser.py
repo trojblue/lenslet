@@ -64,14 +64,14 @@ def build_fixture_dataset(root: Path) -> None:
         (86, 86, 96),
     )
     sizes = (
-        (96, 64),
-        (80, 64),
-        (72, 96),
-        (112, 70),
-        (90, 90),
-        (120, 72),
-        (84, 108),
-        (100, 76),
+        (1000, 100),
+        (100, 100),
+        (100, 100),
+        (100, 100),
+        (400, 100),
+        (100, 800),
+        (160, 320),
+        (120, 90),
     )
     for idx, (color, size) in enumerate(zip(colors, sizes)):
         path = root / f"cleanup_fixture_{idx:02d}.png"
@@ -216,6 +216,210 @@ def collect_layout_evidence(page: Any, name: str) -> dict[str, Any]:
     )
 
 
+def collect_adaptive_geometry_evidence(page: Any, name: str) -> dict[str, Any]:
+    return page.evaluate(
+        """(name) => {
+          const rectPayload = (rect) => rect ? ({
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+          }) : null
+          const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
+          const gridRect = grid ? rectPayload(grid.getBoundingClientRect()) : null
+          const rows = grid ? Array.from(grid.querySelectorAll('[role="row"]')).map((row, rowIndex) => {
+            const rowRect = row.getBoundingClientRect()
+            const cells = Array.from(row.querySelectorAll('[role="gridcell"][id^="cell-"]')).map((cell) => {
+              const rect = cell.getBoundingClientRect()
+              return {
+                id: cell.id,
+                fit: cell.getAttribute('data-adaptive-fit') || null,
+                rect: rectPayload(rect),
+              }
+            })
+            return {
+              rowIndex,
+              rect: rectPayload(rowRect),
+              imageHeight: Number(row.getAttribute('data-adaptive-image-height')),
+              cells,
+            }
+          }) : []
+          const bodyText = document.body ? document.body.innerText : ''
+          const desktopSort = document.querySelector('button[aria-label="Sort and layout"]')
+          const mobileJustified = document.querySelector('[data-toolbar-control="drawer-layout-masonry"]')
+          const visualViewport = window.visualViewport ? {
+            width: window.visualViewport.width,
+            height: window.visualViewport.height,
+            offsetLeft: window.visualViewport.offsetLeft,
+            offsetTop: window.visualViewport.offsetTop,
+            scale: window.visualViewport.scale,
+          } : null
+          return {
+            name,
+            viewport: {
+              innerWidth: window.innerWidth,
+              innerHeight: window.innerHeight,
+              visualViewport,
+            },
+            grid: gridRect,
+            rows,
+            labels: {
+              desktopSort: desktopSort ? desktopSort.textContent.trim() : '',
+              mobileJustified: mobileJustified ? mobileJustified.textContent.trim() : '',
+              bodyIncludesJustifiedRows: bodyText.includes('Justified rows'),
+              bodyIncludesLegacyMasonry: bodyText.includes('Masonry'),
+            },
+          }
+        }""",
+        name,
+    )
+
+
+def assert_adaptive_geometry(snapshot: dict[str, Any]) -> None:
+    name = str(snapshot.get("name", "<unknown>"))
+    grid = snapshot.get("grid")
+    rows = snapshot.get("rows")
+    labels = snapshot.get("labels")
+    if not isinstance(grid, dict):
+        raise OverallCleanupBrowserFailure(f"Missing adaptive grid bounds for {name}.")
+    if not isinstance(rows, list) or len(rows) < 3:
+        observed_rows = len(rows) if isinstance(rows, list) else rows
+        raise OverallCleanupBrowserFailure(
+            f"Expected at least 3 adaptive rows for {name}; got {observed_rows!r}."
+        )
+    if not isinstance(labels, dict):
+        raise OverallCleanupBrowserFailure(f"Missing adaptive label evidence for {name}.")
+    mobile_label = str(labels.get("mobileJustified") or "")
+    if mobile_label and mobile_label != "Justified rows":
+        raise OverallCleanupBrowserFailure(
+            f"Unexpected mobile adaptive label in {name}: {mobile_label!r}."
+        )
+    if labels.get("bodyIncludesLegacyMasonry"):
+        raise OverallCleanupBrowserFailure(f"Legacy Masonry label is still visible for {name}.")
+
+    min_image_height = 220 * 0.65
+    max_image_height = 220 * 1.35
+    tolerance = 1.5
+    contained_count = 0
+    grid_left = float(grid.get("left", 0))
+    grid_right = float(grid.get("right", 0))
+    for row in rows:
+        if not isinstance(row, dict):
+            raise OverallCleanupBrowserFailure(
+                f"Malformed adaptive row evidence for {name}: {row!r}."
+            )
+        image_height = float(row.get("imageHeight", 0))
+        row_index = row.get("rowIndex")
+        if image_height < min_image_height - tolerance:
+            raise OverallCleanupBrowserFailure(
+                f"Adaptive row {row_index} is too short in {name}: {image_height:.1f}px."
+            )
+        if image_height > max_image_height + tolerance:
+            raise OverallCleanupBrowserFailure(
+                f"Adaptive row {row_index} is too tall in {name}: {image_height:.1f}px."
+            )
+        cells = row.get("cells")
+        if not isinstance(cells, list) or not cells:
+            raise OverallCleanupBrowserFailure(f"Adaptive row {row_index} has no cells in {name}.")
+        for cell in cells:
+            if not isinstance(cell, dict):
+                raise OverallCleanupBrowserFailure(
+                    f"Malformed adaptive cell evidence for {name}: {cell!r}."
+                )
+            rect = cell.get("rect")
+            if not isinstance(rect, dict):
+                raise OverallCleanupBrowserFailure(
+                    f"Missing adaptive cell rect for {cell.get('id')} in {name}."
+                )
+            left = float(rect.get("left", 0))
+            right = float(rect.get("right", 0))
+            if left < grid_left - tolerance or right > grid_right + tolerance:
+                raise OverallCleanupBrowserFailure(
+                    f"Adaptive cell {cell.get('id')} overflows grid in {name}: "
+                    f"{left:.1f}..{right:.1f} outside {grid_left:.1f}..{grid_right:.1f}."
+                )
+            if cell.get("fit") == "contain":
+                contained_count += 1
+
+    if contained_count < 2:
+        raise OverallCleanupBrowserFailure(
+            f"Expected contained panorama/tall rows in {name}; observed {contained_count}."
+        )
+
+
+def verify_desktop_layout_label(page: Any, timeout_ms: float) -> dict[str, Any]:
+    trigger = page.get_by_role("button", name="Sort and layout").first
+    trigger.wait_for(state="visible", timeout=timeout_ms)
+    if trigger.is_disabled():
+        switch_button = page.locator('button:has-text("Switch to Most recent")').first
+        if switch_button.count() > 0:
+            switch_button.click()
+            page.wait_for_function(
+                """() => {
+                  const button = document.querySelector('button[aria-label="Sort and layout"]')
+                  return button instanceof HTMLButtonElement ? !button.disabled : false
+                }""",
+                timeout=timeout_ms,
+            )
+    if trigger.is_disabled():
+        raise OverallCleanupBrowserFailure(
+            "Sort and layout trigger stayed disabled after scan-stable unlock."
+        )
+    trigger.click()
+    panel = page.locator('.dropdown-panel[aria-label="Sort and layout"]').first
+    panel.wait_for(state="visible", timeout=timeout_ms)
+    labels = [label.strip() for label in panel.locator("button.dropdown-item").all_inner_texts()]
+    if "Justified rows" not in labels:
+        raise OverallCleanupBrowserFailure(
+            f"Desktop layout menu is missing Justified rows label: {labels!r}."
+        )
+    if "Masonry" in labels:
+        raise OverallCleanupBrowserFailure(
+            f"Desktop layout menu still exposes legacy Masonry label: {labels!r}."
+        )
+
+    panel.get_by_role("menuitem", name="Grid").click()
+    trigger.click()
+    panel = page.locator('.dropdown-panel[aria-label="Sort and layout"]').first
+    panel.wait_for(state="visible", timeout=timeout_ms)
+    panel.get_by_role("menuitem", name="Justified rows").click()
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    return {"labels": labels, "switchToGridAndBack": True}
+
+
+def run_adaptive_geometry_checks(page: Any, timeout_ms: float) -> list[dict[str, Any]]:
+    viewport_sizes = (
+        ("adaptive-320x700", 320, 700),
+        ("adaptive-390x700", 390, 700),
+        ("adaptive-760x430", 760, 430),
+        ("adaptive-1024x480", 1024, 480),
+        ("adaptive-half-desktop", 720, 900),
+    )
+    evidence: list[dict[str, Any]] = []
+    for name, width, height in viewport_sizes:
+        page.set_viewport_size({"width": width, "height": height})
+        page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+        wait_for_visible_grid_cell_ids(page, minimum_count=2, timeout_ms=timeout_ms)
+        page.evaluate(
+            """() => {
+              const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
+              if (grid) grid.scrollTop = 0
+            }"""
+        )
+        page.wait_for_timeout(220)
+        snapshot = collect_adaptive_geometry_evidence(page, name)
+        assert_adaptive_geometry(snapshot)
+        evidence.append(snapshot)
+    page.set_viewport_size({"width": 1440, "height": 920})
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    page.wait_for_timeout(180)
+    return evidence
+
+
 def open_compare_dialog(page: Any, timeout_ms: float) -> dict[str, Any]:
     side_by_side = page.get_by_role("button", name="Side by side view").first
     if side_by_side.is_disabled():
@@ -297,6 +501,8 @@ def run_browser_checks(base_url: str, timeout_ms: float, screenshot_dir: Path) -
         try:
             page.goto(base_url, wait_until="domcontentloaded")
             page.get_by_role("grid", name="Gallery").wait_for(state="visible")
+            layout_label = verify_desktop_layout_label(page, timeout_ms)
+            adaptive_geometry = run_adaptive_geometry_checks(page, timeout_ms)
             before_selection = collect_layout_evidence(page, "browse-ready")
             selected_cell_ids = select_two_visible_images(page, timeout_ms)
             set_right_panel_open(page, open_state=True, timeout_ms=10_000)
@@ -307,6 +513,8 @@ def run_browser_checks(base_url: str, timeout_ms: float, screenshot_dir: Path) -
             return {
                 "selected_cell_ids": selected_cell_ids,
                 "layout": [before_selection, after_selection, compare_dialog, after_export],
+                "layout_label": layout_label,
+                "adaptive_geometry": adaptive_geometry,
                 "comparison_export": export_result,
             }
         except Exception as exc:

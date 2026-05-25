@@ -6,11 +6,11 @@
 
 This is a corrective regression plan. The user clarified that the old behaviors were intentional and wanted. The previous overall cleanup plan made changes that broke those behaviors by treating full-viewport viewer/compare overlays and thumbnail-based hover preview as desired outcomes. That was wrong for the product behavior the user expects.
 
-After implementation, opening viewer or compare on desktop/tablet with the left and right side regions visible should keep those side regions visible and visually stable. The image surface should be contained in the center viewer container, not stretched across the whole app viewport. The image should not flash and then disappear. Hover preview should show a large preview from the original image file, materially larger than the grid thumbnail, not a thumbnail-sized preview that looks basically the same as the cell.
+After implementation, opening viewer or compare when the normal non-overlay layout can show the left and right side regions should keep those side regions visible and visually stable. The image surface should be contained in the center viewer container, not stretched across the whole app viewport. The image should not flash and then disappear. Hover preview should show a large preview from the original image file, materially larger than the grid thumbnail, not a thumbnail-sized preview that looks basically the same as the cell.
 
 Goals:
 
-1. Restore desktop/tablet viewer and compare containment to the center content area while preserving visible left and right side regions when the normal layout can show them.
+1. Restore viewer and compare containment to the center content area while preserving visible left and right side regions whenever the normal non-overlay layout can show them.
 2. Remove viewer/compare image flashing or disappearing introduced by the previous lazy/fallback/thumbnail/opacity path.
 3. Restore hover preview to a large original-file preview, bounded by viewport but not thumbnail-sized.
 4. Preserve the useful safety pieces that do not conflict with the old behavior: stale-response guards, URL cleanup, and request cancellation where the fetch path supports it.
@@ -22,14 +22,14 @@ Non-goals:
 2. Do not rework justified-row layout, menu semantics, comparison export, or bundle splitting unless directly required by these regressions.
 3. Do not add new backend APIs, tiled-image support, server-side preview derivatives, or frontend dependencies.
 4. Do not remove the modal focus work wholesale unless it is proven to be the direct source of the side-region regression and a narrower fix fails.
-5. Do not force desktop side panels onto phone, narrow, or short-height layouts where the existing responsive policy would normally suppress them.
+5. Do not force side panels onto phone, narrow, or short-height layouts where the existing normal non-overlay responsive policy would suppress them.
 
 Pre-approved behavior changes:
 
-1. On desktop/tablet layouts where side regions can fit, viewer/compare overlay mode should not suppress the side regions merely because overlay mode is active.
+1. When the normal non-overlay layout would show side regions for the current viewport, viewer/compare overlay mode should not suppress those side regions merely because overlay mode is active.
 2. On those layouts, viewer/compare overlay insets should match the effective left/right widths, so the image surface stays in the center container.
 3. Side regions should remain visible while viewer/compare is open, but viewer/compare keep modal focus ownership by default. Visible side regions remain decorative/inert under the modal unless the user later asks for them to be interactive.
-4. Hover preview may fetch original `/file` content again and should display close to the old large overlay scale, such as up to about `80vw`/`80vh` where viewport size allows.
+4. Hover preview may fetch original `/file` content again and should restore the old centered large preview presentation, with image bounds near `80vw`/`80vh` where viewport size allows, unless the user separately approves an anchored-popover redesign.
 5. Tests and browser assertions that encode thumbnail-only hover preview or full-viewport overlay assumptions may be removed or rewritten because those assumptions are now known wrong.
 
 Requires sign-off before implementation:
@@ -38,7 +38,7 @@ Requires sign-off before implementation:
 2. Removing modal focus trapping entirely.
 3. Removing lazy bundle splitting beyond viewer/compare if a smaller fallback/placement fix is enough.
 4. Adding backend preview endpoints, new dependencies, or persistent cache-policy changes.
-5. Changing phone/narrow/short-height overlay policy beyond preserving existing responsive behavior.
+5. Changing phone/narrow/short-height overlay policy beyond matching what the existing normal non-overlay responsive behavior would show.
 
 Deferred or out of scope:
 
@@ -55,16 +55,18 @@ No `PLANS.md` was found in the repo scan. This plan follows the user-provided re
 
 The previous plan was implemented through recent commits including `4fba010 feat: harden viewport menus and hover preview`, `2acc740 fix: preserve overlay inspection context`, and `2bb9104 feat: split secondary gallery surfaces`. The user now reports that these changes broke wanted old behavior.
 
-Current source inspection points to two direct regression clusters:
+Current source inspection points to these direct regression areas:
 
-1. `frontend/src/app/layout/responsiveLayoutPolicy.ts` suppresses sidebars when `overlayActive` is true and returns `overlayInsets: { left: 0, right: 0 }`. That makes viewer/compare a whole-app overlay and erases the visible left/right regions that the user wanted preserved.
+1. On the regressed branch, `frontend/src/app/layout/responsiveLayoutPolicy.ts` suppresses sidebars when `overlayActive` is true and returns `overlayInsets: { left: 0, right: 0 }`. That makes viewer/compare a whole-app overlay and erases the visible left/right regions that the user wanted preserved. A review of another repo snapshot found direct viewer/compare imports, full-file hover preview, no `hoverPreview.ts`, and no `overall_cleanup_browser.py`; another review of the current snapshot confirmed the overlay suppression, thumbnail hover path, and `360x280` preview cap. Implementation must still start by confirming the actual working branch state before editing.
 2. `frontend/src/app/AppShell.tsx` lazy-loads viewer and compare through fallback overlays, and `Viewer.tsx` / `CompareViewer.tsx` combine thumbnail placeholders, `ready` state, opacity transitions, image `onLoad` reset behavior, and lazy fallbacks. Any of these can contribute to the reported flash/disappear behavior.
 3. `frontend/src/api/client.ts` currently implements `api.getHoverPreview()` through `/thumb`, and `frontend/src/features/browse/model/hoverPreview.ts` caps the preview surface at `360x280`. That contradicts the user's requirement for a large original-image preview.
 4. The old hover code, visible in prior source history, used `api.getFile(path)` and rendered a centered overlay with image bounds near `80vw`/`80vh`. The corrective target should preserve that old product feel while keeping stale-token and cleanup safety from the newer controller.
 
 Scope lock decision:
 
-Visible side regions are expected to remain visible and stable in desktop/tablet viewer/compare. They are not required to be interactive while the modal is open in this corrective plan. If implementation evidence shows the old behavior required interactive side regions, stop and ask before changing `aria-modal`, focus trap ownership, or AppShell inert semantics.
+Visible side regions are expected to remain visible and stable in viewer/compare whenever normal non-overlay layout would show them. They are not required to be interactive while the modal is open in this corrective plan. If implementation evidence shows the old behavior required interactive side regions, stop and ask before changing `aria-modal`, focus trap ownership, or AppShell inert semantics.
+
+Toolbar policy is explicit. If the top toolbar Back, close, zoom slider, or previous/next controls are treated as viewer chrome in the current branch, keep that behavior and test it. If viewer/compare owns all close/navigation controls locally, keep toolbar inertness consistent with the existing branch. Compare may continue to inert the toolbar if that is current product behavior. Do not silently change toolbar interactivity while restoring side-region visibility.
 
 
 ## Interfaces and Dependencies
@@ -74,17 +76,17 @@ No new external dependency is approved.
 
 Internal interface changes are expected to be narrow:
 
-1. `buildResponsiveLayoutModel()` may change overlay behavior so desktop/tablet overlay mode reuses normal effective sidebar widths and sets `overlayInsets` to those widths. Phone/narrow/short-height suppression should remain governed by existing responsive constraints unless directly contradicted by browser evidence.
-2. `api.getHoverPreview()` should be changed from thumbnail fetch to an original-file fetch shape. Prefer an abortable direct `/file` fetch that returns `{ promise, abort }` and does not require a new backend endpoint. Cache participation should follow the smallest implementation that preserves original-preview behavior and lifecycle safety; do not introduce new persistent cache policy.
+1. `buildResponsiveLayoutModel()` may change overlay behavior so overlay mode reuses normal effective sidebar widths and sets `overlayInsets` to those widths. The safest implementation is to remove overlay-active from the early full-sidebar suppression branch, keep short-height suppression, let the existing normal sidebar feasibility algorithm compute effective widths, and then set overlay insets to those effective widths only when overlay is active. Do not implement this by blindly returning the full non-overlay model for overlay mode, because overlay still has overlay-specific shell reserves such as disabled mobile drawer height.
+2. `api.getHoverPreview()` should be changed from thumbnail fetch to an original-file fetch shape if the branch currently uses thumbnails. Prefer a dedicated abortable `/file` hover request, such as `getHoverPreviewFile(path): { promise: Promise<Blob>; abort: () => void }`, that participates in the existing file request budget, may read from `fileCache` if already cached, and does not abort shared viewer/compare file-cache requests. For uncached hover fetches, use a direct abortable `/file` request. Writing successful hover blobs into `fileCache` is optional only if it preserves old full-file behavior without broadening this task. Do not add a backend endpoint or persistent cache policy.
 3. Existing viewer/compare modal focus APIs should remain unless they directly cause the visual regression. Focus ownership and visual side-region visibility must be tested together.
 
 
 ## Plan of Work
 
 
-The plan uses two sprints and six implementation tickets. Each sprint must produce a runnable browser state and update this document continuously, especially Progress Log and Artifacts and Handoff. After each sprint, add clear handoff notes before starting the next sprint.
+The plan uses two sprints and seven implementation tickets. Each sprint must produce a runnable browser state and update this document continuously, especially Progress Log and Artifacts and Handoff. After each sprint, add clear handoff notes before starting the next sprint.
 
-For minor script-level uncertainties, such as whether the browser checks live in a new focused script or in `scripts/overall_cleanup_browser.py`, proceed according to this approved plan to maintain momentum. After the sprint, ask for clarification and apply follow-up adjustments if the user wants a different placement.
+For minor script-level uncertainties, such as whether the browser checks extend `scripts/responsive_geometry_harness.py` or live in a new focused `scripts/viewer_preview_regression.py`, proceed according to this approved plan to maintain momentum. Prefer extending the existing harness if it exists in the working branch. After the sprint, ask for clarification and apply follow-up adjustments if the user wants a different placement.
 
 For every ticket with non-trivial code changes, the implementing agent must use the `better-code` skill before and during implementation. State the ticket assumptions, acceptance criteria, core invariants, smallest robust approach, and verification evidence before editing. Apply Karpathy-style execution guardrails: state material assumptions and ambiguous interpretations before coding, prefer the smallest non-speculative solution, touch only lines tied to the request, invariants, or verification, remove only unused code introduced by the change, and attach a concrete verification check to each step.
 
@@ -93,14 +95,14 @@ Delegate subagents early when they can find real codepaths/files to change faste
 ### Scope Budget and Guardrails
 
 
-Scope budget is two sprints, six tickets, and a narrow file set: `responsiveLayoutPolicy.ts`, its tests, `AppShell.tsx`, `Viewer.tsx`, `CompareViewer.tsx`, hover-preview model/API files, focused tests, browser evidence scripts, and packaged frontend assets if UI output changes.
+Scope budget is two sprints, seven tickets, and a narrow file set: `responsiveLayoutPolicy.ts`, its tests, `AppShell.tsx`, `Viewer.tsx`, `CompareViewer.tsx`, hover-preview model/API files, focused tests, browser evidence scripts, and packaged frontend assets if UI output changes.
 
 Debloat and removal targets:
 
-1. Remove overlay-active sidebar suppression where it conflicts with desktop/tablet center-contained viewer/compare behavior.
+1. Remove overlay-active sidebar suppression where it conflicts with center-contained viewer/compare behavior on layouts whose normal non-overlay policy would show side regions.
 2. Remove or rewrite browser/test assertions that encode full-viewport viewer/compare as desired.
 3. Remove thumbnail-only hover preview assertions.
-4. Remove viewer/compare thumbnail fade or ready-state code only if it is proven to be the flash/disappear source.
+4. Do not remove thumbnail fallback or fade behavior wholesale. First fix readiness ownership so the full image cannot become hidden after the current image has loaded; remove only exact ready/fade code that evidence proves is responsible.
 5. Avoid adding new abstractions. Prefer changing the policy outputs and preview fetch path directly.
 
 Quality guardrails:
@@ -114,30 +116,32 @@ Quality guardrails:
 ### Sprint Plan
 
 
-Sprint 1 goal: restore desktop/tablet contained overlay behavior and stable image rendering.
+Sprint 1 goal: restore contained overlay behavior wherever the normal non-overlay layout would show side regions, and stabilize image rendering.
 
 Demo outcome: with left and right side regions visible, opening viewer and compare keeps those regions visible and stable, and the image remains visible in the center container without flashing away.
 
 Tasks:
 
-1. `RVP-1`: Add failing browser evidence for side-region visibility and image flashing.
-   Add a focused regression path, preferably in a small script or a narrow extension of `scripts/overall_cleanup_browser.py`. It should open a fixture gallery at desktop/tablet width, ensure left and right regions are visible, open viewer, record DOM attributes and rectangles before/during/after open, sample the image over several animation frames, and repeat the same overlay-policy assertion for compare. Validation: current code should fail or explicitly record the reported wrong state before fixes: side widths become zero, suppression reasons mention overlay, overlay spans the whole app, or the image flashes/disappears.
-2. `RVP-2`: Restore overlay policy to preserve desktop/tablet side regions.
-   First try the surgical policy fix: overlay mode must not suppress desktop/tablet sidebars that already satisfy normal layout constraints, and `overlayInsets` should match effective left/right widths. Do not move viewer DOM or rewrite grid structure unless policy/browser evidence proves that is insufficient. Add a failing-before-fix unit test in `responsiveLayoutPolicy.test.ts`: overlay active on desktop with both user sidebars open keeps effective sidebars open and sets overlay insets to those widths. Validation: policy tests pass, and browser evidence shows `data-effective-left-width` / `data-effective-right-width` stay nonzero with no overlay suppression reason on desktop/tablet.
-3. `RVP-3`: Remove viewer/compare flashing or disappearing.
-   Audit `LazySurfaceBoundary`, `Suspense` fallbacks, `Viewer.tsx`, `CompareViewer.tsx`, thumbnail placeholders, opacity transitions, `ready` state, and load/reset effects. Keep the smallest change that makes the full image continuously visible once loaded. If lazy fallback is the source, make fallback occupy exactly the center viewer container and preserve side regions; only eager-load viewer/compare if that fails. Validation: browser evidence samples image rect, opacity, and natural dimensions through open/load/resize and finds no visible-then-gone state.
+1. `RVP-0`: Confirm branch alignment before editing.
+   Inspect current `AppShell` viewer/compare imports and `Suspense`/lazy fallback paths, `Viewer`/`CompareViewer` ready/thumbnail/opacity behavior, `VirtualGrid` hover-preview fetch path, API client hover/file/thumb methods, and existing browser harness names. If the branch already uses direct viewer/compare imports, do not spend `RVP-3` on lazy fallback removal. If hover already uses original `/file` and `80vw`/`80vh` sizing, narrow Sprint 2 to stale-response, abort, scroll-clear, and browser-evidence hardening. If files named in this plan do not exist, do not create broad abstractions merely to match plan wording. Validation: record a short branch-alignment note in this plan's Progress Log before implementation starts.
+2. `RVP-1`: Add browser evidence for side-region visibility and image flashing.
+   Add a focused regression path, preferably by extending `scripts/responsive_geometry_harness.py` if it exists or by adding a small `scripts/viewer_preview_regression.py` if a separate script is cleaner. It should open a fixture gallery at a viewport where normal non-overlay layout shows left and right regions, record left side-region rect, right side-region rect, grid-shell rect, app-shell rect, overlay-related DOM attributes, open viewer, sample the image over several animation frames, and repeat the same overlay-policy assertion for compare. For compare, check both the compare dialog and `.compare-stage`. Validation: the regression branch should fail or explicitly record the reported wrong state before fixes: side widths become zero, suppression reasons mention overlay, overlay spans the app instead of matching the grid shell, or the image flashes/disappears. If the current branch already passes a check, record that evidence and avoid unnecessary edits.
+3. `RVP-2`: Restore overlay policy to preserve normally visible side regions.
+   First try the surgical policy fix: overlay mode must not suppress sidebars that the normal non-overlay policy would show, and `overlayInsets` should match those effective left/right widths. Keep short-height suppression unchanged, keep mobile drawer reserve disabled under overlays, and do not move viewer DOM or rewrite grid structure unless policy/browser evidence proves that is insufficient. Split the existing overlay/short-height policy coverage into separate tests: short height still suppresses sidebars; overlay preserves side widths when normal layout would show them; overlay does not force sidebars onto layouts where normal policy suppresses them; and a borderline width such as `900px` preserves sidebars if the non-overlay policy would show them. Include the explicit `1440px` comparison between `overlay: 'viewer'` and `overlay: 'none'` for `leftWidth`, `rightWidth`, `effectiveLeftOpen`, `effectiveRightOpen`, and `overlayInsets`. Validation: policy tests pass, and browser evidence shows `data-effective-left-width` / `data-effective-right-width` stay nonzero only when normal layout allows them, with no overlay suppression reason erasing them.
+4. `RVP-3`: Remove viewer/compare flashing or disappearing.
+   Audit `LazySurfaceBoundary`, `Suspense` fallbacks, `Viewer.tsx`, `CompareViewer.tsx`, thumbnail placeholders, opacity transitions, `ready` state, and load/reset effects. Specifically audit the ready reset race where a URL-change effect can set `ready=false` after the current full image has already loaded. Prefer complete/naturalWidth-aware readiness reconciliation, or reset readiness at path/request start rather than after the current image mounted. Keep the thumbnail placeholder unless evidence proves it is the problem. Validation: browser evidence samples image rect, opacity, complete/natural dimensions, and current src through open/load/resize and finds no visible-then-gone state. If viewer toolbar controls are intended viewer chrome, verify Back closes viewer, zoom changes viewer scale, and previous/next controls still navigate when enabled.
 
 Sprint 2 goal: restore large original hover preview.
 
-Demo outcome: hover preview fetches and displays the original file at a large overlay size, bounded by viewport but materially larger than the thumbnail cell, with stale-response and cleanup safety preserved.
+Demo outcome: hover preview fetches and displays the original file in the restored centered large preview style, bounded by viewport but materially larger than the thumbnail cell, with stale-response and cleanup safety preserved.
 
 Tasks:
 
-4. `RVP-4`: Rewrite hover-preview tests around original-file preview.
-   Replace tests that assert `/thumb` and no full-file behavior. New tests should assert an original `/file` request path, stale-response rejection, abort on clear when the request shape supports it, object URL cleanup, and large preview sizing. Validation: current code fails the new `/file` and large-size assertions before `RVP-5`.
-5. `RVP-5`: Restore original-file hover preview with safe lifecycle.
-   Change `api.getHoverPreview()` or the hover controller fetcher to use original `/file` content through an abortable request shape. Restore preview sizing toward the old centered `80vw`/`80vh` behavior, while keeping visible viewport bounds, request tokens, URL revocation, and clear-on-scroll behavior. Do not add backend endpoints or persistent cache policy. Validation: browser evidence proves hover preview requests `/file`, not `/thumb`; preview dimensions are materially larger than the grid cell and approach viewport bounds when space allows; rapid hover changes do not show stale images.
-6. `RVP-6`: Final regression gate, cleanup, and handoff.
+5. `RVP-4`: Rewrite hover-preview tests around original-file preview.
+   Replace tests that assert `/thumb` and no full-file behavior. New tests should assert an original `/file` request path, stale-response rejection, abort on clear when the request shape supports it, object URL cleanup, and large preview sizing based on the actual image rectangle rather than only wrapper size. Add an adversarial delayed-A/fast-B case: hover image A, delay A's `/file` response, move to image B, resolve B, then resolve A; the preview must remain B, A must not replace B, and A's object URL must not leak. Add clear-on-scroll behavior: active preview clears, pending timer is cancelled, pending request is aborted where supported, and the current object URL is revoked. Validation: the regression branch should fail the new `/file` and large-size assertions before `RVP-5`; if the current branch already passes, record that evidence and limit edits to missing lifecycle hardening.
+6. `RVP-5`: Restore original-file hover preview with safe lifecycle.
+   Change `api.getHoverPreview()` or the hover controller fetcher to use original `/file` content through a dedicated abortable request shape. It should return `{ promise, abort }`, participate in the file request budget, avoid aborting a shared `fileCache` request that viewer/compare may be using, and avoid adding new persistent cache policy. Restore the old centered fixed preview with image bounds near `80vw`/`80vh`; do not merely enlarge the new anchored thumbnail popover unless the user separately approves that design. If `getHoverPreviewSurfaceSize()` exists, it may stop being the main sizing primitive for the restored behavior. Keep visible viewport bounds, request tokens, URL revocation, and clear-on-scroll behavior. Validation: browser evidence captures hover-specific network requests after hover starts and proves the hover path requests `/file`, not `/thumb`; preview image dimensions are materially larger than the grid cell and approach viewport bounds when space allows; rapid hover changes do not show stale images.
+7. `RVP-6`: Final regression gate, cleanup, and handoff.
    Run focused frontend tests, the focused browser regression path, existing GUI smoke, build, lint, and asset sync if UI changed. Validation: both user-reported behaviors pass, previous adjacent behavior touched by the files still works, and generated frontend assets are synced with `rsync -a --delete frontend/dist/ src/lenslet/frontend/` or an equivalent delete-then-copy fallback if `rsync` is unavailable.
 
 ### Task Gate Routine
@@ -177,17 +181,21 @@ Primary acceptance checks are browser checks for the two user-reported regressio
 Primary per-sprint checks:
 
 1. Sprint 1.
-   Open Lenslet at desktop/tablet width with left and right side regions visible, open viewer and compare, and record rectangles plus DOM attributes for side regions, center viewer container, overlay insets, suppression reasons, and image visibility over multiple animation frames. Expected: side regions remain visible and stable, overlay content is contained in the center area, `data-effective-left-width` and `data-effective-right-width` remain nonzero when normal layout allows them, no overlay suppression reason erases them, and the image does not flash then disappear.
+   Open Lenslet at a viewport where normal non-overlay layout shows left and right side regions, open viewer and compare, and record rectangles plus DOM attributes for side regions, center viewer container, overlay insets, suppression reasons, toolbar state, and image visibility over multiple animation frames. Expected: side regions remain visible and stable, overlay left/right edges match the grid-shell left/right edges within `1px`, overlay width is not the whole viewport when side regions are visible, `data-effective-left-width` and `data-effective-right-width` remain nonzero when normal layout allows them, no overlay suppression reason erases them, focus remains contained in viewer/compare, side regions remain inert/decorative, and the image does not flash then disappear. If viewer toolbar controls are product chrome, Back, zoom, and previous/next must remain usable in viewer mode; compare may keep the toolbar inert if that is current behavior.
 2. Sprint 2.
-   Hover over the grid preview hotspot with a fixture image large enough to distinguish full-file preview from thumbnail preview. Expected: browser network evidence shows `/file`, not `/thumb`; preview is materially larger than the grid cell and close to the old large overlay behavior; stale hover responses do not replace the active preview; clearing hover revokes the object URL and aborts when available.
+   Hover over the grid preview hotspot with a fixture image large enough to distinguish full-file preview from thumbnail preview. Expected: hover-specific browser network evidence captured after the hover action begins shows `/file`, not `/thumb`; preview is materially larger than the grid cell and close to the old centered large overlay behavior; stale hover responses do not replace the active preview; scrolling clears hover state; clearing hover revokes the object URL and aborts when available.
 
 Primary final gates:
 
-1. Run the focused regression browser script:
+1. Run the focused regression browser script. Prefer the existing responsive geometry harness if implementation extended it:
+
+       python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry.json
+
+   If implementation adds a narrower focused script instead, run:
 
        python scripts/viewer_preview_regression.py --output-json /tmp/lenslet-viewer-preview-regression.json
 
-   If the implementation extends `scripts/overall_cleanup_browser.py` instead, document the exact equivalent command in this plan before handoff.
+   Document the exact command in this plan before handoff.
 
 2. Run the existing GUI smoke:
 
@@ -216,10 +224,10 @@ Secondary fast gates:
 Final acceptance criteria:
 
 1. The corrective plan clearly records that the user wanted the old side-region and original-hover-preview behaviors, and the previous plan broke them.
-2. Viewer and compare no longer erase visible desktop/tablet side regions just because overlay mode is active.
+2. Viewer and compare no longer erase side regions that normal non-overlay layout would show just because overlay mode is active.
 3. Viewer and compare image surfaces are contained in the center container, not full app viewport, when side regions are visible.
 4. Viewer and compare images do not flash and then disappear during open/load.
-5. Side regions remain visible and stable while viewer/compare modal focus remains owned by viewer/compare.
+5. Side regions remain visible and stable while viewer/compare modal focus remains owned by viewer/compare, and toolbar behavior is unchanged except where explicitly documented.
 6. Hover preview uses original `/file` content and renders substantially larger than the thumbnail cell.
 7. Hover preview keeps stale-response, cleanup, and abort safety where supported.
 8. No new dependencies, backend endpoints, or broad refactors are introduced.
@@ -236,6 +244,8 @@ Hidden dependencies:
 4. Lazy-loaded fallback placement can make side regions appear to disappear even if the final viewer is correct.
 5. Full-file hover preview can be expensive. That cost is accepted here because the user explicitly wants a large original-image preview; performance optimization is deferred.
 6. Previous tests now encode wrong assumptions. Tests that assert `/thumb` hover or full-viewport overlay must be updated rather than preserved.
+7. Review feedback was based on another snapshot where some regression files did not exist; `RVP-0` must prevent implementation from chasing nonexistent files or already-restored behavior.
+8. Reusing the complete non-overlay layout model under overlay could accidentally re-enable mobile drawer reserves. Overlay should reuse normal side geometry while preserving overlay-specific shell reserves.
 
 Recovery:
 
@@ -244,6 +254,7 @@ Recovery:
 3. Do not revert unrelated user changes.
 4. If policy-only overlay containment fails, then and only then inspect viewer/compare DOM placement and lazy fallback placement.
 5. If abortable original `/file` preview cannot reuse current API safely, implement the smallest direct abortable fetch path and document cache behavior in handoff.
+6. If branch alignment shows the code is already restored, narrow implementation to browser evidence and any remaining lifecycle hardening instead of reintroducing the regressed abstractions.
 
 
 ## Progress Log
@@ -252,7 +263,10 @@ Recovery:
 - [x] 2026-05-25 06:53 UTC: User clarified that the previous plan broke wanted old behaviors: fullscreen/viewer should keep left/right side regions visible and center-contained, and hover preview should show a large original image.
 - [x] 2026-05-25 06:53 UTC: Confirmed the previous Ralph session is no longer running.
 - [x] 2026-05-25 06:53 UTC: Inspected current codepaths and old source history; current hover preview uses `/thumb` plus `360x280`, while old hover preview used `api.getFile` and `80vw`/`80vh`.
-- [x] 2026-05-25 06:53 UTC: Ran required plan review subagent and incorporated feedback about overlay accessibility semantics, desktop/tablet scope, surgical policy fix, direct abortable full-file hover fetch, DOM attribute assertions, and packaged asset sync.
+- [x] 2026-05-25 06:53 UTC: Ran required plan review subagent and incorporated feedback about overlay accessibility semantics, normal-layout scope, surgical policy fix, direct abortable full-file hover fetch, DOM attribute assertions, and packaged asset sync.
+- [x] 2026-05-25 07:10 UTC: Read `docs/20260525_restore_viewer_tabs_hover_preview_plan_review.md` and incorporated branch-alignment gate, normal-layout comparison rule, concrete policy implementation shape, ready-state race note, toolbar policy, and safer full-file hover cache guidance.
+- [x] 2026-05-25 07:18 UTC: Tightened the plan after review to prefer the existing responsive geometry harness, avoid blindly returning the non-overlay model, require split overlay/short-height tests, restore the old centered hover preview rather than an enlarged anchored popover, and add adversarial hover stale-response/scroll-clear checks.
+- [x] 2026-05-25 10:12 UTC: `RVP-0` branch alignment confirmed before implementation. Current branch lazy-loads viewer/compare with `Suspense` fallbacks, `responsiveLayoutPolicy.ts` suppresses side regions when overlay is active, `Viewer.tsx` and `CompareViewer.tsx` use thumbnail placeholders plus readiness opacity, `api.getHoverPreview()` fetches `/thumb`, `hoverPreview.ts` caps at `360x280`, and `scripts/responsive_geometry_harness.py` is the active browser harness to extend.
 - [ ] Sprint 1 implementation handoff pending.
 - [ ] Sprint 2 implementation handoff pending.
 
@@ -265,6 +279,7 @@ Input:
 1. User regression report in this thread.
 2. Previous plan: `docs/20260525_overall_cleanup_execution_plan.md`.
 3. Ralph progress: `docs/ralph/20260525_overall_cleanup_execution_plan/progress.txt`.
+4. Plan review: `docs/20260525_restore_viewer_tabs_hover_preview_plan_review.md`.
 
 Likely codepaths:
 
@@ -278,17 +293,18 @@ Likely codepaths:
 8. `frontend/src/features/browse/model/__tests__/hoverPreview.test.ts`
 9. `frontend/src/api/client.ts`
 10. `frontend/src/api/__tests__/client.prefetch.test.ts`
-11. `scripts/overall_cleanup_browser.py` or a new focused `scripts/viewer_preview_regression.py`
+11. `scripts/responsive_geometry_harness.py` or a new focused `scripts/viewer_preview_regression.py`
 12. `src/lenslet/frontend/` generated assets if UI changed.
 
 Handoff notes:
 
-1. Do not continue the old Ralph plan assumptions for viewer fullscreen or hover preview.
-2. Restore the old product intent first: visible side regions and large original hover preview.
-3. Preserve modal focus ownership unless the user explicitly approves interactive side regions during viewer/compare.
-4. Prefer policy and preview-fetch fixes over broad DOM or component rewrites.
-5. If a focused browser script is added, keep it small and tied only to these regressions.
+1. Start with `RVP-0`; do not edit code until branch assumptions are recorded.
+2. Do not continue the old Ralph plan assumptions for viewer fullscreen or hover preview.
+3. Restore the old product intent first: visible side regions and large original hover preview.
+4. Preserve modal focus ownership unless the user explicitly approves interactive side regions during viewer/compare.
+5. Prefer policy and preview-fetch fixes over broad DOM or component rewrites.
+6. If a focused browser script is added, keep it small and tied only to these regressions.
 
 Revision note:
 
-This new corrective plan explicitly replaces the previous plan's mistaken full-viewport overlay and thumbnail-hover assumptions. It states that the user wanted the old visible side-region behavior and old large original hover-preview behavior, and it scopes implementation to restoring those behaviors with browser evidence.
+This revision incorporates `docs/20260525_restore_viewer_tabs_hover_preview_plan_review.md` by adding branch-alignment before implementation, replacing hard-coded viewport-class wording with normal-layout comparison, narrowing the overlay policy fix to remove overlay-only suppression, adding the likely viewer ready-state race, clarifying toolbar/focus behavior, preferring the existing browser harness, and making original-hover preview use a dedicated abortable `/file` request shape in the restored centered large-preview presentation.

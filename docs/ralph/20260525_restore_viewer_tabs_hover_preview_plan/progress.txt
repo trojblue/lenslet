@@ -1,0 +1,7 @@
+# Ralph Progress Log
+Started: 2026-05-25T10:06:57Z
+Mode: plan
+Tool: codex
+Repo: /data/yada/dev_new/lenslet
+Plan: /data/yada/dev_new/lenslet/docs/20260525_restore_viewer_tabs_hover_preview_plan.md
+---

@@ -1,38 +1,36 @@
-import { useEffect, useRef, useState } from 'react'
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  type ImageTransform,
+  type Point,
+  type Size,
+  captureNormalizedImageCenter,
+  clampImageScale,
+  clampImageTransform,
+  fitImageToContainer,
+  panImageTransform,
+  restoreImageTransformForCenter,
+  zoomImageTransformAroundPoint,
+} from '../../../lib/imageTransform'
 
 const ZOOM_BASE = 1.2
-const MIN_SCALE = 0.05
-const MAX_SCALE = 8.0
 const CLICK_SUPPRESSION_DRAG_DISTANCE_PX = 3
-
-type PointerPoint = {
-  x: number
-  y: number
-}
 
 type PanState = {
   pointerId: number
   startX: number
   startY: number
-  startTx: number
-  startTy: number
+  startTransform: ImageTransform
   moved: boolean
 }
 
 type PinchState = {
   pointerIds: [number, number]
   startDistance: number
-  startCenter: PointerPoint
-  startScale: number
-  startTx: number
-  startTy: number
+  startCenter: Point
+  startTransform: ImageTransform
 }
 
-function clampScale(value: number): number {
-  return Number(Math.min(MAX_SCALE, Math.max(MIN_SCALE, value)).toFixed(4))
-}
-
-export function didViewerPanMove(start: PointerPoint, next: PointerPoint): boolean {
+export function didViewerPanMove(start: Point, next: Point): boolean {
   return Math.hypot(next.x - start.x, next.y - start.y) >= CLICK_SUPPRESSION_DRAG_DISTANCE_PX
 }
 
@@ -43,11 +41,11 @@ export function shouldSuppressViewerClickAfterInteraction(params: {
   return params.panMoved || params.pinchActive
 }
 
-function getDistance(a: PointerPoint, b: PointerPoint): number {
+function getDistance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
-function getCenter(a: PointerPoint, b: PointerPoint): PointerPoint {
+function getCenter(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
 }
 
@@ -67,11 +65,30 @@ function tryReleasePointerCapture(target: HTMLDivElement, pointerId: number): vo
   }
 }
 
+function readElementSize(element: HTMLElement | null): Size | null {
+  if (!element) return null
+  const rect = element.getBoundingClientRect()
+  if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) {
+    return null
+  }
+  return { width: rect.width, height: rect.height }
+}
+
+function readImageSize(image: HTMLImageElement | null): Size | null {
+  if (!image || !image.naturalWidth || !image.naturalHeight) return null
+  return { width: image.naturalWidth, height: image.naturalHeight }
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement
+    && target.closest('button, a, input, select, textarea, [role="button"]') !== null
+}
+
 export function useZoomPan() {
-  const [scale, setScale] = useState<number>(1)
-  const [tx, setTx] = useState<number>(0)
-  const [ty, setTy] = useState<number>(0)
-  const [base, setBase] = useState<number>(1)
+  const [scale, setScaleState] = useState<number>(1)
+  const [tx, setTxState] = useState<number>(0)
+  const [ty, setTyState] = useState<number>(0)
+  const [base, setBaseState] = useState<number>(1)
   const [ready, setReady] = useState<boolean>(false)
   const [dragging, setDragging] = useState<boolean>(false)
   const [visible, setVisible] = useState<boolean>(false)
@@ -80,38 +97,64 @@ export function useZoomPan() {
   const scaleRef = useRef(1)
   const txRef = useRef(0)
   const tyRef = useRef(0)
-  const pointersRef = useRef<Map<number, PointerPoint>>(new Map())
+  const baseRef = useRef(1)
+  const boundsRef = useRef<Size | null>(null)
+  const centerRef = useRef<Point>({ x: 0.5, y: 0.5 })
+  const pointersRef = useRef<Map<number, Point>>(new Map())
   const panRef = useRef<PanState | null>(null)
   const pinchRef = useRef<PinchState | null>(null)
   const suppressClickRef = useRef(false)
 
-  const setOffsets = (nextTx: number, nextTy: number) => {
-    txRef.current = nextTx
-    tyRef.current = nextTy
-    setTx(nextTx)
-    setTy(nextTy)
-  }
+  const currentTransform = useCallback((): ImageTransform => ({
+    base: baseRef.current,
+    scale: scaleRef.current,
+    tx: txRef.current,
+    ty: tyRef.current,
+  }), [])
 
-  const setScaleValue = (value: number) => {
-    const next = clampScale(value)
+  const applyTransform = useCallback((next: ImageTransform) => {
+    baseRef.current = next.base
+    scaleRef.current = next.scale
+    txRef.current = next.tx
+    tyRef.current = next.ty
+    setBaseState(next.base)
+    setScaleState(next.scale)
+    setTxState(next.tx)
+    setTyState(next.ty)
+  }, [])
+
+  const setScale: Dispatch<SetStateAction<number>> = useCallback((value) => {
+    const raw = typeof value === 'function' ? value(scaleRef.current) : value
+    const next = clampImageScale(raw)
     scaleRef.current = next
-    setScale(next)
-  }
+    setScaleState(next)
+  }, [])
 
-  const startPanFromPointer = (pointerId: number, point: PointerPoint) => {
+  const setTx: Dispatch<SetStateAction<number>> = useCallback((value) => {
+    const next = typeof value === 'function' ? value(txRef.current) : value
+    txRef.current = next
+    setTxState(next)
+  }, [])
+
+  const setTy: Dispatch<SetStateAction<number>> = useCallback((value) => {
+    const next = typeof value === 'function' ? value(tyRef.current) : value
+    tyRef.current = next
+    setTyState(next)
+  }, [])
+
+  const startPanFromPointer = useCallback((pointerId: number, point: Point) => {
     panRef.current = {
       pointerId,
       startX: point.x,
       startY: point.y,
-      startTx: txRef.current,
-      startTy: tyRef.current,
+      startTransform: currentTransform(),
       moved: false,
     }
     pinchRef.current = null
     setDragging(true)
-  }
+  }, [currentTransform])
 
-  const startPinchFromPointers = () => {
+  const startPinchFromPointers = useCallback(() => {
     const entries = Array.from(pointersRef.current.entries())
     if (entries.length < 2) return
     const [first, second] = entries
@@ -123,42 +166,50 @@ export function useZoomPan() {
       pointerIds: [idA, idB],
       startDistance,
       startCenter: getCenter(pointA, pointB),
-      startScale: scaleRef.current,
-      startTx: txRef.current,
-      startTy: tyRef.current,
+      startTransform: currentTransform(),
     }
     panRef.current = null
     setDragging(true)
-  }
+  }, [currentTransform])
 
-  const fitAndCenter = () => {
-    const cont = containerRef.current
-    const im = imgRef.current
-    if (!cont || !im || !im.naturalWidth || !im.naturalHeight) return
-    const r = cont.getBoundingClientRect()
-    const bw = r.width / im.naturalWidth
-    const bh = r.height / im.naturalHeight
-    const b = Math.min(1, Math.min(bw, bh))
-    setBase(b)
-    const imgW = im.naturalWidth * b
-    const imgH = im.naturalHeight * b
-    setOffsets((r.width - imgW) / 2, (r.height - imgH) / 2)
-    setScaleValue(1)
-  }
+  const resetView = useCallback(() => {
+    const container = readElementSize(containerRef.current)
+    const image = readImageSize(imgRef.current)
+    if (!container || !image) return
+    boundsRef.current = container
+    centerRef.current = { x: 0.5, y: 0.5 }
+    applyTransform(fitImageToContainer(container, image))
+  }, [applyTransform])
+
+  const preserveCenterAfterResize = useCallback(() => {
+    const container = readElementSize(containerRef.current)
+    const image = readImageSize(imgRef.current)
+    if (!container || !image) return
+    boundsRef.current = container
+    applyTransform(restoreImageTransformForCenter({
+      container,
+      image,
+      center: centerRef.current,
+      scale: scaleRef.current,
+    }))
+  }, [applyTransform])
 
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => { try { requestAnimationFrame(() => fitAndCenter()) } catch { fitAndCenter() } })
+    const ro = new ResizeObserver(() => {
+      try { requestAnimationFrame(() => preserveCenterAfterResize()) } catch { preserveCenterAfterResize() }
+    })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [preserveCenterAfterResize])
 
   useEffect(() => {
     scaleRef.current = scale
     txRef.current = tx
     tyRef.current = ty
-  }, [scale, tx, ty])
+    baseRef.current = base
+  }, [scale, tx, ty, base])
 
   useEffect(() => {
     return () => {
@@ -169,25 +220,32 @@ export function useZoomPan() {
     }
   }, [])
 
-  const handleWheel = (e: React.WheelEvent) => {
+  const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
     const dir = e.deltaY > 0 ? -1 : 1
     const cont = containerRef.current
-    if (!cont) return
+    const image = readImageSize(imgRef.current)
+    const container = readElementSize(cont)
+    if (!cont || !container || !image) return
     const crect = cont.getBoundingClientRect()
     const cx = e.clientX - crect.left
     const cy = e.clientY - crect.top
     const currentScale = scaleRef.current
-    const nextScale = clampScale(currentScale * Math.pow(ZOOM_BASE, dir))
+    const nextScale = clampImageScale(currentScale * Math.pow(ZOOM_BASE, dir))
     if (nextScale === currentScale) return
-    const ratio = nextScale / currentScale
-    const nextTx = cx - ratio * (cx - txRef.current)
-    const nextTy = cy - ratio * (cy - tyRef.current)
-    setScaleValue(nextScale)
-    setOffsets(nextTx, nextTy)
-  }
+    const next = zoomImageTransformAroundPoint({
+      container,
+      image,
+      transform: currentTransform(),
+      point: { x: cx, y: cy },
+      nextScale,
+    })
+    centerRef.current = captureNormalizedImageCenter({ container, image, transform: next })
+    applyTransform(next)
+    boundsRef.current = container
+  }, [applyTransform, currentTransform])
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const pointerType = e.pointerType ?? 'mouse'
     if (pointerType === 'mouse' && e.button !== 0) return
     const activePointers = pointersRef.current
@@ -195,7 +253,8 @@ export function useZoomPan() {
     if (!image) return
     if (activePointers.size === 0) {
       const target = e.target as Node
-      if (target !== image) return
+      if (isInteractiveTarget(target)) return
+      if (target !== image && scaleRef.current <= 1) return
     }
     const container = e.currentTarget
     const rect = container.getBoundingClientRect()
@@ -209,12 +268,15 @@ export function useZoomPan() {
       return
     }
     startPanFromPointer(e.pointerId, { x: e.clientX, y: e.clientY })
-  }
+  }, [startPanFromPointer, startPinchFromPointers])
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const pointers = pointersRef.current
     if (!pointers.has(e.pointerId)) return
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    const container = readElementSize(containerRef.current)
+    const image = readImageSize(imgRef.current)
+    if (!container || !image) return
 
     const pinch = pinchRef.current
     if (pinch) {
@@ -224,12 +286,22 @@ export function useZoomPan() {
         const distance = getDistance(pointA, pointB)
         if (distance > 2) {
           const center = getCenter(pointA, pointB)
-          const nextScale = clampScale(pinch.startScale * (distance / pinch.startDistance))
-          const ratio = nextScale / pinch.startScale
-          const nextTx = center.x - ratio * (pinch.startCenter.x - pinch.startTx)
-          const nextTy = center.y - ratio * (pinch.startCenter.y - pinch.startTy)
-          setScaleValue(nextScale)
-          setOffsets(nextTx, nextTy)
+          const nextScale = clampImageScale(pinch.startTransform.scale * (distance / pinch.startDistance))
+          const zoomed = zoomImageTransformAroundPoint({
+            container,
+            image,
+            transform: pinch.startTransform,
+            point: pinch.startCenter,
+            nextScale,
+          })
+          const next = clampImageTransform(container, image, {
+            ...zoomed,
+            tx: zoomed.tx + (center.x - pinch.startCenter.x),
+            ty: zoomed.ty + (center.y - pinch.startCenter.y),
+          })
+          centerRef.current = captureNormalizedImageCenter({ container, image, transform: next })
+          applyTransform(next)
+          boundsRef.current = container
         }
       }
       return
@@ -245,10 +317,19 @@ export function useZoomPan() {
         { x: e.clientX, y: e.clientY },
       )
     }
-    setOffsets(pan.startTx + dx, pan.startTy + dy)
-  }
+    const next = panImageTransform({
+      container,
+      image,
+      transform: pan.startTransform,
+      dx,
+      dy,
+    })
+    centerRef.current = captureNormalizedImageCenter({ container, image, transform: next })
+    applyTransform(next)
+    boundsRef.current = container
+  }, [applyTransform])
 
-  const endPointer = (pointerId: number, container: HTMLDivElement) => {
+  const endPointer = useCallback((pointerId: number, container: HTMLDivElement) => {
     const pointers = pointersRef.current
     if (!pointers.has(pointerId)) return
     const pan = panRef.current
@@ -271,30 +352,30 @@ export function useZoomPan() {
       startPinchFromPointers()
       return
     }
-    const [nextPointerId, point] = pointers.entries().next().value as [number, PointerPoint]
+    const [nextPointerId, point] = pointers.entries().next().value as [number, Point]
     startPanFromPointer(nextPointerId, point)
-  }
+  }, [startPanFromPointer, startPinchFromPointers])
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     endPointer(e.pointerId, e.currentTarget)
-  }
+  }, [endPointer])
 
-  const handlePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     endPointer(e.pointerId, e.currentTarget)
-  }
+  }, [endPointer])
 
-  const consumeClickSuppression = () => {
+  const consumeClickSuppression = useCallback(() => {
     if (!suppressClickRef.current) return false
     suppressClickRef.current = false
     return true
-  }
+  }, [])
 
   return {
     // state
-    scale, setScale, tx, setTx, ty, setTy, base, setBase, ready, setReady, dragging, setDragging, visible, setVisible,
+    scale, setScale, tx, setTx, ty, setTy, base, ready, setReady, dragging, setDragging, visible, setVisible,
     // refs
     containerRef, imgRef,
     // helpers/handlers
-    fitAndCenter, handleWheel, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, consumeClickSuppression,
+    resetView, handleWheel, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, consumeClickSuppression,
   }
 }

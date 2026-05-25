@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback } from 'react'
 import { api } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
+import { useModalFocusTrap } from '../../shared/hooks/useModalFocusTrap'
 import { useZoomPan } from './hooks/useZoomPan'
 
 interface ViewerProps {
@@ -32,7 +33,6 @@ export default function Viewer({
     ty,
     setTy,
     base,
-    setBase,
     ready,
     setReady,
     dragging,
@@ -40,7 +40,7 @@ export default function Viewer({
     setVisible,
     containerRef,
     imgRef,
-    fitAndCenter,
+    resetView,
     handleWheel,
     handlePointerDown,
     handlePointerMove,
@@ -63,13 +63,13 @@ export default function Viewer({
     if (event.target !== event.currentTarget) return
     closeViewer()
   }, [closeViewer])
+  const handleDialogKeyDown = useModalFocusTrap(containerRef, { onEscape: closeViewer })
 
   // Load image and thumbnail when path changes
   useEffect(() => {
-    // Fade in and focus
+    // Fade in after the overlay mounts.
     requestAnimationFrame(() => {
       setVisible(true)
-      containerRef.current?.focus()
     })
   }, [path])
 
@@ -77,10 +77,7 @@ export default function Viewer({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const normalized = e.key.toLowerCase()
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        closeViewer()
-      } else if ((e.key === 'ArrowRight' || normalized === 'd') && onNavigate) {
+      if ((e.key === 'ArrowRight' || normalized === 'd') && onNavigate) {
         e.preventDefault()
         onNavigate(1)
       } else if ((e.key === 'ArrowLeft' || normalized === 'a') && onNavigate) {
@@ -88,17 +85,15 @@ export default function Viewer({
         onNavigate(-1)
       }
     }
-    
+
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [closeViewer, onNavigate])
+  }, [onNavigate])
 
   // Reset ready state when URL changes
   useEffect(() => {
     setReady(false)
   }, [url])
-
-  // resize observer moved into hook
 
   useEffect(() => { if (onZoomChange) onZoomChange((base * scale) * 100) }, [base, scale, onZoomChange])
 
@@ -135,7 +130,7 @@ export default function Viewer({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
-      onKeyDown={(e)=>{ if (e.key === 'Tab') { e.preventDefault() } }}
+      onKeyDown={handleDialogKeyDown}
     >
       <button
         aria-label="Close"
@@ -167,7 +162,7 @@ export default function Viewer({
           className="max-w-none max-h-none object-contain transition-opacity duration-[110ms] ease-out will-change-transform select-none"
           draggable={false}
           onDragStart={(e)=>{ e.preventDefault() }}
-          onLoad={(ev)=>{ fitAndCenter(); setScale(1); try { requestAnimationFrame(()=> setReady(true)) } catch { setReady(true) } }}
+          onLoad={()=>{ resetView(); try { requestAnimationFrame(()=> setReady(true)) } catch { setReady(true) } }}
           onClick={(e)=> e.stopPropagation()}
           style={{ transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`, transformOrigin: `0 0`, opacity: ready ? 0.99 : 0, WebkitUserDrag: 'none' } as React.CSSProperties}
         />

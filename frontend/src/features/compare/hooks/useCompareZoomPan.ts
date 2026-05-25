@@ -1,44 +1,40 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  type ImageTransform,
+  type Point,
+  type Size,
+  captureNormalizedImageCenter,
+  clampImageScale,
+  clampImageTransform,
+  fitImageToContainer,
+  panImageTransform,
+  restoreImageTransformForCenter,
+  zoomImageTransformAroundPoint,
+} from '../../../lib/imageTransform'
 
 const ZOOM_BASE = 1.2
-const MIN_SCALE = 0.05
-const MAX_SCALE = 8.0
-
-type PointerPoint = {
-  x: number
-  y: number
-}
 
 type PanState = {
   pointerId: number
   startX: number
   startY: number
-  startTxA: number
-  startTyA: number
-  startTxB: number
-  startTyB: number
+  startA: ImageTransform
+  startB: ImageTransform
 }
 
 type PinchState = {
   pointerIds: [number, number]
   startDistance: number
-  startCenter: PointerPoint
-  startScale: number
-  startTxA: number
-  startTyA: number
-  startTxB: number
-  startTyB: number
+  startCenter: Point
+  startA: ImageTransform
+  startB: ImageTransform
 }
 
-function clampScale(value: number): number {
-  return Number(Math.min(MAX_SCALE, Math.max(MIN_SCALE, value)).toFixed(4))
-}
-
-function getDistance(a: PointerPoint, b: PointerPoint): number {
+function getDistance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
-function getCenter(a: PointerPoint, b: PointerPoint): PointerPoint {
+function getCenter(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
 }
 
@@ -58,6 +54,20 @@ function tryReleasePointerCapture(target: HTMLDivElement, pointerId: number): vo
   }
 }
 
+function readElementSize(element: HTMLElement | null): Size | null {
+  if (!element) return null
+  const rect = element.getBoundingClientRect()
+  if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) {
+    return null
+  }
+  return { width: rect.width, height: rect.height }
+}
+
+function readImageSize(image: HTMLImageElement | null): Size | null {
+  if (!image || !image.naturalWidth || !image.naturalHeight) return null
+  return { width: image.naturalWidth, height: image.naturalHeight }
+}
+
 export function useCompareZoomPan() {
   const [scale, setScale] = useState<number>(1)
   const [txA, setTxA] = useState<number>(0)
@@ -75,45 +85,66 @@ export function useCompareZoomPan() {
   const tyARef = useRef(0)
   const txBRef = useRef(0)
   const tyBRef = useRef(0)
-  const pointersRef = useRef<Map<number, PointerPoint>>(new Map())
+  const baseARef = useRef(1)
+  const baseBRef = useRef(1)
+  const boundsRef = useRef<Size | null>(null)
+  const centerARef = useRef<Point>({ x: 0.5, y: 0.5 })
+  const centerBRef = useRef<Point>({ x: 0.5, y: 0.5 })
+  const pointersRef = useRef<Map<number, Point>>(new Map())
   const panRef = useRef<PanState | null>(null)
   const pinchRef = useRef<PinchState | null>(null)
 
-  const setOffsets = useCallback((next: {
-    txA: number
-    tyA: number
-    txB: number
-    tyB: number
+  const currentA = useCallback((): ImageTransform => ({
+    base: baseARef.current,
+    scale: scaleRef.current,
+    tx: txARef.current,
+    ty: tyARef.current,
+  }), [])
+
+  const currentB = useCallback((): ImageTransform => ({
+    base: baseBRef.current,
+    scale: scaleRef.current,
+    tx: txBRef.current,
+    ty: tyBRef.current,
+  }), [])
+
+  const applyTransforms = useCallback((next: {
+    a?: ImageTransform
+    b?: ImageTransform
+    scale?: number
   }) => {
-    txARef.current = next.txA
-    tyARef.current = next.tyA
-    txBRef.current = next.txB
-    tyBRef.current = next.tyB
-    setTxA(next.txA)
-    setTyA(next.tyA)
-    setTxB(next.txB)
-    setTyB(next.tyB)
+    const nextScale = clampImageScale(next.scale ?? next.a?.scale ?? next.b?.scale ?? scaleRef.current)
+    scaleRef.current = nextScale
+    setScale(nextScale)
+    if (next.a) {
+      baseARef.current = next.a.base
+      txARef.current = next.a.tx
+      tyARef.current = next.a.ty
+      setBaseA(next.a.base)
+      setTxA(next.a.tx)
+      setTyA(next.a.ty)
+    }
+    if (next.b) {
+      baseBRef.current = next.b.base
+      txBRef.current = next.b.tx
+      tyBRef.current = next.b.ty
+      setBaseB(next.b.base)
+      setTxB(next.b.tx)
+      setTyB(next.b.ty)
+    }
   }, [])
 
-  const setScaleValue = useCallback((value: number) => {
-    const next = clampScale(value)
-    scaleRef.current = next
-    setScale(next)
-  }, [])
-
-  const startPanFromPointer = useCallback((pointerId: number, point: PointerPoint) => {
+  const startPanFromPointer = useCallback((pointerId: number, point: Point) => {
     panRef.current = {
       pointerId,
       startX: point.x,
       startY: point.y,
-      startTxA: txARef.current,
-      startTyA: tyARef.current,
-      startTxB: txBRef.current,
-      startTyB: tyBRef.current,
+      startA: currentA(),
+      startB: currentB(),
     }
     pinchRef.current = null
     setDragging(true)
-  }, [])
+  }, [currentA, currentB])
 
   const startPinchFromPointers = useCallback(() => {
     const entries = Array.from(pointersRef.current.entries())
@@ -127,15 +158,12 @@ export function useCompareZoomPan() {
       pointerIds: [idA, idB],
       startDistance: distance,
       startCenter: getCenter(pointA, pointB),
-      startScale: scaleRef.current,
-      startTxA: txARef.current,
-      startTyA: tyARef.current,
-      startTxB: txBRef.current,
-      startTyB: tyBRef.current,
+      startA: currentA(),
+      startB: currentB(),
     }
     panRef.current = null
     setDragging(true)
-  }, [])
+  }, [currentA, currentB])
 
   const endPointer = useCallback((pointerId: number, target: HTMLDivElement) => {
     const pointers = pointersRef.current
@@ -152,62 +180,84 @@ export function useCompareZoomPan() {
       startPinchFromPointers()
       return
     }
-    const [nextPointerId, point] = pointers.entries().next().value as [number, PointerPoint]
+    const [nextPointerId, point] = pointers.entries().next().value as [number, Point]
     startPanFromPointer(nextPointerId, point)
   }, [startPanFromPointer, startPinchFromPointers])
 
   const fitAndCenter = useCallback(() => {
-    const cont = containerRef.current
-    if (!cont) return
-    const r = cont.getBoundingClientRect()
+    const container = readElementSize(containerRef.current)
+    if (!container) return
+    boundsRef.current = container
+    centerARef.current = { x: 0.5, y: 0.5 }
+    centerBRef.current = { x: 0.5, y: 0.5 }
+    const imageA = readImageSize(imgARef.current)
+    const imageB = readImageSize(imgBRef.current)
+    applyTransforms({
+      a: imageA ? restoreImageTransformForCenter({
+        container,
+        image: imageA,
+        center: { x: 0.5, y: 0.5 },
+        scale: scaleRef.current,
+      }) : undefined,
+      b: imageB ? restoreImageTransformForCenter({
+        container,
+        image: imageB,
+        center: { x: 0.5, y: 0.5 },
+        scale: scaleRef.current,
+      }) : undefined,
+    })
+  }, [applyTransforms])
 
-    const fitImage = (img: HTMLImageElement | null) => {
-      if (!img || !img.naturalWidth || !img.naturalHeight) return
-      const bw = r.width / img.naturalWidth
-      const bh = r.height / img.naturalHeight
-      const base = Math.min(1, Math.min(bw, bh))
-      const imgW = img.naturalWidth * base
-      const imgH = img.naturalHeight * base
-      return {
-        base,
-        tx: (r.width - imgW) / 2,
-        ty: (r.height - imgH) / 2,
-      }
-    }
-
-    const fittedA = fitImage(imgARef.current)
-    if (fittedA) {
-      setBaseA(fittedA.base)
-      txARef.current = fittedA.tx
-      tyARef.current = fittedA.ty
-      setTxA(fittedA.tx)
-      setTyA(fittedA.ty)
-    }
-
-    const fittedB = fitImage(imgBRef.current)
-    if (fittedB) {
-      setBaseB(fittedB.base)
-      txBRef.current = fittedB.tx
-      tyBRef.current = fittedB.ty
-      setTxB(fittedB.tx)
-      setTyB(fittedB.ty)
-    }
-  }, [])
+  const preserveCenterAfterResize = useCallback(() => {
+    const container = readElementSize(containerRef.current)
+    if (!container) return
+    const imageA = readImageSize(imgARef.current)
+    const imageB = readImageSize(imgBRef.current)
+    boundsRef.current = container
+    applyTransforms({
+      a: imageA ? restoreImageTransformForCenter({
+        container,
+        image: imageA,
+        center: centerARef.current,
+        scale: scaleRef.current,
+      }) : undefined,
+      b: imageB ? restoreImageTransformForCenter({
+        container,
+        image: imageB,
+        center: centerBRef.current,
+        scale: scaleRef.current,
+      }) : undefined,
+    })
+  }, [applyTransforms])
 
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
     const ro = new ResizeObserver(() => {
-      try { requestAnimationFrame(() => fitAndCenter()) } catch { fitAndCenter() }
+      try { requestAnimationFrame(() => preserveCenterAfterResize()) } catch { preserveCenterAfterResize() }
     })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [fitAndCenter])
+  }, [preserveCenterAfterResize])
 
   const resetView = useCallback(() => {
-    setScaleValue(1)
-    fitAndCenter()
-  }, [fitAndCenter, setScaleValue])
+    const container = readElementSize(containerRef.current)
+    if (!container) {
+      scaleRef.current = 1
+      setScale(1)
+      return
+    }
+    boundsRef.current = container
+    centerARef.current = { x: 0.5, y: 0.5 }
+    centerBRef.current = { x: 0.5, y: 0.5 }
+    const imageA = readImageSize(imgARef.current)
+    const imageB = readImageSize(imgBRef.current)
+    applyTransforms({
+      scale: 1,
+      a: imageA ? fitImageToContainer(container, imageA) : undefined,
+      b: imageB ? fitImageToContainer(container, imageB) : undefined,
+    })
+  }, [applyTransforms])
 
   useEffect(() => {
     scaleRef.current = scale
@@ -215,7 +265,9 @@ export function useCompareZoomPan() {
     tyARef.current = tyA
     txBRef.current = txB
     tyBRef.current = tyB
-  }, [scale, txA, tyA, txB, tyB])
+    baseARef.current = baseA
+    baseBRef.current = baseB
+  }, [scale, txA, tyA, txB, tyB, baseA, baseB])
 
   useEffect(() => {
     return () => {
@@ -229,22 +281,38 @@ export function useCompareZoomPan() {
     e.preventDefault()
     const dir = e.deltaY > 0 ? -1 : 1
     const cont = containerRef.current
-    if (!cont) return
+    const container = readElementSize(cont)
+    const imageA = readImageSize(imgARef.current)
+    const imageB = readImageSize(imgBRef.current)
+    if (!cont || !container || !imageA || !imageB) return
     const crect = cont.getBoundingClientRect()
     const cx = e.clientX - crect.left
     const cy = e.clientY - crect.top
     const currentScale = scaleRef.current
-    const nextScale = clampScale(currentScale * Math.pow(ZOOM_BASE, dir))
+    const nextScale = clampImageScale(currentScale * Math.pow(ZOOM_BASE, dir))
     if (nextScale === currentScale) return
-    const ratio = nextScale / currentScale
-    setScaleValue(nextScale)
-    setOffsets({
-      txA: cx - ratio * (cx - txARef.current),
-      tyA: cy - ratio * (cy - tyARef.current),
-      txB: cx - ratio * (cx - txBRef.current),
-      tyB: cy - ratio * (cy - tyBRef.current),
+    const nextA = zoomImageTransformAroundPoint({
+      container,
+      image: imageA,
+      transform: currentA(),
+      point: { x: cx, y: cy },
+      nextScale,
     })
-  }, [setOffsets, setScaleValue])
+    const nextB = zoomImageTransformAroundPoint({
+      container,
+      image: imageB,
+      transform: currentB(),
+      point: { x: cx, y: cy },
+      nextScale,
+    })
+    centerARef.current = captureNormalizedImageCenter({ container, image: imageA, transform: nextA })
+    centerBRef.current = captureNormalizedImageCenter({ container, image: imageB, transform: nextB })
+    applyTransforms({
+      a: nextA,
+      b: nextB,
+    })
+    boundsRef.current = container
+  }, [applyTransforms, currentA, currentB])
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const pointerType = e.pointerType ?? 'mouse'
@@ -264,6 +332,10 @@ export function useCompareZoomPan() {
     const pointers = pointersRef.current
     if (!pointers.has(e.pointerId)) return
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    const container = readElementSize(containerRef.current)
+    const imageA = readImageSize(imgARef.current)
+    const imageB = readImageSize(imgBRef.current)
+    if (!container || !imageA || !imageB) return
 
     const pinch = pinchRef.current
     if (pinch) {
@@ -273,15 +345,35 @@ export function useCompareZoomPan() {
         const distance = getDistance(pointA, pointB)
         if (distance > 2) {
           const center = getCenter(pointA, pointB)
-          const nextScale = clampScale(pinch.startScale * (distance / pinch.startDistance))
-          const ratio = nextScale / pinch.startScale
-          setScaleValue(nextScale)
-          setOffsets({
-            txA: center.x - ratio * (pinch.startCenter.x - pinch.startTxA),
-            tyA: center.y - ratio * (pinch.startCenter.y - pinch.startTyA),
-            txB: center.x - ratio * (pinch.startCenter.x - pinch.startTxB),
-            tyB: center.y - ratio * (pinch.startCenter.y - pinch.startTyB),
+          const nextScale = clampImageScale(pinch.startA.scale * (distance / pinch.startDistance))
+          const zoomedA = zoomImageTransformAroundPoint({
+            container,
+            image: imageA,
+            transform: pinch.startA,
+            point: pinch.startCenter,
+            nextScale,
           })
+          const zoomedB = zoomImageTransformAroundPoint({
+            container,
+            image: imageB,
+            transform: pinch.startB,
+            point: pinch.startCenter,
+            nextScale,
+          })
+          const nextA = clampImageTransform(container, imageA, {
+            ...zoomedA,
+            tx: zoomedA.tx + (center.x - pinch.startCenter.x),
+            ty: zoomedA.ty + (center.y - pinch.startCenter.y),
+          })
+          const nextB = clampImageTransform(container, imageB, {
+            ...zoomedB,
+            tx: zoomedB.tx + (center.x - pinch.startCenter.x),
+            ty: zoomedB.ty + (center.y - pinch.startCenter.y),
+          })
+          centerARef.current = captureNormalizedImageCenter({ container, image: imageA, transform: nextA })
+          centerBRef.current = captureNormalizedImageCenter({ container, image: imageB, transform: nextB })
+          applyTransforms({ a: nextA, b: nextB })
+          boundsRef.current = container
         }
       }
       return
@@ -291,13 +383,25 @@ export function useCompareZoomPan() {
     if (!pan || pan.pointerId !== e.pointerId) return
     const dx = e.clientX - pan.startX
     const dy = e.clientY - pan.startY
-    setOffsets({
-      txA: pan.startTxA + dx,
-      tyA: pan.startTyA + dy,
-      txB: pan.startTxB + dx,
-      tyB: pan.startTyB + dy,
+    const nextA = panImageTransform({
+      container,
+      image: imageA,
+      transform: pan.startA,
+      dx,
+      dy,
     })
-  }, [setOffsets, setScaleValue])
+    const nextB = panImageTransform({
+      container,
+      image: imageB,
+      transform: pan.startB,
+      dx,
+      dy,
+    })
+    centerARef.current = captureNormalizedImageCenter({ container, image: imageA, transform: nextA })
+    centerBRef.current = captureNormalizedImageCenter({ container, image: imageB, transform: nextB })
+    applyTransforms({ a: nextA, b: nextB })
+    boundsRef.current = container
+  }, [applyTransforms])
 
   const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     endPointer(e.pointerId, e.currentTarget)

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
+import { useModalFocusTrap } from '../../shared/hooks/useModalFocusTrap'
 import { isInputElement } from '../../lib/keyboard'
 import type { BrowseItemPayload } from '../../lib/types'
 import { useCompareZoomPan } from './hooks/useCompareZoomPan'
@@ -55,10 +56,7 @@ export default function CompareViewer({
   const bPath = bItem?.path ?? null
   const aLabel = aItem?.name ?? aPath ?? 'Select an image'
   const bLabel = bItem?.name ?? bPath ?? 'Select another image'
-
-  useEffect(() => {
-    requestAnimationFrame(() => overlayRef.current?.focus())
-  }, [aPath, bPath])
+  const handleDialogKeyDown = useModalFocusTrap(overlayRef, { onEscape: onClose })
 
   useEffect(() => {
     resetView()
@@ -70,11 +68,6 @@ export default function CompareViewer({
     const onKey = (e: KeyboardEvent) => {
       if (isInputElement(e.target)) return
       const normalized = e.key.toLowerCase()
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        onClose()
-        return
-      }
       if ((e.key === 'ArrowRight' || normalized === 'd') && canNext) {
         e.preventDefault()
         onNavigate(1)
@@ -88,7 +81,7 @@ export default function CompareViewer({
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, onNavigate, canPrev, canNext])
+  }, [onNavigate, canPrev, canNext])
 
   const aUrl = useBlobUrl(aPath ? () => api.getFile(aPath) : null, [aPath])
   const bUrl = useBlobUrl(bPath ? () => api.getFile(bPath) : null, [bPath])
@@ -138,7 +131,7 @@ export default function CompareViewer({
       aria-label="Compare images"
       tabIndex={-1}
       className="toolbar-offset absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] bg-panel z-viewer flex flex-col overflow-hidden focus:outline-none"
-      onKeyDown={(e)=>{ if (e.key === 'Tab') e.preventDefault() }}
+      onKeyDown={handleDialogKeyDown}
     >
       <div className="compare-header flex items-center gap-3 px-3 py-2">
         <div className="text-[11px] uppercase tracking-wide text-muted">Compare</div>

@@ -159,3 +159,41 @@ Cleanup and review:
 Blockers: none.
 
 Next step: Sprint 4 begins with OCR-9 shared transform math, then OCR-10 viewer/compare hook migration, OCR-11 modal focus primitive, and OCR-12 browse `Ctrl+wheel` ownership.
+
+## Iteration 5 - 2026-05-25T06:00:27Z
+
+Completed task IDs: OCR-9, OCR-10, OCR-11, OCR-12
+
+Files changed:
+- `frontend/src/lib/imageTransform.ts`
+- `frontend/src/lib/__tests__/imageTransform.test.ts`
+- `frontend/src/shared/hooks/useModalFocusTrap.ts`
+- `frontend/src/shared/hooks/__tests__/useModalFocusTrap.test.ts`
+- `frontend/src/features/viewer/hooks/useZoomPan.ts`
+- `frontend/src/features/viewer/Viewer.tsx`
+- `frontend/src/features/compare/hooks/useCompareZoomPan.ts`
+- `frontend/src/features/compare/CompareViewer.tsx`
+- `frontend/src/app/AppShell.tsx`
+- `scripts/overall_cleanup_browser.py`
+- `src/lenslet/frontend/index.html`
+- `src/lenslet/frontend/assets/*` (rebuilt Vite bundle filenames changed)
+- `docs/20260525_overall_cleanup_execution_plan.md`
+- `docs/ralph/20260525_overall_cleanup_execution_plan/progress.txt`
+
+Validations run:
+- `cd frontend && npm run test -- src/shared/hooks/__tests__/useModalFocusTrap.test.ts src/lib/__tests__/imageTransform.test.ts src/features/viewer/hooks/__tests__/useZoomPan.test.ts` - passed, 11 tests.
+- `python -m ruff check scripts/overall_cleanup_browser.py && python -m py_compile scripts/overall_cleanup_browser.py` - passed.
+- `cd frontend && npm run build` - passed; existing >500 kB main chunk warning remains for Sprint 5.
+- Packaged frontend assets synced from `frontend/dist/` into `src/lenslet/frontend/`, and `diff -qr frontend/dist src/lenslet/frontend` passed.
+- `python scripts/overall_cleanup_browser.py --output-json /tmp/lenslet-overall-cleanup-sprint4.json` - passed; viewer and compare preserved off-center inspected regions on pannable axes after resize, browse `Ctrl+wheel` left thumbnail size unchanged while the explicit slider still changed it, viewer/compare wheel zoom worked, viewer focus stayed on the visible Close button and restored to the invoking gridcell, compare focus stayed contained with Escape close/focus restore, and comparison export still succeeded.
+- `cd frontend && npm run test` - passed, 75 files / 349 tests.
+- `python scripts/lint_repo.py` - passed; existing warn-only file-size notes remain, including `scripts/overall_cleanup_browser.py` over the 1200-line warning threshold.
+- `git diff --check` - passed.
+
+Cleanup and review:
+- Code-simplifier pass applied only Tier 1 cleanup in the Sprint 4 diff: removed stale viewer hook/comment surface, inlined compare reset plumbing, and extracted a small active-element snapshot helper.
+- Fresh code-review pass found two actionable gaps: hidden controls were included in focus trapping, and browser evidence did not sufficiently exercise off-center resize preservation. Both fixes landed; review confirmation reported no remaining actionable findings.
+
+Blockers: none.
+
+Next step: Sprint 5 begins with OCR-13 measured bundle splitting, followed by OCR-14 final cleanup, review, asset sync, and handoff.

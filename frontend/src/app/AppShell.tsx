@@ -1068,21 +1068,6 @@ export default function AppShell({
     setMobileSelectMode(false)
   }, [mobileSelectEnabled, mobileSelectMode])
 
-  // Ctrl + scroll adjusts thumbnail size (override browser zoom)
-  useEffect(() => {
-    const shell = gridShellRef.current
-    if (!shell) return
-    const clamp = (v: number) => Math.min(500, Math.max(80, v))
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return
-      if (viewer || compareOpen) return
-      e.preventDefault()
-      setGridItemSize((prev) => clamp(prev + (e.deltaY < 0 ? 20 : -20)))
-    }
-    shell.addEventListener('wheel', onWheel, { passive: false })
-    return () => shell.removeEventListener('wheel', onWheel)
-  }, [viewer, compareOpen])
-
   // Pinch to resize thumbnails on touch devices
   useEffect(() => {
     if (viewer || compareOpen) return

@@ -72,7 +72,7 @@ def build_fixture_dataset(root: Path) -> None:
         (400, 100),
         (100, 800),
         (160, 320),
-        (120, 90),
+        (1600, 1200),
     )
     for idx, (color, size) in enumerate(zip(colors, sizes)):
         path = root / f"cleanup_fixture_{idx:02d}.png"
@@ -429,6 +429,182 @@ def assert_surface_inside_visible_bounds(snapshot: dict[str, Any]) -> None:
         )
 
 
+def collect_active_element_snapshot(page: Any) -> dict[str, Any] | None:
+    return page.evaluate(
+        """() => {
+          const el = document.activeElement
+          return el ? {
+            tag: el.tagName,
+            role: el.getAttribute('role'),
+            label: el.getAttribute('aria-label'),
+            id: el.id,
+            text: (el.textContent || '').trim().slice(0, 80),
+          } : null
+        }"""
+    )
+
+
+def assert_focus_inside(page: Any, selector: str, name: str) -> None:
+    try:
+        page.wait_for_function(
+            """(selector) => {
+          const container = document.querySelector(selector)
+          return Boolean(container && document.activeElement && container.contains(document.activeElement))
+        }""",
+            arg=selector,
+            timeout=1000,
+        )
+    except Exception as exc:
+        active = collect_active_element_snapshot(page)
+        raise OverallCleanupBrowserFailure(f"Focus escaped {name}; active element was {active!r}.") from exc
+
+
+def assert_focus_restored(page: Any, selector: str, name: str) -> None:
+    restored = page.evaluate(
+        """(selector) => document.activeElement === document.querySelector(selector)""",
+        selector,
+    )
+    if not restored:
+        active = collect_active_element_snapshot(page)
+        raise OverallCleanupBrowserFailure(f"Focus did not restore to {name}; active element was {active!r}.")
+
+
+def wait_for_image_ready(page: Any, selector: str, timeout_ms: float) -> None:
+    page.wait_for_function(
+        """(selector) => {
+          const img = document.querySelector(selector)
+          if (!(img instanceof HTMLImageElement)) return false
+          const opacity = Number(window.getComputedStyle(img).opacity || '0')
+          return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0 && opacity > 0.5
+        }""",
+        arg=selector,
+        timeout=timeout_ms,
+    )
+
+
+def collect_transformed_image_center(
+    page: Any,
+    *,
+    container_selector: str,
+    image_selector: str,
+    name: str,
+) -> dict[str, Any]:
+    snapshot = page.evaluate(
+        """({ containerSelector, imageSelector, name }) => {
+          const rectPayload = (rect) => ({
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+          })
+          const container = document.querySelector(containerSelector)
+          const img = document.querySelector(imageSelector)
+          if (!container || !(img instanceof HTMLImageElement)) return null
+          const containerRect = container.getBoundingClientRect()
+          const transform = window.getComputedStyle(img).transform
+          const matrix = new DOMMatrixReadOnly(transform && transform !== 'none' ? transform : undefined)
+          const scaleX = matrix.a
+          const scaleY = matrix.d
+          if (!scaleX || !scaleY || !img.naturalWidth || !img.naturalHeight) return null
+          return {
+            name,
+            container: rectPayload(containerRect),
+            naturalWidth: img.naturalWidth,
+            naturalHeight: img.naturalHeight,
+            transform: {
+              scaleX,
+              scaleY,
+              tx: matrix.e,
+              ty: matrix.f,
+            },
+            normalizedCenter: {
+              x: ((containerRect.width / 2) - matrix.e) / (img.naturalWidth * scaleX),
+              y: ((containerRect.height / 2) - matrix.f) / (img.naturalHeight * scaleY),
+            },
+          }
+        }""",
+        {
+            "containerSelector": container_selector,
+            "imageSelector": image_selector,
+            "name": name,
+        },
+    )
+    if not isinstance(snapshot, dict):
+        raise OverallCleanupBrowserFailure(f"Failed to collect transformed image center for {name}.")
+    return snapshot
+
+
+def assert_center_preserved(before: dict[str, Any], after: dict[str, Any], *, tolerance: float = 0.055) -> None:
+    before_center = before.get("normalizedCenter")
+    after_center = after.get("normalizedCenter")
+    if not isinstance(before_center, dict) or not isinstance(after_center, dict):
+        raise OverallCleanupBrowserFailure(f"Missing normalized centers: before={before!r}, after={after!r}.")
+    container = after.get("container")
+    transform = after.get("transform")
+    if not isinstance(container, dict) or not isinstance(transform, dict):
+        raise OverallCleanupBrowserFailure(f"Missing rendered bounds for resize comparison: after={after!r}.")
+    rendered_width = float(after.get("naturalWidth", 0)) * float(transform.get("scaleX", 0))
+    rendered_height = float(after.get("naturalHeight", 0)) * float(transform.get("scaleY", 0))
+    width = float(container.get("width", 0))
+    height = float(container.get("height", 0))
+    axis_deltas: dict[str, float] = {}
+    if rendered_width > width + 1.5:
+      axis_deltas["x"] = abs(float(before_center.get("x", 0)) - float(after_center.get("x", 0)))
+    if rendered_height > height + 1.5:
+      axis_deltas["y"] = abs(float(before_center.get("y", 0)) - float(after_center.get("y", 0)))
+    if not axis_deltas:
+        return
+    failed = {axis: delta for axis, delta in axis_deltas.items() if delta > tolerance}
+    if failed:
+        raise OverallCleanupBrowserFailure(
+            f"{after.get('name')} center drifted after resize on pannable axes: "
+            f"deltas={failed!r}, before={before_center!r}, after={after_center!r}."
+        )
+
+
+def assert_meaningfully_off_center(snapshot: dict[str, Any], name: str, *, tolerance: float = 0.025) -> None:
+    center = snapshot.get("normalizedCenter")
+    if not isinstance(center, dict):
+        raise OverallCleanupBrowserFailure(f"Missing normalized center for {name}: {snapshot!r}.")
+    dx = abs(float(center.get("x", 0.5)) - 0.5)
+    dy = abs(float(center.get("y", 0.5)) - 0.5)
+    if max(dx, dy) <= tolerance:
+        raise OverallCleanupBrowserFailure(
+            f"{name} did not become meaningfully off-center before resize: center={center!r}."
+        )
+
+
+def zoom_and_pan_surface(page: Any, selector: str) -> None:
+    surface = page.locator(selector).first
+    box = surface.bounding_box()
+    if not box:
+        raise OverallCleanupBrowserFailure(f"Missing bounding box for zoom/pan surface {selector!r}.")
+    x = box["x"] + (box["width"] * 0.55)
+    y = box["y"] + (box["height"] * 0.52)
+    page.mouse.move(x, y)
+    for _ in range(3):
+        page.mouse.wheel(0, -620)
+        page.wait_for_timeout(80)
+    page.wait_for_timeout(160)
+    page.mouse.down()
+    page.mouse.move(x - 132, y - 96, steps=8)
+    page.mouse.up()
+    page.wait_for_timeout(180)
+
+
+def assert_surface_wheel_zoomed(before: dict[str, Any], after: dict[str, Any], name: str) -> None:
+    before_scale = float((before.get("transform") or {}).get("scaleX", 0))
+    after_scale = float((after.get("transform") or {}).get("scaleX", 0))
+    if after_scale <= before_scale:
+        raise OverallCleanupBrowserFailure(
+            f"{name} wheel zoom did not increase image scale: before={before_scale}, after={after_scale}."
+        )
+
+
 def verify_menu_bounds_and_roles(page: Any, timeout_ms: float) -> list[dict[str, Any]]:
     evidence: list[dict[str, Any]] = []
     page.set_viewport_size({"width": 1024, "height": 480})
@@ -580,6 +756,129 @@ def verify_hover_preview(page: Any, timeout_ms: float, media_requests: list[str]
     }
 
 
+def verify_browse_ctrl_wheel_and_slider(page: Any, timeout_ms: float) -> dict[str, Any]:
+    page.set_viewport_size({"width": 1024, "height": 640})
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    slider = page.get_by_role("slider", name="Thumbnail size").first
+    slider.wait_for(state="visible", timeout=timeout_ms)
+    before_value = slider.input_value()
+    page.evaluate(
+        """() => {
+          const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
+          if (!grid) throw new Error('Missing gallery grid for Ctrl+wheel check')
+          grid.dispatchEvent(new WheelEvent('wheel', {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: true,
+            deltaY: -480,
+          }))
+        }"""
+    )
+    page.wait_for_timeout(160)
+    after_ctrl_wheel_value = slider.input_value()
+    if after_ctrl_wheel_value != before_value:
+        raise OverallCleanupBrowserFailure(
+            f"Browse Ctrl+wheel mutated thumbnail size: {before_value!r} -> {after_ctrl_wheel_value!r}."
+        )
+
+    explicit_value = "280" if before_value != "280" else "220"
+    slider.evaluate(
+        """(element, value) => {
+          element.value = value
+          element.dispatchEvent(new Event('input', { bubbles: true }))
+          element.dispatchEvent(new Event('change', { bubbles: true }))
+        }""",
+        explicit_value,
+    )
+    page.wait_for_function(
+        """({ selector, value }) => {
+          const slider = document.querySelector(selector)
+          return slider instanceof HTMLInputElement && slider.value === value
+        }""",
+        arg={"selector": 'input[aria-label="Thumbnail size"]', "value": explicit_value},
+        timeout=timeout_ms,
+    )
+    return {
+        "initial_size": before_value,
+        "after_ctrl_wheel_size": after_ctrl_wheel_value,
+        "explicit_slider_size": explicit_value,
+    }
+
+
+def verify_viewer_resize_focus(page: Any, timeout_ms: float) -> dict[str, Any]:
+    page.set_viewport_size({"width": 1440, "height": 920})
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    first_cell_id = wait_for_visible_grid_cell_ids(page, minimum_count=1, timeout_ms=timeout_ms)[0]
+    first_cell_selector = f"[id='{first_cell_id}']"
+    page.locator(first_cell_selector).first.evaluate("(element) => element.focus()")
+    page.keyboard.press("Enter")
+    dialog_selector = '[role="dialog"][aria-label="Image viewer"]'
+    image_selector = f"{dialog_selector} img[alt='viewer']"
+    page.locator(dialog_selector).first.wait_for(state="visible", timeout=timeout_ms)
+    wait_for_image_ready(page, image_selector, timeout_ms)
+    assert_focus_inside(page, dialog_selector, "viewer dialog after open")
+    focus_sequence = [collect_active_element_snapshot(page)]
+    for _ in range(5):
+        page.keyboard.press("Tab")
+        assert_focus_inside(page, dialog_selector, "viewer dialog Tab cycle")
+        focus_sequence.append(collect_active_element_snapshot(page))
+    page.keyboard.press("Shift+Tab")
+    assert_focus_inside(page, dialog_selector, "viewer dialog Shift+Tab cycle")
+    focus_sequence.append(collect_active_element_snapshot(page))
+    if any((entry or {}).get("text") != "Close" for entry in focus_sequence):
+        raise OverallCleanupBrowserFailure(
+            f"Viewer desktop focus order included a hidden or unexpected control: {focus_sequence!r}."
+        )
+
+    before_zoom = collect_transformed_image_center(
+        page,
+        container_selector=dialog_selector,
+        image_selector=image_selector,
+        name="viewer-before-wheel",
+    )
+    zoom_and_pan_surface(page, dialog_selector)
+    before_resize = collect_transformed_image_center(
+        page,
+        container_selector=dialog_selector,
+        image_selector=image_selector,
+        name="viewer-after-pan-before-resize",
+    )
+    assert_surface_wheel_zoomed(before_zoom, before_resize, "viewer")
+    assert_meaningfully_off_center(before_resize, "viewer")
+
+    resize_evidence: list[dict[str, Any]] = []
+    previous = before_resize
+    for name, width, height in (
+        ("viewer-half-width", 720, 900),
+        ("viewer-short-height", 1024, 480),
+    ):
+        page.set_viewport_size({"width": width, "height": height})
+        wait_for_image_ready(page, image_selector, timeout_ms)
+        page.wait_for_timeout(260)
+        after = collect_transformed_image_center(
+            page,
+            container_selector=dialog_selector,
+            image_selector=image_selector,
+            name=name,
+        )
+        assert_center_preserved(previous, after)
+        resize_evidence.append(after)
+        previous = after
+
+    page.keyboard.press("Escape")
+    page.locator(dialog_selector).first.wait_for(state="hidden", timeout=timeout_ms)
+    page.wait_for_timeout(160)
+    assert_focus_restored(page, first_cell_selector, "viewer invoking grid cell")
+    return {
+        "invoking_cell_id": first_cell_id,
+        "before_zoom": before_zoom,
+        "before_resize": before_resize,
+        "after_resizes": resize_evidence,
+        "focus_sequence": focus_sequence,
+        "focus_restored": True,
+    }
+
+
 def verify_desktop_layout_label(page: Any, timeout_ms: float) -> dict[str, Any]:
     trigger = page.get_by_role("button", name="Sort and layout").first
     trigger.wait_for(state="visible", timeout=timeout_ms)
@@ -649,17 +948,105 @@ def run_adaptive_geometry_checks(page: Any, timeout_ms: float) -> list[dict[str,
     return evidence
 
 
-def open_compare_dialog(page: Any, timeout_ms: float) -> dict[str, Any]:
+def verify_compare_resize_focus(page: Any, timeout_ms: float) -> dict[str, Any]:
     side_by_side = page.get_by_role("button", name="Side by side view").first
     if side_by_side.is_disabled():
-        raise OverallCleanupBrowserFailure("Side by side action is disabled for two selected images.")
+        raise OverallCleanupBrowserFailure("Side by side action is disabled for compare behavior checks.")
+    side_by_side.focus()
     side_by_side.click()
-    dialog = page.get_by_role("dialog", name="Compare images")
+    dialog_selector = '[role="dialog"][aria-label="Compare images"]'
+    stage_selector = ".compare-stage"
+    image_a_selector = "img[alt='compare A']"
+    image_b_selector = "img[alt='compare B']"
+    dialog = page.locator(dialog_selector).first
     dialog.wait_for(state="visible", timeout=timeout_ms)
-    evidence = collect_layout_evidence(page, "compare-dialog-open")
-    dialog.get_by_role("button", name="Close").click()
+    wait_for_image_ready(page, image_a_selector, timeout_ms)
+    wait_for_image_ready(page, image_b_selector, timeout_ms)
+    assert_focus_inside(page, dialog_selector, "compare dialog after open")
+    for _ in range(7):
+        page.keyboard.press("Tab")
+        assert_focus_inside(page, dialog_selector, "compare dialog Tab cycle")
+    page.keyboard.press("Shift+Tab")
+    assert_focus_inside(page, dialog_selector, "compare dialog Shift+Tab cycle")
+
+    layout = collect_layout_evidence(page, "compare-dialog-open")
+    before_zoom_a = collect_transformed_image_center(
+        page,
+        container_selector=stage_selector,
+        image_selector=image_a_selector,
+        name="compare-a-before-wheel",
+    )
+    before_zoom_b = collect_transformed_image_center(
+        page,
+        container_selector=stage_selector,
+        image_selector=image_b_selector,
+        name="compare-b-before-wheel",
+    )
+    zoom_and_pan_surface(page, stage_selector)
+    before_resize_a = collect_transformed_image_center(
+        page,
+        container_selector=stage_selector,
+        image_selector=image_a_selector,
+        name="compare-a-after-pan-before-resize",
+    )
+    before_resize_b = collect_transformed_image_center(
+        page,
+        container_selector=stage_selector,
+        image_selector=image_b_selector,
+        name="compare-b-after-pan-before-resize",
+    )
+    assert_surface_wheel_zoomed(before_zoom_a, before_resize_a, "compare A")
+    assert_surface_wheel_zoomed(before_zoom_b, before_resize_b, "compare B")
+    assert_meaningfully_off_center(before_resize_a, "compare A")
+
+    resize_evidence: list[dict[str, Any]] = []
+    previous_a = before_resize_a
+    previous_b = before_resize_b
+    for name, width, height in (
+        ("compare-half-width", 720, 900),
+        ("compare-short-height", 1024, 480),
+    ):
+        page.set_viewport_size({"width": width, "height": height})
+        wait_for_image_ready(page, image_a_selector, timeout_ms)
+        wait_for_image_ready(page, image_b_selector, timeout_ms)
+        page.wait_for_timeout(260)
+        after_a = collect_transformed_image_center(
+            page,
+            container_selector=stage_selector,
+            image_selector=image_a_selector,
+            name=f"{name}-a",
+        )
+        after_b = collect_transformed_image_center(
+            page,
+            container_selector=stage_selector,
+            image_selector=image_b_selector,
+            name=f"{name}-b",
+        )
+        assert_center_preserved(previous_a, after_a)
+        assert_center_preserved(previous_b, after_b)
+        resize_evidence.append({"name": name, "a": after_a, "b": after_b})
+        previous_a = after_a
+        previous_b = after_b
+
+    page.keyboard.press("Escape")
     dialog.wait_for(state="hidden", timeout=timeout_ms)
-    return evidence
+    page.wait_for_timeout(160)
+    restored = page.evaluate(
+        """() => (
+          document.activeElement instanceof HTMLElement
+          && document.activeElement.getAttribute('role') === 'gridcell'
+          && document.activeElement.id.startsWith('cell-')
+        )"""
+    )
+    if not restored:
+        raise OverallCleanupBrowserFailure("Focus did not restore to a selected compare grid cell.")
+    return {
+        "layout": layout,
+        "before_zoom": {"a": before_zoom_a, "b": before_zoom_b},
+        "before_resize": {"a": before_resize_a, "b": before_resize_b},
+        "after_resizes": resize_evidence,
+        "focus_restored": True,
+    }
 
 
 def trigger_comparison_export(page: Any) -> dict[str, Any]:
@@ -739,13 +1126,21 @@ def run_browser_checks(base_url: str, timeout_ms: float, screenshot_dir: Path) -
             adaptive_geometry = run_adaptive_geometry_checks(page, timeout_ms)
             menu_bounds = verify_menu_bounds_and_roles(page, timeout_ms)
             hover_preview = verify_hover_preview(page, timeout_ms, media_requests)
+            ctrl_wheel = verify_browse_ctrl_wheel_and_slider(page, timeout_ms)
+            viewer_resize_focus = verify_viewer_resize_focus(page, timeout_ms)
             page.set_viewport_size({"width": 1440, "height": 920})
             page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
             before_selection = collect_layout_evidence(page, "browse-ready")
             selected_cell_ids = select_two_visible_images(page, timeout_ms)
             set_right_panel_open(page, open_state=True, timeout_ms=10_000)
             after_selection = collect_layout_evidence(page, "two-selected")
-            compare_dialog = open_compare_dialog(page, timeout_ms)
+            compare_resize_focus = verify_compare_resize_focus(page, timeout_ms)
+            compare_dialog = compare_resize_focus["layout"]
+            page.set_viewport_size({"width": 1440, "height": 920})
+            page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+            if page.locator('[role="gridcell"][aria-selected="true"]').count() < 2:
+                selected_cell_ids = select_two_visible_images(page, timeout_ms)
+            set_right_panel_open(page, open_state=True, timeout_ms=10_000)
             export_result = trigger_comparison_export(page)
             after_export = collect_layout_evidence(page, "export-complete")
             return {
@@ -755,6 +1150,9 @@ def run_browser_checks(base_url: str, timeout_ms: float, screenshot_dir: Path) -
                 "adaptive_geometry": adaptive_geometry,
                 "menu_bounds": menu_bounds,
                 "hover_preview": hover_preview,
+                "ctrl_wheel": ctrl_wheel,
+                "viewer_resize_focus": viewer_resize_focus,
+                "compare_resize_focus": compare_resize_focus,
                 "comparison_export": export_result,
             }
         except Exception as exc:

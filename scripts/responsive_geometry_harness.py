@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlparse
 
 from smoke_harness import (
     choose_port,
@@ -116,7 +116,7 @@ def build_png_payload() -> bytes:
     except ImportError as exc:  # pragma: no cover - project dependency guard
         raise ResponsiveGeometryFailure("Pillow is required for responsive geometry fixtures") from exc
     buffer = BytesIO()
-    Image.new("RGB", (24, 18), color=(44, 88, 132)).save(buffer, format="PNG")
+    Image.new("RGB", (1600, 1200), color=(44, 88, 132)).save(buffer, format="PNG")
     return buffer.getvalue()
 
 
@@ -1321,6 +1321,277 @@ def run_compare_overlay_scenario(page: Any, base_url: str, timeout_ms: float) ->
     }
 
 
+def _request_path_param(url: str) -> str | None:
+    try:
+        values = parse_qs(urlparse(url).query).get("path")
+    except Exception:
+        return None
+    if not values:
+        return None
+    return values[0]
+
+
+def _requests_for_media_path(urls: list[str], *, route: str, media_path: str) -> list[str]:
+    matches: list[str] = []
+    route_path = f"/{route}"
+    for url in urls:
+        parsed = urlparse(url)
+        if parsed.path != route_path:
+            continue
+        if _request_path_param(url) == media_path:
+            matches.append(url)
+    return matches
+
+
+def wait_for_cell_thumb_ready(page: Any, cell_id: str, timeout_ms: float) -> None:
+    page.wait_for_function(
+        """(cellId) => {
+          const cell = document.getElementById(cellId);
+          const img = cell?.querySelector('.cell-content img');
+          return img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0;
+        }""",
+        arg=cell_id,
+        timeout=timeout_ms,
+    )
+
+
+def move_pointer_away(page: Any) -> None:
+    page.mouse.move(2, 2)
+    page.wait_for_timeout(80)
+
+
+def dispatch_grid_scroll(page: Any) -> None:
+    page.locator('[role="grid"][aria-label="Gallery"]').evaluate(
+        """(el) => {
+          el.scrollTop += Math.max(120, Math.floor(el.clientHeight / 3));
+          el.dispatchEvent(new Event('scroll', { bubbles: true }));
+        }"""
+    )
+
+
+def hover_preview_snapshot(page: Any, name: str, cell_id: str) -> dict[str, Any]:
+    snapshot = page.evaluate(
+        """({ name, cellId }) => {
+          const rectPayload = (rect) => ({
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+          });
+          const imagePayload = (el) => {
+            if (!(el instanceof HTMLImageElement)) return null;
+            const rect = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            return {
+              src: el.currentSrc || el.src || null,
+              complete: el.complete,
+              naturalWidth: el.naturalWidth,
+              naturalHeight: el.naturalHeight,
+              opacity: Number(style.opacity || "0"),
+              display: style.display,
+              visibility: style.visibility,
+              rect: rectPayload(rect),
+            };
+          };
+          const preview = document.querySelector('.grid-hover-preview');
+          const previewImage = preview?.querySelector('img') || null;
+          const cell = document.getElementById(cellId);
+          const viewport = {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            left: 0,
+            top: 0,
+            right: window.innerWidth,
+            bottom: window.innerHeight,
+          };
+          return {
+            name,
+            cellId,
+            viewport,
+            preview: preview ? {
+              path: preview.getAttribute('data-preview-path'),
+              rect: rectPayload(preview.getBoundingClientRect()),
+            } : null,
+            image: imagePayload(previewImage),
+            cell: cell ? {
+              rect: rectPayload(cell.getBoundingClientRect()),
+            } : null,
+          };
+        }""",
+        {"name": name, "cellId": cell_id},
+    )
+    if not isinstance(snapshot, dict):
+        raise ResponsiveGeometryFailure(f"Failed to collect hover preview snapshot for {name}.")
+    return snapshot
+
+
+def assert_hover_preview_large_original(
+    snapshot: dict[str, Any],
+    *,
+    expected_path: str,
+    media_requests: list[str],
+) -> None:
+    preview = snapshot.get("preview")
+    image = snapshot.get("image")
+    cell = snapshot.get("cell")
+    viewport = snapshot.get("viewport")
+    if not isinstance(preview, dict) or preview.get("path") != expected_path:
+        raise ResponsiveGeometryFailure(
+            f"Hover preview path mismatch in {snapshot.get('name')}: "
+            f"expected={expected_path!r}, preview={preview!r}."
+        )
+    if not isinstance(image, dict) or not _sample_image_visible(image):
+        raise ResponsiveGeometryFailure(f"Hover preview image is not visibly loaded in {snapshot.get('name')}: {image!r}.")
+    if not isinstance(cell, dict) or not isinstance(cell.get("rect"), dict):
+        raise ResponsiveGeometryFailure(f"Missing hover source cell rect in {snapshot.get('name')}: {cell!r}.")
+    if not isinstance(viewport, dict):
+        raise ResponsiveGeometryFailure(f"Missing hover viewport evidence in {snapshot.get('name')}.")
+
+    preview_rect = preview.get("rect")
+    image_rect = image.get("rect")
+    cell_rect = cell["rect"]
+    if not isinstance(preview_rect, dict) or not isinstance(image_rect, dict):
+        raise ResponsiveGeometryFailure(f"Missing hover preview rects in {snapshot.get('name')}: {snapshot!r}.")
+
+    viewport_width = _parse_float(viewport.get("width"))
+    viewport_height = _parse_float(viewport.get("height"))
+    image_width = _rect_width(image_rect)
+    image_height = _parse_float(image_rect.get("height"))
+    cell_width = _rect_width(cell_rect)
+    cell_height = _parse_float(cell_rect.get("height"))
+    if image_width <= cell_width * 2 or image_height <= cell_height * 2:
+        raise ResponsiveGeometryFailure(
+            f"Hover preview image is not materially larger than the source cell in {snapshot.get('name')}: "
+            f"image={image_rect!r}, cell={cell_rect!r}."
+        )
+    if image_width < viewport_width * 0.65 or image_height < viewport_height * 0.65:
+        raise ResponsiveGeometryFailure(
+            f"Hover preview image is not close to restored viewport-sized bounds in {snapshot.get('name')}: "
+            f"image={image_rect!r}, viewport={viewport!r}."
+        )
+
+    expected_left = (viewport_width - _rect_width(preview_rect)) / 2
+    expected_top = (viewport_height - _parse_float(preview_rect.get("height"))) / 2
+    _assert_close(
+        actual=_rect_left(preview_rect),
+        expected=expected_left,
+        tolerance=2.0,
+        label="hover preview centered left edge",
+        snapshot_name=snapshot.get("name"),
+    )
+    _assert_close(
+        actual=_parse_float(preview_rect.get("top")),
+        expected=expected_top,
+        tolerance=2.0,
+        label="hover preview centered top edge",
+        snapshot_name=snapshot.get("name"),
+    )
+    if _rect_left(preview_rect) < 7 or _rect_right(preview_rect) > viewport_width - 7:
+        raise ResponsiveGeometryFailure(
+            f"Hover preview escaped horizontal viewport bounds in {snapshot.get('name')}: {preview_rect!r}."
+        )
+    if _parse_float(preview_rect.get("top")) < 7 or _parse_float(preview_rect.get("bottom")) > viewport_height - 7:
+        raise ResponsiveGeometryFailure(
+            f"Hover preview escaped vertical viewport bounds in {snapshot.get('name')}: {preview_rect!r}."
+        )
+
+    file_requests = _requests_for_media_path(media_requests, route="file", media_path=expected_path)
+    thumb_requests = _requests_for_media_path(media_requests, route="thumb", media_path=expected_path)
+    if not file_requests:
+        raise ResponsiveGeometryFailure(
+            f"Hover preview did not request the original file for {expected_path!r}: {media_requests!r}."
+        )
+    if thumb_requests:
+        raise ResponsiveGeometryFailure(
+            f"Hover preview requested thumbnail content for {expected_path!r}: {thumb_requests!r}."
+        )
+
+
+def run_hover_preview_scenario(page: Any, base_url: str, timeout_ms: float) -> dict[str, Any]:
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.add_init_script(seed_storage_script(scenario_storage()))
+    page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_shell(page, timeout_ms)
+    cell_id = wait_for_visible_grid_cell_ids(page, 2, timeout_ms)[-1]
+    expected_path = path_from_cell_id(cell_id)
+    wait_for_cell_thumb_ready(page, cell_id, timeout_ms)
+    hotspot = page.locator(f"[id='{cell_id}'] .grid-item-preview-hotspot")
+
+    move_pointer_away(page); hotspot.hover(timeout=timeout_ms); page.wait_for_timeout(100)
+    dispatch_grid_scroll(page); page.wait_for_timeout(500)
+    pending_count = page.locator(".grid-hover-preview").count()
+    if pending_count: raise ResponsiveGeometryFailure(f"Pending hover preview survived scroll cancellation with {pending_count} preview(s).")
+
+    held: dict[str, Any] = {}
+    def hold_hover_file(route: Any, request: Any) -> None:
+        if urlparse(request.url).path == "/file" and _request_path_param(request.url) == expected_path and "route" not in held:
+            held["route"] = route; return
+        route.continue_()
+    page.route("**/file?**", hold_hover_file)
+    try:
+        page.wait_for_timeout(250); move_pointer_away(page); hotspot.hover(timeout=timeout_ms)
+        for _ in range(40):
+            if "route" in held: break
+            page.wait_for_timeout(50)
+        if "route" not in held: raise ResponsiveGeometryFailure(f"Delayed hover /file request did not start for {expected_path!r}.")
+        dispatch_grid_scroll(page); page.wait_for_timeout(120)
+        try:
+            held["route"].continue_()
+        except Exception as exc:
+            held["releaseError"] = str(exc)
+        page.wait_for_timeout(450)
+        delayed_count = page.locator(".grid-hover-preview").count()
+        if delayed_count: raise ResponsiveGeometryFailure(f"Delayed hover /file response reached the DOM after scroll clear with {delayed_count} preview(s).")
+    finally:
+        page.unroute("**/file?**", hold_hover_file)
+
+    page.wait_for_timeout(250)
+    media_requests: list[str] = []
+
+    def record_request(request: Any) -> None:
+        media_requests.append(request.url)
+
+    page.on("request", record_request)
+    try:
+        move_pointer_away(page)
+        hotspot.hover(timeout=timeout_ms)
+        page.locator(".grid-hover-preview img").first.wait_for(state="visible", timeout=timeout_ms)
+        snapshot = hover_preview_snapshot(page, "hover-preview-original-file-1440x900", cell_id)
+        assert_hover_preview_large_original(
+            snapshot,
+            expected_path=expected_path,
+            media_requests=media_requests,
+        )
+
+        dispatch_grid_scroll(page)
+        page.locator(".grid-hover-preview").wait_for(state="detached", timeout=timeout_ms)
+        cleared_count = page.locator(".grid-hover-preview").count()
+        if cleared_count:
+            raise ResponsiveGeometryFailure(
+                f"Active hover preview survived scroll cancellation with {cleared_count} preview(s)."
+            )
+    finally:
+        try:
+            page.remove_listener("request", record_request)
+        except Exception:
+            pass
+
+    return {
+        "name": "hover-preview",
+        "expectedPath": expected_path,
+        "mediaRequests": media_requests,
+        "snapshot": snapshot,
+        "pendingScrollCancelPreviewCount": pending_count,
+        "delayedFileStalePreviewCount": delayed_count,
+        "delayedFileReleaseError": held.get("releaseError"),
+        "activeScrollCancelPreviewCount": cleared_count,
+    }
+
+
 def run_metrics_left_760_scenario(page: Any, base_url: str, timeout_ms: float) -> dict[str, Any]:
     page.set_viewport_size({"width": 900, "height": 760})
     page.add_init_script(seed_storage_script(scenario_storage()))
@@ -1680,6 +1951,25 @@ def main() -> int:
                         raise
                     finally:
                         context.close()
+
+                context = browser.new_context(viewport={"width": 1440, "height": 900})
+                page = context.new_page()
+                page.set_default_timeout(args.browser_timeout_ms)
+                try:
+                    evidence["scenarios"].append(
+                        run_hover_preview_scenario(page, base_url, args.browser_timeout_ms)
+                    )
+                except Exception as exc:
+                    record_failure(
+                        evidence=evidence,
+                        page=page,
+                        screenshot_dir=args.screenshot_dir,
+                        scenario_name="hover-preview",
+                        error=exc,
+                    )
+                    raise
+                finally:
+                    context.close()
             finally:
                 browser.close()
         evidence["finalHealth"] = wait_for_health(base_url, args.server_timeout_seconds)

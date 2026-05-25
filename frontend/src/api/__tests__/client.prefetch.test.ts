@@ -88,9 +88,9 @@ describe('thumb prefetch api contract', () => {
     }
   })
 
-  it('fetches hover previews directly from thumb route without full-file cache use', async () => {
+  it('fetches hover previews from the original file route without thumb cache use', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(new Blob([new Uint8Array([4, 5, 6])]), { status: 200, headers: { 'content-type': 'image/webp' } }),
+      new Response(new Blob([new Uint8Array([4, 5, 6])]), { status: 200, headers: { 'content-type': 'image/jpeg' } }),
     )
 
     const request = api.getHoverPreview('/hover-preview.jpg')
@@ -98,9 +98,47 @@ describe('thumb prefetch api contract', () => {
 
     expect(blob.size).toBe(3)
     expect(fetchSpy).toHaveBeenCalledTimes(1)
-    expect(String(fetchSpy.mock.calls[0][0])).toContain('/thumb?path=%2Fhover-preview.jpg')
-    expect(String(fetchSpy.mock.calls[0][0])).not.toContain('/file')
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/file?path=%2Fhover-preview.jpg')
+    expect(String(fetchSpy.mock.calls[0][0])).not.toContain('/thumb')
     expect(fileCache.has('/hover-preview.jpg')).toBe(false)
     expect(thumbCache.has('/hover-preview.jpg')).toBe(false)
+  })
+
+  it('serves hover previews from existing full-file cache without starting a shared abortable request', async () => {
+    fileCache.set('/cached-hover.jpg', new Blob([new Uint8Array([7, 8, 9, 10])]))
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    const request = api.getHoverPreview('/cached-hover.jpg')
+    const blob = await request.promise
+
+    expect(blob.size).toBe(4)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(request.abort).toBeUndefined()
+  })
+
+  it('aborts uncached hover file requests without writing to shared caches', async () => {
+    let requestSignal: AbortSignal | null = null
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+      requestSignal = init?.signal instanceof AbortSignal ? init.signal : null
+      return new Promise<Response>((_resolve, reject) => {
+        requestSignal?.addEventListener('abort', () => {
+          reject(new DOMException('request aborted', 'AbortError'))
+        })
+      })
+    })
+
+    const request = api.getHoverPreview('/abort-hover.jpg')
+    request.promise.catch(() => {
+      // Expected abort path.
+    })
+    await Promise.resolve()
+    request.abort?.()
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/file?path=%2Fabort-hover.jpg')
+    expect(requestSignal?.aborted).toBe(true)
+    await expect(request.promise).rejects.toMatchObject({ name: 'AbortError' })
+    expect(fileCache.has('/abort-hover.jpg')).toBe(false)
+    expect(thumbCache.has('/abort-hover.jpg')).toBe(false)
   })
 })

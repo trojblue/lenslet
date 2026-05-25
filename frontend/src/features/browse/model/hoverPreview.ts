@@ -1,13 +1,11 @@
 import {
   MENU_VIEWPORT_MARGIN_PX,
   clampMenuPosition,
-  type AnchorRectLike,
   type ViewportBounds,
 } from '../../../lib/menuPosition'
 
-export const HOVER_PREVIEW_OFFSET_PX = 12
-export const HOVER_PREVIEW_MAX_WIDTH_PX = 360
-export const HOVER_PREVIEW_MAX_HEIGHT_PX = 280
+export const HOVER_PREVIEW_VIEWPORT_WIDTH_RATIO = 0.8
+export const HOVER_PREVIEW_VIEWPORT_HEIGHT_RATIO = 0.8
 export const HOVER_PREVIEW_MIN_WIDTH_PX = 120
 export const HOVER_PREVIEW_MIN_HEIGHT_PX = 90
 
@@ -33,11 +31,9 @@ export interface HoverPreviewSurfaceSize {
 }
 
 export interface HoverPreviewPositionInput {
-  anchorRect: AnchorRectLike
   surfaceSize: HoverPreviewSurfaceSize
   viewport: ViewportBounds
   margin?: number
-  offset?: number
 }
 
 function clampSize(value: number, min: number, max: number): number {
@@ -51,28 +47,21 @@ export function getHoverPreviewSurfaceSize(
 ): HoverPreviewSurfaceSize {
   const availableWidth = Math.max(1, viewport.width - margin * 2)
   const availableHeight = Math.max(1, viewport.height - margin * 2)
+  const targetWidth = Math.round(viewport.width * HOVER_PREVIEW_VIEWPORT_WIDTH_RATIO)
+  const targetHeight = Math.round(viewport.height * HOVER_PREVIEW_VIEWPORT_HEIGHT_RATIO)
   return {
-    width: clampSize(HOVER_PREVIEW_MAX_WIDTH_PX, HOVER_PREVIEW_MIN_WIDTH_PX, availableWidth),
-    height: clampSize(HOVER_PREVIEW_MAX_HEIGHT_PX, HOVER_PREVIEW_MIN_HEIGHT_PX, availableHeight),
+    width: clampSize(targetWidth, HOVER_PREVIEW_MIN_WIDTH_PX, availableWidth),
+    height: clampSize(targetHeight, HOVER_PREVIEW_MIN_HEIGHT_PX, availableHeight),
   }
 }
 
 export function getHoverPreviewPosition({
-  anchorRect,
   surfaceSize,
   viewport,
   margin = MENU_VIEWPORT_MARGIN_PX,
-  offset = HOVER_PREVIEW_OFFSET_PX,
 }: HoverPreviewPositionInput): { x: number; y: number } {
-  const preferLeft = anchorRect.right + offset + surfaceSize.width + margin > viewport.right
-  const preferAbove = anchorRect.bottom + offset + surfaceSize.height + margin > viewport.bottom
-  const x = preferLeft
-    ? anchorRect.left - surfaceSize.width - offset
-    : anchorRect.right + offset
-  const y = preferAbove
-    ? anchorRect.top - surfaceSize.height - offset
-    : anchorRect.bottom + offset
-
+  const x = viewport.left + (viewport.width - surfaceSize.width) / 2
+  const y = viewport.top + (viewport.height - surfaceSize.height) / 2
   return clampMenuPosition({
     x,
     y,

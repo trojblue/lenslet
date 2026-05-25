@@ -628,11 +628,17 @@ export const api = {
   },
 
   /**
-   * Fetch a hover preview thumbnail without writing to the shared thumbnail cache.
+   * Fetch an original-file hover preview.
+   *
+   * Cached full files can be reused, but uncached hover fetches stay outside
+   * fileCache so hover cancellation cannot abort viewer/compare loads sharing
+   * that cache's in-flight request.
    */
   getHoverPreview: (path: string): { promise: Promise<Blob>; abort?: () => void } => {
-    return runWithRequestBudget('thumb', () =>
-      fetchBlob(thumbUrl(path)),
+    const cached = fileCache.get(path)
+    if (cached) return { promise: Promise.resolve(cached) }
+    return runWithRequestBudget('file', () =>
+      fetchBlob(fileUrl(path)),
     )
   },
 

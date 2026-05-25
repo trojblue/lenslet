@@ -39,3 +39,72 @@ Blockers:
 
 Next step:
 - Continue with Sprint 2 / RVP-4 to rewrite hover-preview tests around original-file preview.
+
+---
+Iteration 2/6 - 2026-05-25T10:42:00Z
+Completed task IDs: none newly completed; Sprint 2 cleanup gate for RVP-4/RVP-5
+
+Files changed by cleanup:
+- docs/20260525_restore_viewer_tabs_hover_preview_plan.md
+- frontend/src/features/browse/components/VirtualGrid.tsx
+- frontend/src/features/browse/model/hoverPreview.ts
+- frontend/src/features/browse/model/__tests__/hoverPreview.test.ts
+- src/lenslet/frontend/index.html
+- src/lenslet/frontend/assets/* generated bundle updates
+
+Summary:
+- Used the code-simplifier routine conservatively on the current Sprint 2 diff only.
+- Removed old anchored-preview residue that no longer has behavioral effect after the restored centered hover preview: unused offset export/import surface, unused `anchorRect`/`offset` position inputs, and the unnecessary `DOMRect` argument from `VirtualGrid.schedulePreview()`.
+- Rebuilt and synced packaged frontend assets with the delete-then-copy fallback because `VirtualGrid.tsx` changed.
+
+Validations:
+- `npm run test -- src/features/browse/model/__tests__/hoverPreview.test.ts src/api/__tests__/client.prefetch.test.ts` passed: 2 files / 15 tests.
+- `python -m py_compile scripts/responsive_geometry_harness.py` passed.
+- `npm run build` passed.
+- `python scripts/lint_repo.py` passed with existing warn-only file-size notices.
+
+Blockers:
+- None for the cleanup pass.
+
+Next step:
+- Continue Sprint 2 with the required post-cleanup code-review gate, then close `RVP-6` only after final regression validation and handoff are complete.
+
+---
+Iteration 2/6 - 2026-05-25T10:47:00Z final
+Completed task IDs: RVP-4, RVP-5, RVP-6
+
+Files changed:
+- docs/20260525_restore_viewer_tabs_hover_preview_plan.md
+- docs/ralph/20260525_restore_viewer_tabs_hover_preview_plan/progress.txt
+- frontend/src/api/client.ts
+- frontend/src/api/__tests__/client.prefetch.test.ts
+- frontend/src/features/browse/components/VirtualGrid.tsx
+- frontend/src/features/browse/model/hoverPreview.ts
+- frontend/src/features/browse/model/__tests__/hoverPreview.test.ts
+- scripts/responsive_geometry_harness.py
+- src/lenslet/frontend/index.html
+- src/lenslet/frontend/assets/* generated bundle updates
+
+Summary:
+- Rewrote hover-preview tests to require original `/file` fetches, cached full-file reuse without shared abort coupling, abort-on-clear, object URL cleanup, delayed stale-response rejection, and centered `80vw`/`80vh` sizing.
+- Restored hover preview to original-file content through `api.getHoverPreview()`: cached full files are reused when already present; uncached hover requests use a dedicated abortable `/file` request through the file budget and do not write into shared blob caches.
+- Replaced the anchored thumbnail-sized hover popover with the restored centered large preview surface.
+- Extended `scripts/responsive_geometry_harness.py` with hover browser evidence for `/file` network requests, large preview image rects, pending timer scroll-clear, delayed in-flight `/file` stale-response/clear behavior, and active loaded-preview clear.
+- Completed conservative cleanup and code-review gates. Review findings were fixed and re-reviewed with no actionable findings.
+- Rebuilt and synced packaged frontend assets using delete-then-copy because `rsync` is unavailable.
+
+Validations:
+- Expected pre-fix evidence failure: `npm run test -- src/features/browse/model/__tests__/hoverPreview.test.ts src/api/__tests__/client.prefetch.test.ts` failed before implementation because hover still requested `/thumb`, ignored cached full files, and used `360x280` sizing.
+- `npm run test -- src/features/browse/model/__tests__/hoverPreview.test.ts src/api/__tests__/client.prefetch.test.ts` passed.
+- `npm run test` passed: 75 files / 356 tests.
+- `npm run build` passed.
+- `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp6-final3.json` passed; hover evidence captured `/file`, no hover `/thumb` for the hovered path, a centered `1152x720` preview at `1440x900`, `0` delayed stale previews, and `0` pending/active scroll-clear leftovers.
+- `python scripts/gui_smoke_acceptance.py` passed with a non-blocking existing folder re-entry anchor warning.
+- `python -m py_compile scripts/responsive_geometry_harness.py` passed.
+- `python scripts/lint_repo.py` passed with existing warn-only file-size notices; `scripts/responsive_geometry_harness.py` is 1999 lines, below the 2000-line hard fail.
+
+Blockers:
+- None.
+
+Next step:
+- All planned tasks are complete; emit `<promise>COMPLETE</promise>`.

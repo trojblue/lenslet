@@ -273,14 +273,13 @@ export default function VirtualGrid({
     setPreviewSize(null)
   }
 
-  const schedulePreview = (path: string, anchorRect: DOMRect) => {
+  const schedulePreview = (path: string) => {
     if (isScrolling) return
     cancelPreviewTimer()
     previewControllerRef.current?.clear()
     const viewport = getVisibleViewportBounds()
     const surfaceSize = getHoverPreviewSurfaceSize(viewport)
     const position = getHoverPreviewPosition({
-      anchorRect,
       surfaceSize,
       viewport,
     })
@@ -787,7 +786,7 @@ export default function VirtualGrid({
                     </div>
                     <div 
                       className="grid-item-preview-hotspot absolute right-0 bottom-0 w-7 h-7 cursor-zoom-in"
-                      onMouseEnter={(e) => schedulePreview(it.path, e.currentTarget.getBoundingClientRect())}
+                      onMouseEnter={() => schedulePreview(it.path)}
                       onMouseLeave={clearPreview}>
                       <div
                         className="grid-item-preview-corner absolute right-0 bottom-0 h-[18px] w-[18px] flex items-center justify-center text-text select-none"
@@ -832,21 +831,20 @@ export default function VirtualGrid({
         })}
         {previewFor && previewUrl && delayPassed && previewPosition && previewSize && createPortal(
           <div
-            className="grid-hover-preview fixed z-[999] pointer-events-none rounded-lg border border-border bg-panel/95 p-1 shadow-lg"
+            className="grid-hover-preview fixed z-[999] pointer-events-none overflow-hidden rounded-lg border border-border bg-panel/95 shadow-lg"
             data-preview-path={previewFor}
             aria-hidden="true"
             style={{
               left: previewPosition.x,
               top: previewPosition.y,
               width: previewSize.width,
-              maxHeight: previewSize.height,
+              height: previewSize.height,
             }}
           >
             <img
               src={previewUrl}
               alt="preview"
-              className="block w-full object-contain opacity-[0.98]"
-              style={{ maxHeight: Math.max(1, previewSize.height - 8) }}
+              className="block h-full w-full object-contain opacity-[0.98]"
             />
           </div>,
           document.body

@@ -274,7 +274,13 @@ Recovery:
 - [x] 2026-05-25 10:17 UTC: Sprint 1 browser evidence passed with `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp1-after.json`; viewer overlay includes `viewer-toolbar-before-1024x760` / `viewer-toolbar-1024x760`, and compare overlay includes `compare-overlay-before-1440x900` / `compare-overlay-1440x900` plus image samples. Full frontend tests passed with `npm run test`.
 - [x] 2026-05-25 10:29 UTC: Sprint 1 cleanup and review gates completed. Cleanup removed one unused harness helper and normalized compare readiness formatting. Review found two issues, both fixed: generated assets were staged coherently, and browser image evidence now asserts loaded image identity after warmed viewer and compare next-navigation using URL-bound loaded-path data, not merely requested path. Final Sprint 1 validations passed: `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp1-final2.json`, `npm run test`, and `python scripts/lint_repo.py`.
 - [x] Sprint 1 implementation handoff complete. Restored contained viewer/compare overlays and stable loaded-image visibility while preserving modal focus ownership and toolbar behavior. Side regions remain inert/decorative under modal ownership; no Sprint 2 hover-preview behavior was changed.
-- [ ] Sprint 2 implementation handoff pending.
+- [x] 2026-05-25 10:35 UTC: `RVP-4` rewrote focused hover-preview tests around original `/file` requests, cached full-file reuse without shared abort, abort-on-clear lifecycle, late stale response rejection, object URL cleanup, and centered large `80vw`/`80vh` sizing. Expected pre-fix validation failed with `npm run test -- src/features/browse/model/__tests__/hoverPreview.test.ts src/api/__tests__/client.prefetch.test.ts`: current code still requested `/thumb`, ignored cached full files, and capped preview sizing at `360x280`.
+- [x] 2026-05-25 10:38 UTC: `RVP-5` restored original-file hover preview. `api.getHoverPreview()` now reuses already cached full files but otherwise issues a dedicated abortable `/file` request through the file request budget without writing into shared caches. The grid preview now uses a centered `80vw`/`80vh` viewport-bounded surface. Focused tests passed with `npm run test -- src/features/browse/model/__tests__/hoverPreview.test.ts src/api/__tests__/client.prefetch.test.ts`.
+- [x] 2026-05-25 10:39 UTC: Extended `scripts/responsive_geometry_harness.py` with hover-preview browser evidence and rebuilt/synced packaged frontend assets with the delete-then-copy fallback. `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp5.json` passed; hover evidence captured `/file?path=...`, no hover `/thumb` request for the hovered path, a centered `1152x720` preview at `1440x900`, an image rect materially larger than the source cell, and zero pending/active scroll-clear leftovers.
+- [x] 2026-05-25 10:42 UTC: Sprint 2 `code-simplifier` cleanup pass completed for the scoped diff. Removed old anchored-preview residue now contradicted by the centered preview implementation: the unused `HOVER_PREVIEW_OFFSET_PX` export, `AnchorRectLike` import, `anchorRect`/`offset` position input fields, and the unnecessary `DOMRect` argument in `VirtualGrid.schedulePreview()`. Rebuilt and synced packaged frontend assets. Validations passed: `npm run test -- src/features/browse/model/__tests__/hoverPreview.test.ts src/api/__tests__/client.prefetch.test.ts`, `python -m py_compile scripts/responsive_geometry_harness.py`, `npm run build`, and `python scripts/lint_repo.py`.
+- [x] 2026-05-25 10:46 UTC: Sprint 2 review gate completed. Initial review found that generated assets needed to be staged with the `index.html` hash update and that browser evidence should cover delayed in-flight `/file` hover lifecycle, not only pending timer and loaded-preview clear. Fixed both: staged generated asset replacements and added a held `/file` route check that scroll-clears while the original-file request is pending, releases the response, and asserts zero stale preview DOM. Re-review reported no actionable findings.
+- [x] 2026-05-25 10:47 UTC: `RVP-6` final gates passed: `npm run test` (75 files / 356 tests), `npm run build`, delete-then-copy asset sync, `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp6-final3.json`, `python scripts/gui_smoke_acceptance.py` (passed with an existing non-blocking folder re-entry anchor warning), `python -m py_compile scripts/responsive_geometry_harness.py`, and `python scripts/lint_repo.py` (warn-only file-size notices; `responsive_geometry_harness.py` is 1999 lines, below the 2000-line hard fail).
+- [x] Sprint 2 implementation handoff complete. Restored large centered original-file hover preview with stale-response, abort, object URL cleanup, pending-scroll-clear, delayed-request-clear, and loaded-preview-clear coverage. All planned sprints and tasks are complete.
 
 
 ## Artifacts and Handoff
@@ -304,13 +310,12 @@ Likely codepaths:
 
 Handoff notes:
 
-1. Sprint 1 closed in commit pending in this iteration: start next iteration at Sprint 2 / `RVP-4`.
-2. Do not continue the old Ralph plan assumptions for viewer fullscreen or hover preview.
-3. Restore the old product intent first: visible side regions and large original hover preview.
-4. Preserve modal focus ownership unless the user explicitly approves interactive side regions during viewer/compare.
-5. Prefer policy and preview-fetch fixes over broad DOM or component rewrites.
-6. The focused browser command for Sprint 1 is `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp1-final2.json`.
-7. `rsync` is unavailable in this environment; generated frontend assets were synced with delete-then-copy from `frontend/dist/` to `src/lenslet/frontend/`.
+1. Sprint 1 closed in the prior iteration and Sprint 2 closed in this iteration.
+2. Final browser evidence command: `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp6-final3.json`.
+3. Final GUI smoke command: `python scripts/gui_smoke_acceptance.py`.
+4. `rsync` is unavailable in this environment; generated frontend assets were synced with delete-then-copy from `frontend/dist/` to `src/lenslet/frontend/`.
+5. Side regions remain visible and inert/decorative under viewer/compare modal ownership; no approval-dependent interactive side-region change was made.
+6. Hover preview now uses original `/file` content through a dedicated abortable hover request path, reusing cached full files only when already available.
 
 Revision note:
 

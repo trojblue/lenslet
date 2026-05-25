@@ -1,0 +1,33 @@
+# Ralph Progress Log
+Started: 2026-05-25T04:04:17Z
+Mode: plan
+Tool: codex
+Repo: /data/yada/dev_new/lenslet
+Plan: /data/yada/dev_new/lenslet/docs/20260525_overall_cleanup_execution_plan.md
+---
+
+## Iteration 1 - 2026-05-25T04:26:10Z
+
+Completed task IDs: OCR-1, OCR-2
+
+Files changed:
+- `scripts/overall_cleanup_browser.py`
+- `src/lenslet/web/comparison_export.py`
+- `tests/test_compare_export_endpoint.py`
+- `docs/20260525_overall_cleanup_execution_plan.md`
+- `docs/ralph/20260525_overall_cleanup_execution_plan/progress.txt`
+
+Validations run:
+- `python -m ruff check src/lenslet/web/comparison_export.py tests/test_compare_export_endpoint.py scripts/overall_cleanup_browser.py` - passed
+- `pytest -q tests/test_compare_export_endpoint.py` - passed, 24 tests
+- `python scripts/overall_cleanup_browser.py --output-json /tmp/lenslet-overall-cleanup-sprint1.json` - passed; UI export returned PNG and the downloaded file decoded as 176x120
+- `python scripts/lint_repo.py` - passed; existing warn-only file-size notes remain
+
+Cleanup and review:
+- Code-simplifier pass recommended only Tier 1 cleanup; applied helper simplification and script file-handle/fixture setup cleanup.
+- Code-review pass found alpha flattening, label layout, import guard, and browser evidence gaps; fixes landed.
+- Final code-review confirmation reported no remaining actionable issues.
+
+Blockers: none.
+
+Next step: Sprint 2 begins with OCR-3 adaptive row geometry tests before changing `computeAdaptiveRows`.

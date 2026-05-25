@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from fastapi import HTTPException, Response
 from fastapi.responses import JSONResponse
@@ -29,7 +29,6 @@ MAX_EXPORT_GIF_MAX_BYTES = 8 * 1024 * 1024
 EXPORT_GIF_FRAME_DURATION_MS = 1_500
 EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY = 2_000
 EXPORT_COMPARISON_METADATA_KEY = "lenslet:comparison"
-_UNIBOX_IMAGE_UTILS: tuple[Callable[..., Any], Callable[..., Any]] | None = None
 
 
 @dataclass(frozen=True)
@@ -44,7 +43,6 @@ class ComparisonExportRuntime:
     gif_frame_duration_ms: int
     gif_frame_duration_ms_high_quality: int
     metadata_key: str
-    load_unibox_image_utils: Callable[[], tuple[Callable[..., Any], Callable[..., Any]]]
 
 
 def _default_runtime() -> ComparisonExportRuntime:
@@ -59,7 +57,6 @@ def _default_runtime() -> ComparisonExportRuntime:
         gif_frame_duration_ms=EXPORT_GIF_FRAME_DURATION_MS,
         gif_frame_duration_ms_high_quality=EXPORT_GIF_FRAME_DURATION_MS_HIGH_QUALITY,
         metadata_key=EXPORT_COMPARISON_METADATA_KEY,
-        load_unibox_image_utils=_get_unibox_image_utils,
     )
 
 
@@ -87,8 +84,6 @@ def _comparison_export_error_response(exc: HTTPException) -> JSONResponse:
         return _error_response(404, "file_not_found", detail)
     if exc.status_code == 415:
         return _error_response(415, "unsupported_source_format", detail)
-    if exc.status_code == 500 and "unibox is required" in detail:
-        return _error_response(500, "unibox_missing", detail)
     if exc.status_code != 400:
         return _error_response(500, "export_failed", detail)
     if "pixel limit" in detail or "size limit" in detail:
@@ -98,20 +93,6 @@ def _comparison_export_error_response(exc: HTTPException) -> JSONResponse:
     if "labels" in detail:
         return _error_response(400, "invalid_labels", detail)
     return _error_response(400, "invalid_request", detail)
-
-
-def _get_unibox_image_utils() -> tuple[Callable[..., Any], Callable[..., Any]]:
-    global _UNIBOX_IMAGE_UTILS
-    if _UNIBOX_IMAGE_UTILS is not None:
-        return _UNIBOX_IMAGE_UTILS
-    try:
-        from unibox.utils.image_utils import add_annotation, concatenate_images_horizontally
-    except ImportError as exc:
-        raise RuntimeError(
-            "unibox is required for comparison export. Install with: pip install unibox",
-        ) from exc
-    _UNIBOX_IMAGE_UTILS = (concatenate_images_horizontally, add_annotation)
-    return _UNIBOX_IMAGE_UTILS
 
 
 def _sanitize_label(raw: str, *, max_label_chars: int) -> str:
@@ -308,37 +289,133 @@ def _comparison_export_filename(reverse_order: bool, *, output_format: Literal["
     return f"comparison{suffix}_{stamp}.{extension}"
 
 
-def _annotate_for_export(
-    image: Image.Image,
+def _flatten_to_rgb(image: Image.Image) -> Image.Image:
+    if image.mode == "RGB" and "transparency" not in image.info:
+        return image.copy()
+    if "A" in image.getbands() or "transparency" in image.info:
+        rgba = image.convert("RGBA")
+        try:
+            background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+            try:
+                flattened = Image.alpha_composite(background, rgba)
+                try:
+                    return flattened.convert("RGB")
+                finally:
+                    flattened.close()
+            finally:
+                background.close()
+        finally:
+            rgba.close()
+    return image.convert("RGB")
+
+
+def _load_annotation_font(size: int) -> Any:
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:  # pragma: no cover - Pillow 12 supports sized defaults.
+        return ImageFont.load_default()
+
+
+def _text_size(draw: ImageDraw.ImageDraw, text: str, font: Any) -> tuple[int, int]:
+    left, top, right, bottom = draw.textbbox((0, 0), text or " ", font=font)
+    return max(1, right - left), max(1, bottom - top)
+
+
+def _split_token_to_width(
+    token: str,
+    *,
+    draw: ImageDraw.ImageDraw,
+    font: Any,
+    max_width: int,
+) -> list[str]:
+    chunks: list[str] = []
+    current = ""
+    for char in token:
+        candidate = f"{current}{char}"
+        if current and _text_size(draw, candidate, font)[0] > max_width:
+            chunks.append(current)
+            current = char
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks or [""]
+
+
+def _wrap_annotation_lines(
     label: str,
     *,
-    add_annotation: Callable[..., Any],
-) -> Image.Image:
+    draw: ImageDraw.ImageDraw,
+    font: Any,
+    max_width: int,
+) -> list[str]:
+    lines: list[str] = []
+    current = ""
+    for word in label.split():
+        for chunk_index, chunk in enumerate(
+            _split_token_to_width(word, draw=draw, font=font, max_width=max_width),
+        ):
+            separator = " " if current and chunk_index == 0 else ""
+            candidate = f"{current}{separator}{chunk}" if current else chunk
+            if current and _text_size(draw, candidate, font)[0] > max_width:
+                lines.append(current)
+                current = chunk
+            else:
+                current = candidate
+    if current:
+        lines.append(current)
+    return lines or [label]
+
+
+def _annotation_text_layout(label: str, image_width: int) -> tuple[Any, list[str], int]:
+    padding = min(10, max(1, image_width // 12))
+    max_text_width = max(1, image_width - (padding * 2))
+    probe = Image.new("RGB", (1, 1), (255, 255, 255))
     try:
-        annotated = add_annotation(
-            image,
-            annotation=label,
-            position="top",
-            alignment="center",
-            size="default",
-        )
-        if isinstance(annotated, Image.Image):
-            return annotated
-    except Exception:
-        pass
-    base = image.convert("RGB")
-    font = ImageFont.load_default()
-    probe = ImageDraw.Draw(base)
-    left, top, right, bottom = probe.textbbox((0, 0), label, font=font)
-    text_width = max(1, right - left)
-    text_height = max(1, bottom - top)
-    padding = 8
-    title_height = text_height + (padding * 2)
-    canvas = Image.new("RGB", (base.width, base.height + title_height), (255, 255, 255))
-    canvas.paste(base, (0, title_height))
-    draw = ImageDraw.Draw(canvas)
-    draw.text((max(0, (canvas.width - text_width) // 2), max(0, (title_height - text_height) // 2)), label, fill=(0, 0, 0), font=font)
-    return canvas
+        draw = ImageDraw.Draw(probe)
+        for size in range(14, 0, -1):
+            font = _load_annotation_font(size)
+            if size >= 6 and _text_size(draw, label, font)[0] <= max_text_width:
+                return font, [label], padding
+            lines = _wrap_annotation_lines(label, draw=draw, font=font, max_width=max_text_width)
+            if len(lines) <= 6 and all(_text_size(draw, line, font)[0] <= max_text_width for line in lines):
+                return font, lines, padding
+        font = _load_annotation_font(1)
+        return font, _wrap_annotation_lines(label, draw=draw, font=font, max_width=max_text_width), padding
+    finally:
+        probe.close()
+
+
+def _annotate_for_export(image: Image.Image, label: str) -> Image.Image:
+    base = _flatten_to_rgb(image)
+    try:
+        font, lines, padding = _annotation_text_layout(label, base.width)
+        probe = ImageDraw.Draw(base)
+        line_sizes = [_text_size(probe, line, font) for line in lines]
+        line_spacing = max(1, line_sizes[0][1] // 4)
+        text_height = sum(height for _, height in line_sizes) + (line_spacing * max(0, len(lines) - 1))
+        title_height = text_height + (padding * 2)
+        canvas = Image.new("RGB", (base.width, base.height + title_height), (255, 255, 255))
+        canvas.paste(base, (0, title_height))
+        draw = ImageDraw.Draw(canvas)
+        y = max(0, (title_height - text_height) // 2)
+        for line, (text_width, line_height) in zip(lines, line_sizes):
+            draw.text((max(0, (canvas.width - text_width) // 2), y), line, fill=(0, 0, 0), font=font)
+            y += line_height + line_spacing
+        return canvas
+    finally:
+        base.close()
+
+
+def _stitch_images_horizontally(images: list[Image.Image]) -> Image.Image:
+    total_width = sum(image.width for image in images)
+    canvas_height = max(image.height for image in images)
+    stitched = Image.new("RGB", (total_width, canvas_height), (255, 255, 255))
+    x_offset = 0
+    for image in images:
+        stitched.paste(image, (x_offset, 0))
+        x_offset += image.width
+    return stitched
 
 
 def _build_gif(
@@ -352,10 +429,6 @@ def _build_gif(
     reversed_order: bool,
     runtime: ComparisonExportRuntime,
 ) -> bytes:
-    try:
-        _, add_annotation = runtime.load_unibox_image_utils()
-    except RuntimeError as exc:
-        raise HTTPException(500, str(exc))
     annotated: list[Image.Image] = []
     prepared: list[Image.Image] = []
     base_frames: list[Image.Image] = []
@@ -366,7 +439,7 @@ def _build_gif(
     )
     try:
         for image, label in zip(images, labels):
-            annotated_frame = _annotate_for_export(image, label, add_annotation=add_annotation)
+            annotated_frame = _annotate_for_export(image, label)
             annotated.append(annotated_frame)
             resized = _resize_image_max_long_side(annotated_frame, max_long_side)
             try:
@@ -429,20 +502,14 @@ def _build_png(
     reversed_order: bool,
     runtime: ComparisonExportRuntime,
 ) -> bytes:
-    try:
-        concatenate_images_horizontally, add_annotation = runtime.load_unibox_image_utils()
-    except RuntimeError as exc:
-        raise HTTPException(500, str(exc))
     annotated: list[Image.Image] = []
     stitched: Image.Image | None = None
     try:
         for image, label in zip(images, labels):
-            annotated.append(_annotate_for_export(image, label, add_annotation=add_annotation))
+            annotated.append(_annotate_for_export(image, label))
         if len(annotated) != len(images):
             raise HTTPException(500, "failed to annotate all images")
-        stitched = concatenate_images_horizontally(annotated, max_height=max(image.height for image in annotated))
-        if stitched is None:
-            raise HTTPException(500, "failed to stitch comparison image")
+        stitched = _stitch_images_horizontally(annotated)
         if stitched.width * stitched.height > runtime.max_stitched_pixels:
             raise HTTPException(400, "stitched output exceeds configured pixel limit")
         pnginfo: PngImagePlugin.PngInfo | None = None

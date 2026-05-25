@@ -1,11 +1,14 @@
+import builtins
 import io
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import lenslet.web.comparison_export as export_mod
 from lenslet.metadata import read_png_info
@@ -416,21 +419,50 @@ def test_export_comparison_enforces_pixel_bounds(tmp_path: Path, monkeypatch: py
     assert stitched_limit.json()["error"] == "export_too_large"
 
 
-def test_export_comparison_returns_500_when_unibox_is_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_export_comparison_uses_pillow_without_unibox_import(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _make_png(tmp_path / "a.png")
     _make_png(tmp_path / "b.png")
 
-    def _raise_missing():
-        raise RuntimeError("unibox is required for comparison export. Install with: pip install unibox")
+    real_import = builtins.__import__
 
-    monkeypatch.setattr(export_mod, "_get_unibox_image_utils", _raise_missing)
+    def reject_unibox(name, *args, **kwargs):
+        if name == "unibox" or name.startswith("unibox."):
+            raise AssertionError("comparison export must not import unibox")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", reject_unibox)
 
     client = TestClient(create_app(str(tmp_path)))
     response = client.post("/export-comparison", json=_export_payload())
 
-    assert response.status_code == 500
-    payload = response.json()
-    assert payload["error"] == "unibox_missing"
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/png")
+
+
+def test_comparison_export_module_import_does_not_import_unibox() -> None:
+    script = """
+import builtins
+real_import = builtins.__import__
+def reject_unibox(name, *args, **kwargs):
+    if name == "unibox" or name.startswith("unibox."):
+        raise AssertionError("comparison_export must not import unibox")
+    return real_import(name, *args, **kwargs)
+builtins.__import__ = reject_unibox
+import lenslet.web.comparison_export
+"""
+    subprocess.run([sys.executable, "-c", script], check=True, capture_output=True, text=True)
+
+
+def test_export_comparison_annotation_layout_wraps_to_source_width() -> None:
+    font, lines, padding = export_mod._annotation_text_layout("x" * 120, 16)
+    probe = Image.new("RGB", (1, 1))
+    try:
+        draw = ImageDraw.Draw(probe)
+        max_width = 16 - (padding * 2)
+        assert lines
+        assert all(export_mod._text_size(draw, line, font)[0] <= max_width for line in lines)
+    finally:
+        probe.close()
 
 
 def test_export_comparison_flattens_alpha_to_rgb(tmp_path: Path) -> None:
@@ -443,3 +475,33 @@ def test_export_comparison_flattens_alpha_to_rgb(tmp_path: Path) -> None:
     assert response.status_code == 200
     with Image.open(io.BytesIO(response.content)) as exported:
         assert exported.mode == "RGB"
+
+
+def test_export_comparison_flattens_luminance_alpha_to_white(tmp_path: Path) -> None:
+    Image.new("LA", (8, 8), color=(0, 0)).save(tmp_path / "a.png", format="PNG")
+    _make_png(tmp_path / "b.png", size=(8, 8), color=(0, 255, 0))
+
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.post("/export-comparison", json=_export_payload(embed_metadata=False))
+
+    assert response.status_code == 200
+    with Image.open(io.BytesIO(response.content)) as exported:
+        assert exported.mode == "RGB"
+        assert exported.getpixel((4, exported.height - 1)) == (255, 255, 255)
+
+
+def test_export_comparison_flattens_rgb_transparency_chunk_to_white(tmp_path: Path) -> None:
+    Image.new("RGB", (8, 8), color=(255, 0, 0)).save(
+        tmp_path / "a.png",
+        format="PNG",
+        transparency=(255, 0, 0),
+    )
+    _make_png(tmp_path / "b.png", size=(8, 8), color=(0, 255, 0))
+
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.post("/export-comparison", json=_export_payload(embed_metadata=False))
+
+    assert response.status_code == 200
+    with Image.open(io.BytesIO(response.content)) as exported:
+        assert exported.mode == "RGB"
+        assert exported.getpixel((4, exported.height - 1)) == (255, 255, 255)

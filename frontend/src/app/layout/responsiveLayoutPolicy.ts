@@ -148,8 +148,8 @@ export function buildResponsiveLayoutModel(input: ResponsiveLayoutInput): Respon
       : 0,
   }
 
-  if (overlayActive || shortHeight) {
-    const suppressionReason: SidebarSuppressionReason = overlayActive ? 'overlay-active' : 'short-height'
+  if (shortHeight) {
+    const suppressionReason: SidebarSuppressionReason = 'short-height'
     return {
       mode,
       shortHeight,
@@ -234,7 +234,7 @@ export function buildResponsiveLayoutModel(input: ResponsiveLayoutInput): Respon
     leftSuppressionReason,
     rightSuppressionReason,
     gridInsets: { left: leftWidth, right: rightWidth },
-    overlayInsets: { left: 0, right: 0 },
+    overlayInsets: overlayActive ? { left: leftWidth, right: rightWidth } : { left: 0, right: 0 },
     inspector: {
       persistentAllowed: inspectorCanPersist,
       minUsableWidth: RESPONSIVE_LAYOUT_CONSTANTS.rightInspectorMinUsableWidth,

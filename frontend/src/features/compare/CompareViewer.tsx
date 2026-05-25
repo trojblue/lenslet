@@ -31,6 +31,10 @@ export default function CompareViewer({
   const [splitPct, setSplitPct] = useState(50)
   const [readyA, setReadyA] = useState(false)
   const [readyB, setReadyB] = useState(false)
+  const [loadedAPath, setLoadedAPath] = useState<string | null>(null)
+  const [loadedBPath, setLoadedBPath] = useState<string | null>(null)
+  const aUrlPathRef = useRef<string | null>(null)
+  const bUrlPathRef = useRef<string | null>(null)
   const {
     scale,
     baseA,
@@ -62,6 +66,8 @@ export default function CompareViewer({
     resetView()
     setReadyA(false)
     setReadyB(false)
+    setLoadedAPath(null)
+    setLoadedBPath(null)
   }, [aPath, bPath, resetView])
 
   useEffect(() => {
@@ -87,6 +93,66 @@ export default function CompareViewer({
   const bUrl = useBlobUrl(bPath ? () => api.getFile(bPath) : null, [bPath])
   const aThumb = useBlobUrl(aPath ? () => api.getThumb(aPath) : null, [aPath])
   const bThumb = useBlobUrl(bPath ? () => api.getThumb(bPath) : null, [bPath])
+  const markImageAReady = useCallback(() => {
+    const image = imgARef.current
+    if (!aPath || !aUrl || aUrlPathRef.current !== aPath || !image || (image.currentSrc || image.src) !== aUrl) {
+      return
+    }
+    fitAndCenter()
+    setLoadedAPath(aPath)
+    try {
+      requestAnimationFrame(() => setReadyA(true))
+    } catch {
+      setReadyA(true)
+    }
+  }, [aPath, aUrl, fitAndCenter, imgARef])
+  const markImageBReady = useCallback(() => {
+    const image = imgBRef.current
+    if (!bPath || !bUrl || bUrlPathRef.current !== bPath || !image || (image.currentSrc || image.src) !== bUrl) {
+      return
+    }
+    fitAndCenter()
+    setLoadedBPath(bPath)
+    try {
+      requestAnimationFrame(() => setReadyB(true))
+    } catch {
+      setReadyB(true)
+    }
+  }, [bPath, bUrl, fitAndCenter, imgBRef])
+
+  useEffect(() => {
+    if (!aUrl) {
+      aUrlPathRef.current = null
+      setReadyA(false)
+      setLoadedAPath(null)
+      return
+    }
+    aUrlPathRef.current = aPath
+    const image = imgARef.current
+    if (image?.complete && image.naturalWidth > 0) {
+      markImageAReady()
+    }
+  // URL changes bind the blob URL to the current path; path-only renders with
+  // the previous URL must stay hidden until a new URL arrives.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aUrl])
+
+  useEffect(() => {
+    if (!bUrl) {
+      bUrlPathRef.current = null
+      setReadyB(false)
+      setLoadedBPath(null)
+      return
+    }
+    bUrlPathRef.current = bPath
+    const image = imgBRef.current
+    if (image?.complete && image.naturalWidth > 0) {
+      markImageBReady()
+    }
+  // URL changes bind the blob URL to the current path; path-only renders with
+  // the previous URL must stay hidden until a new URL arrives.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bUrl])
 
   const clampSplit = useCallback((value: number) => Math.min(95, Math.max(5, value)), [])
 
@@ -129,6 +195,8 @@ export default function CompareViewer({
       role="dialog"
       aria-modal={true}
       aria-label="Compare images"
+      data-compare-a-path={aPath ?? undefined}
+      data-compare-b-path={bPath ?? undefined}
       tabIndex={-1}
       className="toolbar-offset absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] bg-panel z-viewer flex flex-col overflow-hidden focus:outline-none"
       onKeyDown={handleDialogKeyDown}
@@ -200,13 +268,11 @@ export default function CompareViewer({
                     ref={imgARef}
                     src={aUrl}
                     alt="compare A"
+                    data-current-path={loadedAPath ?? undefined}
                     className="compare-image"
                     draggable={false}
                     onDragStart={(e)=> e.preventDefault()}
-                    onLoad={() => {
-                      fitAndCenter()
-                      try { requestAnimationFrame(() => setReadyA(true)) } catch { setReadyA(true) }
-                    }}
+                    onLoad={markImageAReady}
                     style={{ transform: `translate(${txA}px, ${tyA}px) scale(${baseA * scale})`, transformOrigin: '0 0', opacity: readyA ? 0.99 : 0 }}
                   />
                 )}
@@ -227,13 +293,11 @@ export default function CompareViewer({
                     ref={imgBRef}
                     src={bUrl}
                     alt="compare B"
+                    data-current-path={loadedBPath ?? undefined}
                     className="compare-image"
                     draggable={false}
                     onDragStart={(e)=> e.preventDefault()}
-                    onLoad={() => {
-                      fitAndCenter()
-                      try { requestAnimationFrame(() => setReadyB(true)) } catch { setReadyB(true) }
-                    }}
+                    onLoad={markImageBReady}
                     style={{ transform: `translate(${txB}px, ${tyB}px) scale(${baseB * scale})`, transformOrigin: '0 0', opacity: readyB ? 0.99 : 0 }}
                   />
                 )}

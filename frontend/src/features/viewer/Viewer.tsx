@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react'
+import React, { useEffect, useCallback, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import { useModalFocusTrap } from '../../shared/hooks/useModalFocusTrap'
@@ -50,6 +50,8 @@ export default function Viewer({
   } = useZoomPan()
   const url = useBlobUrl(() => api.getFile(path), [path])
   const thumbUrl = useBlobUrl(() => api.getThumb(path), [path])
+  const [loadedPath, setLoadedPath] = useState<string | null>(null)
+  const urlPathRef = useRef<string | null>(null)
   const closeViewer = useCallback(() => {
     setVisible(false)
     window.setTimeout(onClose, 110)
@@ -64,6 +66,17 @@ export default function Viewer({
     closeViewer()
   }, [closeViewer])
   const handleDialogKeyDown = useModalFocusTrap(containerRef, { onEscape: closeViewer })
+  const markImageReady = useCallback(() => {
+    const image = imgRef.current
+    if (!url || urlPathRef.current !== path || !image || (image.currentSrc || image.src) !== url) return
+    resetView()
+    setLoadedPath(path)
+    try {
+      requestAnimationFrame(() => setReady(true))
+    } catch {
+      setReady(true)
+    }
+  }, [imgRef, path, resetView, setReady, url])
 
   // Load image and thumbnail when path changes
   useEffect(() => {
@@ -90,9 +103,29 @@ export default function Viewer({
     return () => window.removeEventListener('keydown', onKey)
   }, [onNavigate])
 
-  // Reset ready state when URL changes
   useEffect(() => {
     setReady(false)
+    setLoadedPath(null)
+  }, [path, setReady])
+
+  // Reconcile cached/completed image loads with the URL-change readiness reset.
+  useEffect(() => {
+    if (!url) {
+      urlPathRef.current = null
+      setReady(false)
+      setLoadedPath(null)
+      return
+    }
+    urlPathRef.current = path
+    const image = imgRef.current
+    if (image?.complete && image.naturalWidth > 0) {
+      markImageReady()
+      return
+    }
+    setReady(false)
+  // URL changes bind the blob URL to the current path; path-only renders with
+  // the previous URL must stay hidden until a new URL arrives.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url])
 
   useEffect(() => { if (onZoomChange) onZoomChange((base * scale) * 100) }, [base, scale, onZoomChange])
@@ -120,6 +153,7 @@ export default function Viewer({
       role="dialog"
       aria-modal={true}
       aria-label="Image viewer"
+      data-current-path={path}
       tabIndex={-1}
       className={`toolbar-offset touch-none absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] flex items-start justify-start bg-panel z-viewer overflow-hidden transition-opacity duration-[110ms] ease-out cursor-grab focus:outline-none focus-visible:outline-none ${dragging ? 'cursor-grabbing select-none' : ''} ${visible ? 'opacity-100' : 'opacity-0'}`}
       style={{ outline: 'none' }}
@@ -159,10 +193,11 @@ export default function Viewer({
           ref={imgRef}
           src={url}
           alt="viewer"
+          data-current-path={loadedPath ?? undefined}
           className="max-w-none max-h-none object-contain transition-opacity duration-[110ms] ease-out will-change-transform select-none"
           draggable={false}
           onDragStart={(e)=>{ e.preventDefault() }}
-          onLoad={()=>{ resetView(); try { requestAnimationFrame(()=> setReady(true)) } catch { setReady(true) } }}
+          onLoad={markImageReady}
           onClick={(e)=> e.stopPropagation()}
           style={{ transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`, transformOrigin: `0 0`, opacity: ready ? 0.99 : 0, WebkitUserDrag: 'none' } as React.CSSProperties}
         />

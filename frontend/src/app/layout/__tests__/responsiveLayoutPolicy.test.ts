@@ -114,18 +114,71 @@ describe('responsiveLayoutPolicy', () => {
     expect(desktop.effectiveRightOpen).toBe(true)
   })
 
-  it('suppresses sidebars during short-height and overlay states', () => {
+  it('suppresses sidebars during short-height states', () => {
     const short = model({ viewportWidth: 1024, viewportHeight: 430 })
-    const overlay = model({ overlay: 'viewer' })
 
     expect(short.shortHeight).toBe(true)
     expect(short.leftSuppressionReason).toBe('short-height')
     expect(short.rightSuppressionReason).toBe('short-height')
-    expect(overlay.effectiveLeftOpen).toBe(false)
-    expect(overlay.effectiveRightOpen).toBe(false)
-    expect(overlay.leftSuppressionReason).toBe('overlay-active')
-    expect(overlay.rightSuppressionReason).toBe('overlay-active')
-    expect(overlay.overlayInsets).toEqual({ left: 0, right: 0 })
+    expect(short.overlayInsets).toEqual({ left: 0, right: 0 })
+  })
+
+  it('preserves normal visible sidebars and uses them as viewer overlay insets', () => {
+    const normal = model({ overlay: 'none', viewportWidth: 1440 })
+    const viewer = model({ overlay: 'viewer', viewportWidth: 1440 })
+
+    expect(viewer.effectiveLeftOpen).toBe(normal.effectiveLeftOpen)
+    expect(viewer.effectiveRightOpen).toBe(normal.effectiveRightOpen)
+    expect(viewer.leftWidth).toBe(normal.leftWidth)
+    expect(viewer.rightWidth).toBe(normal.rightWidth)
+    expect(viewer.leftSuppressionReason).toBeUndefined()
+    expect(viewer.rightSuppressionReason).toBeUndefined()
+    expect(viewer.gridInsets).toEqual(normal.gridInsets)
+    expect(viewer.overlayInsets).toEqual({
+      left: normal.leftWidth,
+      right: normal.rightWidth,
+    })
+  })
+
+  it('preserves normal visible sidebars and uses them as compare overlay insets at borderline width', () => {
+    const normal = model({
+      overlay: 'none',
+      viewportWidth: 900,
+      leftPreferredWidth: 760,
+      rightPreferredWidth: 900,
+    })
+    const compare = model({
+      overlay: 'compare',
+      viewportWidth: 900,
+      leftPreferredWidth: 760,
+      rightPreferredWidth: 900,
+    })
+
+    expect(normal.effectiveLeftOpen).toBe(true)
+    expect(normal.effectiveRightOpen).toBe(true)
+    expect(compare.effectiveLeftOpen).toBe(true)
+    expect(compare.effectiveRightOpen).toBe(true)
+    expect(compare.leftWidth).toBe(normal.leftWidth)
+    expect(compare.rightWidth).toBe(normal.rightWidth)
+    expect(compare.overlayInsets).toEqual({
+      left: normal.leftWidth,
+      right: normal.rightWidth,
+    })
+  })
+
+  it('does not force overlay sidebars onto layouts where normal policy suppresses them', () => {
+    const phone = model({ viewportWidth: 390, viewportHeight: 700, overlay: 'viewer' })
+    const short = model({ viewportWidth: 1024, viewportHeight: 430, overlay: 'viewer' })
+
+    expect(phone.mode).toBe('phone')
+    expect(phone.effectiveLeftOpen).toBe(false)
+    expect(phone.effectiveRightOpen).toBe(false)
+    expect(phone.overlayInsets).toEqual({ left: 0, right: 0 })
+    expect(phone.shellReserves.mobileDrawerHeightPx).toBe(0)
+    expect(short.shortHeight).toBe(true)
+    expect(short.leftSuppressionReason).toBe('short-height')
+    expect(short.rightSuppressionReason).toBe('short-height')
+    expect(short.overlayInsets).toEqual({ left: 0, right: 0 })
   })
 
   it('declares shell reserves from policy constants', () => {

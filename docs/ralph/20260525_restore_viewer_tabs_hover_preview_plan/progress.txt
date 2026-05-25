@@ -5,3 +5,37 @@ Tool: codex
 Repo: /data/yada/dev_new/lenslet
 Plan: /data/yada/dev_new/lenslet/docs/20260525_restore_viewer_tabs_hover_preview_plan.md
 ---
+Iteration 1/6 - 2026-05-25T10:29:00Z
+Completed task IDs: RVP-0, RVP-1, RVP-2, RVP-3
+
+Files changed:
+- docs/20260525_restore_viewer_tabs_hover_preview_plan.md
+- frontend/src/app/layout/responsiveLayoutPolicy.ts
+- frontend/src/app/layout/__tests__/responsiveLayoutPolicy.test.ts
+- frontend/src/features/viewer/Viewer.tsx
+- frontend/src/features/compare/CompareViewer.tsx
+- scripts/responsive_geometry_harness.py
+- src/lenslet/frontend/index.html
+- src/lenslet/frontend/assets/* generated bundle updates
+
+Summary:
+- Confirmed the current branch matched the regression assumptions before implementation.
+- Extended the responsive geometry harness to fail on overlay-active side-region suppression and to assert center-contained viewer/compare overlays, modal inert/focus behavior, and multi-frame loaded image visibility.
+- Restored overlay policy so viewer/compare preserve side regions that normal non-overlay layout would show and use those effective widths as overlay insets.
+- Stabilized viewer/compare image readiness by clearing path-only stale readiness and binding loaded image identity to the blob URL that actually loaded.
+- Rebuilt and synced packaged frontend assets using delete-then-copy because rsync is unavailable.
+- Completed conservative cleanup and code-review gates; review findings were fixed and re-reviewed with no remaining findings.
+
+Validations:
+- Expected pre-fix evidence failure: `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp1-before.json` failed on viewer overlay side widths becoming zero with `overlay-active` suppression.
+- `npm run test -- src/app/layout/__tests__/responsiveLayoutPolicy.test.ts src/features/viewer/hooks/__tests__/useZoomPan.test.ts` passed.
+- `npm run build` passed.
+- `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp1-final2.json` passed.
+- `npm run test` passed: 75 files / 352 tests.
+- `python scripts/lint_repo.py` passed with existing warn-only file-size notices.
+
+Blockers:
+- None for Sprint 1.
+
+Next step:
+- Continue with Sprint 2 / RVP-4 to rewrite hover-preview tests around original-file preview.

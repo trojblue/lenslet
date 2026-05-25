@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from smoke_harness import (
     choose_port,
@@ -193,6 +194,24 @@ def collect_snapshot(page: Any, name: str, state: dict[str, Any] | None = None) 
             const rect = el.getBoundingClientRect();
             return rectPayload(rect);
           };
+          const imageFor = (selector) => {
+            const el = document.querySelector(selector);
+            if (!(el instanceof HTMLImageElement)) return null;
+            const rect = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            return {
+              selector,
+              src: el.currentSrc || el.src || null,
+              currentPath: el.getAttribute("data-current-path"),
+              complete: el.complete,
+              naturalWidth: el.naturalWidth,
+              naturalHeight: el.naturalHeight,
+              opacity: Number(style.opacity || "0"),
+              display: style.display,
+              visibility: style.visibility,
+              rect: rectPayload(rect),
+            };
+          };
           const describeElement = (el) => {
             if (!el) return null;
             return {
@@ -359,6 +378,14 @@ def collect_snapshot(page: Any, name: str, state: dict[str, Any] | None = None) 
               inspectorPreview: rectFor('.inspector-preview-card'),
               inspectorStarRow: rectFor('.inspector-star-row'),
             },
+            images: {
+              viewer: imageFor('[role="dialog"][aria-label="Image viewer"] img[alt="viewer"]'),
+              viewerThumb: imageFor('[role="dialog"][aria-label="Image viewer"] img[alt="thumb"]'),
+              compareA: imageFor('[role="dialog"][aria-label="Compare images"] img[alt="compare A"]'),
+              compareB: imageFor('[role="dialog"][aria-label="Compare images"] img[alt="compare B"]'),
+              compareThumbA: imageFor('[role="dialog"][aria-label="Compare images"] img[alt="thumb A"]'),
+              compareThumbB: imageFor('[role="dialog"][aria-label="Compare images"] img[alt="thumb B"]'),
+            },
             focus: {
               activeElement: describeElement(document.activeElement),
               browseShellInert: document.querySelector('[data-browse-shell]')?.hasAttribute('inert') ?? false,
@@ -501,6 +528,48 @@ def _parse_px(raw: Any) -> float:
         return 0.0
 
 
+def _parse_float(raw: Any) -> float:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _require_rect(snapshot: dict[str, Any], rect_name: str) -> dict[str, Any]:
+    rects = snapshot.get("rects")
+    if not isinstance(rects, dict) or not isinstance(rects.get(rect_name), dict):
+        raise ResponsiveGeometryFailure(
+            f"Missing {rect_name} rect in {snapshot.get('name')!r}: {rects!r}."
+        )
+    return rects[rect_name]
+
+
+def _rect_width(rect: dict[str, Any]) -> float:
+    return _parse_float(rect.get("width"))
+
+
+def _rect_left(rect: dict[str, Any]) -> float:
+    return _parse_float(rect.get("left"))
+
+
+def _rect_right(rect: dict[str, Any]) -> float:
+    return _parse_float(rect.get("right"))
+
+
+def _assert_close(
+    *,
+    actual: float,
+    expected: float,
+    tolerance: float,
+    label: str,
+    snapshot_name: Any,
+) -> None:
+    if abs(actual - expected) > tolerance:
+        raise ResponsiveGeometryFailure(
+            f"{label} mismatch in {snapshot_name}: actual={actual:.2f}, expected={expected:.2f}."
+        )
+
+
 def assert_mobile_search_reserved(snapshot: dict[str, Any]) -> None:
     css_vars = snapshot.get("cssVars")
     rects = snapshot.get("rects")
@@ -621,6 +690,207 @@ def assert_overlay_isolated(snapshot: dict[str, Any], expected_mode: str) -> Non
         raise ResponsiveGeometryFailure(f"Overlay left edge is squeezed in {snapshot.get('name')}: {overlay_rect!r}.")
     if float(overlay_rect.get("right", 0)) < viewport_width - expected_right - 1:
         raise ResponsiveGeometryFailure(f"Overlay right edge is squeezed in {snapshot.get('name')}: {overlay_rect!r}.")
+
+
+def assert_side_regions_visible(snapshot: dict[str, Any]) -> None:
+    layout = snapshot.get("layout")
+    if not isinstance(layout, dict):
+        raise ResponsiveGeometryFailure(f"Missing layout evidence for {snapshot.get('name')!r}.")
+    if _parse_float(layout.get("effectiveLeftWidth")) <= 0:
+        raise ResponsiveGeometryFailure(f"Left side region is not visible in {snapshot.get('name')}: {layout!r}.")
+    if _parse_float(layout.get("effectiveRightWidth")) <= 0:
+        raise ResponsiveGeometryFailure(f"Right side region is not visible in {snapshot.get('name')}: {layout!r}.")
+    left = _require_rect(snapshot, "leftSidebar")
+    right = _require_rect(snapshot, "rightSidebar")
+    if _rect_width(left) <= 1 or _rect_width(right) <= 1:
+        raise ResponsiveGeometryFailure(
+            f"Side region rects are not visible in {snapshot.get('name')}: left={left!r}, right={right!r}."
+        )
+
+
+def assert_overlay_contained_to_center(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    expected_mode: str,
+) -> None:
+    assert_side_regions_visible(before)
+    assert_side_regions_visible(after)
+    assert_overlay_isolated(after, expected_mode)
+
+    before_layout = before.get("layout")
+    after_layout = after.get("layout")
+    if not isinstance(before_layout, dict) or not isinstance(after_layout, dict):
+        raise ResponsiveGeometryFailure(f"Missing layout evidence for overlay containment in {after.get('name')}.")
+    if after_layout.get("leftSuppressionReason") == "overlay-active":
+        raise ResponsiveGeometryFailure(f"Overlay suppressed the left side region in {after.get('name')}.")
+    if after_layout.get("rightSuppressionReason") == "overlay-active":
+        raise ResponsiveGeometryFailure(f"Overlay suppressed the right side region in {after.get('name')}.")
+
+    before_left = _require_rect(before, "leftSidebar")
+    before_right = _require_rect(before, "rightSidebar")
+    after_left = _require_rect(after, "leftSidebar")
+    after_right = _require_rect(after, "rightSidebar")
+    for label, before_rect, after_rect in (
+        ("left side width", before_left, after_left),
+        ("right side width", before_right, after_right),
+    ):
+        _assert_close(
+            actual=_rect_width(after_rect),
+            expected=_rect_width(before_rect),
+            tolerance=1.0,
+            label=label,
+            snapshot_name=after.get("name"),
+        )
+
+    grid = _require_rect(after, "gridShell")
+    overlay = _require_rect(after, "overlay")
+    _assert_close(
+        actual=_rect_left(overlay),
+        expected=_rect_left(grid),
+        tolerance=1.0,
+        label="overlay left edge versus grid shell",
+        snapshot_name=after.get("name"),
+    )
+    _assert_close(
+        actual=_rect_right(overlay),
+        expected=_rect_right(grid),
+        tolerance=1.0,
+        label="overlay right edge versus grid shell",
+        snapshot_name=after.get("name"),
+    )
+
+    viewport = after.get("viewport")
+    viewport_width = _parse_float(viewport.get("width")) if isinstance(viewport, dict) else 0.0
+    if viewport_width > 0 and _rect_width(overlay) >= viewport_width - 1:
+        raise ResponsiveGeometryFailure(
+            f"Overlay spans the full viewport despite visible side regions in {after.get('name')}: {overlay!r}."
+        )
+
+    if expected_mode == "compare":
+        stage = _require_rect(after, "compareStage")
+        if _rect_left(stage) < _rect_left(overlay) - 1 or _rect_right(stage) > _rect_right(overlay) + 1:
+            raise ResponsiveGeometryFailure(
+                f"Compare stage escaped contained overlay in {after.get('name')}: "
+                f"stage={stage!r}, overlay={overlay!r}."
+            )
+
+
+def sample_overlay_images(
+    page: Any,
+    name: str,
+    *,
+    frames: int = 30,
+    interval_ms: int = 35,
+) -> dict[str, Any]:
+    evidence = page.evaluate(
+        """async ({ name, frames, intervalMs }) => {
+          const rectPayload = (rect) => ({
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+          });
+          const readImage = (selector) => {
+            const el = document.querySelector(selector);
+            if (!(el instanceof HTMLImageElement)) return null;
+            const rect = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            return {
+              selector,
+              src: el.currentSrc || el.src || null,
+              currentPath: el.getAttribute("data-current-path"),
+              complete: el.complete,
+              naturalWidth: el.naturalWidth,
+              naturalHeight: el.naturalHeight,
+              opacity: Number(style.opacity || "0"),
+              display: style.display,
+              visibility: style.visibility,
+              rect: rectPayload(rect),
+            };
+          };
+          const sleep = () => new Promise((resolve) => {
+            requestAnimationFrame(() => window.setTimeout(resolve, intervalMs));
+          });
+          const startedAt = performance.now();
+          const samples = [];
+          for (let frame = 0; frame < frames; frame += 1) {
+            await sleep();
+            samples.push({
+              frame,
+              elapsedMs: Math.round(performance.now() - startedAt),
+              images: {
+                viewer: readImage('[role="dialog"][aria-label="Image viewer"] img[alt="viewer"]'),
+                compareA: readImage('[role="dialog"][aria-label="Compare images"] img[alt="compare A"]'),
+                compareB: readImage('[role="dialog"][aria-label="Compare images"] img[alt="compare B"]'),
+              },
+            });
+          }
+          return { name, frames, intervalMs, samples };
+        }""",
+        {"name": name, "frames": frames, "intervalMs": interval_ms},
+    )
+    if not isinstance(evidence, dict):
+        raise ResponsiveGeometryFailure(f"Failed to sample overlay images for {name}.")
+    return evidence
+
+
+def _sample_image_visible(image: Any) -> bool:
+    if not isinstance(image, dict):
+        return False
+    rect = image.get("rect")
+    return (
+        bool(image.get("complete"))
+        and _parse_float(image.get("naturalWidth")) > 0
+        and _parse_float(image.get("naturalHeight")) > 0
+        and _parse_float(image.get("opacity")) > 0.05
+        and image.get("display") != "none"
+        and image.get("visibility") != "hidden"
+        and isinstance(rect, dict)
+        and _rect_width(rect) > 1
+        and _parse_float(rect.get("height")) > 1
+    )
+
+
+def assert_overlay_image_stable(
+    samples: dict[str, Any],
+    required_images: tuple[str, ...],
+    expected_paths: dict[str, str] | None = None,
+) -> None:
+    raw_samples = samples.get("samples")
+    if not isinstance(raw_samples, list) or not raw_samples:
+        raise ResponsiveGeometryFailure(f"Missing image samples for {samples.get('name')!r}.")
+    for image_name in required_images:
+        seen_visible = False
+        last_image: Any = None
+        for sample in raw_samples:
+            if not isinstance(sample, dict):
+                continue
+            images = sample.get("images")
+            image = images.get(image_name) if isinstance(images, dict) else None
+            last_image = image
+            visible = _sample_image_visible(image)
+            expected_path = expected_paths.get(image_name) if expected_paths else None
+            if visible and expected_path is not None and image.get("currentPath") != expected_path:
+                raise ResponsiveGeometryFailure(
+                    f"{image_name} shows the wrong current path in {samples.get('name')}: "
+                    f"expected={expected_path!r}, image={image!r}."
+                )
+            if visible:
+                seen_visible = True
+                continue
+            if seen_visible:
+                raise ResponsiveGeometryFailure(
+                    f"{image_name} became invisible after becoming visible in {samples.get('name')}: "
+                    f"frame={sample.get('frame')}, image={image!r}."
+                )
+        if not seen_visible:
+            raise ResponsiveGeometryFailure(
+                f"{image_name} did not become visibly loaded in {samples.get('name')}: last={last_image!r}."
+            )
 
 
 def assert_viewer_toolbar_chrome(snapshot: dict[str, Any]) -> None:
@@ -777,15 +1047,29 @@ def wait_for_visible_grid_cell_ids(page: Any, minimum_count: int, timeout_ms: fl
     )
 
 
+def path_from_cell_id(cell_id: str) -> str:
+    if not cell_id.startswith("cell-"):
+        raise ResponsiveGeometryFailure(f"Unexpected grid cell id: {cell_id!r}.")
+    return unquote(cell_id[5:])
+
+
 def select_first_item(page: Any, timeout_ms: float) -> None:
     first_cell_id = wait_for_visible_grid_cell_ids(page, 1, timeout_ms)[0]
     page.locator(f"[id='{first_cell_id}']").click(timeout=timeout_ms)
 
 
+def select_first_items(page: Any, count: int, timeout_ms: float) -> list[str]:
+    if count < 1:
+        return []
+    cell_ids = wait_for_visible_grid_cell_ids(page, count, timeout_ms)[:count]
+    page.locator(f"[id='{cell_ids[0]}']").click(timeout=timeout_ms)
+    for cell_id in cell_ids[1:]:
+        page.locator(f"[id='{cell_id}']").click(timeout=timeout_ms, modifiers=["Control"])
+    return [path_from_cell_id(cell_id) for cell_id in cell_ids]
+
+
 def select_first_two_items(page: Any, timeout_ms: float) -> None:
-    first_id, second_id = wait_for_visible_grid_cell_ids(page, 2, timeout_ms)[:2]
-    page.locator(f"[id='{first_id}']").click(timeout=timeout_ms)
-    page.locator(f"[id='{second_id}']").click(timeout=timeout_ms, modifiers=["Control"])
+    select_first_items(page, 2, timeout_ms)
 
 
 def open_metrics_left_panel(page: Any, timeout_ms: float) -> None:
@@ -793,16 +1077,45 @@ def open_metrics_left_panel(page: Any, timeout_ms: float) -> None:
     page.wait_for_timeout(150)
 
 
-def open_first_viewer(page: Any, timeout_ms: float) -> None:
+def open_first_viewer(page: Any, timeout_ms: float) -> str:
     first_cell_id = wait_for_visible_grid_cell_ids(page, 1, timeout_ms)[0]
     page.locator(f"[id='{first_cell_id}']").dblclick(timeout=timeout_ms)
     page.locator('[role="dialog"][aria-label="Image viewer"]').wait_for(state="visible", timeout=timeout_ms)
+    return path_from_cell_id(first_cell_id)
 
 
-def open_compare_from_first_two_items(page: Any, timeout_ms: float) -> None:
-    select_first_two_items(page, timeout_ms)
-    page.locator('[aria-label="Compare selected images"]').click(timeout=timeout_ms)
-    page.locator('[role="dialog"][aria-label="Compare images"]').wait_for(state="visible", timeout=timeout_ms)
+def wait_for_viewer_path(page: Any, expected_path: str, timeout_ms: float) -> None:
+    page.wait_for_function(
+        """(expectedPath) => {
+          return document
+            .querySelector('[role="dialog"][aria-label="Image viewer"]')
+            ?.getAttribute('data-current-path') === expectedPath;
+        }""",
+        arg=expected_path,
+        timeout=timeout_ms,
+    )
+
+
+def navigate_viewer_next(page: Any, expected_path: str, timeout_ms: float) -> None:
+    page.locator('.toolbar-nav button[aria-label="Next image"]').click(timeout=timeout_ms)
+    wait_for_viewer_path(page, expected_path, timeout_ms)
+
+
+def wait_for_compare_paths(page: Any, expected_a_path: str, expected_b_path: str, timeout_ms: float) -> None:
+    page.wait_for_function(
+        """([expectedAPath, expectedBPath]) => {
+          const dialog = document.querySelector('[role="dialog"][aria-label="Compare images"]');
+          return dialog?.getAttribute('data-compare-a-path') === expectedAPath
+            && dialog?.getAttribute('data-compare-b-path') === expectedBPath;
+        }""",
+        arg=[expected_a_path, expected_b_path],
+        timeout=timeout_ms,
+    )
+
+
+def navigate_compare_next(page: Any, expected_a_path: str, expected_b_path: str, timeout_ms: float) -> None:
+    page.locator('[role="dialog"][aria-label="Compare images"] button[title^="Next"]').click(timeout=timeout_ms)
+    wait_for_compare_paths(page, expected_a_path, expected_b_path, timeout_ms)
 
 
 def run_scenario(page: Any, base_url: str, scenario: Scenario, timeout_ms: float) -> dict[str, Any]:
@@ -894,13 +1207,42 @@ def run_viewer_overlay_scenario(page: Any, base_url: str, timeout_ms: float) -> 
 
     page.set_viewport_size({"width": 1024, "height": 760})
     page.wait_for_timeout(200)
-    open_first_viewer(page, timeout_ms)
-    page.wait_for_timeout(100)
+    desktop_before = collect_snapshot(page, "viewer-toolbar-before-1024x760")
+    assert_no_document_overflow(desktop_before)
+    assert_side_regions_visible(desktop_before)
+    expected_viewer_paths = [
+        path_from_cell_id(cell_id)
+        for cell_id in wait_for_visible_grid_cell_ids(page, 2, timeout_ms)[:2]
+    ]
+    opened_path = open_first_viewer(page, timeout_ms)
+    if opened_path != expected_viewer_paths[0]:
+        raise ResponsiveGeometryFailure(
+            f"Viewer opened unexpected path: {opened_path!r}, expected {expected_viewer_paths[0]!r}."
+        )
+    wait_for_viewer_path(page, expected_viewer_paths[0], timeout_ms)
+    viewer_samples = sample_overlay_images(page, "viewer-toolbar-1024x760-samples")
     desktop_snapshot = collect_snapshot(page, "viewer-toolbar-1024x760")
     assert_no_document_overflow(desktop_snapshot)
     assert_hidden_toolbar_controls_not_interactable(desktop_snapshot)
-    assert_overlay_isolated(desktop_snapshot, "viewer")
+    assert_overlay_contained_to_center(desktop_before, desktop_snapshot, "viewer")
+    assert_overlay_image_stable(
+        viewer_samples,
+        ("viewer",),
+        {"viewer": expected_viewer_paths[0]},
+    )
     assert_viewer_toolbar_chrome(desktop_snapshot)
+
+    navigate_viewer_next(page, expected_viewer_paths[1], timeout_ms)
+    viewer_next_samples = sample_overlay_images(page, "viewer-toolbar-next-1024x760-samples")
+    desktop_next_snapshot = collect_snapshot(page, "viewer-toolbar-next-1024x760")
+    assert_no_document_overflow(desktop_next_snapshot)
+    assert_hidden_toolbar_controls_not_interactable(desktop_next_snapshot)
+    assert_overlay_contained_to_center(desktop_before, desktop_next_snapshot, "viewer")
+    assert_overlay_image_stable(
+        viewer_next_samples,
+        ("viewer",),
+        {"viewer": expected_viewer_paths[1]},
+    )
 
     page.locator('[data-toolbar-control="back"]').click(timeout=timeout_ms)
     page.locator('[role="dialog"][aria-label="Image viewer"]').wait_for(state="detached", timeout=timeout_ms)
@@ -910,7 +1252,15 @@ def run_viewer_overlay_scenario(page: Any, base_url: str, timeout_ms: float) -> 
 
     return {
         "name": "viewer-overlay",
-        "steps": [open_snapshot, closed_snapshot, desktop_snapshot, toolbar_closed_snapshot],
+        "steps": [
+            open_snapshot,
+            closed_snapshot,
+            desktop_before,
+            desktop_snapshot,
+            desktop_next_snapshot,
+            toolbar_closed_snapshot,
+        ],
+        "imageSamples": [viewer_samples, viewer_next_samples],
     }
 
 
@@ -919,7 +1269,36 @@ def run_compare_overlay_scenario(page: Any, base_url: str, timeout_ms: float) ->
     page.add_init_script(seed_storage_script(scenario_storage()))
     page.goto(base_url, wait_until="domcontentloaded")
     wait_for_shell(page, timeout_ms)
-    open_compare_from_first_two_items(page, timeout_ms)
+    compare_paths = select_first_items(page, 3, timeout_ms)
+    page.wait_for_timeout(150)
+    desktop_before = collect_snapshot(page, "compare-overlay-before-1440x900")
+    assert_no_document_overflow(desktop_before)
+    assert_side_regions_visible(desktop_before)
+    page.locator('[aria-label="Compare selected images"]').click(timeout=timeout_ms)
+    page.locator('[role="dialog"][aria-label="Compare images"]').wait_for(state="visible", timeout=timeout_ms)
+    compare_samples = sample_overlay_images(page, "compare-overlay-1440x900-samples")
+    desktop_open = collect_snapshot(page, "compare-overlay-1440x900")
+    assert_no_document_overflow(desktop_open)
+    assert_hidden_toolbar_controls_not_interactable(desktop_open)
+    assert_overlay_contained_to_center(desktop_before, desktop_open, "compare")
+    assert_overlay_image_stable(
+        compare_samples,
+        ("compareA", "compareB"),
+        {"compareA": compare_paths[0], "compareB": compare_paths[1]},
+    )
+
+    navigate_compare_next(page, compare_paths[1], compare_paths[2], timeout_ms)
+    compare_next_samples = sample_overlay_images(page, "compare-overlay-next-1440x900-samples")
+    desktop_next_open = collect_snapshot(page, "compare-overlay-next-1440x900")
+    assert_no_document_overflow(desktop_next_open)
+    assert_hidden_toolbar_controls_not_interactable(desktop_next_open)
+    assert_overlay_contained_to_center(desktop_before, desktop_next_open, "compare")
+    assert_overlay_image_stable(
+        compare_next_samples,
+        ("compareA", "compareB"),
+        {"compareA": compare_paths[1], "compareB": compare_paths[2]},
+    )
+
     page.set_viewport_size({"width": 390, "height": 520})
     page.wait_for_timeout(300)
     page.keyboard.press("Tab")
@@ -937,7 +1316,8 @@ def run_compare_overlay_scenario(page: Any, base_url: str, timeout_ms: float) ->
 
     return {
         "name": "compare-overlay",
-        "steps": [open_snapshot, closed_snapshot],
+        "steps": [desktop_before, desktop_open, desktop_next_open, open_snapshot, closed_snapshot],
+        "imageSamples": [compare_samples, compare_next_samples],
     }
 
 

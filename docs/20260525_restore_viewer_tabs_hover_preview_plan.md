@@ -267,7 +267,13 @@ Recovery:
 - [x] 2026-05-25 07:10 UTC: Read `docs/20260525_restore_viewer_tabs_hover_preview_plan_review.md` and incorporated branch-alignment gate, normal-layout comparison rule, concrete policy implementation shape, ready-state race note, toolbar policy, and safer full-file hover cache guidance.
 - [x] 2026-05-25 07:18 UTC: Tightened the plan after review to prefer the existing responsive geometry harness, avoid blindly returning the non-overlay model, require split overlay/short-height tests, restore the old centered hover preview rather than an enlarged anchored popover, and add adversarial hover stale-response/scroll-clear checks.
 - [x] 2026-05-25 10:12 UTC: `RVP-0` branch alignment confirmed before implementation. Current branch lazy-loads viewer/compare with `Suspense` fallbacks, `responsiveLayoutPolicy.ts` suppresses side regions when overlay is active, `Viewer.tsx` and `CompareViewer.tsx` use thumbnail placeholders plus readiness opacity, `api.getHoverPreview()` fetches `/thumb`, `hoverPreview.ts` caps at `360x280`, and `scripts/responsive_geometry_harness.py` is the active browser harness to extend.
-- [ ] Sprint 1 implementation handoff pending.
+- [x] 2026-05-25 10:13 UTC: `RVP-1` extended `scripts/responsive_geometry_harness.py` with side-region/grid/overlay rect assertions and multi-frame viewer/compare image visibility samples. Before the policy fix, `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp1-before.json` failed as expected because viewer overlay reported `overlay-active` suppression and `data-effective-left-width="0"` / `data-effective-right-width="0"` at `1024x760`.
+- [x] 2026-05-25 10:14 UTC: `RVP-2` restored overlay policy so viewer/compare reuse normal effective side widths as overlay insets while short-height and phone/narrow suppression remain governed by normal responsive constraints. Focused policy tests passed with `npm run test -- src/app/layout/__tests__/responsiveLayoutPolicy.test.ts src/features/viewer/hooks/__tests__/useZoomPan.test.ts`.
+- [x] 2026-05-25 10:15 UTC: `RVP-3` reconciled viewer and compare readiness against completed current images so cached or fast `/file` loads cannot be hidden after load. Kept thumbnail placeholders and lazy surfaces intact.
+- [x] 2026-05-25 10:16 UTC: Built and synced frontend assets. `rsync` was unavailable, so used the approved delete-then-copy fallback from `frontend/dist/` into `src/lenslet/frontend/`.
+- [x] 2026-05-25 10:17 UTC: Sprint 1 browser evidence passed with `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp1-after.json`; viewer overlay includes `viewer-toolbar-before-1024x760` / `viewer-toolbar-1024x760`, and compare overlay includes `compare-overlay-before-1440x900` / `compare-overlay-1440x900` plus image samples. Full frontend tests passed with `npm run test`.
+- [x] 2026-05-25 10:29 UTC: Sprint 1 cleanup and review gates completed. Cleanup removed one unused harness helper and normalized compare readiness formatting. Review found two issues, both fixed: generated assets were staged coherently, and browser image evidence now asserts loaded image identity after warmed viewer and compare next-navigation using URL-bound loaded-path data, not merely requested path. Final Sprint 1 validations passed: `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp1-final2.json`, `npm run test`, and `python scripts/lint_repo.py`.
+- [x] Sprint 1 implementation handoff complete. Restored contained viewer/compare overlays and stable loaded-image visibility while preserving modal focus ownership and toolbar behavior. Side regions remain inert/decorative under modal ownership; no Sprint 2 hover-preview behavior was changed.
 - [ ] Sprint 2 implementation handoff pending.
 
 
@@ -298,12 +304,13 @@ Likely codepaths:
 
 Handoff notes:
 
-1. Start with `RVP-0`; do not edit code until branch assumptions are recorded.
+1. Sprint 1 closed in commit pending in this iteration: start next iteration at Sprint 2 / `RVP-4`.
 2. Do not continue the old Ralph plan assumptions for viewer fullscreen or hover preview.
 3. Restore the old product intent first: visible side regions and large original hover preview.
 4. Preserve modal focus ownership unless the user explicitly approves interactive side regions during viewer/compare.
 5. Prefer policy and preview-fetch fixes over broad DOM or component rewrites.
-6. If a focused browser script is added, keep it small and tied only to these regressions.
+6. The focused browser command for Sprint 1 is `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-rvp1-final2.json`.
+7. `rsync` is unavailable in this environment; generated frontend assets were synced with delete-then-copy from `frontend/dist/` to `src/lenslet/frontend/`.
 
 Revision note:
 

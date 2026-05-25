@@ -1,10 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Component,
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import Toolbar from '../shared/ui/Toolbar'
 import VirtualGrid from '../features/browse/components/VirtualGrid'
 import MetricScrollbar from '../features/browse/components/MetricScrollbar'
-import Viewer from '../features/viewer/Viewer'
-import CompareViewer from '../features/compare/CompareViewer'
-import Inspector from '../features/inspector/Inspector'
 import SimilarityModal from '../features/embeddings/SimilarityModal'
 import { api } from '../api/client'
 import type { FullFilePrefetchContext } from '../api/client'
@@ -105,6 +112,10 @@ import {
 import { applyThemePreset, type ThemePresetId } from '../theme/runtime'
 import { loadWorkspaceThemePreset, writeStoredThemePreset } from '../theme/storage'
 
+const Viewer = lazy(() => import('../features/viewer/Viewer'))
+const CompareViewer = lazy(() => import('../features/compare/CompareViewer'))
+const Inspector = lazy(() => import('../features/inspector/Inspector'))
+
 // S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
 // - T13a data scope: folder/search/similarity loading + derived pools.
 // - T13b selection/viewer/compare: selection state, openViewer/closeViewer, openCompare/closeCompare.
@@ -193,6 +204,91 @@ function prefetchFilesAndThumbs(paths: readonly string[], context: FullFilePrefe
     api.prefetchFile(path, context)
     api.prefetchThumb(path)
   }
+}
+
+type LazySurfaceBoundaryProps = {
+  resetKey: string
+  fallback: ReactNode
+  children: ReactNode
+}
+
+type LazySurfaceBoundaryState = {
+  hasError: boolean
+}
+
+class LazySurfaceBoundary extends Component<LazySurfaceBoundaryProps, LazySurfaceBoundaryState> {
+  state: LazySurfaceBoundaryState = { hasError: false }
+
+  static getDerivedStateFromError(): LazySurfaceBoundaryState {
+    return { hasError: true }
+  }
+
+  componentDidUpdate(prevProps: LazySurfaceBoundaryProps): void {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false })
+    }
+  }
+
+  render(): ReactNode {
+    if (this.state.hasError) return this.props.fallback
+    return this.props.children
+  }
+}
+
+type InspectorFallbackProps = {
+  message: string
+  onClose: () => void
+  busy?: boolean
+}
+
+function InspectorFallback({ message, onClose, busy = false }: InspectorFallbackProps): JSX.Element {
+  return (
+    <div
+      className="app-right-panel inspector-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative"
+      data-inspector-panel
+      aria-busy={busy ? 'true' : undefined}
+    >
+      <div className="p-3 flex items-center justify-between gap-3 text-sm text-muted">
+        <span>{message}</span>
+        <button className="btn btn-sm" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </div>
+  )
+}
+
+type OverlayFallbackProps = {
+  label: string
+  message: string
+  onClose: () => void
+  busy?: boolean
+}
+
+function OverlayFallback({ label, message, onClose, busy = false }: OverlayFallbackProps): JSX.Element {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={label}
+      aria-busy={busy ? 'true' : undefined}
+      tabIndex={-1}
+      className="toolbar-offset absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] bg-panel z-viewer flex items-center justify-center"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          onClose()
+        }
+      }}
+    >
+      <div className="flex flex-col items-center gap-3 text-sm text-muted">
+        <span>{message}</span>
+        <button className="btn btn-sm" onClick={onClose} autoFocus>
+          Close
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export default function AppShell({
@@ -823,6 +919,9 @@ export default function AppShell({
   const openMetricsPanel = useCallback(() => {
     setLeftOpen(true)
     setLeftTool('metrics')
+  }, [])
+  const closeRightPanel = useCallback(() => {
+    setRightOpen(false)
   }, [])
 
   const handleLeftToolChange = useCallback((nextTool: 'folders' | 'metrics') => {
@@ -1525,26 +1624,35 @@ export default function AppShell({
           {/* Bottom selection bar removed intentionally */}
         </div>
         {layoutModel.effectiveRightOpen && (
-          <Inspector
-            path={selectedPaths[0] ?? null}
-            selectedPaths={selectedPaths}
-            comparePaths={comparePaths}
-            items={items}
-            viewerCompareActive={compareOpen}
-            compareA={compareA}
-            compareB={compareB}
-            onOpenCompare={openCompare}
-            sortSpec={viewState.sort}
-            onResize={onResizeRight}
-            onStarChanged={(paths, val)=>{
-              setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })
-            }}
-            onFindSimilar={() => setSimilarityOpen(true)}
-            embeddingsAvailable={embeddingsAvailable}
-            embeddingsLoading={embeddingsLoading}
-            autoloadImageMetadata={autoloadImageMetadata}
-            onLocalTypingChange={setLocalTypingActive}
-          />
+          <LazySurfaceBoundary
+            resetKey={`inspector:${layoutModel.effectiveRightOpen}`}
+            fallback={<InspectorFallback message="Inspector could not load." onClose={closeRightPanel} />}
+          >
+            <Suspense
+              fallback={<InspectorFallback message="Loading inspector..." onClose={closeRightPanel} busy />}
+            >
+              <Inspector
+                path={selectedPaths[0] ?? null}
+                selectedPaths={selectedPaths}
+                comparePaths={comparePaths}
+                items={items}
+                viewerCompareActive={compareOpen}
+                compareA={compareA}
+                compareB={compareB}
+                onOpenCompare={openCompare}
+                sortSpec={viewState.sort}
+                onResize={onResizeRight}
+                onStarChanged={(paths, val)=>{
+                  setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })
+                }}
+                onFindSimilar={() => setSimilarityOpen(true)}
+                embeddingsAvailable={embeddingsAvailable}
+                embeddingsLoading={embeddingsLoading}
+                autoloadImageMetadata={autoloadImageMetadata}
+                onLocalTypingChange={setLocalTypingActive}
+              />
+            </Suspense>
+          </LazySurfaceBoundary>
         )}
       </div>
       <SimilarityModal
@@ -1558,28 +1666,46 @@ export default function AppShell({
         onSearch={handleSimilaritySearch}
       />
       {viewer && (
-        <Viewer
-          path={viewer}
-          onClose={closeViewer}
-          onZoomChange={(p)=> setCurrentZoom(Math.round(p))}
-          requestedZoomPercent={requestedZoom}
-          onZoomRequestConsumed={()=> setRequestedZoom(null)}
-          canPrev={canPrevImage}
-          canNext={canNextImage}
-          onNavigate={handleNavigate}
-        />
+        <LazySurfaceBoundary
+          resetKey={`viewer:${viewer}`}
+          fallback={<OverlayFallback label="Image viewer" message="Viewer could not load." onClose={closeViewer} />}
+        >
+          <Suspense
+            fallback={<OverlayFallback label="Image viewer" message="Loading viewer..." onClose={closeViewer} busy />}
+          >
+            <Viewer
+              path={viewer}
+              onClose={closeViewer}
+              onZoomChange={(p)=> setCurrentZoom(Math.round(p))}
+              requestedZoomPercent={requestedZoom}
+              onZoomRequestConsumed={()=> setRequestedZoom(null)}
+              canPrev={canPrevImage}
+              canNext={canNextImage}
+              onNavigate={handleNavigate}
+            />
+          </Suspense>
+        </LazySurfaceBoundary>
       )}
       {compareOpen && (
-        <CompareViewer
-          aItem={compareA}
-          bItem={compareB}
-          index={compareIndexClamped}
-          total={compareItems.length}
-          canPrev={canComparePrev}
-          canNext={canCompareNext}
-          onNavigate={handleCompareNavigate}
-          onClose={closeCompare}
-        />
+        <LazySurfaceBoundary
+          resetKey={`compare:${compareOpen}`}
+          fallback={<OverlayFallback label="Compare images" message="Compare could not load." onClose={closeCompare} />}
+        >
+          <Suspense
+            fallback={<OverlayFallback label="Compare images" message="Loading compare..." onClose={closeCompare} busy />}
+          >
+            <CompareViewer
+              aItem={compareA}
+              bItem={compareB}
+              index={compareIndexClamped}
+              total={compareItems.length}
+              canPrev={canComparePrev}
+              canNext={canCompareNext}
+              onNavigate={handleCompareNavigate}
+              onClose={closeCompare}
+            />
+          </Suspense>
+        </LazySurfaceBoundary>
       )}
       {moveDialog && (
         <MoveToDialog

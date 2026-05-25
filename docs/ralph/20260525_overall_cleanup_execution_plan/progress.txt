@@ -197,3 +197,34 @@ Cleanup and review:
 Blockers: none.
 
 Next step: Sprint 5 begins with OCR-13 measured bundle splitting, followed by OCR-14 final cleanup, review, asset sync, and handoff.
+
+## Iteration 6 - 2026-05-25T06:17:00Z
+
+Completed task IDs: OCR-13, OCR-14
+
+Files changed:
+- `frontend/src/app/AppShell.tsx`
+- `src/lenslet/frontend/index.html`
+- `src/lenslet/frontend/assets/*` (rebuilt Vite bundle filenames changed; new lazy chunks added for Viewer, CompareViewer, Inspector, shared imageTransform, sortable.esm, RankingApp, and the main app chunk)
+- `docs/20260525_overall_cleanup_execution_plan.md`
+- `docs/ralph/20260525_overall_cleanup_execution_plan/progress.txt`
+
+Validations run:
+- `cd frontend && npm run build` - passed; baseline before splitting was `index-Cen1E9zp.js` at `552.51 kB` minified with the existing warning, final output is `index-OJysL_gi.js` at `421.85 kB` minified with no chunk-size warning.
+- Packaged frontend assets synced from `frontend/dist/` into `src/lenslet/frontend/`; `diff -qr frontend/dist src/lenslet/frontend` passed.
+- Focused frontend tests for selection/viewer/inspector paths - passed, 20 tests.
+- `cd frontend && npm run test` - passed, 75 files / 349 tests.
+- `python scripts/overall_cleanup_browser.py --output-json /tmp/lenslet-overall-cleanup-final.json` - passed; lazy viewer, compare, and inspector/export paths opened and all Sprint 1 through Sprint 4 assertions remained green.
+- `python scripts/gui_smoke_acceptance.py` - passed with the existing non-fatal folder re-entry anchor warning.
+- `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-overall-cleanup.json` - passed.
+- `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json /tmp/lenslet-large-tree-overall-cleanup.json` - passed; first grid `3.90s`, hotpath `3383ms`, first thumbnail `3475ms`, max frame gap `283.3ms`, zero `/file` requests.
+- `python scripts/lint_repo.py` - passed; existing warn-only file-size notes remain.
+- `git diff --check` - passed.
+
+Cleanup and review:
+- Code-simplifier pass applied only Tier 1 cleanup by removing the unused default `React` import from `frontend/src/app/AppShell.tsx`.
+- Fresh code-review pass first found two actionable gaps: regenerated packaged assets were not staged, and lazy overlay chunks had no close/error path while suspended or rejected. The assets were staged, and `AppShell` gained a small `LazySurfaceBoundary` plus closeable loading/error fallbacks for inspector, viewer, and compare. Review confirmation reported no remaining actionable findings.
+
+Blockers: none.
+
+Next step: all planned sprints and tasks are complete; commit the Sprint 5 slice and mark the Ralph plan complete.

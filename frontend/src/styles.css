@@ -1087,20 +1087,23 @@
 /* Responsive toolbar + layout tweaks for narrow screens */
 @media (max-width: 900px) {
   :root {
-    --mobile-drawer-h: calc(56px + env(safe-area-inset-bottom, 0px));
+    --mobile-drawer-h: calc(217px + env(safe-area-inset-bottom, 0px));
     --metric-rail-w: 16px;
   }
 
   .toolbar-shell {
     position: relative;
-    height: auto !important;
-    padding: 10px 12px;
+    height: var(--toolbar-h) !important;
+    min-height: var(--toolbar-h);
+    padding: 0 12px;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-auto-rows: auto;
+    grid-template-rows: 48px;
+    grid-auto-rows: 48px;
     align-items: center;
     column-gap: 10px;
-    row-gap: 8px;
+    row-gap: 0;
+    overflow: visible;
   }
 
   .toolbar-left,
@@ -1172,17 +1175,17 @@
   .toolbar-search-row {
     width: 100%;
     grid-column: 1 / -1;
-    min-height: 36px;
+    min-height: 48px;
     display: flex;
     align-items: center;
   }
 
   .toolbar-search-row-hidden .toolbar-search-input-mobile {
-    visibility: hidden;
-    pointer-events: none;
+    display: none;
   }
 
   .toolbar-search-row-hidden {
+    display: none;
     pointer-events: none;
   }
 
@@ -1207,33 +1210,26 @@
   }
 
   .mobile-drawer-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: center;
     gap: 8px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow: visible;
   }
 
-  .mobile-drawer-row::-webkit-scrollbar {
-    display: none;
+  .mobile-drawer-sort-control {
+    grid-column: span 2;
+    min-width: 0;
   }
 
-  .mobile-pill-group {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+  .mobile-drawer-sort-control > .relative,
+  .mobile-drawer-theme,
+  .mobile-drawer-theme .theme-settings-menu-root {
+    min-width: 0;
   }
 
-  .mobile-pill-slot {
-    display: inline-flex;
-  }
-
-  .mobile-pill-slot-select {
-    min-width: 92px;
-  }
-
-  .mobile-pill-slot-upload {
-    min-width: 84px;
+  .toolbar-filter-drawer {
+    min-width: 0;
   }
 
   .mobile-pill {
@@ -1246,8 +1242,13 @@
     font-size: 12px;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     white-space: nowrap;
+    min-width: 0;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .mobile-pill.is-active {
@@ -1267,7 +1268,14 @@
   }
 
   .mobile-pill-dropdown.dropdown-trigger {
-    min-width: 110px;
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .theme-settings-menu-trigger-mobile {
+    width: 100%;
+    justify-content: center;
   }
 
   .mobile-drawer-panel {

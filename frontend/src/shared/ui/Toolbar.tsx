@@ -48,6 +48,10 @@ export interface ToolbarProps {
   canNextImage?: boolean
   searchDisabled?: boolean
   searchPlaceholder?: string
+  mobileSearchOpen?: boolean
+  onMobileSearchOpenChange?: (open: boolean) => void
+  mobileDrawerOpen?: boolean
+  onMobileDrawerOpenChange?: (open: boolean) => void
   onUploadClick?: () => void
   uploadBusy?: boolean
   uploadDisabled?: boolean
@@ -102,6 +106,10 @@ export default function Toolbar({
   canNextImage,
   searchDisabled = false,
   searchPlaceholder,
+  mobileSearchOpen = false,
+  onMobileSearchOpenChange,
+  mobileDrawerOpen = true,
+  onMobileDrawerOpenChange,
   onUploadClick,
   uploadBusy = false,
   uploadDisabled = false,
@@ -117,7 +125,6 @@ export default function Toolbar({
   syncIndicator,
 }: ToolbarProps): JSX.Element {
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const filtersRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const isNarrow = useMediaQuery(LAYOUT_MEDIA_QUERIES.narrow)
@@ -126,10 +133,13 @@ export default function Toolbar({
   const showMobileDrawer = isNarrow && !viewerActive
   const isCompactViewer = Boolean(viewerActive) && isToolbarCompact
   const sortSlotsVisible = !isCompactViewer
+  const topToolbarActionsVisible = !showMobileDrawer
   const showToolbarNav = !!viewerActive && !isPhone
   const showBackButton = Boolean(viewerActive && onBack)
   const showRefreshButton = Boolean(!viewerActive && onRefreshRoot)
+  const showTopRefreshButton = showRefreshButton && topToolbarActionsVisible
   const showUploadButton = Boolean(!viewerActive && onUploadClick)
+  const showTopUploadButton = showUploadButton && topToolbarActionsVisible
   const showDesktopSearch = Boolean(!viewerActive && !isNarrow)
   const showNarrowSearchControls = Boolean(!viewerActive && isNarrow)
   const showNarrowSearchToggle = showNarrowSearchControls
@@ -157,13 +167,15 @@ export default function Toolbar({
 
   useEffect(() => {
     if (searchDisabled || !showMobileSearchRow) {
-      setMobileSearchOpen(false)
+      if (mobileSearchOpen) {
+        onMobileSearchOpenChange?.(false)
+      }
       return
     }
     if (!mobileSearchOpen) return
     const handle = window.requestAnimationFrame(() => searchInputRef.current?.focus())
     return () => window.cancelAnimationFrame(handle)
-  }, [mobileSearchOpen, searchDisabled, showMobileSearchRow])
+  }, [mobileSearchOpen, onMobileSearchOpenChange, searchDisabled, showMobileSearchRow])
 
   const effectiveSort: SortSpec = sortSpec ?? { kind: 'builtin', key: 'added', dir: 'desc' }
   const sortDir = effectiveSort.dir
@@ -245,7 +257,7 @@ export default function Toolbar({
   return (
     <div
       ref={rootRef}
-      className={`toolbar-shell ${viewerActive ? 'toolbar-shell-viewer' : ''} ${isPhone ? 'toolbar-shell-phone' : ''} ${isToolbarCompact ? 'toolbar-shell-compact' : ''} fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1 select-none`}
+      className={`toolbar-shell ${viewerActive ? 'toolbar-shell-viewer' : ''} ${isPhone ? 'toolbar-shell-phone' : ''} ${isToolbarCompact ? 'toolbar-shell-compact' : ''} ${showMobileDrawer ? 'toolbar-shell-mobile-browse' : ''} ${showMobileDrawer && mobileDrawerOpen ? 'toolbar-shell-mobile-drawer-open' : ''} fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1 select-none`}
     >
       {/* Left section */}
       <div className="toolbar-left flex items-center gap-4 min-w-0">
@@ -260,93 +272,97 @@ export default function Toolbar({
             <span className="toolbar-count text-xs text-muted whitespace-nowrap tabular-nums">{countLabel}</span>
           )}
         </div>
-        <div className="toolbar-sort flex items-center gap-2">
-          <div
-            className={`toolbar-sort-controls flex items-center gap-2 ${sortSlotsVisible ? '' : 'toolbar-control-hidden'}`}
-            aria-hidden={!sortSlotsVisible}
-          >
-            <Dropdown
-              value={currentSort}
-              onChange={handleSortLayoutChange}
-              options={sortOptions}
-              title="Sort and layout options"
-              aria-label="Sort and layout"
-              triggerClassName="toolbar-sort-trigger min-w-[110px]"
-              disabled={sortControlsDisabled || !sortSlotsVisible}
-            />
-            <button
-              className="toolbar-sort-dir btn btn-icon"
-              onClick={handleSortDirToggle}
-              title={sortDisabled ? 'Sorting disabled' : (isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`)}
-              aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
-              aria-disabled={sortControlsDisabled || !sortSlotsVisible}
+        {topToolbarActionsVisible && (
+          <div className="toolbar-sort flex items-center gap-2">
+            <div
+              className={`toolbar-sort-controls flex items-center gap-2 ${sortSlotsVisible ? '' : 'toolbar-control-hidden'}`}
               aria-hidden={!sortSlotsVisible}
-              disabled={sortControlsDisabled || !sortSlotsVisible}
-              tabIndex={sortSlotsVisible ? 0 : -1}
             >
-              <SortDirectionIcon isRandom={isRandom} dir={sortDir} />
-            </button>
-          </div>
-          <ToolbarFilterMenu
-            viewerActive={Boolean(viewerActive)}
-            suppressed={!sortSlotsVisible}
-            filtersOpen={filtersOpen}
-            filtersRef={filtersRef}
-            totalFilterCount={totalFilterCount}
-            filterCount={filterCount}
-            starFilterList={starFilterList}
-            starCounts={starCounts}
-            onToggleFilters={() => {
-              if (!sortSlotsVisible || viewerActive) return
-              setFiltersOpen((value) => !value)
-            }}
-            onOpenFilters={onOpenFilters}
-            onToggleStar={onToggleStar}
-            onClearFilters={onClearFilters}
-            onClearStars={onClearStars}
-          />
-          <div className="toolbar-slot toolbar-slot-refresh" data-toolbar-slot="refresh">
-            <button
-              data-toolbar-control="refresh"
-              className={`btn btn-icon ml-1 ${showRefreshButton ? '' : 'toolbar-control-hidden'} ${refreshButtonDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-              title={refreshButtonTitle}
-              onClick={() => {
-                if (!showRefreshButton || refreshButtonDisabled) return
-                onRefreshRoot?.()
+              <Dropdown
+                value={currentSort}
+                onChange={handleSortLayoutChange}
+                options={sortOptions}
+                title="Sort and layout options"
+                aria-label="Sort and layout"
+                triggerClassName="toolbar-sort-trigger min-w-[110px]"
+                disabled={sortControlsDisabled || !sortSlotsVisible}
+              />
+              <button
+                className="toolbar-sort-dir btn btn-icon"
+                onClick={handleSortDirToggle}
+                title={sortDisabled ? 'Sorting disabled' : (isRandom ? 'Shuffle' : `Sort ${sortDir === 'desc' ? 'descending' : 'ascending'}`)}
+                aria-label={isRandom ? 'Shuffle' : 'Toggle sort direction'}
+                aria-disabled={sortControlsDisabled || !sortSlotsVisible}
+                aria-hidden={!sortSlotsVisible}
+                disabled={sortControlsDisabled || !sortSlotsVisible}
+                tabIndex={sortSlotsVisible ? 0 : -1}
+              >
+                <SortDirectionIcon isRandom={isRandom} dir={sortDir} />
+              </button>
+            </div>
+            <ToolbarFilterMenu
+              viewerActive={Boolean(viewerActive)}
+              suppressed={!sortSlotsVisible}
+              filtersOpen={filtersOpen}
+              filtersRef={filtersRef}
+              totalFilterCount={totalFilterCount}
+              filterCount={filterCount}
+              starFilterList={starFilterList}
+              starCounts={starCounts}
+              onToggleFilters={() => {
+                if (!sortSlotsVisible || viewerActive) return
+                setFiltersOpen((value) => !value)
               }}
-              aria-label="Refresh root folder"
-              aria-disabled={!showRefreshButton || refreshButtonDisabled}
-              aria-hidden={!showRefreshButton}
-              disabled={!showRefreshButton || refreshButtonDisabled}
-              tabIndex={showRefreshButton ? 0 : -1}
+              onOpenFilters={onOpenFilters}
+              onToggleStar={onToggleStar}
+              onClearFilters={onClearFilters}
+              onClearStars={onClearStars}
+            />
+            <div className="toolbar-slot toolbar-slot-refresh" data-toolbar-slot="refresh">
+              <button
+                data-toolbar-control="refresh"
+                className={`btn btn-icon ml-1 ${showTopRefreshButton ? '' : 'toolbar-control-hidden'} ${refreshButtonDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title={refreshButtonTitle}
+                onClick={() => {
+                  if (!showTopRefreshButton || refreshButtonDisabled) return
+                  onRefreshRoot?.()
+                }}
+                aria-label="Refresh root folder"
+                aria-disabled={!showTopRefreshButton || refreshButtonDisabled}
+                aria-hidden={!showTopRefreshButton}
+                disabled={!showTopRefreshButton || refreshButtonDisabled}
+                tabIndex={showTopRefreshButton ? 0 : -1}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+        {(showBackButton || topToolbarActionsVisible) && (
+          <div className="toolbar-slot toolbar-slot-back" data-toolbar-slot="back">
+            <button
+              data-toolbar-control="back"
+              className={`toolbar-back-btn btn btn-sm ${showBackButton ? '' : 'toolbar-control-hidden'}`}
+              onClick={() => {
+                if (!showBackButton) return
+                onBack?.()
+              }}
+              title="Back to grid"
+              aria-label="Back to grid"
+              aria-hidden={!showBackButton}
+              disabled={!showBackButton}
+              tabIndex={showBackButton ? 0 : -1}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-                <path d="M21 3v6h-6" />
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
               </svg>
+              <span className="toolbar-back-label">Back</span>
             </button>
           </div>
-        </div>
-        <div className="toolbar-slot toolbar-slot-back" data-toolbar-slot="back">
-          <button
-            data-toolbar-control="back"
-            className={`toolbar-back-btn btn btn-sm ${showBackButton ? '' : 'toolbar-control-hidden'}`}
-            onClick={() => {
-              if (!showBackButton) return
-              onBack?.()
-            }}
-            title="Back to grid"
-            aria-label="Back to grid"
-            aria-hidden={!showBackButton}
-            disabled={!showBackButton}
-            tabIndex={showBackButton ? 0 : -1}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-            <span className="toolbar-back-label">Back</span>
-          </button>
-        </div>
+        )}
       </div>
 
       {/* Center section - size slider */}
@@ -420,52 +436,56 @@ export default function Toolbar({
         </div>
 
         {/* Panel toggles */}
-        <div className="toolbar-panels flex items-center gap-1">
-          <button
-            className={`btn btn-icon ${leftOpen ? '' : 'opacity-50'}`}
-            title={leftOpen ? 'Hide left panel (Ctrl+B)' : 'Show left panel (Ctrl+B)'}
-            onClick={onToggleLeft}
-            aria-pressed={leftOpen}
-            aria-label="Toggle left panel"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="5" width="6" height="14" rx="1.5" />
-              <rect x="11" y="5" width="10" height="14" rx="1.5" />
-            </svg>
-          </button>
-          <button
-            className={`btn btn-icon ${rightOpen ? '' : 'opacity-50'}`}
-            title={rightOpen ? 'Hide right panel (Ctrl+Alt+B)' : 'Show right panel (Ctrl+Alt+B)'}
-            onClick={onToggleRight}
-            aria-pressed={rightOpen}
-            aria-label="Toggle right panel"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="15" y="5" width="6" height="14" rx="1.5" />
-              <rect x="3" y="5" width="10" height="14" rx="1.5" />
-            </svg>
-          </button>
-        </div>
-        <div className="toolbar-slot toolbar-slot-upload" data-toolbar-slot="upload">
-          <button
-            data-toolbar-control="upload"
-            className={`btn toolbar-upload-btn ${showUploadButton ? '' : 'toolbar-control-hidden'} ${(uploadDisabled || uploadBusy) ? 'opacity-50 cursor-not-allowed' : ''}`}
-            onClick={() => showUploadButton && !uploadDisabled && !uploadBusy && onUploadClick?.()}
-            aria-label="Upload images"
-            title={uploadBusy ? 'Uploading…' : 'Upload images'}
-            aria-disabled={!showUploadButton || uploadDisabled || uploadBusy}
-            aria-hidden={!showUploadButton}
-            disabled={!showUploadButton || uploadDisabled || uploadBusy}
-            tabIndex={showUploadButton ? 0 : -1}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 16V5" />
-              <path d="M7 10l5-5 5 5" />
-              <path d="M4 19h16" />
-            </svg>
-            <span className="toolbar-upload-label">{uploadBusy ? 'Uploading…' : 'Upload'}</span>
-          </button>
-        </div>
+        {topToolbarActionsVisible && (
+          <div className="toolbar-panels flex items-center gap-1">
+            <button
+              className={`btn btn-icon ${leftOpen ? '' : 'opacity-50'}`}
+              title={leftOpen ? 'Hide left panel (Ctrl+B)' : 'Show left panel (Ctrl+B)'}
+              onClick={onToggleLeft}
+              aria-pressed={leftOpen}
+              aria-label="Toggle left panel"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="5" width="6" height="14" rx="1.5" />
+                <rect x="11" y="5" width="10" height="14" rx="1.5" />
+              </svg>
+            </button>
+            <button
+              className={`btn btn-icon ${rightOpen ? '' : 'opacity-50'}`}
+              title={rightOpen ? 'Hide right panel (Ctrl+Alt+B)' : 'Show right panel (Ctrl+Alt+B)'}
+              onClick={onToggleRight}
+              aria-pressed={rightOpen}
+              aria-label="Toggle right panel"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="15" y="5" width="6" height="14" rx="1.5" />
+                <rect x="3" y="5" width="10" height="14" rx="1.5" />
+              </svg>
+            </button>
+          </div>
+        )}
+        {topToolbarActionsVisible && (
+          <div className="toolbar-slot toolbar-slot-upload" data-toolbar-slot="upload">
+            <button
+              data-toolbar-control="upload"
+              className={`btn toolbar-upload-btn ${showTopUploadButton ? '' : 'toolbar-control-hidden'} ${(uploadDisabled || uploadBusy) ? 'opacity-50 cursor-not-allowed' : ''}`}
+              onClick={() => showTopUploadButton && !uploadDisabled && !uploadBusy && onUploadClick?.()}
+              aria-label="Upload images"
+              title={uploadBusy ? 'Uploading…' : 'Upload images'}
+              aria-disabled={!showTopUploadButton || uploadDisabled || uploadBusy}
+              aria-hidden={!showTopUploadButton}
+              disabled={!showTopUploadButton || uploadDisabled || uploadBusy}
+              tabIndex={showTopUploadButton ? 0 : -1}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 16V5" />
+                <path d="M7 10l5-5 5 5" />
+                <path d="M4 19h16" />
+              </svg>
+              <span className="toolbar-upload-label">{uploadBusy ? 'Uploading…' : 'Upload'}</span>
+            </button>
+          </div>
+        )}
         {syncIndicator && (
           <SyncIndicator
             {...syncIndicator}
@@ -479,7 +499,7 @@ export default function Toolbar({
               className={`btn btn-icon ${showNarrowSearchToggle ? '' : 'toolbar-control-hidden'} ${mobileSearchOpen ? 'btn-active' : ''} ${searchDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               aria-label={mobileSearchOpen ? 'Close search' : 'Open search'}
               title={searchDisabled ? 'Search disabled' : (mobileSearchOpen ? 'Close search' : 'Search')}
-              onClick={() => showNarrowSearchToggle && !searchDisabled && setMobileSearchOpen((prev) => !prev)}
+              onClick={() => showNarrowSearchToggle && !searchDisabled && onMobileSearchOpenChange?.(!mobileSearchOpen)}
               disabled={!showNarrowSearchToggle || searchDisabled}
               aria-hidden={!showNarrowSearchToggle}
               tabIndex={showNarrowSearchToggle ? 0 : -1}
@@ -487,6 +507,24 @@ export default function Toolbar({
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="11" cy="11" r="7" />
                 <path d="M21 21l-4.35-4.35" />
+              </svg>
+            </button>
+          </div>
+        )}
+        {showMobileDrawer && (
+          <div className="toolbar-slot toolbar-slot-drawer-toggle" data-toolbar-slot="drawer-toggle">
+            <button
+              data-toolbar-control="drawer-toggle"
+              className={`btn btn-icon ${mobileDrawerOpen ? 'btn-active' : ''}`}
+              aria-label={mobileDrawerOpen ? 'Hide mobile toolbar controls' : 'Show mobile toolbar controls'}
+              title={mobileDrawerOpen ? 'Hide controls' : 'Show controls'}
+              aria-expanded={mobileDrawerOpen}
+              onClick={() => onMobileDrawerOpenChange?.(!mobileDrawerOpen)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 7h16" />
+                <path d="M4 12h16" />
+                <path d="M4 17h16" />
               </svg>
             </button>
           </div>
@@ -515,20 +553,20 @@ export default function Toolbar({
           data-toolbar-slot="search-row"
           aria-hidden={!mobileSearchInteractive}
         >
-            <input
-              data-toolbar-control="search-mobile"
-              ref={searchInputRef}
-              aria-label="Search filename, tags, notes"
-              aria-hidden={!mobileSearchInteractive}
-              placeholder={searchPlaceholder ?? 'Search...'}
-              onChange={(e) => onSearch(e.target.value)}
-              className={`toolbar-search-input-mobile input input-lg w-full select-text ${mobileSearchInteractive ? '' : 'toolbar-control-hidden'}`}
-              disabled={!mobileSearchInteractive}
-              tabIndex={mobileSearchInteractive ? 0 : -1}
-            />
+          <input
+            data-toolbar-control="search-mobile"
+            ref={searchInputRef}
+            aria-label="Search filename, tags, notes"
+            aria-hidden={!mobileSearchInteractive}
+            placeholder={searchPlaceholder ?? 'Search...'}
+            onChange={(e) => onSearch(e.target.value)}
+            className={`toolbar-search-input-mobile input input-lg w-full select-text ${mobileSearchInteractive ? '' : 'toolbar-control-hidden'}`}
+            disabled={!mobileSearchInteractive}
+            tabIndex={mobileSearchInteractive ? 0 : -1}
+          />
         </div>
       )}
-      {showMobileDrawer && (
+      {showMobileDrawer && mobileDrawerOpen && (
         <ToolbarMobileDrawer
           viewMode={viewMode}
           currentSort={currentSort}
@@ -545,9 +583,31 @@ export default function Toolbar({
           themePreset={themePreset}
           autoloadImageMetadata={autoloadImageMetadata}
           compareOrderMode={compareOrderMode}
+          filtersOpen={filtersOpen}
+          filtersRef={filtersRef}
+          totalFilterCount={totalFilterCount}
+          filterCount={filterCount}
+          starFilterList={starFilterList}
+          starCounts={starCounts}
+          refreshEnabled={refreshEnabled}
+          refreshDisabledReason={refreshDisabledReason}
+          refreshBusy={refreshBusy}
+          leftOpen={leftOpen}
+          rightOpen={rightOpen}
           onViewMode={onViewMode}
           onSortChange={(value) => onSortChange?.(parseSort(value, effectiveSort))}
           onToggleSortDir={handleSortDirToggle}
+          onToggleFilters={() => {
+            if (viewerActive) return
+            setFiltersOpen((value) => !value)
+          }}
+          onOpenFilters={onOpenFilters}
+          onToggleStar={onToggleStar}
+          onClearFilters={onClearFilters}
+          onClearStars={onClearStars}
+          onRefreshRoot={onRefreshRoot}
+          onToggleLeft={onToggleLeft}
+          onToggleRight={onToggleRight}
           onToggleMultiSelectMode={onToggleMultiSelectMode}
           onUploadClick={onUploadClick}
           onThemePresetChange={onThemePresetChange}

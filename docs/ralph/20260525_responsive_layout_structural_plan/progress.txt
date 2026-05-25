@@ -41,3 +41,38 @@ Validation run:
 Blockers: none.
 
 Next step: Sprint 2 (`RSP-4` through `RSP-6`) should repair toolbar command placement, AppShell-owned mobile search state, and mobile drawer reachability.
+
+## Iteration 2 - 2026-05-25T01:07:00Z
+
+Completed task IDs: RSP-4, RSP-5, RSP-6.
+
+Files changed:
+- frontend/src/app/AppShell.tsx
+- frontend/src/app/layout/responsiveLayoutPolicy.ts
+- frontend/src/app/layout/__tests__/responsiveLayoutPolicy.test.ts
+- frontend/src/shared/ui/Toolbar.tsx
+- frontend/src/shared/ui/toolbar/ToolbarFilterMenu.tsx
+- frontend/src/shared/ui/toolbar/ToolbarMobileDrawer.tsx
+- frontend/src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx
+- frontend/src/styles.css
+- scripts/responsive_geometry_harness.py
+- src/lenslet/frontend/* (regenerated packaged frontend bundle)
+- docs/20260525_responsive_layout_structural_plan.md
+- docs/ralph/20260525_responsive_layout_structural_plan/progress.txt
+
+Validation run:
+- `npm run test -- src/app/layout/__tests__/responsiveLayoutPolicy.test.ts src/shared/ui/toolbar/__tests__/Toolbar.test.tsx src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx` - passed.
+- `npx tsc --noEmit` - passed.
+- `python -m py_compile scripts/responsive_geometry_harness.py` - passed.
+- `npm run build` - passed; packaged frontend bundle regenerated under `src/lenslet/frontend/`.
+- `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-sprint2.json` - passed and wrote JSON evidence for phone/narrow toolbar overlap, mobile search reserve, drawer reachability, resize persistence, and touch/coarse-pointer drawer reserve behavior.
+- `npm run test` - passed, 71 files / 322 tests.
+- `python scripts/lint_repo.py` - passed with existing warn-only file-size notices.
+- `python scripts/gui_smoke_acceptance.py --output-json /tmp/lenslet-gui-smoke-sprint2.json` - passed with the existing non-fatal folder re-entry exact-anchor warning.
+- `git diff --check` - passed.
+- Cleanup subagent (`code-simplifier`) - passed; applied Tier 1 JSX/generated-asset cleanup only.
+- Review subagent (`code-review`) - found a 1px coarse-pointer mobile drawer reserve mismatch. The finding was fixed by aligning policy/CSS/generated assets to `217px` and adding touch/coarse-pointer harness coverage. Follow-up review found no remaining blockers.
+
+Blockers: none.
+
+Next step: Sprint 3 (`RSP-7` and `RSP-8`) should migrate overlay paths to `--overlay-left`/`--overlay-right`, isolate background controls under viewer/compare, and fix the known inspector internals within the scoped acceptance criteria.

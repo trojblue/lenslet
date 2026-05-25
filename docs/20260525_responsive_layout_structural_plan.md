@@ -412,7 +412,10 @@ Recovery:
 - [x] 2026-05-25: Sprint 1 validation passed: focused layout Vitest suite, `npx tsc --noEmit`, full `npm run test`, `npm run build`, packaged frontend regeneration, `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-sprint1.json`, `python scripts/gui_smoke_acceptance.py --output-json /tmp/lenslet-gui-smoke-sprint1.json`, and `python scripts/lint_repo.py`.
 - [x] 2026-05-25: Sprint 1 cleanup/review gates completed. Cleanup made no code changes; review findings were addressed by adding generated assets to the commit set, aligning rendered and drag-time right-sidebar max width at oversized desktop preferences, and preserving mobile drawer safe-area reserve in `--mobile-drawer-h`.
 - [x] 2026-05-25: Sprint 1 implementation handoff. Effective layout is now policy-owned and non-destructive; AppShell still passes `mobileSearchOpen: false` until `RSP-5`, and viewer/compare/drop overlays still read temporary `--left`/`--right` aliases until `RSP-7`.
-- [ ] Pending: Sprint 2 implementation handoff.
+- [x] 2026-05-25: Sprint 2 implemented. `RSP-4` moved narrow/mobile browse toolbar actions out of collision-prone top-row slots and added a visible mobile drawer affordance. `RSP-5` moved `mobileSearchOpen` to AppShell, passed it into the responsive policy, and removed ResizeObserver as toolbar-height authority. `RSP-6` replaced the horizontally scrolling hidden-scrollbar drawer with a wrapped three-column command grid containing layout, sort, filter, refresh, panel preference, select, upload, and theme/settings controls.
+- [x] 2026-05-25: Sprint 2 validation passed: focused toolbar/policy Vitest checks, `npx tsc --noEmit`, full `npm run test`, `npm run build`, packaged frontend regeneration, `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-sprint2.json`, `python scripts/gui_smoke_acceptance.py --output-json /tmp/lenslet-gui-smoke-sprint2.json`, `python scripts/lint_repo.py`, and `git diff --check`.
+- [x] 2026-05-25: Sprint 2 cleanup/review gates completed. Cleanup made only Tier 1 JSX/generated-asset tidyups. Review found a 1px coarse-pointer drawer reserve mismatch; it was fixed by aligning policy/CSS/generated assets to `217px` and by running phone/narrow harness scenarios with touch/coarse-pointer emulation. Follow-up review found no remaining blockers.
+- [x] 2026-05-25: Sprint 2 implementation handoff. Mobile search reserve is now policy-owned by AppShell state, drawer reachability is covered by live-browser evidence at `320`, `360`, `390`, and `640` widths, and the drawer can be collapsed non-destructively from a top-row affordance. Viewer/compare/drop overlays still read temporary `--left`/`--right` aliases until `RSP-7`.
 - [ ] Pending: Sprint 3 implementation handoff.
 - [ ] Pending: Sprint 4 implementation handoff.
 
@@ -439,8 +442,9 @@ Implementation handoff notes:
 7. Treat `R8` as in scope because hidden drawer controls are reachability failures.
 8. Treat `R9` and `R10` as deferred unless they produce a primary acceptance failure.
 9. Sprint 1 shipped `scripts/responsive_geometry_harness.py` as the responsive evidence seed. It currently covers desktop/phone oversized-sidebar states, scroll-width overflow, DOM debug attributes, CSS variables, toolbar control rectangles, and resize-down/resize-up persistence preservation.
-10. Sprint 2 should connect AppShell-owned `mobileSearchOpen` into the policy instead of relying on Toolbar-local state; this was intentionally left as `false` in Sprint 1 to avoid jumping ahead.
-11. Sprint 3 should migrate viewer/compare/drop overlay paths from the temporary `--left`/`--right` aliases to `--overlay-left`/`--overlay-right`.
+10. Sprint 2 connected AppShell-owned `mobileSearchOpen` into the policy and added AppShell-owned `mobileDrawerOpen` so drawer reserves are declared instead of inferred from measurement.
+11. Sprint 2 expanded `scripts/responsive_geometry_harness.py` to assert visible toolbar control non-overlap, mobile search reserve, mobile drawer command reachability, and touch/coarse-pointer drawer reserve behavior.
+12. Sprint 3 should migrate viewer/compare/drop overlay paths from the temporary `--left`/`--right` aliases to `--overlay-left`/`--overlay-right`.
 
 Revision note:
 

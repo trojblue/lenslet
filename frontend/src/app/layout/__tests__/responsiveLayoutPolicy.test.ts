@@ -16,6 +16,7 @@ function model(overrides: Partial<Parameters<typeof buildResponsiveLayoutModel>[
     rightPreferredWidth: 300,
     overlay: 'none',
     mobileSearchOpen: false,
+    mobileDrawerOpen: true,
     ...overrides,
   })
 }
@@ -130,11 +131,15 @@ describe('responsiveLayoutPolicy', () => {
   it('declares shell reserves from policy constants', () => {
     expect(model({ viewportWidth: 390, mobileSearchOpen: false }).shellReserves).toEqual({
       toolbarHeightPx: 48,
-      mobileDrawerHeightPx: 60,
+      mobileDrawerHeightPx: 217,
     })
     expect(model({ viewportWidth: 390, mobileSearchOpen: true }).shellReserves).toEqual({
       toolbarHeightPx: 96,
-      mobileDrawerHeightPx: 60,
+      mobileDrawerHeightPx: 217,
+    })
+    expect(model({ viewportWidth: 390, mobileDrawerOpen: false }).shellReserves).toEqual({
+      toolbarHeightPx: 48,
+      mobileDrawerHeightPx: 0,
     })
     expect(model({ viewportWidth: 1440, mobileSearchOpen: true }).shellReserves).toEqual({
       toolbarHeightPx: 48,

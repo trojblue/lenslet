@@ -3,6 +3,8 @@ import React from 'react'
 export interface ToolbarFilterMenuProps {
   viewerActive: boolean
   suppressed?: boolean
+  variant?: 'toolbar' | 'drawer'
+  dataToolbarControl?: string
   filtersOpen: boolean
   filtersRef: React.RefObject<HTMLDivElement>
   totalFilterCount: number
@@ -19,6 +21,8 @@ export interface ToolbarFilterMenuProps {
 export default function ToolbarFilterMenu({
   viewerActive,
   suppressed = false,
+  variant = 'toolbar',
+  dataToolbarControl,
   filtersOpen,
   filtersRef,
   totalFilterCount,
@@ -34,15 +38,23 @@ export default function ToolbarFilterMenu({
   const controlsVisible = !suppressed
   const buttonDisabled = viewerActive || suppressed
   const hasActiveFilters = totalFilterCount > 0
+  const isDrawer = variant === 'drawer'
+  const buttonClassName = isDrawer
+    ? `mobile-pill mobile-pill-filter ${hasActiveFilters ? 'is-active' : ''}`
+    : `btn ${hasActiveFilters ? 'btn-active' : ''}`
+  const panelStyle = isDrawer
+    ? { bottom: 'calc(100% + 8px)', left: 0 }
+    : { top: '38px', left: 0 }
 
   return (
     <div
       ref={filtersRef}
-      className={`toolbar-filter relative ${controlsVisible ? '' : 'toolbar-control-hidden'} ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}
+      className={`toolbar-filter ${isDrawer ? 'toolbar-filter-drawer' : ''} relative ${controlsVisible ? '' : 'toolbar-control-hidden'} ${viewerActive ? 'opacity-40 pointer-events-none' : ''}`}
       aria-hidden={!controlsVisible}
     >
       <button
-        className={`btn ${hasActiveFilters ? 'btn-active' : ''}`}
+        data-toolbar-control={dataToolbarControl}
+        className={buttonClassName}
         onClick={() => {
           if (buttonDisabled) return
           onToggleFilters()
@@ -71,8 +83,8 @@ export default function ToolbarFilterMenu({
         <div
           role="dialog"
           aria-label="Filters"
-          className="dropdown-panel w-[240px]"
-          style={{ top: '38px', left: 0 }}
+          className={`dropdown-panel w-[240px] ${isDrawer ? 'mobile-drawer-panel' : ''}`}
+          style={panelStyle}
         >
           <div className="dropdown-label">Rating</div>
           <div className="px-1">

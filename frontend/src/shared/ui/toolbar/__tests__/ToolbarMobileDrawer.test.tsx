@@ -6,29 +6,43 @@ vi.mock('../../Dropdown', () => ({
   default: () => <div data-dropdown-mock="1" />,
 }))
 
+const baseProps = {
+  viewMode: 'grid' as const,
+  currentSort: 'builtin:added',
+  sortOnlyOptions: [{ label: 'Sort by', options: [{ value: 'builtin:added', label: 'Date added' }] }],
+  sortDisabled: false,
+  sortControlsDisabled: false,
+  sortDir: 'desc' as const,
+  isRandom: false,
+  showSelectModeToggle: true,
+  multiSelectMode: false,
+  selectModeLabel: 'Select',
+  uploadBusy: false,
+  uploadDisabled: false,
+  themePreset: 'teal' as const,
+  autoloadImageMetadata: false,
+  compareOrderMode: 'gallery' as const,
+  filtersOpen: false,
+  filtersRef: { current: null },
+  totalFilterCount: 0,
+  starFilterList: [],
+  refreshEnabled: true,
+  refreshBusy: false,
+  leftOpen: true,
+  rightOpen: true,
+  onToggleSortDir: () => {},
+  onToggleFilters: () => {},
+  onRefreshRoot: () => {},
+  onThemePresetChange: () => {},
+  onAutoloadImageMetadataChange: () => {},
+  onCompareOrderModeChange: () => {},
+}
+
 describe('ToolbarMobileDrawer theme mount', () => {
   it('renders shared ThemeSettingsMenu trigger in mobile drawer row', () => {
     const html = renderToStaticMarkup(
       <ToolbarMobileDrawer
-        viewMode="grid"
-        currentSort="builtin:added"
-        sortOnlyOptions={[{ label: 'Sort by', options: [{ value: 'builtin:added', label: 'Date added' }] }]}
-        sortDisabled={false}
-        sortControlsDisabled={false}
-        sortDir="desc"
-        isRandom={false}
-        showSelectModeToggle
-        multiSelectMode={false}
-        selectModeLabel="Select"
-        uploadBusy={false}
-        uploadDisabled={false}
-        themePreset="teal"
-        autoloadImageMetadata={false}
-        compareOrderMode="gallery"
-        onToggleSortDir={() => {}}
-        onThemePresetChange={() => {}}
-        onAutoloadImageMetadataChange={() => {}}
-        onCompareOrderModeChange={() => {}}
+        {...baseProps}
       />,
     )
 
@@ -36,35 +50,35 @@ describe('ToolbarMobileDrawer theme mount', () => {
     expect(html).toContain('Theme settings (Teal)')
   })
 
-  it('keeps select/upload pill slots mounted when actions are unavailable', () => {
+  it('removes unavailable select/upload commands from the drawer grid', () => {
     const html = renderToStaticMarkup(
       <ToolbarMobileDrawer
-        viewMode="grid"
-        currentSort="builtin:added"
-        sortOnlyOptions={[{ label: 'Sort by', options: [{ value: 'builtin:added', label: 'Date added' }] }]}
-        sortDisabled={false}
-        sortControlsDisabled={false}
-        sortDir="desc"
-        isRandom={false}
+        {...baseProps}
         showSelectModeToggle={false}
-        multiSelectMode={false}
-        selectModeLabel="Select"
-        uploadBusy={false}
-        uploadDisabled={false}
-        themePreset="teal"
-        autoloadImageMetadata={false}
-        compareOrderMode="gallery"
-        onToggleSortDir={() => {}}
-        onThemePresetChange={() => {}}
-        onAutoloadImageMetadataChange={() => {}}
-        onCompareOrderModeChange={() => {}}
+        onUploadClick={undefined}
       />,
     )
 
-    expect(html).toContain('mobile-pill-slot-select')
-    expect(html).toContain('mobile-pill-slot-upload')
-    expect(html).toMatch(/mobile-pill-select[^"]*toolbar-control-hidden/)
-    expect(html).toMatch(/mobile-pill-upload[^"]*toolbar-control-hidden/)
-    expect(html).toContain('disabled=""')
+    expect(html).not.toContain('data-toolbar-control="drawer-select"')
+    expect(html).not.toContain('data-toolbar-control="drawer-upload"')
+    expect(html).not.toContain('toolbar-control-hidden')
+  })
+
+  it('keeps moved command handlers represented in the wrapped drawer', () => {
+    const html = renderToStaticMarkup(
+      <ToolbarMobileDrawer
+        {...baseProps}
+        onUploadClick={() => {}}
+        onToggleMultiSelectMode={() => {}}
+      />,
+    )
+
+    expect(html).toContain('data-toolbar-control="drawer-layout-grid"')
+    expect(html).toContain('data-toolbar-control="drawer-layout-masonry"')
+    expect(html).toContain('data-toolbar-control="drawer-sort"')
+    expect(html).toContain('data-toolbar-control="drawer-filters"')
+    expect(html).toContain('data-toolbar-control="drawer-refresh"')
+    expect(html).toContain('data-toolbar-control="drawer-select"')
+    expect(html).toContain('data-toolbar-control="drawer-upload"')
   })
 })

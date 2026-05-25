@@ -223,6 +223,8 @@ export default function AppShell({
   const [viewMode, setViewMode] = useState<ViewMode>('adaptive')
   const [gridItemSize, setGridItemSize] = useState<number>(220)
   const [mobileSelectMode, setMobileSelectMode] = useState(false)
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(true)
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
   const [viewportWidth, setViewportWidth] = useState(() => (
@@ -848,26 +850,6 @@ export default function AppShell({
     }
   }, [clearViewerForSearch, current, searching, setSelectedPaths])
 
-  // Track toolbar height so overlays align on small screens
-  useEffect(() => {
-    const appEl = appRef.current
-    const toolbarEl = toolbarRef.current
-    if (!appEl || !toolbarEl) return
-    const update = () => {
-      const h = Math.max(48, Math.round(toolbarEl.getBoundingClientRect().height))
-      appEl.style.setProperty('--toolbar-h', `${h}px`)
-    }
-    update()
-    const resizeObserverCtor = (window as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver
-    if (resizeObserverCtor) {
-      const ro = new resizeObserverCtor(update)
-      ro.observe(toolbarEl)
-      return () => ro.disconnect()
-    }
-    window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
-  }, [])
-
   // Load persisted settings on mount
   useEffect(() => {
     try {
@@ -1253,6 +1235,10 @@ export default function AppShell({
         }
       } else if (e.key === '/') {
         e.preventDefault()
+        if (viewportWidth <= LAYOUT_BREAKPOINTS.narrowMax) {
+          setMobileSearchOpen(true)
+          return
+        }
         const searchInput = document.querySelector('.toolbar-right .input') as HTMLInputElement | null
         searchInput?.focus()
       }
@@ -1260,7 +1246,7 @@ export default function AppShell({
     
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [keyboardStateRef, leftOpenRef, rightOpenRef, setSelectedPaths])
+  }, [keyboardStateRef, leftOpenRef, rightOpenRef, setSelectedPaths, viewportWidth])
 
   const overlayMode = useMemo<OverlayMode>(() => {
     if (compareOpen) return 'compare'
@@ -1276,8 +1262,19 @@ export default function AppShell({
     leftPreferredWidth: leftW,
     rightPreferredWidth: rightW,
     overlay: overlayMode,
-    mobileSearchOpen: false,
-  }), [viewportWidth, viewportHeight, leftOpen, rightOpen, leftW, rightW, overlayMode])
+    mobileSearchOpen,
+    mobileDrawerOpen,
+  }), [
+    viewportWidth,
+    viewportHeight,
+    leftOpen,
+    rightOpen,
+    leftW,
+    rightW,
+    overlayMode,
+    mobileSearchOpen,
+    mobileDrawerOpen,
+  ])
 
   const leftCol = `${layoutModel.gridInsets.left}px`
   const rightCol = `${layoutModel.gridInsets.right}px`
@@ -1299,6 +1296,8 @@ export default function AppShell({
       data-right-suppression-reason={layoutModel.rightSuppressionReason}
       data-inspector-suppression-reason={layoutModel.inspector.suppressionReason}
       data-overlay-mode={overlayMode}
+      data-mobile-search-open={mobileSearchOpen ? 'true' : 'false'}
+      data-mobile-drawer-open={mobileDrawerOpen ? 'true' : 'false'}
       data-effective-left-width={layoutModel.leftWidth}
       data-effective-right-width={layoutModel.rightWidth}
       style={{
@@ -1351,6 +1350,10 @@ export default function AppShell({
         canNextImage={canNextImage}
         searchDisabled={similarityActive}
         searchPlaceholder={similarityActive ? 'Exit similarity to search' : undefined}
+        mobileSearchOpen={mobileSearchOpen}
+        onMobileSearchOpenChange={setMobileSearchOpen}
+        mobileDrawerOpen={mobileDrawerOpen}
+        onMobileDrawerOpenChange={setMobileDrawerOpen}
         onUploadClick={openUploadPicker}
         uploadBusy={uploading}
         uploadDisabled={compareOpen}

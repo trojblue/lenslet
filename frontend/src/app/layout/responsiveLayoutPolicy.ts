@@ -16,6 +16,7 @@ export interface ResponsiveLayoutInput {
   rightPreferredWidth: number
   overlay: OverlayMode
   mobileSearchOpen: boolean
+  mobileDrawerOpen: boolean
 }
 
 export interface ResponsiveLayoutModel {
@@ -72,7 +73,7 @@ export const RESPONSIVE_LAYOUT_CONSTANTS = {
   rightInspectorMinUsableWidth: 280,
   baseToolbarHeight: 48,
   mobileSearchRowHeight: 48,
-  mobileDrawerHeight: 60,
+  mobileDrawerHeight: 217,
   centerMinWidthByMode: {
     phone: 320,
     narrow: 360,
@@ -142,7 +143,7 @@ export function buildResponsiveLayoutModel(input: ResponsiveLayoutInput): Respon
   const shellReserves = {
     toolbarHeightPx: RESPONSIVE_LAYOUT_CONSTANTS.baseToolbarHeight +
       (mobileShell && input.mobileSearchOpen ? RESPONSIVE_LAYOUT_CONSTANTS.mobileSearchRowHeight : 0),
-    mobileDrawerHeightPx: mobileShell && !overlayActive
+    mobileDrawerHeightPx: mobileShell && !overlayActive && input.mobileDrawerOpen
       ? RESPONSIVE_LAYOUT_CONSTANTS.mobileDrawerHeight
       : 0,
   }

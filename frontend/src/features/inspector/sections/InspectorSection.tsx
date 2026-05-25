@@ -62,7 +62,7 @@ export function InspectorSection({
       className={`border-b border-border/60 ${isDragging ? 'opacity-70' : ''}`}
       data-inspector-section-id={sortableId ?? undefined}
     >
-      <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+      <div className="inspector-section-header flex items-center justify-between gap-2 px-3 py-2.5">
         <div className="flex items-center gap-1 min-w-0">
           {sortableEnabled && (
             <button
@@ -113,10 +113,10 @@ export function InspectorSection({
             >
               <path d="m9 18 6-6-6-6" />
             </svg>
-            <span>{title}</span>
+            <span className="truncate">{title}</span>
           </button>
         </div>
-        <div className="shrink-0">{actions}</div>
+        {actions && <div className="inspector-section-actions shrink-0">{actions}</div>}
       </div>
       {renderBody && (
         <div className="inspector-section-body" data-state={bodyState} aria-hidden={!open}>

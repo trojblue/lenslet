@@ -39,6 +39,8 @@ class Scenario:
     storage: dict[str, str]
     open_mobile_search: bool = False
     has_touch: bool = False
+    select_first: bool = False
+    assert_inspector: bool = False
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,7 +73,12 @@ def build_fixture_dataset(root: Path) -> None:
     )
     for folder in ("alpha", "beta"):
         for idx in range(4):
-            path = root / folder / f"{folder}_{idx:02d}.png"
+            filename = (
+                f"{folder}_source_path_with_unbroken_metadata_identifier_{idx:02d}_abcdef0123456789.png"
+                if idx == 0
+                else f"{folder}_{idx:02d}.png"
+            )
+            path = root / folder / filename
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(payload)
 
@@ -118,6 +125,43 @@ def collect_snapshot(page: Any, name: str) -> dict[str, Any]:
               bottom: rect.bottom,
             };
           };
+          const describeElement = (el) => {
+            if (!el) return null;
+            return {
+              tag: el.tagName,
+              id: el.id || null,
+              className: typeof el.className === 'string' ? el.className : null,
+              ariaLabel: el.getAttribute('aria-label'),
+              dataToolbarControl: el.getAttribute('data-toolbar-control'),
+              inBrowseShell: Boolean(el.closest('[data-browse-shell]')),
+              inToolbar: Boolean(el.closest('.toolbar-shell')),
+              inLeftSidebar: Boolean(el.closest('.app-left-panel')),
+              inRightSidebar: Boolean(el.closest('.app-right-panel')),
+              inMobileDrawer: Boolean(el.closest('.mobile-drawer')),
+              inGrid: Boolean(el.closest('[role="grid"][aria-label="Gallery"]')),
+              inOverlayDialog: Boolean(el.closest('[role="dialog"][aria-modal="true"]')),
+            };
+          };
+          const panel = document.querySelector('.app-right-panel');
+          const inspectorChecks = panel
+            ? Array.from(panel.querySelectorAll([
+                '.inspector-preview-card',
+                '.inspector-star-row',
+                '.inspector-section-header',
+                '.ui-kv-row',
+                '.inspector-field',
+              ].join(','))).map((el) => {
+                const rect = el.getBoundingClientRect();
+                return {
+                  selector: el.className,
+                  left: rect.left,
+                  right: rect.right,
+                  width: rect.width,
+                  overflowsPanel: rect.left < panel.getBoundingClientRect().left - 1 ||
+                    rect.right > panel.getBoundingClientRect().right + 1,
+                };
+              })
+            : [];
           const toolbarControls = Array.from(document.querySelectorAll('[data-toolbar-control]'))
             .map((el) => {
               const rect = el.getBoundingClientRect();
@@ -196,8 +240,26 @@ def collect_snapshot(page: Any, name: str) -> dict[str, Any]:
               rightSidebar: rectFor('.app-right-panel'),
               gridShell: rectFor('.grid-shell'),
               mobileDrawer: rectFor('.mobile-drawer'),
-              overlay: rectFor('[role="dialog"], .z-viewer'),
+              overlay: rectFor('[role="dialog"][aria-label="Image viewer"], [role="dialog"][aria-label="Compare images"]'),
+              viewer: rectFor('[role="dialog"][aria-label="Image viewer"]'),
+              compare: rectFor('[role="dialog"][aria-label="Compare images"]'),
+              compareStage: rectFor('.compare-stage'),
+              inspectorPreview: rectFor('.inspector-preview-card'),
+              inspectorStarRow: rectFor('.inspector-star-row'),
             },
+            focus: {
+              activeElement: describeElement(document.activeElement),
+              browseShellInert: document.querySelector('[data-browse-shell]')?.hasAttribute('inert') ?? false,
+              browseShellAriaHidden: document.querySelector('[data-browse-shell]')?.getAttribute('aria-hidden') ?? null,
+              toolbarInert: document.querySelector('.toolbar-shell')?.hasAttribute('inert') ?? false,
+              toolbarAriaHidden: document.querySelector('.toolbar-shell')?.getAttribute('aria-hidden') ?? null,
+            },
+            inspector: panel ? {
+              clientWidth: panel.clientWidth,
+              scrollWidth: panel.scrollWidth,
+              rect: rectFor('.app-right-panel'),
+              checks: inspectorChecks,
+            } : null,
             toolbarControls,
             storage: {
               leftOpen: localStorage.getItem('leftOpen'),
@@ -308,7 +370,6 @@ REQUIRED_DRAWER_CONTROLS = {
     "drawer-refresh",
     "drawer-left-panel",
     "drawer-right-panel",
-    "drawer-select",
     "drawer-upload",
 }
 
@@ -317,14 +378,19 @@ def assert_mobile_drawer_reachable(snapshot: dict[str, Any]) -> None:
     layout = snapshot.get("layout")
     if not isinstance(layout, dict) or layout.get("mobileDrawerOpen") != "true":
         raise ResponsiveGeometryFailure(f"Mobile drawer is not open in {snapshot.get('name')!r}.")
+    viewport = snapshot.get("viewport")
+    viewport_width = float(viewport.get("width", 0)) if isinstance(viewport, dict) else 0.0
+    required_controls = set(REQUIRED_DRAWER_CONTROLS)
+    if viewport_width <= 767:
+        required_controls.add("drawer-select")
     controls = {control.get("name"): control for control in _visible_toolbar_controls(snapshot)}
-    missing = sorted(name for name in REQUIRED_DRAWER_CONTROLS if name not in controls)
+    missing = sorted(name for name in required_controls if name not in controls)
     if missing:
         raise ResponsiveGeometryFailure(
             f"Mobile drawer controls are missing in {snapshot.get('name')}: {', '.join(missing)}."
         )
     blocked = [
-        name for name in sorted(REQUIRED_DRAWER_CONTROLS)
+        name for name in sorted(required_controls)
         if not controls[name].get("hitTargetOk")
         or (not controls[name].get("focusDisabled") and not controls[name].get("keyboardFocusable"))
     ]
@@ -335,9 +401,108 @@ def assert_mobile_drawer_reachable(snapshot: dict[str, Any]) -> None:
         )
 
 
+def assert_overlay_isolated(snapshot: dict[str, Any], expected_mode: str) -> None:
+    layout = snapshot.get("layout")
+    rects = snapshot.get("rects")
+    focus = snapshot.get("focus")
+    if not isinstance(layout, dict) or layout.get("overlayMode") != expected_mode:
+        raise ResponsiveGeometryFailure(
+            f"Expected {expected_mode} overlay mode in {snapshot.get('name')}, got {layout!r}."
+        )
+    if not isinstance(rects, dict) or not isinstance(rects.get("overlay"), dict):
+        raise ResponsiveGeometryFailure(f"Missing overlay rect for {snapshot.get('name')}.")
+    if not isinstance(focus, dict):
+        raise ResponsiveGeometryFailure(f"Missing focus evidence for {snapshot.get('name')}.")
+    if focus.get("browseShellInert") is not True or focus.get("browseShellAriaHidden") != "true":
+        raise ResponsiveGeometryFailure(f"Browse shell is not inert under overlay in {snapshot.get('name')}.")
+    if expected_mode == "compare":
+        if focus.get("toolbarInert") is not True or focus.get("toolbarAriaHidden") != "true":
+            raise ResponsiveGeometryFailure(f"Compare overlay did not inert the toolbar in {snapshot.get('name')}.")
+    if expected_mode == "viewer":
+        if focus.get("toolbarInert") is True or focus.get("toolbarAriaHidden") == "true":
+            raise ResponsiveGeometryFailure(f"Viewer overlay disabled viewer toolbar chrome in {snapshot.get('name')}.")
+    active = focus.get("activeElement")
+    if isinstance(active, dict) and active.get("inBrowseShell"):
+        raise ResponsiveGeometryFailure(f"Focus reached browse shell under overlay in {snapshot.get('name')}: {active!r}.")
+
+    overlay_rect = rects["overlay"]
+    viewport = snapshot.get("viewport", {})
+    css_vars = snapshot.get("cssVars", {})
+    expected_left = _parse_px(css_vars.get("overlayLeft") if isinstance(css_vars, dict) else None)
+    expected_right = _parse_px(css_vars.get("overlayRight") if isinstance(css_vars, dict) else None)
+    viewport_width = float(viewport.get("width", 0)) if isinstance(viewport, dict) else 0.0
+    if float(overlay_rect.get("left", 0)) > expected_left + 1:
+        raise ResponsiveGeometryFailure(f"Overlay left edge is squeezed in {snapshot.get('name')}: {overlay_rect!r}.")
+    if float(overlay_rect.get("right", 0)) < viewport_width - expected_right - 1:
+            raise ResponsiveGeometryFailure(f"Overlay right edge is squeezed in {snapshot.get('name')}: {overlay_rect!r}.")
+
+
+def assert_viewer_toolbar_chrome(snapshot: dict[str, Any]) -> None:
+    controls = {control.get("name"): control for control in _visible_toolbar_controls(snapshot)}
+    back = controls.get("back")
+    if not back or not back.get("hitTargetOk") or not back.get("keyboardFocusable"):
+        raise ResponsiveGeometryFailure(f"Viewer toolbar back control is not usable in {snapshot.get('name')}.")
+
+
+def assert_overlay_closed(snapshot: dict[str, Any], expected_name: str) -> None:
+    layout = snapshot.get("layout")
+    focus = snapshot.get("focus")
+    if not isinstance(layout, dict) or layout.get("overlayMode") != "none":
+        raise ResponsiveGeometryFailure(f"Overlay did not close in {expected_name}: {layout!r}.")
+    if isinstance(focus, dict):
+        active = focus.get("activeElement")
+        if isinstance(active, dict) and active.get("inOverlayDialog"):
+            raise ResponsiveGeometryFailure(f"Focus stayed in closed overlay for {expected_name}: {active!r}.")
+
+
+def assert_inspector_contained(snapshot: dict[str, Any]) -> None:
+    layout = snapshot.get("layout")
+    inspector = snapshot.get("inspector")
+    if not isinstance(layout, dict):
+        raise ResponsiveGeometryFailure(f"Missing layout for {snapshot.get('name')}.")
+    if layout.get("effectiveRightWidth") == "0":
+        return
+    if not isinstance(inspector, dict):
+        raise ResponsiveGeometryFailure(f"Missing inspector evidence for {snapshot.get('name')}.")
+    scroll_width = float(inspector.get("scrollWidth", 0))
+    client_width = float(inspector.get("clientWidth", 0))
+    if scroll_width > client_width + 1:
+        raise ResponsiveGeometryFailure(
+            f"Inspector has horizontal overflow in {snapshot.get('name')}: "
+            f"scrollWidth={scroll_width}, clientWidth={client_width}."
+        )
+    checks = inspector.get("checks")
+    if not isinstance(checks, list):
+        raise ResponsiveGeometryFailure(f"Missing inspector child checks for {snapshot.get('name')}.")
+    overflowing = [check for check in checks if isinstance(check, dict) and check.get("overflowsPanel")]
+    if overflowing:
+        raise ResponsiveGeometryFailure(
+            f"Inspector child escaped panel in {snapshot.get('name')}: {overflowing[:3]!r}."
+        )
+
+
 def wait_for_shell(page: Any, timeout_ms: float) -> None:
     page.locator(".app-shell").wait_for(state="visible", timeout=timeout_ms)
     page.locator("[role='grid']").wait_for(state="visible", timeout=timeout_ms)
+
+
+def select_first_item(page: Any, timeout_ms: float) -> None:
+    first_cell = page.locator('[role="gridcell"][id^="cell-"]').first
+    first_cell.click(timeout=timeout_ms)
+
+
+def open_first_viewer(page: Any, timeout_ms: float) -> None:
+    first_cell = page.locator('[role="gridcell"][id^="cell-"]').first
+    first_cell.dblclick(timeout=timeout_ms)
+    page.locator('[role="dialog"][aria-label="Image viewer"]').wait_for(state="visible", timeout=timeout_ms)
+
+
+def open_compare_from_first_two_items(page: Any, timeout_ms: float) -> None:
+    cells = page.locator('[role="gridcell"][id^="cell-"]')
+    cells.nth(0).click(timeout=timeout_ms)
+    cells.nth(1).click(timeout=timeout_ms, modifiers=["Control"])
+    page.locator('[aria-label="Compare selected images"]').click(timeout=timeout_ms)
+    page.locator('[role="dialog"][aria-label="Compare images"]').wait_for(state="visible", timeout=timeout_ms)
 
 
 def run_scenario(page: Any, base_url: str, scenario: Scenario, timeout_ms: float) -> dict[str, Any]:
@@ -347,6 +512,8 @@ def run_scenario(page: Any, base_url: str, scenario: Scenario, timeout_ms: float
     wait_for_shell(page, timeout_ms)
     if scenario.open_mobile_search:
         page.locator('[data-toolbar-control="search-toggle"]').click(timeout=timeout_ms)
+    if scenario.select_first or scenario.assert_inspector:
+        select_first_item(page, timeout_ms)
     page.wait_for_timeout(200)
     snapshot = collect_snapshot(page, scenario.name)
     assert_no_document_overflow(snapshot)
@@ -355,6 +522,8 @@ def run_scenario(page: Any, base_url: str, scenario: Scenario, timeout_ms: float
         assert_mobile_drawer_reachable(snapshot)
     if scenario.open_mobile_search:
         assert_mobile_search_reserved(snapshot)
+    if scenario.assert_inspector:
+        assert_inspector_contained(snapshot)
     return snapshot
 
 
@@ -399,6 +568,71 @@ def run_resize_persistence_scenario(page: Any, base_url: str, timeout_ms: float)
     return {
         "name": "resize-persistence",
         "steps": [desktop_before, phone, desktop_after],
+    }
+
+
+def run_viewer_overlay_scenario(page: Any, base_url: str, timeout_ms: float) -> dict[str, Any]:
+    page.set_viewport_size({"width": 390, "height": 520})
+    page.add_init_script(seed_storage_script(scenario_storage()))
+    page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_shell(page, timeout_ms)
+    open_first_viewer(page, timeout_ms)
+    page.keyboard.press("Tab")
+    page.wait_for_timeout(100)
+    open_snapshot = collect_snapshot(page, "viewer-overlay-390x520")
+    assert_no_document_overflow(open_snapshot)
+    assert_overlay_isolated(open_snapshot, "viewer")
+
+    page.keyboard.press("Escape")
+    page.locator('[role="dialog"][aria-label="Image viewer"]').wait_for(state="detached", timeout=timeout_ms)
+    page.wait_for_timeout(100)
+    closed_snapshot = collect_snapshot(page, "viewer-overlay-closed")
+    assert_overlay_closed(closed_snapshot, "viewer-overlay-closed")
+
+    page.set_viewport_size({"width": 1024, "height": 760})
+    page.wait_for_timeout(200)
+    open_first_viewer(page, timeout_ms)
+    page.wait_for_timeout(100)
+    desktop_snapshot = collect_snapshot(page, "viewer-toolbar-1024x760")
+    assert_no_document_overflow(desktop_snapshot)
+    assert_overlay_isolated(desktop_snapshot, "viewer")
+    assert_viewer_toolbar_chrome(desktop_snapshot)
+
+    page.locator('[data-toolbar-control="back"]').click(timeout=timeout_ms)
+    page.locator('[role="dialog"][aria-label="Image viewer"]').wait_for(state="detached", timeout=timeout_ms)
+    page.wait_for_timeout(100)
+    toolbar_closed_snapshot = collect_snapshot(page, "viewer-toolbar-closed")
+    assert_overlay_closed(toolbar_closed_snapshot, "viewer-toolbar-closed")
+
+    return {
+        "name": "viewer-overlay",
+        "steps": [open_snapshot, closed_snapshot, desktop_snapshot, toolbar_closed_snapshot],
+    }
+
+
+def run_compare_overlay_scenario(page: Any, base_url: str, timeout_ms: float) -> dict[str, Any]:
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.add_init_script(seed_storage_script(scenario_storage()))
+    page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_shell(page, timeout_ms)
+    open_compare_from_first_two_items(page, timeout_ms)
+    page.set_viewport_size({"width": 390, "height": 520})
+    page.wait_for_timeout(300)
+    page.keyboard.press("Tab")
+    page.wait_for_timeout(100)
+    open_snapshot = collect_snapshot(page, "compare-overlay-390x520")
+    assert_no_document_overflow(open_snapshot)
+    assert_overlay_isolated(open_snapshot, "compare")
+
+    page.keyboard.press("Escape")
+    page.locator('[role="dialog"][aria-label="Compare images"]').wait_for(state="detached", timeout=timeout_ms)
+    page.wait_for_timeout(100)
+    closed_snapshot = collect_snapshot(page, "compare-overlay-closed")
+    assert_overlay_closed(closed_snapshot, "compare-overlay-closed")
+
+    return {
+        "name": "compare-overlay",
+        "steps": [open_snapshot, closed_snapshot],
     }
 
 
@@ -455,6 +689,39 @@ def main() -> int:
                         open_mobile_search=True,
                         has_touch=True,
                     ),
+                    Scenario(
+                        "inspector-phone-suppressed-480",
+                        480,
+                        760,
+                        scenario_storage(),
+                        select_first=True,
+                        assert_inspector=True,
+                        has_touch=True,
+                    ),
+                    Scenario(
+                        "inspector-short-narrow-760",
+                        760,
+                        430,
+                        scenario_storage(),
+                        select_first=True,
+                        assert_inspector=True,
+                    ),
+                    Scenario(
+                        "inspector-short-tablet-1024",
+                        1024,
+                        480,
+                        scenario_storage(),
+                        select_first=True,
+                        assert_inspector=True,
+                    ),
+                    Scenario(
+                        "inspector-allowed-900",
+                        900,
+                        760,
+                        scenario_storage(),
+                        select_first=True,
+                        assert_inspector=True,
+                    ),
                 ]
                 for scenario in scenarios:
                     context = browser.new_context(
@@ -498,6 +765,28 @@ def main() -> int:
                     raise
                 finally:
                     context.close()
+
+                overlay_runners = [
+                    ("viewer-overlay", run_viewer_overlay_scenario),
+                    ("compare-overlay", run_compare_overlay_scenario),
+                ]
+                for scenario_name, runner in overlay_runners:
+                    context = browser.new_context(viewport={"width": 1440, "height": 900})
+                    page = context.new_page()
+                    try:
+                        evidence["scenarios"].append(runner(page, base_url, args.browser_timeout_ms))
+                    except Exception as exc:
+                        args.screenshot_dir.mkdir(parents=True, exist_ok=True)
+                        screenshot = args.screenshot_dir / f"{scenario_name}.png"
+                        page.screenshot(path=str(screenshot), full_page=True)
+                        evidence["failures"].append({
+                            "scenario": scenario_name,
+                            "error": str(exc),
+                            "screenshot": str(screenshot),
+                        })
+                        raise
+                    finally:
+                        context.close()
             finally:
                 browser.close()
     except Exception as exc:

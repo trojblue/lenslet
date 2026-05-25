@@ -257,6 +257,7 @@ export default function AppShell({
   
   // Refs
   const appRef = useRef<HTMLDivElement>(null)
+  const browseShellRef = useRef<HTMLDivElement>(null)
   const gridShellRef = useRef<HTMLDivElement>(null)
   const gridScrollRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
@@ -361,8 +362,11 @@ export default function AppShell({
   const itemPathSet = useMemo(() => new Set(itemPaths), [itemPaths])
   const focusGridCell = useCallback((path: string | null | undefined) => {
     if (!path) return
-    const el = document.getElementById(`cell-${encodeURIComponent(path)}`)
-    el?.focus()
+    const focus = () => {
+      const el = document.getElementById(`cell-${encodeURIComponent(path)}`)
+      el?.focus()
+    }
+    requestAnimationFrame(() => requestAnimationFrame(focus))
   }, [])
   const selectionPool = similarityState ? similarityItems : poolItems
   const {
@@ -402,6 +406,31 @@ export default function AppShell({
     compareOrderMode,
     focusGridCell,
   })
+
+  useEffect(() => {
+    const shell = browseShellRef.current
+    if (!shell) return
+    if (overlayActive) {
+      shell.setAttribute('inert', '')
+      shell.setAttribute('aria-hidden', 'true')
+      return
+    }
+    shell.removeAttribute('inert')
+    shell.removeAttribute('aria-hidden')
+  }, [overlayActive])
+
+  useEffect(() => {
+    const toolbar = toolbarRef.current
+    if (!toolbar) return
+    if (compareOpen) {
+      toolbar.setAttribute('inert', '')
+      toolbar.setAttribute('aria-hidden', 'true')
+      return
+    }
+    toolbar.removeAttribute('inert')
+    toolbar.removeAttribute('aria-hidden')
+  }, [compareOpen])
+
   const syncHashImageSelectionRef = useLatestRef(syncHashImageSelection)
   const itemPathSetRef = useLatestRef(itemPathSet)
   const bumpRestoreGridToSelectionTokenRef = useLatestRef(bumpRestoreGridToSelectionToken)
@@ -1201,6 +1230,9 @@ export default function AppShell({
       // Ignore if in input field
       if (isInputElement(e.target)) return
 
+      // Ignore if viewer or compare is open (they have their own handlers)
+      if (state.viewer || state.compareOpen) return
+
       // Toggle sidebars
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault()
@@ -1214,9 +1246,6 @@ export default function AppShell({
         return
       }
 
-      // Ignore if viewer or compare is open (they have their own handlers)
-      if (state.viewer || state.compareOpen) return
-      
       if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault()
         state.openFolder(getParentPath(state.current))
@@ -1307,8 +1336,6 @@ export default function AppShell({
         ['--overlay-right' as any]: overlayRight,
         ['--toolbar-h' as any]: toolbarHeight,
         ['--mobile-drawer-h' as any]: mobileDrawerHeight,
-        ['--left' as any]: leftCol,
-        ['--right' as any]: rightCol,
       }}
     >
       <Toolbar
@@ -1377,157 +1404,164 @@ export default function AppShell({
           recentTouches: recentTouchesDisplay,
         }}
       />
-      <input
-        ref={uploadInputRef}
-        type="file"
-        multiple
-        accept="image/*"
-        className="sr-only"
-        onChange={handleUploadInputChange}
-      />
-      {layoutModel.leftRailVisible && (
-        <LeftSidebar
-          leftTool={leftTool}
-          contentOpen={layoutModel.effectiveLeftOpen}
-          onToolChange={handleLeftToolChange}
-          compareEnabled={compareEnabled}
-          compareActive={compareOpen}
-          onOpenCompare={openCompare}
-          views={views}
-          activeViewId={activeViewId}
-          onActivateView={(view) => {
-            setActiveViewId(view.id)
-            const safeFilters = normalizeFilterAst(view.view?.filters) ?? { and: [] }
-            setViewState({ ...view.view, filters: safeFilters })
-            openFolder(view.pool.path)
-          }}
-          onSaveView={handleSaveView}
-          current={current}
-          data={data}
-          onOpenFolder={(p) => { setActiveViewId(null); openFolder(p) }}
-          onOpenFolderActions={openFolderActions}
-          onPullRefreshFolders={refreshEnabled ? handlePullRefreshFolders : undefined}
-          onContextMenu={(e, p) => {
-            e.preventDefault()
-            openFolderActions(p, { x: e.clientX, y: e.clientY })
-          }}
-          countVersion={folderCountsVersion}
-          items={metricsBaseItems}
-          filteredItems={items}
-          metricKeys={metricKeys}
-          selectedItems={selectedItems}
-          selectedMetric={viewState.selectedMetric}
-          onSelectMetric={(key) => setViewState((prev) => ({ ...prev, selectedMetric: key }))}
-          filters={viewState.filters}
-          onChangeRange={handleMetricRange}
-          onChangeFilters={handleFiltersChange}
-          onResize={onResizeLeft}
-          themePreset={themePreset}
-          onThemePresetChange={handleThemePresetChange}
-          autoloadImageMetadata={autoloadImageMetadata}
-          onAutoloadImageMetadataChange={setAutoloadImageMetadata}
-          compareOrderMode={compareOrderMode}
-          onCompareOrderModeChange={setCompareOrderMode}
+      <div
+        ref={browseShellRef}
+        className="browse-shell"
+        data-browse-shell
+        data-overlay-inert={overlayActive ? 'true' : 'false'}
+      >
+        <input
+          ref={uploadInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          className="sr-only"
+          onChange={handleUploadInputChange}
         />
-      )}
-      <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>
-        <div aria-live="polite" className="sr-only">
-          {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
-        </div>
-        <GridTopStack
-          statusBarProps={{
-            persistenceEnabled,
-            indexing,
-            showSwitchToMostRecentBanner: indexingBrowseMode.showSwitchToMostRecentBanner,
-            onSwitchToMostRecent: handleSwitchToMostRecent,
-            offViewSummary,
-            canRevealOffView: showFilteredCounts,
-            onRevealOffView: handleRevealOffView,
-            onClearOffView: clearOffViewActivity,
-            browserZoomPercent: visibleBrowserZoomPercent,
-            onDismissBrowserZoomWarning: dismissBrowserZoomWarning,
-          }}
-          actionError={actionError}
-          similarity={similarityState ? {
-            embedding: similarityState.embedding,
-            topK: similarityState.topK,
-            minScore: similarityState.minScore,
-            queryLabel: similarityQueryLabel,
-            countLabel: similarityCountLabel,
-          } : null}
-          onExitSimilarity={clearSimilarity}
-          filterChips={filterChips}
-          onClearFilters={handleClearFilters}
-        />
-        <div className="grid-body flex-1 min-h-0" data-grid-body>
-          <div className="grid-body-main relative min-h-0 min-w-0" data-grid-body-main>
-            <VirtualGrid
-              items={items}
-              selected={selectedPaths}
-              restoreToSelectionToken={restoreGridToSelectionToken}
-              restoreToTopAnchorToken={restoreGridToTopAnchorToken}
-              restoreToTopAnchorPath={restoreGridTopAnchorPath}
-              multiSelectMode={mobileSelectEnabled && mobileSelectMode}
-              onSelectionChange={setSelectedPaths}
-              onOpenViewer={(p) => { rememberFocusedPath(p); openViewer(p); setSelectedPaths([p]) }}
-              highlight={searching ? normalizedQ : ''}
-              recentlyUpdated={highlightedPaths}
-              onVisiblePathsChange={handleVisiblePathsChange}
-              onTopAnchorPathChange={handleGridTopAnchorPathChange}
-              suppressSelectionHighlight={overlayActive}
-              viewMode={viewMode}
-              targetCellSize={gridItemSize}
-              onContextMenuItem={(e, path) => {
-                e.preventDefault()
-                openGridActions(path, { x: e.clientX, y: e.clientY })
-              }}
-              onOpenItemActions={openGridActions}
-              scrollRef={gridScrollRef}
-              isLoading={showGridLoading}
-            />
+        {layoutModel.leftRailVisible && (
+          <LeftSidebar
+            leftTool={leftTool}
+            contentOpen={layoutModel.effectiveLeftOpen}
+            onToolChange={handleLeftToolChange}
+            compareEnabled={compareEnabled}
+            compareActive={compareOpen}
+            onOpenCompare={openCompare}
+            views={views}
+            activeViewId={activeViewId}
+            onActivateView={(view) => {
+              setActiveViewId(view.id)
+              const safeFilters = normalizeFilterAst(view.view?.filters) ?? { and: [] }
+              setViewState({ ...view.view, filters: safeFilters })
+              openFolder(view.pool.path)
+            }}
+            onSaveView={handleSaveView}
+            current={current}
+            data={data}
+            onOpenFolder={(p) => { setActiveViewId(null); openFolder(p) }}
+            onOpenFolderActions={openFolderActions}
+            onPullRefreshFolders={refreshEnabled ? handlePullRefreshFolders : undefined}
+            onContextMenu={(e, p) => {
+              e.preventDefault()
+              openFolderActions(p, { x: e.clientX, y: e.clientY })
+            }}
+            countVersion={folderCountsVersion}
+            items={metricsBaseItems}
+            filteredItems={items}
+            metricKeys={metricKeys}
+            selectedItems={selectedItems}
+            selectedMetric={viewState.selectedMetric}
+            onSelectMetric={(key) => setViewState((prev) => ({ ...prev, selectedMetric: key }))}
+            filters={viewState.filters}
+            onChangeRange={handleMetricRange}
+            onChangeFilters={handleFiltersChange}
+            onResize={onResizeLeft}
+            themePreset={themePreset}
+            onThemePresetChange={handleThemePresetChange}
+            autoloadImageMetadata={autoloadImageMetadata}
+            onAutoloadImageMetadataChange={setAutoloadImageMetadata}
+            compareOrderMode={compareOrderMode}
+            onCompareOrderModeChange={setCompareOrderMode}
+          />
+        )}
+        <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>
+          <div aria-live="polite" className="sr-only">
+            {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
           </div>
-          <div
-            className={`metric-rail-slot${metricRailActive ? '' : ' is-inactive'}`}
-            data-metric-rail-slot
-            data-metric-rail-active={metricRailActive ? 'true' : 'false'}
-            aria-hidden={!metricRailActive}
-          >
-            {metricRailActive
-              ? (
-                <MetricScrollbar
-                  items={items}
-                  metricKey={metricSortKey!}
-                  scrollRef={gridScrollRef}
-                  sortDir={viewState.sort.dir}
-                />
-              )
-              : <div className="metric-rail-placeholder" aria-hidden="true" />}
+          <GridTopStack
+            statusBarProps={{
+              persistenceEnabled,
+              indexing,
+              showSwitchToMostRecentBanner: indexingBrowseMode.showSwitchToMostRecentBanner,
+              onSwitchToMostRecent: handleSwitchToMostRecent,
+              offViewSummary,
+              canRevealOffView: showFilteredCounts,
+              onRevealOffView: handleRevealOffView,
+              onClearOffView: clearOffViewActivity,
+              browserZoomPercent: visibleBrowserZoomPercent,
+              onDismissBrowserZoomWarning: dismissBrowserZoomWarning,
+            }}
+            actionError={actionError}
+            similarity={similarityState ? {
+              embedding: similarityState.embedding,
+              topK: similarityState.topK,
+              minScore: similarityState.minScore,
+              queryLabel: similarityQueryLabel,
+              countLabel: similarityCountLabel,
+            } : null}
+            onExitSimilarity={clearSimilarity}
+            filterChips={filterChips}
+            onClearFilters={handleClearFilters}
+          />
+          <div className="grid-body flex-1 min-h-0" data-grid-body>
+            <div className="grid-body-main relative min-h-0 min-w-0" data-grid-body-main>
+              <VirtualGrid
+                items={items}
+                selected={selectedPaths}
+                restoreToSelectionToken={restoreGridToSelectionToken}
+                restoreToTopAnchorToken={restoreGridToTopAnchorToken}
+                restoreToTopAnchorPath={restoreGridTopAnchorPath}
+                multiSelectMode={mobileSelectEnabled && mobileSelectMode}
+                onSelectionChange={setSelectedPaths}
+                onOpenViewer={(p) => { rememberFocusedPath(p); openViewer(p); setSelectedPaths([p]) }}
+                highlight={searching ? normalizedQ : ''}
+                recentlyUpdated={highlightedPaths}
+                onVisiblePathsChange={handleVisiblePathsChange}
+                onTopAnchorPathChange={handleGridTopAnchorPathChange}
+                suppressSelectionHighlight={overlayActive}
+                viewMode={viewMode}
+                targetCellSize={gridItemSize}
+                onContextMenuItem={(e, path) => {
+                  e.preventDefault()
+                  openGridActions(path, { x: e.clientX, y: e.clientY })
+                }}
+                onOpenItemActions={openGridActions}
+                scrollRef={gridScrollRef}
+                isLoading={showGridLoading}
+              />
+            </div>
+            <div
+              className={`metric-rail-slot${metricRailActive ? '' : ' is-inactive'}`}
+              data-metric-rail-slot
+              data-metric-rail-active={metricRailActive ? 'true' : 'false'}
+              aria-hidden={!metricRailActive}
+            >
+              {metricRailActive
+                ? (
+                  <MetricScrollbar
+                    items={items}
+                    metricKey={metricSortKey!}
+                    scrollRef={gridScrollRef}
+                    sortDir={viewState.sort.dir}
+                  />
+                )
+                : <div className="metric-rail-placeholder" aria-hidden="true" />}
+            </div>
           </div>
+          {/* Bottom selection bar removed intentionally */}
         </div>
-        {/* Bottom selection bar removed intentionally */}
+        {layoutModel.effectiveRightOpen && (
+          <Inspector
+            path={selectedPaths[0] ?? null}
+            selectedPaths={selectedPaths}
+            comparePaths={comparePaths}
+            items={items}
+            viewerCompareActive={compareOpen}
+            compareA={compareA}
+            compareB={compareB}
+            onOpenCompare={openCompare}
+            sortSpec={viewState.sort}
+            onResize={onResizeRight}
+            onStarChanged={(paths, val)=>{
+              setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })
+            }}
+            onFindSimilar={() => setSimilarityOpen(true)}
+            embeddingsAvailable={embeddingsAvailable}
+            embeddingsLoading={embeddingsLoading}
+            autoloadImageMetadata={autoloadImageMetadata}
+            onLocalTypingChange={setLocalTypingActive}
+          />
+        )}
       </div>
-      {layoutModel.effectiveRightOpen && (
-        <Inspector
-          path={selectedPaths[0] ?? null}
-          selectedPaths={selectedPaths}
-          comparePaths={comparePaths}
-          items={items}
-          viewerCompareActive={compareOpen}
-          compareA={compareA}
-          compareB={compareB}
-          onOpenCompare={openCompare}
-          sortSpec={viewState.sort}
-          onResize={onResizeRight}
-          onStarChanged={(paths, val)=>{
-            setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })
-          }}
-          onFindSimilar={() => setSimilarityOpen(true)}
-          embeddingsAvailable={embeddingsAvailable}
-          embeddingsLoading={embeddingsLoading}
-          autoloadImageMetadata={autoloadImageMetadata}
-          onLocalTypingChange={setLocalTypingActive}
-        />
-      )}
       <SimilarityModal
         open={similarityOpen}
         embeddings={embeddings}
@@ -1574,7 +1608,7 @@ export default function AppShell({
       )}
       {isDraggingOver && (
         <div
-          className="toolbar-offset fixed inset-0 left-[var(--left)] right-[var(--right)] bg-accent/10 border-2 border-dashed border-accent text-text flex items-center justify-center text-lg z-overlay pointer-events-none"
+          className="toolbar-offset fixed inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] bg-accent/10 border-2 border-dashed border-accent text-text flex items-center justify-center text-lg z-overlay pointer-events-none"
         >
           Drop images to upload
         </div>

@@ -76,3 +76,39 @@ Validation run:
 Blockers: none.
 
 Next step: Sprint 3 (`RSP-7` and `RSP-8`) should migrate overlay paths to `--overlay-left`/`--overlay-right`, isolate background controls under viewer/compare, and fix the known inspector internals within the scoped acceptance criteria.
+
+## Iteration 3 - 2026-05-25T01:35:51Z
+
+Completed task IDs: RSP-7, RSP-8.
+
+Files changed:
+- frontend/src/app/AppShell.tsx
+- frontend/src/features/viewer/Viewer.tsx
+- frontend/src/features/compare/CompareViewer.tsx
+- frontend/src/features/folders/FolderTree.tsx
+- frontend/src/features/inspector/Inspector.tsx
+- frontend/src/features/inspector/sections/BasicsSection.tsx
+- frontend/src/features/inspector/sections/InspectorSection.tsx
+- frontend/src/styles.css
+- scripts/responsive_geometry_harness.py
+- src/lenslet/frontend/* (regenerated packaged frontend bundle)
+- docs/20260525_responsive_layout_structural_plan.md
+- docs/ralph/20260525_responsive_layout_structural_plan/progress.txt
+
+Validation run:
+- `npm run test -- src/features/inspector/sections/__tests__/metadataSections.test.tsx src/app/hooks/__tests__/useAppSelectionViewerCompare.test.ts` - passed.
+- `npx tsc --noEmit` - passed.
+- `python -m py_compile scripts/responsive_geometry_harness.py` - passed.
+- `npm run build` - passed; packaged frontend bundle regenerated under `src/lenslet/frontend/`.
+- `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-sprint3.json` - passed and wrote JSON evidence for Sprint 3 overlay, focus/inert, viewer toolbar, compare toolbar, and inspector containment scenarios.
+- `npm run test` - passed, 71 files / 322 tests.
+- `python scripts/lint_repo.py` - passed with existing warn-only file-size notices.
+- `python scripts/gui_smoke_acceptance.py --output-json /tmp/lenslet-gui-smoke-sprint3.json` - passed with the existing non-fatal folder re-entry exact-anchor warning.
+- `git diff --check` - passed.
+- `rg -n --glob '!docs/agents_archive/**' -- "var\\(--left\\)|var\\(--right\\)|--left|--right" frontend/src src/lenslet/frontend scripts` - passed with no matches.
+- Cleanup subagent (`code-simplifier`) - found only Tier 1 JSX indentation cleanup; local source was already clean, so no extra cleanup patch was needed.
+- Review subagent (`code-review`) - initially found viewer toolbar inertness, missing harness coverage for viewer toolbar usability, and generated-asset staging risks. Fixes were applied; follow-up review found no actionable issues.
+
+Blockers: none.
+
+Next step: Sprint 4 (`RSP-9`) should finalize the responsive geometry validation script, including the `760px` left-metrics/both-sidebars-preferred-open selected-items scenario and final evidence fields.

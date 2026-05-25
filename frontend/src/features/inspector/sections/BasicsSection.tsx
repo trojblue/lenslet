@@ -128,15 +128,15 @@ export function BasicsSection({
         </button>
       )}
     >
-      <div className="flex items-center gap-2 text-xs mb-1" role="radiogroup" aria-label="Star rating">
-        <span className="ui-kv-label w-16 shrink-0">{multi ? 'Rating (all)' : 'Rating'}</span>
-        <div className="flex items-center gap-1">
+      <div className="inspector-star-row flex items-center gap-2 text-xs mb-1" role="radiogroup" aria-label="Star rating">
+        <span className="ui-kv-label inspector-star-label w-16 shrink-0">{multi ? 'Rating (all)' : 'Rating'}</span>
+        <div className="inspector-star-controls flex items-center gap-1">
           {[1, 2, 3, 4, 5].map((v) => {
             const filled = (star ?? 0) >= v
             return (
               <button
                 key={v}
-                className={`w-6 h-6 flex items-center justify-center rounded-lg border border-border/60 bg-transparent text-[13px] ${filled ? 'text-star-active' : 'text-star-inactive'} hover:border-border hover:text-star-hover transition-colors`}
+                className={`inspector-star-button w-6 h-6 flex items-center justify-center rounded-lg border border-border/60 bg-transparent text-[13px] ${filled ? 'text-star-active' : 'text-star-inactive'} hover:border-border hover:text-star-hover transition-colors`}
                 onClick={() => {
                   const value: StarRating = star === v && !multi ? null : (v as 1 | 2 | 3 | 4 | 5)
                   onSelectStar(value)
@@ -156,9 +156,9 @@ export function BasicsSection({
       )}
 
       {hasStarConflict && (
-        <div className="ui-banner ui-banner-danger mt-2 text-[11px] flex items-center justify-between gap-2">
+        <div className="ui-banner ui-banner-danger mt-2 text-[11px] flex flex-wrap items-center justify-between gap-2">
           <span>Rating conflict.</span>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button className="btn btn-sm" onClick={onApplyConflict}>
               Apply again
             </button>

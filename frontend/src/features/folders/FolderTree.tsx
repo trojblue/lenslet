@@ -227,7 +227,7 @@ export default function FolderTree({
       </div>
       {showResizeHandle && (
         <div
-          className="toolbar-offset sidebar-resize-handle absolute bottom-0 left-[calc(var(--left)-6px)]"
+          className="toolbar-offset sidebar-resize-handle absolute bottom-0 left-[calc(var(--grid-left)-6px)]"
           onPointerDown={onResize}
         />
       )}

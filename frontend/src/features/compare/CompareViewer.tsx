@@ -137,7 +137,7 @@ export default function CompareViewer({
       aria-modal={true}
       aria-label="Compare images"
       tabIndex={-1}
-      className="toolbar-offset absolute inset-0 left-[var(--left)] right-[var(--right)] bg-panel z-viewer flex flex-col overflow-hidden focus:outline-none"
+      className="toolbar-offset absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] bg-panel z-viewer flex flex-col overflow-hidden focus:outline-none"
       onKeyDown={(e)=>{ if (e.key === 'Tab') e.preventDefault() }}
     >
       <div className="compare-header flex items-center gap-3 px-3 py-2">

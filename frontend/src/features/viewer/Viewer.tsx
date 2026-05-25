@@ -11,6 +11,11 @@ type ViewerImageResource = {
   url: string
 }
 
+function isViewerControlTarget(target: EventTarget | null): boolean {
+  return target instanceof Element
+    && target.closest('button, a, input, select, textarea, [role="button"]') !== null
+}
+
 interface ViewerProps {
   path: string
   onClose: () => void
@@ -34,11 +39,8 @@ export default function Viewer({
 }: ViewerProps) {
   const {
     scale,
-    setScale,
     tx,
-    setTx,
     ty,
-    setTy,
     base,
     ready,
     setReady,
@@ -46,12 +48,13 @@ export default function Viewer({
     containerRef,
     imgRef,
     resetView,
+    zoomToPercent,
     handleWheel,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
     handlePointerCancel,
-    consumeClickSuppression,
+    shouldSuppressSurfaceClick,
   } = useZoomPan()
   const url = useBlobUrl(() => api.getFile(path), [path])
   const [imageResource, setImageResource] = useState<ViewerImageResource | null>(null)
@@ -65,14 +68,21 @@ export default function Viewer({
     onClose()
   }, [onClose])
   const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (!consumeClickSuppression()) return
+    if (!shouldSuppressSurfaceClick()) return
+    if (isViewerControlTarget(event.target)) return
     event.preventDefault()
     event.stopPropagation()
-  }, [consumeClickSuppression])
-  const handleBackdropClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget) return
+  }, [shouldSuppressSurfaceClick])
+  const handleSurfaceDoubleClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (shouldSuppressSurfaceClick() || isViewerControlTarget(event.target)) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
     closeViewer()
-  }, [closeViewer])
+  }, [closeViewer, shouldSuppressSurfaceClick])
   const handleDialogKeyDown = useModalFocusTrap(containerRef, { onEscape: closeViewer })
   const markImageReady = useCallback(() => {
     const resource = activeResource
@@ -153,20 +163,9 @@ export default function Viewer({
 
   useEffect(() => {
     if (requestedZoomPercent == null) return
-    const cont = containerRef.current
-    if (!cont) { onZoomRequestConsumed && onZoomRequestConsumed(); return }
-    const targetScale = Math.max(0.05, Math.min(8, (requestedZoomPercent / 100) / Math.max(1e-6, base)))
-    const rect = cont.getBoundingClientRect()
-    const cx = rect.width / 2
-    const cy = rect.height / 2
-    setScale(s => {
-      const ratio = targetScale / s
-      setTx(prevTx => cx - ratio * (cx - prevTx))
-      setTy(prevTy => cy - ratio * (cy - prevTy))
-      return Number(targetScale.toFixed(4))
-    })
+    zoomToPercent(requestedZoomPercent)
     onZoomRequestConsumed && onZoomRequestConsumed()
-  }, [requestedZoomPercent, base, onZoomRequestConsumed])
+  }, [requestedZoomPercent, onZoomRequestConsumed, zoomToPercent])
 
   return (
     <div
@@ -181,7 +180,7 @@ export default function Viewer({
       className={`toolbar-offset touch-none absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] flex items-start justify-start bg-panel z-viewer overflow-hidden cursor-grab focus:outline-none focus-visible:outline-none ${dragging ? 'cursor-grabbing select-none' : ''}`}
       style={{ outline: 'none' }}
       onClickCapture={handleClickCapture}
-      onClick={handleBackdropClick}
+      onDoubleClick={handleSurfaceDoubleClick}
       onWheel={handleWheel}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

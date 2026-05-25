@@ -1,5 +1,6 @@
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  type ImageTransformClampOptions,
   type ImageTransform,
   type Point,
   type Size,
@@ -14,6 +15,8 @@ import {
 
 const ZOOM_BASE = 1.2
 const CLICK_SUPPRESSION_DRAG_DISTANCE_PX = 3
+const SURFACE_DOUBLE_CLICK_SUPPRESSION_MS = 450
+const VIEWER_PAN_SLACK: ImageTransformClampOptions = { panSlack: true }
 
 type PanState = {
   pointerId: number
@@ -80,8 +83,14 @@ function readImageSize(image: HTMLImageElement | null): Size | null {
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement
+  return target instanceof Element
     && target.closest('button, a, input, select, textarea, [role="button"]') !== null
+}
+
+function nowMs(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now()
 }
 
 export function useZoomPan() {
@@ -102,7 +111,7 @@ export function useZoomPan() {
   const pointersRef = useRef<Map<number, Point>>(new Map())
   const panRef = useRef<PanState | null>(null)
   const pinchRef = useRef<PinchState | null>(null)
-  const suppressClickRef = useRef(false)
+  const suppressSurfaceDoubleClickUntilRef = useRef(0)
 
   const currentTransform = useCallback((): ImageTransform => ({
     base: baseRef.current,
@@ -120,25 +129,6 @@ export function useZoomPan() {
     setScaleState(next.scale)
     setTxState(next.tx)
     setTyState(next.ty)
-  }, [])
-
-  const setScale: Dispatch<SetStateAction<number>> = useCallback((value) => {
-    const raw = typeof value === 'function' ? value(scaleRef.current) : value
-    const next = clampImageScale(raw)
-    scaleRef.current = next
-    setScaleState(next)
-  }, [])
-
-  const setTx: Dispatch<SetStateAction<number>> = useCallback((value) => {
-    const next = typeof value === 'function' ? value(txRef.current) : value
-    txRef.current = next
-    setTxState(next)
-  }, [])
-
-  const setTy: Dispatch<SetStateAction<number>> = useCallback((value) => {
-    const next = typeof value === 'function' ? value(tyRef.current) : value
-    tyRef.current = next
-    setTyState(next)
   }, [])
 
   const startPanFromPointer = useCallback((pointerId: number, point: Point) => {
@@ -215,7 +205,7 @@ export function useZoomPan() {
       pointersRef.current.clear()
       panRef.current = null
       pinchRef.current = null
-      suppressClickRef.current = false
+      suppressSurfaceDoubleClickUntilRef.current = 0
     }
   }, [])
 
@@ -238,6 +228,7 @@ export function useZoomPan() {
       transform: currentTransform(),
       point: { x: cx, y: cy },
       nextScale,
+      clampOptions: VIEWER_PAN_SLACK,
     })
     centerRef.current = captureNormalizedImageCenter({ container, image, transform: next })
     applyTransform(next)
@@ -292,12 +283,13 @@ export function useZoomPan() {
             transform: pinch.startTransform,
             point: pinch.startCenter,
             nextScale,
+            clampOptions: VIEWER_PAN_SLACK,
           })
           const next = clampImageTransform(container, image, {
             ...zoomed,
             tx: zoomed.tx + (center.x - pinch.startCenter.x),
             ty: zoomed.ty + (center.y - pinch.startCenter.y),
-          })
+          }, VIEWER_PAN_SLACK)
           centerRef.current = captureNormalizedImageCenter({ container, image, transform: next })
           applyTransform(next)
           boundsRef.current = container
@@ -322,6 +314,7 @@ export function useZoomPan() {
       transform: pan.startTransform,
       dx,
       dy,
+      clampOptions: VIEWER_PAN_SLACK,
     })
     centerRef.current = captureNormalizedImageCenter({ container, image, transform: next })
     applyTransform(next)
@@ -337,7 +330,7 @@ export function useZoomPan() {
       panMoved: pan?.pointerId === pointerId ? pan.moved : false,
       pinchActive: pinch !== null,
     })) {
-      suppressClickRef.current = true
+      suppressSurfaceDoubleClickUntilRef.current = nowMs() + SURFACE_DOUBLE_CLICK_SUPPRESSION_MS
     }
     pointers.delete(pointerId)
     tryReleasePointerCapture(container, pointerId)
@@ -363,18 +356,37 @@ export function useZoomPan() {
     endPointer(e.pointerId, e.currentTarget)
   }, [endPointer])
 
-  const consumeClickSuppression = useCallback(() => {
-    if (!suppressClickRef.current) return false
-    suppressClickRef.current = false
-    return true
+  const shouldSuppressSurfaceClick = useCallback(() => {
+    return suppressSurfaceDoubleClickUntilRef.current > nowMs()
   }, [])
+
+  const zoomToPercent = useCallback((percent: number): boolean => {
+    const cont = containerRef.current
+    const container = readElementSize(cont)
+    const image = readImageSize(imgRef.current)
+    if (!cont || !container || !image) return false
+    const targetScale = clampImageScale((percent / 100) / Math.max(1e-6, baseRef.current))
+    const rect = cont.getBoundingClientRect()
+    const next = zoomImageTransformAroundPoint({
+      container,
+      image,
+      transform: currentTransform(),
+      point: { x: rect.width / 2, y: rect.height / 2 },
+      nextScale: targetScale,
+      clampOptions: VIEWER_PAN_SLACK,
+    })
+    centerRef.current = captureNormalizedImageCenter({ container, image, transform: next })
+    applyTransform(next)
+    boundsRef.current = container
+    return true
+  }, [applyTransform, currentTransform])
 
   return {
     // state
-    scale, setScale, tx, setTx, ty, setTy, base, ready, setReady, dragging, setDragging,
+    scale, tx, ty, base, ready, setReady, dragging, setDragging,
     // refs
     containerRef, imgRef,
     // helpers/handlers
-    resetView, handleWheel, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, consumeClickSuppression,
+    resetView, zoomToPercent, handleWheel, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, shouldSuppressSurfaceClick,
   }
 }

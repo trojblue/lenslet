@@ -3,7 +3,9 @@ import {
   captureNormalizedImageCenter,
   clampImageScale,
   clampImageTransform,
+  computeImagePanSlack,
   fitImageToContainer,
+  panImageTransform,
   restoreImageTransformForCenter,
   zoomImageTransformAroundPoint,
 } from '../imageTransform'
@@ -39,6 +41,69 @@ describe('image transform math', () => {
 
     expect(transform.tx).toBe(0)
     expect(transform.ty).toBe(-400)
+  })
+
+  it('keeps strict clamping as the default for centered and zoomed images', () => {
+    expect(clampImageTransform(
+      { width: 500, height: 400 },
+      { width: 100, height: 100 },
+      { base: 1, scale: 1, tx: 260, ty: 10 },
+    )).toMatchObject({ tx: 200, ty: 150 })
+
+    expect(panImageTransform({
+      container: { width: 500, height: 400 },
+      image: { width: 1000, height: 800 },
+      transform: { base: 1, scale: 1, tx: 0, ty: 0 },
+      dx: 160,
+      dy: -900,
+    })).toMatchObject({ tx: 0, ty: -400 })
+  })
+
+  it('allows bounded slack when the rendered image matches the container', () => {
+    const next = clampImageTransform(
+      { width: 500, height: 400 },
+      { width: 500, height: 400 },
+      { base: 1, scale: 1, tx: 120, ty: -120 },
+      { panSlack: true },
+    )
+
+    expect(computeImagePanSlack(500, 500)).toBe(50)
+    expect(next.tx).toBe(50)
+    expect(next.ty).toBe(-48)
+  })
+
+  it('allows bounded slack when the rendered image is smaller than the container', () => {
+    const next = clampImageTransform(
+      { width: 500, height: 400 },
+      { width: 100, height: 100 },
+      { base: 1, scale: 1, tx: 260, ty: 110 },
+      { panSlack: true },
+    )
+
+    expect(computeImagePanSlack(500, 100)).toBe(25)
+    expect(next.tx).toBe(225)
+    expect(next.ty).toBe(125)
+  })
+
+  it('allows bounded slack beyond strict zoomed-image edges', () => {
+    const right = clampImageTransform(
+      { width: 500, height: 400 },
+      { width: 1000, height: 800 },
+      { base: 1, scale: 1, tx: 90, ty: 80 },
+      { panSlack: true },
+    )
+    const left = clampImageTransform(
+      { width: 500, height: 400 },
+      { width: 1000, height: 800 },
+      { base: 1, scale: 1, tx: -590, ty: -480 },
+      { panSlack: true },
+    )
+
+    expect(computeImagePanSlack(500, 1000)).toBe(50)
+    expect(right.tx).toBe(50)
+    expect(right.ty).toBe(48)
+    expect(left.tx).toBe(-550)
+    expect(left.ty).toBe(-448)
   })
 
   it('zooms around the pointer while preserving the pointed image pixel', () => {

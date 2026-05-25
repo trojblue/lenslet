@@ -893,6 +893,30 @@ def read_viewer_state(page: Any) -> dict[str, Any]:
           if (!(dialog instanceof HTMLElement) || !(image instanceof HTMLImageElement)) {
             return { missing: true };
           }
+          const dialogRect = dialog.getBoundingClientRect();
+          const imageRect = image.getBoundingClientRect();
+          const axisBounds = (containerSize, renderedSize) => {
+            const slack = Math.min(96, Math.max(48, containerSize * 0.10), renderedSize * 0.25);
+            if (renderedSize <= containerSize) {
+              const centered = (containerSize - renderedSize) / 2;
+              return {
+                strictMin: centered,
+                strictMax: centered,
+                slackMin: centered - slack,
+                slackMax: centered + slack,
+                slack,
+              };
+            }
+            const strictMin = containerSize - renderedSize;
+            const strictMax = 0;
+            return {
+              strictMin,
+              strictMax,
+              slackMin: strictMin - slack,
+              slackMax: strictMax + slack,
+              slack,
+            };
+          };
           const loader = dialog.querySelector('[data-viewer-loader="neutral"]');
           const loaderStyle = loader instanceof HTMLElement ? getComputedStyle(loader) : null;
           const style = getComputedStyle(image);
@@ -919,8 +943,12 @@ def read_viewer_state(page: Any) -> dict[str, Any]:
               && loader.getBoundingClientRect().height > 0),
             transform: style.transform,
             matrix,
-            dialogRect: rectPayload(dialog.getBoundingClientRect()),
-            imageRect: rectPayload(image.getBoundingClientRect()),
+            transformBounds: {
+              x: axisBounds(dialogRect.width, imageRect.width),
+              y: axisBounds(dialogRect.height, imageRect.height),
+            },
+            dialogRect: rectPayload(dialogRect),
+            imageRect: rectPayload(imageRect),
           };
         }"""
     )
@@ -984,6 +1012,116 @@ def zoom_viewer_with_wheel(page: Any) -> dict[str, Any]:
     return {"before": before, "after": read_viewer_state(page), "steps": 5}
 
 
+def zoom_viewer_with_toolbar(page: Any, percent: int = 240) -> dict[str, Any]:
+    before = read_viewer_state(page)
+    page.locator('input[aria-label="Zoom level"]').evaluate(
+        """(el, value) => {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+          if (setter) setter.call(el, String(value));
+          else el.value = String(value);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }""",
+        percent,
+    )
+    page.wait_for_timeout(120)
+    return {"before": before, "after": read_viewer_state(page), "percent": percent}
+
+
+def zoom_viewer_with_pinch(page: Any) -> dict[str, Any]:
+    before = read_viewer_state(page)
+    page.evaluate(
+        """() => {
+          const dialog = document.querySelector('[role="dialog"][aria-label="Image viewer"]');
+          const image = dialog?.querySelector('img[alt="viewer"]');
+          if (!(dialog instanceof HTMLElement) || !(image instanceof HTMLImageElement)) return;
+          const rect = image.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          const fire = (type, pointerId, x, y, buttons) => {
+            image.dispatchEvent(new PointerEvent(type, {
+              pointerId,
+              pointerType: 'touch',
+              isPrimary: pointerId === 41,
+              clientX: x,
+              clientY: y,
+              button: 0,
+              buttons,
+              bubbles: true,
+              cancelable: true,
+            }));
+          };
+          fire('pointerdown', 41, cx - 45, cy, 1);
+          fire('pointerdown', 42, cx + 45, cy, 1);
+          fire('pointermove', 41, cx - 100, cy, 1);
+          fire('pointermove', 42, cx + 100, cy, 1);
+          fire('pointerup', 41, cx - 100, cy, 0);
+          fire('pointerup', 42, cx + 100, cy, 0);
+        }"""
+    )
+    page.wait_for_timeout(120)
+    return {"before": before, "after": read_viewer_state(page)}
+
+
+def run_zoom_control_probe(page: Any, base_url: str, timeout_ms: float) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for name, zoom_fn in (
+        ("wheel", zoom_viewer_with_wheel),
+        ("toolbar", zoom_viewer_with_toolbar),
+        ("pinch", zoom_viewer_with_pinch),
+    ):
+        page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_shell(page, timeout_ms)
+        opened_path, _ = open_first_viewer(page, timeout_ms)
+        wait_for_viewer_ready(page, opened_path, timeout_ms)
+        pre_pan = drag_viewer_image(page, -90, 0)
+        zoom = zoom_fn(page)
+        results.append({
+            "name": name,
+            "openedPath": opened_path,
+            "prePan": pre_pan,
+            "zoom": zoom,
+        })
+        close_viewer(page, timeout_ms)
+    return results
+
+
+def active_drag_axis(dx: int, dy: int) -> str:
+    return "x" if abs(dx) >= abs(dy) else "y"
+
+
+def active_drag_value(state: dict[str, Any], axis: str) -> float | None:
+    matrix = state.get("matrix")
+    if not isinstance(matrix, dict):
+        return None
+    key = "e" if axis == "x" else "f"
+    value = matrix.get(key)
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def reached_strict_edge(state: dict[str, Any], dx: int, dy: int) -> bool:
+    axis = active_drag_axis(dx, dy)
+    value = active_drag_value(state, axis)
+    transform_bounds = state.get("transformBounds")
+    bounds = transform_bounds.get(axis) if isinstance(transform_bounds, dict) else None
+    if value is None or not isinstance(bounds, dict):
+        return False
+    if (dx if axis == "x" else dy) < 0:
+        return value <= float(bounds.get("strictMin", 0)) + 1
+    return value >= float(bounds.get("strictMax", 0)) - 1
+
+
+def drag_to_strict_edge(page: Any, dx: int, dy: int) -> list[dict[str, Any]]:
+    step_dx = 24 if dx > 0 else -24 if dx < 0 else 0
+    step_dy = 24 if dy > 0 else -24 if dy < 0 else 0
+    drags: list[dict[str, Any]] = []
+    for _ in range(80):
+        if reached_strict_edge(read_viewer_state(page), dx, dy):
+            break
+        drags.append(drag_viewer_image(page, step_dx, step_dy))
+    return drags
+
+
 def run_default_pan_probe(page: Any, base_url: str, timeout_ms: float) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for name, dx, dy in DEFAULT_DRAGS:
@@ -1005,8 +1143,9 @@ def run_zoom_edge_probe(page: Any, base_url: str, timeout_ms: float) -> list[dic
         opened_path, _ = open_first_viewer(page, timeout_ms)
         wait_for_viewer_ready(page, opened_path, timeout_ms)
         zoom = zoom_viewer_with_wheel(page)
-        approach_drags = [drag_viewer_image(page, dx, dy) for _ in range(5)]
+        approach_drags = drag_to_strict_edge(page, dx, dy)
         before_additional = read_viewer_state(page)
+        reached_strict = reached_strict_edge(before_additional, dx, dy)
         additional = drag_viewer_image(page, dx, dy)
         results.append(
             {
@@ -1015,6 +1154,7 @@ def run_zoom_edge_probe(page: Any, base_url: str, timeout_ms: float) -> list[dic
                 "zoom": zoom,
                 "approachDrags": approach_drags,
                 "beforeAdditional": before_additional,
+                "reachedStrictEdge": reached_strict,
                 "additionalDrag": additional,
                 "changedBeyondOldClamp": bool(additional.get("changed")),
             }
@@ -1065,6 +1205,20 @@ def choose_image_point(page: Any) -> dict[str, float]:
     return {"x": float(point["x"]), "y": float(point["y"])}
 
 
+def choose_zoom_slider_point(page: Any) -> dict[str, float]:
+    point = page.evaluate(
+        """() => {
+          const slider = document.querySelector('input[aria-label="Zoom level"]');
+          if (!(slider instanceof HTMLElement)) return null;
+          const rect = slider.getBoundingClientRect();
+          return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        }"""
+    )
+    if not isinstance(point, dict):
+        raise ViewerProbeFailure("Could not choose the viewer zoom slider point.")
+    return {"x": float(point["x"]), "y": float(point["y"])}
+
+
 def run_click_probe(page: Any, base_url: str, timeout_ms: float) -> dict[str, Any]:
     results: dict[str, Any] = {}
     for name, point_fn, click_count in (
@@ -1090,6 +1244,38 @@ def run_click_probe(page: Any, base_url: str, timeout_ms: float) -> dict[str, An
         }
         if not closed:
             close_viewer(page, timeout_ms)
+
+    page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_shell(page, timeout_ms)
+    opened_path, _ = open_first_viewer(page, timeout_ms)
+    wait_for_viewer_ready(page, opened_path, timeout_ms)
+    drag = drag_viewer_image(page, 90, 0)
+    point = choose_image_point(page)
+    page.mouse.dblclick(point["x"], point["y"])
+    closed = wait_for_viewer_closed(page, 900)
+    results["doubleClickAfterDrag"] = {
+        "openedPath": opened_path,
+        "point": point,
+        "drag": drag,
+        "closed": closed,
+    }
+    if not closed:
+        close_viewer(page, timeout_ms)
+
+    page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_shell(page, timeout_ms)
+    opened_path, _ = open_first_viewer(page, timeout_ms)
+    wait_for_viewer_ready(page, opened_path, timeout_ms)
+    point = choose_zoom_slider_point(page)
+    page.mouse.dblclick(point["x"], point["y"])
+    closed = wait_for_viewer_closed(page, 900)
+    results["doubleClickToolbarZoom"] = {
+        "openedPath": opened_path,
+        "point": point,
+        "closed": closed,
+    }
+    if not closed:
+        close_viewer(page, timeout_ms)
     return results
 
 
@@ -1101,6 +1287,7 @@ def run_interactions_probe(context: Any, base_url: str, *, timeout_ms: float) ->
     result = {
         "defaultFitPan": run_default_pan_probe(page, base_url, timeout_ms),
         "zoomEdgePan": run_zoom_edge_probe(page, base_url, timeout_ms),
+        "zoomControls": run_zoom_control_probe(page, base_url, timeout_ms),
         "clicks": run_click_probe(page, base_url, timeout_ms),
     }
     page.close()
@@ -1358,6 +1545,7 @@ def interactions_acceptance_failures(raw_scenarios: Any) -> list[str]:
             drag_key="additionalDrag",
         )
     )
+    failures.extend(zoom_control_failures(raw_scenarios.get("zoomControls")))
 
     clicks = raw_scenarios.get("clicks")
     if not isinstance(clicks, dict):
@@ -1374,6 +1562,43 @@ def interactions_acceptance_failures(raw_scenarios: Any) -> list[str]:
             failures.append(f"interactions:{name}: missing click result")
         elif not clicks.get(name, {}).get("closed"):
             failures.append(f"interactions:{name}: double click did not close viewer")
+    for name in ("doubleClickAfterDrag", "doubleClickToolbarZoom"):
+        if name not in clicks:
+            failures.append(f"interactions:{name}: missing guarded double-click result")
+        elif clicks.get(name, {}).get("closed"):
+            failures.append(f"interactions:{name}: guarded double click closed viewer")
+    return failures
+
+
+def zoom_control_failures(raw_items: Any) -> list[str]:
+    expected_names = {"wheel", "toolbar", "pinch"}
+    if not isinstance(raw_items, list) or not raw_items:
+        return ["interactions: missing zoom control scenarios"]
+    failures: list[str] = []
+    by_name = {item.get("name"): item for item in raw_items if isinstance(item, dict)}
+    missing = sorted(expected_names - set(by_name))
+    if missing:
+        failures.append(f"interactions: missing zoom control scenarios {missing}")
+    for name in sorted(expected_names & set(by_name)):
+        item = by_name[name]
+        pre_pan = item.get("prePan")
+        zoom = item.get("zoom")
+        if not isinstance(pre_pan, dict) or not pre_pan.get("changed"):
+            failures.append(f"interactions:{name}: setup pan did not move before zoom control")
+        if not isinstance(zoom, dict):
+            failures.append(f"interactions:{name}: missing zoom control result")
+            continue
+        before = zoom.get("before")
+        after = zoom.get("after")
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            failures.append(f"interactions:{name}: missing zoom control before/after state")
+            continue
+        if not transform_changed(before, after):
+            failures.append(f"interactions:{name}: zoom control did not change transform")
+        if transform_outside_bounds(after, "slack"):
+            failures.append(f"interactions:{name}: zoom control exceeded computed slack bounds")
+        if not image_still_recoverable(after):
+            failures.append(f"interactions:{name}: zoom control moved image outside recoverable bounds")
     return failures
 
 
@@ -1399,8 +1624,18 @@ def transform_probe_failures(
         if not isinstance(drag, dict):
             failures.append(f"interactions:{name}: missing {drag_key} result")
             continue
+        if context == "default-fit drag":
+            failures.extend(strict_initial_transform_failures(name, drag.get("before")))
+        if context == "edge drag" and not item.get("reachedStrictEdge"):
+            failures.append(f"interactions:{name}: did not reach the old strict edge before additional drag")
         failures.extend(drag_acceptance_failures(name, drag, context))
     return failures
+
+
+def strict_initial_transform_failures(name: str, state: Any) -> list[str]:
+    if transform_outside_bounds(state, "strict"):
+        return [f"interactions:{name}: initial ready transform was not strict fitted"]
+    return []
 
 
 def drag_acceptance_failures(name: str, drag: dict[str, Any], context: str) -> list[str]:
@@ -1429,7 +1664,33 @@ def drag_acceptance_failures(name: str, drag: dict[str, Any], context: str) -> l
 
     if not image_still_recoverable(after):
         failures.append(f"interactions:{name}: image moved outside recoverable viewer bounds")
+    if transform_outside_bounds(after, "slack"):
+        failures.append(f"interactions:{name}: image transform exceeded computed slack bounds")
     return failures
+
+
+def transform_outside_bounds(state: Any, bounds_name: str) -> bool:
+    if not isinstance(state, dict):
+        return True
+    matrix = state.get("matrix")
+    transform_bounds = state.get("transformBounds")
+    if not isinstance(matrix, dict) or not isinstance(transform_bounds, dict):
+        return True
+    key_map = {
+        "strict": ("strictMin", "strictMax"),
+        "slack": ("slackMin", "slackMax"),
+    }
+    min_key, max_key = key_map[bounds_name]
+    for axis, matrix_key in (("x", "e"), ("y", "f")):
+        bounds = transform_bounds.get(axis)
+        value = matrix.get(matrix_key)
+        if not isinstance(bounds, dict) or not isinstance(value, (int, float)):
+            return True
+        if float(value) < float(bounds.get(min_key, 0)) - 1.5:
+            return True
+        if float(value) > float(bounds.get(max_key, 0)) + 1.5:
+            return True
+    return False
 
 
 def image_still_recoverable(state: Any) -> bool:

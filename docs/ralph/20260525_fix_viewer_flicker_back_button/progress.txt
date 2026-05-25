@@ -72,3 +72,36 @@ Cleanup/review notes:
 Blockers: none for Sprint 2.
 
 Next step: Sprint 3 / FBB-7, add viewer-only bounded pan slack, then FBB-8 double-click return and single-click no-op.
+
+## Iteration 3/8 - 2026-05-25T21:16:08Z
+
+Completed task IDs: FBB-7, FBB-8.
+
+Files changed:
+- `frontend/src/lib/imageTransform.ts` added strict-default optional pan-slack clamp behavior.
+- `frontend/src/lib/__tests__/imageTransform.test.ts` added strict/default and bounded-slack transform coverage.
+- `frontend/src/features/viewer/hooks/useZoomPan.ts` routes viewer pan, wheel zoom, pinch translate/zoom, and toolbar zoom through viewer-only slack transforms and tracks drag/pinch double-click suppression.
+- `frontend/src/features/viewer/Viewer.tsx` changed viewer surface click semantics to single-click no-op and guarded double-click return to grid.
+- `scripts/viewer_flicker_back_browser.py` strengthened Sprint 3 browser acceptance for initial strict fit, computed slack bounds, strict-edge reach before additional drag, wheel/toolbar/pinch zoom, and click/double-click guards.
+- `src/lenslet/frontend/` was regenerated from `frontend/dist/`; `rsync` was unavailable, so the generated directory was cleared and copied from `frontend/dist/`.
+- `docs/20260525_fix_viewer_flicker_back_button_plan.md` updated with Sprint 3 status and handoff notes.
+- `docs/ralph/20260525_fix_viewer_flicker_back_button/progress.txt` updated with this iteration summary.
+- `data/fixtures/viewer_interactions_after.json` regenerated locally as ignored browser evidence.
+
+Validations run:
+- `python -m py_compile scripts/viewer_flicker_back_browser.py` passed.
+- `cd frontend && npm run test -- src/lib/__tests__/imageTransform.test.ts src/features/viewer/hooks/__tests__/useZoomPan.test.ts` passed.
+- `cd frontend && npm run test` passed: 75 files, 360 tests.
+- `cd frontend && npm run build` passed.
+- `python scripts/viewer_flicker_back_browser.py --mode interactions --output-json data/fixtures/viewer_interactions_after.json` passed. Evidence covers default-fit pan movement in all directions, extra movement beyond old strict edge clamps, computed slack bounds/recoverability, wheel/toolbar/pinch zoom, single-click no-op, double-click return, and guarded double-click behavior after drag and on controls.
+- `python scripts/lint_repo.py` passed with warn-only large-file notices; `scripts/viewer_flicker_back_browser.py` is 1785 lines, below the 2000-line hard limit.
+- `git diff --check` passed.
+
+Cleanup/review notes:
+- code-simplifier sidecar found no Tier 1 cleanup to apply.
+- code-review sidecar found generated asset staging risk, control-click suppression after drag, and a harness false-pass risk for edge drags that did not prove old strict-edge reach. Fixes were applied and revalidated.
+- Re-review found the generated asset staging risk until staging and an SVG-descendant control guard issue. The control guard now uses `Element.closest` in both Viewer and the hook, and generated assets are included in the commit.
+
+Blockers: none for Sprint 3.
+
+Next step: Sprint 4 / FBB-9, rerun the expanded Back pointer sweep before making any Back toolbar/layout change.

@@ -105,3 +105,34 @@ Cleanup/review notes:
 Blockers: none for Sprint 3.
 
 Next step: Sprint 4 / FBB-9, rerun the expanded Back pointer sweep before making any Back toolbar/layout change.
+
+## Iteration 4/8 - 2026-05-25T21:32:00Z
+
+Completed task IDs: FBB-9, FBB-10.
+
+Files changed:
+- `frontend/src/styles.css` hides browse-only left toolbar participants only in viewer mode so the Back button no longer sits under the viewer zoom slider or `.toolbar-center`.
+- `src/lenslet/frontend/` was regenerated from `frontend/dist/`; `rsync` was unavailable, so the generated directory was cleared and copied from `frontend/dist/`.
+- `docs/20260525_fix_viewer_flicker_back_button_plan.md` updated with Sprint 4 status and handoff notes.
+- `docs/ralph/20260525_fix_viewer_flicker_back_button/progress.txt` updated with this iteration summary.
+- Ignored browser evidence was regenerated locally under `data/fixtures/`: `viewer_back_after.json`, `viewer_compare_observation_after.json`, and `viewer_flicker_back_after.json`.
+
+Validations run:
+- `python scripts/viewer_flicker_back_browser.py --mode back --output-json data/fixtures/viewer_back_after.json` failed before the CSS edit as expected, reproducing Back coverage by the zoom slider or `.toolbar-center` at 901, 960, 1181, 1240, 1280, and 1360 px.
+- `cd frontend && npm run build` passed.
+- `python scripts/viewer_flicker_back_browser.py --mode back --output-json data/fixtures/viewer_back_after.json` passed after the CSS edit: 17 Back scenarios, zero acceptance failures.
+- Compare observation passed because shared transform code changed in Sprint 3: two visible compare full images and zero visible compare thumbs after compare readiness.
+- `cd frontend && npm run test` passed: 75 files, 360 tests.
+- `cd frontend && npm run build` passed.
+- `python scripts/viewer_flicker_back_browser.py --mode all --output-json data/fixtures/viewer_flicker_back_after.json` passed: zero acceptance failures across viewer open, Back, and interaction scenarios.
+- `python scripts/lint_repo.py` passed with warn-only large-file notices.
+- `python scripts/gui_smoke_acceptance.py` passed with the existing folder re-entry anchor warning.
+- `git diff --check` passed.
+
+Cleanup/review notes:
+- code-simplifier sidecar made no edits; the CSS change was already small and generated assets were left untouched.
+- code-review sidecar found no actionable issues and verified no stale generated asset references.
+
+Blockers: none.
+
+Next step: all planned sprints/tasks are complete; Sprint 4 slice has been committed.

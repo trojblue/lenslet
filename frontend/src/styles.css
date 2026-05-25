@@ -994,6 +994,13 @@
   justify-content: flex-start;
 }
 
+.toolbar-shell-viewer .toolbar-scope,
+.toolbar-shell-viewer .toolbar-sort,
+.toolbar-shell-viewer .toolbar-filter,
+.toolbar-shell-viewer .toolbar-slot-refresh {
+  display: none;
+}
+
 .toolbar-slot-nav {
   justify-content: flex-end;
   width: 72px;

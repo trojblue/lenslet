@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { getMinCenterWidth } from '../../lib/breakpoints'
+import {
+  RESPONSIVE_LAYOUT_CONSTANTS,
+  clampSidebarDragWidth,
+  resolveSidebarDragConstraint,
+} from './responsiveLayoutPolicy'
 
 export const SIDEBAR_STORAGE_KEYS = {
   leftFolders: 'leftW.folders',
@@ -10,9 +14,6 @@ export const SIDEBAR_STORAGE_KEYS = {
 type LeftTool = 'folders' | 'metrics'
 type SidebarStorageKey = (typeof SIDEBAR_STORAGE_KEYS)[keyof typeof SIDEBAR_STORAGE_KEYS]
 
-const LEFT_MIN_WIDTH = 200
-const RIGHT_MIN_WIDTH = 240
-
 function isPositiveFiniteNumber(value: number): boolean {
   return Number.isFinite(value) && value > 0
 }
@@ -20,10 +21,6 @@ function isPositiveFiniteNumber(value: number): boolean {
 function parseStoredWidth(value: string | null): number | null {
   const parsed = Number(value)
   return isPositiveFiniteNumber(parsed) ? parsed : null
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
 }
 
 export function getLeftSidebarStorageKey(leftTool: LeftTool): SidebarStorageKey {
@@ -54,16 +51,27 @@ export function clampLeftSidebarWidth({
   appLeft,
   appWidth,
   rightWidth,
+  leftWidth = RESPONSIVE_LAYOUT_CONSTANTS.leftContentMinWidth,
+  userLeftOpen = true,
+  userRightOpen = true,
 }: {
   clientX: number
   appLeft: number
   appWidth: number
+  leftWidth?: number
   rightWidth: number
+  userLeftOpen?: boolean
+  userRightOpen?: boolean
 }): number {
   const x = clientX - appLeft
-  const minCenterWidth = getMinCenterWidth(appWidth)
-  const max = Math.max(LEFT_MIN_WIDTH, appWidth - rightWidth - minCenterWidth)
-  return clamp(x, LEFT_MIN_WIDTH, max)
+  return clampSidebarDragWidth(x, resolveSidebarDragConstraint({
+    viewportWidth: appWidth,
+    activeSide: 'left',
+    userLeftOpen,
+    userRightOpen,
+    leftPreferredWidth: leftWidth,
+    rightPreferredWidth: rightWidth,
+  }))
 }
 
 export function clampRightSidebarWidth({
@@ -71,17 +79,28 @@ export function clampRightSidebarWidth({
   appLeft,
   appWidth,
   leftWidth,
+  rightWidth = RESPONSIVE_LAYOUT_CONSTANTS.rightInspectorMinUsableWidth,
+  userLeftOpen = true,
+  userRightOpen = true,
 }: {
   clientX: number
   appLeft: number
   appWidth: number
   leftWidth: number
+  rightWidth?: number
+  userLeftOpen?: boolean
+  userRightOpen?: boolean
 }): number {
   const x = clientX - appLeft
   const fromRight = appWidth - x
-  const minCenterWidth = getMinCenterWidth(appWidth)
-  const max = Math.max(RIGHT_MIN_WIDTH, appWidth - leftWidth - minCenterWidth)
-  return clamp(fromRight, RIGHT_MIN_WIDTH, max)
+  return clampSidebarDragWidth(fromRight, resolveSidebarDragConstraint({
+    viewportWidth: appWidth,
+    activeSide: 'right',
+    userLeftOpen,
+    userRightOpen,
+    leftPreferredWidth: leftWidth,
+    rightPreferredWidth: rightWidth,
+  }))
 }
 
 function isNonPrimaryMousePointer(event: React.PointerEvent<HTMLDivElement>): boolean {
@@ -107,6 +126,10 @@ function tryReleasePointerCapture(target: HTMLDivElement, pointerId: number): vo
 export function useSidebars(
   appRef: React.RefObject<HTMLDivElement | null>,
   leftTool: LeftTool,
+  options: {
+    userLeftOpen: boolean
+    userRightOpen: boolean
+  },
 ) {
   const [leftFoldersW, setLeftFoldersW] = useState<number>(240)
   const [leftMetricsW, setLeftMetricsW] = useState<number>(320)
@@ -114,8 +137,12 @@ export function useSidebars(
   const leftW = leftTool === 'metrics' ? leftMetricsW : leftFoldersW
   const leftWRef = useRef(leftW)
   const rightWRef = useRef(rightW)
+  const userLeftOpenRef = useRef(options.userLeftOpen)
+  const userRightOpenRef = useRef(options.userRightOpen)
   useEffect(() => { leftWRef.current = leftW }, [leftW])
   useEffect(() => { rightWRef.current = rightW }, [rightW])
+  useEffect(() => { userLeftOpenRef.current = options.userLeftOpen }, [options.userLeftOpen])
+  useEffect(() => { userRightOpenRef.current = options.userRightOpen }, [options.userRightOpen])
   useEffect(() => {
     try {
       const persisted = readPersistedSidebarWidths(window.localStorage)
@@ -164,16 +191,20 @@ export function useSidebars(
     if (!app) return
     const rect = app.getBoundingClientRect()
     const storageKey = getLeftSidebarStorageKey(leftTool)
-    let latestWidth = leftWRef.current
+    const constraint = resolveSidebarDragConstraint({
+      viewportWidth: rect.width,
+      activeSide: 'left',
+      userLeftOpen: userLeftOpenRef.current,
+      userRightOpen: userRightOpenRef.current,
+      leftPreferredWidth: leftWRef.current,
+      rightPreferredWidth: rightWRef.current,
+    })
+    if (constraint.disabled) return
+    let latestWidth = clampSidebarDragWidth(leftWRef.current, constraint)
     bindPointerDrag(
       e,
       (event) => {
-        const nw = clampLeftSidebarWidth({
-          clientX: event.clientX,
-          appLeft: rect.left,
-          appWidth: rect.width,
-          rightWidth: rightWRef.current,
-        })
+        const nw = clampSidebarDragWidth(event.clientX - rect.left, constraint)
         latestWidth = nw
         if (leftTool === 'metrics') {
           setLeftMetricsW(nw)
@@ -193,16 +224,20 @@ export function useSidebars(
     const app = appRef.current
     if (!app) return
     const rect = app.getBoundingClientRect()
-    let latestWidth = rightWRef.current
+    const constraint = resolveSidebarDragConstraint({
+      viewportWidth: rect.width,
+      activeSide: 'right',
+      userLeftOpen: userLeftOpenRef.current,
+      userRightOpen: userRightOpenRef.current,
+      leftPreferredWidth: leftWRef.current,
+      rightPreferredWidth: rightWRef.current,
+    })
+    if (constraint.disabled) return
+    let latestWidth = clampSidebarDragWidth(rightWRef.current, constraint)
     bindPointerDrag(
       e,
       (event) => {
-        const nw = clampRightSidebarWidth({
-          clientX: event.clientX,
-          appLeft: rect.left,
-          appWidth: rect.width,
-          leftWidth: leftWRef.current,
-        })
+        const nw = clampSidebarDragWidth(rect.width - (event.clientX - rect.left), constraint)
         latestWidth = nw
         rightWRef.current = nw
         setRightW(nw)

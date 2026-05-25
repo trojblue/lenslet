@@ -407,8 +407,11 @@ Recovery:
 - [x] 2026-05-24: First plan review subagent feedback incorporated into the earlier draft.
 - [x] 2026-05-25: External reviewer comments received; required changes identified: non-destructive sidebar suppression, typed policy API, impossible-constraint priority, split grid/overlay insets, AppShell-owned mobile search state, persistence tests, overlay background interactivity checks, and tighter RSP-8 scope.
 - [x] 2026-05-25: Plan-writer review subagent completed; feedback incorporated by narrowing the policy API, routing drag constraints through policy, exposing stronger debug evidence, seeding the browser harness earlier, adding per-ticket validation, constraining toolbar scope, tightening overlay isolation, and explicitly observing the `R10` metrics scenario.
-- [ ] Pending: User approval of revised behavior boundaries and sprint order.
-- [ ] Pending: Sprint 1 implementation handoff.
+- [x] 2026-05-25: Runtime execution request treated as approval of revised behavior boundaries and sprint order.
+- [x] 2026-05-25: Sprint 1 implemented. `RSP-1` added `responsiveLayoutPolicy.ts` with typed model, constants, suppression reasons, grid/overlay inset outputs, shell reserves, and drag constraints. `RSP-2` routed AppShell and sidebar drag through the policy, removed destructive narrow auto-close, exposed debug data attributes, and split grid/overlay CSS variables. `RSP-3` added policy/drag persistence coverage and seeded `scripts/responsive_geometry_harness.py`.
+- [x] 2026-05-25: Sprint 1 validation passed: focused layout Vitest suite, `npx tsc --noEmit`, full `npm run test`, `npm run build`, packaged frontend regeneration, `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-sprint1.json`, `python scripts/gui_smoke_acceptance.py --output-json /tmp/lenslet-gui-smoke-sprint1.json`, and `python scripts/lint_repo.py`.
+- [x] 2026-05-25: Sprint 1 cleanup/review gates completed. Cleanup made no code changes; review findings were addressed by adding generated assets to the commit set, aligning rendered and drag-time right-sidebar max width at oversized desktop preferences, and preserving mobile drawer safe-area reserve in `--mobile-drawer-h`.
+- [x] 2026-05-25: Sprint 1 implementation handoff. Effective layout is now policy-owned and non-destructive; AppShell still passes `mobileSearchOpen: false` until `RSP-5`, and viewer/compare/drop overlays still read temporary `--left`/`--right` aliases until `RSP-7`.
 - [ ] Pending: Sprint 2 implementation handoff.
 - [ ] Pending: Sprint 3 implementation handoff.
 - [ ] Pending: Sprint 4 implementation handoff.
@@ -435,6 +438,9 @@ Implementation handoff notes:
 6. Do not add `@floating-ui/react`, `react-resizable-panels`, or any other dependency unless explicitly approved after fresh online package checks.
 7. Treat `R8` as in scope because hidden drawer controls are reachability failures.
 8. Treat `R9` and `R10` as deferred unless they produce a primary acceptance failure.
+9. Sprint 1 shipped `scripts/responsive_geometry_harness.py` as the responsive evidence seed. It currently covers desktop/phone oversized-sidebar states, scroll-width overflow, DOM debug attributes, CSS variables, toolbar control rectangles, and resize-down/resize-up persistence preservation.
+10. Sprint 2 should connect AppShell-owned `mobileSearchOpen` into the policy instead of relying on Toolbar-local state; this was intentionally left as `false` in Sprint 1 to avoid jumping ahead.
+11. Sprint 3 should migrate viewer/compare/drop overlay paths from the temporary `--left`/`--right` aliases to `--overlay-left`/`--overlay-right`.
 
 Revision note:
 

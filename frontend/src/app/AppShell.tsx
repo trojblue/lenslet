@@ -30,11 +30,14 @@ import {
 } from '../features/browse/model/filters'
 import { useSidebars } from './layout/useSidebars'
 import {
-  resolveLeftColumnLayout,
   resolveLeftToolToggle,
   resolveSidebarHotkeyToggle,
   toggleLeftPanelContent,
 } from './layout/sidebarLayout'
+import {
+  buildResponsiveLayoutModel,
+  type OverlayMode,
+} from './layout/responsiveLayoutPolicy'
 import { useQueryClient } from '@tanstack/react-query'
 import type {
   CompareOrderMode,
@@ -58,8 +61,7 @@ import GridTopStack from './components/GridTopStack'
 import { deriveIndicatorState } from './presenceUi'
 import { LONG_SYNC_THRESHOLD_MS } from '../lib/constants'
 import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
-import { constrainSidebarWidths, LAYOUT_BREAKPOINTS, LAYOUT_MEDIA_QUERIES } from '../lib/breakpoints'
-import { useMediaQuery } from '../shared/hooks/useMediaQuery'
+import { LAYOUT_BREAKPOINTS } from '../lib/breakpoints'
 import MoveToDialog from './components/MoveToDialog'
 import AppContextMenuItems from './menu/AppContextMenuItems'
 import { resolveFindSimilarAvailability } from '../features/inspector/model/findSimilarAvailability'
@@ -226,7 +228,9 @@ export default function AppShell({
   const [viewportWidth, setViewportWidth] = useState(() => (
     typeof window === 'undefined' ? 1440 : window.innerWidth
   ))
-  const isNarrowViewport = useMediaQuery(LAYOUT_MEDIA_QUERIES.narrow)
+  const [viewportHeight, setViewportHeight] = useState(() => (
+    typeof window === 'undefined' ? 900 : window.innerHeight
+  ))
   const [leftTool, setLeftTool] = useState<'folders' | 'metrics'>('folders')
   const [views, setViews] = useState<SavedView[]>([])
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
@@ -262,7 +266,10 @@ export default function AppShell({
     createDeferredWriteScheduler<PersistedAppShellSettings>(writePersistedSettings),
   )
 
-  const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool)
+  const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool, {
+    userLeftOpen: leftOpen,
+    userRightOpen: rightOpen,
+  })
   const {
     getHydratedSnapshot: getFolderHydratedSnapshot,
     getTopAnchorPath,
@@ -952,13 +959,6 @@ export default function AppShell({
     setPersistedSettingsReady(true)
   }, [])
 
-  // Auto-collapse side panels on narrow screens
-  useEffect(() => {
-    if (!isNarrowViewport) return
-    setLeftOpen(false)
-    setRightOpen(false)
-  }, [isNarrowViewport])
-
   // Track browser zoom changes (best-effort heuristic)
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1035,7 +1035,10 @@ export default function AppShell({
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const update = () => setViewportWidth(window.innerWidth)
+    const update = () => {
+      setViewportWidth(window.innerWidth)
+      setViewportHeight(window.innerHeight)
+    }
     update()
     window.addEventListener('resize', update)
     window.addEventListener('orientationchange', update)
@@ -1259,29 +1262,52 @@ export default function AppShell({
     return () => window.removeEventListener('keydown', onKey)
   }, [keyboardStateRef, leftOpenRef, rightOpenRef, setSelectedPaths])
 
-  const constrainedSidebars = useMemo(() => constrainSidebarWidths({
+  const overlayMode = useMemo<OverlayMode>(() => {
+    if (compareOpen) return 'compare'
+    if (viewer) return 'viewer'
+    return 'none'
+  }, [compareOpen, viewer])
+
+  const layoutModel = useMemo(() => buildResponsiveLayoutModel({
     viewportWidth,
-    leftOpen,
-    rightOpen,
-    leftWidth: leftW,
-    rightWidth: rightW,
-  }), [viewportWidth, leftOpen, rightOpen, leftW, rightW])
+    viewportHeight,
+    userLeftOpen: leftOpen,
+    userRightOpen: rightOpen,
+    leftPreferredWidth: leftW,
+    rightPreferredWidth: rightW,
+    overlay: overlayMode,
+    mobileSearchOpen: false,
+  }), [viewportWidth, viewportHeight, leftOpen, rightOpen, leftW, rightW, overlayMode])
 
-  const leftColumnLayout = useMemo(() => resolveLeftColumnLayout({
-    isNarrowViewport,
-    contentOpen: leftOpen,
-    contentWidth: constrainedSidebars.leftWidth,
-  }), [isNarrowViewport, leftOpen, constrainedSidebars.leftWidth])
-
-  const leftCol = `${leftColumnLayout.columnWidth}px`
-  const rightCol = rightOpen ? `${constrainedSidebars.rightWidth}px` : '0px'
+  const leftCol = `${layoutModel.gridInsets.left}px`
+  const rightCol = `${layoutModel.gridInsets.right}px`
+  const overlayLeft = `${layoutModel.overlayInsets.left}px`
+  const overlayRight = `${layoutModel.overlayInsets.right}px`
+  const toolbarHeight = `${layoutModel.shellReserves.toolbarHeightPx}px`
+  const mobileDrawerHeight = layoutModel.shellReserves.mobileDrawerHeightPx > 0
+    ? `calc(${layoutModel.shellReserves.mobileDrawerHeightPx}px + env(safe-area-inset-bottom, 0px))`
+    : '0px'
   const metricRailActive = hasMetricScrollbar && metricSortKey !== null
 
   return (
     <div
-      className="app-shell grid h-full grid-cols-[var(--left)_1fr_var(--right)]"
+      className="app-shell grid h-full grid-cols-[var(--grid-left)_1fr_var(--grid-right)]"
       ref={appRef}
+      data-layout-mode={layoutModel.mode}
+      data-short-height={layoutModel.shortHeight ? 'true' : 'false'}
+      data-left-suppression-reason={layoutModel.leftSuppressionReason}
+      data-right-suppression-reason={layoutModel.rightSuppressionReason}
+      data-inspector-suppression-reason={layoutModel.inspector.suppressionReason}
+      data-overlay-mode={overlayMode}
+      data-effective-left-width={layoutModel.leftWidth}
+      data-effective-right-width={layoutModel.rightWidth}
       style={{
+        ['--grid-left' as any]: leftCol,
+        ['--grid-right' as any]: rightCol,
+        ['--overlay-left' as any]: overlayLeft,
+        ['--overlay-right' as any]: overlayRight,
+        ['--toolbar-h' as any]: toolbarHeight,
+        ['--mobile-drawer-h' as any]: mobileDrawerHeight,
         ['--left' as any]: leftCol,
         ['--right' as any]: rightCol,
       }}
@@ -1356,10 +1382,10 @@ export default function AppShell({
         className="sr-only"
         onChange={handleUploadInputChange}
       />
-      {leftColumnLayout.railVisible && (
+      {layoutModel.leftRailVisible && (
         <LeftSidebar
           leftTool={leftTool}
-          contentOpen={leftOpen}
+          contentOpen={layoutModel.effectiveLeftOpen}
           onToolChange={handleLeftToolChange}
           compareEnabled={compareEnabled}
           compareActive={compareOpen}
@@ -1477,7 +1503,7 @@ export default function AppShell({
         </div>
         {/* Bottom selection bar removed intentionally */}
       </div>
-      {rightOpen && (
+      {layoutModel.effectiveRightOpen && (
         <Inspector
           path={selectedPaths[0] ?? null}
           selectedPaths={selectedPaths}

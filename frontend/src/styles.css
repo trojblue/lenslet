@@ -75,6 +75,10 @@
   --toolbar-h: var(--spacing-toolbar, 48px);
   --mobile-drawer-h: 0px;
   --metric-rail-w: 18px;
+  --grid-left: 0px;
+  --grid-right: 0px;
+  --overlay-left: 0px;
+  --overlay-right: 0px;
 }
 
 .boot-loading {
@@ -1192,8 +1196,8 @@
 
   .mobile-drawer {
     position: fixed;
-    left: var(--left);
-    right: var(--right);
+    left: var(--grid-left);
+    right: var(--grid-right);
     bottom: 0;
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
     background: color-mix(in oklab, var(--panel) 92%, transparent);

@@ -5,3 +5,39 @@ Tool: codex
 Repo: /data/yada/dev_new/lenslet
 Plan: /data/yada/dev_new/lenslet/docs/20260525_responsive_layout_structural_plan.md
 ---
+
+## Iteration 1 - 2026-05-25T00:34:45Z
+
+Completed task IDs: RSP-1, RSP-2, RSP-3.
+
+Files changed:
+- frontend/src/app/layout/responsiveLayoutPolicy.ts
+- frontend/src/app/layout/__tests__/responsiveLayoutPolicy.test.ts
+- frontend/src/app/AppShell.tsx
+- frontend/src/app/layout/useSidebars.ts
+- frontend/src/app/layout/sidebarLayout.ts
+- frontend/src/app/layout/__tests__/useSidebars.test.ts
+- frontend/src/app/layout/__tests__/sidebarLayout.test.ts
+- frontend/src/lib/breakpoints.ts
+- frontend/src/lib/__tests__/breakpoints.test.ts
+- frontend/src/styles.css
+- scripts/responsive_geometry_harness.py
+- src/lenslet/frontend/* (regenerated packaged frontend bundle)
+- docs/20260525_responsive_layout_structural_plan.md
+- docs/ralph/20260525_responsive_layout_structural_plan/progress.txt
+
+Validation run:
+- `npm run test -- src/app/layout/__tests__/responsiveLayoutPolicy.test.ts src/app/layout/__tests__/useSidebars.test.ts src/app/layout/__tests__/sidebarLayout.test.ts src/lib/__tests__/breakpoints.test.ts` - passed.
+- `npx tsc --noEmit` - passed.
+- `python -m py_compile scripts/responsive_geometry_harness.py` - passed.
+- `npm run build` - passed; packaged frontend bundle regenerated under `src/lenslet/frontend/`.
+- `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-sprint1.json` - passed and wrote JSON evidence.
+- `npm run test` - passed, 71 files / 321 tests.
+- `python scripts/lint_repo.py` - passed with existing warn-only file-size notices.
+- `python scripts/gui_smoke_acceptance.py --output-json /tmp/lenslet-gui-smoke-sprint1.json` - passed with the existing non-fatal folder re-entry exact-anchor warning.
+- Cleanup subagent (`code-simplifier`) - passed; no conservative edits applied.
+- Review subagent (`code-review`) - found generated asset staging, drag/model width mismatch, and mobile drawer safe-area reserve issues. All were addressed; focused tests, `npx tsc --noEmit`, full `npm run test`, `npm run build`, responsive harness, repo lint, and GUI smoke were rerun afterward and passed.
+
+Blockers: none.
+
+Next step: Sprint 2 (`RSP-4` through `RSP-6`) should repair toolbar command placement, AppShell-owned mobile search state, and mobile drawer reachability.

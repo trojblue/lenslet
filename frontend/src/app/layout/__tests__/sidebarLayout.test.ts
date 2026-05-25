@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   LEFT_SIDEBAR_RAIL_WIDTH_PX,
-  resolveLeftColumnLayout,
   resolveLeftToolToggle,
   resolveSidebarHotkeyToggle,
   toggleLeftPanelContent,
@@ -66,36 +65,7 @@ describe('sidebarLayout helpers', () => {
     })
   })
 
-  it('keeps the icon rail visible on desktop when content is collapsed', () => {
-    expect(resolveLeftColumnLayout({
-      isNarrowViewport: false,
-      contentOpen: false,
-      contentWidth: 320,
-    })).toEqual({
-      railVisible: true,
-      columnWidth: LEFT_SIDEBAR_RAIL_WIDTH_PX,
-    })
-  })
-
-  it('uses full content width when content is open', () => {
-    expect(resolveLeftColumnLayout({
-      isNarrowViewport: false,
-      contentOpen: true,
-      contentWidth: 286,
-    })).toEqual({
-      railVisible: true,
-      columnWidth: 286,
-    })
-  })
-
-  it('hides the left rail entirely on narrow viewports when content is collapsed', () => {
-    expect(resolveLeftColumnLayout({
-      isNarrowViewport: true,
-      contentOpen: false,
-      contentWidth: 286,
-    })).toEqual({
-      railVisible: false,
-      columnWidth: 0,
-    })
+  it('keeps the rail width constant aligned with the responsive policy', () => {
+    expect(LEFT_SIDEBAR_RAIL_WIDTH_PX).toBe(48)
   })
 })

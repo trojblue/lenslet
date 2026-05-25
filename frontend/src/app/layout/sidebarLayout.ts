@@ -1,4 +1,6 @@
-export const LEFT_SIDEBAR_RAIL_WIDTH_PX = 48
+import { RESPONSIVE_LAYOUT_CONSTANTS } from './responsiveLayoutPolicy'
+
+export const LEFT_SIDEBAR_RAIL_WIDTH_PX = RESPONSIVE_LAYOUT_CONSTANTS.leftRailWidth
 
 type LeftTool = 'folders' | 'metrics'
 
@@ -51,30 +53,5 @@ export function resolveSidebarHotkeyToggle({
   return {
     leftContentOpen: toggleLeftPanelContent(leftContentOpen),
     rightOpen,
-  }
-}
-
-export function resolveLeftColumnLayout({
-  isNarrowViewport,
-  contentOpen,
-  contentWidth,
-}: {
-  isNarrowViewport: boolean
-  contentOpen: boolean
-  contentWidth: number
-}): {
-  railVisible: boolean
-  columnWidth: number
-} {
-  const railVisible = !isNarrowViewport || contentOpen
-  if (!railVisible) {
-    return { railVisible: false, columnWidth: 0 }
-  }
-  if (!contentOpen) {
-    return { railVisible: true, columnWidth: LEFT_SIDEBAR_RAIL_WIDTH_PX }
-  }
-  return {
-    railVisible: true,
-    columnWidth: Math.max(LEFT_SIDEBAR_RAIL_WIDTH_PX, contentWidth),
   }
 }

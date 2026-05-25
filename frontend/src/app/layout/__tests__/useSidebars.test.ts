@@ -82,9 +82,10 @@ describe('useSidebars resize and persistence helpers', () => {
         clientX: 980,
         appLeft: 100,
         appWidth: 1000,
+        leftWidth: 240,
         rightWidth: 300,
       }),
-    ).toBe(340)
+    ).toBe(280)
   })
 
   it('clamps right resize within min and center-preserving max bounds', () => {
@@ -94,8 +95,9 @@ describe('useSidebars resize and persistence helpers', () => {
         appLeft: 100,
         appWidth: 1000,
         leftWidth: 260,
+        rightWidth: 300,
       }),
-    ).toBe(240)
+    ).toBe(280)
 
     expect(
       clampRightSidebarWidth({
@@ -103,6 +105,7 @@ describe('useSidebars resize and persistence helpers', () => {
         appLeft: 100,
         appWidth: 1000,
         leftWidth: 260,
+        rightWidth: 300,
       }),
     ).toBe(380)
   })
@@ -114,7 +117,21 @@ describe('useSidebars resize and persistence helpers', () => {
         appLeft: 0,
         appWidth: 1440,
         leftWidth: 240,
+        rightWidth: 900,
       }),
-    ).toBe(680)
+    ).toBe(720)
+  })
+
+  it('does not return a preview width when the policy disables an impossible drag', () => {
+    expect(
+      clampLeftSidebarWidth({
+        clientX: 300,
+        appLeft: 0,
+        appWidth: 320,
+        leftWidth: 760,
+        rightWidth: 300,
+        userRightOpen: false,
+      }),
+    ).toBe(0)
   })
 })

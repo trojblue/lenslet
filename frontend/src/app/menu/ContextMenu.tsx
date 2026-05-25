@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { clampMenuPosition, getViewportSize } from '../../lib/menuPosition'
+import {
+  clampMenuPosition,
+  getVisibleViewportBounds,
+  subscribeVisibleViewportChanges,
+} from '../../lib/menuPosition'
 
 export interface MenuItem {
   label: string
@@ -26,7 +30,7 @@ export default function ContextMenu({ x, y, items }: ContextMenuProps) {
 
   const updatePosition = useCallback(() => {
     const menuEl = menuRef.current
-    const viewport = getViewportSize()
+    const viewport = getVisibleViewportBounds()
     const rect = menuEl?.getBoundingClientRect()
     const menuWidth = rect?.width ?? 180
     const menuHeight = rect?.height ?? Math.max(40, items.length * 36)
@@ -46,12 +50,7 @@ export default function ContextMenu({ x, y, items }: ContextMenuProps) {
   }, [updatePosition])
 
   useEffect(() => {
-    window.addEventListener('resize', updatePosition)
-    window.addEventListener('scroll', updatePosition, true)
-    return () => {
-      window.removeEventListener('resize', updatePosition)
-      window.removeEventListener('scroll', updatePosition, true)
-    }
+    return subscribeVisibleViewportChanges(updatePosition)
   }, [updatePosition])
 
   return (

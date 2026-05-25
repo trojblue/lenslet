@@ -18,6 +18,7 @@ import time
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from PIL import Image
 
@@ -351,6 +352,234 @@ def assert_adaptive_geometry(snapshot: dict[str, Any]) -> None:
         )
 
 
+def collect_surface_bounds(page: Any, selector: str, name: str) -> dict[str, Any]:
+    snapshot = page.evaluate(
+        """({ selector, name }) => {
+          const rectPayload = (rect) => rect ? ({
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+          }) : null
+          const el = document.querySelector(selector)
+          const visualViewport = window.visualViewport ? {
+            width: window.visualViewport.width,
+            height: window.visualViewport.height,
+            offsetLeft: window.visualViewport.offsetLeft,
+            offsetTop: window.visualViewport.offsetTop,
+            scale: window.visualViewport.scale,
+          } : null
+          const left = visualViewport ? visualViewport.offsetLeft : 0
+          const top = visualViewport ? visualViewport.offsetTop : 0
+          const width = visualViewport ? visualViewport.width : window.innerWidth
+          const height = visualViewport ? visualViewport.height : window.innerHeight
+          return {
+            name,
+            selector,
+            rect: el ? rectPayload(el.getBoundingClientRect()) : null,
+            role: el ? el.getAttribute('role') : null,
+            optionCount: el ? el.querySelectorAll('[role="option"]').length : 0,
+            menuItemCount: el ? el.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]').length : 0,
+            bounds: {
+              left,
+              top,
+              width,
+              height,
+              right: left + width,
+              bottom: top + height,
+              visualViewport,
+            },
+          }
+        }""",
+        {"selector": selector, "name": name},
+    )
+    if not isinstance(snapshot, dict):
+        raise OverallCleanupBrowserFailure(f"Failed to collect surface bounds for {name}.")
+    return snapshot
+
+
+def assert_surface_inside_visible_bounds(snapshot: dict[str, Any]) -> None:
+    name = str(snapshot.get("name", "<unknown>"))
+    rect = snapshot.get("rect")
+    bounds = snapshot.get("bounds")
+    if not isinstance(rect, dict) or not isinstance(bounds, dict):
+        raise OverallCleanupBrowserFailure(f"Missing surface bounds for {name}: {snapshot!r}.")
+    tolerance = 1.5
+    left = float(rect.get("left", 0))
+    right = float(rect.get("right", 0))
+    top = float(rect.get("top", 0))
+    bottom = float(rect.get("bottom", 0))
+    bounds_left = float(bounds.get("left", 0))
+    bounds_right = float(bounds.get("right", 0))
+    bounds_top = float(bounds.get("top", 0))
+    bounds_bottom = float(bounds.get("bottom", 0))
+    if left < bounds_left - tolerance or right > bounds_right + tolerance:
+        raise OverallCleanupBrowserFailure(
+            f"{name} overflows visible viewport horizontally: "
+            f"{left:.1f}..{right:.1f} outside {bounds_left:.1f}..{bounds_right:.1f}."
+        )
+    if top < bounds_top - tolerance or bottom > bounds_bottom + tolerance:
+        raise OverallCleanupBrowserFailure(
+            f"{name} overflows visible viewport vertically: "
+            f"{top:.1f}..{bottom:.1f} outside {bounds_top:.1f}..{bounds_bottom:.1f}."
+        )
+
+
+def verify_menu_bounds_and_roles(page: Any, timeout_ms: float) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    page.set_viewport_size({"width": 1024, "height": 480})
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+
+    sort_trigger = page.get_by_role("button", name="Sort and layout").first
+    sort_trigger.wait_for(state="visible", timeout=timeout_ms)
+    sort_trigger.click()
+    sort_selector = '.dropdown-panel[role="listbox"][aria-label="Sort and layout"]'
+    page.locator(sort_selector).first.wait_for(state="visible", timeout=timeout_ms)
+    sort_surface = collect_surface_bounds(page, sort_selector, "sort-layout-menu")
+    assert_surface_inside_visible_bounds(sort_surface)
+    if sort_surface.get("optionCount", 0) <= 0 or sort_surface.get("menuItemCount", 0) != 0:
+        raise OverallCleanupBrowserFailure(f"Sort dropdown role mismatch: {sort_surface!r}.")
+    evidence.append(sort_surface)
+    page.keyboard.press("Escape")
+    page.locator(sort_selector).first.wait_for(state="hidden", timeout=timeout_ms)
+
+    filter_trigger = page.locator('button[title="Filters"]').first
+    filter_trigger.wait_for(state="visible", timeout=timeout_ms)
+    filter_trigger.click()
+    filter_selector = '[role="dialog"][aria-label="Filters"]'
+    page.locator(filter_selector).first.wait_for(state="visible", timeout=timeout_ms)
+    filter_surface = collect_surface_bounds(page, filter_selector, "filter-dialog-menu")
+    assert_surface_inside_visible_bounds(filter_surface)
+    evidence.append(filter_surface)
+    page.keyboard.press("Escape")
+    page.locator(filter_selector).first.wait_for(state="hidden", timeout=timeout_ms)
+
+    page.set_viewport_size({"width": 1440, "height": 920})
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    theme_trigger = page.locator('button[aria-haspopup="menu"][aria-label^="Theme settings"]').first
+    theme_trigger.wait_for(state="visible", timeout=timeout_ms)
+    theme_trigger.click()
+    theme_selector = '[role="menu"][aria-label="Theme settings"]'
+    page.locator(theme_selector).first.wait_for(state="visible", timeout=timeout_ms)
+    theme_surface = collect_surface_bounds(page, theme_selector, "theme-settings-menu")
+    assert_surface_inside_visible_bounds(theme_surface)
+    if theme_surface.get("menuItemCount", 0) <= 0:
+        raise OverallCleanupBrowserFailure(f"Theme menu has no menu items: {theme_surface!r}.")
+    evidence.append(theme_surface)
+    page.keyboard.press("Escape")
+    page.locator(theme_selector).first.wait_for(state="hidden", timeout=timeout_ms)
+
+    page.set_viewport_size({"width": 1024, "height": 480})
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    page.evaluate(
+        """() => {
+          const cell = document.querySelector('[role="gridcell"][id^="cell-"]')
+          if (!cell) throw new Error('No grid cell for context menu evidence')
+          cell.dispatchEvent(new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            clientX: window.innerWidth - 4,
+            clientY: window.innerHeight - 4,
+          }))
+        }"""
+    )
+    context_selector = '.dropdown-panel[role="menu"]'
+    page.locator(context_selector).first.wait_for(state="visible", timeout=timeout_ms)
+    context_surface = collect_surface_bounds(page, context_selector, "grid-context-menu")
+    assert_surface_inside_visible_bounds(context_surface)
+    if context_surface.get("menuItemCount", 0) <= 0:
+        raise OverallCleanupBrowserFailure(f"Context menu has no menu items: {context_surface!r}.")
+    evidence.append(context_surface)
+    page.keyboard.press("Escape")
+    page.locator(context_selector).first.wait_for(state="hidden", timeout=timeout_ms)
+    return evidence
+
+
+def is_media_request(url: str) -> bool:
+    path = urlparse(url).path
+    return path.endswith("/thumb") or path.endswith("/file")
+
+
+def verify_hover_preview(page: Any, timeout_ms: float, media_requests: list[str]) -> dict[str, Any]:
+    page.set_viewport_size({"width": 390, "height": 700})
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    wait_for_visible_grid_cell_ids(page, minimum_count=2, timeout_ms=timeout_ms)
+    page.evaluate(
+        """() => {
+          const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
+          if (grid) grid.scrollTop = 0
+        }"""
+    )
+    page.wait_for_timeout(180)
+
+    hotspots = page.locator(".grid-item-preview-hotspot")
+    if hotspots.count() < 2:
+        raise OverallCleanupBrowserFailure("Expected at least two hover-preview hotspots.")
+
+    hotspots.nth(0).hover()
+    page.wait_for_timeout(80)
+    page.evaluate(
+        """() => {
+          const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
+          if (grid) grid.scrollTop = Math.min(grid.scrollTop + 240, grid.scrollHeight)
+        }"""
+    )
+    page.wait_for_timeout(520)
+    scroll_stale_count = page.locator(".grid-hover-preview").count()
+    if scroll_stale_count != 0:
+        raise OverallCleanupBrowserFailure(
+            f"Hover preview survived scroll cancellation with {scroll_stale_count} preview(s) visible."
+        )
+    page.evaluate(
+        """() => {
+          const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
+          if (grid) grid.scrollTop = 0
+        }"""
+    )
+    page.wait_for_timeout(180)
+
+    request_start = len(media_requests)
+    hotspots.nth(0).hover()
+    page.wait_for_timeout(80)
+    hotspots.nth(1).hover()
+    page.wait_for_timeout(80)
+    page.mouse.move(4, 4)
+    page.wait_for_timeout(520)
+    stale_count = page.locator(".grid-hover-preview").count()
+    if stale_count != 0:
+        raise OverallCleanupBrowserFailure(f"Rapid hover leave left {stale_count} stale preview(s) visible.")
+
+    hotspots.nth(1).hover()
+    preview_selector = ".grid-hover-preview"
+    page.locator(preview_selector).first.wait_for(state="visible", timeout=timeout_ms)
+    preview_surface = collect_surface_bounds(page, preview_selector, "hover-preview")
+    assert_surface_inside_visible_bounds(preview_surface)
+    preview_path = page.locator(preview_selector).first.get_attribute("data-preview-path")
+    page.mouse.move(4, 4)
+    page.locator(preview_selector).first.wait_for(state="hidden", timeout=timeout_ms)
+
+    hover_requests = media_requests[request_start:]
+    thumb_requests = [url for url in hover_requests if urlparse(url).path.endswith("/thumb")]
+    file_requests = [url for url in hover_requests if urlparse(url).path.endswith("/file")]
+    if not thumb_requests:
+        raise OverallCleanupBrowserFailure(f"Hover preview did not request /thumb: {hover_requests!r}.")
+    if file_requests:
+        raise OverallCleanupBrowserFailure(f"Hover preview requested full files: {file_requests!r}.")
+
+    return {
+        "preview_path": preview_path,
+        "surface": preview_surface,
+        "thumb_request_count": len(thumb_requests),
+        "file_request_count": len(file_requests),
+        "scroll_cancel_preview_count": scroll_stale_count,
+        "request_count": len(hover_requests),
+    }
+
+
 def verify_desktop_layout_label(page: Any, timeout_ms: float) -> dict[str, Any]:
     trigger = page.get_by_role("button", name="Sort and layout").first
     trigger.wait_for(state="visible", timeout=timeout_ms)
@@ -382,11 +611,11 @@ def verify_desktop_layout_label(page: Any, timeout_ms: float) -> dict[str, Any]:
             f"Desktop layout menu still exposes legacy Masonry label: {labels!r}."
         )
 
-    panel.get_by_role("menuitem", name="Grid").click()
+    panel.get_by_role("option", name="Grid").click()
     trigger.click()
     panel = page.locator('.dropdown-panel[aria-label="Sort and layout"]').first
     panel.wait_for(state="visible", timeout=timeout_ms)
-    panel.get_by_role("menuitem", name="Justified rows").click()
+    panel.get_by_role("option", name="Justified rows").click()
     page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
     return {"labels": labels, "switchToGridAndBack": True}
 
@@ -498,11 +727,20 @@ def run_browser_checks(base_url: str, timeout_ms: float, screenshot_dir: Path) -
         context = browser.new_context(accept_downloads=True, viewport={"width": 1440, "height": 920})
         page = context.new_page()
         page.set_default_timeout(timeout_ms)
+        media_requests: list[str] = []
+        page.on(
+            "request",
+            lambda request: media_requests.append(request.url) if is_media_request(request.url) else None,
+        )
         try:
             page.goto(base_url, wait_until="domcontentloaded")
             page.get_by_role("grid", name="Gallery").wait_for(state="visible")
             layout_label = verify_desktop_layout_label(page, timeout_ms)
             adaptive_geometry = run_adaptive_geometry_checks(page, timeout_ms)
+            menu_bounds = verify_menu_bounds_and_roles(page, timeout_ms)
+            hover_preview = verify_hover_preview(page, timeout_ms, media_requests)
+            page.set_viewport_size({"width": 1440, "height": 920})
+            page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
             before_selection = collect_layout_evidence(page, "browse-ready")
             selected_cell_ids = select_two_visible_images(page, timeout_ms)
             set_right_panel_open(page, open_state=True, timeout_ms=10_000)
@@ -515,6 +753,8 @@ def run_browser_checks(base_url: str, timeout_ms: float, screenshot_dir: Path) -
                 "layout": [before_selection, after_selection, compare_dialog, after_export],
                 "layout_label": layout_label,
                 "adaptive_geometry": adaptive_geometry,
+                "menu_bounds": menu_bounds,
+                "hover_preview": hover_preview,
                 "comparison_export": export_result,
             }
         except Exception as exc:

@@ -36,7 +36,7 @@ describe('ThemeSettingsMenu panel positioning', () => {
       placement: 'mobile',
       anchorRect: { left: 380, right: 420, top: 790, bottom: 830 },
       panelSize: { width: 200, height: 260 },
-      viewport: { width: 390, height: 844 },
+      viewport: { left: 0, top: 0, width: 390, height: 844, right: 390, bottom: 844 },
     })
 
     expect(pos.x).toBe(182)
@@ -48,11 +48,23 @@ describe('ThemeSettingsMenu panel positioning', () => {
       placement: 'sidebar',
       anchorRect: { left: 12, right: 50, top: 730, bottom: 760 },
       panelSize: { width: 120, height: 300 },
-      viewport: { width: 390, height: 800 },
+      viewport: { left: 0, top: 0, width: 390, height: 800, right: 390, bottom: 800 },
     })
 
     expect(pos.x).toBe(60)
     expect(pos.y).toBe(460)
+  })
+
+  it('keeps the panel inside an offset visual viewport', () => {
+    const pos = getThemeMenuPanelPosition({
+      placement: 'sidebar',
+      anchorRect: { left: 8, right: 42, top: 318, bottom: 348 },
+      panelSize: { width: 160, height: 180 },
+      viewport: { left: 32, top: 96, width: 300, height: 260, right: 332, bottom: 356 },
+    })
+
+    expect(pos.x).toBe(52)
+    expect(pos.y).toBe(168)
   })
 })
 

@@ -87,4 +87,20 @@ describe('thumb prefetch api contract', () => {
       task.abort?.()
     }
   })
+
+  it('fetches hover previews directly from thumb route without full-file cache use', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Blob([new Uint8Array([4, 5, 6])]), { status: 200, headers: { 'content-type': 'image/webp' } }),
+    )
+
+    const request = api.getHoverPreview('/hover-preview.jpg')
+    const blob = await request.promise
+
+    expect(blob.size).toBe(3)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/thumb?path=%2Fhover-preview.jpg')
+    expect(String(fetchSpy.mock.calls[0][0])).not.toContain('/file')
+    expect(fileCache.has('/hover-preview.jpg')).toBe(false)
+    expect(thumbCache.has('/hover-preview.jpg')).toBe(false)
+  })
 })

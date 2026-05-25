@@ -1,4 +1,11 @@
-import React from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  getDropdownPanelPosition,
+  getVisibleViewportBounds,
+  subscribeVisibleViewportChanges,
+} from '../../../lib/menuPosition'
+
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 export interface ToolbarFilterMenuProps {
   viewerActive: boolean
@@ -39,12 +46,56 @@ export default function ToolbarFilterMenu({
   const buttonDisabled = viewerActive || suppressed
   const hasActiveFilters = totalFilterCount > 0
   const isDrawer = variant === 'drawer'
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [panelPosition, setPanelPosition] = useState({ x: 0, y: 0, ready: false })
   const buttonClassName = isDrawer
     ? `mobile-pill mobile-pill-filter ${hasActiveFilters ? 'is-active' : ''}`
     : `btn ${hasActiveFilters ? 'btn-active' : ''}`
-  const panelStyle = isDrawer
-    ? { bottom: 'calc(100% + 8px)', left: 0 }
-    : { top: '38px', left: 0 }
+  const updatePanelPosition = useCallback(() => {
+    if (!filtersOpen || !controlsVisible || buttonDisabled) return
+    const anchor = triggerRef.current
+    const panel = panelRef.current
+    if (!anchor || !panel) return
+    const anchorRect = anchor.getBoundingClientRect()
+    const panelRect = panel.getBoundingClientRect()
+    const next = getDropdownPanelPosition({
+      anchorRect,
+      menuSize: {
+        width: panelRect.width || 240,
+        height: panelRect.height || panel.scrollHeight || 1,
+      },
+      viewport: getVisibleViewportBounds(),
+      align: 'left',
+      sideOffset: isDrawer ? 8 : 6,
+    })
+    setPanelPosition((prev) => (
+      prev.ready && prev.x === next.x && prev.y === next.y
+        ? prev
+        : { x: next.x, y: next.y, ready: true }
+    ))
+  }, [buttonDisabled, controlsVisible, filtersOpen, isDrawer])
+
+  useIsomorphicLayoutEffect(() => {
+    if (!filtersOpen || !controlsVisible || buttonDisabled) {
+      setPanelPosition({ x: 0, y: 0, ready: false })
+      return
+    }
+    updatePanelPosition()
+  }, [buttonDisabled, controlsVisible, filtersOpen, updatePanelPosition])
+
+  useEffect(() => {
+    if (!filtersOpen || !controlsVisible || buttonDisabled) return
+    return subscribeVisibleViewportChanges(updatePanelPosition)
+  }, [buttonDisabled, controlsVisible, filtersOpen, updatePanelPosition])
+
+  const panelStyle = useMemo<React.CSSProperties>(() => ({
+    position: 'fixed',
+    left: panelPosition.x,
+    top: panelPosition.y,
+    width: 240,
+    visibility: panelPosition.ready ? 'visible' : 'hidden',
+  }), [panelPosition])
 
   return (
     <div
@@ -53,6 +104,7 @@ export default function ToolbarFilterMenu({
       aria-hidden={!controlsVisible}
     >
       <button
+        ref={triggerRef}
         data-toolbar-control={dataToolbarControl}
         className={buttonClassName}
         onClick={() => {
@@ -81,6 +133,7 @@ export default function ToolbarFilterMenu({
 
       {filtersOpen && controlsVisible && !buttonDisabled && (
         <div
+          ref={panelRef}
           role="dialog"
           aria-label="Filters"
           className={`dropdown-panel w-[240px] ${isDrawer ? 'mobile-drawer-panel' : ''}`}

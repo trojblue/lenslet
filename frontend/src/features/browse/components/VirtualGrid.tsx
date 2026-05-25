@@ -4,9 +4,16 @@ import type { BrowseItemPayload, ViewMode } from '../../../lib/types'
 import ThumbCard from './ThumbCard'
 import { api } from '../../../api/client'
 import { getBrowseHotpathSnapshot, markFirstGridItemVisible } from '../../../lib/browseHotpath'
+import { getVisibleViewportBounds } from '../../../lib/menuPosition'
 import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
 import type { AdaptiveRow } from '../model/adaptive'
+import {
+  HoverPreviewRequestController,
+  getHoverPreviewPosition,
+  getHoverPreviewSurfaceSize,
+  type HoverPreviewSurfaceSize,
+} from '../model/hoverPreview'
 import { getAdjacentThumbPrefetchPaths } from '../model/virtualGridPrefetch'
 import {
   collectVisiblePaths,
@@ -107,11 +114,13 @@ export default function VirtualGrid({
 }: VirtualGridProps) {
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number } | null>(null)
+  const [previewSize, setPreviewSize] = useState<HoverPreviewSurfaceSize | null>(null)
   const [delayPassed, setDelayPassed] = useState<boolean>(false)
   const [active, setActive] = useState<string | null>(null)
   const [focused, setFocused] = useState<string | null>(null)
-  const previewUrlRef = useRef<string | null>(null)
   const previewTimerRef = useRef<number | null>(null)
+  const previewControllerRef = useRef<HoverPreviewRequestController | null>(null)
   const internalRef = useRef<HTMLDivElement | null>(null)
   const parentRef = scrollRef ?? internalRef
   const anchorRef = useRef<string | null>(null)
@@ -129,6 +138,23 @@ export default function VirtualGrid({
   })
 
   const TARGET_CELL = targetCellSize
+
+  if (previewControllerRef.current === null) {
+    previewControllerRef.current = new HoverPreviewRequestController(
+      (path) => api.getHoverPreview(path),
+      {
+        createObjectURL: (blob) => URL.createObjectURL(blob),
+        revokeObjectURL: (url) => URL.revokeObjectURL(url),
+      },
+      {
+        onReady: ({ path, url }) => {
+          setPreviewFor(path)
+          setPreviewUrl(url)
+          setDelayPassed(true)
+        },
+      },
+    )
+  }
 
   const { width, layout, rowVirtualizer, virtualRows } = useVirtualGrid(parentRef, items, {
     gap: GAP,
@@ -202,6 +228,7 @@ export default function VirtualGrid({
     let timeoutId = 0
     const onScroll = () => {
       longPressControllerRef.current?.cancelFromScroll()
+      clearPreview()
       setIsScrolling(true)
       window.clearTimeout(timeoutId)
       timeoutId = window.setTimeout(() => setIsScrolling(false), SCROLL_IDLE_MS)
@@ -229,43 +256,52 @@ export default function VirtualGrid({
     }
   }, [onOpenItemActions])
 
-  const cancelPreviewTimer = () => {
+  function cancelPreviewTimer(): void {
     if (previewTimerRef.current != null) {
       window.clearTimeout(previewTimerRef.current)
       previewTimerRef.current = null
     }
   }
 
-  const clearPreview = () => {
+  function clearPreview(): void {
     cancelPreviewTimer()
+    previewControllerRef.current?.clear()
     setDelayPassed(false)
     setPreviewFor(null)
-    if (previewUrlRef.current) {
-      try { URL.revokeObjectURL(previewUrlRef.current) } catch {}
-      previewUrlRef.current = null
-    }
     setPreviewUrl(null)
+    setPreviewPosition(null)
+    setPreviewSize(null)
   }
 
-  const schedulePreview = (path: string) => {
+  const schedulePreview = (path: string, anchorRect: DOMRect) => {
     if (isScrolling) return
     cancelPreviewTimer()
+    previewControllerRef.current?.clear()
+    const viewport = getVisibleViewportBounds()
+    const surfaceSize = getHoverPreviewSurfaceSize(viewport)
+    const position = getHoverPreviewPosition({
+      anchorRect,
+      surfaceSize,
+      viewport,
+    })
     setPreviewFor(path)
+    setPreviewUrl(null)
+    setPreviewPosition(position)
+    setPreviewSize(surfaceSize)
     setDelayPassed(false)
-    previewTimerRef.current = window.setTimeout(async () => {
+    previewTimerRef.current = window.setTimeout(() => {
       previewTimerRef.current = null
-      try {
-        const blob = await api.getFile(path)
-        const u = URL.createObjectURL(blob)
-        if (previewUrlRef.current) {
-          try { URL.revokeObjectURL(previewUrlRef.current) } catch {}
-        }
-        previewUrlRef.current = u
-        setPreviewUrl(u)
-        setDelayPassed(true)
-      } catch {}
+      previewControllerRef.current?.begin(path)
     }, PREVIEW_DELAY_MS)
   }
+
+  useEffect(() => () => {
+    if (previewTimerRef.current != null) {
+      window.clearTimeout(previewTimerRef.current)
+      previewTimerRef.current = null
+    }
+    previewControllerRef.current?.clear()
+  }, [])
 
   const effectiveColumns = layout.mode === 'grid' ? layout.columns : Math.max(1, Math.floor(width / (TARGET_CELL + GAP)))
 
@@ -750,8 +786,8 @@ export default function VirtualGrid({
                       />
                     </div>
                     <div 
-                      className="absolute right-0 bottom-0 w-7 h-7 cursor-zoom-in"
-                      onMouseEnter={() => schedulePreview(it.path)}
+                      className="grid-item-preview-hotspot absolute right-0 bottom-0 w-7 h-7 cursor-zoom-in"
+                      onMouseEnter={(e) => schedulePreview(it.path, e.currentTarget.getBoundingClientRect())}
                       onMouseLeave={clearPreview}>
                       <div
                         className="grid-item-preview-corner absolute right-0 bottom-0 h-[18px] w-[18px] flex items-center justify-center text-text select-none"
@@ -794,9 +830,24 @@ export default function VirtualGrid({
             </div>
           )
         })}
-        {previewFor && previewUrl && delayPassed && createPortal(
-          <div className="toolbar-offset fixed inset-0 z-[999] flex items-center justify-center pointer-events-none bg-black/20 opacity-100">
-            <img src={previewUrl} alt="preview" className="max-w-[80vw] max-h-[80vh] object-contain opacity-[0.98]" />
+        {previewFor && previewUrl && delayPassed && previewPosition && previewSize && createPortal(
+          <div
+            className="grid-hover-preview fixed z-[999] pointer-events-none rounded-lg border border-border bg-panel/95 p-1 shadow-lg"
+            data-preview-path={previewFor}
+            aria-hidden="true"
+            style={{
+              left: previewPosition.x,
+              top: previewPosition.y,
+              width: previewSize.width,
+              maxHeight: previewSize.height,
+            }}
+          >
+            <img
+              src={previewUrl}
+              alt="preview"
+              className="block w-full object-contain opacity-[0.98]"
+              style={{ maxHeight: Math.max(1, previewSize.height - 8) }}
+            />
           </div>,
           document.body
         )}

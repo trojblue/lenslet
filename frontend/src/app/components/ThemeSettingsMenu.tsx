@@ -2,6 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { THEME_PRESETS, resolveThemePresetId, type ThemePresetId } from '../../theme/runtime'
 import type { CompareOrderMode } from '../../lib/types'
+import {
+  clampMenuPosition,
+  getVisibleViewportBounds,
+  subscribeVisibleViewportChanges,
+  type ViewportBounds,
+} from '../../lib/menuPosition'
 
 export type ThemeSettingsMenuPlacement = 'sidebar' | 'mobile'
 export type ThemeSettingsMenuCloseIntent = 'toggle' | 'close' | 'escape' | 'outside_click' | 'select'
@@ -34,16 +40,11 @@ type SizeLike = {
   height: number
 }
 
-type ViewportLike = {
-  width: number
-  height: number
-}
-
 type ThemeMenuPanelLayout = {
   placement: ThemeSettingsMenuPlacement
   anchorRect: RectLike
   panelSize: SizeLike
-  viewport: ViewportLike
+  viewport: ViewportBounds
 }
 
 type ThemeMenuPanelPosition = {
@@ -61,11 +62,6 @@ const VIEWPORT_PADDING = 8
 const SIDEBAR_PANEL_GAP = 10
 const MOBILE_PANEL_GAP = 8
 
-function clamp(value: number, min: number, max: number): number {
-  if (max < min) return min
-  return Math.min(max, Math.max(min, value))
-}
-
 function getInitialPanelPosition(): ThemeMenuPanelPosition {
   return { x: 0, y: 0, ready: false }
 }
@@ -76,20 +72,25 @@ export function getThemeMenuPanelPosition({
   panelSize,
   viewport,
 }: ThemeMenuPanelLayout): { x: number; y: number } {
-  const maxX = viewport.width - panelSize.width - VIEWPORT_PADDING
-  const maxY = viewport.height - panelSize.height - VIEWPORT_PADDING
-
   if (placement === 'sidebar') {
-    return {
-      x: clamp(anchorRect.right + SIDEBAR_PANEL_GAP, VIEWPORT_PADDING, maxX),
-      y: clamp(anchorRect.bottom - panelSize.height, VIEWPORT_PADDING, maxY),
-    }
+    return clampMenuPosition({
+      x: anchorRect.right + SIDEBAR_PANEL_GAP,
+      y: anchorRect.bottom - panelSize.height,
+      menuWidth: panelSize.width,
+      menuHeight: panelSize.height,
+      viewport,
+      margin: VIEWPORT_PADDING,
+    })
   }
 
-  return {
-    x: clamp(anchorRect.left, VIEWPORT_PADDING, maxX),
-    y: clamp(anchorRect.top - panelSize.height - MOBILE_PANEL_GAP, VIEWPORT_PADDING, maxY),
-  }
+  return clampMenuPosition({
+    x: anchorRect.left,
+    y: anchorRect.top - panelSize.height - MOBILE_PANEL_GAP,
+    menuWidth: panelSize.width,
+    menuHeight: panelSize.height,
+    viewport,
+    margin: VIEWPORT_PADDING,
+  })
 }
 
 export function resolveThemeMenuSelection(value: string | null | undefined): ThemePresetId {
@@ -137,7 +138,7 @@ export default function ThemeSettingsMenu({
       placement,
       anchorRect,
       panelSize: { width: panelRect.width, height: panelRect.height },
-      viewport: { width: window.innerWidth, height: window.innerHeight },
+      viewport: getVisibleViewportBounds(),
     })
 
     setPanelPosition((prev) => (
@@ -152,8 +153,6 @@ export default function ThemeSettingsMenu({
       setPanelPosition(getInitialPanelPosition())
       return
     }
-
-    const onWindowViewportChange = () => updatePanelPosition()
 
     const onWindowClick = (event: MouseEvent) => {
       const target = event.target as Node | null
@@ -174,13 +173,11 @@ export default function ThemeSettingsMenu({
 
     window.addEventListener('click', onWindowClick)
     window.addEventListener('keydown', onWindowKeyDown)
-    window.addEventListener('resize', onWindowViewportChange)
-    window.addEventListener('scroll', onWindowViewportChange, true)
+    const unsubscribeViewport = subscribeVisibleViewportChanges(updatePanelPosition)
     return () => {
       window.removeEventListener('click', onWindowClick)
       window.removeEventListener('keydown', onWindowKeyDown)
-      window.removeEventListener('resize', onWindowViewportChange)
-      window.removeEventListener('scroll', onWindowViewportChange, true)
+      unsubscribeViewport()
       if (rafHandle != null) {
         window.cancelAnimationFrame(rafHandle)
       }

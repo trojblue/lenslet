@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { getDropdownPanelPosition, getViewportSize } from '../../lib/menuPosition'
+import {
+  getDropdownPanelPosition,
+  getVisibleViewportBounds,
+  subscribeVisibleViewportChanges,
+} from '../../lib/menuPosition'
 
 export interface DropdownOption {
   value: string
@@ -122,7 +126,7 @@ export default function Dropdown({
     const next = getDropdownPanelPosition({
       anchorRect,
       menuSize: { width: panelWidth, height: panelHeight },
-      viewport: getViewportSize(),
+      viewport: getVisibleViewportBounds(),
       align,
     })
 
@@ -159,17 +163,15 @@ export default function Dropdown({
     }
 
     const onViewportChange = () => updatePanelPosition()
+    const unsubscribeViewport = subscribeVisibleViewportChanges(onViewportChange)
 
     window.addEventListener('click', onClick)
     window.addEventListener('keydown', onEscape)
-    window.addEventListener('resize', onViewportChange)
-    window.addEventListener('scroll', onViewportChange, true)
 
     return () => {
       window.removeEventListener('click', onClick)
       window.removeEventListener('keydown', onEscape)
-      window.removeEventListener('resize', onViewportChange)
-      window.removeEventListener('scroll', onViewportChange, true)
+      unsubscribeViewport()
     }
   }, [open, updatePanelPosition])
 
@@ -187,7 +189,8 @@ export default function Dropdown({
         data-active={opt.value === value}
         disabled={opt.disabled}
         onClick={() => !opt.disabled && handleSelect(opt.value)}
-        role="menuitem"
+        role="option"
+        aria-selected={opt.value === value}
       >
         {opt.icon && <span className="shrink-0">{opt.icon}</span>}
         <span className="flex-1 truncate">{opt.label}</span>
@@ -323,7 +326,7 @@ export function DropdownMenu({
     const next = getDropdownPanelPosition({
       anchorRect,
       menuSize: { width: panelWidth, height: panelHeight },
-      viewport: getViewportSize(),
+      viewport: getVisibleViewportBounds(),
       align,
     })
 
@@ -359,17 +362,15 @@ export function DropdownMenu({
     }
 
     const onViewportChange = () => updatePanelPosition()
+    const unsubscribeViewport = subscribeVisibleViewportChanges(onViewportChange)
 
     window.addEventListener('click', onClick)
     window.addEventListener('keydown', onEscape)
-    window.addEventListener('resize', onViewportChange)
-    window.addEventListener('scroll', onViewportChange, true)
 
     return () => {
       window.removeEventListener('click', onClick)
       window.removeEventListener('keydown', onEscape)
-      window.removeEventListener('resize', onViewportChange)
-      window.removeEventListener('scroll', onViewportChange, true)
+      unsubscribeViewport()
     }
   }, [open, setOpen, updatePanelPosition])
 
@@ -382,7 +383,7 @@ export function DropdownMenu({
   }
 
   const panelNode = open ? (
-    <div ref={panelRef} className={`dropdown-panel ${panelClassName}`} style={panelStyle}>
+    <div ref={panelRef} className={`dropdown-panel ${panelClassName}`} style={panelStyle} role="menu">
       {children}
     </div>
   ) : null

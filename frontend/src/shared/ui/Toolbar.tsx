@@ -154,8 +154,15 @@ export default function Toolbar({
         setFiltersOpen(false)
       }
     }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFiltersOpen(false)
+    }
     window.addEventListener('click', onClick)
-    return () => window.removeEventListener('click', onClick)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('click', onClick)
+      window.removeEventListener('keydown', onKeyDown)
+    }
   }, [filtersOpen])
 
   useEffect(() => {

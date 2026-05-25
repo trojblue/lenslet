@@ -115,3 +115,47 @@ Cleanup and review:
 Blockers: none.
 
 Next step: Sprint 3 begins with OCR-6 visible viewport bounds, then OCR-7 menu positioning/semantics and OCR-8 abortable bounded hover preview.
+
+## Iteration 4 - 2026-05-25T05:15:30Z
+
+Completed task IDs: OCR-6, OCR-7, OCR-8
+
+Files changed:
+- `frontend/src/lib/menuPosition.ts`
+- `frontend/src/lib/__tests__/menuPosition.test.ts`
+- `frontend/src/shared/ui/Dropdown.tsx`
+- `frontend/src/shared/ui/Toolbar.tsx`
+- `frontend/src/shared/ui/toolbar/ToolbarFilterMenu.tsx`
+- `frontend/src/app/components/ThemeSettingsMenu.tsx`
+- `frontend/src/app/components/__tests__/ThemeSettingsMenu.test.tsx`
+- `frontend/src/app/menu/ContextMenu.tsx`
+- `frontend/src/api/client.ts`
+- `frontend/src/api/__tests__/client.prefetch.test.ts`
+- `frontend/src/features/browse/components/VirtualGrid.tsx`
+- `frontend/src/features/browse/model/hoverPreview.ts`
+- `frontend/src/features/browse/model/__tests__/hoverPreview.test.ts`
+- `scripts/overall_cleanup_browser.py`
+- `scripts/playwright_large_tree_smoke.py`
+- `src/lenslet/frontend/index.html`
+- `src/lenslet/frontend/assets/*` (rebuilt Vite bundle filenames changed)
+- `docs/20260525_overall_cleanup_execution_plan.md`
+- `docs/ralph/20260525_overall_cleanup_execution_plan/progress.txt`
+
+Validations run:
+- `cd frontend && npm run test -- src/lib/__tests__/menuPosition.test.ts src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx src/shared/ui/toolbar/__tests__/Toolbar.test.tsx src/features/browse/model/__tests__/hoverPreview.test.ts src/api/__tests__/client.prefetch.test.ts src/app/components/__tests__/ThemeSettingsMenu.test.tsx` - passed, 37 tests.
+- `python -m ruff check scripts/overall_cleanup_browser.py scripts/playwright_large_tree_smoke.py` - passed.
+- `pytest -q tests/test_playwright_large_tree_smoke.py` - passed, 6 tests.
+- `cd frontend && npm run build` - passed; existing >500 kB main chunk warning remains for Sprint 5.
+- Packaged frontend assets synced from `frontend/dist/` into `src/lenslet/frontend/`.
+- `python scripts/overall_cleanup_browser.py --output-json /tmp/lenslet-overall-cleanup-sprint3.json` - passed; sort/filter/theme/context surfaces stayed inside visible bounds, sort dropdown exposed 5 `option` roles and zero menuitems, hover preview made one `/thumb` request and zero `/file` requests, scroll cancellation left zero stale previews, and comparison export still succeeded.
+- `cd frontend && npm run test` - passed, 73 files / 340 tests.
+- `python scripts/lint_repo.py` - passed; existing warn-only file-size notes remain.
+- `git diff --check` - passed.
+
+Cleanup and review:
+- Code-simplifier pass made no edits. It reran focused tests, py_compile for touched scripts, ruff, and diff checks. It also noted there is no frontend lint script and `npx tsc --noEmit` still fails on an existing out-of-scope `.at()` lib-target issue in `frontend/src/features/browse/model/__tests__/adaptive.test.ts`.
+- Fresh code-review pass found two actionable lifecycle gaps: open fixed surfaces were not listening to `visualViewport` events, and hover preview was not cleared on grid scroll. Fixes landed via `subscribeVisibleViewportChanges()` and scroll-start preview cancellation. Review confirmation reported no remaining actionable findings.
+
+Blockers: none.
+
+Next step: Sprint 4 begins with OCR-9 shared transform math, then OCR-10 viewer/compare hook migration, OCR-11 modal focus primitive, and OCR-12 browse `Ctrl+wheel` ownership.

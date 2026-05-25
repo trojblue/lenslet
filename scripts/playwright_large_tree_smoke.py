@@ -767,10 +767,10 @@ def run_metric_controls_probe(
     sort_menu = page.locator('[role="listbox"][aria-label="Sort and layout"]').first
     sort_menu.wait_for(state="visible")
     if forbidden_metric_key:
-        forbidden_count = sort_menu.get_by_role("menuitem", name=forbidden_metric_key).count()
+        forbidden_count = sort_menu.get_by_role("option", name=forbidden_metric_key).count()
         if forbidden_count > 0:
             raise SmokeFailure(f"forbidden metric key {forbidden_metric_key!r} leaked into sort controls")
-    metric_option = sort_menu.get_by_role("menuitem", name=metric_key).first
+    metric_option = sort_menu.get_by_role("option", name=metric_key).first
     metric_option.wait_for(state="visible")
     metric_option.click()
     page.wait_for_timeout(250)

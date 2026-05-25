@@ -628,6 +628,15 @@ export const api = {
   },
 
   /**
+   * Fetch a hover preview thumbnail without writing to the shared thumbnail cache.
+   */
+  getHoverPreview: (path: string): { promise: Promise<Blob>; abort?: () => void } => {
+    return runWithRequestBudget('thumb', () =>
+      fetchBlob(thumbUrl(path)),
+    )
+  },
+
+  /**
    * Prefetch a thumbnail in the background.
    */
   prefetchThumb: (path: string): void => {

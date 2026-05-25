@@ -1,0 +1,10 @@
+{
+  "mode": "plan",
+  "tool": "codex",
+  "maxIterations": 8,
+  "maxTasksPerIteration": 6,
+  "planFile": "/data/yada/dev_new/lenslet/docs/20260525_responsive_layout_structural_plan.md",
+  "prdFile": "prd.json",
+  "progressFile": "progress.txt",
+  "sharedDir": "../shared"
+}

@@ -13,6 +13,7 @@ import Toolbar from '../shared/ui/Toolbar'
 import VirtualGrid from '../features/browse/components/VirtualGrid'
 import MetricScrollbar from '../features/browse/components/MetricScrollbar'
 import SimilarityModal from '../features/embeddings/SimilarityModal'
+import Viewer from '../features/viewer/Viewer'
 import { api } from '../api/client'
 import type { FullFilePrefetchContext } from '../api/client'
 import { useOldestInflightAgeMs, useSyncStatus } from '../api/items'
@@ -112,7 +113,6 @@ import {
 import { applyThemePreset, type ThemePresetId } from '../theme/runtime'
 import { loadWorkspaceThemePreset, writeStoredThemePreset } from '../theme/storage'
 
-const Viewer = lazy(() => import('../features/viewer/Viewer'))
 const CompareViewer = lazy(() => import('../features/compare/CompareViewer'))
 const Inspector = lazy(() => import('../features/inspector/Inspector'))
 
@@ -1670,20 +1670,16 @@ export default function AppShell({
           resetKey={`viewer:${viewer}`}
           fallback={<OverlayFallback label="Image viewer" message="Viewer could not load." onClose={closeViewer} />}
         >
-          <Suspense
-            fallback={<OverlayFallback label="Image viewer" message="Loading viewer..." onClose={closeViewer} busy />}
-          >
-            <Viewer
-              path={viewer}
-              onClose={closeViewer}
-              onZoomChange={(p)=> setCurrentZoom(Math.round(p))}
-              requestedZoomPercent={requestedZoom}
-              onZoomRequestConsumed={()=> setRequestedZoom(null)}
-              canPrev={canPrevImage}
-              canNext={canNextImage}
-              onNavigate={handleNavigate}
-            />
-          </Suspense>
+          <Viewer
+            path={viewer}
+            onClose={closeViewer}
+            onZoomChange={(p)=> setCurrentZoom(Math.round(p))}
+            requestedZoomPercent={requestedZoom}
+            onZoomRequestConsumed={()=> setRequestedZoom(null)}
+            canPrev={canPrevImage}
+            canNext={canNextImage}
+            onNavigate={handleNavigate}
+          />
         </LazySurfaceBoundary>
       )}
       {compareOpen && (

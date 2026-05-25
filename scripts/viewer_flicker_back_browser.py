@@ -65,6 +65,7 @@ BACK_CLICK_POINTS = (
     ("center", 0.5, 0.5),
     ("bottom-center", 0.5, 0.82),
 )
+VIEWER_LOADER_DELAY_MS = 150
 DEFAULT_DRAGS = (
     ("default-left", -160, 0),
     ("default-right", 160, 0),
@@ -250,6 +251,18 @@ def wait_for_viewer_ready(page: Any, expected_path: str, timeout_ms: float) -> N
     )
 
 
+def wait_for_viewer_path(page: Any, expected_path: str, timeout_ms: float) -> None:
+    page.wait_for_function(
+        """(expectedPath) => {
+          const dialog = document.querySelector('[role="dialog"][aria-label="Image viewer"]');
+          return dialog instanceof HTMLElement
+            && dialog.getAttribute('data-current-path') === expectedPath;
+        }""",
+        arg=expected_path,
+        timeout=timeout_ms,
+    )
+
+
 def wait_for_back_button(page: Any, timeout_ms: float) -> None:
     page.wait_for_function(
         """() => {
@@ -319,6 +332,14 @@ def collect_viewer_open_samples(
               rect: rectPayload(rect),
             };
           };
+          const elementPayloadVisible = (payload) => (
+            payload
+            && payload.display !== 'none'
+            && payload.visibility !== 'hidden'
+            && payload.opacity > 0.01
+            && payload.rect.width > 0
+            && payload.rect.height > 0
+          );
           const imagePayload = (el) => {
             if (!(el instanceof HTMLImageElement)) return null;
             const rect = el.getBoundingClientRect();
@@ -363,6 +384,7 @@ def collect_viewer_open_samples(
             const images = dialog
               ? Array.from(dialog.querySelectorAll('img')).map(imagePayload).filter(Boolean)
               : [];
+            const neutralLoader = describeElement(dialog?.querySelector('[data-viewer-loader="neutral"]'));
             const visibleImages = images.filter((image) => (
               image.display !== 'none'
               && image.visibility !== 'hidden'
@@ -389,6 +411,8 @@ def collect_viewer_open_samples(
               loadingState: dialog instanceof HTMLElement
                 ? dialog.getAttribute('data-viewer-loading-state')
                 : null,
+              neutralLoader,
+              neutralLoaderVisible: elementPayloadVisible(neutralLoader),
               fallback,
               thumb: imagePayload(dialog?.querySelector('img[alt="thumb"]')),
               viewer: imagePayload(dialog?.querySelector('img[alt="viewer"]')),
@@ -418,14 +442,25 @@ def collect_viewer_open_samples(
 def install_file_delay_route(page: Any, delayed_ms: int) -> None:
     if delayed_ms <= 0:
         return
-
-    def delayed_file_route(route: Any) -> None:
-        parsed = urlparse(route.request.url)
-        if parsed.path == "/file":
-            time.sleep(delayed_ms / 1000)
-        route.continue_()
-
-    page.route("**/file?**", delayed_file_route)
+    page.add_init_script(
+        f"""(() => {{
+          if (window.__lensletFileDelayInstalled) return;
+          window.__lensletFileDelayInstalled = true;
+          const delayedMs = {int(delayed_ms)};
+          const originalFetch = window.fetch.bind(window);
+          window.fetch = (input, init) => {{
+            const rawUrl = typeof input === 'string' ? input : input?.url;
+            let pathname = '';
+            try {{
+              pathname = new URL(rawUrl, window.location.href).pathname;
+            }} catch {{}}
+            if (pathname !== '/file') return originalFetch(input, init);
+            return new Promise((resolve) => {{
+              window.setTimeout(resolve, delayedMs);
+            }}).then(() => originalFetch(input, init));
+          }};
+        }})()"""
+    )
 
 
 def run_viewer_open_probe(
@@ -438,8 +473,8 @@ def run_viewer_open_probe(
     delayed_file_route_ms: int,
 ) -> list[dict[str, Any]]:
     scenarios = [
-        ("normal-fast-load", 0),
         ("delayed-file-load", delayed_file_route_ms),
+        ("normal-fast-load", 0),
     ]
     results: list[dict[str, Any]] = []
     for name, delay_ms in scenarios:
@@ -473,6 +508,8 @@ def run_viewer_open_probe(
             {
                 "name": name,
                 "delayedFileRouteMs": delay_ms,
+                "loaderExpected": delay_ms > 0,
+                "loaderForbidden": False,
                 "openedPath": opened_path,
                 "openedCellId": opened_cell_id,
                 "samples": samples,
@@ -484,7 +521,138 @@ def run_viewer_open_probe(
         if is_viewer_open(page):
             close_viewer(page, timeout_ms)
         page.close()
+    results.extend(
+        run_rapid_navigation_probe(
+            context,
+            base_url,
+            timeout_ms=timeout_ms,
+            frames=frames,
+            interval_ms=interval_ms,
+            delayed_file_route_ms=delayed_file_route_ms,
+        )
+    )
     return results
+
+
+def run_rapid_navigation_probe(
+    context: Any,
+    base_url: str,
+    *,
+    timeout_ms: float,
+    frames: int,
+    interval_ms: int,
+    delayed_file_route_ms: int,
+) -> list[dict[str, Any]]:
+    page = context.new_page()
+    page.set_default_timeout(timeout_ms)
+    requests: list[str] = []
+    page.on(
+        "request",
+        lambda request: requests.append(request.url)
+        if urlparse(request.url).path in ("/file", "/thumb")
+        else None,
+    )
+    page.add_init_script(seed_storage_script())
+    page.set_viewport_size({"width": 1200, "height": 820})
+    install_file_delay_route(page, delayed_file_route_ms)
+    page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_shell(page, timeout_ms)
+    cell_ids = wait_for_visible_grid_cell_ids(page, 4, timeout_ms)
+    paths = [path_from_cell_id(cell_id) for cell_id in cell_ids[:4]]
+    opened_path, _ = open_first_viewer(page, timeout_ms)
+    wait_for_viewer_ready(page, opened_path, timeout_ms)
+
+    results: list[dict[str, Any]] = []
+    page.keyboard.press("ArrowRight")
+    wait_for_viewer_path(page, paths[1], timeout_ms)
+    page.keyboard.press("ArrowRight")
+    wait_for_viewer_path(page, paths[2], timeout_ms)
+    page.keyboard.press("ArrowRight")
+    results.append(
+        collect_navigation_samples(
+            page,
+            name="rapid-next-delayed-file-load",
+            expected_path=paths[3],
+            opened_cell_id=cell_ids[3],
+            timeout_ms=timeout_ms,
+            frames=frames,
+            interval_ms=interval_ms,
+            requests=requests,
+            loader_expected=True,
+            loader_forbidden=False,
+            navigation={
+                "from": opened_path,
+                "via": [paths[1], paths[2]],
+                "to": paths[3],
+                "direction": "next",
+            },
+        )
+    )
+    page.keyboard.press("ArrowLeft")
+    results.append(
+        collect_navigation_samples(
+            page,
+            name="rapid-prev-delayed-file-load",
+            expected_path=paths[2],
+            opened_cell_id=cell_ids[2],
+            timeout_ms=timeout_ms,
+            frames=frames,
+            interval_ms=interval_ms,
+            requests=requests,
+            loader_expected=False,
+            loader_forbidden=True,
+            navigation={
+                "from": paths[3],
+                "to": paths[2],
+                "direction": "previous",
+            },
+        )
+    )
+    if is_viewer_open(page):
+        close_viewer(page, timeout_ms)
+    page.close()
+    return results
+
+
+def collect_navigation_samples(
+    page: Any,
+    *,
+    name: str,
+    expected_path: str,
+    opened_cell_id: str,
+    timeout_ms: float,
+    frames: int,
+    interval_ms: int,
+    requests: list[str],
+    loader_expected: bool,
+    loader_forbidden: bool,
+    navigation: dict[str, Any],
+) -> dict[str, Any]:
+    wait_for_viewer_path(page, expected_path, timeout_ms)
+    samples = collect_viewer_open_samples(
+        page,
+        name=name,
+        frames=frames,
+        interval_ms=interval_ms,
+    )
+    try:
+        wait_for_viewer_ready(page, expected_path, timeout_ms)
+    except Exception:
+        pass
+    settled = read_viewer_state(page)
+    return {
+        "name": name,
+        "delayedFileRouteMs": None,
+        "loaderExpected": loader_expected,
+        "loaderForbidden": loader_forbidden,
+        "openedPath": expected_path,
+        "openedCellId": opened_cell_id,
+        "samples": samples,
+        "settled": settled,
+        "requests": list(requests),
+        "navigation": navigation,
+        "riskSummary": summarize_open_samples(samples),
+    }
 
 
 def summarize_open_samples(samples: dict[str, Any]) -> dict[str, Any]:
@@ -725,6 +893,8 @@ def read_viewer_state(page: Any) -> dict[str, Any]:
           if (!(dialog instanceof HTMLElement) || !(image instanceof HTMLImageElement)) {
             return { missing: true };
           }
+          const loader = dialog.querySelector('[data-viewer-loader="neutral"]');
+          const loaderStyle = loader instanceof HTMLElement ? getComputedStyle(loader) : null;
           const style = getComputedStyle(image);
           let matrix = null;
           try {
@@ -734,11 +904,19 @@ def read_viewer_state(page: Any) -> dict[str, Any]:
           return {
             missing: false,
             dialogPath: dialog.getAttribute('data-current-path'),
+            loadingState: dialog.getAttribute('data-viewer-loading-state'),
             imagePath: image.getAttribute('data-current-path'),
             complete: image.complete,
             naturalWidth: image.naturalWidth,
             naturalHeight: image.naturalHeight,
             opacity: Number(style.opacity || '0'),
+            neutralLoaderVisible: Boolean(loader instanceof HTMLElement
+              && loaderStyle
+              && loaderStyle.display !== 'none'
+              && loaderStyle.visibility !== 'hidden'
+              && Number(loaderStyle.opacity || '0') > 0.01
+              && loader.getBoundingClientRect().width > 0
+              && loader.getBoundingClientRect().height > 0),
             transform: style.transform,
             matrix,
             dialogRect: rectPayload(dialog.getBoundingClientRect()),
@@ -997,6 +1175,10 @@ def viewer_acceptance_failures(raw_scenarios: Any) -> list[str]:
         ):
             if summary.get(key):
                 failures.append(f"viewer:{name}: {key} is still true")
+        if scenario.get("loaderExpected") and not delayed_loader_observed(scenario):
+            failures.append(f"viewer:{name}: delayed neutral loader was not observed")
+        if scenario.get("loaderForbidden") and loader_observed(scenario):
+            failures.append(f"viewer:{name}: neutral loader appeared in loader-forbidden scenario")
         failures.extend(viewer_image_like_failures(name, scenario, scenario.get("openedPath")))
 
         settled = scenario.get("settled")
@@ -1012,6 +1194,10 @@ def viewer_acceptance_failures(raw_scenarios: Any) -> list[str]:
             )
         if float(settled.get("opacity") or 0) <= 0.5:
             failures.append(f"viewer:{name}: settled full image is not visibly ready")
+        if settled.get("loadingState") != "ready":
+            failures.append(f"viewer:{name}: settled loading state is not ready")
+        if settled.get("neutralLoaderVisible"):
+            failures.append(f"viewer:{name}: neutral loader remained visible after readiness")
     return failures
 
 
@@ -1025,6 +1211,14 @@ def viewer_image_like_failures(name: str, scenario: dict[str, Any], opened_path:
         if not isinstance(frame, dict):
             continue
         frame_id = frame.get("frame")
+        elapsed_ms = int(frame.get("elapsedMs") or 0)
+        if elapsed_ms < VIEWER_LOADER_DELAY_MS - 10 and frame.get("loadingState") == "loading":
+            failures.append(
+                f"viewer:{name}: frame {frame_id}: neutral loader appeared before delay "
+                f"({elapsed_ms}ms)"
+            )
+        if frame.get("loadingState") == "loading" and not frame.get("neutralLoaderVisible"):
+            failures.append(f"viewer:{name}: frame {frame_id}: loading state has no visible neutral loader")
         visible_images = frame.get("visibleImages")
         if not isinstance(visible_images, list):
             failures.append(f"viewer:{name}: frame {frame_id}: missing visible image list")
@@ -1055,6 +1249,37 @@ def viewer_image_like_failures(name: str, scenario: dict[str, Any], opened_path:
                     f"{len(visible_backgrounds)}"
                 )
     return failures
+
+
+def delayed_loader_observed(scenario: dict[str, Any]) -> bool:
+    samples = (scenario.get("samples") or {}).get("samples")
+    if not isinstance(samples, list):
+        return False
+    for frame in samples:
+        if not isinstance(frame, dict):
+            continue
+        elapsed_ms = int(frame.get("elapsedMs") or 0)
+        if (
+            elapsed_ms >= VIEWER_LOADER_DELAY_MS - 10
+            and frame.get("loadingState") == "loading"
+            and frame.get("neutralLoaderVisible")
+        ):
+            return True
+    return False
+
+
+def loader_observed(scenario: dict[str, Any]) -> bool:
+    samples = (scenario.get("samples") or {}).get("samples")
+    if not isinstance(samples, list):
+        return False
+    return any(
+        isinstance(frame, dict)
+        and (
+            frame.get("loadingState") == "loading"
+            or bool(frame.get("neutralLoaderVisible"))
+        )
+        for frame in samples
+    )
 
 
 def visible_element_payload(payload: Any) -> bool:

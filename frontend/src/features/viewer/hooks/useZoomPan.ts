@@ -91,7 +91,6 @@ export function useZoomPan() {
   const [base, setBaseState] = useState<number>(1)
   const [ready, setReady] = useState<boolean>(false)
   const [dragging, setDragging] = useState<boolean>(false)
-  const [visible, setVisible] = useState<boolean>(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const scaleRef = useRef(1)
@@ -372,7 +371,7 @@ export function useZoomPan() {
 
   return {
     // state
-    scale, setScale, tx, setTx, ty, setTy, base, ready, setReady, dragging, setDragging, visible, setVisible,
+    scale, setScale, tx, setTx, ty, setTy, base, ready, setReady, dragging, setDragging,
     // refs
     containerRef, imgRef,
     // helpers/handlers

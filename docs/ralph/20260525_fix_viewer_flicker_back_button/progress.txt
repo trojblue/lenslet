@@ -41,3 +41,34 @@ FBB-0 traceability:
 Blockers: none for Sprint 1.
 
 Next step: Sprint 2 / FBB-4, remove the viewer thumbnail placeholder and crossfade root path, then rerun `--mode viewer`.
+
+## Iteration 2/8 - 2026-05-25T20:41:15Z
+
+Completed task IDs: FBB-4, FBB-5, FBB-6.
+
+Files changed:
+- `frontend/src/features/viewer/Viewer.tsx` removed the thumbnail placeholder/crossfade/open-fade path, added path-keyed full-image resource rendering, and added delayed neutral loading state.
+- `frontend/src/features/viewer/hooks/useZoomPan.ts` removed obsolete viewer opening-visible state.
+- `frontend/src/app/AppShell.tsx` directly imports the main Viewer and removes the Viewer Suspense loading fallback.
+- `scripts/viewer_flicker_back_browser.py` strengthened Sprint 2 viewer acceptance, including browser-side delayed `/file` fetches, positive delayed-loader checks, rapid navigation sampling beyond initial prefetch offsets, and stale-loader rejection on cached rapid-previous navigation.
+- `src/lenslet/frontend/` was regenerated from `frontend/dist/`; the old separate Viewer and imageTransform chunks were removed because Viewer is now bundled into the main app chunk.
+- `docs/20260525_fix_viewer_flicker_back_button_plan.md` updated with Sprint 2 status and handoff notes.
+- `docs/ralph/20260525_fix_viewer_flicker_back_button/progress.txt` updated with this iteration summary.
+- `data/fixtures/viewer_flicker_after.json` regenerated locally as ignored browser evidence.
+
+Validations run:
+- `python -m py_compile scripts/viewer_flicker_back_browser.py` passed.
+- `cd frontend && npm run test -- src/features/viewer/hooks/__tests__/useZoomPan.test.ts` passed after an initial invalid `vitest --run` filter invocation failed to find files.
+- `cd frontend && npm run test` passed: 75 files, 356 tests.
+- `cd frontend && npm run build` passed; generated assets were copied into `src/lenslet/frontend/` because the browser harness serves the packaged static bundle.
+- `python scripts/viewer_flicker_back_browser.py --mode viewer --output-json data/fixtures/viewer_flicker_after.json` passed after review fixes. Evidence shows no thumb, no fallback flash, no crossfade/open-fade evidence, no visible non-active image in delayed rapid navigation, positive neutral-loader evidence for delayed open and rapid next navigation, and no stale loader during rapid previous.
+- `python scripts/lint_repo.py` passed with warn-only large-file notices; `scripts/viewer_flicker_back_browser.py` is now 1524 lines, below the hard 2000-line limit.
+- `git diff --check` passed.
+
+Cleanup/review notes:
+- code-simplifier sidecar applied two Tier 1 cleanups: simplified the `imageReady` guard and removed an unused rapid-navigation local.
+- code-review sidecar found incomplete generated asset staging and three harness false-pass risks. The generated assets are now staged, delayed fetch simulation moved into the browser instead of blocking Playwright routing, loader-positive assertions were added, and rapid-previous cached navigation now rejects stale loader frames. The viewer gate was rerun and passed with those fixes.
+
+Blockers: none for Sprint 2.
+
+Next step: Sprint 3 / FBB-7, add viewer-only bounded pan slack, then FBB-8 double-click return and single-click no-op.

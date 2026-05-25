@@ -112,3 +112,32 @@ Validation run:
 Blockers: none.
 
 Next step: Sprint 4 (`RSP-9`) should finalize the responsive geometry validation script, including the `760px` left-metrics/both-sidebars-preferred-open selected-items scenario and final evidence fields.
+
+## Iteration 4 - 2026-05-25T02:05:23Z
+
+Completed task IDs: RSP-9.
+
+Files changed:
+- scripts/responsive_geometry_harness.py
+- frontend/src/features/metrics/MetricsPanel.tsx
+- frontend/src/features/metrics/components/MetricHistogramCard.tsx
+- src/lenslet/frontend/* (regenerated packaged frontend bundle)
+- docs/20260525_responsive_layout_structural_plan.md
+- docs/ralph/20260525_responsive_layout_structural_plan/progress.txt
+
+Validation run:
+- `python -m py_compile scripts/responsive_geometry_harness.py` - passed.
+- `npm run test -- src/features/metrics/__tests__/MetricsPanel.test.tsx src/features/metrics/components/__tests__/MetricRangePanel.test.tsx` - passed.
+- `npm run test` - passed, 71 files / 322 tests.
+- `npm run build` - passed; packaged frontend bundle regenerated under `src/lenslet/frontend/` after the focused metrics fixes.
+- `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-sprint4.json --screenshot-dir /tmp/lenslet-responsive-geometry-sprint4-screenshots` - passed with 18 scenarios and no failures, including `760px` metrics-left selected-items evidence and content-overflow assertions that exclude only the intentional resize handle.
+- `python scripts/gui_smoke_acceptance.py --output-json /tmp/lenslet-gui-smoke-sprint4.json` - passed with the existing non-fatal folder re-entry exact-anchor warning.
+- Final zoom/page-scale responsive smoke wrote `/tmp/lenslet-responsive-zoom-check-sprint4.json` - passed for `320x700`, `360x700`, `390x700`, and short `1024x480` slices at `1.0`, `1.25`, and `0.8` page scales.
+- `python scripts/lint_repo.py` - passed with warn-only file-size notices, including the now-large responsive harness.
+- `git diff --check` - passed.
+- Cleanup subagent (`code-simplifier`) - applied only Tier 1 harness readability cleanup.
+- Review subagent (`code-review`) - initially found weak `R10` content-containment evidence. The finding was fixed by distinguishing resize-handle overflow from real content overflow, asserting selected-metrics content containment, and tightening metrics panel/histogram wrapping. Follow-up review found no actionable issues.
+
+Blockers: none.
+
+Next step: none. All planned sprints/tasks are complete, and the validated Sprint 4 slice has been committed.

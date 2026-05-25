@@ -131,8 +131,8 @@ export default function MetricHistogramCard({
       {showTitle && (
         <div className="ui-section-title mb-2">{metricKey}</div>
       )}
-      <div className="flex items-center justify-between text-[11px] text-muted mb-2 tabular-nums">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted mb-2 tabular-nums">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span>Population: {population.count}</span>
           <span>Filtered: {filtered?.count ?? 0}</span>
           {selectedCount > 1 && <span className="text-text">Selected: {selectedCount}</span>}
@@ -165,9 +165,9 @@ export default function MetricHistogramCard({
           dashed: true,
         })}
       </svg>
-      <div className="flex items-center justify-between text-[11px] text-muted mt-2 tabular-nums">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted mt-2 tabular-nums">
         <span>{formatNumber(domain.min)}</span>
-        <div className="flex flex-col items-center text-center leading-tight">
+        <div className="flex min-w-0 flex-1 flex-col items-center text-center leading-tight">
           {displayRange ? (
             <span className="text-text">
               {isApprox(displayRange.min, domain.min)
@@ -187,7 +187,7 @@ export default function MetricHistogramCard({
         </div>
         <span>{formatNumber(domain.max)}</span>
       </div>
-      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mt-3 items-end">
+      <div className="grid grid-cols-2 gap-2 mt-3 items-end">
         <div>
           <label className="ui-label">Min</label>
           <input
@@ -231,7 +231,7 @@ export default function MetricHistogramCard({
           />
         </div>
         <button
-          className="btn btn-xs btn-ghost text-muted hover:text-text"
+          className="btn btn-xs btn-ghost text-muted hover:text-text col-span-2 justify-self-start"
           onClick={() => onChangeRange(metricKey, null)}
         >
           Clear

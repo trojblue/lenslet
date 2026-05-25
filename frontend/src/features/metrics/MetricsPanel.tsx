@@ -125,12 +125,12 @@ function SelectedMetricsPanel({ selectedValuesByKey, totalItems, metricKeys }: S
       </div>
       <div className="space-y-1 text-[12px]">
         {show.map((entry) => (
-          <div key={entry.key} className="flex items-center justify-between gap-2">
-            <span className="text-muted w-28 shrink-0 truncate" title={entry.key}>{entry.key}</span>
-            <span className="text-text text-right tabular-nums">
+          <div key={entry.key} className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 min-w-0">
+            <span className="text-muted min-w-0 flex-1 basis-[7rem] truncate" title={entry.key}>{entry.key}</span>
+            <span className="text-text text-right tabular-nums min-w-0 flex-1 basis-[6rem] whitespace-normal break-words">
               {isMulti ? `${formatNumber(entry.min)} – ${formatNumber(entry.max)}` : formatNumber(entry.value)}
               {isMulti && (
-                <span className="text-[11px] text-muted ml-2">
+                <span className="text-[11px] text-muted ml-1 inline-block">
                   avg {formatNumber(entry.avg)}
                   {entry.count !== summaryTotalItems ? ` · ${entry.count}/${summaryTotalItems}` : ''}
                 </span>

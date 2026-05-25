@@ -1,27 +1,29 @@
 #!/usr/bin/env python3
-"""Minimal responsive layout geometry evidence for Lenslet.
+"""Responsive layout geometry evidence for Lenslet.
 
-Sprint 1 seeds the browser-facing harness with two viewport classes and
-layout-debug capture. Later responsive tickets should expand assertions here
-instead of creating a parallel browser script.
+This live-browser harness exercises the resize failure classes from the
+responsive-layout plan. It uses temporary fixtures by default, records DOM
+layout evidence for each scenario, and saves a screenshot plus failure snapshot
+when an assertion trips.
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 from smoke_harness import (
     choose_port,
     import_playwright,
-    launch_lenslet,
     stop_process,
     wait_for_health,
 )
@@ -29,6 +31,24 @@ from smoke_harness import (
 
 class ResponsiveGeometryFailure(RuntimeError):
     """Raised when a responsive geometry invariant fails."""
+
+
+FIXTURE_METRIC_NAMES = (
+    "quality_score",
+    "aesthetic_score",
+    "sharpness",
+    "composition_balance",
+    "color_harmony",
+    "detail_density",
+    "noise_penalty",
+    "subject_confidence",
+    "background_complexity",
+    "prompt_alignment",
+    "texture_consistency",
+    "edge_integrity",
+    "lighting_stability",
+    "long_metric_name_for_selected_summary_stress",
+)
 
 
 @dataclass(frozen=True)
@@ -67,10 +87,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_fixture_dataset(root: Path) -> None:
-    payload = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAABgAAAASCAYAAABFGc6JAAAAGklEQVR4nGNkYGBg+M+ABzAx"
-        "VAlGtWAIBgAEcwEem4pV9wAAAABJRU5ErkJggg=="
-    )
+    payload = build_png_payload()
+    rows: list[dict[str, Any]] = []
     for folder in ("alpha", "beta"):
         for idx in range(4):
             filename = (
@@ -81,6 +99,43 @@ def build_fixture_dataset(root: Path) -> None:
             path = root / folder / filename
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(payload)
+            logical_path = f"{folder}/{filename}"
+            rows.append(
+                {
+                    "path": logical_path,
+                    "metrics": build_fixture_metrics(folder=folder, index=idx),
+                }
+            )
+    write_fixture_parquet(root / "items.parquet", rows)
+
+
+def build_png_payload() -> bytes:
+    try:
+        from PIL import Image
+    except ImportError as exc:  # pragma: no cover - project dependency guard
+        raise ResponsiveGeometryFailure("Pillow is required for responsive geometry fixtures") from exc
+    buffer = BytesIO()
+    Image.new("RGB", (24, 18), color=(44, 88, 132)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def build_fixture_metrics(*, folder: str, index: int) -> dict[str, float]:
+    prefix = 0.1 if folder == "alpha" else 0.6
+    return {
+        name: round(prefix + (index * 0.03) + (metric_index * 0.011), 6)
+        for metric_index, name in enumerate(FIXTURE_METRIC_NAMES)
+    }
+
+
+def write_fixture_parquet(path: Path, rows: list[dict[str, Any]]) -> None:
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+    except ImportError as exc:  # pragma: no cover - project dependency guard
+        raise ResponsiveGeometryFailure("pyarrow is required for responsive geometry fixtures") from exc
+
+    table = pa.Table.from_pylist(rows)
+    pq.write_table(table, path)
 
 
 def scenario_storage() -> dict[str, str]:
@@ -103,27 +158,40 @@ def seed_storage_script(storage: dict[str, str]) -> str:
     }}"""
 
 
-def collect_snapshot(page: Any, name: str) -> dict[str, Any]:
+def scenario_state(scenario: Scenario) -> dict[str, Any]:
+    return {
+        "width": scenario.width,
+        "height": scenario.height,
+        "storage": dict(scenario.storage),
+        "openMobileSearch": scenario.open_mobile_search,
+        "hasTouch": scenario.has_touch,
+        "selectFirst": scenario.select_first,
+        "assertInspector": scenario.assert_inspector,
+    }
+
+
+def collect_snapshot(page: Any, name: str, state: dict[str, Any] | None = None) -> dict[str, Any]:
     snapshot = page.evaluate(
-        """(name) => {
+        """({ name, state }) => {
           const shell = document.querySelector('.app-shell');
           if (!shell) return { name, missingShell: true };
           const shellStyle = getComputedStyle(shell);
           const doc = document.documentElement;
+          const rectPayload = (rect) => ({
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+          });
           const rectFor = (selector) => {
             const el = document.querySelector(selector);
             if (!el) return null;
             const rect = el.getBoundingClientRect();
-            return {
-              x: rect.x,
-              y: rect.y,
-              width: rect.width,
-              height: rect.height,
-              left: rect.left,
-              right: rect.right,
-              top: rect.top,
-              bottom: rect.bottom,
-            };
+            return rectPayload(rect);
           };
           const describeElement = (el) => {
             if (!el) return null;
@@ -142,6 +210,7 @@ def collect_snapshot(page: Any, name: str) -> dict[str, Any]:
               inOverlayDialog: Boolean(el.closest('[role="dialog"][aria-modal="true"]')),
             };
           };
+          const elementText = (el) => el ? (el.textContent || '').replace(/\\s+/g, ' ').trim() : '';
           const panel = document.querySelector('.app-right-panel');
           const inspectorChecks = panel
             ? Array.from(panel.querySelectorAll([
@@ -162,6 +231,47 @@ def collect_snapshot(page: Any, name: str) -> dict[str, Any]:
                 };
               })
             : [];
+          const leftPanel = document.querySelector('.app-left-panel');
+          const selectedMetricsHeader = leftPanel
+            ? Array.from(leftPanel.querySelectorAll('.ui-section-title'))
+              .find((el) => elementText(el) === 'Selected metrics')
+            : null;
+          const selectedMetricsCard = selectedMetricsHeader?.closest('.ui-card') || null;
+          const selectedMetricsChecks = leftPanel && selectedMetricsCard
+            ? Array.from(selectedMetricsCard.querySelectorAll('*')).map((el) => {
+              const rect = el.getBoundingClientRect();
+              const panelRect = leftPanel.getBoundingClientRect();
+              return {
+                className: typeof el.className === 'string' ? el.className : null,
+                text: elementText(el).slice(0, 120),
+                rect: rectPayload(rect),
+                overflowsPanel: rect.left < panelRect.left - 1 || rect.right > panelRect.right + 1,
+              };
+            })
+            : [];
+          const leftPanelContentChecks = leftPanel
+            ? Array.from(leftPanel.querySelectorAll('*'))
+              .filter((el) => !el.closest('.sidebar-resize-handle'))
+              .map((el) => {
+                const rect = el.getBoundingClientRect();
+                const panelRect = leftPanel.getBoundingClientRect();
+                return {
+                  className: typeof el.className === 'string' ? el.className : null,
+                  text: elementText(el).slice(0, 120),
+                  rect: rectPayload(rect),
+                  overflowsPanel: rect.left < panelRect.left - 1 || rect.right > panelRect.right + 1,
+                };
+              })
+            : [];
+          const activeLeftTool = leftPanel
+            ? (
+              leftPanel.querySelector('button[aria-label="Metrics and Filters"]')?.getAttribute('aria-pressed') === 'true'
+                ? 'metrics'
+                : leftPanel.querySelector('button[aria-label="Folders"]')?.getAttribute('aria-pressed') === 'true'
+                  ? 'folders'
+                  : null
+            )
+            : null;
           const toolbarControls = Array.from(document.querySelectorAll('[data-toolbar-control]'))
             .map((el) => {
               const rect = el.getBoundingClientRect();
@@ -191,21 +301,18 @@ def collect_snapshot(page: Any, name: str) -> dict[str, Any]:
                   focusStyle.display !== 'none' &&
                   focusStyle.visibility !== 'hidden'
                 ),
-                rect: {
-                  x: rect.x,
-                  y: rect.y,
-                  width: rect.width,
-                  height: rect.height,
-                  left: rect.left,
-                  right: rect.right,
-                  top: rect.top,
-                  bottom: rect.bottom,
-                },
+                rect: rectPayload(rect),
               };
             });
           return {
             name,
+            state,
             viewport: { width: window.innerWidth, height: window.innerHeight },
+            browser: {
+              devicePixelRatio: window.devicePixelRatio,
+              visualViewportScale: window.visualViewport?.scale ?? null,
+              url: window.location.href,
+            },
             media: {
               coarsePointer: window.matchMedia('(pointer: coarse)').matches,
             },
@@ -236,14 +343,19 @@ def collect_snapshot(page: Any, name: str) -> dict[str, Any]:
             rects: {
               shell: rectFor('.app-shell'),
               toolbar: rectFor('.toolbar-shell'),
+              gridTopStack: rectFor('[data-grid-top-stack]'),
+              statusBand: rectFor('[data-grid-top-band="status"]'),
+              filtersBand: rectFor('[data-grid-top-band="filters"]'),
               leftSidebar: rectFor('.app-left-panel'),
               rightSidebar: rectFor('.app-right-panel'),
               gridShell: rectFor('.grid-shell'),
               mobileDrawer: rectFor('.mobile-drawer'),
               overlay: rectFor('[role="dialog"][aria-label="Image viewer"], [role="dialog"][aria-label="Compare images"]'),
+              overlayStage: rectFor('.compare-stage, [role="dialog"][aria-label="Image viewer"]'),
               viewer: rectFor('[role="dialog"][aria-label="Image viewer"]'),
               compare: rectFor('[role="dialog"][aria-label="Compare images"]'),
               compareStage: rectFor('.compare-stage'),
+              themeMenu: rectFor('[role="menu"][aria-label="Theme settings"]'),
               inspectorPreview: rectFor('.inspector-preview-card'),
               inspectorStarRow: rectFor('.inspector-star-row'),
             },
@@ -254,6 +366,33 @@ def collect_snapshot(page: Any, name: str) -> dict[str, Any]:
               toolbarInert: document.querySelector('.toolbar-shell')?.hasAttribute('inert') ?? false,
               toolbarAriaHidden: document.querySelector('.toolbar-shell')?.getAttribute('aria-hidden') ?? null,
             },
+            selection: {
+              ariaSelectedCount: document.querySelectorAll('[role="gridcell"][aria-selected="true"]').length,
+              liveText: elementText(document.querySelector('[aria-live="polite"]')),
+            },
+            leftPanel: leftPanel ? {
+              clientWidth: leftPanel.clientWidth,
+              scrollWidth: leftPanel.scrollWidth,
+              rect: rectFor('.app-left-panel'),
+              contentOpen: leftPanel.getAttribute('data-left-content-open'),
+              activeTool: activeLeftTool,
+              horizontalOverflow: leftPanel.scrollWidth > leftPanel.clientWidth + 1,
+              contentOverflowCount: leftPanelContentChecks.filter((check) => check.overflowsPanel).length,
+              contentOverflowExamples: leftPanelContentChecks.filter((check) => check.overflowsPanel).slice(0, 6),
+              selectedMetricsCard: selectedMetricsCard ? {
+                clientWidth: selectedMetricsCard.clientWidth,
+                scrollWidth: selectedMetricsCard.scrollWidth,
+                rect: rectPayload(selectedMetricsCard.getBoundingClientRect()),
+                text: elementText(selectedMetricsCard).slice(0, 320),
+                overflowsPanel: (() => {
+                  const rect = selectedMetricsCard.getBoundingClientRect();
+                  const panelRect = leftPanel.getBoundingClientRect();
+                  return rect.left < panelRect.left - 1 || rect.right > panelRect.right + 1;
+                })(),
+                childOverflowCount: selectedMetricsChecks.filter((check) => check.overflowsPanel).length,
+                checks: selectedMetricsChecks,
+              } : null,
+            } : null,
             inspector: panel ? {
               clientWidth: panel.clientWidth,
               scrollWidth: panel.scrollWidth,
@@ -261,15 +400,21 @@ def collect_snapshot(page: Any, name: str) -> dict[str, Any]:
               checks: inspectorChecks,
             } : null,
             toolbarControls,
+            themeMenu: {
+              labels: Array.from(document.querySelectorAll('[role="menu"][aria-label="Theme settings"] [role^="menuitem"]'))
+                .map((el) => elementText(el))
+                .filter(Boolean),
+            },
             storage: {
               leftOpen: localStorage.getItem('leftOpen'),
               rightOpen: localStorage.getItem('rightOpen'),
               leftFoldersWidth: localStorage.getItem('leftW.folders'),
+              leftMetricsWidth: localStorage.getItem('leftW.metrics'),
               rightWidth: localStorage.getItem('rightW'),
             },
           };
         }""",
-        name,
+        {"name": name, "state": state or {}},
     )
     if not isinstance(snapshot, dict) or snapshot.get("missingShell"):
         raise ResponsiveGeometryFailure(f"App shell was not available for scenario {name!r}.")
@@ -328,6 +473,25 @@ def assert_no_visible_control_overlap(snapshot: dict[str, Any]) -> None:
                 )
 
 
+def assert_hidden_toolbar_controls_not_interactable(snapshot: dict[str, Any]) -> None:
+    controls = snapshot.get("toolbarControls")
+    if not isinstance(controls, list):
+        raise ResponsiveGeometryFailure(f"Missing toolbar control evidence for {snapshot.get('name')!r}.")
+    offenders = [
+        str(control.get("name"))
+        for control in controls
+        if isinstance(control, dict)
+        and not control.get("visible")
+        and control.get("ariaHidden") != "true"
+        and (control.get("hitTargetOk") or control.get("keyboardFocusable"))
+    ]
+    if offenders:
+        raise ResponsiveGeometryFailure(
+            f"Hidden toolbar controls are still reachable in {snapshot.get('name')}: "
+            f"{', '.join(sorted(offenders))}."
+        )
+
+
 def _parse_px(raw: Any) -> float:
     if not isinstance(raw, str):
         return 0.0
@@ -358,6 +522,12 @@ def assert_mobile_search_reserved(snapshot: dict[str, Any]) -> None:
         raise ResponsiveGeometryFailure(
             f"Grid starts under the mobile search toolbar in {snapshot.get('name')}."
         )
+    status_rect = rects.get("statusBand")
+    if isinstance(status_rect, dict) and float(status_rect.get("height", 0)) > 1:
+        if float(status_rect.get("top", 0)) + 1 < float(toolbar_rect.get("bottom", 0)):
+            raise ResponsiveGeometryFailure(
+                f"Status band starts under the mobile search toolbar in {snapshot.get('name')}."
+            )
 
 
 REQUIRED_DRAWER_CONTROLS = {
@@ -401,6 +571,22 @@ def assert_mobile_drawer_reachable(snapshot: dict[str, Any]) -> None:
         )
 
 
+def assert_theme_settings_reachable(snapshot: dict[str, Any]) -> None:
+    rects = snapshot.get("rects")
+    theme_menu = snapshot.get("themeMenu")
+    if not isinstance(rects, dict) or not isinstance(rects.get("themeMenu"), dict):
+        raise ResponsiveGeometryFailure(f"Theme settings menu is not visible in {snapshot.get('name')}.")
+    labels = theme_menu.get("labels") if isinstance(theme_menu, dict) else None
+    if not isinstance(labels, list):
+        raise ResponsiveGeometryFailure(f"Missing theme settings labels in {snapshot.get('name')}.")
+    required = ("Autoload image metadata", "Order compare by selection")
+    missing = sorted(label for label in required if not any(label in candidate for candidate in labels))
+    if missing:
+        raise ResponsiveGeometryFailure(
+            f"Theme settings drawer controls are missing in {snapshot.get('name')}: {missing!r}."
+        )
+
+
 def assert_overlay_isolated(snapshot: dict[str, Any], expected_mode: str) -> None:
     layout = snapshot.get("layout")
     rects = snapshot.get("rects")
@@ -434,7 +620,7 @@ def assert_overlay_isolated(snapshot: dict[str, Any], expected_mode: str) -> Non
     if float(overlay_rect.get("left", 0)) > expected_left + 1:
         raise ResponsiveGeometryFailure(f"Overlay left edge is squeezed in {snapshot.get('name')}: {overlay_rect!r}.")
     if float(overlay_rect.get("right", 0)) < viewport_width - expected_right - 1:
-            raise ResponsiveGeometryFailure(f"Overlay right edge is squeezed in {snapshot.get('name')}: {overlay_rect!r}.")
+        raise ResponsiveGeometryFailure(f"Overlay right edge is squeezed in {snapshot.get('name')}: {overlay_rect!r}.")
 
 
 def assert_viewer_toolbar_chrome(snapshot: dict[str, Any]) -> None:
@@ -481,26 +667,140 @@ def assert_inspector_contained(snapshot: dict[str, Any]) -> None:
         )
 
 
+def assert_metrics_left_760_observed(snapshot: dict[str, Any]) -> None:
+    state = snapshot.get("state")
+    layout = snapshot.get("layout")
+    storage = snapshot.get("storage")
+    viewport = snapshot.get("viewport")
+    selection = snapshot.get("selection")
+    if not isinstance(state, dict) or state.get("activeLeftTool") != "metrics":
+        raise ResponsiveGeometryFailure(f"Missing active metrics-left state for {snapshot.get('name')}.")
+    if int(state.get("selectedCount", 0)) < 2:
+        raise ResponsiveGeometryFailure(f"Metrics-left scenario did not keep selected items in {snapshot.get('name')}.")
+    if not isinstance(selection, dict) or int(selection.get("ariaSelectedCount", 0)) < 2:
+        raise ResponsiveGeometryFailure(f"Metrics-left DOM selection was not preserved in {snapshot.get('name')}.")
+    if not isinstance(viewport, dict) or int(viewport.get("width", 0)) != 760:
+        raise ResponsiveGeometryFailure(f"Metrics-left R10 observation must run at 760px: {viewport!r}.")
+    if not isinstance(storage, dict) or storage.get("leftOpen") != "1" or storage.get("rightOpen") != "1":
+        raise ResponsiveGeometryFailure(
+            f"Metrics-left R10 observation must preserve both sidebar preferences: {storage!r}."
+        )
+    if not isinstance(layout, dict) or layout.get("mode") != "narrow":
+        raise ResponsiveGeometryFailure(f"Metrics-left R10 observation expected narrow mode: {layout!r}.")
+
+    effective_left_width = _parse_px(f"{layout.get('effectiveLeftWidth', '0')}px") if isinstance(layout, dict) else 0
+    left_panel = snapshot.get("leftPanel")
+    if effective_left_width <= 0:
+        if layout.get("leftSuppressionReason") not in {"insufficient-center-space", "viewport-too-narrow"}:
+            raise ResponsiveGeometryFailure(
+                f"Metrics-left panel was suppressed for an unexpected reason in {snapshot.get('name')}: "
+                f"{layout!r}."
+            )
+        return
+
+    if not isinstance(left_panel, dict):
+        raise ResponsiveGeometryFailure(f"Metrics-left panel is visible but missing evidence in {snapshot.get('name')}.")
+    if left_panel.get("activeTool") != "metrics":
+        raise ResponsiveGeometryFailure(f"Left panel did not render Metrics tool in {snapshot.get('name')}.")
+    if left_panel.get("horizontalOverflow"):
+        raise ResponsiveGeometryFailure(f"Metrics-left panel has horizontal overflow in {snapshot.get('name')}.")
+    selected_card = left_panel.get("selectedMetricsCard")
+    if not isinstance(selected_card, dict):
+        raise ResponsiveGeometryFailure(f"Selected metrics summary is missing in {snapshot.get('name')}.")
+    if selected_card.get("overflowsPanel") or int(selected_card.get("childOverflowCount", 0)) > 0:
+        raise ResponsiveGeometryFailure(
+            f"Selected metrics summary escaped the left panel in {snapshot.get('name')}: {selected_card!r}."
+        )
+
+
+def assert_visible_metrics_left_contained(snapshot: dict[str, Any]) -> None:
+    selection = snapshot.get("selection")
+    if not isinstance(selection, dict) or int(selection.get("ariaSelectedCount", 0)) < 2:
+        raise ResponsiveGeometryFailure(f"Visible metrics-left scenario has fewer than 2 selected items in {snapshot.get('name')}.")
+    left_panel = snapshot.get("leftPanel")
+    if not isinstance(left_panel, dict):
+        raise ResponsiveGeometryFailure(f"Visible metrics-left panel is missing in {snapshot.get('name')}.")
+    if left_panel.get("activeTool") != "metrics":
+        raise ResponsiveGeometryFailure(f"Visible left panel did not render Metrics tool in {snapshot.get('name')}.")
+    if int(left_panel.get("contentOverflowCount", 0)) > 0:
+        raise ResponsiveGeometryFailure(
+            f"Visible metrics-left content escaped the panel in {snapshot.get('name')}: "
+            f"{left_panel.get('contentOverflowExamples')!r}."
+        )
+    selected_card = left_panel.get("selectedMetricsCard")
+    if not isinstance(selected_card, dict):
+        raise ResponsiveGeometryFailure(f"Visible selected metrics summary is missing in {snapshot.get('name')}.")
+    if float(selected_card.get("scrollWidth", 0)) > float(selected_card.get("clientWidth", 0)) + 1:
+        raise ResponsiveGeometryFailure(
+            f"Selected metrics summary has horizontal overflow in {snapshot.get('name')}: "
+            f"scrollWidth={selected_card.get('scrollWidth')}, clientWidth={selected_card.get('clientWidth')}."
+        )
+    if selected_card.get("overflowsPanel") or int(selected_card.get("childOverflowCount", 0)) > 0:
+        raise ResponsiveGeometryFailure(
+            f"Selected metrics summary escaped the visible left panel in {snapshot.get('name')}: {selected_card!r}."
+        )
+
+
 def wait_for_shell(page: Any, timeout_ms: float) -> None:
     page.locator(".app-shell").wait_for(state="visible", timeout=timeout_ms)
     page.locator("[role='grid']").wait_for(state="visible", timeout=timeout_ms)
 
 
+def visible_grid_cell_ids(page: Any) -> list[str]:
+    raw = page.evaluate(
+        """() => {
+          const cells = Array.from(document.querySelectorAll('[role="gridcell"][id^="cell-"]'))
+            .map((el) => {
+              const rect = el.getBoundingClientRect();
+              return { id: el.id, top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right };
+            })
+            .filter((entry) => entry.id && entry.bottom > 0 && entry.right > 0 && entry.top < window.innerHeight && entry.left < window.innerWidth);
+          cells.sort((a, b) => (a.top - b.top) || (a.left - b.left));
+          return cells.map((entry) => entry.id);
+        }"""
+    )
+    if not isinstance(raw, list):
+        raise ResponsiveGeometryFailure("Failed to evaluate visible grid cells.")
+    return [candidate for candidate in raw if isinstance(candidate, str) and candidate.startswith("cell-")]
+
+
+def wait_for_visible_grid_cell_ids(page: Any, minimum_count: int, timeout_ms: float) -> list[str]:
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    latest_ids: list[str] = []
+    while time.monotonic() < deadline:
+        latest_ids = visible_grid_cell_ids(page)
+        if len(latest_ids) >= minimum_count:
+            return latest_ids
+        page.wait_for_timeout(120)
+    raise ResponsiveGeometryFailure(
+        f"Timed out waiting for {minimum_count} visible grid cells. Last visible ids: {latest_ids!r}."
+    )
+
+
 def select_first_item(page: Any, timeout_ms: float) -> None:
-    first_cell = page.locator('[role="gridcell"][id^="cell-"]').first
-    first_cell.click(timeout=timeout_ms)
+    first_cell_id = wait_for_visible_grid_cell_ids(page, 1, timeout_ms)[0]
+    page.locator(f"[id='{first_cell_id}']").click(timeout=timeout_ms)
+
+
+def select_first_two_items(page: Any, timeout_ms: float) -> None:
+    first_id, second_id = wait_for_visible_grid_cell_ids(page, 2, timeout_ms)[:2]
+    page.locator(f"[id='{first_id}']").click(timeout=timeout_ms)
+    page.locator(f"[id='{second_id}']").click(timeout=timeout_ms, modifiers=["Control"])
+
+
+def open_metrics_left_panel(page: Any, timeout_ms: float) -> None:
+    page.get_by_role("button", name="Metrics and Filters").first.click(timeout=timeout_ms)
+    page.wait_for_timeout(150)
 
 
 def open_first_viewer(page: Any, timeout_ms: float) -> None:
-    first_cell = page.locator('[role="gridcell"][id^="cell-"]').first
-    first_cell.dblclick(timeout=timeout_ms)
+    first_cell_id = wait_for_visible_grid_cell_ids(page, 1, timeout_ms)[0]
+    page.locator(f"[id='{first_cell_id}']").dblclick(timeout=timeout_ms)
     page.locator('[role="dialog"][aria-label="Image viewer"]').wait_for(state="visible", timeout=timeout_ms)
 
 
 def open_compare_from_first_two_items(page: Any, timeout_ms: float) -> None:
-    cells = page.locator('[role="gridcell"][id^="cell-"]')
-    cells.nth(0).click(timeout=timeout_ms)
-    cells.nth(1).click(timeout=timeout_ms, modifiers=["Control"])
+    select_first_two_items(page, timeout_ms)
     page.locator('[aria-label="Compare selected images"]').click(timeout=timeout_ms)
     page.locator('[role="dialog"][aria-label="Compare images"]').wait_for(state="visible", timeout=timeout_ms)
 
@@ -515,9 +815,10 @@ def run_scenario(page: Any, base_url: str, scenario: Scenario, timeout_ms: float
     if scenario.select_first or scenario.assert_inspector:
         select_first_item(page, timeout_ms)
     page.wait_for_timeout(200)
-    snapshot = collect_snapshot(page, scenario.name)
+    snapshot = collect_snapshot(page, scenario.name, scenario_state(scenario))
     assert_no_document_overflow(snapshot)
     assert_no_visible_control_overlap(snapshot)
+    assert_hidden_toolbar_controls_not_interactable(snapshot)
     if scenario.width <= 900:
         assert_mobile_drawer_reachable(snapshot)
     if scenario.open_mobile_search:
@@ -545,6 +846,7 @@ def run_resize_persistence_scenario(page: Any, base_url: str, timeout_ms: float)
     for snapshot in (desktop_before, phone, desktop_after):
         assert_no_document_overflow(snapshot)
         assert_no_visible_control_overlap(snapshot)
+        assert_hidden_toolbar_controls_not_interactable(snapshot)
     assert_mobile_drawer_reachable(phone)
 
     for snapshot in (desktop_before, phone, desktop_after):
@@ -581,6 +883,7 @@ def run_viewer_overlay_scenario(page: Any, base_url: str, timeout_ms: float) -> 
     page.wait_for_timeout(100)
     open_snapshot = collect_snapshot(page, "viewer-overlay-390x520")
     assert_no_document_overflow(open_snapshot)
+    assert_hidden_toolbar_controls_not_interactable(open_snapshot)
     assert_overlay_isolated(open_snapshot, "viewer")
 
     page.keyboard.press("Escape")
@@ -595,6 +898,7 @@ def run_viewer_overlay_scenario(page: Any, base_url: str, timeout_ms: float) -> 
     page.wait_for_timeout(100)
     desktop_snapshot = collect_snapshot(page, "viewer-toolbar-1024x760")
     assert_no_document_overflow(desktop_snapshot)
+    assert_hidden_toolbar_controls_not_interactable(desktop_snapshot)
     assert_overlay_isolated(desktop_snapshot, "viewer")
     assert_viewer_toolbar_chrome(desktop_snapshot)
 
@@ -622,6 +926,7 @@ def run_compare_overlay_scenario(page: Any, base_url: str, timeout_ms: float) ->
     page.wait_for_timeout(100)
     open_snapshot = collect_snapshot(page, "compare-overlay-390x520")
     assert_no_document_overflow(open_snapshot)
+    assert_hidden_toolbar_controls_not_interactable(open_snapshot)
     assert_overlay_isolated(open_snapshot, "compare")
 
     page.keyboard.press("Escape")
@@ -636,9 +941,136 @@ def run_compare_overlay_scenario(page: Any, base_url: str, timeout_ms: float) ->
     }
 
 
+def run_metrics_left_760_scenario(page: Any, base_url: str, timeout_ms: float) -> dict[str, Any]:
+    page.set_viewport_size({"width": 900, "height": 760})
+    page.add_init_script(seed_storage_script(scenario_storage()))
+    page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_shell(page, timeout_ms)
+    select_first_two_items(page, timeout_ms)
+    open_metrics_left_panel(page, timeout_ms)
+    page.wait_for_timeout(250)
+    before_state = {
+        "activeLeftTool": "metrics",
+        "selectedCount": 2,
+        "bothSidebarPreferencesOpen": True,
+        "purpose": "R10 selected-metrics observation before 760px resize",
+    }
+    before = collect_snapshot(page, "metrics-left-selected-before-900x760", before_state)
+    assert_no_document_overflow(before)
+    assert_no_visible_control_overlap(before)
+    assert_hidden_toolbar_controls_not_interactable(before)
+    assert_visible_metrics_left_contained(before)
+
+    page.set_viewport_size({"width": 760, "height": 700})
+    page.wait_for_timeout(300)
+    after_state = {
+        "activeLeftTool": "metrics",
+        "selectedCount": 2,
+        "bothSidebarPreferencesOpen": True,
+        "purpose": "R10 metrics-left/both-sidebars-preferred-open selected-items observation",
+    }
+    after = collect_snapshot(page, "metrics-left-selected-760x700", after_state)
+    assert_no_document_overflow(after)
+    assert_no_visible_control_overlap(after)
+    assert_hidden_toolbar_controls_not_interactable(after)
+    assert_mobile_drawer_reachable(after)
+    assert_metrics_left_760_observed(after)
+
+    return {
+        "name": "metrics-left-760-r10-observation",
+        "steps": [before, after],
+    }
+
+
+def run_mobile_drawer_theme_scenario(page: Any, base_url: str, timeout_ms: float) -> dict[str, Any]:
+    page.set_viewport_size({"width": 320, "height": 700})
+    page.add_init_script(seed_storage_script(scenario_storage()))
+    page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_shell(page, timeout_ms)
+    page.locator('[data-toolbar-control="drawer-theme"] button').click(timeout=timeout_ms)
+    page.locator('[role="menu"][aria-label="Theme settings"]').wait_for(state="visible", timeout=timeout_ms)
+    page.wait_for_timeout(100)
+    snapshot = collect_snapshot(
+        page,
+        "mobile-drawer-theme-settings-320x700",
+        {"width": 320, "height": 700, "drawerThemeMenuOpen": True},
+    )
+    assert_no_document_overflow(snapshot)
+    assert_mobile_drawer_reachable(snapshot)
+    assert_theme_settings_reachable(snapshot)
+    return snapshot
+
+
 def write_evidence(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def launch_lenslet_with_log(
+    source_path: Path,
+    *,
+    host: str,
+    port: int,
+    cwd: Path,
+    log_path: Path,
+) -> subprocess.Popen[Any]:
+    command = [
+        sys.executable,
+        "-m",
+        "lenslet.cli",
+        str(source_path),
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--verbose",
+    ]
+    log_handle = log_path.open("w", encoding="utf-8")
+    try:
+        return subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+    finally:
+        log_handle.close()
+
+
+def read_log_tail(path: Path, line_count: int = 40) -> str:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return "<unavailable>"
+    return "\n".join(lines[-line_count:])
+
+
+def record_failure(
+    *,
+    evidence: dict[str, Any],
+    page: Any,
+    screenshot_dir: Path,
+    scenario_name: str,
+    error: Exception,
+) -> None:
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+    screenshot = screenshot_dir / f"{scenario_name}.png"
+    page.screenshot(path=str(screenshot), full_page=True)
+    failure: dict[str, Any] = {
+        "scenario": scenario_name,
+        "error": str(error),
+        "screenshot": str(screenshot),
+    }
+    try:
+        failure["snapshot"] = collect_snapshot(
+            page,
+            f"{scenario_name}-failure",
+            {"failedScenario": scenario_name},
+        )
+    except Exception as snapshot_error:
+        failure["snapshotError"] = str(snapshot_error)
+    evidence["failures"].append(failure)
 
 
 def main() -> int:
@@ -653,18 +1085,36 @@ def main() -> int:
 
     port = choose_port(args.host, args.port)
     base_url = f"http://{args.host}:{port}"
-    process = launch_lenslet(dataset_dir, host=args.host, port=port, cwd=repo_root)
+    log_file = tempfile.NamedTemporaryFile(
+        prefix="lenslet-responsive-server-",
+        suffix=".log",
+        delete=False,
+    )
+    server_log = Path(log_file.name)
+    log_file.close()
+    process = launch_lenslet_with_log(
+        dataset_dir,
+        host=args.host,
+        port=port,
+        cwd=repo_root,
+        log_path=server_log,
+    )
+    started_at = time.time()
     evidence: dict[str, Any] = {
+        "evidenceVersion": 2,
         "baseUrl": base_url,
         "datasetDir": str(dataset_dir),
-        "startedAt": time.time(),
+        "serverLog": str(server_log),
+        "startedAt": started_at,
         "scenarios": [],
         "failures": [],
+        "warnings": [],
     }
 
     _, _, sync_playwright = import_playwright()
     try:
-        wait_for_health(base_url, args.server_timeout_seconds)
+        initial_health = wait_for_health(base_url, args.server_timeout_seconds)
+        evidence["initialHealth"] = initial_health
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             try:
@@ -688,6 +1138,27 @@ def main() -> int:
                         scenario_storage(),
                         open_mobile_search=True,
                         has_touch=True,
+                    ),
+                    Scenario(
+                        "narrow-search-open-760",
+                        760,
+                        760,
+                        scenario_storage(),
+                        open_mobile_search=True,
+                    ),
+                    Scenario(
+                        "narrow-search-open-900",
+                        900,
+                        760,
+                        scenario_storage(),
+                        open_mobile_search=True,
+                    ),
+                    Scenario(
+                        "short-search-open-760",
+                        760,
+                        430,
+                        scenario_storage(),
+                        open_mobile_search=True,
                     ),
                     Scenario(
                         "inspector-phone-suppressed-480",
@@ -730,38 +1201,80 @@ def main() -> int:
                         is_mobile=scenario.has_touch,
                     )
                     page = context.new_page()
+                    page.set_default_timeout(args.browser_timeout_ms)
                     try:
                         evidence["scenarios"].append(
                             run_scenario(page, base_url, scenario, args.browser_timeout_ms)
                         )
                     except Exception as exc:
-                        args.screenshot_dir.mkdir(parents=True, exist_ok=True)
-                        screenshot = args.screenshot_dir / f"{scenario.name}.png"
-                        page.screenshot(path=str(screenshot), full_page=True)
-                        evidence["failures"].append({
-                            "scenario": scenario.name,
-                            "error": str(exc),
-                            "screenshot": str(screenshot),
-                        })
+                        record_failure(
+                            evidence=evidence,
+                            page=page,
+                            screenshot_dir=args.screenshot_dir,
+                            scenario_name=scenario.name,
+                            error=exc,
+                        )
                         raise
                     finally:
                         context.close()
 
                 context = browser.new_context(viewport={"width": 1440, "height": 900})
                 page = context.new_page()
+                page.set_default_timeout(args.browser_timeout_ms)
                 try:
                     evidence["scenarios"].append(
                         run_resize_persistence_scenario(page, base_url, args.browser_timeout_ms)
                     )
                 except Exception as exc:
-                    args.screenshot_dir.mkdir(parents=True, exist_ok=True)
-                    screenshot = args.screenshot_dir / "resize-persistence.png"
-                    page.screenshot(path=str(screenshot), full_page=True)
-                    evidence["failures"].append({
-                        "scenario": "resize-persistence",
-                        "error": str(exc),
-                        "screenshot": str(screenshot),
-                    })
+                    record_failure(
+                        evidence=evidence,
+                        page=page,
+                        screenshot_dir=args.screenshot_dir,
+                        scenario_name="resize-persistence",
+                        error=exc,
+                    )
+                    raise
+                finally:
+                    context.close()
+
+                context = browser.new_context(viewport={"width": 900, "height": 760})
+                page = context.new_page()
+                page.set_default_timeout(args.browser_timeout_ms)
+                try:
+                    evidence["scenarios"].append(
+                        run_metrics_left_760_scenario(page, base_url, args.browser_timeout_ms)
+                    )
+                except Exception as exc:
+                    record_failure(
+                        evidence=evidence,
+                        page=page,
+                        screenshot_dir=args.screenshot_dir,
+                        scenario_name="metrics-left-760-r10-observation",
+                        error=exc,
+                    )
+                    raise
+                finally:
+                    context.close()
+
+                context = browser.new_context(
+                    viewport={"width": 320, "height": 700},
+                    has_touch=True,
+                    is_mobile=True,
+                )
+                page = context.new_page()
+                page.set_default_timeout(args.browser_timeout_ms)
+                try:
+                    evidence["scenarios"].append(
+                        run_mobile_drawer_theme_scenario(page, base_url, args.browser_timeout_ms)
+                    )
+                except Exception as exc:
+                    record_failure(
+                        evidence=evidence,
+                        page=page,
+                        screenshot_dir=args.screenshot_dir,
+                        scenario_name="mobile-drawer-theme-settings",
+                        error=exc,
+                    )
                     raise
                 finally:
                     context.close()
@@ -773,27 +1286,36 @@ def main() -> int:
                 for scenario_name, runner in overlay_runners:
                     context = browser.new_context(viewport={"width": 1440, "height": 900})
                     page = context.new_page()
+                    page.set_default_timeout(args.browser_timeout_ms)
                     try:
                         evidence["scenarios"].append(runner(page, base_url, args.browser_timeout_ms))
                     except Exception as exc:
-                        args.screenshot_dir.mkdir(parents=True, exist_ok=True)
-                        screenshot = args.screenshot_dir / f"{scenario_name}.png"
-                        page.screenshot(path=str(screenshot), full_page=True)
-                        evidence["failures"].append({
-                            "scenario": scenario_name,
-                            "error": str(exc),
-                            "screenshot": str(screenshot),
-                        })
+                        record_failure(
+                            evidence=evidence,
+                            page=page,
+                            screenshot_dir=args.screenshot_dir,
+                            scenario_name=scenario_name,
+                            error=exc,
+                        )
                         raise
                     finally:
                         context.close()
             finally:
                 browser.close()
+        evidence["finalHealth"] = wait_for_health(base_url, args.server_timeout_seconds)
+        evidence["status"] = "passed"
     except Exception as exc:
         evidence["error"] = str(exc)
+        evidence["status"] = "failed"
+        evidence["serverLogTail"] = read_log_tail(server_log)
+        evidence["finishedAt"] = time.time()
+        evidence["durationSeconds"] = round(float(evidence["finishedAt"]) - started_at, 3)
         write_evidence(args.output_json, evidence)
         raise SystemExit(1) from exc
     finally:
+        if "finishedAt" not in evidence:
+            evidence["finishedAt"] = time.time()
+            evidence["durationSeconds"] = round(float(evidence["finishedAt"]) - started_at, 3)
         stop_process(process)
         if dataset_tmp is not None and not args.keep_dataset:
             shutil.rmtree(dataset_tmp, ignore_errors=True)

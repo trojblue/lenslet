@@ -1,0 +1,43 @@
+# Ralph Progress Log
+Started: 2026-05-25T19:42:11Z
+Mode: plan
+Tool: codex
+Repo: /data/yada/dev_new/lenslet
+Plan: /data/yada/dev_new/lenslet/docs/20260525_fix_viewer_flicker_back_button_plan.md
+---
+
+## Iteration 1/8 - 2026-05-25T19:52:28Z
+
+Completed task IDs: FBB-0, FBB-1, FBB-2, FBB-3.
+
+Files changed:
+- `scripts/viewer_flicker_back_browser.py` added as the focused Playwright evidence harness.
+- `docs/20260525_fix_viewer_flicker_back_button_plan.md` updated with Sprint 1 status and handoff notes.
+- `docs/ralph/20260525_fix_viewer_flicker_back_button/progress.txt` updated with this iteration summary.
+- `data/fixtures/viewer_flicker_back_baseline.json` regenerated locally as ignored browser evidence.
+
+Validations run:
+- `python -m py_compile scripts/viewer_flicker_back_browser.py` passed.
+- `python scripts/viewer_flicker_back_browser.py --mode baseline --output-json data/fixtures/viewer_flicker_back_baseline.json` passed. Evidence reproduced viewer thumbnail/fallback/crossfade/open-fade risks, strict pan clamp behavior, current click-to-close behavior, and Back hit-test failures.
+- `python scripts/viewer_flicker_back_browser.py --mode interactions --output-json data/fixtures/viewer_interactions_baseline.json` passed before fixed-mode predicates were added and confirmed the added double-click image sample.
+- `python scripts/viewer_flicker_back_browser.py --mode viewer --output-json /tmp/lenslet-viewer-current-fail.json` failed as expected on current code with 40 viewer acceptance failures after stricter visible-image checks.
+- `python scripts/viewer_flicker_back_browser.py --mode interactions --output-json /tmp/lenslet-interactions-current-fail.json` failed as expected on current code with 18 interaction acceptance failures.
+- `python scripts/viewer_flicker_back_browser.py --mode back --output-json /tmp/lenslet-back-current-fail.json` failed as expected on current code with 21 Back acceptance failures.
+- `python scripts/lint_repo.py` passed with warn-only large-file notices, including the new focused browser script at 1299 lines.
+- `git diff --check` passed.
+
+Cleanup/review notes:
+- code-simplifier sidecar found one dead assignment and one missing double-click image sample; both were fixed.
+- code-review sidecar found fixed-mode false-green risk and weak FBB-0 traceability. Fixed-mode acceptance predicates were added for `viewer`, `interactions`, `back`, and `all`; `baseline` remains evidence-only. FBB-0 traceability is recorded below.
+- Re-review found acceptance coverage gaps for visible image-like placeholders, interaction direction/bounds, and Back sample completeness; these predicates were tightened and revalidated against expected failures on the current broken code.
+- Final re-review found remaining future-gate coverage gaps: fitted-transform timing, delayed next/previous stale path and loader cancellation, computed slack bounds plus toolbar/pinch zoom, and double-click suppression after drag/pan/pinch or on controls. These are recorded as Sprint 2/3 validation expansions; Sprint 1 remains complete because it delivered baseline evidence and core fixed-mode non-false-green predicates without changing product behavior.
+
+FBB-0 traceability:
+- `git branch --show-current` -> `main`; `git rev-parse --short HEAD` -> `6a40acc`.
+- `git status --short` before Sprint 1 showed untracked `docs/20260525_fix_flicker_and_button.md`, `docs/20260525_fix_viewer_flicker_back_button_plan.md`, and `docs/ralph/20260525_fix_viewer_flicker_back_button/`.
+- Targeted codepath scan command: `rg -n "thumbUrl|alt=\"thumb\"|requestAnimationFrame|set.*Ready|Backdrop|handleBackdropClick|OverlayFallback|lazy\\(|clampImageTransform|data-toolbar-control=\"back\"|toolbar-control=\"back\"" frontend/src src tests scripts --glob '!docs/agents_archive/**'`.
+- Relevant signatures found: `frontend/src/features/viewer/Viewer.tsx:52` `thumbUrl`; `Viewer.tsx:64` `handleBackdropClick`; `Viewer.tsx:75` and `Viewer.tsx:84` readiness/open `requestAnimationFrame`; `Viewer.tsx:158` `transition-opacity`; `Viewer.tsx:181-184` `img alt="thumb"`; `frontend/src/app/AppShell.tsx:115` lazy Viewer; `frontend/src/app/AppShell.tsx:1674` `OverlayFallback("Loading viewer...")`; `frontend/src/lib/imageTransform.ts:55` strict `clampImageTransform`; `frontend/src/shared/ui/Toolbar.tsx:354` Back control.
+
+Blockers: none for Sprint 1.
+
+Next step: Sprint 2 / FBB-4, remove the viewer thumbnail placeholder and crossfade root path, then rerun `--mode viewer`.

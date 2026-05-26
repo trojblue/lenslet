@@ -185,6 +185,7 @@ export function restoreImageTransformForCenter(params: {
   image: Size
   center: Point
   scale: number
+  clampOptions?: ImageTransformClampOptions
 }): ImageTransform {
   const fit = fitImageToContainer(params.container, params.image)
   const scale = clampImageScale(params.scale)
@@ -195,5 +196,5 @@ export function restoreImageTransformForCenter(params: {
     scale,
     tx,
     ty,
-  })
+  }, params.clampOptions)
 }

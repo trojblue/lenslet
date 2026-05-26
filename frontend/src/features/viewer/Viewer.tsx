@@ -103,6 +103,7 @@ export default function Viewer({
     const resource = activeResource
     const image = imgRef.current
     if (!resource || resource.path !== path || !image || (image.currentSrc || image.src) !== resource.url) return
+    if (readyPathRef.current === resource.path) return
     resetView()
     readyPathRef.current = resource.path
     setReadyPath(resource.path)
@@ -179,6 +180,7 @@ export default function Viewer({
 
   useEffect(() => {
     if (requestedZoomPercent == null) return
+    if (!imageReady) return
     if (zoomToPercent(requestedZoomPercent)) {
       onZoomRequestConsumed && onZoomRequestConsumed()
     }

@@ -140,6 +140,8 @@ Tasks:
 7. `IP-7`: Frame-schedule compare transform rendering and resize work.
    Apply the same scheduling and cleanup invariant to `useCompareZoomPan.ts`, keeping the public hook return shape stable unless a small object-shaped internal state is cleaner. Run a small pre-test or spike on the single-transform-state shape before changing both images' flush path. Validation: compare hook tests cover paired transform flushing, resize RAF coalescing, cleanup, and existing browser compare resize checks remain green.
 
+Sprint 2 handoff notes, 2026-05-26 03:06 UTC: closed in iteration 2. `restoreImageTransformForCenter` now accepts clamp options, with viewer resize restoration using `VIEWER_PAN_SLACK`. Viewer and compare hooks now keep canonical transform state in refs, expose the same public return shape, and coalesce React-visible transform updates through a shared cancellable RAF scheduler. ResizeObserver work is coalesced and canceled on cleanup in both hooks. Browser evidence showed compare short-height resize also needed resize-only pan slack, so compare resize restoration uses the same bounded slack while normal compare pan/zoom remains strict. The toolbar zoom request path now waits for `imageReady`, avoids duplicate ready resets, handles range `input` events, and keeps requested zoom visible while geometry catches up. Evidence is available at `/tmp/lenslet-interaction-polish-sprint2.json`.
+
 Sprint 3 goal: harden remaining lifecycle edges and finish evidence.
 
 Demo outcome: divider dragging behaves through resize/capture loss/unmount, `VirtualGrid` no longer leaves scroll timers or scroll RAFs behind, preflight/final reviewer promises are covered by browser evidence, frontend assets are regenerated when needed, and cleanup/review gates have no unresolved blockers.
@@ -273,11 +275,17 @@ Rollback is sprint-based. If a sprint regresses primary behavior, revert or isol
 - [x] 2026-05-26 01:59 UTC: Ran required subagent review with `reasoning_effort=medium`; incorporated de-scoping, zoom retry, compare fit, keyboard, transform invariant, and browser fixture feedback.
 - [x] Preflight: Add or run phone/coarse/reduced-motion evidence and convert failures into owning sprint work.
 - [x] Sprint 1: Implement zoom request retry, compare late-load freeze, dialog/background keyboard scope, and label/focus polish.
-- [ ] Sprint 2: Implement pan-slack restoration plus frame-coalesced viewer/compare transforms and resize RAF cleanup.
+- [x] Sprint 2: Implement pan-slack restoration plus frame-coalesced viewer/compare transforms and resize RAF cleanup.
 - [ ] Sprint 3: Implement divider drag lifecycle cleanup, `VirtualGrid` scroll cleanup, final validation, packaged asset sync, and handoff.
 - [x] 2026-05-26 02:38 UTC: Iteration 1 closed Sprint 1. Added `--only-sprint1` browser evidence covering phone viewer nav, coarse pointer action visibility, reduced motion, delayed viewer zoom request retention, compare late-load freeze, keyboard scoping from controls/modifiers, useful full-size labels, and Sprint 1 success screenshots.
 - [x] 2026-05-26 02:38 UTC: Validated with focused Vitest checks, full frontend suite, production build plus packaged asset sync, Sprint 1 browser evidence, repo lint, conservative cleanup scan, and two code-review passes. Review findings on `Ctrl+Alt+B` and screenshot artifacts were fixed and rereviewed clean.
 - [x] 2026-05-26 02:38 UTC: Noted that the full legacy browser command still reaches the planned Sprint 2 viewer resize center-drift failure; keep this as the next sprint target rather than accepting the final browser gate yet.
+- [x] 2026-05-26 02:44 UTC: Iteration 2 started Sprint 2. Acceptance criteria: `restoreImageTransformForCenter` gets explicit clamp options, viewer resize restores with `VIEWER_PAN_SLACK`, viewer and compare transforms keep canonical refs while React-visible state is RAF-coalesced, and ResizeObserver work is coalesced/canceled.
+- [x] 2026-05-26 02:48 UTC: Initial Sprint 2 browser evidence cleared the prior viewer short-height failure and exposed compare B short-height center drift under strict resize clamping; applying pan slack only to compare resize restoration while keeping normal compare pan/zoom strict.
+- [x] 2026-05-26 02:52 UTC: The next browser run caught a Sprint 1 regression where the complete-image fallback could reset an already-ready viewer image after a pending toolbar zoom; made viewer image readiness idempotent per resource before rerunning evidence.
+- [x] 2026-05-26 02:56 UTC: Follow-up browser evidence showed the toolbar zoom request could still run before fitted image geometry if natural dimensions were available early. The viewer now gates pending zoom consumption on `imageReady`, keeping the request pending until initial fit has completed.
+- [x] 2026-05-26 03:00 UTC: Tightened the toolbar zoom slider contract to emit pending zoom requests on `input` as well as `change` and keep the requested value visible while the viewer waits for ready geometry.
+- [x] 2026-05-26 03:06 UTC: Iteration 2 closed Sprint 2 with focused tests, full frontend tests, production build plus packaged asset sync, full interaction-polish browser evidence, repo lint, conservative cleanup subagent, and code-review subagent. No review findings remain.
 
 
 ## Artifacts and Handoff
@@ -299,4 +307,10 @@ Iteration 1 evidence outputs:
 2. `/tmp/lenslet-overall-cleanup-browser-screenshots/viewer_zoom_load_race_success_0_0.png`
 3. `/tmp/lenslet-overall-cleanup-browser-screenshots/compare_late_load_success_0_0.png`
 
-Handoff notes for the implementing agent: Sprint 1 is complete. Start the next iteration at Sprint 2 (`IP-5` through `IP-7`) because the full legacy `scripts/overall_cleanup_browser.py` path still exposes the planned viewer resize center-drift failure on the `viewer-short-height` check. Keep plan updates continuous. Use `better-code` for every substantive code ticket. After each implementation sprint, run the cleanup and review gates before marking it complete. If a browser assertion reveals that a locally "already fixed" item is still failing, fix the item in the owning sprint instead of reclassifying it as deferred.
+Iteration 2 evidence outputs:
+
+1. `/tmp/lenslet-interaction-polish-sprint2.json`
+2. `/tmp/lenslet-overall-cleanup-browser-screenshots/viewer_zoom_load_race_success_0_0.png`
+3. `/tmp/lenslet-overall-cleanup-browser-screenshots/compare_late_load_success_0_0.png`
+
+Handoff notes for the implementing agent: Sprint 2 is complete. Start the next iteration at Sprint 3 (`IP-8` and `IP-9`). Keep the final browser command as a regression gate because it now covers preflight, Sprint 1, Sprint 2 viewer/compare resize, comparison export, and adaptive layout evidence. Use `better-code` for every substantive code ticket. After Sprint 3, run cleanup and review gates again before final handoff. If divider or `VirtualGrid` cleanup changes grid rendering beyond timeout/RAF cleanup, run the large-tree probe before final acceptance.

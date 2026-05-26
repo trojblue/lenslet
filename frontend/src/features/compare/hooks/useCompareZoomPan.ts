@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   type ImageTransform,
+  type ImageTransformClampOptions,
   type Point,
   type Size,
   captureNormalizedImageCenter,
@@ -11,8 +12,23 @@ import {
   restoreImageTransformForCenter,
   zoomImageTransformAroundPoint,
 } from '../../../lib/imageTransform'
+import { createBrowserFrameScheduler, type LatestFrameScheduler } from '../../../lib/frameScheduler'
 
 const ZOOM_BASE = 1.2
+const COMPARE_RESIZE_PAN_SLACK: ImageTransformClampOptions = { panSlack: true }
+const IDENTITY_TRANSFORM: ImageTransform = { base: 1, scale: 1, tx: 0, ty: 0 }
+
+type CompareTransformState = {
+  scale: number
+  a: ImageTransform
+  b: ImageTransform
+}
+
+const IDENTITY_COMPARE_TRANSFORM: CompareTransformState = {
+  scale: 1,
+  a: IDENTITY_TRANSFORM,
+  b: IDENTITY_TRANSFORM,
+}
 
 type UseCompareZoomPanOptions = {
   onUserInteraction?: () => void
@@ -74,69 +90,58 @@ function readImageSize(image: HTMLImageElement | null): Size | null {
 
 export function useCompareZoomPan(options: UseCompareZoomPanOptions = {}) {
   const { onUserInteraction } = options
-  const [scale, setScale] = useState<number>(1)
-  const [txA, setTxA] = useState<number>(0)
-  const [tyA, setTyA] = useState<number>(0)
-  const [txB, setTxB] = useState<number>(0)
-  const [tyB, setTyB] = useState<number>(0)
-  const [baseA, setBaseA] = useState<number>(1)
-  const [baseB, setBaseB] = useState<number>(1)
+  const [transform, setTransformState] = useState<CompareTransformState>(IDENTITY_COMPARE_TRANSFORM)
   const [dragging, setDragging] = useState<boolean>(false)
+  const { scale, a, b } = transform
+  const { base: baseA, tx: txA, ty: tyA } = a
+  const { base: baseB, tx: txB, ty: tyB } = b
   const containerRef = useRef<HTMLDivElement | null>(null)
   const imgARef = useRef<HTMLImageElement | null>(null)
   const imgBRef = useRef<HTMLImageElement | null>(null)
-  const scaleRef = useRef(1)
-  const txARef = useRef(0)
-  const tyARef = useRef(0)
-  const txBRef = useRef(0)
-  const tyBRef = useRef(0)
-  const baseARef = useRef(1)
-  const baseBRef = useRef(1)
+  const transformRef = useRef<CompareTransformState>(IDENTITY_COMPARE_TRANSFORM)
+  const pendingTransformRef = useRef<CompareTransformState | null>(null)
+  const transformFrameSchedulerRef = useRef<LatestFrameScheduler | null>(null)
+  const resizeFrameSchedulerRef = useRef<LatestFrameScheduler | null>(null)
   const centerARef = useRef<Point>({ x: 0.5, y: 0.5 })
   const centerBRef = useRef<Point>({ x: 0.5, y: 0.5 })
   const pointersRef = useRef<Map<number, Point>>(new Map())
   const panRef = useRef<PanState | null>(null)
   const pinchRef = useRef<PinchState | null>(null)
 
-  const currentA = useCallback((): ImageTransform => ({
-    base: baseARef.current,
-    scale: scaleRef.current,
-    tx: txARef.current,
-    ty: tyARef.current,
-  }), [])
+  if (transformFrameSchedulerRef.current === null) {
+    transformFrameSchedulerRef.current = createBrowserFrameScheduler()
+  }
+  if (resizeFrameSchedulerRef.current === null) {
+    resizeFrameSchedulerRef.current = createBrowserFrameScheduler()
+  }
 
-  const currentB = useCallback((): ImageTransform => ({
-    base: baseBRef.current,
-    scale: scaleRef.current,
-    tx: txBRef.current,
-    ty: tyBRef.current,
-  }), [])
+  const currentA = useCallback((): ImageTransform => transformRef.current.a, [])
+
+  const currentB = useCallback((): ImageTransform => transformRef.current.b, [])
+
+  const flushTransformState = useCallback(() => {
+    const next = pendingTransformRef.current
+    if (!next) return
+    pendingTransformRef.current = null
+    setTransformState(next)
+  }, [])
 
   const applyTransforms = useCallback((next: {
     a?: ImageTransform
     b?: ImageTransform
     scale?: number
   }) => {
-    const nextScale = clampImageScale(next.scale ?? next.a?.scale ?? next.b?.scale ?? scaleRef.current)
-    scaleRef.current = nextScale
-    setScale(nextScale)
-    if (next.a) {
-      baseARef.current = next.a.base
-      txARef.current = next.a.tx
-      tyARef.current = next.a.ty
-      setBaseA(next.a.base)
-      setTxA(next.a.tx)
-      setTyA(next.a.ty)
+    const previous = transformRef.current
+    const nextScale = clampImageScale(next.scale ?? next.a?.scale ?? next.b?.scale ?? previous.scale)
+    const nextState = {
+      scale: nextScale,
+      a: next.a ? { ...next.a, scale: nextScale } : { ...previous.a, scale: nextScale },
+      b: next.b ? { ...next.b, scale: nextScale } : { ...previous.b, scale: nextScale },
     }
-    if (next.b) {
-      baseBRef.current = next.b.base
-      txBRef.current = next.b.tx
-      tyBRef.current = next.b.ty
-      setBaseB(next.b.base)
-      setTxB(next.b.tx)
-      setTyB(next.b.ty)
-    }
-  }, [])
+    transformRef.current = nextState
+    pendingTransformRef.current = nextState
+    transformFrameSchedulerRef.current?.schedule(flushTransformState)
+  }, [flushTransformState])
 
   const startPanFromPointer = useCallback((pointerId: number, point: Point) => {
     panRef.current = {
@@ -201,13 +206,13 @@ export function useCompareZoomPan(options: UseCompareZoomPanOptions = {}) {
         container,
         image: imageA,
         center: { x: 0.5, y: 0.5 },
-        scale: scaleRef.current,
+        scale: transformRef.current.scale,
       }),
       b: restoreImageTransformForCenter({
         container,
         image: imageB,
         center: { x: 0.5, y: 0.5 },
-        scale: scaleRef.current,
+        scale: transformRef.current.scale,
       }),
     })
     return true
@@ -223,13 +228,15 @@ export function useCompareZoomPan(options: UseCompareZoomPanOptions = {}) {
         container,
         image: imageA,
         center: centerARef.current,
-        scale: scaleRef.current,
+        scale: transformRef.current.scale,
+        clampOptions: COMPARE_RESIZE_PAN_SLACK,
       }) : undefined,
       b: imageB ? restoreImageTransformForCenter({
         container,
         image: imageB,
         center: centerBRef.current,
-        scale: scaleRef.current,
+        scale: transformRef.current.scale,
+        clampOptions: COMPARE_RESIZE_PAN_SLACK,
       }) : undefined,
     })
   }, [applyTransforms])
@@ -238,17 +245,19 @@ export function useCompareZoomPan(options: UseCompareZoomPanOptions = {}) {
     const el = containerRef.current
     if (!el) return
     const ro = new ResizeObserver(() => {
-      try { requestAnimationFrame(() => preserveCenterAfterResize()) } catch { preserveCenterAfterResize() }
+      resizeFrameSchedulerRef.current?.schedule(preserveCenterAfterResize)
     })
     ro.observe(el)
-    return () => ro.disconnect()
+    return () => {
+      ro.disconnect()
+      resizeFrameSchedulerRef.current?.cancel()
+    }
   }, [preserveCenterAfterResize])
 
   const resetView = useCallback(() => {
     const container = readElementSize(containerRef.current)
     if (!container) {
-      scaleRef.current = 1
-      setScale(1)
+      applyTransforms({ scale: 1 })
       return
     }
     centerARef.current = { x: 0.5, y: 0.5 }
@@ -263,17 +272,10 @@ export function useCompareZoomPan(options: UseCompareZoomPanOptions = {}) {
   }, [applyTransforms])
 
   useEffect(() => {
-    scaleRef.current = scale
-    txARef.current = txA
-    tyARef.current = tyA
-    txBRef.current = txB
-    tyBRef.current = tyB
-    baseARef.current = baseA
-    baseBRef.current = baseB
-  }, [scale, txA, tyA, txB, tyB, baseA, baseB])
-
-  useEffect(() => {
     return () => {
+      transformFrameSchedulerRef.current?.cancel()
+      resizeFrameSchedulerRef.current?.cancel()
+      pendingTransformRef.current = null
       pointersRef.current.clear()
       panRef.current = null
       pinchRef.current = null
@@ -291,7 +293,7 @@ export function useCompareZoomPan(options: UseCompareZoomPanOptions = {}) {
     const crect = cont.getBoundingClientRect()
     const cx = e.clientX - crect.left
     const cy = e.clientY - crect.top
-    const currentScale = scaleRef.current
+    const currentScale = transformRef.current.scale
     const nextScale = clampImageScale(currentScale * Math.pow(ZOOM_BASE, dir))
     if (nextScale === currentScale) return
     onUserInteraction?.()

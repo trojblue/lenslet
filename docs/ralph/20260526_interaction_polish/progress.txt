@@ -51,3 +51,52 @@ Blockers and notes:
 - A full `python scripts/overall_cleanup_browser.py --output-json /tmp/lenslet-interaction-polish-sprint1.json` run progressed past Sprint 1 checks and failed on `viewer-short-height` center drift, which is a planned Sprint 2 resize/transform target. This is not accepted as final gate evidence for iteration 1.
 
 Next step: start Sprint 2 and implement IP-5 through IP-7.
+
+## Iteration 2 - 2026-05-26T03:06:00Z
+
+Completed task IDs: IP-5, IP-6, IP-7.
+
+Files changed:
+- `frontend/src/lib/imageTransform.ts`
+- `frontend/src/lib/frameScheduler.ts`
+- `frontend/src/lib/__tests__/imageTransform.test.ts`
+- `frontend/src/lib/__tests__/frameScheduler.test.ts`
+- `frontend/src/features/viewer/hooks/useZoomPan.ts`
+- `frontend/src/features/compare/hooks/useCompareZoomPan.ts`
+- `frontend/src/features/viewer/Viewer.tsx`
+- `frontend/src/shared/ui/Toolbar.tsx`
+- `frontend/src/app/AppShell.tsx`
+- `src/lenslet/frontend/` packaged frontend assets
+- `docs/20260526_interaction_polish_execution_plan.md`
+- `docs/ralph/20260526_interaction_polish/progress.txt`
+
+Validations run:
+- `cd frontend && npm run test -- src/lib/__tests__/imageTransform.test.ts src/lib/__tests__/frameScheduler.test.ts src/features/viewer/hooks/__tests__/useZoomPan.test.ts`
+  - Passed: 15 tests.
+- `cd frontend && npm run test -- src/shared/ui/toolbar/__tests__/Toolbar.test.tsx src/lib/__tests__/frameScheduler.test.ts src/lib/__tests__/imageTransform.test.ts`
+  - Passed: 19 tests after removing temporary debug attributes.
+- `cd frontend && npm run test`
+  - Passed: 78 files, 369 tests.
+- `cd frontend && npm run build`
+  - Passed; copied `frontend/dist/` into `src/lenslet/frontend/` because `rsync` is unavailable in this environment.
+- `python scripts/overall_cleanup_browser.py --output-json /tmp/lenslet-interaction-polish-sprint2.json`
+  - Passed after fixes. Evidence covers preflight, Sprint 1 regression paths, viewer resize, compare resize, adaptive layout, and comparison export.
+- `python scripts/lint_repo.py`
+  - Passed. Warn-only large-file notices remain, including `scripts/overall_cleanup_browser.py`.
+- `git diff --check`
+  - Passed.
+- Source checks:
+  - `rg -n "onZoomRequestConsumed|requestAnimationFrame\\(\\(\\) => preserveCenterAfterResize|fitAndCenter\\(\\)|window.addEventListener\\('keydown'|scrollAnimRef|viewer-mobile-nav|pointer: coarse" frontend/src`
+  - `wc -l frontend/src/features/browse/components/VirtualGrid.tsx frontend/src/features/viewer/hooks/useZoomPan.ts frontend/src/features/compare/hooks/useCompareZoomPan.ts frontend/src/lib/frameScheduler.ts`
+  - Completed; no old viewer/compare resize RAF pattern remains.
+- Cleanup gate:
+  - `code-simplifier` subagent applied one Tier 1 type-only cleanup to `useCompareZoomPan.ts` and left behavior unchanged.
+- Review gate:
+  - `code-review` subagent reported no actionable issues.
+
+Blockers and notes:
+- First browser pass cleared the planned viewer short-height failure, then exposed compare B short-height center drift under strict resize clamping. Resolved by using bounded pan slack for compare resize restoration only.
+- Subsequent browser passes exposed a pending viewer zoom regression from early natural image dimensions and duplicate ready resets. Resolved by waiting for `imageReady`, making ready marking idempotent per resource, and handling toolbar range `input` events while showing the requested zoom optimistically.
+- No blockers remain for Sprint 2.
+
+Next step: start Sprint 3 and implement IP-8 and IP-9.

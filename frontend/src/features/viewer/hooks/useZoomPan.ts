@@ -12,11 +12,13 @@ import {
   restoreImageTransformForCenter,
   zoomImageTransformAroundPoint,
 } from '../../../lib/imageTransform'
+import { createBrowserFrameScheduler, type LatestFrameScheduler } from '../../../lib/frameScheduler'
 
 const ZOOM_BASE = 1.2
 const CLICK_SUPPRESSION_DRAG_DISTANCE_PX = 3
 const SURFACE_DOUBLE_CLICK_SUPPRESSION_MS = 450
 const VIEWER_PAN_SLACK: ImageTransformClampOptions = { panSlack: true }
+const IDENTITY_TRANSFORM: ImageTransform = { base: 1, scale: 1, tx: 0, ty: 0 }
 
 type PanState = {
   pointerId: number
@@ -94,42 +96,44 @@ function nowMs(): number {
 }
 
 export function useZoomPan() {
-  const [scale, setScaleState] = useState<number>(1)
-  const [tx, setTxState] = useState<number>(0)
-  const [ty, setTyState] = useState<number>(0)
-  const [base, setBaseState] = useState<number>(1)
+  const [transform, setTransformState] = useState<ImageTransform>(IDENTITY_TRANSFORM)
   const [ready, setReady] = useState<boolean>(false)
   const [dragging, setDragging] = useState<boolean>(false)
   const [geometryVersion, setGeometryVersion] = useState<number>(0)
+  const { scale, tx, ty, base } = transform
   const containerRef = useRef<HTMLDivElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
-  const scaleRef = useRef(1)
-  const txRef = useRef(0)
-  const tyRef = useRef(0)
-  const baseRef = useRef(1)
+  const transformRef = useRef<ImageTransform>(IDENTITY_TRANSFORM)
+  const pendingTransformRef = useRef<ImageTransform | null>(null)
+  const transformFrameSchedulerRef = useRef<LatestFrameScheduler | null>(null)
+  const resizeFrameSchedulerRef = useRef<LatestFrameScheduler | null>(null)
   const centerRef = useRef<Point>({ x: 0.5, y: 0.5 })
   const pointersRef = useRef<Map<number, Point>>(new Map())
   const panRef = useRef<PanState | null>(null)
   const pinchRef = useRef<PinchState | null>(null)
   const suppressSurfaceDoubleClickUntilRef = useRef(0)
 
-  const currentTransform = useCallback((): ImageTransform => ({
-    base: baseRef.current,
-    scale: scaleRef.current,
-    tx: txRef.current,
-    ty: tyRef.current,
-  }), [])
+  if (transformFrameSchedulerRef.current === null) {
+    transformFrameSchedulerRef.current = createBrowserFrameScheduler()
+  }
+  if (resizeFrameSchedulerRef.current === null) {
+    resizeFrameSchedulerRef.current = createBrowserFrameScheduler()
+  }
+
+  const currentTransform = useCallback((): ImageTransform => transformRef.current, [])
+
+  const flushTransformState = useCallback(() => {
+    const next = pendingTransformRef.current
+    if (!next) return
+    pendingTransformRef.current = null
+    setTransformState(next)
+  }, [])
 
   const applyTransform = useCallback((next: ImageTransform) => {
-    baseRef.current = next.base
-    scaleRef.current = next.scale
-    txRef.current = next.tx
-    tyRef.current = next.ty
-    setBaseState(next.base)
-    setScaleState(next.scale)
-    setTxState(next.tx)
-    setTyState(next.ty)
-  }, [])
+    transformRef.current = next
+    pendingTransformRef.current = next
+    transformFrameSchedulerRef.current?.schedule(flushTransformState)
+  }, [flushTransformState])
 
   const markGeometryReady = useCallback(() => {
     setGeometryVersion((version) => version + 1)
@@ -182,7 +186,8 @@ export function useZoomPan() {
       container,
       image,
       center: centerRef.current,
-      scale: scaleRef.current,
+      scale: transformRef.current.scale,
+      clampOptions: VIEWER_PAN_SLACK,
     }))
     markGeometryReady()
   }, [applyTransform, markGeometryReady])
@@ -191,21 +196,20 @@ export function useZoomPan() {
     const el = containerRef.current
     if (!el) return
     const ro = new ResizeObserver(() => {
-      try { requestAnimationFrame(() => preserveCenterAfterResize()) } catch { preserveCenterAfterResize() }
+      resizeFrameSchedulerRef.current?.schedule(preserveCenterAfterResize)
     })
     ro.observe(el)
-    return () => ro.disconnect()
+    return () => {
+      ro.disconnect()
+      resizeFrameSchedulerRef.current?.cancel()
+    }
   }, [preserveCenterAfterResize])
 
   useEffect(() => {
-    scaleRef.current = scale
-    txRef.current = tx
-    tyRef.current = ty
-    baseRef.current = base
-  }, [scale, tx, ty, base])
-
-  useEffect(() => {
     return () => {
+      transformFrameSchedulerRef.current?.cancel()
+      resizeFrameSchedulerRef.current?.cancel()
+      pendingTransformRef.current = null
       pointersRef.current.clear()
       panRef.current = null
       pinchRef.current = null
@@ -223,7 +227,7 @@ export function useZoomPan() {
     const crect = cont.getBoundingClientRect()
     const cx = e.clientX - crect.left
     const cy = e.clientY - crect.top
-    const currentScale = scaleRef.current
+    const currentScale = transformRef.current.scale
     const nextScale = clampImageScale(currentScale * Math.pow(ZOOM_BASE, dir))
     if (nextScale === currentScale) return
     const next = zoomImageTransformAroundPoint({
@@ -247,7 +251,7 @@ export function useZoomPan() {
     if (activePointers.size === 0) {
       const target = e.target as Node
       if (isInteractiveTarget(target)) return
-      if (target !== image && scaleRef.current <= 1) return
+      if (target !== image && transformRef.current.scale <= 1) return
     }
     const container = e.currentTarget
     const rect = container.getBoundingClientRect()
@@ -366,7 +370,7 @@ export function useZoomPan() {
     const container = readElementSize(cont)
     const image = readImageSize(imgRef.current)
     if (!cont || !container || !image) return false
-    const targetScale = clampImageScale((percent / 100) / Math.max(1e-6, baseRef.current))
+    const targetScale = clampImageScale((percent / 100) / Math.max(1e-6, transformRef.current.base))
     const rect = cont.getBoundingClientRect()
     const next = zoomImageTransformAroundPoint({
       container,

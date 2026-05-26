@@ -304,6 +304,10 @@ export default function AppShell({
   // Viewer zoom state
   const [requestedZoom, setRequestedZoom] = useState<number | null>(null)
   const [currentZoom, setCurrentZoom] = useState(100)
+  const requestViewerZoom = useCallback((percent: number) => {
+    setCurrentZoom(Math.round(percent))
+    setRequestedZoom(percent)
+  }, [])
 
   // Browser zoom (best-effort) for UI proportion warning
   const [browserZoomPercent, setBrowserZoomPercent] = useState<number | null>(null)
@@ -1436,7 +1440,7 @@ export default function AppShell({
         viewerActive={!!viewer}
         onBack={closeViewer}
         zoomPercent={viewer ? currentZoom : undefined}
-        onZoomPercentChange={(p)=> setRequestedZoom(p)}
+        onZoomPercentChange={requestViewerZoom}
         currentLabel={scopeLabel}
         itemCount={displayItemCount}
         totalCount={displayTotalCount}

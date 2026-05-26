@@ -172,6 +172,10 @@ export default function Toolbar({
     }
   }, [filtersOpen, sortSlotsVisible, viewerActive])
 
+  const handleZoomPercentInput = (event: React.FormEvent<HTMLInputElement>) => {
+    onZoomPercentChange?.(Number(event.currentTarget.value))
+  }
+
   useEffect(() => {
     if (searchDisabled || !showMobileSearchRow) {
       if (mobileSearchOpen) {
@@ -382,7 +386,8 @@ export default function Toolbar({
               max={800}
               step={1}
               value={Math.round(Math.max(5, Math.min(800, zoomPercent ?? 100)))}
-              onChange={(e) => onZoomPercentChange?.(Number(e.target.value))}
+              onInput={handleZoomPercentInput}
+              onChange={handleZoomPercentInput}
               className="zoom-slider"
               aria-label="Zoom level"
             />

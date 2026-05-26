@@ -189,4 +189,40 @@ describe('image transform math', () => {
       transform: nextTall,
     }).y).toBeCloseTo(tallCenter.y, 4)
   })
+
+  it('restores centers with optional pan slack for resize-sensitive viewer images', () => {
+    const strictWide = restoreImageTransformForCenter({
+      container: { width: 500, height: 400 },
+      image: { width: 1000, height: 400 },
+      center: { x: 0, y: 0.5 },
+      scale: 1,
+    })
+    const slackWide = restoreImageTransformForCenter({
+      container: { width: 500, height: 400 },
+      image: { width: 1000, height: 400 },
+      center: { x: 0, y: 0.5 },
+      scale: 1,
+      clampOptions: { panSlack: true },
+    })
+    const slackTall = restoreImageTransformForCenter({
+      container: { width: 500, height: 400 },
+      image: { width: 250, height: 1200 },
+      center: { x: 0.5, y: 0 },
+      scale: 1,
+      clampOptions: { panSlack: true },
+    })
+    const slackSmall = restoreImageTransformForCenter({
+      container: { width: 500, height: 400 },
+      image: { width: 120, height: 120 },
+      center: { x: 1, y: 1 },
+      scale: 1,
+      clampOptions: { panSlack: true },
+    })
+
+    expect(strictWide.tx).toBe(0)
+    expect(slackWide.tx).toBe(50)
+    expect(slackTall.ty).toBe(48)
+    expect(slackSmall.tx).toBe(160)
+    expect(slackSmall.ty).toBe(110)
+  })
 })

@@ -153,6 +153,8 @@ Tasks:
 9. `IP-9`: Fix `VirtualGrid` scroll lifecycle cleanup.
    Clear the scroll-idle timeout and cancel `scrollAnimRef` on unmount. Extract `useVirtualGridScrollState` only if keeping this inside the large component makes cleanup or tests awkward; do not extract `GridCell` or unrelated behavior for line-count optics. Validation: targeted tests cover timeout and RAF cancellation, existing keyboard scroll-into-view behavior still works, and the large-tree probe is required only if the change alters grid behavior/rendering beyond cleanup and helper extraction.
 
+Sprint 3 handoff notes, 2026-05-26 03:26 UTC: closed in iteration 3. Compare divider dragging now lives in `useDividerDrag`, recomputes current stage bounds on every move, clamps split to 5-95, and cleans pointer listeners/capture on pointer end, cancel, lost capture, and unmount. `VirtualGrid` now clears the scroll-idle timeout and cancels any pending scroll animation frame during cleanup through a tiny tested lifecycle helper; grid rendering behavior was not otherwise changed, so the conditional large-tree probe was not triggered. The final browser evidence includes real divider drag, resize-after-drag, and lost-capture stability checks. Final validation also exposed a `Ctrl+B` regression from focused rail controls; `AppShell` now lets the sidebar hotkey run from non-text controls while still ignoring text inputs and modal contexts. Packaged frontend assets were regenerated from the final production build.
+
 ### Task Gate Routine
 
 
@@ -216,6 +218,8 @@ Primary final gates:
 
        python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json /tmp/lenslet-large-tree-interaction-polish.json
 
+   Iteration 3 result: not run because `VirtualGrid` changed only timeout/RAF cleanup plus a tiny tested helper, with no rendering or behavior changes beyond lifecycle cleanup.
+
 5. Manually check one phone viewport (`390x844`), one short desktop viewport (`1024x480`), one half-width desktop viewport, and one coarse-pointer emulation. Expected: no invisible commands, no stale image reset, no keyboard surprise from controls, no janky resize snap, and no document horizontal overflow.
 
 Secondary gates:
@@ -276,7 +280,7 @@ Rollback is sprint-based. If a sprint regresses primary behavior, revert or isol
 - [x] Preflight: Add or run phone/coarse/reduced-motion evidence and convert failures into owning sprint work.
 - [x] Sprint 1: Implement zoom request retry, compare late-load freeze, dialog/background keyboard scope, and label/focus polish.
 - [x] Sprint 2: Implement pan-slack restoration plus frame-coalesced viewer/compare transforms and resize RAF cleanup.
-- [ ] Sprint 3: Implement divider drag lifecycle cleanup, `VirtualGrid` scroll cleanup, final validation, packaged asset sync, and handoff.
+- [x] Sprint 3: Implement divider drag lifecycle cleanup, `VirtualGrid` scroll cleanup, final validation, packaged asset sync, and handoff.
 - [x] 2026-05-26 02:38 UTC: Iteration 1 closed Sprint 1. Added `--only-sprint1` browser evidence covering phone viewer nav, coarse pointer action visibility, reduced motion, delayed viewer zoom request retention, compare late-load freeze, keyboard scoping from controls/modifiers, useful full-size labels, and Sprint 1 success screenshots.
 - [x] 2026-05-26 02:38 UTC: Validated with focused Vitest checks, full frontend suite, production build plus packaged asset sync, Sprint 1 browser evidence, repo lint, conservative cleanup scan, and two code-review passes. Review findings on `Ctrl+Alt+B` and screenshot artifacts were fixed and rereviewed clean.
 - [x] 2026-05-26 02:38 UTC: Noted that the full legacy browser command still reaches the planned Sprint 2 viewer resize center-drift failure; keep this as the next sprint target rather than accepting the final browser gate yet.
@@ -286,6 +290,12 @@ Rollback is sprint-based. If a sprint regresses primary behavior, revert or isol
 - [x] 2026-05-26 02:56 UTC: Follow-up browser evidence showed the toolbar zoom request could still run before fitted image geometry if natural dimensions were available early. The viewer now gates pending zoom consumption on `imageReady`, keeping the request pending until initial fit has completed.
 - [x] 2026-05-26 03:00 UTC: Tightened the toolbar zoom slider contract to emit pending zoom requests on `input` as well as `change` and keep the requested value visible while the viewer waits for ready geometry.
 - [x] 2026-05-26 03:06 UTC: Iteration 2 closed Sprint 2 with focused tests, full frontend tests, production build plus packaged asset sync, full interaction-polish browser evidence, repo lint, conservative cleanup subagent, and code-review subagent. No review findings remain.
+- [x] 2026-05-26 03:14 UTC: Iteration 3 started Sprint 3. Acceptance criteria: compare divider dragging must survive current-stage geometry changes, pointer end/cancel/lost capture, resize, and unmount; `VirtualGrid` must clear its scroll-idle timeout and cancel scroll animation RAF work on cleanup without changing grid rendering.
+- [x] 2026-05-26 03:18 UTC: Implemented `useDividerDrag` with testable clamping/session helpers and wired compare to use it instead of inline global pointer listeners. Added browser evidence for real divider drag, resize-after-drag, and lost-capture stability.
+- [x] 2026-05-26 03:18 UTC: Implemented `virtualGridScrollLifecycle` helper coverage and wired `VirtualGrid` cleanup to clear scroll idle timeout and cancel pending scroll animation frames on unmount.
+- [x] 2026-05-26 03:21 UTC: Final GUI smoke initially failed because `Ctrl+B` was ignored while focus remained on the collapsed rail Folder button. Repaired AppShell shortcut ordering so sidebar hotkeys work from non-text controls while text/editable controls and modal contexts remain scoped out.
+- [x] 2026-05-26 03:24 UTC: Responsive geometry harness initially failed because it still queried generic viewer/compare alt text that Sprint 1 intentionally replaced. Updated the harness to use stable `data-viewer-image` and `data-compare-image` selectors.
+- [x] 2026-05-26 03:26 UTC: Iteration 3 closed Sprint 3 and final acceptance with focused tests, full frontend tests, production build plus packaged asset sync, final interaction-polish browser evidence, GUI smoke, responsive geometry harness, repo lint, source checks, conservative cleanup gate, and code-review gate. No review findings remain; large-tree probe was not required.
 
 
 ## Artifacts and Handoff
@@ -313,4 +323,11 @@ Iteration 2 evidence outputs:
 2. `/tmp/lenslet-overall-cleanup-browser-screenshots/viewer_zoom_load_race_success_0_0.png`
 3. `/tmp/lenslet-overall-cleanup-browser-screenshots/compare_late_load_success_0_0.png`
 
-Handoff notes for the implementing agent: Sprint 2 is complete. Start the next iteration at Sprint 3 (`IP-8` and `IP-9`). Keep the final browser command as a regression gate because it now covers preflight, Sprint 1, Sprint 2 viewer/compare resize, comparison export, and adaptive layout evidence. Use `better-code` for every substantive code ticket. After Sprint 3, run cleanup and review gates again before final handoff. If divider or `VirtualGrid` cleanup changes grid rendering beyond timeout/RAF cleanup, run the large-tree probe before final acceptance.
+Iteration 3 final evidence outputs:
+
+1. `/tmp/lenslet-interaction-polish-final.json`
+2. `/tmp/lenslet-responsive-geometry-interaction-polish.json`
+3. GUI smoke acceptance passed via `python scripts/gui_smoke_acceptance.py` and emitted JSON evidence to stdout.
+4. Large-tree evidence was not produced because the conditional trigger was not met.
+
+Handoff notes for the implementing agent: all planned sprints and tickets are complete. Final browser and smoke evidence passed, packaged frontend assets were regenerated from the production build, cleanup and review gates reported no actionable issues, and no blockers remain.

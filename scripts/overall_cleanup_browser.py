@@ -651,6 +651,68 @@ def assert_transform_stable(before: dict[str, Any], after: dict[str, Any], name:
         )
 
 
+def collect_compare_divider_split(page: Any, name: str) -> dict[str, Any]:
+    snapshot = page.evaluate(
+        """(name) => {
+          const stage = document.querySelector('.compare-stage')
+          const divider = document.querySelector('.compare-divider-hit')
+          if (!(stage instanceof HTMLElement) || !(divider instanceof HTMLElement)) return null
+          const stageRect = stage.getBoundingClientRect()
+          const dividerRect = divider.getBoundingClientRect()
+          const inlinePct = Number.parseFloat(divider.style.left || '')
+          const renderedPct = stageRect.width > 0
+            ? (((dividerRect.left + dividerRect.width / 2) - stageRect.left) / stageRect.width) * 100
+            : NaN
+          return {
+            name,
+            inlinePct,
+            renderedPct,
+            stage: {
+              left: stageRect.left,
+              top: stageRect.top,
+              width: stageRect.width,
+              height: stageRect.height,
+            },
+            divider: {
+              left: dividerRect.left,
+              top: dividerRect.top,
+              width: dividerRect.width,
+              height: dividerRect.height,
+            },
+          }
+        }""",
+        name,
+    )
+    if not isinstance(snapshot, dict):
+        raise OverallCleanupBrowserFailure(f"Failed to collect compare divider split for {name}.")
+    return snapshot
+
+
+def assert_compare_split_in_range(snapshot: dict[str, Any], name: str) -> None:
+    for key in ("inlinePct", "renderedPct"):
+        value = float(snapshot.get(key, float("nan")))
+        if not 4.5 <= value <= 95.5:
+            raise OverallCleanupBrowserFailure(
+                f"Compare divider split escaped clamp range for {name}: {key}={value:.2f}, snapshot={snapshot!r}."
+            )
+
+
+def assert_compare_split_changed(before: dict[str, Any], after: dict[str, Any], name: str) -> None:
+    delta = abs(float(before.get("inlinePct", 0)) - float(after.get("inlinePct", 0)))
+    if delta < 8:
+        raise OverallCleanupBrowserFailure(
+            f"Compare divider did not move meaningfully for {name}: delta={delta:.2f}, before={before!r}, after={after!r}."
+        )
+
+
+def assert_compare_split_stable(before: dict[str, Any], after: dict[str, Any], name: str) -> None:
+    delta = abs(float(before.get("inlinePct", 0)) - float(after.get("inlinePct", 0)))
+    if delta > 0.75:
+        raise OverallCleanupBrowserFailure(
+            f"Compare divider split changed after cleanup for {name}: delta={delta:.2f}, before={before!r}, after={after!r}."
+        )
+
+
 def assert_meaningfully_off_center(snapshot: dict[str, Any], name: str, *, tolerance: float = 0.025) -> None:
     center = snapshot.get("normalizedCenter")
     if not isinstance(center, dict):
@@ -1455,6 +1517,9 @@ def verify_compare_resize_focus(page: Any, timeout_ms: float) -> dict[str, Any]:
     focus_outline = assert_focused_element_has_visible_outline(page, "compare dialog controls")
 
     layout = collect_layout_evidence(page, "compare-dialog-open")
+    divider_lifecycle = verify_compare_divider_lifecycle(page, timeout_ms)
+    wait_for_image_ready(page, image_a_selector, timeout_ms)
+    wait_for_image_ready(page, image_b_selector, timeout_ms)
     before_zoom_a = collect_transformed_image_center(
         page,
         container_selector=stage_selector,
@@ -1530,9 +1595,95 @@ def verify_compare_resize_focus(page: Any, timeout_ms: float) -> dict[str, Any]:
         "before_zoom": {"a": before_zoom_a, "b": before_zoom_b},
         "before_resize": {"a": before_resize_a, "b": before_resize_b},
         "after_resizes": resize_evidence,
+        "divider_lifecycle": divider_lifecycle,
         "focus_outline": focus_outline,
         "image_alt": {"a": image_alt_a, "b": image_alt_b},
         "focus_restored": True,
+    }
+
+
+def verify_compare_divider_lifecycle(page: Any, timeout_ms: float) -> dict[str, Any]:
+    stage = page.locator(".compare-stage").first
+    divider = page.locator(".compare-divider-hit").first
+    stage.wait_for(state="visible", timeout=timeout_ms)
+    divider.wait_for(state="visible", timeout=timeout_ms)
+
+    initial = collect_compare_divider_split(page, "compare-divider-initial")
+    assert_compare_split_in_range(initial, "initial")
+    stage_box = stage.bounding_box()
+    divider_box = divider.bounding_box()
+    if not stage_box or not divider_box:
+        raise OverallCleanupBrowserFailure("Missing compare divider bounds for drag lifecycle check.")
+    drag_y = divider_box["y"] + (divider_box["height"] / 2)
+    page.mouse.move(divider_box["x"] + (divider_box["width"] / 2), drag_y)
+    page.mouse.down()
+    page.mouse.move(stage_box["x"] + (stage_box["width"] * 0.82), drag_y, steps=8)
+    page.mouse.up()
+    page.wait_for_timeout(120)
+    after_drag = collect_compare_divider_split(page, "compare-divider-after-drag")
+    assert_compare_split_in_range(after_drag, "after drag")
+    assert_compare_split_changed(initial, after_drag, "after drag")
+
+    page.set_viewport_size({"width": 1024, "height": 480})
+    page.wait_for_timeout(220)
+    after_resize = collect_compare_divider_split(page, "compare-divider-after-resize")
+    assert_compare_split_in_range(after_resize, "after resize")
+
+    page.evaluate(
+        """() => {
+          const stage = document.querySelector('.compare-stage')
+          const divider = document.querySelector('.compare-divider-hit')
+          if (!(stage instanceof HTMLElement) || !(divider instanceof HTMLElement)) {
+            throw new Error('Missing compare divider for lost capture check')
+          }
+          const stageRect = stage.getBoundingClientRect()
+          const dividerRect = divider.getBoundingClientRect()
+          const pointerId = 901
+          const clientY = dividerRect.top + dividerRect.height / 2
+          divider.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            cancelable: true,
+            pointerId,
+            pointerType: 'mouse',
+            button: 0,
+            buttons: 1,
+            clientX: dividerRect.left + dividerRect.width / 2,
+            clientY,
+          }))
+          divider.dispatchEvent(new PointerEvent('lostpointercapture', {
+            bubbles: false,
+            cancelable: false,
+            pointerId,
+            pointerType: 'mouse',
+            clientX: dividerRect.left + dividerRect.width / 2,
+            clientY,
+          }))
+          window.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            cancelable: true,
+            pointerId,
+            pointerType: 'mouse',
+            buttons: 1,
+            clientX: stageRect.left + stageRect.width * 0.1,
+            clientY,
+          }))
+        }"""
+    )
+    page.wait_for_timeout(120)
+    after_lost_capture = collect_compare_divider_split(page, "compare-divider-after-lost-capture")
+    assert_compare_split_in_range(after_lost_capture, "after lost capture")
+    assert_compare_split_stable(after_resize, after_lost_capture, "after lost capture")
+
+    page.set_viewport_size({"width": 1440, "height": 920})
+    page.wait_for_timeout(220)
+    after_restore = collect_compare_divider_split(page, "compare-divider-after-viewport-restore")
+    assert_compare_split_in_range(after_restore, "after viewport restore")
+    return {
+        "initial": initial,
+        "after_drag": after_drag,
+        "after_resize": after_resize,
+        "after_lost_capture": after_lost_capture,
+        "after_viewport_restore": after_restore,
     }
 
 

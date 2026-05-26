@@ -21,6 +21,10 @@ import {
   getTopAnchorPathForVisibleRows,
   resolveVirtualGridRestoreDecision,
 } from '../model/virtualGridSession'
+import {
+  cancelPendingScrollAnimationFrame,
+  clearScrollIdleTimeout,
+} from '../model/virtualGridScrollLifecycle'
 import { LongPressController } from '../../../lib/touch'
 import { shouldOpenOnTap, toggleSelectedPath } from '../../../lib/mobileSelection'
 
@@ -204,7 +208,10 @@ export default function VirtualGrid({
   const scrollAnimRef = useRef<number | null>(null)
   const scrollRowIntoView = (el: HTMLElement, top: number) => {
     try {
-      if (scrollAnimRef.current != null) { try { cancelAnimationFrame(scrollAnimRef.current) } catch {} ; scrollAnimRef.current = null }
+      cancelPendingScrollAnimationFrame(
+        scrollAnimRef,
+        (frameId) => window.cancelAnimationFrame(frameId),
+      )
       const start = el.scrollTop
       const delta = top - start
       if (Math.abs(delta) < 1) { el.scrollTop = top; return }
@@ -221,20 +228,32 @@ export default function VirtualGrid({
     } catch { el.scrollTop = top }
   }
 
+  useEffect(() => {
+    return () => {
+      cancelPendingScrollAnimationFrame(
+        scrollAnimRef,
+        (frameId) => window.cancelAnimationFrame(frameId),
+      )
+    }
+  }, [])
+
   const [isScrolling, setIsScrolling] = useState(false)
   useEffect(() => {
     const el = parentRef.current
     if (!el) return
-    let timeoutId = 0
+    let timeoutId: number | null = null
     const onScroll = () => {
       longPressControllerRef.current?.cancelFromScroll()
       clearPreview()
       setIsScrolling(true)
-      window.clearTimeout(timeoutId)
+      timeoutId = clearScrollIdleTimeout(timeoutId, (id) => window.clearTimeout(id))
       timeoutId = window.setTimeout(() => setIsScrolling(false), SCROLL_IDLE_MS)
     }
     el.addEventListener('scroll', onScroll, { passive: true } as any)
-    return () => el.removeEventListener('scroll', onScroll as any)
+    return () => {
+      el.removeEventListener('scroll', onScroll as any)
+      timeoutId = clearScrollIdleTimeout(timeoutId, (id) => window.clearTimeout(id))
+    }
   }, [])
 
   useEffect(() => {

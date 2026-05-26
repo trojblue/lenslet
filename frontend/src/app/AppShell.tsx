@@ -60,7 +60,12 @@ import type {
   ViewState,
   EmbeddingSearchRequest,
 } from '../lib/types'
-import { hasActiveModalDialog, hasShortcutModifier, isKeyboardControlTarget } from '../lib/keyboard'
+import {
+  hasActiveModalDialog,
+  hasShortcutModifier,
+  isInputElement,
+  isKeyboardControlTarget,
+} from '../lib/keyboard'
 import { safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
 import { FetchError } from '../lib/fetcher'
@@ -1318,14 +1323,12 @@ export default function AppShell({
       const normalizedKey = e.key.toLowerCase()
       const hasPlatformShortcutModifier = e.ctrlKey || e.metaKey
       const hasPlainPlatformShortcut = hasPlatformShortcutModifier && !e.altKey
-      // Ignore if focus is on an interactive control.
-      if (isKeyboardControlTarget(e.target)) return
 
       // Ignore if a modal surface is open; those surfaces own their keys.
       if (state.viewer || state.compareOpen || hasActiveModalDialog()) return
 
       // Toggle sidebars
-      if (hasPlatformShortcutModifier && normalizedKey === 'b') {
+      if (hasPlatformShortcutModifier && normalizedKey === 'b' && !isInputElement(e.target)) {
         e.preventDefault()
         const next = resolveSidebarHotkeyToggle({
           leftContentOpen: leftOpenRef.current,
@@ -1336,6 +1339,9 @@ export default function AppShell({
         setRightOpen(next.rightOpen)
         return
       }
+
+      // Ignore if focus is on an interactive control.
+      if (isKeyboardControlTarget(e.target)) return
 
       if (hasPlainPlatformShortcut && normalizedKey === 'a') {
         e.preventDefault()

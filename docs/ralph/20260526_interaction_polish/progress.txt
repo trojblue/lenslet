@@ -100,3 +100,59 @@ Blockers and notes:
 - No blockers remain for Sprint 2.
 
 Next step: start Sprint 3 and implement IP-8 and IP-9.
+
+## Iteration 3 - 2026-05-26T03:26:00Z
+
+Completed task IDs: IP-8, IP-9.
+
+Files changed:
+- `frontend/src/features/compare/CompareViewer.tsx`
+- `frontend/src/features/compare/hooks/useDividerDrag.ts`
+- `frontend/src/features/compare/hooks/__tests__/useDividerDrag.test.ts`
+- `frontend/src/features/browse/components/VirtualGrid.tsx`
+- `frontend/src/features/browse/model/virtualGridScrollLifecycle.ts`
+- `frontend/src/features/browse/model/__tests__/virtualGridScrollLifecycle.test.ts`
+- `frontend/src/app/AppShell.tsx`
+- `scripts/overall_cleanup_browser.py`
+- `scripts/responsive_geometry_harness.py`
+- `src/lenslet/frontend/` packaged frontend assets
+- `docs/20260526_interaction_polish_execution_plan.md`
+- `docs/ralph/20260526_interaction_polish/progress.txt`
+
+Validations run:
+- `cd frontend && npm run test -- src/features/compare/hooks/__tests__/useDividerDrag.test.ts src/features/browse/model/__tests__/virtualGridScrollLifecycle.test.ts`
+  - Passed: 10 tests.
+- `cd frontend && npm run test -- src/features/compare src/features/browse/model src/features/browse/hooks src/features/browse/components/__tests__/thumbUrlHook.test.ts`
+  - Passed: 12 files, 52 tests.
+- `cd frontend && npm run test`
+  - Passed: 80 files, 379 tests.
+- `cd frontend && npm run build`
+  - Passed; copied `frontend/dist/` into `src/lenslet/frontend/` because `rsync` is unavailable in this environment.
+- `python -m py_compile scripts/overall_cleanup_browser.py scripts/responsive_geometry_harness.py`
+  - Passed.
+- `python scripts/overall_cleanup_browser.py --output-json /tmp/lenslet-interaction-polish-final.json`
+  - Passed. Evidence now includes preflight, Sprint 1, Sprint 2 resize/transform paths, compare divider drag/resize/lost-capture lifecycle, comparison export, hover preview, adaptive layout, and browse Ctrl+wheel checks.
+- `python scripts/gui_smoke_acceptance.py`
+  - Passed after the `Ctrl+B` repair.
+- `python scripts/responsive_geometry_harness.py --output-json /tmp/lenslet-responsive-geometry-interaction-polish.json`
+  - Passed after updating harness selectors to stable viewer/compare data attributes.
+- `python scripts/lint_repo.py`
+  - Passed. Warn-only large-file notices remain.
+- `git diff --check`
+  - Passed.
+- Source checks:
+  - `rg -n "onZoomRequestConsumed|requestAnimationFrame\\(\\(\\) => preserveCenterAfterResize|fitAndCenter\\(\\)|window.addEventListener\\('keydown'|scrollAnimRef|viewer-mobile-nav|pointer: coarse|lostpointercapture|clearScrollIdleTimeout" frontend/src scripts/overall_cleanup_browser.py scripts/responsive_geometry_harness.py`
+  - `wc -l frontend/src/features/browse/components/VirtualGrid.tsx frontend/src/features/viewer/hooks/useZoomPan.ts frontend/src/features/compare/hooks/useCompareZoomPan.ts frontend/src/features/compare/hooks/useDividerDrag.ts frontend/src/features/browse/model/virtualGridScrollLifecycle.ts scripts/overall_cleanup_browser.py scripts/responsive_geometry_harness.py`
+  - Completed; no stale inline compare divider pointer listeners remain, and `VirtualGrid` cleanup paths are explicit.
+- Cleanup gate:
+  - `code-simplifier` subagent applied Tier 1 readability cleanup only: split the AppShell keyboard import and line-wrapped VirtualGrid cleanup helper calls. Targeted tests, build, lint, and `git diff --check` passed.
+- Review gate:
+  - `code-review` subagent reported no actionable findings. It noted `npx tsc --noEmit` still fails on unrelated pre-existing project errors outside this diff.
+
+Blockers and notes:
+- `python scripts/gui_smoke_acceptance.py` initially failed because `Ctrl+B` was ignored while focus remained on the collapsed rail Folder button. Resolved by letting the sidebar hotkey run from non-text controls while still blocking text/editable targets and modal contexts.
+- `python scripts/responsive_geometry_harness.py` initially failed because it still queried generic `alt="viewer"`/`alt="compare A"` selectors that Sprint 1 intentionally replaced with useful alt text. Resolved by switching the harness to stable `data-viewer-image` and `data-compare-image` selectors.
+- The large-tree probe was not run because `VirtualGrid` changed only timeout/RAF cleanup plus a tiny tested helper, with no grid rendering behavior changes beyond the IP-9 lifecycle cleanup.
+- No blockers remain.
+
+Next step: all planned sprints and tasks are complete; final handoff.

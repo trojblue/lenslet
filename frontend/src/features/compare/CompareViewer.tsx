@@ -5,6 +5,7 @@ import { useModalFocusTrap } from '../../shared/hooks/useModalFocusTrap'
 import { getHorizontalNavigationDelta, shouldHandleDialogNavigationKey } from '../../lib/keyboard'
 import type { BrowseItemPayload } from '../../lib/types'
 import { buildComparePairKey, shouldAutoFitComparePair } from './compareAutoFit'
+import { useDividerDrag } from './hooks/useDividerDrag'
 import { useCompareZoomPan } from './hooks/useCompareZoomPan'
 
 interface CompareViewerProps {
@@ -175,8 +176,6 @@ export default function CompareViewer({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bUrl])
 
-  const clampSplit = useCallback((value: number) => Math.min(95, Math.max(5, value)), [])
-
   const handleStagePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement | null
     if (target?.closest('.compare-label') || target?.closest('.compare-divider-hit')) return
@@ -193,33 +192,12 @@ export default function CompareViewer({
     handlePointerMove(e)
   }, [handlePointerMove, markCompareUserInteraction])
 
-  const handleDividerPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const stage = containerRef.current
-    if (!stage) return
-    e.preventDefault()
-    e.stopPropagation()
-    const rect = stage.getBoundingClientRect()
-    const target = e.currentTarget
-    markCompareUserInteraction()
-    target.setPointerCapture(e.pointerId)
-    const onMove = (ev: PointerEvent) => {
-      const pct = ((ev.clientX - rect.left) / rect.width) * 100
-      setSplitPct(clampSplit(pct))
-    }
-    const onUp = (ev: PointerEvent) => {
-      try {
-        target.releasePointerCapture(ev.pointerId)
-      } catch {
-        // Ignore unsupported capture release.
-      }
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
-  }, [clampSplit, markCompareUserInteraction])
+  const getCompareStage = useCallback(() => containerRef.current, [containerRef])
+  const handleDividerPointerDown = useDividerDrag({
+    getStage: getCompareStage,
+    setSplitPct,
+    onUserInteraction: markCompareUserInteraction,
+  })
 
   return (
     <div

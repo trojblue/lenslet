@@ -379,10 +379,10 @@ def collect_snapshot(page: Any, name: str, state: dict[str, Any] | None = None) 
               inspectorStarRow: rectFor('.inspector-star-row'),
             },
             images: {
-              viewer: imageFor('[role="dialog"][aria-label="Image viewer"] img[alt="viewer"]'),
+              viewer: imageFor('[role="dialog"][aria-label="Image viewer"] img[data-viewer-image="full"]'),
               viewerThumb: imageFor('[role="dialog"][aria-label="Image viewer"] img[alt="thumb"]'),
-              compareA: imageFor('[role="dialog"][aria-label="Compare images"] img[alt="compare A"]'),
-              compareB: imageFor('[role="dialog"][aria-label="Compare images"] img[alt="compare B"]'),
+              compareA: imageFor('[role="dialog"][aria-label="Compare images"] img[data-compare-image="a"]'),
+              compareB: imageFor('[role="dialog"][aria-label="Compare images"] img[data-compare-image="b"]'),
               compareThumbA: imageFor('[role="dialog"][aria-label="Compare images"] img[alt="thumb A"]'),
               compareThumbB: imageFor('[role="dialog"][aria-label="Compare images"] img[alt="thumb B"]'),
             },
@@ -823,9 +823,9 @@ def sample_overlay_images(
               frame,
               elapsedMs: Math.round(performance.now() - startedAt),
               images: {
-                viewer: readImage('[role="dialog"][aria-label="Image viewer"] img[alt="viewer"]'),
-                compareA: readImage('[role="dialog"][aria-label="Compare images"] img[alt="compare A"]'),
-                compareB: readImage('[role="dialog"][aria-label="Compare images"] img[alt="compare B"]'),
+                viewer: readImage('[role="dialog"][aria-label="Image viewer"] img[data-viewer-image="full"]'),
+                compareA: readImage('[role="dialog"][aria-label="Compare images"] img[data-compare-image="a"]'),
+                compareB: readImage('[role="dialog"][aria-label="Compare images"] img[data-compare-image="b"]'),
               },
             });
           }

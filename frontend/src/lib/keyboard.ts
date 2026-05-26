@@ -9,12 +9,37 @@ export interface KeyBinding {
   ignoreInputs?: boolean
 }
 
-/**
- * Check if the event target is an input element.
- */
+const KEYBOARD_CONTROL_SELECTOR = [
+  'button',
+  'a[href]',
+  'input',
+  'select',
+  'textarea',
+  '[contenteditable]:not([contenteditable="false"])',
+  '[role="button"]',
+  '[role="checkbox"]',
+  '[role="combobox"]',
+  '[role="menuitem"]',
+  '[role="menuitemcheckbox"]',
+  '[role="menuitemradio"]',
+  '[role="option"]',
+  '[role="radio"]',
+  '[role="searchbox"]',
+  '[role="slider"]',
+  '[role="spinbutton"]',
+  '[role="switch"]',
+  '[role="textbox"]',
+].join(',')
+
+type KeyboardLikeEvent = Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'key' | 'metaKey'>
+type KeyboardTargetEvent = KeyboardLikeEvent & Pick<KeyboardEvent, 'target'>
+
+/** Check if the event target is an editable text-style control. */
 export function isInputElement(target: EventTarget | null): boolean {
-  if (!target || !(target instanceof HTMLElement)) return false
-  return target.closest('input, textarea, [contenteditable="true"]') !== null
+  if (!target || typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) return false
+  return target.closest(
+    'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"], [role="combobox"]',
+  ) !== null
 }
 
 /**
@@ -23,6 +48,58 @@ export function isInputElement(target: EventTarget | null): boolean {
 export function hasPlatformMod(e: KeyboardEvent | MouseEvent): boolean {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
   return isMac ? e.metaKey : e.ctrlKey
+}
+
+export function hasShortcutModifier(e: KeyboardLikeEvent): boolean {
+  return e.altKey || e.ctrlKey || e.metaKey
+}
+
+export function isKeyboardControlTarget(target: EventTarget | null): boolean {
+  if (!target || typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) return false
+  return target.closest(KEYBOARD_CONTROL_SELECTOR) !== null
+}
+
+export function getHorizontalNavigationDelta(e: Pick<KeyboardEvent, 'key'>): -1 | 1 | null {
+  const normalized = e.key.toLowerCase()
+  if (e.key === 'ArrowRight' || normalized === 'd') return 1
+  if (e.key === 'ArrowLeft' || normalized === 'a') return -1
+  return null
+}
+
+function isVisibleElement(element: HTMLElement): boolean {
+  if (!element.isConnected) return false
+  const rect = element.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return false
+  const style = window.getComputedStyle(element)
+  return style.display !== 'none' && style.visibility !== 'hidden'
+}
+
+export function getTopmostModalDialog(): HTMLElement | null {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return null
+  const dialogs = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]'),
+  ).filter(isVisibleElement)
+  return dialogs[dialogs.length - 1] ?? null
+}
+
+export function hasActiveModalDialog(): boolean {
+  return getTopmostModalDialog() !== null
+}
+
+export function isTopmostModalDialog(dialog: HTMLElement | null): boolean {
+  if (!dialog || typeof document === 'undefined') return false
+  const topmost = getTopmostModalDialog()
+  return topmost === null ? document.contains(dialog) : topmost === dialog
+}
+
+export function shouldHandleDialogNavigationKey(
+  e: KeyboardTargetEvent,
+  dialog: HTMLElement | null,
+): boolean {
+  return getHorizontalNavigationDelta(e) !== null
+    && !hasShortcutModifier(e)
+    && !isKeyboardControlTarget(e.target)
+    && isTopmostModalDialog(dialog)
 }
 
 /**

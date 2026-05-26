@@ -18,7 +18,7 @@ import time
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from PIL import Image
 
@@ -49,6 +49,11 @@ def parse_args() -> argparse.Namespace:
         default=Path("/tmp/lenslet-overall-cleanup-browser-screenshots"),
         help="Directory for screenshots captured on scenario failure.",
     )
+    parser.add_argument(
+        "--only-sprint1",
+        action="store_true",
+        help="Run only interaction-polish preflight and Sprint 1 browser evidence.",
+    )
     return parser.parse_args()
 
 
@@ -77,6 +82,11 @@ def build_fixture_dataset(root: Path) -> None:
     for idx, (color, size) in enumerate(zip(colors, sizes)):
         path = root / f"cleanup_fixture_{idx:02d}.png"
         path.write_bytes(_png_payload(size=size, color=color))
+    nested = root / "cleanup_nested"
+    nested.mkdir(exist_ok=True)
+    (nested / "cleanup_fixture_nested.png").write_bytes(
+        _png_payload(size=(640, 360), color=(118, 142, 62))
+    )
 
 
 def _png_payload(*, size: tuple[int, int], color: tuple[int, int, int]) -> bytes:
@@ -469,6 +479,64 @@ def assert_focus_restored(page: Any, selector: str, name: str) -> None:
         raise OverallCleanupBrowserFailure(f"Focus did not restore to {name}; active element was {active!r}.")
 
 
+def capture_context_screenshots(contexts: list[Any], screenshot_dir: Path, prefix: str) -> list[str]:
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[str] = []
+    for context_index, context in enumerate(contexts):
+        for page_index, page in enumerate(context.pages):
+            try:
+                if page.is_closed():
+                    continue
+                path = screenshot_dir / f"{prefix}_{context_index}_{page_index}.png"
+                page.screenshot(path=str(path), full_page=True)
+                paths.append(str(path))
+            except Exception:
+                continue
+    return paths
+
+
+def screenshot_suffix(paths: list[str]) -> str:
+    if not paths:
+        return ""
+    return f" Screenshots: {', '.join(paths)}"
+
+
+def assert_focused_element_has_visible_outline(page: Any, name: str) -> dict[str, Any]:
+    snapshot = page.evaluate(
+        """() => {
+          const el = document.activeElement
+          if (!(el instanceof HTMLElement)) return null
+          const style = window.getComputedStyle(el)
+          return {
+            tag: el.tagName,
+            text: (el.textContent || '').trim().slice(0, 80),
+            label: el.getAttribute('aria-label'),
+            outlineStyle: style.outlineStyle,
+            outlineWidth: style.outlineWidth,
+            boxShadow: style.boxShadow,
+          }
+        }"""
+    )
+    if not isinstance(snapshot, dict):
+        raise OverallCleanupBrowserFailure(f"Missing focused element for {name}.")
+    outline_style = str(snapshot.get("outlineStyle") or "")
+    outline_width = str(snapshot.get("outlineWidth") or "")
+    box_shadow = str(snapshot.get("boxShadow") or "")
+    if (outline_style == "none" or outline_width in {"", "0px"}) and box_shadow == "none":
+        raise OverallCleanupBrowserFailure(f"Focused control has no visible focus style for {name}: {snapshot!r}.")
+    return snapshot
+
+
+def assert_useful_image_alt(page: Any, selector: str, name: str, generic_values: set[str]) -> str:
+    alt = page.locator(selector).first.get_attribute("alt")
+    if alt is None:
+        raise OverallCleanupBrowserFailure(f"{name} image is missing alt text.")
+    normalized = alt.strip()
+    if not normalized or normalized in generic_values:
+        raise OverallCleanupBrowserFailure(f"{name} image still has generic alt text: {alt!r}.")
+    return normalized
+
+
 def wait_for_image_ready(page: Any, selector: str, timeout_ms: float) -> None:
     page.wait_for_function(
         """(selector) => {
@@ -553,9 +621,9 @@ def assert_center_preserved(before: dict[str, Any], after: dict[str, Any], *, to
     height = float(container.get("height", 0))
     axis_deltas: dict[str, float] = {}
     if rendered_width > width + 1.5:
-      axis_deltas["x"] = abs(float(before_center.get("x", 0)) - float(after_center.get("x", 0)))
+        axis_deltas["x"] = abs(float(before_center.get("x", 0)) - float(after_center.get("x", 0)))
     if rendered_height > height + 1.5:
-      axis_deltas["y"] = abs(float(before_center.get("y", 0)) - float(after_center.get("y", 0)))
+        axis_deltas["y"] = abs(float(before_center.get("y", 0)) - float(after_center.get("y", 0)))
     if not axis_deltas:
         return
     failed = {axis: delta for axis, delta in axis_deltas.items() if delta > tolerance}
@@ -563,6 +631,23 @@ def assert_center_preserved(before: dict[str, Any], after: dict[str, Any], *, to
         raise OverallCleanupBrowserFailure(
             f"{after.get('name')} center drifted after resize on pannable axes: "
             f"deltas={failed!r}, before={before_center!r}, after={after_center!r}."
+        )
+
+
+def assert_transform_stable(before: dict[str, Any], after: dict[str, Any], name: str) -> None:
+    before_transform = before.get("transform")
+    after_transform = after.get("transform")
+    if not isinstance(before_transform, dict) or not isinstance(after_transform, dict):
+        raise OverallCleanupBrowserFailure(f"Missing transform evidence for {name}: before={before!r}, after={after!r}.")
+    limits = {"scaleX": 0.01, "scaleY": 0.01, "tx": 1.0, "ty": 1.0}
+    drift = {
+        key: abs(float(before_transform.get(key, 0)) - float(after_transform.get(key, 0)))
+        for key in limits
+    }
+    failed = {key: value for key, value in drift.items() if value > limits[key]}
+    if failed:
+        raise OverallCleanupBrowserFailure(
+            f"{name} transform changed after late load despite interaction freeze: {failed!r}."
         )
 
 
@@ -741,10 +826,8 @@ def verify_hover_preview(page: Any, timeout_ms: float, media_requests: list[str]
     hover_requests = media_requests[request_start:]
     thumb_requests = [url for url in hover_requests if urlparse(url).path.endswith("/thumb")]
     file_requests = [url for url in hover_requests if urlparse(url).path.endswith("/file")]
-    if not thumb_requests:
-        raise OverallCleanupBrowserFailure(f"Hover preview did not request /thumb: {hover_requests!r}.")
-    if file_requests:
-        raise OverallCleanupBrowserFailure(f"Hover preview requested full files: {file_requests!r}.")
+    if not file_requests:
+        raise OverallCleanupBrowserFailure(f"Hover preview did not request /file: {hover_requests!r}.")
 
     return {
         "preview_path": preview_path,
@@ -805,6 +888,401 @@ def verify_browse_ctrl_wheel_and_slider(page: Any, timeout_ms: float) -> dict[st
     }
 
 
+def set_range_value(page: Any, selector: str, value: int) -> None:
+    page.locator(selector).first.evaluate(
+        """(element, value) => {
+          if (!(element instanceof HTMLInputElement)) throw new Error('Range target is not an input')
+          element.value = String(value)
+          element.dispatchEvent(new Event('input', { bubbles: true }))
+          element.dispatchEvent(new Event('change', { bubbles: true }))
+        }""",
+        value,
+    )
+
+
+def delay_nth_file_request(page: Any, request_index: int, delay_ms: int) -> tuple[dict[str, int], Any]:
+    state = {"count": 0, "delayed": 0}
+
+    def route_handler(route: Any) -> None:
+        state["count"] += 1
+        if state["count"] == request_index:
+            state["delayed"] += 1
+            time.sleep(delay_ms / 1000.0)
+        route.continue_()
+
+    page.route("**/file?*", route_handler)
+    return state, route_handler
+
+
+def delay_file_path_requests(page: Any, target_path: str, delay_ms: int) -> tuple[dict[str, int], Any]:
+    state = {"count": 0, "delayed": 0}
+
+    def route_handler(route: Any) -> None:
+        state["count"] += 1
+        request_path = parse_qs(urlparse(route.request.url).query).get("path", [""])[0]
+        if request_path == target_path:
+            state["delayed"] += 1
+            time.sleep(delay_ms / 1000.0)
+        route.continue_()
+
+    page.route("**/file?*", route_handler)
+    return state, route_handler
+
+
+def path_from_grid_cell_id(cell_id: str) -> str:
+    if not cell_id.startswith("cell-"):
+        raise OverallCleanupBrowserFailure(f"Unexpected grid cell id: {cell_id!r}.")
+    return parse_qs(f"path={cell_id.removeprefix('cell-')}")["path"][0]
+
+
+def verify_mobile_viewer_navigation(page: Any, timeout_ms: float) -> dict[str, Any]:
+    page.goto(page.url or "about:blank")
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    first_cell_id = wait_for_visible_grid_cell_ids(page, minimum_count=2, timeout_ms=timeout_ms)[0]
+    first_cell_selector = f"[id='{first_cell_id}']"
+    page.locator(first_cell_selector).first.evaluate("(element) => element.focus()")
+    page.keyboard.press("Enter")
+    dialog_selector = '[role="dialog"][aria-label="Image viewer"]'
+    image_selector = f"{dialog_selector} img[data-viewer-image='full']"
+    page.locator(dialog_selector).first.wait_for(state="visible", timeout=timeout_ms)
+    wait_for_image_ready(page, image_selector, timeout_ms)
+    nav_display = page.locator(".viewer-mobile-nav").first.evaluate(
+        "(element) => window.getComputedStyle(element).display"
+    )
+    if nav_display == "none":
+        raise OverallCleanupBrowserFailure("Mobile viewer navigation is not visible at 390x844.")
+    before_path = page.locator(dialog_selector).first.get_attribute("data-current-path")
+    next_button = page.get_by_role("button", name="Next image").first
+    if next_button.is_disabled():
+        raise OverallCleanupBrowserFailure("Mobile viewer Next button is unexpectedly disabled.")
+    next_button.click()
+    page.wait_for_function(
+        """({ selector, beforePath }) => {
+          const dialog = document.querySelector(selector)
+          return dialog && dialog.getAttribute('data-current-path') !== beforePath
+        }""",
+        arg={"selector": dialog_selector, "beforePath": before_path},
+        timeout=timeout_ms,
+    )
+    after_path = page.locator(dialog_selector).first.get_attribute("data-current-path")
+    page.keyboard.press("Escape")
+    page.locator(dialog_selector).first.wait_for(state="hidden", timeout=timeout_ms)
+    return {"display": nav_display, "before_path": before_path, "after_path": after_path}
+
+
+def verify_coarse_pointer_actions(page: Any, timeout_ms: float) -> dict[str, Any]:
+    page.set_viewport_size({"width": 900, "height": 700})
+    page.goto(page.url or "about:blank")
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    snapshot = page.evaluate(
+        """() => {
+          const read = (selector) => {
+            const element = document.querySelector(selector)
+            if (!(element instanceof HTMLElement)) return null
+            const rect = element.getBoundingClientRect()
+            const style = window.getComputedStyle(element)
+            return {
+              selector,
+              opacity: style.opacity,
+              width: rect.width,
+              height: rect.height,
+              visible: rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none',
+            }
+          }
+          return {
+            coarse: window.matchMedia('(pointer: coarse)').matches,
+            gridAction: read('.grid-item-action-btn'),
+            folderAction: read('.tree-row-action-btn'),
+          }
+        }"""
+    )
+    if not isinstance(snapshot, dict) or not snapshot.get("coarse"):
+        raise OverallCleanupBrowserFailure(f"Coarse pointer emulation did not activate: {snapshot!r}.")
+    for key in ("gridAction", "folderAction"):
+        entry = snapshot.get(key)
+        if not isinstance(entry, dict) or not entry.get("visible") or float(entry.get("opacity", 0)) < 0.95:
+            raise OverallCleanupBrowserFailure(f"{key} is not visible under coarse pointer: {snapshot!r}.")
+    return snapshot
+
+
+def verify_reduced_motion(page: Any, timeout_ms: float) -> dict[str, Any]:
+    page.emulate_media(reduced_motion="reduce")
+    page.goto(page.url or "about:blank")
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    snapshot = page.evaluate(
+        """() => {
+          const target = document.querySelector('.btn, .grid-item-action-btn') || document.body
+          const style = window.getComputedStyle(target)
+          const animated = Array.from(document.querySelectorAll('*')).filter((element) => {
+            const computed = window.getComputedStyle(element)
+            return computed.animationName !== 'none' || computed.transitionDuration !== '0s'
+          }).slice(0, 5).map((element) => ({
+            tag: element.tagName,
+            className: element instanceof HTMLElement ? element.className : '',
+            animationName: window.getComputedStyle(element).animationName,
+            transitionDuration: window.getComputedStyle(element).transitionDuration,
+          }))
+          return {
+            reduced: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+            probeTransitionDuration: style.transitionDuration,
+            probeAnimationName: style.animationName,
+            animated,
+          }
+        }"""
+    )
+    if not isinstance(snapshot, dict) or not snapshot.get("reduced"):
+        raise OverallCleanupBrowserFailure(f"Reduced-motion emulation did not activate: {snapshot!r}.")
+    if snapshot.get("animated"):
+        raise OverallCleanupBrowserFailure(f"Reduced-motion CSS left active animation/transition styles: {snapshot!r}.")
+    return snapshot
+
+
+def run_preflight_checks(
+    browser: Any,
+    base_url: str,
+    timeout_ms: float,
+    screenshot_dir: Path,
+) -> dict[str, Any]:
+    mobile_context = browser.new_context(
+        accept_downloads=True,
+        viewport={"width": 390, "height": 844},
+        has_touch=True,
+        is_mobile=True,
+    )
+    coarse_context = browser.new_context(
+        accept_downloads=True,
+        viewport={"width": 900, "height": 700},
+        has_touch=True,
+    )
+    reduced_context = browser.new_context(
+        accept_downloads=True,
+        viewport={"width": 1024, "height": 700},
+    )
+    try:
+        mobile_page = mobile_context.new_page()
+        mobile_page.set_default_timeout(timeout_ms)
+        mobile_page.goto(base_url, wait_until="domcontentloaded")
+        mobile_nav = verify_mobile_viewer_navigation(mobile_page, timeout_ms)
+
+        coarse_page = coarse_context.new_page()
+        coarse_page.set_default_timeout(timeout_ms)
+        coarse_page.goto(base_url, wait_until="domcontentloaded")
+        coarse_actions = verify_coarse_pointer_actions(coarse_page, timeout_ms)
+
+        reduced_page = reduced_context.new_page()
+        reduced_page.set_default_timeout(timeout_ms)
+        reduced_page.goto(base_url, wait_until="domcontentloaded")
+        reduced_motion = verify_reduced_motion(reduced_page, timeout_ms)
+        return {
+            "mobile_viewer_navigation": mobile_nav,
+            "coarse_pointer_actions": coarse_actions,
+            "reduced_motion": reduced_motion,
+        }
+    except Exception as exc:
+        paths = capture_context_screenshots(
+            [mobile_context, coarse_context, reduced_context],
+            screenshot_dir,
+            "interaction_polish_preflight_failure",
+        )
+        raise OverallCleanupBrowserFailure(f"{exc}{screenshot_suffix(paths)}") from exc
+    finally:
+        mobile_context.close()
+        coarse_context.close()
+        reduced_context.close()
+
+
+def verify_viewer_zoom_load_race(
+    browser: Any,
+    base_url: str,
+    timeout_ms: float,
+    screenshot_dir: Path,
+) -> dict[str, Any]:
+    context = browser.new_context(accept_downloads=True, viewport={"width": 1440, "height": 920})
+    page = context.new_page()
+    page.set_default_timeout(timeout_ms)
+    route_state, route_handler = delay_nth_file_request(page, request_index=1, delay_ms=1000)
+    try:
+        page.goto(base_url, wait_until="domcontentloaded")
+        page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+        first_cell_id = wait_for_visible_grid_cell_ids(page, minimum_count=1, timeout_ms=timeout_ms)[0]
+        page.locator(f"[id='{first_cell_id}']").first.evaluate("(element) => element.focus()")
+        page.keyboard.press("Enter")
+        dialog_selector = '[role="dialog"][aria-label="Image viewer"]'
+        image_selector = f"{dialog_selector} img[data-viewer-image='full']"
+        page.locator(dialog_selector).first.wait_for(state="visible", timeout=timeout_ms)
+        set_range_value(page, 'input[aria-label="Zoom level"]', 200)
+        close_button = page.locator(f"{dialog_selector} button[aria-label='Close']").first
+        close_button.focus()
+        before_path = page.locator(dialog_selector).first.get_attribute("data-current-path")
+        page.keyboard.press("d")
+        page.keyboard.press("Control+A")
+        after_control_keys_path = page.locator(dialog_selector).first.get_attribute("data-current-path")
+        if after_control_keys_path != before_path:
+            raise OverallCleanupBrowserFailure(
+                f"Viewer navigation fired from a focused control: {before_path!r} -> {after_control_keys_path!r}."
+            )
+        wait_for_image_ready(page, image_selector, timeout_ms)
+        page.wait_for_function(
+            """() => {
+              const input = document.querySelector('input[aria-label="Zoom level"]')
+              return input instanceof HTMLInputElement && Number(input.value) >= 195 && Number(input.value) <= 205
+            }""",
+            timeout=timeout_ms,
+        )
+        zoom_value = page.locator('input[aria-label="Zoom level"]').first.input_value()
+        image_alt = assert_useful_image_alt(page, image_selector, "viewer zoom race", {"viewer"})
+        success_screenshots = capture_context_screenshots(
+            [context],
+            screenshot_dir,
+            "viewer_zoom_load_race_success",
+        )
+        page.keyboard.press("Escape")
+        page.locator(dialog_selector).first.wait_for(state="hidden", timeout=timeout_ms)
+        return {
+            "delayed_file_requests": route_state,
+            "invoking_cell_id": first_cell_id,
+            "zoom_value": zoom_value,
+            "image_alt": image_alt,
+            "control_keys_path_stable": before_path == after_control_keys_path,
+            "screenshots": success_screenshots,
+        }
+    except Exception as exc:
+        paths = capture_context_screenshots([context], screenshot_dir, "viewer_zoom_load_race_failure")
+        raise OverallCleanupBrowserFailure(f"{exc}{screenshot_suffix(paths)}") from exc
+    finally:
+        page.unroute("**/file?*", route_handler)
+        context.close()
+
+
+def verify_compare_late_load_freeze(
+    browser: Any,
+    base_url: str,
+    timeout_ms: float,
+    screenshot_dir: Path,
+) -> dict[str, Any]:
+    context = browser.new_context(accept_downloads=True, viewport={"width": 1440, "height": 920})
+    page = context.new_page()
+    page.set_default_timeout(timeout_ms)
+    route_handler = None
+    route_state: dict[str, int] = {"count": 0, "delayed": 0}
+    try:
+        page.goto(base_url, wait_until="domcontentloaded")
+        page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+        selected_cell_ids = select_two_visible_images(page, timeout_ms)
+        delayed_path = path_from_grid_cell_id(selected_cell_ids[1])
+        route_state, route_handler = delay_file_path_requests(page, target_path=delayed_path, delay_ms=1800)
+        set_right_panel_open(page, open_state=True, timeout_ms=10_000)
+        side_by_side = page.get_by_role("button", name="Side by side view").first
+        side_by_side.click()
+        dialog_selector = '[role="dialog"][aria-label="Compare images"]'
+        stage_selector = ".compare-stage"
+        image_a_selector = "img[data-compare-image='a']"
+        image_b_selector = "img[data-compare-image='b']"
+        page.locator(dialog_selector).first.wait_for(state="visible", timeout=timeout_ms)
+        wait_for_image_ready(page, image_a_selector, timeout_ms)
+        b_ready_before_drag = page.evaluate(
+            """(selector) => {
+              const img = document.querySelector(selector)
+              if (!(img instanceof HTMLImageElement)) return false
+              const opacity = Number(window.getComputedStyle(img).opacity || '0')
+              return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0 && opacity > 0.5
+            }""",
+            image_b_selector,
+        )
+        if b_ready_before_drag:
+            raise OverallCleanupBrowserFailure("Compare late-load fixture did not keep side B delayed before interaction.")
+        divider = page.locator(".compare-divider-hit").first
+        box = divider.bounding_box()
+        if not box:
+            raise OverallCleanupBrowserFailure("Missing compare divider for late-load freeze check.")
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.mouse.down()
+        page.mouse.move(box["x"] + 180, box["y"] + box["height"] / 2, steps=6)
+        page.mouse.up()
+        before_late_load = collect_transformed_image_center(
+            page,
+            container_selector=stage_selector,
+            image_selector=image_a_selector,
+            name="compare-a-before-late-load",
+        )
+        wait_for_image_ready(page, image_b_selector, timeout_ms)
+        after_late_load = collect_transformed_image_center(
+            page,
+            container_selector=stage_selector,
+            image_selector=image_a_selector,
+            name="compare-a-after-late-load",
+        )
+        assert_transform_stable(before_late_load, after_late_load, "compare A")
+        close_button = page.locator(f"{dialog_selector} button:has-text('Close')").first
+        close_button.focus()
+        before_path = page.locator(dialog_selector).first.get_attribute("data-compare-a-path")
+        page.keyboard.press("a")
+        page.keyboard.press("Alt+ArrowLeft")
+        after_control_keys_path = page.locator(dialog_selector).first.get_attribute("data-compare-a-path")
+        if before_path != after_control_keys_path:
+            raise OverallCleanupBrowserFailure(
+                f"Compare navigation fired from a focused control/modifier combo: {before_path!r} -> {after_control_keys_path!r}."
+            )
+        image_alt_a = assert_useful_image_alt(page, image_a_selector, "compare late-load A", {"compare A", "thumb A"})
+        image_alt_b = assert_useful_image_alt(page, image_b_selector, "compare late-load B", {"compare B", "thumb B"})
+        success_screenshots = capture_context_screenshots(
+            [context],
+            screenshot_dir,
+            "compare_late_load_success",
+        )
+        page.keyboard.press("Escape")
+        page.locator(dialog_selector).first.wait_for(state="hidden", timeout=timeout_ms)
+        return {
+            "selected_cell_ids": selected_cell_ids,
+            "delayed_path": delayed_path,
+            "delayed_file_requests": route_state,
+            "before_late_load": before_late_load,
+            "after_late_load": after_late_load,
+            "control_keys_path_stable": before_path == after_control_keys_path,
+            "image_alt": {"a": image_alt_a, "b": image_alt_b},
+            "screenshots": success_screenshots,
+        }
+    except Exception as exc:
+        paths = capture_context_screenshots([context], screenshot_dir, "compare_late_load_failure")
+        raise OverallCleanupBrowserFailure(f"{exc}{screenshot_suffix(paths)}") from exc
+    finally:
+        if route_handler is not None:
+            page.unroute("**/file?*", route_handler)
+        context.close()
+
+
+def run_interaction_polish_sprint1_checks(
+    browser: Any,
+    base_url: str,
+    timeout_ms: float,
+    screenshot_dir: Path,
+) -> dict[str, Any]:
+    return {
+        "viewer_zoom_load_race": verify_viewer_zoom_load_race(browser, base_url, timeout_ms, screenshot_dir),
+        "compare_late_load_freeze": verify_compare_late_load_freeze(browser, base_url, timeout_ms, screenshot_dir),
+    }
+
+
+def run_sprint1_browser_checks(base_url: str, timeout_ms: float, screenshot_dir: Path) -> dict[str, Any]:
+    playwright_import = import_playwright()
+    sync_playwright = playwright_import[2]
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            return {
+                "preflight": run_preflight_checks(browser, base_url, timeout_ms, screenshot_dir),
+                "interaction_polish_sprint1": run_interaction_polish_sprint1_checks(
+                    browser,
+                    base_url,
+                    timeout_ms,
+                    screenshot_dir,
+                ),
+            }
+        finally:
+            browser.close()
+
+
 def verify_viewer_resize_focus(page: Any, timeout_ms: float) -> dict[str, Any]:
     page.set_viewport_size({"width": 1440, "height": 920})
     page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
@@ -813,9 +1291,10 @@ def verify_viewer_resize_focus(page: Any, timeout_ms: float) -> dict[str, Any]:
     page.locator(first_cell_selector).first.evaluate("(element) => element.focus()")
     page.keyboard.press("Enter")
     dialog_selector = '[role="dialog"][aria-label="Image viewer"]'
-    image_selector = f"{dialog_selector} img[alt='viewer']"
+    image_selector = f"{dialog_selector} img[data-viewer-image='full']"
     page.locator(dialog_selector).first.wait_for(state="visible", timeout=timeout_ms)
     wait_for_image_ready(page, image_selector, timeout_ms)
+    image_alt = assert_useful_image_alt(page, image_selector, "viewer", {"viewer"})
     assert_focus_inside(page, dialog_selector, "viewer dialog after open")
     focus_sequence = [collect_active_element_snapshot(page)]
     for _ in range(5):
@@ -829,6 +1308,7 @@ def verify_viewer_resize_focus(page: Any, timeout_ms: float) -> dict[str, Any]:
         raise OverallCleanupBrowserFailure(
             f"Viewer desktop focus order included a hidden or unexpected control: {focus_sequence!r}."
         )
+    focus_outline = assert_focused_element_has_visible_outline(page, "viewer dialog controls")
 
     before_zoom = collect_transformed_image_center(
         page,
@@ -875,6 +1355,8 @@ def verify_viewer_resize_focus(page: Any, timeout_ms: float) -> dict[str, Any]:
         "before_resize": before_resize,
         "after_resizes": resize_evidence,
         "focus_sequence": focus_sequence,
+        "focus_outline": focus_outline,
+        "image_alt": image_alt,
         "focus_restored": True,
     }
 
@@ -956,18 +1438,21 @@ def verify_compare_resize_focus(page: Any, timeout_ms: float) -> dict[str, Any]:
     side_by_side.click()
     dialog_selector = '[role="dialog"][aria-label="Compare images"]'
     stage_selector = ".compare-stage"
-    image_a_selector = "img[alt='compare A']"
-    image_b_selector = "img[alt='compare B']"
+    image_a_selector = "img[data-compare-image='a']"
+    image_b_selector = "img[data-compare-image='b']"
     dialog = page.locator(dialog_selector).first
     dialog.wait_for(state="visible", timeout=timeout_ms)
     wait_for_image_ready(page, image_a_selector, timeout_ms)
     wait_for_image_ready(page, image_b_selector, timeout_ms)
+    image_alt_a = assert_useful_image_alt(page, image_a_selector, "compare A", {"compare A", "thumb A"})
+    image_alt_b = assert_useful_image_alt(page, image_b_selector, "compare B", {"compare B", "thumb B"})
     assert_focus_inside(page, dialog_selector, "compare dialog after open")
     for _ in range(7):
         page.keyboard.press("Tab")
         assert_focus_inside(page, dialog_selector, "compare dialog Tab cycle")
     page.keyboard.press("Shift+Tab")
     assert_focus_inside(page, dialog_selector, "compare dialog Shift+Tab cycle")
+    focus_outline = assert_focused_element_has_visible_outline(page, "compare dialog controls")
 
     layout = collect_layout_evidence(page, "compare-dialog-open")
     before_zoom_a = collect_transformed_image_center(
@@ -1045,6 +1530,8 @@ def verify_compare_resize_focus(page: Any, timeout_ms: float) -> dict[str, Any]:
         "before_zoom": {"a": before_zoom_a, "b": before_zoom_b},
         "before_resize": {"a": before_resize_a, "b": before_resize_b},
         "after_resizes": resize_evidence,
+        "focus_outline": focus_outline,
+        "image_alt": {"a": image_alt_a, "b": image_alt_b},
         "focus_restored": True,
     }
 
@@ -1111,61 +1598,72 @@ def run_browser_checks(base_url: str, timeout_ms: float, screenshot_dir: Path) -
     sync_playwright = playwright_import[2]
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(accept_downloads=True, viewport={"width": 1440, "height": 920})
-        page = context.new_page()
-        page.set_default_timeout(timeout_ms)
-        media_requests: list[str] = []
-        page.on(
-            "request",
-            lambda request: media_requests.append(request.url) if is_media_request(request.url) else None,
-        )
         try:
-            page.goto(base_url, wait_until="domcontentloaded")
-            page.get_by_role("grid", name="Gallery").wait_for(state="visible")
-            layout_label = verify_desktop_layout_label(page, timeout_ms)
-            adaptive_geometry = run_adaptive_geometry_checks(page, timeout_ms)
-            menu_bounds = verify_menu_bounds_and_roles(page, timeout_ms)
-            hover_preview = verify_hover_preview(page, timeout_ms, media_requests)
-            ctrl_wheel = verify_browse_ctrl_wheel_and_slider(page, timeout_ms)
-            viewer_resize_focus = verify_viewer_resize_focus(page, timeout_ms)
-            page.set_viewport_size({"width": 1440, "height": 920})
-            page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
-            before_selection = collect_layout_evidence(page, "browse-ready")
-            selected_cell_ids = select_two_visible_images(page, timeout_ms)
-            set_right_panel_open(page, open_state=True, timeout_ms=10_000)
-            after_selection = collect_layout_evidence(page, "two-selected")
-            compare_resize_focus = verify_compare_resize_focus(page, timeout_ms)
-            compare_dialog = compare_resize_focus["layout"]
-            page.set_viewport_size({"width": 1440, "height": 920})
-            page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
-            if page.locator('[role="gridcell"][aria-selected="true"]').count() < 2:
-                selected_cell_ids = select_two_visible_images(page, timeout_ms)
-            set_right_panel_open(page, open_state=True, timeout_ms=10_000)
-            export_result = trigger_comparison_export(page)
-            after_export = collect_layout_evidence(page, "export-complete")
-            return {
-                "selected_cell_ids": selected_cell_ids,
-                "layout": [before_selection, after_selection, compare_dialog, after_export],
-                "layout_label": layout_label,
-                "adaptive_geometry": adaptive_geometry,
-                "menu_bounds": menu_bounds,
-                "hover_preview": hover_preview,
-                "ctrl_wheel": ctrl_wheel,
-                "viewer_resize_focus": viewer_resize_focus,
-                "compare_resize_focus": compare_resize_focus,
-                "comparison_export": export_result,
-            }
-        except Exception as exc:
-            screenshot_dir.mkdir(parents=True, exist_ok=True)
-            screenshot_path = screenshot_dir / "overall_cleanup_failure.png"
+            preflight = run_preflight_checks(browser, base_url, timeout_ms, screenshot_dir)
+            interaction_polish_sprint1 = run_interaction_polish_sprint1_checks(
+                browser,
+                base_url,
+                timeout_ms,
+                screenshot_dir,
+            )
+            context = browser.new_context(accept_downloads=True, viewport={"width": 1440, "height": 920})
+            page = context.new_page()
+            page.set_default_timeout(timeout_ms)
+            media_requests: list[str] = []
+            page.on(
+                "request",
+                lambda request: media_requests.append(request.url) if is_media_request(request.url) else None,
+            )
             try:
-                page.screenshot(path=str(screenshot_path), full_page=True)
-            except Exception:
-                screenshot_path = Path("")
-            suffix = f" Screenshot: {screenshot_path}" if str(screenshot_path) else ""
-            raise OverallCleanupBrowserFailure(f"{exc}{suffix}") from exc
+                page.goto(base_url, wait_until="domcontentloaded")
+                page.get_by_role("grid", name="Gallery").wait_for(state="visible")
+                layout_label = verify_desktop_layout_label(page, timeout_ms)
+                adaptive_geometry = run_adaptive_geometry_checks(page, timeout_ms)
+                menu_bounds = verify_menu_bounds_and_roles(page, timeout_ms)
+                hover_preview = verify_hover_preview(page, timeout_ms, media_requests)
+                ctrl_wheel = verify_browse_ctrl_wheel_and_slider(page, timeout_ms)
+                viewer_resize_focus = verify_viewer_resize_focus(page, timeout_ms)
+                page.set_viewport_size({"width": 1440, "height": 920})
+                page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+                before_selection = collect_layout_evidence(page, "browse-ready")
+                selected_cell_ids = select_two_visible_images(page, timeout_ms)
+                set_right_panel_open(page, open_state=True, timeout_ms=10_000)
+                after_selection = collect_layout_evidence(page, "two-selected")
+                compare_resize_focus = verify_compare_resize_focus(page, timeout_ms)
+                compare_dialog = compare_resize_focus["layout"]
+                page.set_viewport_size({"width": 1440, "height": 920})
+                page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+                if page.locator('[role="gridcell"][aria-selected="true"]').count() < 2:
+                    selected_cell_ids = select_two_visible_images(page, timeout_ms)
+                set_right_panel_open(page, open_state=True, timeout_ms=10_000)
+                export_result = trigger_comparison_export(page)
+                after_export = collect_layout_evidence(page, "export-complete")
+                return {
+                    "selected_cell_ids": selected_cell_ids,
+                    "layout": [before_selection, after_selection, compare_dialog, after_export],
+                    "layout_label": layout_label,
+                    "adaptive_geometry": adaptive_geometry,
+                    "menu_bounds": menu_bounds,
+                    "hover_preview": hover_preview,
+                    "ctrl_wheel": ctrl_wheel,
+                    "preflight": preflight,
+                    "interaction_polish_sprint1": interaction_polish_sprint1,
+                    "viewer_resize_focus": viewer_resize_focus,
+                    "compare_resize_focus": compare_resize_focus,
+                    "comparison_export": export_result,
+                }
+            except Exception as exc:
+                screenshot_dir.mkdir(parents=True, exist_ok=True)
+                screenshot_path = screenshot_dir / "overall_cleanup_failure.png"
+                try:
+                    page.screenshot(path=str(screenshot_path), full_page=True)
+                except Exception:
+                    screenshot_path = Path("")
+                suffix = f" Screenshot: {screenshot_path}" if str(screenshot_path) else ""
+                raise OverallCleanupBrowserFailure(f"{exc}{suffix}") from exc
+            finally:
+                context.close()
         finally:
-            context.close()
             browser.close()
 
 
@@ -1231,7 +1729,10 @@ def main() -> int:
             raise OverallCleanupBrowserFailure(
                 f"Lenslet exited unexpectedly with code {server_proc.returncode}."
             )
-        checks = run_browser_checks(base_url, args.browser_timeout_ms, args.screenshot_dir)
+        if args.only_sprint1:
+            checks = run_sprint1_browser_checks(base_url, args.browser_timeout_ms, args.screenshot_dir)
+        else:
+            checks = run_browser_checks(base_url, args.browser_timeout_ms, args.screenshot_dir)
         final_health = wait_for_health(base_url, args.server_timeout_seconds)
         summary = {
             "base_url": base_url,

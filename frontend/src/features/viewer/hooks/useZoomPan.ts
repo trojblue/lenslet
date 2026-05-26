@@ -100,13 +100,13 @@ export function useZoomPan() {
   const [base, setBaseState] = useState<number>(1)
   const [ready, setReady] = useState<boolean>(false)
   const [dragging, setDragging] = useState<boolean>(false)
+  const [geometryVersion, setGeometryVersion] = useState<number>(0)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const scaleRef = useRef(1)
   const txRef = useRef(0)
   const tyRef = useRef(0)
   const baseRef = useRef(1)
-  const boundsRef = useRef<Size | null>(null)
   const centerRef = useRef<Point>({ x: 0.5, y: 0.5 })
   const pointersRef = useRef<Map<number, Point>>(new Map())
   const panRef = useRef<PanState | null>(null)
@@ -129,6 +129,10 @@ export function useZoomPan() {
     setScaleState(next.scale)
     setTxState(next.tx)
     setTyState(next.ty)
+  }, [])
+
+  const markGeometryReady = useCallback(() => {
+    setGeometryVersion((version) => version + 1)
   }, [])
 
   const startPanFromPointer = useCallback((pointerId: number, point: Point) => {
@@ -165,23 +169,23 @@ export function useZoomPan() {
     const container = readElementSize(containerRef.current)
     const image = readImageSize(imgRef.current)
     if (!container || !image) return
-    boundsRef.current = container
     centerRef.current = { x: 0.5, y: 0.5 }
     applyTransform(fitImageToContainer(container, image))
-  }, [applyTransform])
+    markGeometryReady()
+  }, [applyTransform, markGeometryReady])
 
   const preserveCenterAfterResize = useCallback(() => {
     const container = readElementSize(containerRef.current)
     const image = readImageSize(imgRef.current)
     if (!container || !image) return
-    boundsRef.current = container
     applyTransform(restoreImageTransformForCenter({
       container,
       image,
       center: centerRef.current,
       scale: scaleRef.current,
     }))
-  }, [applyTransform])
+    markGeometryReady()
+  }, [applyTransform, markGeometryReady])
 
   useEffect(() => {
     const el = containerRef.current
@@ -232,7 +236,6 @@ export function useZoomPan() {
     })
     centerRef.current = captureNormalizedImageCenter({ container, image, transform: next })
     applyTransform(next)
-    boundsRef.current = container
   }, [applyTransform, currentTransform])
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -292,7 +295,6 @@ export function useZoomPan() {
           }, VIEWER_PAN_SLACK)
           centerRef.current = captureNormalizedImageCenter({ container, image, transform: next })
           applyTransform(next)
-          boundsRef.current = container
         }
       }
       return
@@ -318,7 +320,6 @@ export function useZoomPan() {
     })
     centerRef.current = captureNormalizedImageCenter({ container, image, transform: next })
     applyTransform(next)
-    boundsRef.current = container
   }, [applyTransform])
 
   const endPointer = useCallback((pointerId: number, container: HTMLDivElement) => {
@@ -377,13 +378,12 @@ export function useZoomPan() {
     })
     centerRef.current = captureNormalizedImageCenter({ container, image, transform: next })
     applyTransform(next)
-    boundsRef.current = container
     return true
   }, [applyTransform, currentTransform])
 
   return {
     // state
-    scale, tx, ty, base, ready, setReady, dragging, setDragging,
+    scale, tx, ty, base, ready, setReady, dragging, setDragging, geometryVersion,
     // refs
     containerRef, imgRef,
     // helpers/handlers

@@ -5,3 +5,49 @@ Tool: codex
 Repo: /data/yada/dev_new/lenslet
 Plan: /data/yada/dev_new/lenslet/docs/20260526_interaction_polish_execution_plan.md
 ---
+
+## Iteration 1 - 2026-05-26T02:38:00Z
+
+Completed task IDs: Preflight, IP-1, IP-2, IP-3, IP-4.
+
+Files changed:
+- `frontend/src/app/AppShell.tsx`
+- `frontend/src/features/viewer/Viewer.tsx`
+- `frontend/src/features/viewer/hooks/useZoomPan.ts`
+- `frontend/src/features/compare/CompareViewer.tsx`
+- `frontend/src/features/compare/hooks/useCompareZoomPan.ts`
+- `frontend/src/features/compare/compareAutoFit.ts`
+- `frontend/src/features/compare/__tests__/compareAutoFit.test.ts`
+- `frontend/src/lib/keyboard.ts`
+- `frontend/src/lib/__tests__/keyboard.test.ts`
+- `scripts/overall_cleanup_browser.py`
+- `src/lenslet/frontend/` packaged frontend assets
+- `docs/20260526_interaction_polish_execution_plan.md`
+- `docs/ralph/20260526_interaction_polish/progress.txt`
+
+Validations run:
+- `cd frontend && npm run test -- src/lib/__tests__/keyboard.test.ts src/features/compare/__tests__/compareAutoFit.test.ts src/features/viewer/hooks/__tests__/useZoomPan.test.ts`
+  - Passed: 7 tests.
+- `cd frontend && npm run test -- src/lib/__tests__/keyboard.test.ts src/features/compare/__tests__/compareAutoFit.test.ts src/features/viewer/hooks/__tests__/useZoomPan.test.ts src/app/layout/__tests__/sidebarLayout.test.ts`
+  - Passed: 13 tests after preserving `Ctrl+Alt+B`.
+- `cd frontend && npm run test`
+  - Passed: 77 files, 365 tests.
+- `cd frontend && npm run build`
+  - Passed; copied `frontend/dist/` into `src/lenslet/frontend/` because `rsync` was unavailable in this environment.
+- `python -m py_compile scripts/overall_cleanup_browser.py`
+  - Passed.
+- `python scripts/overall_cleanup_browser.py --only-sprint1 --output-json /tmp/lenslet-interaction-polish-sprint1.json`
+  - Passed. Evidence covers mobile viewer nav at 390x844, coarse-pointer grid/folder action visibility, reduced-motion emulation, delayed viewer zoom request to 200%, compare late-load freeze, dialog keyboard scoping from controls/modifier combos, useful full-size alt labels, and success screenshots.
+- `python scripts/lint_repo.py`
+  - Passed. Warn-only large-file notices remain, including `scripts/overall_cleanup_browser.py`.
+- Cleanup gate:
+  - `code-simplifier` subagent found only Tier 1 local cleanup. Applied dead write-only ref removal, small keyboard/handler deduplication, stale comment cleanup, and indentation cleanup.
+- Review gate:
+  - First `code-review` subagent found `Ctrl+Alt+B` regression and missing screenshot artifacts for new evidence. Both were fixed.
+  - Final `code-review` subagent reported no actionable issues.
+
+Blockers and notes:
+- Initial Playwright browser validation was blocked by missing Chromium and system runtime libraries. Resolved with `python -m playwright install chromium` and `python -m playwright install-deps chromium`.
+- A full `python scripts/overall_cleanup_browser.py --output-json /tmp/lenslet-interaction-polish-sprint1.json` run progressed past Sprint 1 checks and failed on `viewer-short-height` center drift, which is a planned Sprint 2 resize/transform target. This is not accepted as final gate evidence for iteration 1.
+
+Next step: start Sprint 2 and implement IP-5 through IP-7.

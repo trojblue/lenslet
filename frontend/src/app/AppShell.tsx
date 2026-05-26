@@ -60,7 +60,7 @@ import type {
   ViewState,
   EmbeddingSearchRequest,
 } from '../lib/types'
-import { isInputElement } from '../lib/keyboard'
+import { hasActiveModalDialog, hasShortcutModifier, isKeyboardControlTarget } from '../lib/keyboard'
 import { safeJsonParse } from '../lib/util'
 import { fileCache, thumbCache } from '../lib/blobCache'
 import { FetchError } from '../lib/fetcher'
@@ -1311,14 +1311,17 @@ export default function AppShell({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const state = keyboardStateRef.current
-      // Ignore if in input field
-      if (isInputElement(e.target)) return
+      const normalizedKey = e.key.toLowerCase()
+      const hasPlatformShortcutModifier = e.ctrlKey || e.metaKey
+      const hasPlainPlatformShortcut = hasPlatformShortcutModifier && !e.altKey
+      // Ignore if focus is on an interactive control.
+      if (isKeyboardControlTarget(e.target)) return
 
-      // Ignore if viewer or compare is open (they have their own handlers)
-      if (state.viewer || state.compareOpen) return
+      // Ignore if a modal surface is open; those surfaces own their keys.
+      if (state.viewer || state.compareOpen || hasActiveModalDialog()) return
 
       // Toggle sidebars
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+      if (hasPlatformShortcutModifier && normalizedKey === 'b') {
         e.preventDefault()
         const next = resolveSidebarHotkeyToggle({
           leftContentOpen: leftOpenRef.current,
@@ -1330,12 +1333,17 @@ export default function AppShell({
         return
       }
 
+      if (hasPlainPlatformShortcut && normalizedKey === 'a') {
+        e.preventDefault()
+        setSelectedPaths(state.items.map((i) => i.path))
+        return
+      }
+
+      if (hasShortcutModifier(e)) return
+
       if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault()
         state.openFolder(getParentPath(state.current))
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-        e.preventDefault()
-        setSelectedPaths(state.items.map((i) => i.path))
       } else if (e.key === 'Escape') {
         if (state.selectedPaths.length) {
           e.preventDefault()

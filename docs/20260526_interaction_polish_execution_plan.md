@@ -127,6 +127,8 @@ Tasks:
 
 Sprint 2 goal: remove transform and resize lifecycle jitter.
 
+Sprint 1 handoff notes, 2026-05-26 02:38 UTC: closed in iteration 1. The viewer now retries pending toolbar zoom requests through a hook geometry-version signal and consumes the request only after `zoomToPercent` succeeds. Compare now tracks pair readiness and pair interaction state so the first successful fit happens only after both current images are loaded and never after user inspection begins. Viewer, compare, and AppShell background shortcuts now share scoped keyboard helpers that ignore controls, modifiers, disabled directions, and non-topmost modal contexts while preserving existing `Ctrl+B` and `Ctrl+Alt+B` sidebar behavior. Full-size viewer/compare images have label/path-based alt text, decorative compare thumbnails are hidden from assistive text, and touched dialog surfaces no longer suppress useful focus outlines. Browser Sprint 1 evidence is available at `/tmp/lenslet-interaction-polish-sprint1.json`, with success screenshots under `/tmp/lenslet-overall-cleanup-browser-screenshots/`.
+
 Demo outcome: viewer and compare keep canonical transforms in refs, flush React-visible transform state at most once per animation frame, cancel pending frame work on cleanup, and preserve the same inspection region across resize without pan-slack snap.
 
 Tasks:
@@ -269,10 +271,13 @@ Rollback is sprint-based. If a sprint regresses primary behavior, revert or isol
 - [x] 2026-05-26 01:59 UTC: Read `docs/20260525_re_review.md`, existing planning docs, Lenslet skill guidance, and current frontend codepaths.
 - [x] 2026-05-26 01:59 UTC: Locked scope as a follow-up interaction polish plan; no new dependencies, no backend changes, no full `VirtualGrid` rewrite.
 - [x] 2026-05-26 01:59 UTC: Ran required subagent review with `reasoning_effort=medium`; incorporated de-scoping, zoom retry, compare fit, keyboard, transform invariant, and browser fixture feedback.
-- [ ] Preflight: Add or run phone/coarse/reduced-motion evidence and convert failures into owning sprint work.
-- [ ] Sprint 1: Implement zoom request retry, compare late-load freeze, dialog/background keyboard scope, and label/focus polish.
+- [x] Preflight: Add or run phone/coarse/reduced-motion evidence and convert failures into owning sprint work.
+- [x] Sprint 1: Implement zoom request retry, compare late-load freeze, dialog/background keyboard scope, and label/focus polish.
 - [ ] Sprint 2: Implement pan-slack restoration plus frame-coalesced viewer/compare transforms and resize RAF cleanup.
 - [ ] Sprint 3: Implement divider drag lifecycle cleanup, `VirtualGrid` scroll cleanup, final validation, packaged asset sync, and handoff.
+- [x] 2026-05-26 02:38 UTC: Iteration 1 closed Sprint 1. Added `--only-sprint1` browser evidence covering phone viewer nav, coarse pointer action visibility, reduced motion, delayed viewer zoom request retention, compare late-load freeze, keyboard scoping from controls/modifiers, useful full-size labels, and Sprint 1 success screenshots.
+- [x] 2026-05-26 02:38 UTC: Validated with focused Vitest checks, full frontend suite, production build plus packaged asset sync, Sprint 1 browser evidence, repo lint, conservative cleanup scan, and two code-review passes. Review findings on `Ctrl+Alt+B` and screenshot artifacts were fixed and rereviewed clean.
+- [x] 2026-05-26 02:38 UTC: Noted that the full legacy browser command still reaches the planned Sprint 2 viewer resize center-drift failure; keep this as the next sprint target rather than accepting the final browser gate yet.
 
 
 ## Artifacts and Handoff
@@ -288,4 +293,10 @@ Expected evidence outputs:
 2. `/tmp/lenslet-responsive-geometry-interaction-polish.json`
 3. `/tmp/lenslet-large-tree-interaction-polish.json`, only if the conditional large-tree gate is triggered.
 
-Handoff notes for the implementing agent: start with preflight evidence, then Sprint 1 because it directly closes the user-visible races and keyboard scope. Keep plan updates continuous. Use `better-code` for every substantive code ticket. After each implementation sprint, run the cleanup and review gates before marking it complete. If a browser assertion reveals that a locally "already fixed" item is still failing, fix the item in the owning sprint instead of reclassifying it as deferred.
+Iteration 1 evidence outputs:
+
+1. `/tmp/lenslet-interaction-polish-sprint1.json`
+2. `/tmp/lenslet-overall-cleanup-browser-screenshots/viewer_zoom_load_race_success_0_0.png`
+3. `/tmp/lenslet-overall-cleanup-browser-screenshots/compare_late_load_success_0_0.png`
+
+Handoff notes for the implementing agent: Sprint 1 is complete. Start the next iteration at Sprint 2 (`IP-5` through `IP-7`) because the full legacy `scripts/overall_cleanup_browser.py` path still exposes the planned viewer resize center-drift failure on the `viewer-short-height` check. Keep plan updates continuous. Use `better-code` for every substantive code ticket. After each implementation sprint, run the cleanup and review gates before marking it complete. If a browser assertion reveals that a locally "already fixed" item is still failing, fix the item in the owning sprint instead of reclassifying it as deferred.

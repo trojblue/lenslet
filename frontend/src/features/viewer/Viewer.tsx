@@ -2,6 +2,11 @@ import React, { useEffect, useCallback, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import { useModalFocusTrap } from '../../shared/hooks/useModalFocusTrap'
+import {
+  getHorizontalNavigationDelta,
+  isKeyboardControlTarget,
+  shouldHandleDialogNavigationKey,
+} from '../../lib/keyboard'
 import { useZoomPan } from './hooks/useZoomPan'
 
 const VIEWER_LOADER_DELAY_MS = 150
@@ -14,6 +19,11 @@ type ViewerImageResource = {
 function isViewerControlTarget(target: EventTarget | null): boolean {
   return target instanceof Element
     && target.closest('button, a, input, select, textarea, [role="button"]') !== null
+}
+
+function getImageLabel(path: string): string {
+  const label = path.split(/[\\/]/).filter(Boolean).pop()
+  return label || path
 }
 
 interface ViewerProps {
@@ -42,6 +52,7 @@ export default function Viewer({
     tx,
     ty,
     base,
+    geometryVersion,
     ready,
     setReady,
     dragging,
@@ -63,6 +74,7 @@ export default function Viewer({
   const readyPathRef = useRef<string | null>(null)
   const activeResource = imageResource?.path === path ? imageResource : null
   const imageReady = ready && readyPath === path && activeResource !== null
+  const imageLabel = getImageLabel(path)
   const viewerLoadingState = imageReady ? 'ready' : showDelayedLoader ? 'loading' : 'pending'
   const closeViewer = useCallback(() => {
     onClose()
@@ -83,6 +95,9 @@ export default function Viewer({
     event.stopPropagation()
     closeViewer()
   }, [closeViewer, shouldSuppressSurfaceClick])
+  const stopControlNavigationKey = useCallback((event: React.KeyboardEvent) => {
+    if (isKeyboardControlTarget(event.target)) event.stopPropagation()
+  }, [])
   const handleDialogKeyDown = useModalFocusTrap(containerRef, { onEscape: closeViewer })
   const markImageReady = useCallback(() => {
     const resource = activeResource
@@ -98,19 +113,20 @@ export default function Viewer({
   // Keyboard navigation
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const normalized = e.key.toLowerCase()
-      if ((e.key === 'ArrowRight' || normalized === 'd') && onNavigate) {
+      if (!onNavigate || !shouldHandleDialogNavigationKey(e, containerRef.current)) return
+      const delta = getHorizontalNavigationDelta(e)
+      if (delta === 1 && canNext) {
         e.preventDefault()
-        onNavigate(1)
-      } else if ((e.key === 'ArrowLeft' || normalized === 'a') && onNavigate) {
+        onNavigate(delta)
+      } else if (delta === -1 && canPrev) {
         e.preventDefault()
-        onNavigate(-1)
+        onNavigate(delta)
       }
     }
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onNavigate])
+  }, [canNext, canPrev, containerRef, onNavigate])
 
   useEffect(() => {
     readyPathRef.current = null
@@ -163,9 +179,10 @@ export default function Viewer({
 
   useEffect(() => {
     if (requestedZoomPercent == null) return
-    zoomToPercent(requestedZoomPercent)
-    onZoomRequestConsumed && onZoomRequestConsumed()
-  }, [requestedZoomPercent, onZoomRequestConsumed, zoomToPercent])
+    if (zoomToPercent(requestedZoomPercent)) {
+      onZoomRequestConsumed && onZoomRequestConsumed()
+    }
+  }, [geometryVersion, imageReady, requestedZoomPercent, onZoomRequestConsumed, zoomToPercent])
 
   return (
     <div
@@ -177,8 +194,7 @@ export default function Viewer({
       data-viewer-loading-state={viewerLoadingState}
       aria-busy={imageReady ? undefined : true}
       tabIndex={-1}
-      className={`toolbar-offset touch-none absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] flex items-start justify-start bg-panel z-viewer overflow-hidden cursor-grab focus:outline-none focus-visible:outline-none ${dragging ? 'cursor-grabbing select-none' : ''}`}
-      style={{ outline: 'none' }}
+      className={`toolbar-offset touch-none absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] flex items-start justify-start bg-panel z-viewer overflow-hidden cursor-grab ${dragging ? 'cursor-grabbing select-none' : ''}`}
       onClickCapture={handleClickCapture}
       onDoubleClick={handleSurfaceDoubleClick}
       onWheel={handleWheel}
@@ -213,7 +229,8 @@ export default function Viewer({
         <img
           ref={imgRef}
           src={activeResource.url}
-          alt="viewer"
+          alt={`Image viewer: ${imageLabel}`}
+          data-viewer-image="full"
           data-current-path={activeResource.path}
           className="max-w-none max-h-none object-contain will-change-transform select-none"
           draggable={false}
@@ -229,6 +246,7 @@ export default function Viewer({
             type="button"
             className={`viewer-mobile-nav-btn ${canPrev ? '' : 'is-disabled'}`}
             onClick={() => canPrev && onNavigate(-1)}
+            onKeyDown={stopControlNavigationKey}
             aria-label="Previous image"
             aria-disabled={!canPrev}
             disabled={!canPrev}
@@ -239,6 +257,7 @@ export default function Viewer({
             type="button"
             className={`viewer-mobile-nav-btn ${canNext ? '' : 'is-disabled'}`}
             onClick={() => canNext && onNavigate(1)}
+            onKeyDown={stopControlNavigationKey}
             aria-label="Next image"
             aria-disabled={!canNext}
             disabled={!canNext}

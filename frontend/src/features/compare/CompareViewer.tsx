@@ -2,8 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import { useModalFocusTrap } from '../../shared/hooks/useModalFocusTrap'
-import { isInputElement } from '../../lib/keyboard'
+import { getHorizontalNavigationDelta, shouldHandleDialogNavigationKey } from '../../lib/keyboard'
 import type { BrowseItemPayload } from '../../lib/types'
+import { buildComparePairKey, shouldAutoFitComparePair } from './compareAutoFit'
 import { useCompareZoomPan } from './hooks/useCompareZoomPan'
 
 interface CompareViewerProps {
@@ -35,6 +36,14 @@ export default function CompareViewer({
   const [loadedBPath, setLoadedBPath] = useState<string | null>(null)
   const aUrlPathRef = useRef<string | null>(null)
   const bUrlPathRef = useRef<string | null>(null)
+  const fittedPairKeyRef = useRef<string | null>(null)
+  const userInteractedPairKeyRef = useRef<string | null>(null)
+  const aPath = aItem?.path ?? null
+  const bPath = bItem?.path ?? null
+  const pairKey = buildComparePairKey(aPath, bPath)
+  const markCompareUserInteraction = useCallback(() => {
+    userInteractedPairKeyRef.current = pairKey
+  }, [pairKey])
   const {
     scale,
     baseA,
@@ -54,10 +63,8 @@ export default function CompareViewer({
     handlePointerMove,
     handlePointerUp,
     handlePointerCancel,
-  } = useCompareZoomPan()
+  } = useCompareZoomPan({ onUserInteraction: markCompareUserInteraction })
 
-  const aPath = aItem?.path ?? null
-  const bPath = bItem?.path ?? null
   const aLabel = aItem?.name ?? aPath ?? 'Select an image'
   const bLabel = bItem?.name ?? bPath ?? 'Select another image'
   const handleDialogKeyDown = useModalFocusTrap(overlayRef, { onEscape: onClose })
@@ -68,20 +75,22 @@ export default function CompareViewer({
     setReadyB(false)
     setLoadedAPath(null)
     setLoadedBPath(null)
+    fittedPairKeyRef.current = null
+    userInteractedPairKeyRef.current = null
   }, [aPath, bPath, resetView])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (isInputElement(e.target)) return
-      const normalized = e.key.toLowerCase()
-      if ((e.key === 'ArrowRight' || normalized === 'd') && canNext) {
+      if (!shouldHandleDialogNavigationKey(e, overlayRef.current)) return
+      const delta = getHorizontalNavigationDelta(e)
+      if (delta === 1 && canNext) {
         e.preventDefault()
-        onNavigate(1)
+        onNavigate(delta)
         return
       }
-      if ((e.key === 'ArrowLeft' || normalized === 'a') && canPrev) {
+      if (delta === -1 && canPrev) {
         e.preventDefault()
-        onNavigate(-1)
+        onNavigate(delta)
       }
     }
 
@@ -98,27 +107,39 @@ export default function CompareViewer({
     if (!aPath || !aUrl || aUrlPathRef.current !== aPath || !image || (image.currentSrc || image.src) !== aUrl) {
       return
     }
-    fitAndCenter()
     setLoadedAPath(aPath)
     try {
       requestAnimationFrame(() => setReadyA(true))
     } catch {
       setReadyA(true)
     }
-  }, [aPath, aUrl, fitAndCenter, imgARef])
+  }, [aPath, aUrl, imgARef])
   const markImageBReady = useCallback(() => {
     const image = imgBRef.current
     if (!bPath || !bUrl || bUrlPathRef.current !== bPath || !image || (image.currentSrc || image.src) !== bUrl) {
       return
     }
-    fitAndCenter()
     setLoadedBPath(bPath)
     try {
       requestAnimationFrame(() => setReadyB(true))
     } catch {
       setReadyB(true)
     }
-  }, [bPath, bUrl, fitAndCenter, imgBRef])
+  }, [bPath, bUrl, imgBRef])
+
+  useEffect(() => {
+    if (!shouldAutoFitComparePair({
+      aPath,
+      bPath,
+      loadedAPath,
+      loadedBPath,
+      fittedPairKey: fittedPairKeyRef.current,
+      userInteracted: userInteractedPairKeyRef.current === pairKey,
+    })) return
+    if (fitAndCenter()) {
+      fittedPairKeyRef.current = pairKey
+    }
+  }, [aPath, bPath, fitAndCenter, loadedAPath, loadedBPath, pairKey])
 
   useEffect(() => {
     if (!aUrl) {
@@ -162,6 +183,16 @@ export default function CompareViewer({
     handlePointerDown(e)
   }, [handlePointerDown])
 
+  const handleStageWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    markCompareUserInteraction()
+    handleWheel(e)
+  }, [handleWheel, markCompareUserInteraction])
+
+  const handleStagePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.buttons !== 0) markCompareUserInteraction()
+    handlePointerMove(e)
+  }, [handlePointerMove, markCompareUserInteraction])
+
   const handleDividerPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const stage = containerRef.current
     if (!stage) return
@@ -169,6 +200,7 @@ export default function CompareViewer({
     e.stopPropagation()
     const rect = stage.getBoundingClientRect()
     const target = e.currentTarget
+    markCompareUserInteraction()
     target.setPointerCapture(e.pointerId)
     const onMove = (ev: PointerEvent) => {
       const pct = ((ev.clientX - rect.left) / rect.width) * 100
@@ -187,7 +219,7 @@ export default function CompareViewer({
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
-  }, [clampSplit])
+  }, [clampSplit, markCompareUserInteraction])
 
   return (
     <div
@@ -198,7 +230,7 @@ export default function CompareViewer({
       data-compare-a-path={aPath ?? undefined}
       data-compare-b-path={bPath ?? undefined}
       tabIndex={-1}
-      className="toolbar-offset absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] bg-panel z-viewer flex flex-col overflow-hidden focus:outline-none"
+      className="toolbar-offset absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] bg-panel z-viewer flex flex-col overflow-hidden"
       onKeyDown={handleDialogKeyDown}
     >
       <div className="compare-header flex items-center gap-3 px-3 py-2">
@@ -232,9 +264,9 @@ export default function CompareViewer({
         <div
           ref={containerRef}
           className={`compare-stage ${dragging ? 'is-dragging' : ''}`}
-          onWheel={handleWheel}
+          onWheel={handleStageWheel}
           onPointerDown={handleStagePointerDown}
-          onPointerMove={handlePointerMove}
+          onPointerMove={handleStagePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
         >
@@ -256,7 +288,8 @@ export default function CompareViewer({
                 {aThumb && (
                   <img
                     src={aThumb}
-                    alt="thumb A"
+                    alt=""
+                    aria-hidden={true}
                     className="compare-image compare-image-thumb"
                     draggable={false}
                     onDragStart={(e)=> e.preventDefault()}
@@ -267,7 +300,8 @@ export default function CompareViewer({
                   <img
                     ref={imgARef}
                     src={aUrl}
-                    alt="compare A"
+                    alt={`Compare image A: ${aLabel}`}
+                    data-compare-image="a"
                     data-current-path={loadedAPath ?? undefined}
                     className="compare-image"
                     draggable={false}
@@ -281,7 +315,8 @@ export default function CompareViewer({
                 {bThumb && (
                   <img
                     src={bThumb}
-                    alt="thumb B"
+                    alt=""
+                    aria-hidden={true}
                     className="compare-image compare-image-thumb"
                     draggable={false}
                     onDragStart={(e)=> e.preventDefault()}
@@ -292,7 +327,8 @@ export default function CompareViewer({
                   <img
                     ref={imgBRef}
                     src={bUrl}
-                    alt="compare B"
+                    alt={`Compare image B: ${bLabel}`}
+                    data-compare-image="b"
                     data-current-path={loadedBPath ?? undefined}
                     className="compare-image"
                     draggable={false}

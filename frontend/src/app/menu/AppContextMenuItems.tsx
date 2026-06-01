@@ -4,8 +4,8 @@ import { FIND_SIMILAR_SELECT_SINGLE_REASON } from '../../features/inspector/mode
 import { api } from '../../api/client'
 import type { ContextMenuState, BrowseItemPayload } from '../../lib/types'
 import ContextMenu, { type MenuItem } from './ContextMenu'
-import { getPathName, isTrashPath } from '../routing/hash'
-import { downloadBlob } from '../utils/appShellHelpers'
+import { getPathName } from '../routing/hash'
+import { downloadBlob } from '../../lib/download'
 
 interface AppContextMenuItemsProps {
   ctx: ContextMenuState
@@ -14,8 +14,6 @@ interface AppContextMenuItemsProps {
   setCtx: (ctx: ContextMenuState | null) => void
   refreshEnabled: boolean
   refreshDisabledReason?: string | null
-  onRefetch: () => Promise<unknown>
-  onOpenMoveDialog: (paths: string[]) => void
   onRefreshFolder: (path: string) => Promise<void>
   canFindSimilar?: boolean
   findSimilarDisabledReason?: string | null
@@ -93,6 +91,40 @@ function timestampLabel(): string {
   return new Date().toISOString().replace(/[:.]/g, '-')
 }
 
+type SelectionExportHandlerParams = {
+  format: ExportFormat
+  selectedPaths: string[]
+  items: BrowseItemPayload[]
+  setExporting: (format: ExportFormat | null) => void
+  closeMenu: () => void
+  download: typeof downloadBlob
+  timestamp: () => string
+}
+
+export function buildSelectionExportHandler({
+  format,
+  selectedPaths,
+  items,
+  setExporting,
+  closeMenu,
+  download,
+  timestamp,
+}: SelectionExportHandlerParams): () => void {
+  return () => {
+    setExporting(format)
+    try {
+      const selectedSet = new Set(selectedPaths)
+      const selectedItems = items.filter((item) => selectedSet.has(item.path))
+      const content = buildRatingsExportContent(selectedItems, format)
+      const mime = getExportMime(format)
+      download(new Blob([content], { type: mime }), `metadata_selection_${timestamp()}.${format}`)
+    } finally {
+      setExporting(null)
+      closeMenu()
+    }
+  }
+}
+
 async function fetchRecursiveFolderItems(path: string): Promise<BrowseItemPayload[]> {
   const payload = await api.getFolder(path, { recursive: true })
   return payload.items
@@ -105,14 +137,11 @@ export default function AppContextMenuItems({
   setCtx,
   refreshEnabled,
   refreshDisabledReason,
-  onRefetch,
-  onOpenMoveDialog,
   onRefreshFolder,
   canFindSimilar = false,
   findSimilarDisabledReason = null,
   onFindSimilar,
 }: AppContextMenuItemsProps): JSX.Element {
-  const inTrash = isTrashPath(current)
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState<ExportFormat | null>(null)
 
@@ -158,19 +187,15 @@ export default function AppContextMenuItems({
     }
   }
 
-  const handleSelectionExport = (format: ExportFormat) => async (): Promise<void> => {
-    setExporting(format)
-    try {
-      const selectedSet = new Set(selectedPaths)
-      const selectedItems = items.filter((item) => selectedSet.has(item.path))
-      const content = buildRatingsExportContent(selectedItems, format)
-      const mime = getExportMime(format)
-      downloadBlob(new Blob([content], { type: mime }), `metadata_selection_${timestampLabel()}.${format}`)
-    } finally {
-      setExporting(null)
-      closeMenu()
-    }
-  }
+  const handleSelectionExport = (format: ExportFormat): (() => void) => buildSelectionExportHandler({
+    format,
+    selectedPaths,
+    items,
+    setExporting,
+    closeMenu,
+    download: downloadBlob,
+    timestamp: timestampLabel,
+  })
 
   const handleDownloadSelection = async (): Promise<void> => {
     if (!selectedPaths.length) return
@@ -185,50 +210,6 @@ export default function AppContextMenuItems({
         console.error(`Failed to download ${path}:`, error)
       }
     }
-  }
-
-  const handleMoveToTrash = async (): Promise<void> => {
-    if (inTrash) return
-
-    for (const path of selectedPaths) {
-      try {
-        await api.moveFile(path, '/_trash_')
-      } catch (error) {
-        console.error(`Failed to trash ${path}:`, error)
-      }
-    }
-    void onRefetch()
-    closeMenu()
-  }
-
-  const handlePermanentDelete = async (): Promise<void> => {
-    if (!confirm(`Delete ${selectedPaths.length} file(s) permanently? This cannot be undone.`)) {
-      return
-    }
-    try {
-      await api.deleteFiles(selectedPaths)
-    } catch (error) {
-      console.error('Failed to delete files:', error)
-    }
-    void onRefetch()
-    closeMenu()
-  }
-
-  const handleRecover = async (): Promise<void> => {
-    for (const path of selectedPaths) {
-      try {
-        const sidecar = await api.getSidecar(path)
-        const originalPath = sidecar.original_position
-        const targetDir = originalPath
-          ? originalPath.split('/').slice(0, -1).join('/') || '/'
-          : '/'
-        await api.moveFile(path, targetDir)
-      } catch (error) {
-        console.error(`Failed to recover ${path}:`, error)
-      }
-    }
-    void onRefetch()
-    closeMenu()
   }
 
   const menuItems: MenuItem[] = ctx.kind === 'tree'
@@ -252,7 +233,6 @@ export default function AppContextMenuItems({
       ]
     : buildItemMenuItems({
         selectedPaths,
-        inTrash,
         exporting,
         canFindSimilar,
         findSimilarDisabledReason,
@@ -263,10 +243,6 @@ export default function AppContextMenuItems({
             }
           : undefined,
         onDownloadSelection: handleDownloadSelection,
-        onMoveSelection: onOpenMoveDialog,
-        onMoveToTrash: handleMoveToTrash,
-        onPermanentDelete: handlePermanentDelete,
-        onRecover: handleRecover,
         onExportCsv: handleSelectionExport('csv'),
         onExportJson: handleSelectionExport('json'),
       })
@@ -276,32 +252,22 @@ export default function AppContextMenuItems({
 
 interface BuildItemMenuItemsArgs {
   selectedPaths: string[]
-  inTrash: boolean
   exporting: ExportFormat | null
   canFindSimilar: boolean
   findSimilarDisabledReason: string | null
   onFindSimilar?: (path: string) => void
   onDownloadSelection: () => Promise<void>
-  onMoveSelection: (paths: string[]) => void
-  onMoveToTrash: () => Promise<void>
-  onPermanentDelete: () => Promise<void>
-  onRecover: () => Promise<void>
-  onExportCsv: () => Promise<void>
-  onExportJson: () => Promise<void>
+  onExportCsv: () => void
+  onExportJson: () => void
 }
 
 function buildItemMenuItems({
   selectedPaths,
-  inTrash,
   exporting,
   canFindSimilar,
   findSimilarDisabledReason,
   onFindSimilar,
   onDownloadSelection,
-  onMoveSelection,
-  onMoveToTrash,
-  onPermanentDelete,
-  onRecover,
   onExportCsv,
   onExportJson,
 }: BuildItemMenuItemsArgs): MenuItem[] {
@@ -321,36 +287,6 @@ function buildItemMenuItems({
     items.push({
       label: selectedPaths.length > 1 ? `Download (${selectedPaths.length})` : 'Download',
       onClick: onDownloadSelection,
-    })
-  }
-
-  if (selectedPaths.length) {
-    items.push({
-      label: 'Move to…',
-      disabled: inTrash,
-      onClick: () => {
-        if (inTrash) return
-        onMoveSelection(selectedPaths)
-      },
-    })
-  }
-
-  items.push({
-    label: 'Move to trash',
-    disabled: inTrash,
-    onClick: onMoveToTrash,
-  })
-
-  if (inTrash) {
-    items.push({
-      label: 'Permanent delete',
-      danger: true,
-      onClick: onPermanentDelete,
-    })
-
-    items.push({
-      label: 'Recover',
-      onClick: onRecover,
     })
   }
 

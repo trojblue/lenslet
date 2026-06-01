@@ -42,6 +42,24 @@ export function chooseInitialModalFocusTarget<T extends ModalFocusTarget>(
   return targets.find(isModalFocusTargetEnabled) ?? fallback
 }
 
+function isFocusableElementEnabled(element: HTMLElement): boolean {
+  const style = window.getComputedStyle(element)
+  return isModalFocusTargetEnabled({
+    disabled: 'disabled' in element && Boolean(element.disabled),
+    tabIndex: element.tabIndex,
+    ariaHidden: element.getAttribute('aria-hidden') === 'true',
+    rendered: element.getClientRects().length > 0,
+    visible: style.display !== 'none' && style.visibility !== 'hidden',
+  })
+}
+
+function chooseInitialModalElement(
+  targets: readonly HTMLElement[],
+  fallback: HTMLElement,
+): HTMLElement {
+  return targets.find(isFocusableElementEnabled) ?? fallback
+}
+
 export function resolveModalTabTarget<T>(
   focusableTargets: readonly T[],
   activeTarget: T | null,
@@ -70,16 +88,7 @@ export function chooseRestoreFocusTarget<T extends RestorableFocusTarget>(
 
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
-    .filter((element) => {
-      const style = window.getComputedStyle(element)
-      return isModalFocusTargetEnabled({
-        disabled: 'disabled' in element && Boolean(element.disabled),
-        tabIndex: element.tabIndex,
-        ariaHidden: element.getAttribute('aria-hidden') === 'true',
-        rendered: element.getClientRects().length > 0,
-        visible: style.display !== 'none' && style.visibility !== 'hidden',
-      })
-    })
+    .filter(isFocusableElementEnabled)
 }
 
 function focusElement(element: HTMLElement | null): void {
@@ -91,7 +100,7 @@ function focusElement(element: HTMLElement | null): void {
 }
 
 function focusModalEntry(container: HTMLElement): void {
-  const target = chooseInitialModalFocusTarget(getFocusableElements(container), container)
+  const target = chooseInitialModalElement(getFocusableElements(container), container)
   focusElement(target)
 }
 

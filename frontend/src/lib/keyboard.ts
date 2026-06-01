@@ -102,12 +102,12 @@ export function shouldHandleDialogNavigationKey(
     && isTopmostModalDialog(dialog)
 }
 
-/**
- * Register a single key handler. Returns cleanup function.
- * @param key - The key to listen for
- * @param handler - The handler function
- * @param options - Additional options
- */
+export function shouldHandleViewerNavigationKey(e: KeyboardTargetEvent): boolean {
+  return getHorizontalNavigationDelta(e) !== null
+    && !hasShortcutModifier(e)
+    && !isInputElement(e.target)
+}
+
 export function onKey(
   key: string,
   handler: KeyHandler,
@@ -126,9 +126,6 @@ export function onKey(
   return () => window.removeEventListener('keydown', h)
 }
 
-/**
- * Register multiple key bindings at once. Returns cleanup function.
- */
 export function onKeys(bindings: KeyBinding[]): () => void {
   const handlers: (() => void)[] = []
   
@@ -148,7 +145,6 @@ export function onKeys(bindings: KeyBinding[]): () => void {
   }
 }
 
-/** Common key codes for reference */
 export const Keys = {
   Enter: 'Enter',
   Escape: 'Escape',

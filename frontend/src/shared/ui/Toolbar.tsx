@@ -25,9 +25,9 @@ export interface ToolbarProps {
   sortDisabled?: boolean
   filterCount?: number
   onOpenFilters?: () => void
-  starFilters?: number[] | null
-  onToggleStar?: (v: number) => void
-  onClearStars?: () => void
+  starsInFilter?: number[] | null
+  onToggleStarsIn?: (v: number) => void
+  onClearStarsIn?: () => void
   onClearFilters?: () => void
   starCounts?: { [k: string]: number }
   viewMode?: ViewMode
@@ -83,9 +83,9 @@ export default function Toolbar({
   sortDisabled = false,
   filterCount,
   onOpenFilters,
-  starFilters,
-  onToggleStar,
-  onClearStars,
+  starsInFilter,
+  onToggleStarsIn,
+  onClearStarsIn,
   onClearFilters,
   starCounts,
   viewMode,
@@ -146,7 +146,6 @@ export default function Toolbar({
   const showMobileSearchRow = showNarrowSearchControls
   const mobileSearchInteractive = showMobileSearchRow && mobileSearchOpen && !searchDisabled
 
-  // Close filters on click outside
   useEffect(() => {
     if (!filtersOpen) return
     const onClick = (e: MouseEvent) => {
@@ -203,13 +202,12 @@ export default function Toolbar({
     ...metricOptions,
   ]
 
-  // Build sort options with groups
   const sortOptions = [
     {
       label: 'Layout',
       options: [
         { value: 'layout:grid', label: 'Grid' },
-        { value: 'layout:masonry', label: 'Justified rows' },
+        { value: 'layout:adaptive', label: 'Justified rows' },
       ],
     },
     {
@@ -218,7 +216,6 @@ export default function Toolbar({
     },
   ]
 
-  // Determine current sort/layout value
   const currentSort = effectiveSort.kind === 'metric'
     ? `metric:${effectiveSort.key}`
     : `builtin:${effectiveSort.key}`
@@ -241,7 +238,7 @@ export default function Toolbar({
 
   const handleSortLayoutChange = (value: string) => {
     if (value.startsWith('layout:')) {
-      const mode = value === 'layout:masonry' ? 'adaptive' : 'grid'
+      const mode = value === 'layout:adaptive' ? 'adaptive' : 'grid'
       onViewMode?.(mode)
     } else {
       if (sortDisabled) return
@@ -258,10 +255,9 @@ export default function Toolbar({
     }
   }
 
-  // Count active star filters
-  const starFilterList = starFilters ?? []
-  const activeStarCount = starFilterList.length
-  const totalFilterCount = getTotalFilterCount(filterCount, activeStarCount)
+  const starsInFilterList = starsInFilter ?? []
+  const activeStarsInCount = starsInFilterList.length
+  const totalFilterCount = getTotalFilterCount(filterCount, activeStarsInCount)
   const countLabel = formatCountLabel(itemCount, totalCount)
   const scopeName = currentLabel || 'Root'
 
@@ -270,7 +266,6 @@ export default function Toolbar({
       ref={rootRef}
       className={`toolbar-shell ${viewerActive ? 'toolbar-shell-viewer' : ''} ${isPhone ? 'toolbar-shell-phone' : ''} ${isToolbarCompact ? 'toolbar-shell-compact' : ''} ${showMobileDrawer ? 'toolbar-shell-mobile-browse' : ''} ${showMobileDrawer && mobileDrawerOpen ? 'toolbar-shell-mobile-drawer-open' : ''} fixed top-0 left-0 right-0 h-12 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center px-3 gap-3 bg-panel border-b border-border z-[var(--z-toolbar)] col-span-full row-start-1 select-none`}
     >
-      {/* Left section */}
       <div className="toolbar-left flex items-center gap-4 min-w-0">
         <div className="toolbar-scope flex items-center gap-3 min-w-0">
           <div className="toolbar-scope-text flex flex-col min-w-0 leading-tight">
@@ -318,16 +313,16 @@ export default function Toolbar({
               filtersRef={filtersRef}
               totalFilterCount={totalFilterCount}
               filterCount={filterCount}
-              starFilterList={starFilterList}
+              starsInFilterList={starsInFilterList}
               starCounts={starCounts}
               onToggleFilters={() => {
                 if (!sortSlotsVisible || viewerActive) return
                 setFiltersOpen((value) => !value)
               }}
               onOpenFilters={onOpenFilters}
-              onToggleStar={onToggleStar}
+              onToggleStarsIn={onToggleStarsIn}
               onClearFilters={onClearFilters}
-              onClearStars={onClearStars}
+              onClearStarsIn={onClearStarsIn}
             />
             <div className="toolbar-slot toolbar-slot-refresh" data-toolbar-slot="refresh">
               <button
@@ -376,7 +371,6 @@ export default function Toolbar({
         )}
       </div>
 
-      {/* Center section - size slider */}
       <div className="toolbar-center flex items-center gap-3 justify-center min-w-0">
         {viewerActive ? (
           <>
@@ -414,7 +408,6 @@ export default function Toolbar({
         )}
       </div>
 
-      {/* Right section */}
       <div className="toolbar-right flex items-center gap-2 justify-end">
         <div className="toolbar-slot toolbar-slot-nav" data-toolbar-slot="nav">
           <div className={`toolbar-nav flex items-center gap-1 ${showToolbarNav ? '' : 'toolbar-control-hidden'}`} aria-hidden={!showToolbarNav}>
@@ -447,7 +440,6 @@ export default function Toolbar({
           </div>
         </div>
 
-        {/* Panel toggles */}
         {topToolbarActionsVisible && (
           <div className="toolbar-panels flex items-center gap-1">
             <button
@@ -599,7 +591,7 @@ export default function Toolbar({
           filtersRef={filtersRef}
           totalFilterCount={totalFilterCount}
           filterCount={filterCount}
-          starFilterList={starFilterList}
+          starsInFilterList={starsInFilterList}
           starCounts={starCounts}
           refreshEnabled={refreshEnabled}
           refreshDisabledReason={refreshDisabledReason}
@@ -614,9 +606,9 @@ export default function Toolbar({
             setFiltersOpen((value) => !value)
           }}
           onOpenFilters={onOpenFilters}
-          onToggleStar={onToggleStar}
+          onToggleStarsIn={onToggleStarsIn}
           onClearFilters={onClearFilters}
-          onClearStars={onClearStars}
+          onClearStarsIn={onClearStarsIn}
           onRefreshRoot={onRefreshRoot}
           onToggleLeft={onToggleLeft}
           onToggleRight={onToggleRight}
@@ -640,9 +632,9 @@ function formatCountLabel(current?: number, total?: number): string | null {
   return `${currentLabel} / ${totalLabel} items`
 }
 
-function getTotalFilterCount(filterCount: number | undefined, activeStarCount: number): number {
+function getTotalFilterCount(filterCount: number | undefined, activeStarsInCount: number): number {
   if (typeof filterCount === 'number') return filterCount
-  if (activeStarCount > 0) return 1
+  if (activeStarsInCount > 0) return 1
   return 0
 }
 

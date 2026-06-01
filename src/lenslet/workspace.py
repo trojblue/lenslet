@@ -1,10 +1,13 @@
 from __future__ import annotations
 import json
 import os
+import tempfile
 from dataclasses import dataclass
 import hashlib
 from pathlib import Path
 from typing import Any, Generic, TypeVar
+
+from .atomic_write import atomic_write_json, atomic_write_text
 
 
 T = TypeVar("T")
@@ -30,7 +33,9 @@ class Workspace:
     views_override: Path | None = None
     is_temp: bool = False
 
-    TEMP_ROOT = Path("/tmp/lenslet")
+    @staticmethod
+    def temp_root() -> Path:
+        return Path(tempfile.gettempdir()) / "lenslet"
 
     @staticmethod
     def dataset_cache_key(dataset_root: str | Path) -> str:
@@ -41,7 +46,7 @@ class Workspace:
     @classmethod
     def for_temp_dataset(cls, dataset_root: str | Path) -> "Workspace":
         key = cls.dataset_cache_key(dataset_root)
-        root = cls.TEMP_ROOT / key
+        root = cls.temp_root() / key
         return cls(root=root, can_write=True, is_temp=True)
 
     def is_temp_workspace(self) -> bool:
@@ -151,18 +156,13 @@ class Workspace:
         if not self.can_write:
             raise PermissionError("workspace is read-only")
 
-    def save_views(self, payload: dict[str, Any]) -> None:
-        self.write_views(payload)
-
     def write_views(self, payload: dict[str, Any]) -> None:
         path = self.views_path
         self.ensure_writable()
         if path is None:
             raise PermissionError("workspace is read-only")
         self.ensure()
-        temp = path.with_suffix(".tmp")
-        temp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-        temp.replace(path)
+        atomic_write_json(path, payload, indent=2, sort_keys=True)
 
     def thumb_cache_dir(self) -> Path | None:
         if not self.can_write:
@@ -283,8 +283,7 @@ class Workspace:
         if path is None:
             raise PermissionError("workspace is read-only")
         self.ensure()
-        serialized = json.dumps(payload, indent=2, sort_keys=True)
-        self._atomic_write_text(path, serialized)
+        atomic_write_json(path, payload, indent=2, sort_keys=True)
 
     def append_labels_log(self, payload: dict[str, Any]) -> None:
         path = self.labels_log_path()
@@ -296,10 +295,7 @@ class Workspace:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
             handle.flush()
-            try:
-                os.fsync(handle.fileno())
-            except OSError:
-                pass
+            os.fsync(handle.fileno())
 
     def compact_labels_log(self, last_event_id: int, max_bytes: int = 5_000_000) -> bool:
         path = self.labels_log_path()
@@ -318,11 +314,8 @@ class Workspace:
                     raw = line.strip()
                     if not raw:
                         continue
-                    try:
-                        data = json.loads(raw)
-                    except Exception:
-                        continue
-                    if not isinstance(data, dict):
+                    data = _decode_json_object(raw)
+                    if data is None:
                         continue
                     event_id = data.get("id")
                     if isinstance(event_id, int) and event_id <= last_event_id:
@@ -336,7 +329,7 @@ class Workspace:
         if payload:
             payload += "\n"
         try:
-            self._atomic_write_text(path, payload)
+            atomic_write_text(path, payload)
         except Exception as exc:
             print(f"[lenslet] Warning: failed to write compacted labels log: {exc}")
             return False
@@ -392,27 +385,9 @@ class Workspace:
         detail = result.detail or result.status
         print(f"[lenslet] Warning: failed to read {label} at {location}: {detail}")
 
-    def _atomic_write_text(self, path: Path, payload: str) -> None:
-        temp = path.with_suffix(".tmp")
-        with temp.open("w", encoding="utf-8") as handle:
-            handle.write(payload)
-            handle.flush()
-            try:
-                os.fsync(handle.fileno())
-            except OSError:
-                pass
-        temp.replace(path)
-        self._fsync_dir(path.parent)
-
-    def _fsync_dir(self, path: Path) -> None:
-        flags = getattr(os, "O_DIRECTORY", 0)
-        try:
-            fd = os.open(os.fspath(path), os.O_RDONLY | flags)
-        except OSError:
-            return
-        try:
-            os.fsync(fd)
-        except OSError:
-            pass
-        finally:
-            os.close(fd)
+def _decode_json_object(raw: str) -> dict[str, Any] | None:
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None

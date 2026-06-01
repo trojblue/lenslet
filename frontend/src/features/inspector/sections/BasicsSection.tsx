@@ -1,5 +1,5 @@
 import React from 'react'
-import { fmtBytes, formatMetricNumber } from '../../../lib/util'
+import { formatBytes, formatMetricNumber } from '../../../lib/util'
 import type { SortSpec, StarRating } from '../../../lib/types'
 import type { InspectorWidgetId } from '../model/inspectorWidgetOrder'
 import { InspectorSection } from './InspectorSection'
@@ -183,11 +183,11 @@ export function BasicsSection({
           <div className="ui-kv-row justify-start">
             <span
               className="ui-kv-label ui-kv-label-action w-24 shrink-0"
-              onClick={() => onCopyInfo('size', fmtBytes(currentItem.size))}
+              onClick={() => onCopyInfo('size', formatBytes(currentItem.size))}
             >
               Size
             </span>
-            <CopyableInfoValue copied={copiedField === 'size'} value={fmtBytes(currentItem.size)} />
+            <CopyableInfoValue copied={copiedField === 'size'} value={formatBytes(currentItem.size)} />
           </div>
           <div className="ui-kv-row justify-start">
             <span

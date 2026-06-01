@@ -3,22 +3,47 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import multiprocessing as mp
+
+from . import server as server_api
+from .storage.table.input import TableInput, is_table_input, table_input_length
+from .web.auth import trusted_write_origins_for_host
 
 AppBuilder = Callable[[], object]
 BannerPrinter = Callable[[int | None], None]
 
 
+@dataclass(frozen=True, slots=True)
+class LaunchOptions:
+    blocking: bool = False
+    port: int = 7070
+    host: str = "127.0.0.1"
+    thumb_size: int = 256
+    thumb_quality: int = 70
+    show_source: bool = True
+    verbose: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TableLaunchOptions(LaunchOptions):
+    source_column: str | None = None
+    path_column: str | None = None
+    base_dir: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProgrammaticLaunchPlan:
+    build_app: AppBuilder
+    announce: BannerPrinter
+    port: int
+    host: str
+    verbose: bool
+
+
 def launch(
     datasets: dict[str, list[str]],
-    *,
-    blocking: bool = False,
-    port: int = 7070,
-    host: str = "127.0.0.1",
-    thumb_size: int = 256,
-    thumb_quality: int = 70,
-    show_source: bool = True,
-    verbose: bool = False,
+    options: LaunchOptions | None = None,
 ) -> None:
     """Launch Lenslet in dataset mode.
 
@@ -26,149 +51,119 @@ def launch(
     """
     if not isinstance(datasets, dict) or not datasets:
         raise ValueError("datasets must be a non-empty dict")
+    options = options or LaunchOptions()
 
-    from .server import BrowseAppOptions, create_app_from_datasets
-
-    app_options = BrowseAppOptions(
-        thumb_size=thumb_size,
-        thumb_quality=thumb_quality,
+    app_options = server_api.BrowseAppOptions(
+        thumb_size=options.thumb_size,
+        thumb_quality=options.thumb_quality,
     )
     _launch_programmatic(
-        blocking=blocking,
-        build_app=lambda: create_app_from_datasets(
-            datasets,
-            show_source=show_source,
-            options=app_options,
+        blocking=options.blocking,
+        plan=ProgrammaticLaunchPlan(
+            build_app=lambda: server_api.create_app_from_datasets(
+                datasets,
+                options=server_api.DatasetAppOptions(
+                    browse=app_options,
+                    show_source=options.show_source,
+                ),
+            ),
+            announce=lambda process_id=None: _print_dataset_launch_banner(
+                datasets=datasets,
+                host=options.host,
+                port=options.port,
+                process_id=process_id,
+            ),
+            port=options.port,
+            host=options.host,
+            verbose=options.verbose,
         ),
-        announce=lambda process_id=None: _print_dataset_launch_banner(
-            datasets=datasets,
-            host=host,
-            port=port,
-            process_id=process_id,
-        ),
-        port=port,
-        host=host,
-        verbose=verbose,
     )
 
 
 def launch_table(
-    table: object,
-    *,
-    blocking: bool = False,
-    port: int = 7070,
-    host: str = "127.0.0.1",
-    thumb_size: int = 256,
-    thumb_quality: int = 70,
-    show_source: bool = True,
-    verbose: bool = False,
-    source_column: str | None = None,
-    base_dir: str | None = None,
+    table: TableInput,
+    options: TableLaunchOptions | None = None,
 ) -> None:
-    """Launch Lenslet from a single table-like payload."""
-    if not _is_table_like(table):
+    """Launch Lenslet from a pyarrow-like, pandas-like, or list-of-dicts table."""
+    if not is_table_input(table):
         raise ValueError("table must be a table-like object")
-    from .server import BrowseAppOptions, create_app_from_table
+    options = options or TableLaunchOptions()
 
-    app_options = BrowseAppOptions(
-        thumb_size=thumb_size,
-        thumb_quality=thumb_quality,
+    app_options = server_api.BrowseAppOptions(
+        thumb_size=options.thumb_size,
+        thumb_quality=options.thumb_quality,
     )
     _launch_programmatic(
-        blocking=blocking,
-        build_app=lambda: create_app_from_table(
-            table=table,
-            base_dir=base_dir,
-            source_column=source_column,
-            show_source=show_source,
-            options=app_options,
+        blocking=options.blocking,
+        plan=ProgrammaticLaunchPlan(
+            build_app=lambda: server_api.create_app_from_table(
+                table=table,
+                options=server_api.TableAppOptions(
+                    browse=app_options,
+                    base_dir=options.base_dir,
+                    source_column=options.source_column,
+                    path_column=options.path_column,
+                    show_source=options.show_source,
+                    trusted_write_origins=trusted_write_origins_for_host(options.host, options.port),
+                ),
+            ),
+            announce=lambda process_id=None: _print_table_launch_banner(
+                table=table,
+                host=options.host,
+                port=options.port,
+                source_column=options.source_column,
+                process_id=process_id,
+            ),
+            port=options.port,
+            host=options.host,
+            verbose=options.verbose,
         ),
-        announce=lambda process_id=None: _print_table_launch_banner(
-            table=table,
-            host=host,
-            port=port,
-            source_column=source_column,
-            process_id=process_id,
-        ),
-        port=port,
-        host=host,
-        verbose=verbose,
     )
 
 
 def _launch_programmatic(
     *,
     blocking: bool,
-    build_app: AppBuilder,
-    announce: BannerPrinter,
-    port: int,
-    host: str,
-    verbose: bool,
+    plan: ProgrammaticLaunchPlan,
 ) -> None:
     if blocking:
-        _launch_blocking_app(
-            build_app=build_app,
-            announce=announce,
-            port=port,
-            host=host,
-            verbose=verbose,
-        )
+        _launch_blocking_app(plan)
         return
-    _launch_subprocess_app(
-        build_app=build_app,
-        announce=announce,
-        port=port,
-        host=host,
-        verbose=verbose,
-    )
+    _launch_subprocess_app(plan)
 
 
-def _launch_blocking_app(
-    *,
-    build_app: AppBuilder,
-    announce: BannerPrinter,
-    port: int,
-    host: str,
-    verbose: bool,
-) -> None:
+def _launch_blocking_app(plan: ProgrammaticLaunchPlan) -> None:
     """Launch in current process (blocking)."""
     import uvicorn
-    announce()
-    app = build_app()
+    plan.announce()
+    app = plan.build_app()
 
     uvicorn.run(
         app,
-        host=host,
-        port=port,
-        log_level="info" if verbose else "warning",
+        host=plan.host,
+        port=plan.port,
+        log_level="info" if plan.verbose else "warning",
     )
 
 
-def _launch_subprocess_app(
-    *,
-    build_app: AppBuilder,
-    announce: BannerPrinter,
-    port: int,
-    host: str,
-    verbose: bool,
-) -> None:
+def _launch_subprocess_app(plan: ProgrammaticLaunchPlan) -> None:
     """Launch in subprocess (non-blocking)."""
 
     def _worker() -> None:
         import uvicorn
-        app = build_app()
+        app = plan.build_app()
 
         uvicorn.run(
             app,
-            host=host,
-            port=port,
-            log_level="info" if verbose else "warning",
+            host=plan.host,
+            port=plan.port,
+            log_level="info" if plan.verbose else "warning",
         )
 
     process = mp.Process(target=_worker, daemon=False)
     process.start()
 
-    announce(process.pid)
+    plan.announce(process.pid)
 
 
 def _print_dataset_launch_banner(
@@ -200,13 +195,13 @@ def _print_dataset_launch_banner(
 
 def _print_table_launch_banner(
     *,
-    table: object,
+    table: TableInput,
     host: str,
     port: int,
     source_column: str | None,
     process_id: int | None = None,
 ) -> None:
-    total_images = _table_length(table)
+    total_images = table_input_length(table)
     source_label = (source_column or "auto")[:35]
     mode_label = "Table (programmatic API)" if process_id is None else "Table (subprocess)"
     pid_row = f"│  PID:       {process_id:<35} │\n" if process_id is not None else ""
@@ -224,21 +219,3 @@ def _print_table_launch_banner(
 {pid_row}└─────────────────────────────────────────────────┘
 {footer}"""
     )
-
-
-def _is_table_like(obj: object) -> bool:
-    if isinstance(obj, list):
-        return len(obj) == 0 or isinstance(obj[0], dict)
-    if hasattr(obj, "to_pydict"):
-        return True
-    return hasattr(obj, "columns") and hasattr(obj, "to_dict")
-
-
-def _table_length(obj: object) -> int:
-    if isinstance(obj, list):
-        return len(obj)
-    if hasattr(obj, "num_rows"):
-        return int(obj.num_rows)
-    if hasattr(obj, "__len__"):
-        return len(obj)  # type: ignore[arg-type]
-    return 0

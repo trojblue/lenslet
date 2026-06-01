@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../client'
-import { fileCache, thumbCache } from '../../lib/blobCache'
+import { BlobLRUCache, fileCache, thumbCache } from '../../lib/blobCache'
 import { resetBrowseRequestBudgetForTests, runWithRequestBudget } from '../requestBudget'
 
 function resetPrefetchTestState(): void {
@@ -10,6 +10,13 @@ function resetPrefetchTestState(): void {
   vi.restoreAllMocks()
 }
 
+function requireAbortSignal(signal: AbortSignal | null): AbortSignal {
+  if (signal === null) {
+    throw new Error('expected fetch to receive an abort signal')
+  }
+  return signal
+}
+
 describe('file prefetch api contract', () => {
   beforeEach(resetPrefetchTestState)
   afterEach(resetPrefetchTestState)
@@ -17,7 +24,8 @@ describe('file prefetch api contract', () => {
   it('skips prefetch for non-viewer/non-compare contexts', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
 
-    await api.prefetchFile('/a.jpg', 'invalid' as any)
+    // @ts-expect-error verifies the runtime guard for malformed callers.
+    await api.prefetchFile('/a.jpg', 'invalid')
 
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(fileCache.has('/a.jpg')).toBe(false)
@@ -44,6 +52,31 @@ describe('file prefetch api contract', () => {
     await api.prefetchFile('/c.jpg', 'compare')
 
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('blob cache promise contract', () => {
+  it('returns a resolved promise for cache hits without calling the fetcher', async () => {
+    const cache = new BlobLRUCache(1024)
+    const cached = new Blob([new Uint8Array([1, 2, 3])])
+    const fetcher = vi.fn(async () => new Blob([new Uint8Array([9])]))
+    cache.set('/cached.jpg', cached)
+
+    const promise = cache.getOrFetch('/cached.jpg', fetcher)
+
+    expect(promise).toBeInstanceOf(Promise)
+    await expect(promise).resolves.toBe(cached)
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('converts synchronous fetcher failures into rejected promises', async () => {
+    const cache = new BlobLRUCache(1024)
+
+    await expect(
+      cache.getOrFetch('/boom.jpg', () => {
+        throw new Error('boom')
+      }),
+    ).rejects.toThrow('boom')
   })
 })
 
@@ -136,7 +169,7 @@ describe('thumb prefetch api contract', () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     expect(String(fetchSpy.mock.calls[0][0])).toContain('/file?path=%2Fabort-hover.jpg')
-    expect(requestSignal?.aborted).toBe(true)
+    expect(requireAbortSignal(requestSignal).aborted).toBe(true)
     await expect(request.promise).rejects.toMatchObject({ name: 'AbortError' })
     expect(fileCache.has('/abort-hover.jpg')).toBe(false)
     expect(thumbCache.has('/abort-hover.jpg')).toBe(false)

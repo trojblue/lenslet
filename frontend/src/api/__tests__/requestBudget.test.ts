@@ -24,6 +24,7 @@ afterEach(() => {
   cancelBrowseRequests()
   resetBrowseRequestBudgetForTests()
   vi.restoreAllMocks()
+  delete (globalThis as { window?: unknown }).window
 })
 
 type EndpointName = 'folders' | 'thumb' | 'file'
@@ -34,6 +35,39 @@ type EndpointRun = {
 }
 
 describe('browse request budget', () => {
+  it('does not publish browser globals during module import', async () => {
+    vi.resetModules()
+    const windowStub: Window = {} as Window
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: windowStub,
+    })
+
+    await import('../requestBudget')
+
+    expect(windowStub.__lensletBrowseHotpath).toBeUndefined()
+  })
+
+  it('publishes default counters when telemetry is explicitly initialized', async () => {
+    vi.resetModules()
+    const windowStub: Window = {} as Window
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: windowStub,
+    })
+    const budget = await import('../requestBudget')
+
+    budget.initializeBrowseRequestBudgetTelemetry()
+
+    expect(windowStub.__lensletBrowseHotpath?.requestBudget).toMatchObject({
+      limits: { folders: 2, thumb: 6, file: 3 },
+      inflight: { folders: 0, thumb: 0, file: 0 },
+      queued: { folders: 0, thumb: 0, file: 0 },
+    })
+  })
+
   it('keeps endpoint peaks within configured limits', async () => {
     const endpoints = [
       { name: 'folders' as const, limit: 2 },

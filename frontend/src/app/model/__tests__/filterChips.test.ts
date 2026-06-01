@@ -4,7 +4,7 @@ import { buildFilterChips } from '../filterChips'
 
 function createActions() {
   return {
-    clearStars: vi.fn(),
+    clearStarsIn: vi.fn(),
     clearStarsNotIn: vi.fn(),
     clearNameContains: vi.fn(),
     clearNameNotContains: vi.fn(),
@@ -58,7 +58,7 @@ describe('filterChips', () => {
 
     for (const chip of chips) chip.onRemove()
 
-    expect(actions.clearStars).toHaveBeenCalledTimes(1)
+    expect(actions.clearStarsIn).toHaveBeenCalledTimes(1)
     expect(actions.clearStarsNotIn).toHaveBeenCalledTimes(1)
     expect(actions.clearNameContains).toHaveBeenCalledTimes(1)
     expect(actions.clearNameNotContains).toHaveBeenCalledTimes(1)

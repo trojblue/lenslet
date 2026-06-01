@@ -4,6 +4,7 @@
 
 - Active working docs live directly under `docs/` (for example current execution plans and dev notes).
 - Historical agent-era material lives under `docs/agents_archive/`.
+- Move completed dated plans, reviews, audits, and stale architecture notes into `docs/agents_archive/`.
 - Treat `docs/agents_archive/` as reference only, not current source-of-truth, unless a task explicitly asks for historical context.
 
 ## Ralph Workspaces

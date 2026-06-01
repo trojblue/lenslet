@@ -2,9 +2,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import threading
+import time
 from typing import Callable
 
 from tqdm import tqdm
+
+
+class ProgressTicker:
+    def __init__(self, *, total: int, label: str, emit: Callable[[int, int, str], None]) -> None:
+        self.total = total
+        self.label = label
+        self.emit = emit
+        self.done = 0
+        self.last_print = 0.0
+
+    def step(self) -> None:
+        self.done += 1
+        now = time.monotonic()
+        if now - self.last_print > 0.1 or self.done == self.total:
+            self.emit(self.done, self.total, self.label)
+            self.last_print = now
+
+    def finish(self) -> None:
+        if self.done < self.total:
+            self.emit(self.total, self.total, self.label)
 
 
 class ProgressBar:
@@ -101,11 +122,7 @@ class LeafBatchTracker:
         leaf_paths: list[str] = []
         for name in dirs:
             child = self._join(path, name) if path else name
-            try:
-                _, child_dirs = self._list_dir(child)
-            except Exception:
-                continue
-            if not child_dirs:
+            if self._is_leaf_child(child):
                 leaf_paths.append(self._normalize_path(child))
 
         if len(leaf_paths) <= self._threshold:
@@ -129,6 +146,13 @@ class LeafBatchTracker:
                 seen=seen,
             )
             self._checked.add(parent)
+
+    def _is_leaf_child(self, child: str) -> bool:
+        try:
+            _, child_dirs = self._list_dir(child)
+        except Exception:
+            return False
+        return not child_dirs
 
     def use_batch(self, norm: str, dirs: list[str]) -> bool:
         if dirs:

@@ -20,20 +20,20 @@ function makeItem(path: string): BrowseItemPayload {
     width: 1,
     height: 1,
     size: 1,
-    hasThumbnail: true,
-    hasMetadata: true,
+    has_thumbnail: true,
+    has_metadata: true,
   }
 }
 
-function makeFolder(path: string, itemPaths: string[], generatedAt = '2026-02-12T00:00:00Z'): BrowseFolderPayload {
+function makeFolder(path: string, itemPaths: string[], generated_at = '2026-02-12T00:00:00Z'): BrowseFolderPayload {
   return {
     version: 1,
     path,
-    generatedAt,
-    metricKeys: [],
+    generated_at,
+    metric_keys: [],
     folders: [],
     items: itemPaths.map((itemPath) => makeItem(itemPath)),
-    totalItems: itemPaths.length,
+    total_items: itemPaths.length,
   }
 }
 

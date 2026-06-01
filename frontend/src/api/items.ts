@@ -5,7 +5,6 @@ import { usePollingEnabled } from './polling'
 import { FetchError } from '../lib/fetcher'
 import type { Sidecar, SidecarPatch } from '../lib/types'
 
-/** Query key for sidecar data */
 export const sidecarQueryKey = (path: string) => ['item', path] as const
 
 type UpdateFields = Partial<Omit<Sidecar, 'v' | 'version' | 'updated_at' | 'updated_by'>>
@@ -22,7 +21,6 @@ export type ConflictEntry = {
   receivedAt: string
 }
 
-/** Default sidecar for new items */
 const DEFAULT_SIDECAR: Sidecar = {
   v: 1,
   tags: [],
@@ -32,16 +30,12 @@ const DEFAULT_SIDECAR: Sidecar = {
   updated_by: 'web',
 }
 
-/** Pending patches keyed by path, waiting to be flushed. */
 const pendingPatches = new Map<string, UpdateFields>()
 
-/** In-flight flush operations keyed by path. */
 const inflightByPath = new Map<string, Promise<void>>()
 
-/** In-flight start times for queued updates keyed by path. */
 const inflightStartByPath = new Map<string, number>()
 
-/** In-flight start times for direct updates keyed by id. */
 const directInflightStartById = new Map<number, number>()
 let directInflightSeq = 0
 
@@ -329,9 +323,6 @@ export function updateConflictFromServer(path: string, current: Sidecar): void {
   updateSyncState()
 }
 
-/**
- * Hook to fetch sidecar metadata for an item.
- */
 export function useSidecar(path: string) {
   const pollingEnabled = usePollingEnabled()
   return useQuery({
@@ -346,10 +337,8 @@ export function useSidecar(path: string) {
   })
 }
 
-/**
- * Hook to update sidecar metadata with patch semantics.
- * Optimistically updates the cache on success.
- */
+// Direct edits use patch semantics so optimistic cache updates can surface
+// version conflicts instead of overwriting a newer server value.
 export function useUpdateSidecar(path: string) {
   const qc = useQueryClient()
 
@@ -400,13 +389,8 @@ export function useUpdateSidecar(path: string) {
   })
 }
 
-/** Concurrency limit for bulk operations */
 const BULK_CONCURRENCY = 6
 
-/**
- * Update multiple sidecars with the same partial data.
- * Uses a worker pool to limit concurrent requests.
- */
 export async function bulkUpdateSidecars(
   paths: string[],
   fields: UpdateFields
@@ -424,40 +408,33 @@ export async function bulkUpdateSidecars(
         await queueSidecarUpdate(p, fields)
       } catch (error) {
         errors.push({ path: p, error })
-        // Log but don't stop other updates
         console.error(`[bulkUpdateSidecars] Failed for ${p}:`, error)
       }
     }
   }
 
-  // Start workers
   const workers = Array.from(
     { length: Math.min(BULK_CONCURRENCY, paths.length) },
     () => worker()
   )
   await Promise.all(workers)
 
-  // If all failed, throw
   if (errors.length === paths.length) {
     throw new Error(`All ${paths.length} sidecar updates failed`)
   }
 }
 
-/**
- * Queue a sidecar update for a path. Coalesces rapid updates.
- * Returns a promise that resolves when the update is persisted.
- */
+// Rapid updates for one path are coalesced into one flush; later patches replace
+// pending fields until the current server version is fetched.
 export async function queueSidecarUpdate(
   path: string,
   patch: UpdateFields
 ): Promise<void> {
-  // Merge with any pending patch for this path
   const existing = pendingPatches.get(path) || {}
   pendingPatches.set(path, { ...existing, ...patch })
   clearSyncError()
   updateSyncState()
 
-  // If already flushing, the existing flush will pick up this patch
   const existingFlush = inflightByPath.get(path)
   if (existingFlush) return existingFlush
 
@@ -466,7 +443,6 @@ export async function queueSidecarUpdate(
 
   const flush = (async (): Promise<void> => {
     try {
-      // Keep flushing while there are pending patches
       while (pendingPatches.has(path)) {
         const toSend = pendingPatches.get(path)
         if (!toSend) break
@@ -536,9 +512,6 @@ export async function queueSidecarUpdate(
   return flush
 }
 
-/**
- * Check if there are pending updates for a path.
- */
 export function hasPendingUpdate(path: string): boolean {
   return pendingPatches.has(path) || inflightByPath.has(path)
 }

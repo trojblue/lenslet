@@ -11,8 +11,8 @@ function makeItem(path: string, metrics?: BrowseItemPayload['metrics']): BrowseI
     width: 100,
     height: 100,
     size: 1,
-    hasThumbnail: true,
-    hasMetadata: true,
+    has_thumbnail: true,
+    has_metadata: true,
     metrics,
   }
 }

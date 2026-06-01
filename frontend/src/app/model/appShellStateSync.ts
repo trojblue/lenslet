@@ -27,7 +27,6 @@ export type ItemCacheUpdatePayload = {
 
 export type PersistedAppShellSettings = {
   sortSpec: SortSpec
-  starFilters: number[]
   filterAst: FilterAST
   selectedMetric?: string
   viewMode: ViewMode

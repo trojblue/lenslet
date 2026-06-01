@@ -8,7 +8,7 @@ export type FilterChip = {
 }
 
 export type FilterChipActions = {
-  clearStars: () => void
+  clearStarsIn: () => void
   clearStarsNotIn: () => void
   clearNameContains: () => void
   clearNameNotContains: () => void
@@ -58,7 +58,7 @@ const FILTER_CHIP_REGISTRY: { [K in FilterClauseKey]: FilterChipRegistryEntry<K>
         label: `Rating in: ${formatStarValues(stars)}`,
       }
     },
-    clear: (_clause, actions) => actions.clearStars(),
+    clear: (_clause, actions) => actions.clearStarsIn(),
   },
   starsNotIn: {
     read: (clause) => {

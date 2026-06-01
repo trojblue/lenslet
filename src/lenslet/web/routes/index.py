@@ -6,9 +6,9 @@ import html
 
 from fastapi import FastAPI, Request, Response
 
-from ..frontend import frontend_dist_path, load_frontend_shell
-from ... import og
+from .. import og
 from ..context import get_request_context
+from ..frontend import frontend_dist_path, load_frontend_shell
 from .og import dataset_count, dataset_label
 
 _load_frontend_shell = load_frontend_shell

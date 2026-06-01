@@ -9,8 +9,8 @@ const baseItem = (overrides: Partial<BrowseItemPayload>): BrowseItemPayload => (
   width: 0,
   height: 0,
   size: 0,
-  hasThumbnail: true,
-  hasMetadata: true,
+  has_thumbnail: true,
+  has_metadata: true,
   ...overrides,
 })
 

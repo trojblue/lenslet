@@ -74,8 +74,8 @@ function matchesClause(item: BrowseItemPayload, clause: FilterClause): boolean {
   if ('dateRange' in clause) {
     const { from, to } = clause.dateRange
     if (!from && !to) return true
-    if (!item.addedAt) return false
-    const itemMs = Date.parse(item.addedAt)
+    if (!item.added_at) return false
+    const itemMs = Date.parse(item.added_at)
     if (Number.isNaN(itemMs)) return false
     const fromMs = parseDateBound(from, false)
     const toMs = parseDateBound(to, true)
@@ -118,14 +118,6 @@ export function normalizeFilterAst(raw: unknown): FilterAST | null {
     if (next) normalized.push(next)
   }
   return { and: normalized }
-}
-
-export function getStarFilter(filters: FilterAST): number[] {
-  return getStarsInFilter(filters)
-}
-
-export function setStarFilter(filters: FilterAST, stars: number[]): FilterAST {
-  return setStarsInFilter(filters, stars)
 }
 
 export function getStarsInFilter(filters: FilterAST): number[] {
@@ -293,11 +285,6 @@ export function countActiveFilters(filters: FilterAST): number {
 
 function normalizeClause(clause: unknown): FilterClause | null {
   if (!clause || typeof clause !== 'object') return null
-  if ('stars' in clause) {
-    const values = normalizeStarValues((clause as { stars?: unknown }).stars)
-    if (!values.length) return null
-    return { starsIn: { values } }
-  }
   if ('starsIn' in clause) {
     const values = normalizeStarValues((clause as { starsIn?: { values?: unknown } }).starsIn?.values)
     if (!values.length) return null

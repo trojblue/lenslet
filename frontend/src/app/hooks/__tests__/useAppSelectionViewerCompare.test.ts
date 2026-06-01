@@ -16,8 +16,8 @@ function buildItem(path: string, name: string): BrowseItemPayload {
     width: 100,
     height: 100,
     size: 1,
-    hasThumbnail: true,
-    hasMetadata: false,
+    has_thumbnail: true,
+    has_metadata: false,
   }
 }
 

@@ -14,8 +14,8 @@ function makeItem(path: string, overrides: Partial<BrowseItemPayload> = {}): Bro
     width: 100,
     height: 100,
     size: 1,
-    hasThumbnail: true,
-    hasMetadata: true,
+    has_thumbnail: true,
+    has_metadata: true,
     ...overrides,
   }
 }
@@ -24,8 +24,8 @@ function makeFolder(path: string, items: BrowseItemPayload[]): BrowseFolderPaylo
   return {
     version: 1,
     path,
-    generatedAt: '2026-03-07T00:00:00Z',
-    metricKeys: [],
+    generated_at: '2026-03-07T00:00:00Z',
+    metric_keys: [],
     items,
     folders: [],
   }

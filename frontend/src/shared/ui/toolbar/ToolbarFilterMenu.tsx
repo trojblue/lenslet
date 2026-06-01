@@ -16,13 +16,13 @@ export interface ToolbarFilterMenuProps {
   filtersRef: React.RefObject<HTMLDivElement>
   totalFilterCount: number
   filterCount?: number
-  starFilterList: number[]
+  starsInFilterList: number[]
   starCounts?: { [k: string]: number }
   onToggleFilters: () => void
   onOpenFilters?: () => void
-  onToggleStar?: (value: number) => void
+  onToggleStarsIn?: (value: number) => void
   onClearFilters?: () => void
-  onClearStars?: () => void
+  onClearStarsIn?: () => void
 }
 
 export default function ToolbarFilterMenu({
@@ -34,13 +34,13 @@ export default function ToolbarFilterMenu({
   filtersRef,
   totalFilterCount,
   filterCount,
-  starFilterList,
+  starsInFilterList,
   starCounts,
   onToggleFilters,
   onOpenFilters,
-  onToggleStar,
+  onToggleStarsIn,
   onClearFilters,
-  onClearStars,
+  onClearStarsIn,
 }: ToolbarFilterMenuProps): JSX.Element {
   const controlsVisible = !suppressed
   const buttonDisabled = viewerActive || suppressed
@@ -142,12 +142,12 @@ export default function ToolbarFilterMenu({
           <div className="dropdown-label">Rating</div>
           <div className="px-1">
             {[5, 4, 3, 2, 1].map((value) => {
-              const active = starFilterList.includes(value)
+              const active = starsInFilterList.includes(value)
               const count = starCounts?.[String(value)] ?? 0
               return (
                 <button
                   key={value}
-                  onClick={() => onToggleStar?.(value)}
+                  onClick={() => onToggleStarsIn?.(value)}
                   className={`dropdown-item justify-between ${active ? 'bg-accent-muted' : ''}`}
                 >
                   <span className={active ? 'text-star-active' : 'text-text'}>
@@ -158,8 +158,8 @@ export default function ToolbarFilterMenu({
               )
             })}
             <button
-              onClick={() => onToggleStar?.(0)}
-              className={`dropdown-item justify-between ${starFilterList.includes(0) ? 'bg-accent-muted' : ''}`}
+              onClick={() => onToggleStarsIn?.(0)}
+              className={`dropdown-item justify-between ${starsInFilterList.includes(0) ? 'bg-accent-muted' : ''}`}
             >
               <span className="text-text">Unrated</span>
               <span className="text-xs text-muted">{starCounts?.['0'] ?? 0}</span>
@@ -196,7 +196,7 @@ export default function ToolbarFilterMenu({
               if (onClearFilters) {
                 onClearFilters()
               } else {
-                onClearStars?.()
+                onClearStarsIn?.()
               }
             }}
             disabled={totalFilterCount === 0}

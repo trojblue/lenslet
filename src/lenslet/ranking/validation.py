@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from .dataset import RankingDataset
+from .models import RankingResultEntry
 
 
 class RankingValidationError(ValueError):
@@ -25,7 +25,7 @@ class RankingSavePayload(BaseModel):
 
     @field_validator("instance_id", mode="before")
     @classmethod
-    def _coerce_instance_id(cls, value: Any) -> str:
+    def _coerce_instance_id(cls, value: object) -> str:
         if value is None:
             raise ValueError("instance_id is required")
         text = str(value).strip()
@@ -47,13 +47,16 @@ class RankingSavePayload(BaseModel):
         return groups
 
 
-def validate_save_payload(payload: Any, dataset: RankingDataset) -> dict[str, Any]:
-    if not isinstance(payload, dict):
-        raise RankingValidationError("request body must be a JSON object")
-    try:
-        body = RankingSavePayload.model_validate(payload)
-    except ValidationError as exc:
-        raise RankingValidationError(_first_validation_error(exc)) from exc
+def validate_save_payload(payload: object, dataset: RankingDataset) -> RankingResultEntry:
+    if isinstance(payload, RankingSavePayload):
+        body = payload
+    else:
+        if not isinstance(payload, dict):
+            raise RankingValidationError("request body must be a JSON object")
+        try:
+            body = RankingSavePayload.model_validate(payload)
+        except ValidationError as exc:
+            raise RankingValidationError(_first_validation_error(exc)) from exc
 
     instance = dataset.get_instance(body.instance_id)
     if instance is None:
@@ -78,7 +81,7 @@ def validate_save_payload(payload: Any, dataset: RankingDataset) -> dict[str, An
             "completed ranking must include every image exactly once",
         )
 
-    entry: dict[str, Any] = {
+    entry: RankingResultEntry = {
         "instance_id": instance.instance_id,
         "instance_index": instance.instance_index,
         "final_ranks": body.final_ranks,
@@ -98,13 +101,13 @@ def validate_save_payload(payload: Any, dataset: RankingDataset) -> dict[str, An
 
 def derive_progress(
     dataset: RankingDataset,
-    latest_entries_by_instance: dict[str, dict[str, Any]],
-) -> dict[str, Any]:
+    latest_entries_by_instance: dict[str, RankingResultEntry],
+) -> dict[str, object]:
     completed_instance_ids: list[str] = []
     last_completed_index: int | None = None
     for instance in dataset.instances:
         entry = latest_entries_by_instance.get(instance.instance_id)
-        if isinstance(entry, dict) and bool(entry.get("completed")):
+        if entry is not None and entry["completed"]:
             completed_instance_ids.append(instance.instance_id)
             last_completed_index = instance.instance_index
 

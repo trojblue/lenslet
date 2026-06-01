@@ -5,30 +5,40 @@ from __future__ import annotations
 import asyncio
 import os
 import stat
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
-from ..media_errors import MediaDecodeError, MediaReadError
-from ..storage.base import BrowseStorage
+from ..media_errors import MediaDecodeError, MediaError, MediaReadError, RemoteMediaReadError
+from ..storage.base import MediaStorage
 from .cache.thumbs import ThumbCache
-from ..thumbs import ThumbnailScheduler
+from .thumbs import ThumbnailScheduler
+
+if TYPE_CHECKING:
+    from .hotpath import HotpathTelemetry
 
 
 class _ClientDisconnected(Exception):
     pass
 
 
-def _thumb_worker_count() -> int:
+def thumb_worker_count() -> int:
     cpu = os.cpu_count() or 2
     return max(1, min(4, cpu))
 
 
-def _get_cached_thumbnail(storage: BrowseStorage, path: str) -> bytes | None:
+_FAST_PATH_FALLBACK_ERRORS = (OSError, ValueError)
+_MEDIA_RESPONSE_ERRORS = (FileNotFoundError, MediaError)
+
+
+def _get_cached_thumbnail(storage: MediaStorage, path: str) -> bytes | None:
+    get_cached = getattr(storage, "get_cached_thumbnail", None)
+    if get_cached is None:
+        return None
     try:
-        return storage.get_cached_thumbnail(path)
-    except Exception:
+        return get_cached(path)
+    except _FAST_PATH_FALLBACK_ERRORS:
         return None
 
 
@@ -48,18 +58,27 @@ async def _await_thumbnail(
             raise _ClientDisconnected()
 
 
-def _thumb_cache_key(storage: BrowseStorage, path: str) -> str | None:
+def _thumb_cache_key(storage: MediaStorage, path: str) -> str | None:
+    cache_key = getattr(storage, "thumbnail_cache_key", None)
+    if cache_key is None:
+        return None
     try:
-        return storage.thumbnail_cache_key(path)
-    except Exception:
+        return cache_key(path)
+    except _FAST_PATH_FALLBACK_ERRORS:
         return None
 
 
-def _thumbnail_failure_to_http_error(exc: Exception) -> HTTPException:
+def media_failure_to_http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, FileNotFoundError):
         return HTTPException(404, "file not found")
     if isinstance(exc, MediaDecodeError):
         return HTTPException(422, "failed to decode source image")
+    if isinstance(exc, RemoteMediaReadError):
+        if exc.category == "permission":
+            return HTTPException(403, "remote source access denied")
+        if exc.category == "timeout":
+            return HTTPException(504, "remote source timed out")
+        return HTTPException(502, "failed to read remote source")
     if isinstance(exc, MediaReadError):
         return HTTPException(500, "failed to read source image")
     return HTTPException(500, "failed to generate thumbnail")
@@ -77,25 +96,28 @@ def _existing_local_file(source: str) -> tuple[str, os.stat_result] | None:
 
 
 def _resolve_local_file_path(
-    storage: BrowseStorage,
+    storage: MediaStorage,
     path: str,
 ) -> tuple[str, os.stat_result] | None:
+    resolver = getattr(storage, "resolve_local_file_path", None)
+    if resolver is None:
+        return None
     try:
-        source = storage.resolve_local_file_path(path)
-    except Exception:
+        source = resolver(path)
+    except _FAST_PATH_FALLBACK_ERRORS:
         return None
     if source is None:
         return None
     return _existing_local_file(source)
 
 
-async def _thumb_response_async(
-    storage: BrowseStorage,
+async def thumb_response_async(
+    storage: MediaStorage,
     path: str,
     request: Request,
     queue: ThumbnailScheduler,
     thumb_cache: ThumbCache | None = None,
-    hotpath_metrics: Any | None = None,
+    hotpath_metrics: HotpathTelemetry | None = None,
 ) -> Response:
     cached = _get_cached_thumbnail(storage, path)
     if cached is not None:
@@ -109,7 +131,7 @@ async def _thumb_response_async(
             if cached_disk is not None:
                 return Response(content=cached_disk, media_type="image/webp")
 
-    future = queue.submit(path, lambda: storage.get_thumbnail(path))
+    future = queue.submit(path, lambda: storage.get_or_build_thumbnail(path))
     try:
         thumb = await _await_thumbnail(request, future)
     except _ClientDisconnected:
@@ -119,8 +141,11 @@ async def _thumb_response_async(
             if cancel_state in ("queued", "inflight"):
                 hotpath_metrics.increment(f"thumb_disconnect_cancel_{cancel_state}_total")
         return Response(status_code=204)
-    except Exception as exc:
-        raise _thumbnail_failure_to_http_error(exc) from exc
+    except _MEDIA_RESPONSE_ERRORS as exc:
+        raise media_failure_to_http_error(exc) from exc
+    except _FAST_PATH_FALLBACK_ERRORS as exc:
+        read_error = MediaReadError.from_exception(path, exc)
+        raise media_failure_to_http_error(read_error) from exc
 
     if thumb_cache is not None and cache_key:
         thumb_cache.set(cache_key, thumb)
@@ -141,11 +166,11 @@ def _file_prefetch_context(request: Request | None) -> FilePrefetchContext | Non
     return None
 
 
-def _file_response(
-    storage: BrowseStorage,
+def file_response(
+    storage: MediaStorage,
     path: str,
     request: Request | None = None,
-    hotpath_metrics: Any | None = None,
+    hotpath_metrics: HotpathTelemetry | None = None,
 ) -> Response:
     prefetch_context = _file_prefetch_context(request)
     if prefetch_context is not None and hotpath_metrics is not None:
@@ -160,9 +185,11 @@ def _file_response(
         return FileResponse(path=local_path, media_type=media_type, stat_result=stat_result)
     if hotpath_metrics is not None:
         hotpath_metrics.increment("file_response_fallback_bytes_total")
-    data = storage.read_bytes(path)
+    try:
+        data = storage.read_bytes(path)
+    except _MEDIA_RESPONSE_ERRORS as exc:
+        raise media_failure_to_http_error(exc) from exc
+    except _FAST_PATH_FALLBACK_ERRORS as exc:
+        read_error = MediaReadError.from_exception(path, exc)
+        raise media_failure_to_http_error(read_error) from exc
     return Response(content=data, media_type=media_type)
-
-
-thumb_response_async = _thumb_response_async
-file_response = _file_response

@@ -58,8 +58,8 @@ export function upsertFolderSessionSnapshot(
     ...existing,
     path: normalizePath(path),
     hydratedSnapshot,
-    hydratedGeneratedAt: snapshot.generatedAt ?? null,
-    hydratedItemCount: snapshot.totalItems ?? snapshot.items.length,
+    hydratedGeneratedAt: snapshot.generated_at ?? null,
+    hydratedItemCount: snapshot.total_items ?? snapshot.items.length,
     hydratedAtMs: nowMs,
   }
   if (

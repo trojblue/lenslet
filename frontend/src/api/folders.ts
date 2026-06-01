@@ -8,10 +8,13 @@ export const DEFAULT_FOLDER_GC_TIME_MS = 5 * 60_000
 export const RECURSIVE_FOLDER_GC_TIME_MS = 60_000
 type RecursiveFolderQueryKey = readonly ['folder', string, 'recursive']
 
-/** Query key for folder data */
+type FolderQueryOptions = {
+  recursive?: boolean
+}
+
 export const folderQueryKey = (
   path: string,
-  options?: Pick<GetFolderOptions, 'recursive'>,
+  options?: FolderQueryOptions,
 ) => (
   options?.recursive
     ? [
@@ -62,27 +65,21 @@ function fetchFolder(path: string, options?: GetFolderOptions): Promise<BrowseFo
   return api.getFolder(path, options)
 }
 
-type UseFolderOptions = GetFolderOptions & {
+export type UseFolderOptions = FolderQueryOptions & {
   enabled?: boolean
 }
 
-/**
- * Hook to fetch and cache folder contents.
- * - Caches for 10 seconds before considered stale
- * - Retries failed requests up to 2 times
- * - Returns previous data while refetching
- */
-export function useFolder(path: string, recursive = false, options?: UseFolderOptions) {
+export function useFolder(path: string, options?: UseFolderOptions) {
   const pollingEnabled = usePollingEnabled()
   const folderOptions: GetFolderOptions = {
-    recursive,
+    recursive: options?.recursive ?? false,
   }
   const recursiveQuery = !!folderOptions.recursive
   return useQuery({
     queryKey: folderQueryKey(path, folderOptions),
     queryFn: () => fetchFolder(path, folderOptions),
     enabled: options?.enabled ?? true,
-    staleTime: 10_000, // 10 seconds before refetch
+    staleTime: 10_000,
     gcTime: recursiveQuery ? RECURSIVE_FOLDER_GC_TIME_MS : DEFAULT_FOLDER_GC_TIME_MS,
     retry: 2,
     retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 5000),
@@ -112,10 +109,6 @@ export function useFolderCount(path: string, options?: UseFolderCountOptions) {
   })
 }
 
-/**
- * Hook to prefetch a folder's contents.
- * Useful for prefetching when hovering over folder tree items.
- */
 export function usePrefetchFolder() {
   const queryClient = useQueryClient()
   
@@ -130,10 +123,6 @@ export function usePrefetchFolder() {
   }
 }
 
-/**
- * Hook to invalidate folder cache.
- * Call after mutations that affect folder contents.
- */
 export function useInvalidateFolder() {
   const queryClient = useQueryClient()
   
@@ -142,10 +131,6 @@ export function useInvalidateFolder() {
   }
 }
 
-/**
- * Optimistically update folder cache.
- * Returns a rollback function.
- */
 export function useOptimisticFolderUpdate() {
   const queryClient = useQueryClient()
   

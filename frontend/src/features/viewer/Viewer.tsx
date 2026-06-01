@@ -1,11 +1,10 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
-import { useModalFocusTrap } from '../../shared/hooks/useModalFocusTrap'
 import {
   getHorizontalNavigationDelta,
-  isKeyboardControlTarget,
-  shouldHandleDialogNavigationKey,
+  isInputElement,
+  shouldHandleViewerNavigationKey,
 } from '../../lib/keyboard'
 import { useZoomPan } from './hooks/useZoomPan'
 
@@ -95,10 +94,6 @@ export default function Viewer({
     event.stopPropagation()
     closeViewer()
   }, [closeViewer, shouldSuppressSurfaceClick])
-  const stopControlNavigationKey = useCallback((event: React.KeyboardEvent) => {
-    if (isKeyboardControlTarget(event.target)) event.stopPropagation()
-  }, [])
-  const handleDialogKeyDown = useModalFocusTrap(containerRef, { onEscape: closeViewer })
   const markImageReady = useCallback(() => {
     const resource = activeResource
     const image = imgRef.current
@@ -111,10 +106,14 @@ export default function Viewer({
     setShowDelayedLoader(false)
   }, [activeResource, imgRef, path, resetView, setReady])
 
-  // Keyboard navigation
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!onNavigate || !shouldHandleDialogNavigationKey(e, containerRef.current)) return
+      if (e.key === 'Escape' && !isInputElement(e.target)) {
+        e.preventDefault()
+        closeViewer()
+        return
+      }
+      if (!onNavigate || !shouldHandleViewerNavigationKey(e)) return
       const delta = getHorizontalNavigationDelta(e)
       if (delta === 1 && canNext) {
         e.preventDefault()
@@ -127,7 +126,7 @@ export default function Viewer({
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [canNext, canPrev, containerRef, onNavigate])
+  }, [canNext, canPrev, closeViewer, onNavigate])
 
   useEffect(() => {
     readyPathRef.current = null
@@ -190,7 +189,7 @@ export default function Viewer({
     <div
       ref={containerRef}
       role="dialog"
-      aria-modal={true}
+      aria-modal={false}
       aria-label="Image viewer"
       data-current-path={path}
       data-viewer-loading-state={viewerLoadingState}
@@ -204,7 +203,6 @@ export default function Viewer({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
-      onKeyDown={handleDialogKeyDown}
     >
       <button
         aria-label="Close"
@@ -248,7 +246,6 @@ export default function Viewer({
             type="button"
             className={`viewer-mobile-nav-btn ${canPrev ? '' : 'is-disabled'}`}
             onClick={() => canPrev && onNavigate(-1)}
-            onKeyDown={stopControlNavigationKey}
             aria-label="Previous image"
             aria-disabled={!canPrev}
             disabled={!canPrev}
@@ -259,7 +256,6 @@ export default function Viewer({
             type="button"
             className={`viewer-mobile-nav-btn ${canNext ? '' : 'is-disabled'}`}
             onClick={() => canNext && onNavigate(1)}
-            onKeyDown={stopControlNavigationKey}
             aria-label="Next image"
             aria-disabled={!canNext}
             disabled={!canNext}

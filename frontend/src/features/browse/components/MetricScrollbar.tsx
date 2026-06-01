@@ -42,10 +42,10 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
     }
 
     update()
-    el.addEventListener('scroll', update, { passive: true } as any)
+    el.addEventListener('scroll', update, { passive: true })
     window.addEventListener('resize', update)
     return () => {
-      el.removeEventListener('scroll', update as any)
+      el.removeEventListener('scroll', update)
       window.removeEventListener('resize', update)
     }
   }, [scrollRef, items.length])

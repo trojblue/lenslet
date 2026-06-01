@@ -8,12 +8,6 @@ import {
   type MetricValuesByKey,
 } from './model/metricValues'
 
-// S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
-// - T20 component split: MetricsPanel composition + features/metrics/components/*.
-// - T21 histogram math extraction: computeHistogramFromValues and numeric helpers in MetricHistogramCard.
-// - T22 interaction hook extraction: drag/hover/edit state in MetricHistogramCard.
-// - T23 optimization seam: histogram reuse across population/filtered/selected computations.
-
 interface MetricsPanelProps {
   items: BrowseItemPayload[]
   filteredItems: BrowseItemPayload[]

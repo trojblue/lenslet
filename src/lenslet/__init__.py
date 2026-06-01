@@ -1,6 +1,15 @@
 """Lenslet: A lightweight image gallery server."""
-__version__ = "0.1.0"
 
-from .api import launch, launch_table
+from __future__ import annotations
 
-__all__ = ["launch", "launch_table", "__version__"]
+from .api import LaunchOptions, TableLaunchOptions, launch, launch_table
+
+__all__ = ["LaunchOptions", "TableLaunchOptions", "launch", "launch_table", "__version__"]
+
+
+def __getattr__(name: str) -> str:
+    if name == "__version__":
+        from .version import get_version
+
+        return get_version()
+    raise AttributeError(f"module 'lenslet' has no attribute {name!r}")

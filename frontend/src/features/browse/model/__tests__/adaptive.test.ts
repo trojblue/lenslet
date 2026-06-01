@@ -19,8 +19,8 @@ function makeItem(path: string, width: number, height: number): BrowseItemPayloa
     width,
     height,
     size: 1,
-    hasThumbnail: true,
-    hasMetadata: true,
+    has_thumbnail: true,
+    has_metadata: true,
   }
 }
 
@@ -130,6 +130,6 @@ describe('computeAdaptiveRows', () => {
     ])
     expectNoHorizontalOverflow(rows)
     expectBoundedNonLastRows(rows)
-    expect(rows.at(-1)?.imageH).toBe(TARGET_HEIGHT)
+    expect(rows[rows.length - 1]?.imageH).toBe(TARGET_HEIGHT)
   })
 })

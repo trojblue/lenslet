@@ -145,7 +145,7 @@ def load_ranking_dataset(dataset_path: str | Path) -> RankingDataset:
     return RankingDataset(path, instances)
 
 
-def _extract_instances(payload: Any) -> list[Any]:
+def _extract_instances(payload: object) -> list[object]:
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
@@ -155,7 +155,7 @@ def _extract_instances(payload: Any) -> list[Any]:
     raise RankingDatasetError("dataset root must be a list or an object with instances[]")
 
 
-def _coerce_instance_id(value: Any, idx: int) -> str:
+def _coerce_instance_id(value: object, idx: int) -> str:
     if value is None:
         raise RankingDatasetError(f"instance #{idx} is missing instance_id")
     text = str(value).strip()

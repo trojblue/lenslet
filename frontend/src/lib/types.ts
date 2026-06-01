@@ -7,10 +7,10 @@ export type BrowseItemPayload = {
   width: number
   height: number
   size: number
-  hasThumbnail: boolean
-  hasMetadata: boolean
+  has_thumbnail: boolean
+  has_metadata: boolean
   hash?: string | null
-  addedAt?: string | null
+  added_at?: string | null
   star?: StarRating | null
   notes?: string | null
   url?: string | null
@@ -26,14 +26,11 @@ export type BrowseFolderEntryPayload = {
 export type BrowseFolderPayload = {
   version: 1
   path: string
-  generatedAt: string
+  generated_at: string
   items: BrowseItemPayload[]
   folders: BrowseFolderEntryPayload[]
-  metricKeys: string[]
-  page?: number
-  pageSize?: number
-  pageCount?: number
-  totalItems?: number
+  metric_keys: string[]
+  total_items?: number
 }
 
 export type BrowseFolderPathsPayload = {
@@ -88,7 +85,7 @@ export type PresenceEvent = {
   editing: number
 }
 
-export type HealthMode = 'memory' | 'table' | 'dataset' | 'ranking'
+export type HealthMode = 'memory' | 'table' | 'dataset' | 'storage' | 'ranking'
 
 export type HealthResponse = {
   ok: boolean
@@ -143,10 +140,13 @@ export type EmbeddingsResponse = {
   rejected: EmbeddingRejected[]
 }
 
+export type EmbeddingSearchQuery =
+  | { kind: 'path'; path: string }
+  | { kind: 'vector'; vector_b64: string }
+
 export type EmbeddingSearchRequest = {
   embedding: string
-  query_path?: string | null
-  query_vector_b64?: string | null
+  query: EmbeddingSearchQuery
   top_k?: number
   min_score?: number | null
 }
@@ -160,13 +160,6 @@ export type EmbeddingSearchItem = {
 export type EmbeddingSearchResponse = {
   embedding: string
   items: EmbeddingSearchItem[]
-}
-
-export type FileOpResponse = {
-  ok: boolean
-  error?: string
-  path?: string
-  dest?: string
 }
 
 export type RefreshResponse = {

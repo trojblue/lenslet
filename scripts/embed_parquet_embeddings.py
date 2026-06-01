@@ -72,8 +72,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--error-policy",
         choices=["zero", "raise"],
-        default="zero",
-        help="On image load error: fill zeros or raise",
+        default="raise",
+        help="On image load error: raise or explicitly fill zeros",
     )
     parser.add_argument(
         "--num-workers",

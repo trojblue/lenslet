@@ -1,27 +1,16 @@
 import {
   useCallback,
-  useEffect,
   useMemo,
   useRef,
-  useState,
   type CSSProperties,
   type ReactNode,
-  type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from 'react'
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
   closestCenter,
   pointerWithin,
   useDroppable,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragOverEvent,
-  type DragStartEvent,
-  type Modifier,
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -31,76 +20,33 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
-import { BASE } from '../../api/base'
-import { rankingApi } from './api'
+import { apiUrl } from '../../api/base'
+import { cssVars } from '../../lib/cssVars'
 import './ranking.css'
 import {
-  finalRanksFromBoard,
-  isBoardComplete,
-  moveImageToRank,
-  moveImageToRankWithAutoAdvance,
-  selectNeighborImage,
-  type RankingBoardState,
-} from './model/board'
+  clampUnrankedThumbSizePx,
+  UNRANKED_THUMB_SIZE_MAX_PX,
+  UNRANKED_THUMB_SIZE_MIN_PX,
+  UNRANKED_THUMB_SIZE_STEP_PX,
+  useUnrankedPanelSizing,
+} from './hooks/useUnrankedPanelSizing'
+import { useRankingDrag } from './hooks/useRankingDrag'
+import { useRankingFullscreen } from './hooks/useRankingFullscreen'
+import { useRankingKeyboard } from './hooks/useRankingKeyboard'
+import { useRankingSession } from './hooks/useRankingSession'
 import {
-  RANKING_DEFAULT_UNRANKED_HEIGHT_PX,
-  RANKING_MIN_UNRANKED_HEIGHT_PX,
-  RANKING_MIN_RANKS_HEIGHT_PX,
-  clampUnrankedHeightPx,
-} from './model/layout'
-import {
-  getBoardKeyAction,
-  getFullscreenKeyAction,
-  shouldIgnoreRankingHotkey,
-} from './model/keyboard'
+  rankContainerId,
+  UNRANKED_CONTAINER_ID,
+  type RankingContainerId,
+} from './model/containers'
 import { RANKING_DOT_COLORS, buildDotColorByImageId } from './model/palette'
-import {
-  buildInitialSessions,
-  canNavigateNext,
-  canNavigatePrev,
-  clampInstanceIndex,
-  computeDurationMs,
-  isValidIsoTimestamp,
-  buildInitialSaveSeqByInstance,
-  type InstanceSession,
-} from './model/session'
-import type {
-  RankingDatasetResponse,
-  RankingInstance,
-  RankingSaveRequest,
-} from './types'
 
 type ImageView = {
   url: string
   sourcePath: string
 }
 
-type FullscreenTransform = {
-  zoom: number
-  offsetX: number
-  offsetY: number
-}
-
-type PanState = {
-  active: boolean
-  pointerId: number | null
-  startX: number
-  startY: number
-  originX: number
-  originY: number
-}
-
-const MIN_FULLSCREEN_ZOOM = 1
-const MAX_FULLSCREEN_ZOOM = 4
-const FULLSCREEN_ZOOM_STEP = 0.18
-const INTERACTIVE_CONTROL_SELECTOR = 'button, a, [role="button"]'
 const DEFAULT_DOT_COLOR = RANKING_DOT_COLORS[0]
-const UNRANKED_HEIGHT_STORAGE_KEY = 'lenslet.ranking.unranked_height_px.v1'
-const UNRANKED_THUMB_SIZE_STORAGE_KEY = 'lenslet.ranking.unranked_thumb_size_px.v1'
-const UNRANKED_THUMB_SIZE_MIN_PX = 132
-const UNRANKED_THUMB_SIZE_MAX_PX = 1560
-const UNRANKED_THUMB_SIZE_STEP_PX = 4
-const UNRANKED_THUMB_SIZE_DEFAULT_PX = 208
 
 function FullscreenIcon() {
   return (
@@ -123,92 +69,10 @@ function FullscreenIcon() {
   )
 }
 
-function nowIso(): string {
-  return new Date().toISOString()
-}
-
 function cardLabel(sourcePath: string): string {
   const name = sourcePath.split('/').filter(Boolean).pop()
   return name || sourcePath
 }
-
-function defaultFullscreenTransform(): FullscreenTransform {
-  return {
-    zoom: MIN_FULLSCREEN_ZOOM,
-    offsetX: 0,
-    offsetY: 0,
-  }
-}
-
-function defaultPanState(): PanState {
-  return {
-    active: false,
-    pointerId: null,
-    startX: 0,
-    startY: 0,
-    originX: 0,
-    originY: 0,
-  }
-}
-
-function clampZoom(zoom: number): number {
-  if (zoom < MIN_FULLSCREEN_ZOOM) return MIN_FULLSCREEN_ZOOM
-  if (zoom > MAX_FULLSCREEN_ZOOM) return MAX_FULLSCREEN_ZOOM
-  return zoom
-}
-
-function pointerClientPosition(event: Event | null): { x: number; y: number } | null {
-  if (!event) return null
-  if (typeof MouseEvent !== 'undefined' && event instanceof MouseEvent) {
-    return {
-      x: event.clientX,
-      y: event.clientY,
-    }
-  }
-  if (typeof TouchEvent !== 'undefined' && event instanceof TouchEvent) {
-    const touch = event.touches[0] ?? event.changedTouches[0]
-    if (!touch) return null
-    return {
-      x: touch.clientX,
-      y: touch.clientY,
-    }
-  }
-  return null
-}
-
-function readStoredUnrankedHeightPx(): number | null {
-  if (typeof window === 'undefined') return null
-  let raw: string | null = null
-  try {
-    raw = window.localStorage.getItem(UNRANKED_HEIGHT_STORAGE_KEY)
-  } catch {
-    return null
-  }
-  if (!raw) return null
-  const parsed = Number(raw)
-  if (!Number.isFinite(parsed) || parsed <= 0) return null
-  return Math.trunc(parsed)
-}
-
-function clampUnrankedThumbSizePx(value: number): number {
-  if (!Number.isFinite(value)) return UNRANKED_THUMB_SIZE_DEFAULT_PX
-  const snapped = Math.round(value / UNRANKED_THUMB_SIZE_STEP_PX) * UNRANKED_THUMB_SIZE_STEP_PX
-  return Math.max(UNRANKED_THUMB_SIZE_MIN_PX, Math.min(UNRANKED_THUMB_SIZE_MAX_PX, snapped))
-}
-
-function readStoredUnrankedThumbSizePx(): number | null {
-  if (typeof window === 'undefined') return null
-  let raw: string | null = null
-  try {
-    raw = window.localStorage.getItem(UNRANKED_THUMB_SIZE_STORAGE_KEY)
-  } catch {
-    return null
-  }
-  if (!raw) return null
-  return clampUnrankedThumbSizePx(Number(raw))
-}
-
-type RankingContainerId = 'unranked' | `rank-${number}`
 
 type RankingCardContentProps = {
   image: ImageView
@@ -237,47 +101,6 @@ type RankingDropColumnProps = {
   showHeader?: boolean
   headerContent?: ReactNode
   renderCard: (imageId: string, containerId: RankingContainerId) => ReactNode
-}
-
-const UNRANKED_CONTAINER_ID: RankingContainerId = 'unranked'
-
-function rankContainerId(rankIndex: number): RankingContainerId {
-  return `rank-${rankIndex}`
-}
-
-function parseContainerId(rawId: string, rankCount: number): RankingContainerId | null {
-  if (rawId === UNRANKED_CONTAINER_ID) return UNRANKED_CONTAINER_ID
-  if (!rawId.startsWith('rank-')) return null
-  const rankIndex = Number(rawId.slice('rank-'.length))
-  if (!Number.isInteger(rankIndex) || rankIndex < 0 || rankIndex >= rankCount) return null
-  return rankContainerId(rankIndex)
-}
-
-function rankIndexForContainerId(containerId: RankingContainerId): number | null {
-  if (containerId === UNRANKED_CONTAINER_ID) return null
-  return Number(containerId.slice('rank-'.length))
-}
-
-function findContainerForImage(
-  board: RankingBoardState,
-  imageId: string,
-): RankingContainerId | null {
-  if (board.unranked.includes(imageId)) return UNRANKED_CONTAINER_ID
-  for (let rankIndex = 0; rankIndex < board.rankColumns.length; rankIndex += 1) {
-    if (board.rankColumns[rankIndex].includes(imageId)) {
-      return rankContainerId(rankIndex)
-    }
-  }
-  return null
-}
-
-function itemsForContainer(board: RankingBoardState, containerId: RankingContainerId): string[] {
-  if (containerId === UNRANKED_CONTAINER_ID) {
-    return board.unranked
-  }
-  const rankIndex = rankIndexForContainerId(containerId)
-  if (rankIndex == null) return []
-  return board.rankColumns[rankIndex] ?? []
 }
 
 function RankingCardContent({
@@ -411,151 +234,24 @@ function RankingDropColumn({
 }
 
 export default function RankingApp() {
-  const [dataset, setDataset] = useState<RankingDatasetResponse | null>(null)
-  const [sessions, setSessions] = useState<Record<string, InstanceSession>>({})
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [activeDragImageId, setActiveDragImageId] = useState<string | null>(null)
-  const [dragOverContainerId, setDragOverContainerId] = useState<RankingContainerId | null>(null)
-  const [unrankedHeightPx, setUnrankedHeightPx] = useState<number>(() => {
-    const stored = readStoredUnrankedHeightPx()
-    if (stored != null) return stored
-    if (typeof window !== 'undefined' && Number.isFinite(window.innerHeight)) {
-      return Math.round(window.innerHeight * 0.5)
-    }
-    return RANKING_DEFAULT_UNRANKED_HEIGHT_PX
-  })
-  const [unrankedThumbSizePx, setUnrankedThumbSizePx] = useState<number>(() => {
-    return readStoredUnrankedThumbSizePx() ?? UNRANKED_THUMB_SIZE_DEFAULT_PX
-  })
-  const [isResizingSplit, setIsResizingSplit] = useState(false)
-  const [fullscreenImageId, setFullscreenImageId] = useState<string | null>(null)
-  const [fullscreenTransform, setFullscreenTransform] = useState<FullscreenTransform>(
-    defaultFullscreenTransform,
-  )
-
-  const sessionsRef = useRef<Record<string, InstanceSession>>(sessions)
-  const saveRequestRef = useRef<Record<string, number>>({})
-  const saveSeqRef = useRef<Record<string, number>>({})
+  const {
+    dataset,
+    currentIndex,
+    currentInstance,
+    currentSession,
+    currentImageOrder,
+    sessionsRef,
+    loading,
+    loadError,
+    canGoPrev,
+    canGoNext,
+    goPrev,
+    goNext,
+    moveCurrentImageToRank,
+    selectCurrentImage,
+  } = useRankingSession()
   const cardRefs = useRef<Record<string, HTMLElement | null>>({})
   const workspaceRef = useRef<HTMLDivElement | null>(null)
-  const splitResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
-  const dragPointerOffsetRef = useRef<{ x: number; y: number } | null>(null)
-  const panStateRef = useRef<PanState>(defaultPanState())
-  useEffect(() => {
-    sessionsRef.current = sessions
-  }, [sessions])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    const clampToViewport = () => {
-      const workspace = workspaceRef.current
-      if (!workspace) return
-      const { height } = workspace.getBoundingClientRect()
-      setUnrankedHeightPx((prev) => {
-        const requested = prev ?? Math.round(height * 0.5)
-        return clampUnrankedHeightPx(requested, height, {
-          minTopPx: RANKING_MIN_UNRANKED_HEIGHT_PX,
-          minBottomPx: RANKING_MIN_RANKS_HEIGHT_PX,
-          splitterPx: 0,
-        })
-      })
-    }
-
-    clampToViewport()
-    window.addEventListener('resize', clampToViewport)
-    return () => window.removeEventListener('resize', clampToViewport)
-  }, [])
-
-  useEffect(() => {
-    const workspace = workspaceRef.current
-    if (!workspace) return
-    const { height } = workspace.getBoundingClientRect()
-    setUnrankedHeightPx((prev) => {
-      const requested = prev ?? Math.round(height * 0.5)
-      return clampUnrankedHeightPx(requested, height, {
-        minTopPx: RANKING_MIN_UNRANKED_HEIGHT_PX,
-        minBottomPx: RANKING_MIN_RANKS_HEIGHT_PX,
-        splitterPx: 0,
-      })
-    })
-  }, [currentIndex])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (!Number.isFinite(unrankedHeightPx) || unrankedHeightPx <= 0) return
-    try {
-      window.localStorage.setItem(
-        UNRANKED_HEIGHT_STORAGE_KEY,
-        String(Math.trunc(unrankedHeightPx)),
-      )
-    } catch {
-      // Ignore storage errors (e.g. privacy mode).
-    }
-  }, [unrankedHeightPx])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    try {
-      window.localStorage.setItem(
-        UNRANKED_THUMB_SIZE_STORAGE_KEY,
-        String(clampUnrankedThumbSizePx(unrankedThumbSizePx)),
-      )
-    } catch {
-      // Ignore storage errors (e.g. privacy mode).
-    }
-  }, [unrankedThumbSizePx])
-
-  const updateSession = useCallback(
-    (instanceId: string, updater: (session: InstanceSession) => InstanceSession) => {
-      setSessions((prev) => {
-        const session = prev[instanceId]
-        if (!session) return prev
-        return {
-          ...prev,
-          [instanceId]: updater(session),
-        }
-      })
-    },
-    [],
-  )
-
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    setLoadError(null)
-    Promise.all([
-      rankingApi.getDataset(),
-      rankingApi.getProgress(),
-      rankingApi.exportLatest(false),
-    ])
-      .then(([datasetPayload, progressPayload, exportPayload]) => {
-        if (!active) return
-        setDataset(datasetPayload)
-        setSessions(buildInitialSessions(datasetPayload, exportPayload.results))
-        saveSeqRef.current = buildInitialSaveSeqByInstance(exportPayload.results)
-        setCurrentIndex(
-          clampInstanceIndex(progressPayload.resume_instance_index, datasetPayload.instances.length),
-        )
-        setLoading(false)
-      })
-      .catch((error) => {
-        if (!active) return
-        setLoadError(error instanceof Error ? error.message : 'failed to load ranking session')
-        setLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [])
-
-  const instances = dataset?.instances ?? []
-  const currentInstance = instances[currentIndex] ?? null
-  const currentSession = currentInstance ? sessions[currentInstance.instance_id] ?? null : null
-  const canGoPrev = canNavigatePrev(currentIndex)
-  const canGoNext = canNavigateNext(currentIndex, instances.length, currentSession)
 
   const imageById = useMemo(() => {
     const map = new Map<string, ImageView>()
@@ -565,137 +261,9 @@ export default function RankingApp() {
     }
     return map
   }, [currentInstance])
-  const currentImageOrder = useMemo(
-    () => currentInstance?.images.map((image) => image.image_id) ?? [],
-    [currentInstance],
-  )
-  const fullscreenImage = fullscreenImageId ? imageById.get(fullscreenImageId) ?? null : null
   const dotColorByImageId = useMemo(
     () => buildDotColorByImageId(currentImageOrder),
     [currentImageOrder],
-  )
-
-  useEffect(() => {
-    if (typeof Image === 'undefined' || !dataset) return
-    const nextInstance = dataset.instances[currentIndex + 1]
-    if (!nextInstance) return
-    for (const image of nextInstance.images) {
-      const preload = new Image()
-      preload.src = image.url
-    }
-  }, [dataset, currentIndex])
-
-  useEffect(() => {
-    setFullscreenImageId(null)
-    setFullscreenTransform(defaultFullscreenTransform())
-    panStateRef.current = defaultPanState()
-  }, [currentInstance?.instance_id])
-
-  const ensureStartedAt = useCallback(
-    (instanceId: string): string => {
-      const existing = sessionsRef.current[instanceId]?.startedAt
-      if (isValidIsoTimestamp(existing)) {
-        return existing
-      }
-      const startedAt = nowIso()
-      updateSession(instanceId, (session) => {
-        if (isValidIsoTimestamp(session.startedAt)) return session
-        return {
-          ...session,
-          startedAt,
-        }
-      })
-      return startedAt
-    },
-    [updateSession],
-  )
-
-  const persistSnapshot = useCallback(
-    (instance: RankingInstance, board: RankingBoardState, startedAtInput: string | null = null) => {
-      const instanceId = instance.instance_id
-      const startedAt = isValidIsoTimestamp(startedAtInput)
-        ? startedAtInput
-        : ensureStartedAt(instanceId)
-      const saveSeq = (saveSeqRef.current[instanceId] ?? 0) + 1
-      saveSeqRef.current[instanceId] = saveSeq
-      const payload: RankingSaveRequest = {
-        instance_id: instanceId,
-        final_ranks: finalRanksFromBoard(board),
-        started_at: startedAt,
-        duration_ms: computeDurationMs(startedAt),
-        completed: isBoardComplete(board),
-        save_seq: saveSeq,
-      }
-
-      const requestId = (saveRequestRef.current[instanceId] ?? 0) + 1
-      saveRequestRef.current[instanceId] = requestId
-      updateSession(instanceId, (session) => ({
-        ...session,
-        saveStatus: 'saving',
-        saveError: null,
-      }))
-
-      void rankingApi.save(payload)
-        .then(() => {
-          if (saveRequestRef.current[instanceId] !== requestId) return
-          updateSession(instanceId, (session) => ({
-            ...session,
-            saveStatus: 'saved',
-            saveError: null,
-          }))
-        })
-        .catch((error) => {
-          if (saveRequestRef.current[instanceId] !== requestId) return
-          const message = error instanceof Error ? error.message : 'failed to save ranking'
-          updateSession(instanceId, (session) => ({
-            ...session,
-            saveStatus: 'error',
-            saveError: message,
-          }))
-        })
-    },
-    [ensureStartedAt, updateSession],
-  )
-
-  const moveCurrentImageToRank = useCallback(
-    (
-      imageId: string,
-      rankIndex: number | null,
-      options?: { autoAdvance?: boolean; targetInsertIndex?: number },
-    ) => {
-      if (!currentInstance) return
-      const current = sessionsRef.current[currentInstance.instance_id]
-      if (!current) return
-      const boardSnapshot = options?.autoAdvance
-        ? moveImageToRankWithAutoAdvance(
-          current.board,
-          imageId,
-          rankIndex,
-          currentImageOrder,
-        )
-        : moveImageToRank(current.board, imageId, rankIndex, options?.targetInsertIndex)
-      if (boardSnapshot === current.board) return
-      updateSession(currentInstance.instance_id, (session) => ({
-        ...session,
-        board: boardSnapshot,
-      }))
-      persistSnapshot(currentInstance, boardSnapshot, current.startedAt)
-    },
-    [currentImageOrder, currentInstance, persistSnapshot, updateSession],
-  )
-
-  const selectCurrentImage = useCallback(
-    (imageId: string) => {
-      if (!currentInstance) return
-      updateSession(currentInstance.instance_id, (session) => ({
-        ...session,
-        board: {
-          ...session.board,
-          selectedImageId: imageId,
-        },
-      }))
-    },
-    [currentInstance, updateSession],
   )
 
   const registerCardRef = useCallback((imageId: string, element: HTMLElement | null) => {
@@ -711,379 +279,70 @@ export default function RankingApp() {
     })
   }, [])
 
-  const resetFullscreenTransform = useCallback(() => {
-    panStateRef.current = defaultPanState()
-    setFullscreenTransform(defaultFullscreenTransform())
-  }, [])
+  const {
+    closeFullscreen,
+    fullscreenImageId,
+    fullscreenTransform,
+    handleFullscreenPointerDown,
+    handleFullscreenPointerEnd,
+    handleFullscreenPointerMove,
+    handleFullscreenWheel,
+    isFullscreenZoomed,
+    navigateFullscreenImage,
+    openFullscreenForImage,
+    resetFullscreenTransform,
+  } = useRankingFullscreen({
+    currentImageOrder,
+    currentInstanceId: currentInstance?.instance_id ?? null,
+    focusCard,
+    selectCurrentImage,
+  })
+  const fullscreenImage = fullscreenImageId ? imageById.get(fullscreenImageId) ?? null : null
 
-  const openFullscreenForImage = useCallback(
-    (imageId: string) => {
-      selectCurrentImage(imageId)
-      setFullscreenImageId(imageId)
-      resetFullscreenTransform()
-    },
-    [resetFullscreenTransform, selectCurrentImage],
-  )
+  const {
+    activeDragImageId,
+    clearDragState,
+    dragOverlayModifiers,
+    dragOverContainerId,
+    handleDragEnd,
+    handleDragOver,
+    handleDragStart,
+    sensors,
+  } = useRankingDrag({
+    currentInstance,
+    currentSession,
+    moveCurrentImageToRank,
+    selectCurrentImage,
+    sessionsRef,
+  })
 
-  const closeFullscreen = useCallback(() => {
-    setFullscreenImageId((openImageId) => {
-      focusCard(openImageId)
-      return null
-    })
-    resetFullscreenTransform()
-  }, [focusCard, resetFullscreenTransform])
+  const {
+    isResizingSplit,
+    onUnrankedResizeStart,
+    setUnrankedThumbSizePx,
+    unrankedHeightPx,
+    unrankedThumbSizePx,
+  } = useUnrankedPanelSizing({
+    activeDragImageId,
+    clearDragState,
+    currentIndex,
+    workspaceRef,
+  })
 
-  const clearDragState = useCallback(() => {
-    setDragOverContainerId(null)
-    setActiveDragImageId(null)
-    dragPointerOffsetRef.current = null
-  }, [])
-
-  const onUnrankedResizeStart = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    if ((event.pointerType ?? 'mouse') !== 'mouse') return
-    if (event.button !== 0) return
-    if (activeDragImageId) return
-
-    const workspace = workspaceRef.current
-    if (!workspace) return
-
-    event.preventDefault()
-    event.stopPropagation()
-    clearDragState()
-    splitResizeRef.current = {
-      startY: event.clientY,
-      startHeight: unrankedHeightPx,
-    }
-    setIsResizingSplit(true)
-  }, [activeDragImageId, clearDragState, unrankedHeightPx])
-
-  useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      if (!splitResizeRef.current) return
-      const workspace = workspaceRef.current
-      if (!workspace) return
-      const delta = event.clientY - splitResizeRef.current.startY
-      const requestedHeight = splitResizeRef.current.startHeight + delta
-      const { height } = workspace.getBoundingClientRect()
-      setUnrankedHeightPx(
-        clampUnrankedHeightPx(requestedHeight, height, {
-          minTopPx: RANKING_MIN_UNRANKED_HEIGHT_PX,
-          minBottomPx: RANKING_MIN_RANKS_HEIGHT_PX,
-          splitterPx: 0,
-        }),
-      )
-    }
-
-    const stopResize = () => {
-      if (!splitResizeRef.current) return
-      splitResizeRef.current = null
-      setIsResizingSplit(false)
-    }
-
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', stopResize)
-    window.addEventListener('pointercancel', stopResize)
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', stopResize)
-      window.removeEventListener('pointercancel', stopResize)
-    }
-  }, [])
-
-  const navigateFullscreenImage = useCallback(
-    (direction: 'prev' | 'next') => {
-      if (!fullscreenImageId || currentImageOrder.length === 0) return
-      const currentPos = currentImageOrder.indexOf(fullscreenImageId)
-      if (currentPos < 0) return
-      const targetPos = direction === 'prev' ? currentPos - 1 : currentPos + 1
-      const targetImageId = currentImageOrder[targetPos]
-      if (!targetImageId) return
-      setFullscreenImageId(targetImageId)
-      selectCurrentImage(targetImageId)
-      resetFullscreenTransform()
-    },
-    [currentImageOrder, fullscreenImageId, resetFullscreenTransform, selectCurrentImage],
-  )
-
-  const handleFullscreenWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    const delta = event.deltaY < 0 ? FULLSCREEN_ZOOM_STEP : -FULLSCREEN_ZOOM_STEP
-    setFullscreenTransform((prev) => {
-      const zoom = clampZoom(prev.zoom + delta)
-      if (zoom === MIN_FULLSCREEN_ZOOM) {
-        return defaultFullscreenTransform()
-      }
-      return {
-        ...prev,
-        zoom,
-      }
-    })
-  }, [])
-
-  const handleFullscreenPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0 || fullscreenTransform.zoom <= MIN_FULLSCREEN_ZOOM) return
-      event.preventDefault()
-      event.currentTarget.setPointerCapture(event.pointerId)
-      panStateRef.current = {
-        active: true,
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        originX: fullscreenTransform.offsetX,
-        originY: fullscreenTransform.offsetY,
-      }
-    },
-    [fullscreenTransform.offsetX, fullscreenTransform.offsetY, fullscreenTransform.zoom],
-  )
-
-  const handleFullscreenPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const panState = panStateRef.current
-    if (!panState.active || panState.pointerId !== event.pointerId) return
-    const nextOffsetX = panState.originX + (event.clientX - panState.startX)
-    const nextOffsetY = panState.originY + (event.clientY - panState.startY)
-    setFullscreenTransform((prev) => ({
-      ...prev,
-      offsetX: nextOffsetX,
-      offsetY: nextOffsetY,
-    }))
-  }, [])
-
-  const handleFullscreenPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
-    panStateRef.current.active = false
-    panStateRef.current.pointerId = null
-  }, [])
-
-  const navigateTo = useCallback(
-    (nextIndex: number) => {
-      if (!currentInstance || !dataset) return
-      const clamped = clampInstanceIndex(nextIndex, dataset.instances.length)
-      if (clamped === currentIndex) return
-      const current = sessionsRef.current[currentInstance.instance_id]
-      if (current) {
-        persistSnapshot(currentInstance, current.board, current.startedAt)
-      }
-      setCurrentIndex(clamped)
-    },
-    [currentIndex, currentInstance, dataset, persistSnapshot],
-  )
-
-  const goPrev = useCallback(() => {
-    if (!canGoPrev) return
-    navigateTo(currentIndex - 1)
-  }, [canGoPrev, currentIndex, navigateTo])
-
-  const goNext = useCallback(() => {
-    if (!canGoNext) return
-    navigateTo(currentIndex + 1)
-  }, [canGoNext, currentIndex, navigateTo])
-
-  useEffect(() => {
-    if (!currentSession || !currentInstance) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target instanceof HTMLElement ? event.target : null
-      if (
-        shouldIgnoreRankingHotkey(event.key, {
-          isContentEditable: Boolean(target?.isContentEditable),
-          tagName: target?.tagName ?? null,
-          insideInteractiveControl: Boolean(target?.closest(INTERACTIVE_CONTROL_SELECTOR)),
-        })
-      ) {
-        return
-      }
-
-      if (fullscreenImageId) {
-        const fullscreenAction = getFullscreenKeyAction(event.key, currentInstance.max_ranks)
-        if (fullscreenAction.type === 'assign-rank') {
-          event.preventDefault()
-          moveCurrentImageToRank(fullscreenImageId, fullscreenAction.rankIndex)
-          selectCurrentImage(fullscreenImageId)
-          return
-        }
-        if (fullscreenAction.type === 'fullscreen-nav') {
-          event.preventDefault()
-          navigateFullscreenImage(fullscreenAction.direction)
-          return
-        }
-        if (fullscreenAction.type === 'fullscreen-close') {
-          event.preventDefault()
-          closeFullscreen()
-        }
-        return
-      }
-
-      const boardAction = getBoardKeyAction(event.key, currentInstance.max_ranks)
-      if (boardAction.type === 'assign-rank') {
-        const selected = currentSession.board.selectedImageId
-        if (!selected) return
-        event.preventDefault()
-        const instanceId = currentInstance.instance_id
-        moveCurrentImageToRank(selected, boardAction.rankIndex, { autoAdvance: true })
-        window.setTimeout(() => {
-          const nextSelected = sessionsRef.current[instanceId]?.board.selectedImageId ?? null
-          focusCard(nextSelected)
-        }, 0)
-        return
-      }
-      if (boardAction.type === 'select-neighbor') {
-        event.preventDefault()
-        const nextSelected = selectNeighborImage(currentSession.board, boardAction.direction)
-        if (nextSelected) {
-          selectCurrentImage(nextSelected)
-          focusCard(nextSelected)
-        }
-        return
-      }
-      if (boardAction.type === 'instance-nav') {
-        event.preventDefault()
-        if (boardAction.direction === 'prev') {
-          goPrev()
-        } else {
-          goNext()
-        }
-        return
-      }
-      if (boardAction.type === 'fullscreen-open') {
-        const selected = currentSession.board.selectedImageId
-        if (!selected) return
-        event.preventDefault()
-        openFullscreenForImage(selected)
-      }
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [
+  useRankingKeyboard({
     closeFullscreen,
     currentInstance,
     currentSession,
+    focusCard,
     fullscreenImageId,
     goNext,
     goPrev,
     moveCurrentImageToRank,
     navigateFullscreenImage,
     openFullscreenForImage,
-    focusCard,
     selectCurrentImage,
-  ])
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 4 },
-    }),
-  )
-  const dragOverlayModifiers = useMemo<Modifier[]>(
-    () => [
-      ({ transform }) => {
-        const pointerOffset = dragPointerOffsetRef.current
-        if (!pointerOffset) return transform
-        return {
-          ...transform,
-          x: transform.x - pointerOffset.x,
-          y: transform.y - pointerOffset.y,
-        }
-      },
-    ],
-    [],
-  )
-
-  const resolveContainerId = useCallback(
-    (board: RankingBoardState, rawId: string | null): RankingContainerId | null => {
-      if (!rawId) return null
-      const parsedContainer = parseContainerId(rawId, board.rankColumns.length)
-      if (parsedContainer) return parsedContainer
-      return findContainerForImage(board, rawId)
-    },
-    [],
-  )
-
-  const handleDragStart = useCallback(
-    (event: DragStartEvent) => {
-      if (isResizingSplit || !currentSession) return
-      const activeId = String(event.active.id)
-      if (!findContainerForImage(currentSession.board, activeId)) return
-      const pointerPosition = pointerClientPosition(event.activatorEvent)
-      const initialRect = event.active.rect.current.initial
-      if (pointerPosition && initialRect) {
-        dragPointerOffsetRef.current = {
-          x: Math.max(0, pointerPosition.x - initialRect.left),
-          y: Math.max(0, pointerPosition.y - initialRect.top),
-        }
-      } else {
-        dragPointerOffsetRef.current = null
-      }
-      setActiveDragImageId(activeId)
-      selectCurrentImage(activeId)
-    },
-    [currentSession, isResizingSplit, selectCurrentImage],
-  )
-
-  const handleDragOver = useCallback(
-    (event: DragOverEvent) => {
-      if (!currentInstance) return
-      const current = sessionsRef.current[currentInstance.instance_id]
-      if (!current) return
-      const overId = event.over ? String(event.over.id) : null
-      setDragOverContainerId(resolveContainerId(current.board, overId))
-    },
-    [currentInstance, resolveContainerId],
-  )
-
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      if (!currentInstance) {
-        clearDragState()
-        return
-      }
-      const current = sessionsRef.current[currentInstance.instance_id]
-      clearDragState()
-      if (!current || !event.over) return
-
-      const activeId = String(event.active.id)
-      const overId = String(event.over.id)
-      const board = current.board
-      const activeContainerId = resolveContainerId(board, activeId)
-      const overContainerId = resolveContainerId(board, overId)
-      if (!activeContainerId || !overContainerId) return
-
-      const activeItems = itemsForContainer(board, activeContainerId)
-      const activeIndex = activeItems.indexOf(activeId)
-      if (activeIndex < 0) return
-
-      const overItems = itemsForContainer(board, overContainerId)
-      if (
-        activeContainerId === overContainerId &&
-        overId === overContainerId &&
-        activeIndex === activeItems.length - 1
-      ) {
-        return
-      }
-      let targetInsertIndex: number
-      if (overId === overContainerId) {
-        targetInsertIndex = overItems.length
-      } else {
-        const overIndex = overItems.indexOf(overId)
-        if (overIndex < 0) return
-        if (activeContainerId === overContainerId) {
-          if (activeIndex === overIndex) return
-          targetInsertIndex = overIndex
-        } else {
-          const activeTop = event.active.rect.current.translated?.top
-          const isBelowOverItem = activeTop != null &&
-            activeTop > event.over.rect.top + event.over.rect.height
-          targetInsertIndex = overIndex + (isBelowOverItem ? 1 : 0)
-        }
-      }
-
-      moveCurrentImageToRank(activeId, rankIndexForContainerId(overContainerId), {
-        targetInsertIndex,
-      })
-    },
-    [clearDragState, currentInstance, moveCurrentImageToRank, resolveContainerId],
-  )
+    sessionsRef,
+  })
 
   if (loading) {
     return <div className="ranking-loading">Loading ranking session...</div>
@@ -1100,7 +359,7 @@ export default function RankingApp() {
 
   const rankCount = Math.max(1, currentSession.board.rankColumns.length)
   const rankHotkeyHint = `1-${rankCount}`
-  const exportHref = `${BASE}/rank/export?completed_only=true`
+  const exportHref = apiUrl('/rank/export?completed_only=true')
   const fullscreenPosition = fullscreenImageId
     ? currentImageOrder.indexOf(fullscreenImageId) + 1
     : 0
@@ -1113,9 +372,9 @@ export default function RankingApp() {
   const unrankedTrayStyle: CSSProperties = {
     height: `${Math.max(0, Math.trunc(unrankedHeightPx))}px`,
   }
-  const rootStyle = {
+  const rootStyle = cssVars({
     '--ranking-card-size-unranked': `${clampUnrankedThumbSizePx(unrankedThumbSizePx)}px`,
-  } as CSSProperties
+  })
 
   const renderCard = (imageId: string, containerId: RankingContainerId) => {
     const image = imageById.get(imageId)
@@ -1304,7 +563,7 @@ export default function RankingApp() {
             </button>
           </header>
           <div
-            className={`ranking-fullscreen-stage ${fullscreenTransform.zoom > MIN_FULLSCREEN_ZOOM ? 'is-zoomed' : ''}`}
+            className={`ranking-fullscreen-stage ${isFullscreenZoomed ? 'is-zoomed' : ''}`}
             onWheel={handleFullscreenWheel}
             onPointerDown={handleFullscreenPointerDown}
             onPointerMove={handleFullscreenPointerMove}

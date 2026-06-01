@@ -9,10 +9,12 @@ Runs Ruff and enforces file-size guardrails:
 from __future__ import annotations
 
 import argparse
-import subprocess
+import subprocess  # nosec B404 - Ruff is launched with fixed argv and shell=False.
 import sys
 from pathlib import Path
 from typing import Iterable
+
+from lenslet.processes import command_timeout, run_command
 
 
 DEFAULT_RUFF_PATHS = (
@@ -30,6 +32,7 @@ DEFAULT_SIZE_PATHS = (
 )
 DEFAULT_WARN_LINES = 1_200
 DEFAULT_ERROR_LINES = 2_000
+RUFF_TIMEOUT_SECONDS = 120.0
 
 TRACKED_EXTENSIONS = {
     ".py",
@@ -94,9 +97,19 @@ def run_ruff(paths: list[str]) -> int:
     command = [sys.executable, "-m", "ruff", "check", *paths]
     print(f"[lint] running: {' '.join(command)}")
     try:
-        result = subprocess.run(command, check=False)
+        result = run_command(
+            command,
+            check=False,
+            timeout_policy=command_timeout(RUFF_TIMEOUT_SECONDS, reason="repo lint should finish promptly"),
+        )
     except FileNotFoundError:
         print("[lint:error] Ruff is not installed. Install dev deps first: pip install -e '.[dev]'.")
+        return 1
+    except TimeoutError:
+        print(f"[lint:error] Ruff timed out after {RUFF_TIMEOUT_SECONDS:.0f}s.")
+        return 1
+    except subprocess.TimeoutExpired:
+        print(f"[lint:error] Ruff timed out after {RUFF_TIMEOUT_SECONDS:.0f}s.")
         return 1
     if result.returncode != 0:
         print(f"[lint:error] Ruff failed with exit code {result.returncode}.")

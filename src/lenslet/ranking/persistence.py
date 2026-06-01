@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, Iterator, TextIO
+from typing import Any, Iterator, TextIO
 
+from .models import RankingResultEntry
+
+_LOGGER = logging.getLogger(__name__)
+
+# Platform sentinel: importing fcntl is cheap where available and absent on Windows.
+fcntl: Any | None
 try:
     import fcntl
 except ImportError:  # pragma: no cover - windows fallback
-    fcntl = None  # type: ignore[assignment]
+    fcntl = None
 
 
 class RankingPersistenceError(ValueError):
@@ -38,7 +46,7 @@ class RankingResultsStore:
     def __init__(self, results_path: Path) -> None:
         self.results_path = results_path
 
-    def append(self, entry: dict[str, Any]) -> None:
+    def append(self, entry: RankingResultEntry) -> None:
         serialized = json.dumps(entry, separators=(",", ":"), ensure_ascii=True)
         self.results_path.parent.mkdir(parents=True, exist_ok=True)
         with self.results_path.open("a+", encoding="utf-8") as handle:
@@ -46,31 +54,36 @@ class RankingResultsStore:
                 _ensure_line_boundary(handle)
                 handle.write(serialized + "\n")
                 handle.flush()
-                try:
-                    os.fsync(handle.fileno())
-                except OSError:
-                    pass
+                os.fsync(handle.fileno())
         _fsync_dir(self.results_path.parent)
 
-    def read_entries(self) -> list[dict[str, Any]]:
+    def read_entries(self) -> list[RankingResultEntry]:
         if not self.results_path.exists():
             return []
-        entries: list[dict[str, Any]] = []
+        entries: list[RankingResultEntry] = []
         with self.results_path.open("r", encoding="utf-8") as handle:
-            for raw_line in handle:
+            for line_number, raw_line in enumerate(handle, start=1):
                 line = raw_line.strip()
                 if not line:
                     continue
                 try:
                     payload = json.loads(line)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as exc:
+                    _LOGGER.warning(
+                        "Ignoring malformed ranking results entry in %s at line %d: %s",
+                        self.results_path,
+                        line_number,
+                        exc,
+                    )
                     continue
                 if isinstance(payload, dict):
-                    entries.append(payload)
+                    entry = _coerce_result_entry(payload)
+                    if entry is not None:
+                        entries.append(entry)
         return entries
 
-    def latest_entries_by_instance(self) -> dict[str, dict[str, Any]]:
-        latest: dict[str, dict[str, Any]] = {}
+    def latest_entries_by_instance(self) -> dict[str, RankingResultEntry]:
+        latest: dict[str, RankingResultEntry] = {}
         for entry in self.read_entries():
             instance_id = _instance_id_key(entry)
             if instance_id is None:
@@ -80,9 +93,9 @@ class RankingResultsStore:
                 latest[instance_id] = entry
         return latest
 
-    def collapsed_entries(self, ordered_instance_ids: Iterable[str]) -> list[dict[str, Any]]:
+    def collapsed_entries(self, ordered_instance_ids: Iterable[str]) -> list[RankingResultEntry]:
         latest = self.latest_entries_by_instance()
-        ordered_entries: list[dict[str, Any]] = []
+        ordered_entries: list[RankingResultEntry] = []
         for instance_id in ordered_instance_ids:
             entry = latest.get(instance_id)
             if entry is not None:
@@ -116,20 +129,89 @@ def _exclusive_lock(handle: TextIO) -> Iterator[None]:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _instance_id_key(entry: dict[str, Any]) -> str | None:
-    value = entry.get("instance_id")
-    if value is None:
+def _coerce_result_entry(payload: Mapping[str, object]) -> RankingResultEntry | None:
+    instance_id = _coerce_nonempty_str(payload.get("instance_id"))
+    instance_index = _coerce_required_int(payload.get("instance_index"))
+    completed = payload.get("completed")
+    if instance_id is None or instance_index is None or not isinstance(completed, bool):
         return None
-    text = str(value).strip()
+
+    entry: RankingResultEntry = {
+        "instance_id": instance_id,
+        "instance_index": instance_index,
+        "completed": completed,
+    }
+    final_ranks = _coerce_rank_groups(payload.get("final_ranks"))
+    if final_ranks is not None:
+        entry["final_ranks"] = final_ranks
+    missing_image_ids = _coerce_str_list(payload.get("missing_image_ids"))
+    if missing_image_ids is not None:
+        entry["missing_image_ids"] = missing_image_ids
+    started_at = _coerce_nonempty_str(payload.get("started_at"))
+    if started_at is not None:
+        entry["started_at"] = started_at
+    submitted_at = _coerce_nonempty_str(payload.get("submitted_at"))
+    if submitted_at is not None:
+        entry["submitted_at"] = submitted_at
+    duration_ms = _coerce_non_negative_int(payload.get("duration_ms"))
+    if duration_ms is not None:
+        entry["duration_ms"] = duration_ms
+    save_seq = _coerce_non_negative_int(payload.get("save_seq"))
+    if save_seq is not None:
+        entry["save_seq"] = save_seq
+    return entry
+
+
+def _coerce_nonempty_str(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
     return text or None
 
 
-def _entry_save_seq(entry: dict[str, Any]) -> int | None:
+def _coerce_required_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _coerce_non_negative_int(value: object) -> int | None:
+    coerced = _coerce_required_int(value)
+    if coerced is None or coerced < 0:
+        return None
+    return coerced
+
+
+def _coerce_str_list(value: object) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    if not all(isinstance(item, str) for item in value):
+        return None
+    return list(value)
+
+
+def _coerce_rank_groups(value: object) -> list[list[str]] | None:
+    if not isinstance(value, list):
+        return None
+    groups: list[list[str]] = []
+    for group in value:
+        coerced_group = _coerce_str_list(group)
+        if coerced_group is None:
+            return None
+        groups.append(coerced_group)
+    return groups
+
+
+def _instance_id_key(entry: RankingResultEntry) -> str | None:
+    return entry["instance_id"] or None
+
+
+def _entry_save_seq(entry: RankingResultEntry) -> int | None:
     value = entry.get("save_seq")
     return value if isinstance(value, int) and value >= 0 else None
 
 
-def _is_newer_entry(candidate: dict[str, Any], current: dict[str, Any]) -> bool:
+def _is_newer_entry(candidate: RankingResultEntry, current: RankingResultEntry) -> bool:
     candidate_seq = _entry_save_seq(candidate)
     current_seq = _entry_save_seq(current)
     if candidate_seq is None and current_seq is None:
@@ -162,14 +244,16 @@ def _ensure_line_boundary(handle: TextIO) -> None:
 
 
 def _fsync_dir(path: Path) -> None:
-    flags = getattr(os, "O_DIRECTORY", 0)
+    if not hasattr(os, "O_DIRECTORY"):
+        return
     try:
-        fd = os.open(os.fspath(path), os.O_RDONLY | flags)
-    except OSError:
+        fd = os.open(os.fspath(path), os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as exc:
+        _LOGGER.warning("Could not open ranking results directory %s for fsync: %s", path, exc)
         return
     try:
         os.fsync(fd)
-    except OSError:
-        pass
+    except OSError as exc:
+        _LOGGER.warning("Could not fsync ranking results directory %s: %s", path, exc)
     finally:
         os.close(fd)

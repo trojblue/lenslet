@@ -3,7 +3,7 @@ import FolderTree from '../../features/folders/FolderTree'
 import MetricsPanel from '../../features/metrics/MetricsPanel'
 import type { CompareOrderMode, FilterAST, BrowseFolderPayload, BrowseItemPayload, SavedView } from '../../lib/types'
 import type { ThemePresetId } from '../../theme/runtime'
-import ThemeSettingsMenu from './ThemeSettingsMenu'
+import ThemeSettingsMenu from '../../shared/ui/ThemeSettingsMenu'
 
 type LeftSidebarProps = {
   leftTool: 'folders' | 'metrics'

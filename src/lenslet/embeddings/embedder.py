@@ -4,12 +4,23 @@ import io
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeAlias
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+from ..http_safety import http_request, open_http_url
+
+if TYPE_CHECKING:
+    import numpy as np
+    from PIL import Image
+
+
+TorchLibrary: TypeAlias = dict[str, Any]
+ModelAndPreprocess: TypeAlias = tuple[Any, Callable[[Any], Any], int]
+ProgressFactory: TypeAlias = Callable[..., Any]
+LoadedTensor: TypeAlias = tuple[Any | None, Exception | None]
 
 
 @dataclass(frozen=True)
@@ -22,7 +33,7 @@ class EmbedConfig:
     base_dir: str | None = None
     normalize: bool = False
     limit: int | None = None
-    error_policy: str = "zero"
+    error_policy: str = "raise"
     num_workers: int = 8
     show_progress: bool = True
     allow_remote_uris: bool = False
@@ -94,7 +105,7 @@ def embed_parquet(
     return output_path
 
 
-def _lazy_import_torch():
+def _lazy_import_torch() -> TorchLibrary:
     try:
         import torch
         import torchvision
@@ -109,7 +120,7 @@ def _lazy_import_torch():
         )
     except Exception as exc:
         raise RuntimeError(
-            "Embedding requires torch + torchvision. Install: pip install torch torchvision"
+            'Embedding inference requires torch and torchvision. Install with: pip install "lenslet[embed]"'
         ) from exc
 
     return {
@@ -124,7 +135,7 @@ def _lazy_import_torch():
     }
 
 
-def _lazy_import_pil():
+def _lazy_import_pil() -> Any:
     try:
         from PIL import Image
     except Exception as exc:
@@ -132,7 +143,7 @@ def _lazy_import_pil():
     return Image
 
 
-def _lazy_import_boto3():
+def _lazy_import_boto3() -> Any:
     try:
         import boto3
     except Exception as exc:
@@ -140,7 +151,7 @@ def _lazy_import_boto3():
     return boto3
 
 
-def _lazy_import_tqdm():
+def _lazy_import_tqdm() -> ProgressFactory | None:
     try:
         from tqdm import tqdm
     except Exception:
@@ -175,21 +186,21 @@ def _read_bytes(uri: str, *, allow_remote_uris: bool) -> bytes:
     if uri.startswith("http://") or uri.startswith("https://"):
         if not allow_remote_uris:
             raise ValueError("Remote URIs are disabled. Use local file paths for embedding.")
-        req = Request(uri, headers={"User-Agent": "lenslet-embedder/1.0"})
-        with urlopen(req, timeout=30) as resp:
+        req = http_request(uri, headers={"User-Agent": "lenslet-embedder/1.0"})
+        with open_http_url(req, timeout=30) as resp:
             return resp.read()
     with open(uri, "rb") as handle:
         return handle.read()
 
 
-def _load_image(uri: str, *, allow_remote_uris: bool):
+def _load_image(uri: str, *, allow_remote_uris: bool) -> Image.Image:
     Image = _lazy_import_pil()
     raw = _read_bytes(uri, allow_remote_uris=allow_remote_uris)
     image = Image.open(io.BytesIO(raw))
     return image.convert("RGB")
 
 
-def _build_model(model_name: str, device: str):
+def _build_model(model_name: str, device: str) -> ModelAndPreprocess:
     lib = _lazy_import_torch()
     torch = lib["torch"]
     weights_enum, model_fn = lib["weights"][model_name]
@@ -241,7 +252,7 @@ def _encode_batch(
     normalize: bool,
     num_workers: int,
     allow_remote_uris: bool,
-):
+) -> np.ndarray:
     lib = _lazy_import_torch()
     torch = lib["torch"]
     import numpy as np
@@ -250,7 +261,7 @@ def _encode_batch(
     valid_indices: list[int] = []
     valid_tensors = []
 
-    def load_one(uri: str):
+    def load_one(uri: str) -> LoadedTensor:
         try:
             img = _load_image(uri, allow_remote_uris=allow_remote_uris)
             return preprocess(img), None

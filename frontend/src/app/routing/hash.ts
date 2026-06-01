@@ -1,6 +1,5 @@
-/** Allowed characters in paths - alphanumeric, slashes, dots, underscores, hyphens, @ */
-export const ALLOWED_PATH = /^[\/@a-zA-Z0-9._\-\/]{1,512}$/
-const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp']
+import { sanitizePath } from '../../lib/paths'
+
 const IMAGE_HASH_PREFIX = '!'
 
 export type HashTargets = {
@@ -8,40 +7,10 @@ export type HashTargets = {
   imageTarget: string | null
 }
 
-/**
- * Normalize and sanitize a path string.
- * - Decodes URI encoding
- * - Ensures leading slash
- * - Collapses multiple slashes
- * - Validates against allowed characters
- * - Falls back to '/' on invalid input
- */
-export function sanitizePath(raw: string): string {
-  try {
-    const decoded = decodeURI(raw || '')
-    const withLeading = decoded.startsWith('/') ? decoded : `/${decoded}`
-    const squashed = withLeading.replace(/\/{2,}/g, '/')
-    // Remove trailing slash except for root
-    const trimmed = squashed.length > 1 ? squashed.replace(/\/$/, '') : squashed
-    if (!ALLOWED_PATH.test(trimmed)) return '/'
-    return trimmed
-  } catch {
-    return '/'
-  }
-}
-
-/**
- * Read the current hash from window.location, stripping the leading '#'.
- * Returns raw (not decoded) string for sanitizePath to handle.
- */
 export function readHash(): string {
   return (window.location.hash || '').replace(/^#/, '')
 }
 
-/**
- * Write a path to the URL hash, encoding properly.
- * Only updates if the hash would actually change.
- */
 export function writeHash(p: string): void {
   const normalized = sanitizePath(p)
   const h = `#${encodeURI(normalized)}`
@@ -64,9 +33,6 @@ export function writeImageHash(p: string): void {
   }
 }
 
-/**
- * Replace the current hash without adding a history entry.
- */
 export function replaceHash(p: string): void {
   const normalized = sanitizePath(p)
   const h = `#${encodeURI(normalized)}`
@@ -76,9 +42,6 @@ export function replaceHash(p: string): void {
   }
 }
 
-/**
- * Replace the current viewer hash without adding a history entry.
- */
 export function replaceImageHash(p: string): void {
   const normalized = sanitizePath(p)
   const h = `#!${encodeURI(normalized)}`
@@ -88,30 +51,6 @@ export function replaceImageHash(p: string): void {
   }
 }
 
-/**
- * Heuristic for when a hash path likely points to an image file.
- */
-export function isLikelyImagePath(path: string): boolean {
-  const normalized = sanitizePath(path)
-  const lower = normalized.toLowerCase()
-  return IMAGE_EXTS.some((ext) => lower.endsWith(ext))
-}
-
-/**
- * Join two path segments safely.
- * Handles leading/trailing slashes and ensures result starts with '/'.
- */
-export function joinPath(a: string, b: string): string {
-  const cleanA = a.replace(/\/+$/, '')
-  const cleanB = b.replace(/^\/+/, '')
-  const joined = [cleanA, cleanB].filter(Boolean).join('/')
-  return joined.startsWith('/') ? joined : `/${joined}`
-}
-
-/**
- * Get the parent path of a given path.
- * Returns '/' for root or single-segment paths.
- */
 export function getParentPath(path: string): string {
   const normalized = sanitizePath(path)
   const parts = normalized.split('/').filter(Boolean)
@@ -122,14 +61,9 @@ export function getParentPath(path: string): string {
 /**
  * Resolve a raw hash into the browse scope and optional viewer image.
  *
- * New viewer URLs are explicit (`#!/path`). Legacy extension-based image hashes
- * are still accepted, and loaded item paths cover old links inside the current
- * browse state.
+ * Viewer URLs are explicit (`#!/path`). Plain hashes always target folders.
  */
-export function resolveHashTargets(
-  raw: string,
-  knownImagePaths?: ReadonlySet<string>,
-): HashTargets {
+export function resolveHashTargets(raw: string): HashTargets {
   if (raw.startsWith(IMAGE_HASH_PREFIX)) {
     const imageTarget = sanitizePath(raw.slice(IMAGE_HASH_PREFIX.length))
     if (imageTarget === '/') {
@@ -139,26 +73,17 @@ export function resolveHashTargets(
   }
 
   const normalized = sanitizePath(raw)
-  const imageTarget = isLikelyImagePath(normalized) || knownImagePaths?.has(normalized)
-    ? normalized
-    : null
   return {
-    folderTarget: imageTarget ? getParentPath(imageTarget) : normalized,
-    imageTarget,
+    folderTarget: normalized,
+    imageTarget: null,
   }
 }
 
-/**
- * Get the final segment (filename or folder name) of a path.
- */
 export function getPathName(path: string): string {
   const normalized = sanitizePath(path)
   return normalized.split('/').filter(Boolean).pop() || ''
 }
 
-/**
- * Check if a path is the trash folder.
- */
 export function isTrashPath(path: string): boolean {
   return path.endsWith('/_trash_')
 }

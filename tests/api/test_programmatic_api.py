@@ -19,11 +19,10 @@ def test_launch_blocking_builds_dataset_app_and_runs_uvicorn(
     def _fake_create_app_from_datasets(
         payload: dict[str, list[str]],
         *,
-        show_source: bool,
         options,
     ) -> object:
         created["datasets"] = payload
-        created["show_source"] = show_source
+        created["show_source"] = options.show_source
         created["options"] = options
         return sentinel_app
 
@@ -42,18 +41,20 @@ def test_launch_blocking_builds_dataset_app_and_runs_uvicorn(
 
     api.launch(
         datasets,
-        blocking=True,
-        port=8080,
-        thumb_size=512,
-        thumb_quality=81,
-        show_source=False,
-        verbose=True,
+        api.LaunchOptions(
+            blocking=True,
+            port=8080,
+            thumb_size=512,
+            thumb_quality=81,
+            show_source=False,
+            verbose=True,
+        ),
     )
 
     assert created["datasets"] == datasets
     assert created["show_source"] is False
-    assert created["options"].thumb_size == 512
-    assert created["options"].thumb_quality == 81
+    assert created["options"].browse.thumb_size == 512
+    assert created["options"].browse.thumb_quality == 81
     assert uvicorn_calls == {
         "app": sentinel_app,
         "host": "127.0.0.1",
@@ -83,15 +84,13 @@ def test_launch_table_nonblocking_spawns_process_and_runs_worker(
     def _fake_create_app_from_table(
         *,
         table: object,
-        base_dir: str | None,
-        source_column: str | None,
-        show_source: bool,
         options,
     ) -> object:
         created["table"] = table
-        created["base_dir"] = base_dir
-        created["source_column"] = source_column
-        created["show_source"] = show_source
+        created["base_dir"] = options.base_dir
+        created["source_column"] = options.source_column
+        created["path_column"] = options.path_column
+        created["show_source"] = options.show_source
         created["options"] = options
         return sentinel_app
 
@@ -121,19 +120,28 @@ def test_launch_table_nonblocking_spawns_process_and_runs_worker(
 
     api.launch_table(
         table,
-        blocking=False,
-        host="0.0.0.0",
-        port=9090,
-        source_column="source",
-        base_dir="/data",
+        api.TableLaunchOptions(
+            blocking=False,
+            host="0.0.0.0",
+            port=9090,
+            source_column="source",
+            path_column="display_path",
+            base_dir="/data",
+        ),
     )
 
     assert created["table"] == table
     assert created["base_dir"] == "/data"
     assert created["source_column"] == "source"
+    assert created["path_column"] == "display_path"
     assert created["show_source"] is True
-    assert created["options"].thumb_size == 256
-    assert created["options"].thumb_quality == 70
+    assert created["options"].browse.thumb_size == 256
+    assert created["options"].browse.thumb_quality == 70
+    assert created["options"].trusted_write_origins == (
+        "http://127.0.0.1:9090",
+        "http://localhost:9090",
+        "http://[::1]:9090",
+    )
     assert process_state == {"daemon": False, "started": True}
     assert uvicorn_calls == {
         "app": sentinel_app,

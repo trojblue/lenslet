@@ -19,31 +19,18 @@ export interface DropdownGroup {
 }
 
 export interface DropdownProps {
-  /** Currently selected value */
   value: string
-  /** Called when selection changes */
   onChange: (value: string) => void
-  /** Options - can be flat array or grouped */
   options: DropdownOption[] | DropdownGroup[]
-  /** Placeholder when no value selected */
   placeholder?: string
-  /** Custom trigger element (overrides default button) */
   trigger?: React.ReactNode
-  /** Additional class for trigger button */
   triggerClassName?: string
-  /** Additional class for dropdown panel */
   panelClassName?: string
-  /** Alignment of dropdown panel */
   align?: 'left' | 'right'
-  /** Width of dropdown panel */
   width?: number | 'trigger' | 'auto'
-  /** Show chevron indicator */
   showChevron?: boolean
-  /** Tooltip for trigger */
   title?: string
-  /** Disabled state */
   disabled?: boolean
-  /** aria-label for accessibility */
   'aria-label'?: string
 }
 
@@ -275,23 +262,13 @@ export default function Dropdown({
   )
 }
 
-/**
- * Simple icon button that opens a dropdown panel with custom content.
- */
 export interface DropdownMenuProps {
-  /** Trigger element */
   trigger: React.ReactNode
-  /** Panel content */
   children: React.ReactNode
-  /** Open state (controlled) */
   open?: boolean
-  /** Called when open state changes */
   onOpenChange?: (open: boolean) => void
-  /** Panel class name */
   panelClassName?: string
-  /** Alignment */
   align?: 'left' | 'right'
-  /** Width */
   width?: number
 }
 

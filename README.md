@@ -49,14 +49,20 @@ python scripts/setup_dev.py
 
 On Linux, this also asks Playwright to install Chromium system packages so browser smokes work in fresh containers. Use `--skip-browser-system-deps` if your OS packages are managed separately.
 
-Optional extras for embedding search:
+Optional extras:
 
 ```bash
+# Remote parquet/Hugging Face table loading
+pip install "lenslet[remote]"
+
 # NumPy-only similarity search
 pip install "lenslet[embeddings]"
 
 # FAISS-accelerated similarity search (CPU)
 pip install "lenslet[embeddings-faiss]"
+
+# CPU embedding inference for --embed
+pip install "lenslet[embed]"
 ```
 
 ## Usage
@@ -80,9 +86,10 @@ Options:
   --thumb-size SIZE            Thumbnail short edge in pixels (default: 256)
   --thumb-quality QUALITY      Thumbnail WebP quality 1-100 (default: 70)
   --source-column NAME         Column to load image paths from in table mode
+  --path-column NAME           Column to use as Lenslet logical paths in table mode
   --base-dir PATH              Base directory for resolving relative paths in table mode
-  --no-cache-wh                Disable caching width/height back into parquet
-  --no-skip-indexing           Probe image dimensions during table load
+  --no-cache-dimensions        Disable caching width/height dimensions back into parquet
+  --probe-dimensions           Probe missing image dimensions during table load
   --no-thumb-cache             Disable thumbnail cache when a workspace is available
   --no-og-preview              Disable dataset-based social preview image
   --no-write                   Use a temp workspace under /tmp/lenslet (keeps source read-only)
@@ -90,7 +97,6 @@ Options:
   --embedding-metric NAME:METRIC
                                Embedding metric override (repeatable)
   --embedding-preload          Preload embedding indexes on startup
-  --embedding-cache            Enable embedding cache (default)
   --no-embedding-cache         Disable embedding cache
   --embedding-cache-dir PATH   Override embedding cache directory
   --embed                      Run CPU embedding inference on a parquet file before launch
@@ -121,6 +127,9 @@ lenslet ~/Images --share
 # Start from a Parquet workspace (paths can be local, s3://, or https://)
 lenslet /data/items.parquet --source-column image_path --base-dir /data
 
+# Use separate physical source and logical display path columns
+lenslet /data/items.parquet --source-column image_uri --path-column display_path
+
 # Start from a folder containing items.parquet
 lenslet /data/dataset --source-column image_path
 
@@ -128,9 +137,11 @@ lenslet /data/dataset --source-column image_path
 lenslet incantor/dit03-twitter-niji7-5k-filtering-metrics --share
 
 # Start from a remote Parquet file
+# Requires: pip install "lenslet[remote]"
 lenslet s3://my-bucket/items.parquet --source-column image_path
 
 # Add embeddings to a local Parquet file before launching
+# Requires: pip install "lenslet[embed]"
 lenslet /data/items.parquet --source-column image_path --embed
 ```
 
@@ -194,16 +205,17 @@ Lenslet auto-detects fixed-size list embedding columns in `items.parquet` (or yo
 # Search by selected image path
 curl -X POST http://127.0.0.1:7070/embeddings/search \
   -H "Content-Type: application/json" \
-  -d '{"embedding":"clip","query_path":"/images/cat.jpg","top_k":50,"min_score":0.2}'
+  -d '{"embedding":"clip","query":{"kind":"path","path":"/images/cat.jpg"},"top_k":50,"min_score":0.2}'
 ```
 
 ```python
-# Encode a float32 vector (little-endian) for query_vector_b64
+# Encode a float32 vector (little-endian) for query.vector_b64
 import base64
 import numpy as np
 
 vec = np.asarray([0.1, 0.2, 0.3], dtype="<f4")
 payload = base64.b64encode(vec.tobytes()).decode("ascii")
+request = {"embedding": "clip", "query": {"kind": "vector", "vector_b64": payload}}
 ```
 
 Embedding caches live under `.lenslet/embeddings_cache/` (or `<parquet>.cache/embeddings_cache/`) unless you override with `--embedding-cache-dir`.
@@ -232,7 +244,7 @@ datasets = {
 }
 
 # Launch in non-blocking mode (returns immediately)
-lenslet.launch(datasets, blocking=False, port=7070)
+lenslet.launch(datasets, lenslet.LaunchOptions(blocking=False, port=7070))
 ```
 
 Use `lenslet.launch_table(...)` for a single table-like payload:
@@ -245,8 +257,15 @@ rows = [
     {"path": "gallery/b.jpg", "source": "/data/gallery/b.jpg"},
 ]
 
-lenslet.launch_table(rows, blocking=False, port=7070, base_dir="/data")
+lenslet.launch_table(
+    rows,
+    lenslet.TableLaunchOptions(blocking=False, port=7070, base_dir="/data"),
+)
 ```
+
+Table inputs use the same `TableInput` contract as server table mode: a
+`pyarrow.Table`-like object with `to_pydict()`, a pandas `DataFrame`-like
+object with `columns`/`to_dict()`, or a list of dict rows.
 
 **Key Features:**
 - 🚀 **Jupyter-friendly**: Non-blocking mode for notebooks
@@ -254,7 +273,7 @@ lenslet.launch_table(rows, blocking=False, port=7070, base_dir="/data")
 - 📁 **Multiple datasets**: Organize images into named collections
 - 🔗 **Mixed sources**: Combine local files, S3 URIs, and HTTP URLs
 
-The dataset and table launch paths are now explicit, so table-only options such as `source_column` and `base_dir` live on `launch_table(...)` instead of the dataset launcher.
+The dataset and table launch paths are explicit. Shared settings live in `LaunchOptions`; table-only settings such as `source_column` and `base_dir` live in `TableLaunchOptions`.
 
 ## Module Map (Post-Refactor Baseline)
 
@@ -263,41 +282,69 @@ The current architecture keeps a small public entry surface and pushes mode-spec
 Backend entrypoints and runtime assembly:
 
 - `src/lenslet/server.py` - public import facade for app builders and a few compatibility helpers.
-- `src/lenslet/server_factory.py` - browse-mode app construction for directory, table, and pre-built storage launches.
-- `src/lenslet/server_runtime.py` - runtime collaborator assembly (`AppRuntime`, caches, broker, snapshotter).
-- `src/lenslet/server_context.py` - request/app context wiring.
-- `src/lenslet/server_browse.py` - browse payload building, folder traversal, and search helpers.
-- `src/lenslet/server_media.py` - file and thumbnail response helpers.
-- `src/lenslet/server_sync.py` - metadata patching, SSE event broker, and presence state internals.
+- `src/lenslet/web/app/factory.py` - browse-mode app construction for directory, table, dataset, and pre-built storage launches.
+- `src/lenslet/web/app/builder.py` and `src/lenslet/web/app/base.py` - shared FastAPI assembly and app defaults.
+- `src/lenslet/web/runtime.py` - runtime collaborator assembly (`AppRuntime`, caches, broker, snapshotter).
+- `src/lenslet/web/lifecycle.py` - FastAPI startup/shutdown callback registry.
+- `src/lenslet/web/context.py` - request/app context wiring.
+- `src/lenslet/web/browse.py` - browse payload building, folder traversal, recursive cache warming, and search helpers.
+- `src/lenslet/web/media.py` - file and thumbnail response helpers.
+- `src/lenslet/web/metadata.py` - PNG/JPEG/WebP metadata parsing for API responses.
+- `src/lenslet/web/thumbs.py` - thumbnail worker scheduling.
+- `src/lenslet/web/export/response.py` and `src/lenslet/web/export/rendering.py` - comparison export request handling and image serialization.
+- `src/lenslet/web/og/data.py`, `src/lenslet/web/og/style.py`, and `src/lenslet/web/og/rendering.py` - OG preview sampling, import-safe style constants, and image rendering helpers.
+- `src/lenslet/web/sync/labels.py` - label-state persistence and snapshot writing.
+- `src/lenslet/web/sync/events.py` - SSE event broker and replay helpers.
+- `src/lenslet/web/sync/presence.py` - presence leases, scope counts, and replay state.
+- `src/lenslet/web/presence_runtime.py` - presence metrics, diagnostics payloads, and prune-loop runtime ownership.
+- `src/lenslet/web/paths.py`, `src/lenslet/web/sidecars.py`, `src/lenslet/web/request_headers.py`, and `src/lenslet/web/time.py` - shared web path, sidecar payload, request header, and time helpers.
+- `src/lenslet/web/auth.py` and `src/lenslet/web/permissions.py` - mutation policy and trusted-origin checks.
+- `src/lenslet/web/frontend.py` - frontend asset mounting.
+- `src/lenslet/degraded.py` - shared reporting for optional feature degradation.
 
 Route modules:
 
-- `src/lenslet/server_routes_common.py` - folders, search, metadata, export, file, thumb, and event routes.
-- `src/lenslet/server_routes_presence.py` - presence join/move/leave lifecycle and diagnostics.
-- `src/lenslet/server_routes_views.py` - workspace view persistence routes.
-- `src/lenslet/server_routes_embeddings.py` - embedding discovery and similarity search routes.
-- `src/lenslet/server_routes_index.py` - frontend shell mounting and OG tag injection.
-- `src/lenslet/server_routes_og.py` - OG image generation and cache wiring.
+- `src/lenslet/web/routes/common.py` - folders, search, metadata, export, file, thumb, and event routes.
+- `src/lenslet/web/routes/presence.py` - presence join/move/leave lifecycle and diagnostics.
+- `src/lenslet/web/routes/views.py` - workspace view persistence routes.
+- `src/lenslet/web/routes/embeddings.py` - embedding discovery and similarity search routes.
+- `src/lenslet/web/routes/index.py` - frontend shell and OG tag injection.
+- `src/lenslet/web/routes/og.py` - OG image generation and cache wiring.
+
+Web cache modules:
+
+- `src/lenslet/web/cache/signals.py` - best-effort cache failure reporting.
+- `src/lenslet/web/cache/browse.py` - recursive browse cache memory/disk persistence.
+- `src/lenslet/web/cache/thumbs.py` - thumbnail cache disk persistence.
+- `src/lenslet/web/cache/og.py` - OG image cache disk persistence.
 
 Storage backends and collaborators:
 
 - `src/lenslet/storage/base.py` - shared browse/storage protocols and contract helpers.
-- `src/lenslet/storage/local.py` - filesystem-backed read-only primitives.
-- `src/lenslet/storage/memory.py` - local browse storage with in-memory indexes, thumbs, and metadata.
-- `src/lenslet/storage/source_backed.py` - shared dataset/table behavior for source-backed media.
-- `src/lenslet/storage/table.py` - table-backed browse storage.
-- `src/lenslet/storage/dataset.py` - in-memory dataset-map browse storage for the programmatic API.
-- `src/lenslet/storage/table_schema.py` - source-column detection and schema coercion.
-- `src/lenslet/storage/table_paths.py` - logical-path derivation and local-path safety checks.
-- `src/lenslet/storage/table_index.py` - table row scan and index assembly pipeline.
-- `src/lenslet/storage/table_probe.py` - remote header and dimension probing.
-- `src/lenslet/storage/table_media.py` - media sniffing and dimension extraction.
+- `src/lenslet/storage/local/__init__.py` - filesystem-backed read-only primitives.
+- `src/lenslet/storage/memory/__init__.py` - local browse storage with in-memory indexes, thumbs, and metadata.
+- `src/lenslet/storage/source/backed.py` - shared dataset/table behavior for source-backed media.
+- `src/lenslet/storage/source/state.py` - source catalog and row-index state models.
+- `src/lenslet/storage/source/catalog.py` - source/path lookup and scoped item traversal.
+- `src/lenslet/storage/source/media.py` - local, HTTP, and S3 media reads plus remote error mapping.
+- `src/lenslet/storage/table/__init__.py` - public table storage package facade.
+- `src/lenslet/storage/table/storage.py` - `TableStorage` and table-backed browse storage implementation.
+- `src/lenslet/storage/dataset/__init__.py` - in-memory dataset-map browse storage for the programmatic API.
+- `src/lenslet/storage/table/schema.py` - source-column detection and schema coercion.
+- `src/lenslet/storage/source/paths.py` - source URI/path normalization and local-path safety checks.
+- `src/lenslet/storage/image_media.py` - media sniffing, thumbnail building, and dimension extraction.
+- `src/lenslet/storage/index_assembly.py` - shared folder-index assembly primitives.
+- `src/lenslet/storage/table/index.py` and `src/lenslet/storage/table/row_scan.py` - table index assembly and row scan orchestration.
+- `src/lenslet/storage/table/launch.py`, `src/lenslet/storage/table/launch_sources.py`, and `src/lenslet/storage/table/pyarrow_runtime.py` - parquet launch preparation, source detection, root inference, lazy pyarrow loading, and width/height cache writes.
+- `src/lenslet/storage/source/probe.py` and `src/lenslet/storage/source/probe_headers.py` - remote header and dimension probing.
 
 Other backend domains:
 
+- `src/lenslet/cli/main.py` - thin argv dispatcher.
+- `src/lenslet/cli/browse.py` and `src/lenslet/cli/rank.py` - focused browse and ranking command implementations.
 - `src/lenslet/workspace.py` - workspace paths, persisted views, snapshots, and labels log helpers.
-- `src/lenslet/browse_cache.py`, `src/lenslet/thumb_cache.py`, `src/lenslet/og_cache.py` - browse, thumbnail, and OG cache layers.
-- `src/lenslet/indexing_status.py` and `src/lenslet/preindex.py` - indexing lifecycle and local preindex support.
+- `src/lenslet/indexing_status.py` and `src/lenslet/storage/local/preindex.py` - indexing lifecycle and local preindex support.
+- `src/lenslet/embeddings/dependencies.py` - lazy numpy/faiss/pyarrow loaders for embedding search.
 - `src/lenslet/ranking/` - ranking-mode backend, persistence, validation, and CLI helpers.
 
 Frontend decomposition seams:
@@ -315,19 +362,24 @@ Run the fixed acceptance matrix from repo root:
 
 ```bash
 python scripts/lint_repo.py
-pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py
-pytest -q tests/test_ranking_backend.py tests/test_ranking_cli.py
+pytest -q tests/web/sync/test_presence_lifecycle.py tests/web/hotpath/test_hotpath_sprint_s2.py tests/web/hotpath/test_hotpath_sprint_s3.py tests/web/hotpath/test_hotpath_sprint_s4.py tests/web/app/test_refresh.py tests/web/routes/test_folder_recursive.py tests/web/sync/test_collaboration_sync.py tests/web/export/test_compare_export_endpoint.py tests/web/metadata/test_metadata_endpoint.py tests/embeddings/test_embeddings_search.py tests/embeddings/test_embeddings_cache.py tests/storage/table/test_table_security.py tests/storage/source/test_remote_worker_scaling.py tests/storage/table/test_parquet_ingestion.py
+pytest -q tests/ranking/test_ranking_backend.py tests/cli/test_ranking_cli.py
 python - <<'PY'
 import lenslet.server as server
 import lenslet.storage.table as table
+import lenslet.web.media as media
 assert hasattr(server, 'create_app')
 assert hasattr(server, 'create_app_from_datasets')
 assert hasattr(server, 'create_app_from_table')
 assert hasattr(server, 'create_app_from_storage')
 assert hasattr(server, 'HotpathTelemetry')
-assert hasattr(server, '_file_response')
-assert hasattr(server, '_thumb_response_async')
+assert hasattr(server, 'LocalAppOptions')
+assert hasattr(server, 'DatasetAppOptions')
+assert hasattr(server, 'TableAppOptions')
+assert hasattr(server, 'StorageAppOptions')
 assert hasattr(server, 'og')
+assert hasattr(media, 'file_response')
+assert hasattr(media, 'thumb_response_async')
 assert hasattr(table, 'TableStorage')
 assert hasattr(table, 'load_parquet_table')
 assert hasattr(table, 'load_parquet_schema')
@@ -338,6 +390,7 @@ npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/pres
 npm run test -- src/app/model/__tests__/appMode.test.ts src/features/ranking/model/__tests__/board.test.ts src/features/ranking/model/__tests__/session.test.ts
 npx tsc --noEmit
 cd ..
+python -m scripts.browser.gui_smoke.acceptance
 python -m build
 ```
 
@@ -345,7 +398,7 @@ For browser-level large-tree performance checks (40k images across 10k folders),
 
 ```bash
 python -m playwright install chromium
-python scripts/playwright_large_tree_smoke.py \
+python -m scripts.browser.large_tree.smoke \
   --dataset-dir data/fixtures/large_tree_40k \
   --output-json data/fixtures/large_tree_40k_smoke_result.json
 ```
@@ -359,8 +412,8 @@ rsync -a --delete frontend/dist/ src/lenslet/frontend/
 
 ## Hotpath API Notes (2026-02)
 
-- `GET /folders?recursive=1` returns the full list in a single response; pagination params are ignored and page metadata is `null`.
-- Retired recursive paging params are ignored; `path`, `recursive`, and `count_only` are the active query contract.
+- `GET /folders?recursive=1` returns the full recursive list in a single response.
+- `path`, `recursive`, and `count_only` are the active folder query contract.
 - `GET /file` now streams local file-backed sources and falls back to byte responses for non-local/remote sources.
 - Full-file prefetch is restricted to viewer/compare contexts and sends `x-lenslet-prefetch: viewer|compare`.
 - `GET /health` exposes hotpath runtime counters/timers under `hotpath.counters` and `hotpath.timers_ms`.

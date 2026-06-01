@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { downloadBlob } from '../../../app/utils/appShellHelpers'
+import { downloadBlob } from '../../../lib/download'
 import type { ExportComparisonOutputFormat } from '../../../lib/types'
 import { api } from '../../../api/client'
 import {

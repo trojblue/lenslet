@@ -7,6 +7,9 @@ pip install lenslet
 
 # For S3 support:
 pip install "lenslet[s3]"  # installs boto3
+
+# For remote table CLI targets such as s3://.../items.parquet:
+pip install "lenslet[remote]"  # installs unibox
 ```
 
 ## 30-Second Example
@@ -30,7 +33,7 @@ datasets = {
 }
 
 # Launch the gallery
-lenslet.launch(datasets, blocking=False, port=7070)
+lenslet.launch(datasets, lenslet.LaunchOptions(blocking=False, port=7070))
 
 # ✨ Gallery is now running at http://localhost:7070
 ```
@@ -59,7 +62,7 @@ from pathlib import Path
 images = [str(p) for p in Path("/data").glob("*.jpg")]
 
 # Launch and keep working
-lenslet.launch({"experiment": images}, port=7070)
+lenslet.launch({"experiment": images}, lenslet.LaunchOptions(port=7070))
 
 # Gallery runs in background, access at http://localhost:7070
 ```
@@ -77,7 +80,7 @@ datasets = {
     "high_score": df[df['score'] > 0.9]['image_path'].tolist(),
 }
 
-lenslet.launch(datasets, port=7070)
+lenslet.launch(datasets, lenslet.LaunchOptions(port=7070))
 ```
 
 ### S3 Images Only
@@ -92,7 +95,7 @@ datasets = {
     ]
 }
 
-lenslet.launch(datasets, port=7070)
+lenslet.launch(datasets, lenslet.LaunchOptions(port=7070))
 ```
 
 ## Parameters
@@ -100,27 +103,29 @@ lenslet.launch(datasets, port=7070)
 ```python
 lenslet.launch(
     datasets,              # Required: dict[name, list[paths]]
-    blocking=False,        # False=subprocess, True=current process
-    port=7070,            # Server port
-    host="127.0.0.1",     # Server host
-    thumb_size=256,       # Thumbnail size (px)
-    thumb_quality=70,     # WebP quality (1-100)
-    verbose=False,        # Show detailed logs (True) or quiet (False)
+    lenslet.LaunchOptions(
+        blocking=False,    # False=subprocess, True=current process
+        port=7070,         # Server port
+        host="127.0.0.1",  # Server host
+        thumb_size=256,    # Thumbnail size (px)
+        thumb_quality=70,  # WebP quality (1-100)
+        verbose=False,     # Show detailed logs (True) or quiet (False)
+    ),
 )
 ```
 
 ## More Information
 
-- **Full Documentation**: [docs/PROGRAMMATIC_API.md](docs/PROGRAMMATIC_API.md)
+- **Full Documentation**: [README.md#programmatic-api-pythonjupyter](README.md#programmatic-api-pythonjupyter)
 - **Examples**: [examples/programmatic_api_example.py](examples/programmatic_api_example.py)
 - **Notebook Examples**: [examples/notebook_example.ipynb](examples/notebook_example.ipynb)
-- **Implementation Details**: [docs/API_IMPLEMENTATION.md](docs/API_IMPLEMENTATION.md)
+- **Implementation Details**: [README.md#module-map-post-refactor-baseline](README.md#module-map-post-refactor-baseline)
 
 ## Troubleshooting
 
 **Port in use?**
 ```python
-lenslet.launch(datasets, port=8080)  # Use different port
+lenslet.launch(datasets, lenslet.LaunchOptions(port=8080))  # Use different port
 ```
 
 **S3 not working?**

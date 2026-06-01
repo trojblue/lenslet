@@ -1,12 +1,5 @@
-/**
- * Simple in-memory LRU cache for Blobs with a total byte limit.
- * Shared by hover preview, viewer, and prefetchers.
- * 
- * Features:
- * - LRU eviction when byte limit is reached
- * - Deduplication of in-flight requests
- * - Safe prefetching that doesn't block or throw
- */
+// Shared by hover preview, viewer, compare, and prefetch flows so cache
+// eviction, request deduplication, and abort ownership stay centralized.
 
 interface CacheEntry {
   blob: Blob
@@ -18,6 +11,28 @@ interface InflightEntry {
   abort?: () => void
 }
 
+type AbortableBlobFetchResult = {
+  promise: Promise<Blob>
+  abort?: () => void
+}
+
+type BlobFetchResult = Promise<Blob> | AbortableBlobFetchResult
+type BlobFetcher = () => BlobFetchResult
+
+function isAbortableBlobFetchResult(result: BlobFetchResult): result is AbortableBlobFetchResult {
+  return typeof result === 'object' && result !== null && 'promise' in result
+}
+
+function inflightEntryFromFetchResult(result: BlobFetchResult): InflightEntry {
+  if (isAbortableBlobFetchResult(result)) {
+    return {
+      promise: result.promise,
+      abort: result.abort,
+    }
+  }
+  return { promise: result }
+}
+
 export class BlobLRUCache {
   private readonly store = new Map<string, CacheEntry>()
   private readonly inflight = new Map<string, InflightEntry>()
@@ -25,47 +40,34 @@ export class BlobLRUCache {
 
   constructor(private readonly maxBytes: number) {}
 
-  /** Get the maximum byte limit for this cache */
   getMaxBytes(): number {
     return this.maxBytes
   }
 
-  /** Get the current total bytes stored */
   getTotalBytes(): number {
     return this.totalBytes
   }
 
-  /** Get the number of cached entries */
   getSize(): number {
     return this.store.size
   }
 
-  /** Check if a key is cached (not in-flight) */
   has(key: string): boolean {
     return this.store.has(key)
   }
 
-  /** Check if a key is currently being fetched */
   isInflight(key: string): boolean {
     return this.inflight.has(key)
   }
 
-  /**
-   * Get a cached blob, refreshing its LRU position.
-   * Returns undefined if not cached.
-   */
   get(key: string): Blob | undefined {
     const hit = this.store.get(key)
     if (!hit) return undefined
-    // Refresh LRU position by re-inserting
     this.store.delete(key)
     this.store.set(key, hit)
     return hit.blob
   }
 
-  /**
-   * Evict oldest entries until there's room for extraBytes.
-   */
   private evictIfNeeded(extraBytes: number): void {
     while (this.totalBytes + extraBytes > this.maxBytes && this.store.size > 0) {
       const oldestKey = this.store.keys().next().value as string | undefined
@@ -79,18 +81,13 @@ export class BlobLRUCache {
     }
   }
 
-  /**
-   * Store a blob in the cache, evicting old entries if needed.
-   */
   set(key: string, blob: Blob): void {
     const size = blob.size || 0
     
-    // Skip blobs larger than the entire cache
     if (size > this.maxBytes) {
       return
     }
     
-    // Remove existing entry if present
     if (this.store.has(key)) {
       const prev = this.store.get(key)!
       this.totalBytes -= prev.size
@@ -102,33 +99,28 @@ export class BlobLRUCache {
     this.totalBytes += size
   }
 
-  /**
-   * Get a cached blob or fetch it, deduplicating concurrent requests.
-   * @param key - Cache key
-   * @param fetcher - Function that returns { promise, abort? }
-   */
-  async getOrFetch(
+  getOrFetch(
     key: string,
-    fetcher: () => Promise<Blob> | { promise: Promise<Blob>; abort?: () => void }
+    fetcher: BlobFetcher
   ): Promise<Blob> {
-    // Return cached value immediately
     const cached = this.get(key)
-    if (cached) return cached
+    if (cached) return Promise.resolve(cached)
 
-    // Return existing in-flight request
     const existing = this.inflight.get(key)
     if (existing) return existing.promise
 
-    // Start new fetch
-    const fetchResult = fetcher()
-    const isAbortable = typeof fetchResult === 'object' && 'promise' in fetchResult
-    const promise = isAbortable ? fetchResult.promise : fetchResult
-    const abort = isAbortable ? fetchResult.abort : undefined
+    let fetchResult: BlobFetchResult
+    try {
+      fetchResult = fetcher()
+    } catch (error) {
+      return Promise.reject(error)
+    }
+    const { promise, abort } = inflightEntryFromFetchResult(fetchResult)
 
     const wrappedPromise = promise
-      .then((b) => {
-        this.set(key, b)
-        return b
+      .then((blob: Blob) => {
+        this.set(key, blob)
+        return blob
       })
       .finally(() => {
         this.inflight.delete(key)
@@ -138,27 +130,19 @@ export class BlobLRUCache {
     return wrappedPromise
   }
 
-  /**
-   * Prefetch a blob in the background. Does not throw on error.
-   * @param key - Cache key
-   * @param fetcher - Function that returns { promise, abort? }
-   */
   prefetch(
     key: string,
-    fetcher: () => Promise<Blob> | { promise: Promise<Blob>; abort?: () => void }
+    fetcher: BlobFetcher
   ): void {
-    // Already cached or in-flight, skip
     if (this.store.has(key) || this.inflight.has(key)) return
 
     const fetchResult = fetcher()
-    const isAbortable = typeof fetchResult === 'object' && 'promise' in fetchResult
-    const promise = isAbortable ? fetchResult.promise : fetchResult
-    const abort = isAbortable ? fetchResult.abort : undefined
+    const { promise, abort } = inflightEntryFromFetchResult(fetchResult)
 
     const wrappedPromise = promise
-      .then((b) => {
-        this.set(key, b)
-        return b
+      .then((blob: Blob) => {
+        this.set(key, blob)
+        return blob
       })
       .catch(() => {
         // Silently ignore prefetch errors - they're non-critical
@@ -171,9 +155,6 @@ export class BlobLRUCache {
     this.inflight.set(key, { promise: wrappedPromise, abort })
   }
 
-  /**
-   * Cancel an in-flight prefetch if possible.
-   */
   cancelPrefetch(key: string): void {
     const entry = this.inflight.get(key)
     if (entry?.abort) {
@@ -186,11 +167,7 @@ export class BlobLRUCache {
     this.inflight.delete(key)
   }
 
-  /**
-   * Clear the entire cache and cancel all in-flight requests.
-   */
   clear(): void {
-    // Cancel all in-flight requests
     for (const [key, entry] of this.inflight) {
       if (entry.abort) {
         try {
@@ -205,10 +182,6 @@ export class BlobLRUCache {
     this.totalBytes = 0
   }
 
-  /**
-   * Remove cached blobs (and any in-flight fetches) whose key is within the prefix.
-   * Keys are normalized to "/foo" form for matching.
-   */
   evictPrefix(prefix: string): void {
     const norm = (() => {
       const p = prefix ? `/${prefix.replace(/^\/+/, '')}` : '/'
@@ -248,8 +221,6 @@ export class BlobLRUCache {
   }
 }
 
-/** Cache for full-size images (~60MB) */
 export const fileCache = new BlobLRUCache(60 * 1024 * 1024)
 
-/** Cache for thumbnails (~20MB) */
 export const thumbCache = new BlobLRUCache(20 * 1024 * 1024)

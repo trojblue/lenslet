@@ -1,4 +1,4 @@
-import { BASE } from '../../api/base'
+import { apiUrl } from '../../api/base'
 import { fetchJSON } from '../../lib/fetcher'
 import type { HealthMode, HealthResponse } from '../../lib/types'
 import { deriveAppModeFromHealth, type AppMode } from '../model/appMode'
@@ -49,7 +49,7 @@ export function buildBootHealthFailure(error: unknown): BootHealthState {
 }
 
 export function requestBootHealth(): AbortableRequest<BootHealthState> {
-  const request = fetchJSON<HealthResponse>(`${BASE}/health`)
+  const request = fetchJSON<HealthResponse>(apiUrl('/health'))
   return {
     abort: request.abort,
     promise: request.promise

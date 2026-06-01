@@ -3,7 +3,7 @@ import type { BrowseItemPayload } from '../../../lib/types'
 export type Comparator<T> = (a: T, b: T) => number
 
 function getAddedMs(item: BrowseItemPayload): number {
-  return item.addedAt ? Date.parse(item.addedAt) : 0
+  return item.added_at ? Date.parse(item.added_at) : 0
 }
 
 export function sortByName(a: BrowseItemPayload, b: BrowseItemPayload): number {

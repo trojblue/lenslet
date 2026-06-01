@@ -40,3 +40,18 @@ def build_search_haystack(
             url or "",
         ])
     return " ".join(part for part in parts if part).lower()
+
+
+def sidecar_source_fields(sidecar: dict[str, object]) -> tuple[str | None, str | None]:
+    """Extract optional source-like search fields from sidecar state."""
+    source = sidecar.get("source")
+    if source is None:
+        source = sidecar.get("source_path")
+
+    url = sidecar.get("url")
+    if url is None:
+        url = sidecar.get("source_url")
+
+    source_text = str(source).strip() if source is not None else ""
+    url_text = str(url).strip() if url is not None else ""
+    return (source_text or None, url_text or None)

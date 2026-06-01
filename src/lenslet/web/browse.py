@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import io
-import threading
 import time
-from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import HTTPException, Request
 
-from .cache.browse import RecursiveBrowseCache, RecursiveCachedItemSnapshot
-from ..metadata import read_jpeg_info, read_png_info, read_webp_info
+from ..media_errors import MediaDecodeError, MediaError, MediaReadError
+from .cache.browse import (
+    CACHE_PERSIST_QUEUED,
+    CACHE_PERSIST_SKIPPED,
+    CACHE_PERSIST_WRITTEN,
+    RecursiveBrowseCache,
+    RecursiveCachePersistStatus,
+    RecursiveCachedItemSnapshot,
+)
+from .metadata import read_jpeg_info, read_png_info, read_webp_info
 from .context import get_request_context
+from .generation import build_browse_generation_token
+from .hotpath import HotpathTelemetry
+from .media import media_failure_to_http_error
 from .models import (
     BrowseFolderEntryPayload,
     BrowseFolderPayload,
@@ -22,48 +31,64 @@ from .models import (
     ImageMetadataResponse,
     Sidecar,
 )
-from .sync import _canonical_path, _sidecar_from_meta
-from ..storage.base import BrowseItem, BrowseStorage
-from ..workspace import Workspace
+from .paths import canonical_path
+from .sidecars import sidecar_from_state
+from ..storage.base import (
+    BrowseAppStorage,
+    BrowseItem,
+    BrowseStorage,
+    RecursiveLimitStorage,
+    SearchStorage,
+    SidecarState,
+    SidecarStorage,
+)
 
 
 BrowseItemRecord = BrowseItem | RecursiveCachedItemSnapshot
 ToItemFn = Callable[[BrowseStorage, BrowseItemRecord], BrowseItemPayload]
 
 
-def _storage_from_request(request: Request) -> BrowseStorage:
+def storage_from_request(request: Request) -> BrowseAppStorage:
     return get_request_context(request).storage
 
 
-def _ensure_image(storage: BrowseStorage, path: str) -> None:
+def ensure_image(storage: BrowseStorage, path: str) -> None:
     try:
         storage.validate_image_path(path)
-    except FileNotFoundError:
-        raise HTTPException(404, "file not found")
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "file not found") from exc
     except ValueError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, str(exc)) from exc
 
 
-def _build_sidecar(storage: BrowseStorage, path: str) -> Sidecar:
-    meta = storage.get_metadata_readonly(path)
-    return _build_sidecar_from_meta(storage, path, meta)
+def build_sidecar(storage: SidecarStorage, path: str) -> Sidecar:
+    sidecar_state = storage.get_sidecar_readonly(path)
+    return build_sidecar_from_state(storage, path, sidecar_state)
 
 
-def _build_sidecar_from_meta(storage: BrowseStorage, path: str, meta: dict) -> Sidecar:
-    sidecar = _sidecar_from_meta(meta)
+def build_sidecar_from_state(storage: SidecarStorage, path: str, sidecar_state: SidecarState) -> Sidecar:
+    sidecar = sidecar_from_state(sidecar_state)
     enrichment = storage.sidecar_enrichment_for_path(path)
     if not enrichment:
         return sidecar
     return sidecar.model_copy(update=enrichment)
 
 
-def _build_image_metadata(storage: BrowseStorage, path: str) -> ImageMetadataResponse:
+def build_image_metadata(storage: BrowseStorage, path: str) -> ImageMetadataResponse:
     mime = storage.guess_mime(path)
     if mime not in ("image/png", "image/jpeg", "image/webp"):
         raise HTTPException(415, "metadata reading supports PNG, JPEG, and WebP images only")
 
     try:
         raw = storage.read_bytes(path)
+    except HTTPException:
+        raise
+    except (FileNotFoundError, MediaError) as exc:
+        raise media_failure_to_http_error(exc) from exc
+    except (OSError, ValueError) as exc:
+        raise media_failure_to_http_error(MediaReadError.from_exception(path, exc)) from exc
+
+    try:
         if mime == "image/png":
             meta = read_png_info(io.BytesIO(raw))
             fmt = "png"
@@ -76,22 +101,22 @@ def _build_image_metadata(storage: BrowseStorage, path: str) -> ImageMetadataRes
     except HTTPException:
         raise
     except Exception as exc:  # pragma: no cover - unexpected parse errors
-        raise HTTPException(500, f"failed to parse metadata: {exc}")
+        raise media_failure_to_http_error(MediaDecodeError.from_exception(path, exc)) from exc
 
     return ImageMetadataResponse(path=path, format=fmt, meta=meta)
 
 
-def _build_item(
+def build_item_payload(
     cached: BrowseItemRecord,
-    meta: dict[str, Any],
+    sidecar_state: SidecarState,
     source: str | None = None,
 ) -> BrowseItemPayload:
     if source is None:
         source = getattr(cached, "source", None)
-    canonical = _canonical_path(cached.path)
+    canonical = canonical_path(cached.path)
     metrics = getattr(cached, "metrics", None)
     if metrics is None:
-        metrics = meta.get("metrics")
+        metrics = sidecar_state.get("metrics")
     added_at = None
     mtime = float(getattr(cached, "mtime", 0) or 0)
     if mtime > 0:
@@ -103,20 +128,15 @@ def _build_item(
         width=cached.width,
         height=cached.height,
         size=cached.size,
-        hasThumbnail=True,
-        hasMetadata=True,
-        addedAt=added_at,
-        star=meta.get("star"),
-        notes=meta.get("notes", ""),
+        has_thumbnail=True,
+        has_metadata=True,
+        added_at=added_at,
+        star=sidecar_state.get("star"),
+        notes=sidecar_state.get("notes", ""),
         url=getattr(cached, "url", None),
         source=source,
         metrics=metrics,
     )
-
-
-def _child_folder_path(parent: str, child: str) -> str:
-    parent_path = _canonical_path(parent)
-    return _canonical_path(f"{parent_path.rstrip('/')}/{child}")
 
 
 def _metric_keys_from_cached_items(cached_items: Iterable[Any]) -> list[str]:
@@ -152,78 +172,6 @@ RECURSIVE_CACHE_BUILD_MAX_RETRIES = 2
 RECURSIVE_ITEMS_HARD_LIMIT = 10_000
 
 
-class HotpathTelemetry:
-    """Lightweight in-process counters/timers for hot-path visibility."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._counters: dict[str, int] = {}
-        self._timers: dict[str, tuple[int, float]] = {}
-
-    def increment(self, key: str, amount: int = 1) -> None:
-        if amount == 0:
-            return
-        with self._lock:
-            self._counters[key] = self._counters.get(key, 0) + amount
-
-    def observe_ms(self, key: str, duration_ms: float) -> None:
-        if duration_ms < 0:
-            duration_ms = 0
-        with self._lock:
-            count, total = self._timers.get(key, (0, 0.0))
-            self._timers[key] = (count + 1, total + duration_ms)
-
-    def snapshot(self, storage=None) -> dict[str, Any]:
-        with self._lock:
-            counters = dict(self._counters)
-            timers = {
-                key: {
-                    "count": count,
-                    "total_ms": round(total_ms, 3),
-                    "avg_ms": round(total_ms / count, 3) if count else 0.0,
-                }
-                for key, (count, total_ms) in self._timers.items()
-            }
-        s3_creations = _storage_s3_client_creations(storage)
-        if s3_creations is not None:
-            counters["s3_client_create_total"] = s3_creations
-        return {
-            "counters": counters,
-            "timers_ms": timers,
-        }
-
-
-def _create_hotpath_metrics(app: FastAPI) -> HotpathTelemetry:
-    metrics = HotpathTelemetry()
-    app.state.hotpath_metrics = metrics
-    return metrics
-
-
-def _labels_health_payload(workspace: Workspace, *, writes_enabled: bool | None = None) -> dict[str, Any]:
-    if writes_enabled is None:
-        writes_enabled = workspace.can_write
-    if not writes_enabled:
-        return {"enabled": False, "log": None, "snapshot": None}
-    return {
-        "enabled": True,
-        "log": str(workspace.labels_log_path()),
-        "snapshot": str(workspace.labels_snapshot_path()),
-    }
-
-
-def _storage_s3_client_creations(storage: BrowseStorage) -> int | None:
-    try:
-        value = storage.s3_client_creations()
-    except Exception:
-        return None
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _raise_recursive_items_limit() -> None:
     raise HTTPException(
         413,
@@ -231,7 +179,7 @@ def _raise_recursive_items_limit() -> None:
     )
 
 
-def _recursive_items_hard_limit(storage: BrowseStorage) -> int | None:
+def _recursive_items_hard_limit(storage: RecursiveLimitStorage) -> int | None:
     try:
         limit = storage.recursive_items_hard_limit()
     except Exception:
@@ -247,65 +195,6 @@ def _recursive_items_hard_limit(storage: BrowseStorage) -> int | None:
     return parsed_limit
 
 
-
-
-def _collect_recursive_cached_items(
-    storage: BrowseStorage,
-    root_path: str,
-    root_index: Any,
-    *,
-    max_items: int | None = None,
-    cancelled: Callable[[], bool] | None = None,
-) -> tuple[list[Any], int]:
-    queue: deque[tuple[str, Any]] = deque([(_canonical_path(root_path), root_index)])
-    seen_folders: set[str] = set()
-    seen_items: set[str] = set()
-    items: list[tuple[str, Any]] = []
-    total_items = 0
-    get_index = _recursive_index_getter(storage)
-
-    while queue:
-        if cancelled is not None and cancelled():
-            break
-        folder_path, folder_index = queue.popleft()
-        if folder_path in seen_folders:
-            continue
-        seen_folders.add(folder_path)
-
-        for cached in folder_index.items:
-            if cancelled is not None and cancelled():
-                break
-            item_path = _canonical_path(getattr(cached, "path", ""))
-            if item_path in seen_items:
-                continue
-            seen_items.add(item_path)
-            if max_items is not None and total_items >= max_items:
-                _raise_recursive_items_limit()
-            total_items += 1
-            items.append((item_path, cached))
-
-        for child_name in folder_index.dirs:
-            if cancelled is not None and cancelled():
-                break
-            child_path = _child_folder_path(folder_path, child_name)
-            if child_path in seen_folders:
-                continue
-            try:
-                child_index = get_index(child_path)
-            except (FileNotFoundError, ValueError):
-                continue
-            if child_index is None:
-                continue
-            queue.append((child_path, child_index))
-
-    items.sort(key=lambda pair: pair[0])
-    return [cached for _, cached in items], total_items
-
-
-def _recursive_index_getter(storage: BrowseStorage) -> Callable[[str], Any]:
-    return storage.get_recursive_index
-
-
 def _snapshots_from_cached_items(
     cached_items: Iterable[Any],
 ) -> tuple[RecursiveCachedItemSnapshot, ...]:
@@ -318,12 +207,9 @@ def _snapshots_from_cached_items(
 def _build_recursive_snapshots(
     storage: BrowseStorage,
     canonical_path: str,
-    root_index: Any,
     *,
     max_items: int | None = None,
-    cancelled: Callable[[], bool] | None = None,
 ) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
-    _ = root_index, cancelled
     snapshots = _snapshots_from_cached_items(storage.items_in_scope(canonical_path))
     if max_items is not None and len(snapshots) > max_items:
         _raise_recursive_items_limit()
@@ -333,45 +219,32 @@ def _build_recursive_snapshots(
 def _count_recursive_items(
     storage: BrowseStorage,
     canonical_path: str,
-    root_index: Any,
 ) -> int:
-    _ = root_index
     return int(storage.count_in_scope(canonical_path))
 
 
-def _recursive_cache_generation_token(storage: BrowseStorage) -> str:
-    parts: list[str] = []
-    try:
-        signature = str(storage.browse_cache_signature()).strip()
-    except Exception:
-        signature = ""
-    if signature:
-        parts.append(signature)
-
-    try:
-        generation = str(storage.browse_generation()).strip()
-    except Exception:
-        generation = ""
-    if generation:
-        parts.append(generation)
-
-    if not parts:
-        return "default"
-    return "|".join(parts)
+def _record_recursive_cache_persist_status(
+    hotpath_metrics: HotpathTelemetry,
+    status: RecursiveCachePersistStatus,
+) -> None:
+    if status == CACHE_PERSIST_WRITTEN:
+        hotpath_metrics.increment("folders_recursive_cache_persist_write_total")
+    elif status == CACHE_PERSIST_QUEUED:
+        hotpath_metrics.increment("folders_recursive_cache_persist_queued_total")
+    elif status == CACHE_PERSIST_SKIPPED:
+        hotpath_metrics.increment("folders_recursive_cache_persist_skipped_total")
 
 
 def _load_or_build_recursive_snapshots(
     storage: BrowseStorage,
     canonical_path: str,
-    root_index: Any,
     *,
     sort_mode: str,
     browse_cache: RecursiveBrowseCache,
     defer_persist: bool = False,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
-    generation_token = _recursive_cache_generation_token(storage)
-    recursive_index = _recursive_index_getter(storage)
+    generation_token = build_browse_generation_token(storage)
     max_items = _recursive_items_hard_limit(storage)
     for _attempt in range(RECURSIVE_CACHE_BUILD_MAX_RETRIES):
         cached_window = browse_cache.load(canonical_path, sort_mode, generation_token)
@@ -391,38 +264,36 @@ def _load_or_build_recursive_snapshots(
         snapshots, total_items = _build_recursive_snapshots(
             storage,
             canonical_path,
-            root_index,
             max_items=max_items,
         )
 
-        latest_generation = _recursive_cache_generation_token(storage)
+        latest_generation = build_browse_generation_token(storage)
         if latest_generation != generation_token:
             if hotpath_metrics is not None:
                 hotpath_metrics.increment("folders_recursive_cache_stale_generation_total")
             generation_token = latest_generation
             try:
-                root_index = recursive_index(canonical_path)
+                latest_index = storage.load_recursive_index(canonical_path)
             except (FileNotFoundError, ValueError):
                 break
-            if root_index is None:
+            if latest_index is None:
                 break
             continue
 
-        _window, wrote_persisted = browse_cache.save(
+        _window, persist_status = browse_cache.save(
             canonical_path,
             sort_mode,
             generation_token,
             snapshots,
             defer_persist=defer_persist,
         )
-        if hotpath_metrics is not None and wrote_persisted:
-            hotpath_metrics.increment("folders_recursive_cache_persist_write_total")
+        if hotpath_metrics is not None:
+            _record_recursive_cache_persist_status(hotpath_metrics, persist_status)
         return snapshots, total_items
 
     return _build_recursive_snapshots(
         storage,
         canonical_path,
-        root_index,
         max_items=max_items,
     )
 
@@ -436,18 +307,16 @@ def warm_recursive_cache(
 ) -> int:
     if browse_cache is None:
         return int(storage.count_in_scope(path))
-    recursive_index = _recursive_index_getter(storage)
     try:
-        root_index = recursive_index(path)
+        root_index = storage.load_recursive_index(path)
     except (FileNotFoundError, ValueError):
         return 0
     if root_index is None:
         return 0
-    canonical_path = _canonical_path(path)
+    canonical = canonical_path(path)
     _snapshots, total_items = _load_or_build_recursive_snapshots(
         storage,
-        canonical_path,
-        root_index,
+        canonical,
         sort_mode=RECURSIVE_SORT_MODE_SCAN,
         browse_cache=browse_cache,
         defer_persist=False,
@@ -456,7 +325,139 @@ def warm_recursive_cache(
     return total_items
 
 
-def _build_folder_index(
+def _load_folder_index(storage: BrowseStorage, canonical: str, *, recursive: bool) -> Any:
+    try:
+        if recursive:
+            index = storage.load_recursive_index(canonical)
+        else:
+            index = storage.load_index(canonical)
+        if index is None:
+            raise FileNotFoundError(canonical)
+        return index
+    except ValueError as exc:
+        raise HTTPException(400, "invalid path") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "folder not found") from exc
+
+
+def _folder_entries(index: Any) -> list[BrowseFolderEntryPayload]:
+    return [BrowseFolderEntryPayload(name=d, kind="branch") for d in sorted(index.dirs)]
+
+
+def _build_direct_folder_payload(
+    storage: BrowseStorage,
+    canonical: str,
+    index: Any,
+    to_item: ToItemFn,
+    *,
+    count_only: bool,
+) -> BrowseFolderPayload:
+    if count_only:
+        return BrowseFolderPayload(
+            path=canonical,
+            generated_at=index.generated_at,
+            items=[],
+            folders=_folder_entries(index),
+            metric_keys=[],
+            total_items=len(getattr(index, "items", []) or []),
+        )
+
+    return BrowseFolderPayload(
+        path=canonical,
+        generated_at=index.generated_at,
+        items=[to_item(storage, it) for it in index.items],
+        folders=_folder_entries(index),
+        metric_keys=_metric_keys_for_folder(storage, canonical, index, recursive=False),
+        total_items=None,
+    )
+
+
+def _load_recursive_payload_snapshots(
+    storage: BrowseStorage,
+    canonical: str,
+    browse_cache: RecursiveBrowseCache | None,
+    hotpath_metrics: HotpathTelemetry | None,
+) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
+    if browse_cache is not None:
+        return _load_or_build_recursive_snapshots(
+            storage,
+            canonical,
+            sort_mode=RECURSIVE_SORT_MODE_SCAN,
+            browse_cache=browse_cache,
+            defer_persist=True,
+            hotpath_metrics=hotpath_metrics,
+        )
+    return _build_recursive_snapshots(
+        storage,
+        canonical,
+        max_items=_recursive_items_hard_limit(storage),
+    )
+
+
+def _record_recursive_traversal(
+    hotpath_metrics: HotpathTelemetry | None,
+    traversal_started: float,
+    total_items: int,
+) -> None:
+    if hotpath_metrics is None:
+        return
+    hotpath_metrics.observe_ms(
+        "folders_recursive_traversal_ms",
+        (time.perf_counter() - traversal_started) * 1000.0,
+    )
+    hotpath_metrics.increment("folders_recursive_items_total", total_items)
+
+
+def _build_recursive_folder_payload(
+    storage: BrowseStorage,
+    canonical: str,
+    index: Any,
+    to_item: ToItemFn,
+    *,
+    count_only: bool,
+    browse_cache: RecursiveBrowseCache | None,
+    hotpath_metrics: HotpathTelemetry | None,
+) -> BrowseFolderPayload:
+    if hotpath_metrics is not None:
+        hotpath_metrics.increment("folders_recursive_requests_total")
+    traversal_started = time.perf_counter()
+
+    if count_only:
+        total_items = _count_recursive_items(storage, canonical)
+        _record_recursive_traversal(hotpath_metrics, traversal_started, total_items)
+        return BrowseFolderPayload(
+            path=canonical,
+            generated_at=index.generated_at,
+            items=[],
+            folders=_folder_entries(index),
+            metric_keys=[],
+            total_items=total_items,
+        )
+
+    snapshots, total_items = _load_recursive_payload_snapshots(
+        storage,
+        canonical,
+        browse_cache,
+        hotpath_metrics,
+    )
+    _record_recursive_traversal(hotpath_metrics, traversal_started, total_items)
+    return BrowseFolderPayload(
+        path=canonical,
+        generated_at=index.generated_at,
+        items=[to_item(storage, snapshot) for snapshot in snapshots],
+        folders=_folder_entries(index),
+        metric_keys=_metric_keys_for_folder(
+            storage,
+            canonical,
+            index,
+            recursive=True,
+            snapshots=snapshots,
+        ),
+        total_items=None,
+    )
+
+
+def build_folder_index(
     storage: BrowseStorage,
     path: str,
     to_item: ToItemFn,
@@ -465,100 +466,33 @@ def _build_folder_index(
     browse_cache: RecursiveBrowseCache | None = None,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> BrowseFolderPayload:
-    canonical_path = _canonical_path(path)
-    try:
-        if recursive:
-            getter = _recursive_index_getter(storage)
-            index = getter(canonical_path)
-            if index is None:
-                raise FileNotFoundError(canonical_path)
-        else:
-            index = storage.get_index(canonical_path)
-            if index is None:
-                raise FileNotFoundError(canonical_path)
-    except ValueError:
-        raise HTTPException(400, "invalid path")
-    except FileNotFoundError:
-        raise HTTPException(404, "folder not found")
-
-    snapshots: tuple[RecursiveCachedItemSnapshot, ...] | None = None
+    canonical = canonical_path(path)
     if recursive:
-        if hotpath_metrics is not None:
-            hotpath_metrics.increment("folders_recursive_requests_total")
-        traversal_started = time.perf_counter()
-        if count_only:
-            total_items = _count_recursive_items(storage, canonical_path, index)
-            items = []
-        else:
-            if browse_cache is not None:
-                snapshots, total_items = _load_or_build_recursive_snapshots(
-                    storage,
-                    canonical_path,
-                    index,
-                    sort_mode=RECURSIVE_SORT_MODE_SCAN,
-                    browse_cache=browse_cache,
-                    defer_persist=True,
-                    hotpath_metrics=hotpath_metrics,
-                )
-            else:
-                snapshots, total_items = _build_recursive_snapshots(
-                    storage,
-                    canonical_path,
-                    index,
-                    max_items=_recursive_items_hard_limit(storage),
-                )
-            items = [to_item(storage, snapshot) for snapshot in snapshots]
-        if hotpath_metrics is not None:
-            hotpath_metrics.observe_ms(
-                "folders_recursive_traversal_ms",
-                (time.perf_counter() - traversal_started) * 1000.0,
-            )
-            hotpath_metrics.increment("folders_recursive_items_total", total_items)
-    else:
-        if count_only:
-            total_items = len(getattr(index, "items", []) or [])
-            items = []
-        else:
-            items = [to_item(storage, it) for it in index.items]
-            total_items = None
+        return _build_recursive_folder_payload(
+            storage,
+            canonical,
+            _load_folder_index(storage, canonical, recursive=True),
+            to_item,
+            count_only=count_only,
+            browse_cache=browse_cache,
+            hotpath_metrics=hotpath_metrics,
+        )
 
-    folders = [BrowseFolderEntryPayload(name=d, kind="branch") for d in sorted(index.dirs)]
-    metric_keys = _metric_keys_for_folder(
+    return _build_direct_folder_payload(
         storage,
-        canonical_path,
-        index,
-        recursive=recursive,
-        snapshots=snapshots,
-    )
-
-    return BrowseFolderPayload(
-        path=canonical_path,
-        generatedAt=index.generated_at,
-        items=items,
-        folders=folders,
-        metricKeys=metric_keys,
-        page=None,
-        pageSize=None,
-        pageCount=None,
-        totalItems=total_items if count_only else None,
+        canonical,
+        _load_folder_index(storage, canonical, recursive=False),
+        to_item,
+        count_only=count_only,
     )
 
 
-def _search_results(
-    storage,
-    to_item,
+def search_results(
+    storage: SearchStorage,
+    to_item: ToItemFn,
     q: str,
     path: str,
     limit: int,
 ) -> BrowseSearchResultsPayload:
     hits = storage.search(query=q, path=path, limit=limit)
     return BrowseSearchResultsPayload(items=[to_item(storage, it) for it in hits])
-
-
-storage_from_request = _storage_from_request
-ensure_image = _ensure_image
-build_sidecar = _build_sidecar
-build_sidecar_from_meta = _build_sidecar_from_meta
-build_image_metadata = _build_image_metadata
-build_folder_index = _build_folder_index
-search_results = _search_results

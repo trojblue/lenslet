@@ -10,7 +10,7 @@ from lenslet.embeddings.cache import EmbeddingCache
 from lenslet.embeddings.config import EmbeddingConfig
 from lenslet.embeddings.detect import detect_embeddings
 from lenslet.embeddings.index import EmbeddingManager
-from lenslet.storage.table import TableStorage
+from lenslet.storage.table import TableStorage, TableStorageOptions
 from lenslet.workspace import Workspace
 
 np = pytest.importorskip("numpy")
@@ -39,7 +39,7 @@ def _make_table(paths: list[str], embeds: list[list[float]]) -> pa.Table:
 def _build_manager(root: Path, table: pa.Table, cache: EmbeddingCache) -> tuple[EmbeddingManager, str]:
     parquet_path = root / "items.parquet"
     _write_parquet(parquet_path, table)
-    storage = TableStorage(table=table, root=str(root))
+    storage = TableStorage(table, options=TableStorageOptions(root=str(root)))
     detection = detect_embeddings(table.schema, EmbeddingConfig())
     manager = EmbeddingManager(
         parquet_path=str(parquet_path),
@@ -88,6 +88,29 @@ def test_embedding_cache_write_and_invalidate(tmp_path: Path) -> None:
     updated_cache_path = cache.cache_path(parquet_path, manager.available[0])
     assert updated_cache_path is not None
     assert updated_cache_path != original_cache_path
+
+
+def test_embedding_cache_reports_corrupt_load_failure(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    root = tmp_path
+    _make_image(root / "a.jpg")
+
+    table = _make_table(["a.jpg"], [[1.0, 0.0, 0.0]])
+    workspace = Workspace.for_dataset(str(root), can_write=True)
+    workspace.ensure()
+    cache_dir = workspace.embedding_cache_dir()
+    assert cache_dir is not None
+    cache = EmbeddingCache(cache_dir, allow_write=True)
+
+    manager, parquet_path = _build_manager(root, table, cache)
+    cache_path = cache.cache_path(parquet_path, manager.available[0])
+    assert cache_path is not None
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_bytes(b"not an npz cache")
+
+    assert cache.load(parquet_path, manager.available[0]) is None
+    warning = capsys.readouterr().err
+    assert "embedding cache degraded: failed to load cache:" in warning
+    assert "startup continues without it" in warning
 
 
 def test_embedding_cache_respects_no_write(tmp_path: Path) -> None:

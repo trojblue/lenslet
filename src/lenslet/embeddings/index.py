@@ -1,24 +1,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
-try:
+if TYPE_CHECKING:
+    import faiss
     import numpy as np
-except ImportError:  # pragma: no cover - optional dependency until embeddings are used
-    np = None  # type: ignore[assignment]
-try:
-    import faiss  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    faiss = None  # type: ignore[assignment]
 
 from .detect import EmbeddingSpec
 from .cache import EmbeddingCache
+from .dependencies import load_faiss, load_numpy
 from .io import EmbeddingIOError, decode_base64_vector, load_embedding_matrix, normalize_vector
+from ..degraded import report_degraded_feature
 
 
 class EmbeddingIndexError(ValueError):
     pass
+
+
+def _require_numpy() -> Any:
+    try:
+        return load_numpy()
+    except ImportError as exc:  # pragma: no cover - optional embeddings dependency
+        raise EmbeddingIndexError("numpy is required for embedding search") from exc
 
 
 @dataclass(frozen=True)
@@ -37,8 +41,7 @@ class EmbeddingIndex:
         cache: EmbeddingCache | None = None,
         prefer_faiss: bool = True,
     ) -> None:
-        if np is None:  # pragma: no cover - optional dependency
-            raise EmbeddingIndexError("numpy is required for embedding search")
+        np = _require_numpy()
         if spec.metric != "cosine":
             raise EmbeddingIndexError(f"Unsupported embedding metric '{spec.metric}'")
         matrix, row_indices, dtype = _load_embedding_data(
@@ -61,13 +64,12 @@ class EmbeddingIndex:
 
     def search_by_vector(
         self,
-        vector: np.ndarray,
+        vector: "np.ndarray",
         top_k: int,
         min_score: float | None = None,
         normalized: bool = False,
     ) -> list[EmbeddingMatch]:
-        if np is None:  # pragma: no cover - optional dependency
-            raise EmbeddingIndexError("numpy is required for embedding search")
+        np = _require_numpy()
         if vector.size != self.dimension:
             raise EmbeddingIndexError("query vector dimension mismatch")
         vec = vector.astype(np.float32, copy=False)
@@ -144,7 +146,11 @@ class EmbeddingManager:
             try:
                 _ = self.index_for(name)
             except EmbeddingIndexError as exc:
-                print(f"[lenslet] Warning: failed to preload embedding '{name}': {exc}")
+                report_degraded_feature(
+                    "embedding preload",
+                    exc,
+                    detail=f"failed to preload '{name}': {exc}",
+                )
 
     def search_by_row_index(
         self,
@@ -172,8 +178,7 @@ class EmbeddingManager:
 
 
 def _valid_row_indices(norms: "np.ndarray", row_to_path: dict[int, str]) -> list[int]:
-    if np is None:  # pragma: no cover - optional dependency
-        return []
+    np = _require_numpy()
     valid: list[int] = []
     for row_index in row_to_path:
         if row_index < 0 or row_index >= norms.shape[0]:
@@ -191,8 +196,7 @@ def _load_embedding_data(
     row_to_path: dict[int, str],
     cache: EmbeddingCache | None,
 ) -> tuple["np.ndarray", "np.ndarray", str]:
-    if np is None:  # pragma: no cover - optional dependency
-        raise EmbeddingIndexError("numpy is required for embedding search")
+    np = _require_numpy()
     if cache is not None:
         cached = cache.load(parquet_path, spec)
         if cached is not None:
@@ -201,7 +205,7 @@ def _load_embedding_data(
                 matrix, row_indices = _filter_cached_rows(matrix, row_indices, row_to_path)
                 return matrix, row_indices, spec.dtype
             except EmbeddingIndexError as exc:
-                print(f"[lenslet] Warning: invalid embedding cache: {exc}")
+                report_degraded_feature("embedding cache", exc, detail=f"invalid cache: {exc}")
 
     matrix, dtype = load_embedding_matrix(parquet_path, spec.name)
     if matrix.ndim != 2:
@@ -225,7 +229,7 @@ def _load_embedding_data(
         try:
             cache.save(parquet_path, spec, matrix, row_indices)
         except Exception as exc:
-            print(f"[lenslet] Warning: failed to write embedding cache: {exc}")
+            report_degraded_feature("embedding cache", exc, detail=f"failed to write cache: {exc}")
     return matrix, row_indices, dtype
 
 
@@ -234,8 +238,7 @@ def _filter_cached_rows(
     row_indices: "np.ndarray",
     row_to_path: dict[int, str],
 ) -> tuple["np.ndarray", "np.ndarray"]:
-    if np is None:  # pragma: no cover - optional dependency
-        raise EmbeddingIndexError("numpy is required for embedding search")
+    np = _require_numpy()
     if matrix.ndim != 2:
         raise EmbeddingIndexError("embedding matrix must be 2D")
     if row_indices.ndim != 1:
@@ -257,15 +260,17 @@ def _filter_cached_rows(
 
 
 def _build_faiss_index(matrix: "np.ndarray", prefer_faiss: bool) -> "faiss.Index | None":
+    faiss = load_faiss()
     if not prefer_faiss or faiss is None:  # pragma: no cover - optional dependency
         return None
+    np = _require_numpy()
     try:
         matrix = np.ascontiguousarray(matrix, dtype=np.float32)
         index = faiss.IndexFlatIP(matrix.shape[1])
         index.add(matrix)
         return index
     except Exception as exc:  # pragma: no cover - optional dependency
-        print(f"[lenslet] Warning: failed to build FAISS index: {exc}")
+        report_degraded_feature("embedding faiss index", exc, detail=f"failed to build FAISS index: {exc}")
         return None
 
 
@@ -277,8 +282,7 @@ def _search_faiss(
     top_k: int,
     min_score: float | None,
 ) -> list[EmbeddingMatch]:
-    if np is None:  # pragma: no cover - optional dependency
-        return []
+    np = _require_numpy()
     total = row_indices.shape[0]
     if total == 0 or top_k <= 0:
         return []
@@ -311,8 +315,7 @@ def _top_k_matches(
     top_k: int,
     min_score: float | None,
 ) -> list[EmbeddingMatch]:
-    if np is None:  # pragma: no cover - optional dependency
-        return []
+    np = _require_numpy()
     total = scores.shape[0]
     if total == 0 or top_k <= 0:
         return []

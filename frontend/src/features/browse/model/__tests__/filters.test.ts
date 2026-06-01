@@ -9,7 +9,7 @@ import {
   setMetricRangeFilter,
   setNameContainsFilter,
   setNameNotContainsFilter,
-  setStarFilter,
+  setStarsInFilter,
   setStarsNotInFilter,
   setUrlContainsFilter,
   setWidthCompareFilter,
@@ -23,8 +23,8 @@ const baseItem = (overrides: Partial<BrowseItemPayload>): BrowseItemPayload => (
   width: 0,
   height: 0,
   size: 0,
-  hasThumbnail: true,
-  hasMetadata: true,
+  has_thumbnail: true,
+  has_metadata: true,
   notes: null,
   url: null,
   ...overrides,
@@ -37,7 +37,7 @@ describe('filter AST', () => {
       baseItem({ path: 'b', star: 3 }),
       baseItem({ path: 'c', star: 0 }),
     ]
-    const filters = setStarFilter({ and: [] }, [5])
+    const filters = setStarsInFilter({ and: [] }, [5])
     const result = applyFilterAst(items, filters)
     expect(result.map((i) => i.path)).toEqual(['a'])
   })
@@ -53,10 +53,8 @@ describe('filter AST', () => {
     expect(result.map((i) => i.path)).toEqual(['a'])
   })
 
-  it('normalizes legacy stars clauses to starsIn at ingress', () => {
-    expect(normalizeFilterAst({ and: [{ stars: [5, 0] }] })).toEqual({
-      and: [{ starsIn: { values: [5, 0] } }],
-    })
+  it('drops retired stars clauses at ingress', () => {
+    expect(normalizeFilterAst({ and: [{ stars: [5, 0] }] })).toEqual({ and: [] })
   })
 
   it('filters by metric range', () => {
@@ -110,9 +108,9 @@ describe('filter AST', () => {
 
   it('filters by date range', () => {
     const items = [
-      baseItem({ path: 'a', addedAt: '2024-02-01T00:00:00Z' }),
-      baseItem({ path: 'b', addedAt: '2023-12-15T12:00:00Z' }),
-      baseItem({ path: 'c', addedAt: null }),
+      baseItem({ path: 'a', added_at: '2024-02-01T00:00:00Z' }),
+      baseItem({ path: 'b', added_at: '2023-12-15T12:00:00Z' }),
+      baseItem({ path: 'c', added_at: null }),
     ]
     const filters = setDateRangeFilter({ and: [] }, { from: '2024-01-01', to: '2024-06-30' })
     const result = applyFilterAst(items, filters)

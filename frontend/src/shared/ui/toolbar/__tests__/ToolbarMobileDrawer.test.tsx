@@ -25,7 +25,7 @@ const baseProps = {
   filtersOpen: false,
   filtersRef: { current: null },
   totalFilterCount: 0,
-  starFilterList: [],
+  starsInFilterList: [],
   refreshEnabled: true,
   refreshBusy: false,
   leftOpen: true,
@@ -74,7 +74,7 @@ describe('ToolbarMobileDrawer theme mount', () => {
     )
 
     expect(html).toContain('data-toolbar-control="drawer-layout-grid"')
-    expect(html).toContain('data-toolbar-control="drawer-layout-masonry"')
+    expect(html).toContain('data-toolbar-control="drawer-layout-adaptive"')
     expect(html).toContain('Justified rows')
     expect(html).not.toContain('Masonry')
     expect(html).toContain('data-toolbar-control="drawer-sort"')

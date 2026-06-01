@@ -8,7 +8,7 @@ import lenslet
 
 # Example 1: Simple local images
 # ================================
-def example_local_images():
+def example_local_images() -> None:
     """Launch with local image paths."""
     datasets = {
         "my_photos": [
@@ -21,17 +21,17 @@ def example_local_images():
             "/path/to/screenshot2.png",
         ],
     }
-    
+
     # Launch in non-blocking mode (returns immediately, runs in subprocess)
-    lenslet.launch(datasets, blocking=False, port=7070)
-    
+    lenslet.launch(datasets, lenslet.LaunchOptions(blocking=False, port=7070))
+
     print("Gallery running at http://127.0.0.1:7070")
     # Your notebook/script can continue running while gallery is in background
 
 
 # Example 2: S3 images (requires boto3, install with lenslet[s3])
 # ================================================
-def example_s3_images():
+def example_s3_images() -> None:
     """Launch with S3 URIs (automatically converted to presigned URLs)."""
     datasets = {
         "s3_dataset": [
@@ -39,58 +39,60 @@ def example_s3_images():
             "s3://my-bucket/images/photo2.jpg",
         ],
     }
-    
+
     # S3 URIs are automatically detected and converted to presigned URLs
-    lenslet.launch(datasets, blocking=False, port=7071)
+    lenslet.launch(datasets, lenslet.LaunchOptions(blocking=False, port=7071))
 
 
 # Example 3: Mixed local and S3
 # ==============================
-def example_mixed():
+def example_mixed() -> None:
     """Launch with both local and S3 images in the same dataset."""
     datasets = {
         "mixed_dataset": [
-            "/local/path/image1.jpg",           # Local file
-            "s3://bucket/image2.jpg",           # S3 URI
-            "/local/path/image3.png",           # Local file
-            "s3://bucket/subfolder/image4.jpg", # S3 URI
+            "/local/path/image1.jpg",  # Local file
+            "s3://bucket/image2.jpg",  # S3 URI
+            "/local/path/image3.png",  # Local file
+            "s3://bucket/subfolder/image4.jpg",  # S3 URI
         ],
     }
-    
-    lenslet.launch(datasets, blocking=False, port=7070)
+
+    lenslet.launch(datasets, lenslet.LaunchOptions(blocking=False, port=7070))
 
 
 # Example 4: Blocking mode (for scripts)
 # ========================================
-def example_blocking():
+def example_blocking() -> None:
     """Launch in blocking mode (doesn't return, runs in current process)."""
     datasets = {
         "my_images": ["/path/to/img1.jpg", "/path/to/img2.jpg"],
     }
-    
+
     # This will block until Ctrl+C
     # Useful for standalone scripts where you want to keep the gallery running
-    lenslet.launch(datasets, blocking=True, port=7070)
-    
+    lenslet.launch(datasets, lenslet.LaunchOptions(blocking=True, port=7070))
+
     # Code here won't execute until gallery is stopped
 
 
 # Example 5: Custom settings
 # ===========================
-def example_custom_settings():
+def example_custom_settings() -> None:
     """Launch with custom thumbnail settings."""
     datasets = {
         "high_quality": ["/path/to/img1.jpg"],
     }
-    
+
     lenslet.launch(
         datasets,
-        blocking=False,
-        port=8080,
-        host="0.0.0.0",  # Listen on all interfaces
-        thumb_size=512,  # Larger thumbnails
-        thumb_quality=85,  # Higher quality
-        verbose=True,  # Show detailed server logs
+        lenslet.LaunchOptions(
+            blocking=False,
+            port=8080,
+            host="127.0.0.1",  # Listen on localhost
+            thumb_size=512,  # Larger thumbnails
+            thumb_quality=85,  # Higher quality
+            verbose=True,  # Show detailed server logs
+        ),
     )
 
 
@@ -112,7 +114,7 @@ datasets = {
 }
 
 # Launch in non-blocking mode
-lenslet.launch(datasets, blocking=False, port=7070)
+lenslet.launch(datasets, lenslet.LaunchOptions(blocking=False, port=7070))
 
 # Continue working in your notebook while gallery runs in background
 # Access at: http://localhost:7070
@@ -141,7 +143,7 @@ datasets = {
     "predictions": df['image_path'].tolist()
 }
 
-lenslet.launch(datasets, blocking=False, port=7070)
+lenslet.launch(datasets, lenslet.LaunchOptions(blocking=False, port=7070))
 ```
 """
 
@@ -168,7 +170,7 @@ datasets = {
     ],
 }
 
-lenslet.launch(datasets, blocking=False, port=7070)
+lenslet.launch(datasets, lenslet.LaunchOptions(blocking=False, port=7070))
 
 # Navigate between datasets in the gallery UI
 # Each dataset appears as a separate folder
@@ -183,4 +185,4 @@ if __name__ == "__main__":
     print("\nBasic usage:")
     print("  import lenslet")
     print("  datasets = {'my_images': ['/path/img1.jpg', '/path/img2.jpg']}")
-    print("  lenslet.launch(datasets, blocking=False, port=7070)")
+    print("  lenslet.launch(datasets, lenslet.LaunchOptions(blocking=False, port=7070))")

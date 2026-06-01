@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import tempfile
 import threading
 from pathlib import Path
 
-from ...cache_signals import BestEffortCacheMixin
+from .signals import BestEffortCacheMixin
 
 
 class ThumbCache(BestEffortCacheMixin):
@@ -23,7 +25,7 @@ class ThumbCache(BestEffortCacheMixin):
     def _scan_cache_entries(self) -> tuple[int, list[tuple[float, int, Path]]]:
         try:
             paths = list(self.root.rglob("*.webp"))
-        except Exception as exc:
+        except OSError as exc:
             self._record_failure("scan", target=self.root, exc=exc)
             return 0, []
         total = 0
@@ -31,7 +33,7 @@ class ThumbCache(BestEffortCacheMixin):
         for path in paths:
             try:
                 stat = path.stat()
-            except Exception as exc:
+            except OSError as exc:
                 self._record_failure("stat", target=path, exc=exc)
                 continue
             total += stat.st_size
@@ -51,7 +53,7 @@ class ThumbCache(BestEffortCacheMixin):
                 break
             try:
                 path.unlink()
-            except Exception as exc:
+            except OSError as exc:
                 self._record_failure("evict", target=path, exc=exc)
                 continue
             total -= size
@@ -59,7 +61,7 @@ class ThumbCache(BestEffortCacheMixin):
         return total
 
     def _path_for(self, key: str) -> Path:
-        digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
         subdir = digest[:2]
         return self.root / subdir / f"{digest}.webp"
 
@@ -69,25 +71,38 @@ class ThumbCache(BestEffortCacheMixin):
             return path.read_bytes()
         except FileNotFoundError:
             return None
-        except Exception as exc:
+        except OSError as exc:
             self._record_failure("read", target=path, exc=exc)
             return None
 
     def set(self, key: str, data: bytes) -> bool:
         path = self._path_for(key)
-        tmp = path.with_suffix(".tmp")
+        tmp: Path | None = None
         try:
             with self._lock:
                 old_size = 0
                 if self.max_disk_bytes > 0:
                     try:
                         old_size = path.stat().st_size if path.exists() else 0
-                    except Exception as exc:
+                    except OSError as exc:
                         self._record_failure("stat", target=path, exc=exc)
                         old_size = 0
                 path.parent.mkdir(parents=True, exist_ok=True)
-                tmp.write_bytes(data)
-                tmp.replace(path)
+                fd, temp_name = tempfile.mkstemp(
+                    prefix=f".{path.name}.",
+                    suffix=".tmp",
+                    dir=path.parent,
+                )
+                tmp = Path(temp_name)
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(data)
+                    handle.flush()
+                    try:
+                        os.fsync(handle.fileno())
+                    except OSError as exc:
+                        self._record_failure("fsync", target=tmp, exc=exc)
+                os.replace(tmp, path)
+                tmp = None
                 if self.max_disk_bytes <= 0:
                     return True
                 if self._current_size_bytes is None:
@@ -100,10 +115,11 @@ class ThumbCache(BestEffortCacheMixin):
                 if self._current_size_bytes > self.max_disk_bytes:
                     self._current_size_bytes = self._evict_to_cap()
             return True
-        except Exception as exc:
+        except OSError as exc:
             self._record_failure("write", target=path, exc=exc)
-            try:
-                tmp.unlink(missing_ok=True)
-            except Exception as cleanup_exc:
-                self._record_failure("cleanup", target=tmp, exc=cleanup_exc)
+            if tmp is not None:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError as cleanup_exc:
+                    self._record_failure("cleanup", target=tmp, exc=cleanup_exc)
             return False

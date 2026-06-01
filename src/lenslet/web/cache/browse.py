@@ -9,51 +9,24 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Literal
 
-from ...cache_signals import BestEffortCacheMixin
+from ...atomic_write import atomic_write_gzip_json
+from .browse_snapshot import (
+    RecursiveCachedItemSnapshot,
+    RecursiveSnapshotWindow,
+    canonical_scope as _canonical_scope,
+)
+from .signals import BestEffortCacheMixin
 
 CACHE_SCHEMA_VERSION = 1
 DEFAULT_BROWSE_CACHE_CAP_BYTES = 200 * 1024 * 1024
 DEFAULT_BROWSE_MEMORY_ENTRY_LIMIT = 6
-
-
-def _canonical_scope(path: str) -> str:
-    value = (path or "").replace("\\", "/").strip()
-    if not value:
-        return "/"
-    value = "/" + value.lstrip("/")
-    if value != "/":
-        value = value.rstrip("/")
-    return value
-
-
-def _coerce_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _coerce_float(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _normalize_metrics(raw: Any) -> dict[str, float] | None:
-    if not isinstance(raw, dict):
-        return None
-    metrics: dict[str, float] = {}
-    for key, value in raw.items():
-        try:
-            metrics[str(key)] = float(value)
-        except (TypeError, ValueError):
-            continue
-    return metrics or None
+RecursiveCachePersistStatus = Literal["written", "queued", "skipped"]
+CACHE_PERSIST_WRITTEN: RecursiveCachePersistStatus = "written"
+CACHE_PERSIST_QUEUED: RecursiveCachePersistStatus = "queued"
+CACHE_PERSIST_SKIPPED: RecursiveCachePersistStatus = "skipped"
 
 
 def _scopes_overlap(scope: str, changed: str) -> bool:
@@ -64,89 +37,6 @@ def _scopes_overlap(scope: str, changed: str) -> bool:
     if scope.startswith(changed + "/"):
         return True
     return changed.startswith(scope + "/")
-
-
-@dataclass(frozen=True)
-class RecursiveCachedItemSnapshot:
-    path: str
-    name: str
-    mime: str
-    width: int
-    height: int
-    size: int
-    mtime: float
-    url: str | None = None
-    source: str | None = None
-    metrics: dict[str, float] | None = None
-
-    @classmethod
-    def from_cached_item(cls, cached: Any) -> "RecursiveCachedItemSnapshot":
-        return cls(
-            path=_canonical_scope(str(getattr(cached, "path", ""))),
-            name=str(getattr(cached, "name", "")),
-            mime=str(getattr(cached, "mime", "image/jpeg")),
-            width=_coerce_int(getattr(cached, "width", 0)),
-            height=_coerce_int(getattr(cached, "height", 0)),
-            size=_coerce_int(getattr(cached, "size", 0)),
-            mtime=_coerce_float(getattr(cached, "mtime", 0)),
-            url=_coerce_optional_text(getattr(cached, "url", None)),
-            source=_coerce_optional_text(getattr(cached, "source", None)),
-            metrics=_normalize_metrics(getattr(cached, "metrics", None)),
-        )
-
-    @classmethod
-    def from_payload(cls, payload: Any) -> "RecursiveCachedItemSnapshot":
-        if not isinstance(payload, dict):
-            raise ValueError("invalid cached item payload")
-        return cls(
-            path=_canonical_scope(str(payload.get("path", ""))),
-            name=str(payload.get("name", "")),
-            mime=str(payload.get("mime", "image/jpeg")),
-            width=_coerce_int(payload.get("width", 0)),
-            height=_coerce_int(payload.get("height", 0)),
-            size=_coerce_int(payload.get("size", 0)),
-            mtime=_coerce_float(payload.get("mtime", 0)),
-            url=_coerce_optional_text(payload.get("url")),
-            source=_coerce_optional_text(payload.get("source")),
-            metrics=_normalize_metrics(payload.get("metrics")),
-        )
-
-    def to_payload(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "path": self.path,
-            "name": self.name,
-            "mime": self.mime,
-            "width": self.width,
-            "height": self.height,
-            "size": self.size,
-            "mtime": self.mtime,
-        }
-        if self.url:
-            payload["url"] = self.url
-        if self.source:
-            payload["source"] = self.source
-        if self.metrics is not None:
-            payload["metrics"] = self.metrics
-        return payload
-
-
-def _coerce_optional_text(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-@dataclass(frozen=True)
-class RecursiveSnapshotWindow:
-    scope_path: str
-    sort_mode: str
-    generation: str
-    items: tuple[RecursiveCachedItemSnapshot, ...]
-
-    @property
-    def total_items(self) -> int:
-        return len(self.items)
 
 
 class RecursiveBrowseCache(BestEffortCacheMixin):
@@ -225,7 +115,7 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
         items: Iterable[RecursiveCachedItemSnapshot],
         *,
         defer_persist: bool = False,
-    ) -> tuple[RecursiveSnapshotWindow, bool]:
+    ) -> tuple[RecursiveSnapshotWindow, RecursiveCachePersistStatus]:
         scope = _canonical_scope(scope_path)
         snapshots = tuple(items)
         window = RecursiveSnapshotWindow(
@@ -237,12 +127,11 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
         key = self._cache_key(scope_path, sort_mode, generation)
         with self._lock:
             self._insert_memory_locked(key, window)
-        wrote_disk = False
         if defer_persist and self._persistence_enabled:
-            wrote_disk = self._schedule_persist_write(key, window)
+            status = CACHE_PERSIST_QUEUED if self._schedule_persist_write(key, window) else CACHE_PERSIST_SKIPPED
         else:
-            wrote_disk = self._save_disk_window(window)
-        return window, wrote_disk
+            status = CACHE_PERSIST_WRITTEN if self._save_disk_window(window) else CACHE_PERSIST_SKIPPED
+        return window, status
 
     def invalidate_path(self, path: str | None = None) -> None:
         if path is None:
@@ -276,7 +165,7 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
         producer: Callable[[threading.Event], Iterable[RecursiveCachedItemSnapshot] | None],
         *,
         delay_seconds: float = 0.0,
-        on_saved: Callable[[bool], None] | None = None,
+        on_saved: Callable[[RecursiveCachePersistStatus], None] | None = None,
     ) -> bool:
         key = self._cache_key(scope_path, sort_mode, generation)
         with self._lock:
@@ -286,30 +175,30 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
             self._warm_jobs[key] = cancel_event
 
         def _run() -> None:
-            wrote_persisted = False
+            persist_status = CACHE_PERSIST_SKIPPED
             try:
                 if delay_seconds > 0 and cancel_event.wait(timeout=delay_seconds):
                     return
                 snapshots = producer(cancel_event)
                 if snapshots is None or cancel_event.is_set():
                     return
-                _window, wrote_persisted = self.save(scope_path, sort_mode, generation, snapshots)
-            except Exception as exc:
+                _window, persist_status = self.save(scope_path, sort_mode, generation, snapshots)
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
                 self._record_failure("warm", target=self._cache_dir, exc=exc)
                 return
             finally:
                 if on_saved is not None:
                     try:
-                        on_saved(wrote_persisted)
-                    except Exception:
-                        pass
+                        on_saved(persist_status)
+                    except (RuntimeError, TypeError, ValueError) as exc:
+                        self._record_failure("warm-callback", target=self._cache_dir, exc=exc)
                 with self._lock:
                     self._warm_jobs.pop(key, None)
 
         try:
             self._warm_executor.submit(_run)
             return True
-        except Exception as exc:
+        except RuntimeError as exc:
             self._record_failure("warm-submit", target=self._cache_dir, exc=exc)
             with self._lock:
                 self._warm_jobs.pop(key, None)
@@ -386,7 +275,7 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
         try:
             self._warm_executor.submit(_run)
             return True
-        except Exception as exc:
+        except RuntimeError as exc:
             self._record_failure("persist-submit", target=self._cache_dir, exc=exc)
             with self._lock:
                 current = self._persist_jobs.get(key)
@@ -403,7 +292,7 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
             probe.write_text("ok", encoding="utf-8")
             probe.unlink(missing_ok=True)
             return True
-        except Exception as exc:
+        except OSError as exc:
             self._record_failure("enable-persistence", target=self._cache_dir, exc=exc)
             return False
 
@@ -420,7 +309,8 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
             ensure_ascii=True,
         ).encode("utf-8")
         digest = hashlib.sha256(payload).hexdigest()
-        assert self._cache_dir is not None
+        if self._cache_dir is None:
+            raise RuntimeError("persistent recursive browse cache has no cache directory")
         return self._cache_dir / digest[:2] / f"{digest}.json.gz"
 
     def _load_disk_window(
@@ -431,7 +321,7 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
     ) -> RecursiveSnapshotWindow | None:
         try:
             path = self._disk_path_for(scope_path, sort_mode, generation)
-        except Exception as exc:
+        except RuntimeError as exc:
             self._record_failure(
                 "resolve-path",
                 target=self._cache_dir,
@@ -461,7 +351,7 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
         try:
             for entry in raw_items:
                 snapshots.append(RecursiveCachedItemSnapshot.from_payload(entry))
-        except Exception:
+        except (TypeError, ValueError):
             self._safe_unlink(path)
             return None
 
@@ -485,13 +375,12 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
     ) -> bool:
         if not self._persistence_enabled:
             return False
-        tmp: Path | None = None
+        path: Path | None = None
         try:
             if cancel_event is not None and cancel_event.is_set():
                 return False
             path = self._disk_path_for(window.scope_path, window.sort_mode, window.generation)
             path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
             payload = {
                 "schema_version": CACHE_SCHEMA_VERSION,
                 "scope_path": window.scope_path,
@@ -499,24 +388,19 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
                 "generation": window.generation,
                 "items": [item.to_payload() for item in window.items],
             }
-            with gzip.open(tmp, "wt", encoding="utf-8") as handle:
-                json.dump(payload, handle, separators=(",", ":"), sort_keys=True)
-            if cancel_event is not None and cancel_event.is_set():
-                self._safe_unlink(tmp)
-                return False
-            tmp.replace(path)
+            atomic_write_gzip_json(
+                path,
+                payload,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
             if cancel_event is not None and cancel_event.is_set():
                 self._safe_unlink(path)
                 return False
             self._evict_disk_to_cap()
             return path.exists()
-        except Exception as exc:
-            self._record_failure("write", target=tmp or self._cache_dir, exc=exc)
-            if tmp is not None:
-                try:
-                    tmp.unlink(missing_ok=True)
-                except Exception as cleanup_exc:
-                    self._record_failure("cleanup", target=tmp, exc=cleanup_exc)
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            self._record_failure("write", target=path or self._cache_dir, exc=exc)
             return False
 
     def _evict_disk_to_cap(self) -> None:
@@ -572,7 +456,7 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
         try:
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 payload = json.load(handle)
-        except Exception as exc:
+        except (OSError, gzip.BadGzipFile, json.JSONDecodeError, UnicodeDecodeError) as exc:
             self._record_failure("read", target=path, exc=exc)
             self._safe_unlink(path)
             return None
@@ -601,7 +485,7 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
             path.unlink()
         except FileNotFoundError:
             return
-        except Exception as exc:
+        except OSError as exc:
             self._record_failure("cleanup", target=path, exc=exc)
             return
 
@@ -610,7 +494,7 @@ class RecursiveBrowseCache(BestEffortCacheMixin):
             return
         try:
             candidates = sorted(self._cache_dir.rglob("*"), reverse=True)
-        except Exception as exc:
+        except OSError as exc:
             self._record_failure("scan", target=self._cache_dir, exc=exc)
             return
         for path in candidates:

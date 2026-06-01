@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import os
+import threading
 import time
 from pathlib import Path
 
-from ...cache_signals import BestEffortCacheMixin
+from .signals import BestEffortCacheMixin
 
 
 class OgImageCache(BestEffortCacheMixin):
@@ -16,10 +17,11 @@ class OgImageCache(BestEffortCacheMixin):
         self._last_failure = None
         self.root = Path(root)
         self.max_entries = max(1, int(max_entries))
+        self._lock = threading.Lock()
         self._last_write_ns = 0
 
     def _path_for(self, key: str) -> Path:
-        digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
         subdir = digest[:2]
         return self.root / subdir / f"{digest}.png"
 
@@ -29,25 +31,26 @@ class OgImageCache(BestEffortCacheMixin):
             return path.read_bytes()
         except FileNotFoundError:
             return None
-        except Exception as exc:
+        except OSError as exc:
             self._record_failure("read", target=path, exc=exc)
             return None
 
     def set(self, key: str, data: bytes) -> bool:
         path = self._path_for(key)
-        tmp = path.with_suffix(".tmp")
+        tmp = path.with_name(f"{path.name}.{threading.get_ident()}.{time.time_ns()}.tmp")
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp.write_bytes(data)
-            tmp.replace(path)
-            self._mark_written(path)
-            self._prune_if_needed()
+            with self._lock:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp.write_bytes(data)
+                tmp.replace(path)
+                self._mark_written(path)
+                self._prune_if_needed()
             return True
-        except Exception as exc:
+        except OSError as exc:
             self._record_failure("write", target=path, exc=exc)
             try:
                 tmp.unlink(missing_ok=True)
-            except Exception as cleanup_exc:
+            except OSError as cleanup_exc:
                 self._record_failure("cleanup", target=tmp, exc=cleanup_exc)
             return False
 
@@ -57,13 +60,13 @@ class OgImageCache(BestEffortCacheMixin):
         self._last_write_ns = write_ns
         try:
             os.utime(path, ns=(write_ns, write_ns))
-        except Exception as exc:
+        except OSError as exc:
             self._record_failure("touch", target=path, exc=exc)
 
     def _prune_if_needed(self) -> None:
         try:
             files = [entry for entry in self.root.rglob("*.png") if entry.is_file()]
-        except Exception as exc:
+        except OSError as exc:
             self._record_failure("scan", target=self.root, exc=exc)
             return
         over_limit = len(files) - self.max_entries
@@ -71,12 +74,12 @@ class OgImageCache(BestEffortCacheMixin):
             return
         try:
             files.sort(key=lambda entry: entry.stat().st_mtime_ns)
-        except Exception as exc:
+        except OSError as exc:
             self._record_failure("stat", target=self.root, exc=exc)
             return
         for stale in files[:over_limit]:
             try:
                 stale.unlink()
-            except Exception as exc:
+            except OSError as exc:
                 self._record_failure("evict", target=stale, exc=exc)
                 continue

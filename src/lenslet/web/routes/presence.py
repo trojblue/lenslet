@@ -2,70 +2,47 @@
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-from typing import Any
-
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from ..app_base import register_lifecycle_handlers
 from ..auth import request_client_id
-from ..models import PresenceLeavePayload, PresenceMovePayload, PresencePayload
-from ..runtime import PresenceMetrics
-from ..sync import (
+from ..context import AppContext, get_app_context, get_request_context
+from ..models import (
+    ErrorResponse,
+    PresenceCountPayload,
+    PresenceInvalidLeaseResponse,
+    PresenceLeavePayload,
+    PresenceLeaveResponse,
+    PresenceMovePayload,
+    PresenceMoveResponse,
+    PresencePayload,
+    PresenceScopeMismatchResponse,
+    PresenceSessionResponse,
+)
+from ..permissions import deny_if_mutation_forbidden
+from ..presence_runtime import PresenceRuntimePayload, presence_count_payload, presence_runtime_payload
+from ..paths import canonical_path
+from ..sync.events import EventBroker
+from ..sync.presence import (
     PresenceCount,
     PresenceLeaseError,
+    PresenceMetrics,
     PresenceScopeError,
     PresenceTracker,
-    _canonical_path,
 )
-
-
-def presence_runtime_payload(
-    *,
-    presence: PresenceTracker,
-    broker,
-    metrics: PresenceMetrics,
-    prune_interval_seconds: float,
-) -> dict[str, Any]:
-    presence_diag = presence.diagnostics()
-    broker_diag = broker.diagnostics()
-    metric_diag = metrics.snapshot()
-    return {
-        "view_ttl_seconds": presence.view_ttl_seconds,
-        "edit_ttl_seconds": presence.edit_ttl_seconds,
-        "prune_interval_seconds": prune_interval_seconds,
-        "active_clients": presence_diag["active_clients"],
-        "active_scopes": presence_diag["active_scopes"],
-        "stale_pruned_total": presence_diag["stale_pruned_total"],
-        "invalid_lease_total": metric_diag["invalid_lease_total"],
-        "replay_miss_total": broker_diag["replay_miss_total"],
-        "replay_buffer_size": broker_diag["buffer_size"],
-        "replay_buffer_capacity": broker_diag["buffer_capacity"],
-        "replay_oldest_event_id": broker_diag["oldest_event_id"],
-        "replay_newest_event_id": broker_diag["newest_event_id"],
-        "connected_sse_clients": broker_diag["connected_sse_clients"],
-    }
-
-
-def presence_count_payload(count: PresenceCount) -> dict[str, int | str]:
-    return {
-        "gallery_id": count.gallery_id,
-        "viewing": count.viewing,
-        "editing": count.editing,
-    }
 
 
 def presence_payload_for_client(
     count: PresenceCount,
     client_id: str,
     lease_id: str,
-) -> dict[str, int | str]:
-    payload: dict[str, int | str] = presence_count_payload(count)
-    payload["client_id"] = client_id
-    payload["lease_id"] = lease_id
-    return payload
+) -> PresenceSessionResponse:
+    payload = {
+        **presence_count_payload(count),
+        "client_id": client_id,
+        "lease_id": lease_id,
+    }
+    return PresenceSessionResponse.model_validate(payload)
 
 
 def presence_count_for_gallery(counts: list[PresenceCount], gallery_id: str) -> PresenceCount:
@@ -75,100 +52,37 @@ def presence_count_for_gallery(counts: list[PresenceCount], gallery_id: str) -> 
     return PresenceCount(gallery_id=gallery_id, viewing=0, editing=0)
 
 
-def publish_presence_counts(broker, counts: list[PresenceCount]) -> None:
+def publish_presence_counts(broker: EventBroker, counts: list[PresenceCount]) -> None:
     for count in counts:
         broker.publish("presence", presence_count_payload(count))
 
 
-def publish_presence_deltas(
-    broker,
-    previous: dict[str, PresenceCount],
-    current: dict[str, PresenceCount],
-) -> None:
-    if previous == current:
-        return
-    gallery_ids = sorted(set(previous) | set(current))
-    for gallery_id in gallery_ids:
-        before = previous.get(gallery_id)
-        after = current.get(gallery_id)
-        before_tuple = (before.viewing, before.editing) if before else (0, 0)
-        after_tuple = (after.viewing, after.editing) if after else (0, 0)
-        if before_tuple == after_tuple:
-            continue
-        broker.publish(
-            "presence",
-            {"gallery_id": gallery_id, "viewing": after_tuple[0], "editing": after_tuple[1]},
-        )
-
-
-def run_presence_prune_cycle(
-    presence: PresenceTracker,
-    broker,
-    previous: dict[str, PresenceCount],
-) -> dict[str, PresenceCount]:
-    current = presence.snapshot_counts()
-    publish_presence_deltas(broker, previous, current)
-    return current
-
-
-def install_presence_prune_loop(
-    app: FastAPI,
-    presence: PresenceTracker,
-    broker,
-    interval_seconds: float,
-) -> None:
-    interval = interval_seconds if interval_seconds > 0 else 5.0
-    app.state.presence_tracker = presence
-    app.state.presence_prune_interval = interval
-    app.state.presence_prune_task = None
-
-    async def _presence_prune_loop() -> None:
-        previous = presence.snapshot_counts()
-        while True:
-            await asyncio.sleep(interval)
-            previous = run_presence_prune_cycle(presence, broker, previous)
-
-    def _start_presence_prune_loop() -> None:
-        existing = getattr(app.state, "presence_prune_task", None)
-        if existing is not None and not existing.done():
-            return
-        app.state.presence_prune_task = asyncio.create_task(_presence_prune_loop())
-
-    async def _stop_presence_prune_loop() -> None:
-        task = getattr(app.state, "presence_prune_task", None)
-        if task is None:
-            return
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-        app.state.presence_prune_task = None
-
-    register_lifecycle_handlers(
-        app,
-        startup=_start_presence_prune_loop,
-        shutdown=_stop_presence_prune_loop,
+def presence_invalid_lease_payload(gallery_id: str, client_id: str) -> PresenceInvalidLeaseResponse:
+    return PresenceInvalidLeaseResponse(
+        error="invalid_lease",
+        gallery_id=gallery_id,
+        client_id=client_id,
     )
-
-
-def presence_invalid_lease_payload(gallery_id: str, client_id: str) -> dict[str, str]:
-    return {
-        "error": "invalid_lease",
-        "gallery_id": gallery_id,
-        "client_id": client_id,
-    }
 
 
 def presence_scope_mismatch_payload(
     exc: PresenceScopeError,
     requested_gallery_id: str,
     client_id: str,
-) -> dict[str, str]:
-    return {
-        "error": "scope_mismatch",
-        "requested_gallery_id": requested_gallery_id,
-        "actual_gallery_id": exc.actual_gallery_id,
-        "client_id": client_id,
-    }
+) -> PresenceScopeMismatchResponse:
+    return PresenceScopeMismatchResponse(
+        error="scope_mismatch",
+        requested_gallery_id=requested_gallery_id,
+        actual_gallery_id=exc.actual_gallery_id,
+        client_id=client_id,
+    )
+
+
+def _presence_mutation_context(request: Request) -> tuple[AppContext, JSONResponse | None]:
+    context = get_request_context(request)
+    denied = deny_if_mutation_forbidden(request, writes_enabled=context.workspace.can_write)
+    return context, denied
+
 
 def require_presence_client_id(request: Request) -> str:
     client_id = request_client_id(request)
@@ -185,7 +99,7 @@ def _invalid_lease_response(
 ) -> JSONResponse:
     metrics.record_invalid_lease()
     payload = presence_invalid_lease_payload(gallery_id=gallery_id, client_id=client_id)
-    return JSONResponse(status_code=409, content=payload)
+    return JSONResponse(status_code=409, content=payload.model_dump())
 
 
 def _scope_mismatch_response(
@@ -199,45 +113,71 @@ def _scope_mismatch_response(
         requested_gallery_id=requested_gallery_id,
         client_id=client_id,
     )
-    return JSONResponse(status_code=409, content=payload)
+    return JSONResponse(status_code=409, content=payload.model_dump())
 
 
 def register_presence_routes(
     app: FastAPI,
-    presence: PresenceTracker,
-    broker,
-    *,
-    metrics: PresenceMetrics,
 ) -> None:
-    def _presence_diag() -> dict[str, Any]:
-        prune_interval = float(getattr(app.state, "presence_prune_interval", 5.0))
+    mutation_denial_response = {403: {"model": ErrorResponse}}
+    invalid_lease_response = {
+        **mutation_denial_response,
+        409: {"model": PresenceInvalidLeaseResponse},
+    }
+    scoped_conflict_response = {
+        **mutation_denial_response,
+        409: {"model": PresenceInvalidLeaseResponse | PresenceScopeMismatchResponse},
+    }
+
+    def _presence_diag(request: Request) -> PresenceRuntimePayload:
+        runtime = get_request_context(request).runtime
         return presence_runtime_payload(
-            presence=presence,
-            broker=broker,
-            metrics=metrics,
-            prune_interval_seconds=prune_interval,
+            presence=runtime.presence,
+            broker=runtime.broker,
+            metrics=runtime.presence_metrics,
+            prune_interval_seconds=runtime.presence_prune_interval,
         )
 
     @app.get("/presence/diagnostics")
-    def presence_diagnostics():
-        return _presence_diag()
+    def presence_diagnostics(request: Request) -> PresenceRuntimePayload:
+        return _presence_diag(request)
 
-    @app.post("/presence/join")
-    def presence_join(body: PresencePayload, request: Request):
-        gallery_id = _canonical_path(body.gallery_id)
+    @app.post(
+        "/presence/join",
+        response_model=PresenceSessionResponse,
+        responses=invalid_lease_response,
+    )
+    def presence_join(body: PresencePayload, request: Request) -> PresenceSessionResponse | JSONResponse:
+        context, denied = _presence_mutation_context(request)
+        if denied:
+            return denied
+        runtime = context.runtime
+        presence = runtime.presence
+        broker = runtime.broker
+        gallery_id = canonical_path(body.gallery_id)
         client_id = require_presence_client_id(request)
         try:
             lease_id, counts = presence.join(gallery_id, client_id, lease_id=body.lease_id)
         except PresenceLeaseError:
-            return _invalid_lease_response(metrics, gallery_id=gallery_id, client_id=client_id)
+            return _invalid_lease_response(runtime.presence_metrics, gallery_id=gallery_id, client_id=client_id)
         publish_presence_counts(broker, counts)
         current = presence_count_for_gallery(counts, gallery_id)
         return presence_payload_for_client(current, client_id, lease_id)
 
-    @app.post("/presence/move")
-    def presence_move(body: PresenceMovePayload, request: Request):
-        from_gallery_id = _canonical_path(body.from_gallery_id)
-        to_gallery_id = _canonical_path(body.to_gallery_id)
+    @app.post(
+        "/presence/move",
+        response_model=PresenceMoveResponse,
+        responses=scoped_conflict_response,
+    )
+    def presence_move(body: PresenceMovePayload, request: Request) -> PresenceMoveResponse | JSONResponse:
+        context, denied = _presence_mutation_context(request)
+        if denied:
+            return denied
+        runtime = context.runtime
+        presence = runtime.presence
+        broker = runtime.broker
+        from_gallery_id = canonical_path(body.from_gallery_id)
+        to_gallery_id = canonical_path(body.to_gallery_id)
         client_id = require_presence_client_id(request)
         try:
             response_lease_id = body.lease_id
@@ -248,7 +188,7 @@ def register_presence_routes(
                 lease_id=body.lease_id,
             )
         except PresenceLeaseError:
-            return _invalid_lease_response(metrics, gallery_id=from_gallery_id, client_id=client_id)
+            return _invalid_lease_response(runtime.presence_metrics, gallery_id=from_gallery_id, client_id=client_id)
         except PresenceScopeError as exc:
             return _scope_mismatch_response(
                 exc,
@@ -258,21 +198,31 @@ def register_presence_routes(
         publish_presence_counts(broker, counts)
         from_scope = presence_count_for_gallery(counts, from_gallery_id)
         to_scope = presence_count_for_gallery(counts, to_gallery_id)
-        return {
-            "client_id": client_id,
-            "lease_id": response_lease_id,
-            "from_scope": presence_count_payload(from_scope),
-            "to_scope": presence_count_payload(to_scope),
-        }
+        return PresenceMoveResponse(
+            client_id=client_id,
+            lease_id=response_lease_id,
+            from_scope=PresenceCountPayload.model_validate(presence_count_payload(from_scope)),
+            to_scope=PresenceCountPayload.model_validate(presence_count_payload(to_scope)),
+        )
 
-    @app.post("/presence/leave")
-    def presence_leave(body: PresenceLeavePayload, request: Request):
-        gallery_id = _canonical_path(body.gallery_id)
+    @app.post(
+        "/presence/leave",
+        response_model=PresenceLeaveResponse,
+        responses=scoped_conflict_response,
+    )
+    def presence_leave(body: PresenceLeavePayload, request: Request) -> PresenceLeaveResponse | JSONResponse:
+        context, denied = _presence_mutation_context(request)
+        if denied:
+            return denied
+        runtime = context.runtime
+        presence = runtime.presence
+        broker = runtime.broker
+        gallery_id = canonical_path(body.gallery_id)
         client_id = require_presence_client_id(request)
         try:
             removed, counts = presence.leave(gallery_id=gallery_id, client_id=client_id, lease_id=body.lease_id)
         except PresenceLeaseError:
-            return _invalid_lease_response(metrics, gallery_id=gallery_id, client_id=client_id)
+            return _invalid_lease_response(runtime.presence_metrics, gallery_id=gallery_id, client_id=client_id)
         except PresenceScopeError as exc:
             return _scope_mismatch_response(
                 exc,
@@ -281,6 +231,6 @@ def register_presence_routes(
             )
         publish_presence_counts(broker, counts)
         current = presence_count_for_gallery(counts, gallery_id)
-        payload = presence_payload_for_client(current, client_id, body.lease_id)
+        payload = presence_payload_for_client(current, client_id, body.lease_id).model_dump()
         payload["removed"] = removed
-        return payload
+        return PresenceLeaveResponse.model_validate(payload)

@@ -1,5 +1,5 @@
 import { Fragment, type ComponentProps, type JSX } from 'react'
-import { fmtBytes } from '../../../lib/util'
+import { formatBytes } from '../../../lib/util'
 import type { InspectorWidgetId } from '../model/inspectorWidgetOrder'
 import { InspectorSection } from './InspectorSection'
 import { SelectionActionsSection } from './SelectionActionsSection'
@@ -127,7 +127,7 @@ export function OverviewSection({
           </div>
           <div className="inspector-field">
             <div className="inspector-field-label">Total size</div>
-            <div className="inspector-field-value">{fmtBytes(totalSize)}</div>
+            <div className="inspector-field-value">{formatBytes(totalSize)}</div>
           </div>
         </div>
         {OVERVIEW_WIDGETS.filter((widget) => widget.isVisible(widgetContext)).map((widget) => (

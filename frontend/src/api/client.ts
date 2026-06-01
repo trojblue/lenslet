@@ -12,7 +12,6 @@ import type {
   BrowseFolderPathsPayload,
   Sidecar,
   SidecarPatch,
-  FileOpResponse,
   RefreshResponse,
   BrowseSearchResultsPayload,
   ImageMetadataResponse,
@@ -26,9 +25,8 @@ import type {
   ItemUpdatedEvent,
   MetricsUpdatedEvent,
 } from '../lib/types'
-import { BASE } from './base'
+import { apiUrl } from './base'
 
-/** Maximum file size to cache in prefetch (40MB) */
 const MAX_PREFETCH_SIZE = 40 * 1024 * 1024
 const THUMB_PREFETCH_MAX_QUEUED = 256
 export type FullFilePrefetchContext = 'viewer' | 'compare'
@@ -38,11 +36,11 @@ function isFullFilePrefetchContext(value: unknown): value is FullFilePrefetchCon
 }
 
 function thumbUrl(path: string): string {
-  return `${BASE}/thumb?path=${encodeURIComponent(path)}`
+  return apiUrl(`/thumb?path=${encodeURIComponent(path)}`)
 }
 
 function fileUrl(path: string): string {
-  return `${BASE}/file?path=${encodeURIComponent(path)}`
+  return apiUrl(`/file?path=${encodeURIComponent(path)}`)
 }
 
 const CLIENT_ID_SESSION_KEY = 'lenslet.client_id.session'
@@ -135,7 +133,7 @@ function getWindowStorage(kind: 'local' | 'session'): Storage | null {
   }
 }
 
-export function getClientId(): string {
+export function ensureClientId(): string {
   if (cachedClientId) return cachedClientId
   const session = getWindowStorage('session')
 
@@ -159,7 +157,7 @@ export function makeIdempotencyKey(prefix = 'lenslet'): string {
   const nonce = typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `nonce_${Math.random().toString(36).slice(2, 10)}_${Date.now()}_${idempotencyCounter}`
-  return `${prefix}:${getClientId()}:${nonce}`
+  return `${prefix}:${ensureClientId()}:${nonce}`
 }
 
 function readLastEventId(): number | null {
@@ -193,8 +191,8 @@ function writeLastEventId(next: number): void {
 }
 
 function buildEventsUrl(): string {
-  if (typeof window === 'undefined') return `${BASE}/events`
-  const url = new URL(`${BASE}/events`, window.location.origin)
+  if (typeof window === 'undefined') return apiUrl('/events')
+  const url = new URL(apiUrl('/events'), window.location.origin)
   const lastEventId = readLastEventId()
   if (lastEventId != null && Number.isFinite(lastEventId)) {
     url.searchParams.set('last_event_id', String(lastEventId))
@@ -403,7 +401,7 @@ export function cancelBrowseRequests(endpoints?: readonly BrowseEndpoint[]): voi
 
 function postPresenceKeepalive(path: string, payload: unknown): boolean {
   const body = JSON.stringify(payload)
-  const url = `${BASE}${path}`
+  const url = apiUrl(path)
 
   if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
     try {
@@ -436,7 +434,7 @@ export function dispatchPresenceLeave(galleryId: string, leaseId: string): boole
 }
 
 function postPresenceJSON<TResponse>(path: string, payload: unknown): Promise<TResponse> {
-  return fetchJSON<TResponse>(`${BASE}${path}`, {
+  return fetchJSON<TResponse>(apiUrl(path), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -455,87 +453,60 @@ export function buildFolderQuery(path: string, options?: GetFolderOptions): stri
   return params.toString()
 }
 
-/**
- * API client for the lenslet backend.
- * All methods return promises and handle caching where appropriate.
- */
+function folderPayloadCount(folder: BrowseFolderPayload): number {
+  return folder.total_items ?? folder.items.length
+}
+
 export const api = {
-  /**
-   * Fetch folder contents by path.
-   * @param path - Folder path
-   * @param options - Recursive options
-   */
   getFolder: (path: string, options?: GetFolderOptions): Promise<BrowseFolderPayload> => {
     return runWithRequestBudget('folders', () =>
-      fetchJSON<BrowseFolderPayload>(`${BASE}/folders?${buildFolderQuery(path, options)}`),
+      fetchJSON<BrowseFolderPayload>(apiUrl(`/folders?${buildFolderQuery(path, options)}`)),
     ).promise
   },
 
-  /**
-   * Fetch recursive folder count only (no items payload).
-   */
-  getFolderCount: (path: string): Promise<BrowseFolderPayload> => {
+  getFolderCount: (path: string): Promise<number> => {
     return runWithRequestBudget('folders', () =>
       fetchJSON<BrowseFolderPayload>(
-        `${BASE}/folders?${buildFolderQuery(path, { recursive: true, countOnly: true })}`,
+        apiUrl(`/folders?${buildFolderQuery(path, { recursive: true, countOnly: true })}`),
       ),
-    ).promise
+    ).promise.then(folderPayloadCount)
   },
 
   getFolderPaths: (): Promise<BrowseFolderPathsPayload> => {
-    return fetchJSON<BrowseFolderPathsPayload>(`${BASE}/folders/paths`).promise
+    return fetchJSON<BrowseFolderPathsPayload>(apiUrl('/folders/paths')).promise
   },
 
-  /**
-   * Search for items by query string.
-   * @param q - Search query
-   * @param path - Base path to search within
-   */
   search: (q: string, path: string): Promise<BrowseSearchResultsPayload> => {
     const params = new URLSearchParams()
     if (q) params.set('q', q)
     if (path) params.set('path', path)
-    return fetchJSON<BrowseSearchResultsPayload>(`${BASE}/search?${params}`).promise
+    return fetchJSON<BrowseSearchResultsPayload>(apiUrl(`/search?${params}`)).promise
   },
 
-  /**
-   * List available embeddings and any rejected columns.
-   */
   getEmbeddings: (): Promise<EmbeddingsResponse> => {
-    return fetchJSON<EmbeddingsResponse>(`${BASE}/embeddings`).promise
+    return fetchJSON<EmbeddingsResponse>(apiUrl('/embeddings')).promise
   },
 
-  /**
-   * Run a similarity search for an embedding.
-   */
   searchEmbeddings: (body: EmbeddingSearchRequest): Promise<EmbeddingSearchResponse> => {
-    return fetchJSON<EmbeddingSearchResponse>(`${BASE}/embeddings/search`, {
+    return fetchJSON<EmbeddingSearchResponse>(apiUrl('/embeddings/search'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).promise
   },
 
-  /**
-   * Manually refresh a folder subtree on the backend.
-   */
   refreshFolder: (path: string): Promise<RefreshResponse> => {
     const params = new URLSearchParams({ path })
-    return fetchJSON<RefreshResponse>(`${BASE}/refresh?${params}`, {
+    return fetchJSON<RefreshResponse>(apiUrl(`/refresh?${params}`), {
       method: 'POST',
     }).promise
   },
 
-  /**
-   * Fetch sidecar metadata for an item.
-   */
   getSidecar: (path: string): Promise<Sidecar> => {
-    return fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`).promise
+    return fetchJSON<Sidecar>(apiUrl(`/item?path=${encodeURIComponent(path)}`)).promise
   },
 
-  /**
-   * Patch sidecar metadata with optimistic concurrency + idempotency.
-   */
+  // Patch writes use If-Match plus idempotency keys so retries do not double-apply edits.
   patchSidecar: (
     path: string,
     body: SidecarPatch,
@@ -547,25 +518,19 @@ export const api = {
       'Idempotency-Key': idempotencyKey,
     }
     if (opts?.ifMatch != null) headers['If-Match'] = String(opts.ifMatch)
-    return fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`, {
+    return fetchJSON<Sidecar>(apiUrl(`/item?path=${encodeURIComponent(path)}`), {
       method: 'PATCH',
       headers,
       body: JSON.stringify(body),
     }).promise
   },
 
-  /**
-   * Fetch heavy image metadata (PNG text chunks, etc) on-demand.
-   */
   getMetadata: (path: string): Promise<ImageMetadataResponse> => {
-    return fetchJSON<ImageMetadataResponse>(`${BASE}/metadata?path=${encodeURIComponent(path)}`).promise
+    return fetchJSON<ImageMetadataResponse>(apiUrl(`/metadata?path=${encodeURIComponent(path)}`)).promise
   },
 
-  /**
-   * Update sidecar metadata for an item.
-   */
   putSidecar: (path: string, body: Sidecar): Promise<Sidecar> => {
-    return fetchJSON<Sidecar>(`${BASE}/item?path=${encodeURIComponent(path)}`, {
+    return fetchJSON<Sidecar>(apiUrl(`/item?path=${encodeURIComponent(path)}`), {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -574,16 +539,10 @@ export const api = {
     }).promise
   },
 
-  /**
-   * Fetch backend health and persistence status.
-   */
   getHealth: (): Promise<HealthResponse> => {
-    return fetchJSON<HealthResponse>(`${BASE}/health`).promise
+    return fetchJSON<HealthResponse>(apiUrl('/health')).promise
   },
 
-  /**
-   * Join presence for a gallery scope and get a server lease.
-   */
   joinPresence: (galleryId: string, leaseId?: string): Promise<PresenceSessionResponse> => {
     return postPresenceJSON<PresenceSessionResponse>('/presence/join', {
       gallery_id: galleryId,
@@ -591,9 +550,6 @@ export const api = {
     })
   },
 
-  /**
-   * Move an active presence session from one gallery scope to another.
-   */
   movePresence: (
     fromGalleryId: string,
     toGalleryId: string,
@@ -606,9 +562,6 @@ export const api = {
     })
   },
 
-  /**
-   * Leave the current presence scope using the active lease.
-   */
   leavePresence: (galleryId: string, leaseId: string): Promise<PresenceLeaveResponse> => {
     return postPresenceJSON<PresenceLeaveResponse>('/presence/leave', {
       gallery_id: galleryId,
@@ -616,9 +569,6 @@ export const api = {
     })
   },
 
-  /**
-   * Get a thumbnail, using cache if available.
-   */
   getThumb: (path: string): Promise<Blob> => {
     return thumbCache.getOrFetch(path, () =>
       runWithRequestBudget('thumb', () =>
@@ -627,13 +577,8 @@ export const api = {
     )
   },
 
-  /**
-   * Fetch an original-file hover preview.
-   *
-   * Cached full files can be reused, but uncached hover fetches stay outside
-   * fileCache so hover cancellation cannot abort viewer/compare loads sharing
-   * that cache's in-flight request.
-   */
+  // Uncached hover fetches stay outside fileCache so hover cancellation cannot
+  // abort viewer/compare loads sharing that cache's in-flight request.
   getHoverPreview: (path: string): { promise: Promise<Blob>; abort?: () => void } => {
     const cached = fileCache.get(path)
     if (cached) return { promise: Promise.resolve(cached) }
@@ -642,9 +587,6 @@ export const api = {
     )
   },
 
-  /**
-   * Prefetch a thumbnail in the background.
-   */
   prefetchThumb: (path: string): void => {
     const budget = getBrowseRequestBudgetSnapshot()
     if (budget.queued.thumb >= THUMB_PREFETCH_MAX_QUEUED) return
@@ -655,9 +597,6 @@ export const api = {
     )
   },
 
-  /**
-   * Get a full-size file, using cache if available.
-   */
   getFile: (path: string): Promise<Blob> => {
     return fileCache.getOrFetch(path, () =>
       runWithRequestBudget('file', () =>
@@ -666,21 +605,16 @@ export const api = {
     )
   },
 
-  /**
-   * Export comparison output (PNG strip or GIF slideshow) for selected image paths.
-   */
   exportComparison: (body: ExportComparisonRequest): Promise<Blob> => {
-    return fetchBlob(`${BASE}/export-comparison`, {
+    return fetchBlob(apiUrl('/export-comparison'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).promise
   },
 
-  /**
-   * Prefetch a full-size file in the background.
-   * Restricted to explicit viewer/compare contexts and capped at 40MB.
-   */
+  // Full-file prefetch is restricted to viewer/compare contexts and capped at
+  // 40MB so scroll/hover behavior cannot fill the shared cache with huge originals.
   prefetchFile: async (path: string, context: FullFilePrefetchContext): Promise<void> => {
     if (!isFullFilePrefetchContext(context)) return
     // Skip if already cached or in-flight
@@ -700,75 +634,16 @@ export const api = {
     }
   },
 
-  /**
-   * Cancel a prefetch if it's in progress.
-   */
   cancelPrefetch: (path: string): void => {
     fileCache.cancelPrefetch(path)
   },
 
-  /**
-   * Upload a file to a destination folder.
-   */
-  uploadFile: async (dest: string, file: File): Promise<FileOpResponse> => {
-    const fd = new FormData()
-    fd.append('dest', dest)
-    fd.append('file', file)
-    return fetchJSON<FileOpResponse>(`${BASE}/file`, {
-      method: 'POST',
-      body: fd,
-      timeoutMs: 60_000, // Longer timeout for uploads
-    }).promise
-  },
-
-  /**
-   * Move a file from one location to another.
-   */
-  moveFile: async (src: string, dest: string): Promise<FileOpResponse> => {
-    const fd = new FormData()
-    fd.append('src', src)
-    fd.append('dest', dest)
-    return fetchJSON<FileOpResponse>(`${BASE}/move`, {
-      method: 'POST',
-      body: fd,
-    }).promise
-  },
-
-  /**
-   * Permanently delete files.
-   */
-  deleteFiles: async (paths: string[]): Promise<{ ok: boolean }> => {
-    return fetchJSON<{ ok: boolean }>(`${BASE}/delete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paths }),
-    }).promise
-  },
-
-  /**
-   * Signal intent to export a file.
-   */
-  exportIntent: async (path: string): Promise<{ ok: boolean }> => {
-    const fd = new FormData()
-    fd.append('path', path)
-    return fetchJSON<{ ok: boolean }>(`${BASE}/export-intent`, {
-      method: 'POST',
-      body: fd,
-    }).promise
-  },
-
-  /**
-   * Fetch saved Smart Folders (views).
-   */
   getViews: (): Promise<ViewsPayload> => {
-    return fetchJSON<ViewsPayload>(`${BASE}/views`).promise
+    return fetchJSON<ViewsPayload>(apiUrl('/views')).promise
   },
 
-  /**
-   * Persist saved Smart Folders (views).
-   */
   saveViews: (payload: ViewsPayload): Promise<ViewsPayload> => {
-    return fetchJSON<ViewsPayload>(`${BASE}/views`, {
+    return fetchJSON<ViewsPayload>(apiUrl('/views'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

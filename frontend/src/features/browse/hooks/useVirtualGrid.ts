@@ -12,8 +12,8 @@ type GridOptions = {
   viewMode: ViewMode
 }
 
-type AdaptiveLayout = { mode: 'adaptive'; rows: ReturnType<typeof computeAdaptiveRows> }
-type GridLayout = {
+export type AdaptiveVirtualGridLayout = { mode: 'adaptive'; rows: ReturnType<typeof computeAdaptiveRows> }
+export type FlatVirtualGridLayout = {
   mode: 'grid'
   columns: number
   cellW: number
@@ -22,9 +22,9 @@ type GridLayout = {
   rowCount: number
 }
 
-type Layout = AdaptiveLayout | GridLayout
+export type VirtualGridLayout = AdaptiveVirtualGridLayout | FlatVirtualGridLayout
 
-function buildAdaptiveLayout(width: number, items: BrowseItemPayload[], opts: GridOptions): AdaptiveLayout {
+function buildAdaptiveLayout(width: number, items: BrowseItemPayload[], opts: GridOptions): AdaptiveVirtualGridLayout {
   const rows = computeAdaptiveRows({
     items,
     containerWidth: width,
@@ -35,7 +35,7 @@ function buildAdaptiveLayout(width: number, items: BrowseItemPayload[], opts: Gr
   return { mode: 'adaptive', rows }
 }
 
-function buildGridLayout(width: number, items: BrowseItemPayload[], opts: GridOptions): GridLayout {
+function buildGridLayout(width: number, items: BrowseItemPayload[], opts: GridOptions): FlatVirtualGridLayout {
   const { columns, cellW, mediaH, rowH } = flatLayout({
     containerW: width,
     gap: opts.gap,
@@ -67,7 +67,7 @@ export function useVirtualGrid(
     return () => ro.disconnect()
   }, [])
 
-  const layout: Layout = useMemo(() => {
+  const layout: VirtualGridLayout = useMemo(() => {
     return opts.viewMode === 'adaptive'
       ? buildAdaptiveLayout(width, items, opts)
       : buildGridLayout(width, items, opts)
@@ -75,7 +75,7 @@ export function useVirtualGrid(
 
   const rowVirtualizer = useVirtualizer({
     count: layout.mode === 'adaptive' ? layout.rows.length : layout.rowCount,
-    getScrollElement: () => containerRef.current as any,
+    getScrollElement: () => containerRef.current,
     estimateSize: (i) => layout.mode === 'adaptive' ? layout.rows[i].height : layout.rowH,
     overscan: 8,
   })

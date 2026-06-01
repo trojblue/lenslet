@@ -198,7 +198,7 @@ Completed task IDs:
 Files changed:
 - frontend/src/features/inspector/sections/SelectionExportSection.tsx
 - frontend/src/features/inspector/sections/__tests__/metadataSections.test.tsx
-- src/lenslet/metadata.py
+- src/lenslet/web/metadata.py
 - tests/test_metadata_endpoint.py
 - docs/20260303_inspector_metadata_improvements_execution_plan.md
 - docs/ralph/20260303_inspector_metadata_improvements/progress.txt

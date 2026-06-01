@@ -102,8 +102,9 @@ export default function SimilarityModal({
 
     const payload: EmbeddingSearchRequest = {
       embedding: selectedEmbedding.name,
-      query_path: mode === 'path' ? trimmedPath : null,
-      query_vector_b64: mode === 'vector' ? trimmedVector : null,
+      query: mode === 'path'
+        ? { kind: 'path', path: trimmedPath }
+        : { kind: 'vector', vector_b64: trimmedVector },
       top_k: safeTopK,
       min_score: minScoreValue,
     }

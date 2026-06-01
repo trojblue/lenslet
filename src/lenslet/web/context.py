@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any
 
 from fastapi import FastAPI, Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .cache.browse import RecursiveBrowseCache
 from ..indexing_status import IndexingLifecycle
+from .app.options import StorageMode
 from .cache.og import OgImageCache
-from .runtime import AppRuntime
-from ..storage.base import BrowseStorage
+from ..storage.base import BrowseAppStorage
 from ..workspace import Workspace
+from .runtime import AppRuntime
 
 _APP_CONTEXT_ATTR = "lenslet_app_context"
 _REQUEST_CONTEXT_ATTR = "lenslet_app_context"
@@ -21,12 +21,12 @@ _REQUEST_CONTEXT_ATTR = "lenslet_app_context"
 
 @dataclass
 class AppContext:
-    storage: BrowseStorage
+    storage: BrowseAppStorage
     workspace: Workspace
     runtime: AppRuntime
     recursive_browse_cache: RecursiveBrowseCache | None
     og_cache: OgImageCache | None
-    storage_mode: str
+    storage_mode: StorageMode
     storage_origin: str | None
     indexing: IndexingLifecycle
 
@@ -43,13 +43,6 @@ class RequestContextMiddleware:
 
 def set_app_context(app: FastAPI, context: AppContext) -> AppContext:
     setattr(app.state, _APP_CONTEXT_ATTR, context)
-    # Keep these mirrors while the rest of the app finishes moving to app context.
-    app.state.storage = context.storage
-    app.state.workspace = context.workspace
-    app.state.runtime = context.runtime
-    app.state.recursive_browse_cache = context.recursive_browse_cache
-    app.state.storage_mode = context.storage_mode
-    app.state.storage_origin = context.storage_origin
     return context
 
 
@@ -60,9 +53,13 @@ def get_app_context(app: FastAPI) -> AppContext:
     return context
 
 
-def replace_app_context(app: FastAPI, **changes: Any) -> AppContext:
+def get_app_runtime(app: FastAPI) -> AppRuntime:
+    return get_app_context(app).runtime
+
+
+def replace_app_runtime(app: FastAPI, runtime: AppRuntime) -> AppContext:
     current = get_app_context(app)
-    updated = replace(current, **changes)
+    updated = replace(current, runtime=runtime)
     return set_app_context(app, updated)
 
 

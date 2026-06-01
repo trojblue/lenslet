@@ -46,6 +46,9 @@ dev = [
 s3 = [
     "boto3>=1.34",
 ]
+remote = [
+    "unibox>=0.12",
+]
 embeddings = [
     "numpy>=1.26",
 ]
@@ -53,9 +56,14 @@ embeddings-faiss = [
     "numpy>=1.26",
     "faiss-cpu>=1.7.4",
 ]
+embed = [
+    "numpy>=1.26",
+    "torch>=2",
+    "torchvision>=0.17",
+]
 
 [project.scripts]
-lenslet = "lenslet.cli:main"
+lenslet = "lenslet.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/trojblue/lenslet"

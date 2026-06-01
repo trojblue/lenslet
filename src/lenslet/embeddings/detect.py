@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-import pyarrow as pa
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 from .config import EmbeddingConfig
+from .dependencies import load_pyarrow
 
 
 @dataclass(frozen=True)
@@ -36,7 +39,8 @@ class EmbeddingDetection:
         return cls(available=[], rejected=[], list_columns=[], fixed_size_columns=[])
 
 
-def _is_list_like(dtype: pa.DataType) -> bool:
+def _is_list_like(dtype: "pa.DataType") -> bool:
+    pa = load_pyarrow()
     return (
         pa.types.is_list(dtype)
         or pa.types.is_large_list(dtype)
@@ -44,7 +48,8 @@ def _is_list_like(dtype: pa.DataType) -> bool:
     )
 
 
-def _is_bfloat16_type(dtype: pa.DataType) -> bool:
+def _is_bfloat16_type(dtype: "pa.DataType") -> bool:
+    pa = load_pyarrow()
     checker = getattr(pa.types, "is_bfloat16", None)
     if callable(checker):
         try:
@@ -55,14 +60,16 @@ def _is_bfloat16_type(dtype: pa.DataType) -> bool:
 
 
 def _supports_bfloat16() -> bool:
+    pa = load_pyarrow()
     return hasattr(pa, "bfloat16")
 
 
-def _dtype_name(dtype: pa.DataType) -> str:
+def _dtype_name(dtype: "pa.DataType") -> str:
     return str(dtype)
 
 
-def _supported_value_type(dtype: pa.DataType) -> tuple[bool, str | None]:
+def _supported_value_type(dtype: "pa.DataType") -> tuple[bool, str | None]:
+    pa = load_pyarrow()
     if pa.types.is_float16(dtype) or pa.types.is_float32(dtype) or pa.types.is_float64(dtype):
         return True, None
     if _is_bfloat16_type(dtype):
@@ -72,7 +79,8 @@ def _supported_value_type(dtype: pa.DataType) -> tuple[bool, str | None]:
     return False, "embedding values must be float16/float32/float64/bfloat16"
 
 
-def _inspect_field(field: pa.Field, metric: str) -> tuple[EmbeddingSpec | None, EmbeddingRejected | None]:
+def _inspect_field(field: "pa.Field", metric: str) -> tuple[EmbeddingSpec | None, EmbeddingRejected | None]:
+    pa = load_pyarrow()
     dtype = field.type
     if not pa.types.is_fixed_size_list(dtype):
         return None, EmbeddingRejected(field.name, "variable-length list; fixed-size list required")
@@ -91,7 +99,8 @@ def _inspect_field(field: pa.Field, metric: str) -> tuple[EmbeddingSpec | None, 
     )
 
 
-def detect_embeddings(schema: pa.Schema, config: EmbeddingConfig) -> EmbeddingDetection:
+def detect_embeddings(schema: "pa.Schema", config: EmbeddingConfig) -> EmbeddingDetection:
+    pa = load_pyarrow()
     list_columns = [field.name for field in schema if _is_list_like(field.type)]
     fixed_size_columns = [field.name for field in schema if pa.types.is_fixed_size_list(field.type)]
     available: list[EmbeddingSpec] = []
@@ -127,6 +136,6 @@ def detect_embeddings(schema: pa.Schema, config: EmbeddingConfig) -> EmbeddingDe
     )
 
 
-def columns_without_embeddings(schema: pa.Schema, detection: EmbeddingDetection) -> list[str]:
+def columns_without_embeddings(schema: "pa.Schema", detection: EmbeddingDetection) -> list[str]:
     excluded = set(detection.fixed_size_columns)
     return [name for name in schema.names if name not in excluded]

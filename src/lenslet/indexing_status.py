@@ -2,21 +2,42 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Any, Callable, Literal
+from typing import Callable, Literal, TypedDict, cast
+
+_LOGGER = logging.getLogger(__name__)
 
 IndexingState = Literal["idle", "running", "ready", "error"]
-IndexingListener = Callable[[dict[str, Any]], None]
-_TERMINAL_STATES = frozenset({"ready", "error"})
-_POLLING_STATES = frozenset({"idle", "running"})
+
+
+class _IndexingPayloadRequired(TypedDict):
+    state: IndexingState
+
+
+class IndexingPayload(_IndexingPayloadRequired, total=False):
+    scope: str
+    done: int
+    total: int
+    generation: str
+    started_at: str
+    finished_at: str
+    error: str
+
+
+IndexingListener = Callable[[IndexingPayload], None]
+_VALID_STATES: tuple[IndexingState, ...] = ("idle", "running", "ready", "error")
+_TERMINAL_STATES: frozenset[IndexingState] = frozenset(("ready", "error"))
+_POLLING_STATES: frozenset[IndexingState] = frozenset(("idle", "running"))
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def coerce_progress_count(value: Any) -> int | None:
+def coerce_progress_count(value: object) -> int | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, int) and value >= 0:
@@ -24,11 +45,17 @@ def coerce_progress_count(value: Any) -> int | None:
     return None
 
 
-def normalize_indexing_payload(payload: Any) -> dict[str, Any] | None:
-    if not isinstance(payload, dict):
+def _coerce_indexing_state(value: object) -> IndexingState | None:
+    if value in _VALID_STATES:
+        return cast(IndexingState, value)
+    return None
+
+
+def normalize_indexing_payload(payload: object) -> IndexingPayload | None:
+    if not isinstance(payload, Mapping):
         return None
-    state = payload.get("state")
-    if state not in {"idle", "running", "ready", "error"}:
+    state = _coerce_indexing_state(payload.get("state"))
+    if state is None:
         return None
 
     done = coerce_progress_count(payload.get("done"))
@@ -36,7 +63,7 @@ def normalize_indexing_payload(payload: Any) -> dict[str, Any] | None:
     if done is not None and total is not None and done > total:
         done = total
 
-    normalized: dict[str, Any] = {"state": state}
+    normalized: IndexingPayload = {"state": state}
     scope = payload.get("scope")
     if isinstance(scope, str):
         normalized["scope"] = scope
@@ -56,22 +83,22 @@ def normalize_indexing_payload(payload: Any) -> dict[str, Any] | None:
     return normalized
 
 
-def indexing_state_is_terminal(state: str) -> bool:
+def indexing_state_is_terminal(state: IndexingState) -> bool:
     return state in _TERMINAL_STATES
 
 
-def indexing_state_requires_poll(state: str) -> bool:
+def indexing_state_requires_poll(state: IndexingState) -> bool:
     return state in _POLLING_STATES
 
 
-def _scope_suffix(payload: dict[str, Any]) -> str:
+def _scope_suffix(payload: IndexingPayload) -> str:
     scope = payload.get("scope")
     if not isinstance(scope, str) or scope == "/":
         return ""
     return f" ({scope})"
 
 
-def _progress_text(payload: dict[str, Any]) -> str:
+def _progress_text(payload: IndexingPayload) -> str:
     done = payload.get("done")
     total = payload.get("total")
     if isinstance(done, int) and isinstance(total, int):
@@ -79,7 +106,7 @@ def _progress_text(payload: dict[str, Any]) -> str:
     return ""
 
 
-def format_cli_indexing_message(payload: Any) -> str | None:
+def format_cli_indexing_message(payload: object) -> str | None:
     normalized = normalize_indexing_payload(payload)
     if normalized is None:
         return None
@@ -112,7 +139,7 @@ class CliIndexingReporter:
         self._last_error: str | None = None
         self._saw_running = False
 
-    def handle_update(self, payload: Any) -> None:
+    def handle_update(self, payload: object) -> None:
         normalized = normalize_indexing_payload(payload)
         if normalized is None:
             return
@@ -144,7 +171,7 @@ class CliIndexingReporter:
         self._last_state = "idle"
         self._last_error = None
 
-    def _emit(self, payload: dict[str, Any], state: IndexingState) -> None:
+    def _emit(self, payload: IndexingPayload, state: IndexingState) -> None:
         message = format_cli_indexing_message(payload)
         self._last_state = state
         self._last_error = None
@@ -179,7 +206,7 @@ class IndexingLifecycle:
         return cls(scope=scope, initial_state="ready")
 
     def subscribe(self, listener: IndexingListener, *, emit_current: bool = False) -> None:
-        payload: dict[str, Any] | None = None
+        payload: IndexingPayload | None = None
         with self._lock:
             self._listeners.append(listener)
             if emit_current:
@@ -188,7 +215,7 @@ class IndexingLifecycle:
             self._notify(listener, payload)
 
     def start(self, *, scope: str | None = None) -> None:
-        payload: dict[str, Any]
+        payload: IndexingPayload
         with self._lock:
             if scope is not None:
                 self._scope = scope
@@ -200,7 +227,7 @@ class IndexingLifecycle:
         self._emit(payload)
 
     def mark_ready(self) -> None:
-        payload: dict[str, Any]
+        payload: IndexingPayload
         with self._lock:
             now = _now_iso()
             if self._started_at is None:
@@ -212,7 +239,7 @@ class IndexingLifecycle:
         self._emit(payload)
 
     def mark_error(self, message: str) -> None:
-        payload: dict[str, Any]
+        payload: IndexingPayload
         with self._lock:
             now = _now_iso()
             if self._started_at is None:
@@ -223,12 +250,12 @@ class IndexingLifecycle:
             payload = self._snapshot_unlocked()
         self._emit(payload)
 
-    def snapshot(self, *, done: int | None = None, total: int | None = None) -> dict[str, Any]:
+    def snapshot(self, *, done: int | None = None, total: int | None = None) -> IndexingPayload:
         with self._lock:
             return self._snapshot_unlocked(done=done, total=total)
 
-    def _snapshot_unlocked(self, *, done: int | None = None, total: int | None = None) -> dict[str, Any]:
-        payload: dict[str, Any] = {
+    def _snapshot_unlocked(self, *, done: int | None = None, total: int | None = None) -> IndexingPayload:
+        payload: IndexingPayload = {
             "state": self._state,
             "scope": self._scope,
         }
@@ -244,15 +271,16 @@ class IndexingLifecycle:
             payload["error"] = self._error
         return payload
 
-    def _emit(self, payload: dict[str, Any]) -> None:
+    def _emit(self, payload: IndexingPayload) -> None:
         with self._lock:
             listeners = list(self._listeners)
         for listener in listeners:
             self._notify(listener, payload)
 
     @staticmethod
-    def _notify(listener: IndexingListener, payload: dict[str, Any]) -> None:
+    def _notify(listener: IndexingListener, payload: IndexingPayload) -> None:
         try:
-            listener(dict(payload))
-        except Exception:
+            listener(cast(IndexingPayload, dict(payload)))
+        except Exception as exc:
+            _LOGGER.warning("indexing listener callback failed: %s", exc, exc_info=True)
             return

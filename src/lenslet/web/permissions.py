@@ -5,10 +5,7 @@ from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from .auth import get_mutation_policy, request_can_mutate
-
-READ_ONLY_WORKSPACE_ERROR = "read_only_workspace"
-READ_ONLY_WORKSPACE_MESSAGE = "workspace is read-only"
+from .auth import READ_ONLY_MUTATION_POLICY, get_mutation_policy, mutation_denial_payload, request_can_mutate
 
 
 def deny_if_mutation_forbidden(request: Request, *, writes_enabled: bool) -> JSONResponse | None:
@@ -17,16 +14,10 @@ def deny_if_mutation_forbidden(request: Request, *, writes_enabled: bool) -> JSO
     if not writes_enabled:
         return JSONResponse(
             status_code=403,
-            content={
-                "error": READ_ONLY_WORKSPACE_ERROR,
-                "message": READ_ONLY_WORKSPACE_MESSAGE,
-            },
+            content=mutation_denial_payload(READ_ONLY_MUTATION_POLICY),
         )
     policy = get_mutation_policy(request.app)
     return JSONResponse(
         status_code=403,
-        content={
-            "error": policy.denial_error,
-            "message": policy.denial_message,
-        },
+        content=mutation_denial_payload(policy),
     )

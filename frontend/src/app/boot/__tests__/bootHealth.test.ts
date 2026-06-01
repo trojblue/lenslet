@@ -19,6 +19,14 @@ describe('boot health source parsing', () => {
     })
   })
 
+  it('accepts generic storage mode from storage-backed browse apps', () => {
+    expect(parseBootHealth({ ok: true, mode: 'storage', workspace_id: 'storage-workspace' })).toEqual({
+      mode: 'browse',
+      healthMode: 'storage',
+      workspaceId: 'storage-workspace',
+    })
+  })
+
   it('normalizes ranking mode from health payload', () => {
     expect(parseBootHealth({ ok: true, mode: 'ranking', workspace_id: 'workspace-a' })).toEqual({
       mode: 'ranking',

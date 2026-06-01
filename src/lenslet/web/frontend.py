@@ -1,4 +1,4 @@
-"""Shared static frontend serving helpers for Lenslet web apps."""
+"""Static frontend serving helpers for Lenslet web apps."""
 
 from __future__ import annotations
 

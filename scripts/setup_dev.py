@@ -7,13 +7,15 @@ import argparse
 import platform
 import shlex
 import shutil
-import subprocess
+import subprocess  # nosec B404 - errors are reported for fixed argv setup commands.
 import sys
 from pathlib import Path
 from typing import Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
+
 PY313_CONSTRAINTS = ROOT / "constraints" / "runtime-py313.txt"
+SETUP_COMMAND_TIMEOUT_SECONDS = 1_800.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,7 +68,13 @@ def run(command: Sequence[str], *, cwd: Path = ROOT, dry_run: bool = False) -> N
     print(f"$ {shell_join(command)}", flush=True)
     if dry_run:
         return
-    subprocess.run(command, cwd=cwd, check=True)
+    subprocess.run(  # nosec B603 - command is an argv sequence and shell is forced off.
+        list(command),
+        cwd=str(cwd),
+        check=True,
+        shell=False,
+        timeout=SETUP_COMMAND_TIMEOUT_SECONDS,
+    )
 
 
 def require_tool(name: str) -> None:

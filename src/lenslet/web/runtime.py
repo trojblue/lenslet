@@ -1,78 +1,90 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 
-from .sync import PresenceTracker, _init_sync_state
-from ..storage.base import BrowseStorage
-from ..thumbs import ThumbnailScheduler
+from .cache.thumbs import ThumbCache
+from .lifecycle import register_lifecycle_handlers
+from .sync.events import EventBroker, IdempotencyCache
+from .sync.labels import LabelSyncLocks, SnapshotWriter, init_sync_state
+from .sync.presence import PresenceMetrics, PresenceTracker
+from .thumbs import ThumbnailScheduler
+from ..storage.base import BrowseAppStorage
 from ..workspace import Workspace
 
-
-class PresenceMetrics:
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._invalid_lease_total = 0
-
-    def record_invalid_lease(self) -> None:
-        with self._lock:
-            self._invalid_lease_total += 1
-
-    def snapshot(self) -> dict[str, int]:
-        with self._lock:
-            return {"invalid_lease_total": self._invalid_lease_total}
+if TYPE_CHECKING:
+    from .hotpath import HotpathTelemetry
 
 
 @dataclass(frozen=True)
 class AppRuntime:
-    meta_lock: threading.Lock
+    sidecar_lock: threading.Lock
     log_lock: threading.Lock
-    broker: Any
-    idempotency_cache: Any
-    snapshotter: Any
+    broker: EventBroker
+    idempotency_cache: IdempotencyCache
+    snapshotter: SnapshotWriter
     sync_state: dict[str, int]
     presence: PresenceTracker
     presence_metrics: PresenceMetrics
+    presence_prune_interval: float
     thumb_queue: ThumbnailScheduler
-    thumb_cache: Any
-    hotpath_metrics: Any
+    thumb_cache: ThumbCache | None
+    hotpath_metrics: HotpathTelemetry
+
+
+@dataclass(frozen=True, slots=True)
+class AppRuntimeSettings:
+    presence_view_ttl: float
+    presence_edit_ttl: float
+    presence_prune_interval: float
+    thumb_cache_enabled: bool
+    thumb_worker_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class AppRuntimeHooks:
+    build_thumb_cache: Callable[[Workspace, bool], ThumbCache | None]
+    build_hotpath_metrics: Callable[[FastAPI], HotpathTelemetry]
+
+
+@dataclass(frozen=True, slots=True)
+class AppRuntimeAssembly:
+    storage: BrowseAppStorage
+    workspace: Workspace
+    settings: AppRuntimeSettings
+    hooks: AppRuntimeHooks
 
 
 def build_app_runtime(
     app: FastAPI,
-    *,
-    storage: BrowseStorage,
-    workspace: Workspace,
-    presence_view_ttl: float,
-    presence_edit_ttl: float,
-    presence_prune_interval: float,
-    thumb_cache_enabled: bool,
-    thumb_worker_count: int,
-    build_thumb_cache: Callable[[Workspace, bool], Any],
-    install_presence_prune_loop: Callable[[FastAPI, PresenceTracker, Any, float], None],
-    build_hotpath_metrics: Callable[[FastAPI], Any],
+    assembly: AppRuntimeAssembly,
 ) -> AppRuntime:
-    meta_lock = threading.Lock()
+    settings = assembly.settings
+    hooks = assembly.hooks
+    sidecar_lock = threading.Lock()
     log_lock = threading.Lock()
-    broker, idempotency_cache, snapshotter, max_event_id = _init_sync_state(
-        storage,
-        workspace,
-        meta_lock,
-        log_lock,
+    locks = LabelSyncLocks(sidecar=sidecar_lock, log=log_lock)
+    broker, idempotency_cache, snapshotter, max_event_id = init_sync_state(
+        assembly.storage,
+        assembly.workspace,
+        locks,
     )
     sync_state = {"last_event_id": max_event_id}
-    presence = PresenceTracker(view_ttl=presence_view_ttl, edit_ttl=presence_edit_ttl)
+    presence = PresenceTracker(
+        view_ttl=settings.presence_view_ttl,
+        edit_ttl=settings.presence_edit_ttl,
+    )
     presence_metrics = PresenceMetrics()
-    app.state.sync_broker = broker
-    install_presence_prune_loop(app, presence, broker, presence_prune_interval)
-    thumb_queue = ThumbnailScheduler(max_workers=thumb_worker_count)
-    thumb_cache = build_thumb_cache(workspace, thumb_cache_enabled)
-    hotpath_metrics = build_hotpath_metrics(app)
+    thumb_queue = ThumbnailScheduler(max_workers=settings.thumb_worker_count)
+    register_lifecycle_handlers(app, startup=thumb_queue.start, shutdown=thumb_queue.close)
+    thumb_cache = hooks.build_thumb_cache(assembly.workspace, settings.thumb_cache_enabled)
+    hotpath_metrics = hooks.build_hotpath_metrics(app)
     return AppRuntime(
-        meta_lock=meta_lock,
+        sidecar_lock=sidecar_lock,
         log_lock=log_lock,
         broker=broker,
         idempotency_cache=idempotency_cache,
@@ -80,6 +92,7 @@ def build_app_runtime(
         sync_state=sync_state,
         presence=presence,
         presence_metrics=presence_metrics,
+        presence_prune_interval=settings.presence_prune_interval,
         thumb_queue=thumb_queue,
         thumb_cache=thumb_cache,
         hotpath_metrics=hotpath_metrics,

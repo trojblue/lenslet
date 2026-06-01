@@ -386,11 +386,8 @@ export function useZoomPan() {
   }, [applyTransform, currentTransform])
 
   return {
-    // state
     scale, tx, ty, base, ready, setReady, dragging, setDragging, geometryVersion,
-    // refs
     containerRef, imgRef,
-    // helpers/handlers
     resetView, zoomToPercent, handleWheel, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, shouldSuppressSurfaceClick,
   }
 }

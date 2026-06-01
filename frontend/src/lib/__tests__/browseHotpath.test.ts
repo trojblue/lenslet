@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getBrowseHotpathSnapshot,
   markFirstGridItemVisible,
@@ -12,7 +12,25 @@ beforeEach(() => {
   resetBrowseHotpathForTests()
 })
 
+afterEach(() => {
+  delete (globalThis as { window?: unknown }).window
+})
+
 describe('browse hotpath instrumentation', () => {
+  it('does not publish browser globals during module import', async () => {
+    vi.resetModules()
+    const windowStub: Window = {} as Window
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: windowStub,
+    })
+
+    await import('../browseHotpath')
+
+    expect(windowStub.__lensletBrowseHotpath).toBeUndefined()
+  })
+
   it('captures first-thumbnail latency once per browse request', () => {
     startBrowseLoad({
       requestId: 9,

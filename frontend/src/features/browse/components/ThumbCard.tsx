@@ -44,7 +44,6 @@ export default function ThumbCard({
     [path, requestedPath],
   )
 
-  // Intersection observer for lazy loading
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
@@ -78,7 +77,6 @@ export default function ThumbCard({
     }
   }, [inView, isScrolling, path, priority, requestedPath])
 
-  // Reset loaded state when URL changes
   useEffect(() => {
     if (!url) {
       setLoaded(false)

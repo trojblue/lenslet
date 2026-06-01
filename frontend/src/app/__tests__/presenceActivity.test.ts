@@ -10,8 +10,8 @@ function makeItem(path: string, name: string): BrowseItemPayload {
     width: 100,
     height: 100,
     size: 1,
-    hasThumbnail: true,
-    hasMetadata: true,
+    has_thumbnail: true,
+    has_metadata: true,
   }
 }
 

@@ -3,7 +3,6 @@ import { api } from './client'
 import { usePollingEnabled } from './polling'
 import type { BrowseSearchResultsPayload } from '../lib/types'
 
-/** Query key for search results */
 export const searchQueryKey = (q: string, path: string) => ['search', q, path] as const
 const FALLBACK_REFETCH_INTERVAL = 20_000
 const ROOT_SCOPE_PATH = '/'
@@ -51,12 +50,6 @@ export function shouldKeepSearchPlaceholderData(
   return previousRequest.path === nextRequest.path
 }
 
-/**
- * Hook to search for items by query string.
- * - Only runs when query is non-empty
- * - Caches results briefly (3 seconds)
- * - Keeps previous results while fetching new ones
- */
 export function useSearch(q: string, path: string) {
   const pollingEnabled = usePollingEnabled()
   const request = buildCanonicalSearchRequest(q, path)
@@ -68,8 +61,8 @@ export function useSearch(q: string, path: string) {
       if (!request) return Promise.resolve({ items: [] })
       return api.search(request.q, request.path)
     },
-    staleTime: 3_000, // 3 seconds
-    gcTime: 60_000, // Keep in cache for 1 minute
+    staleTime: 3_000,
+    gcTime: 60_000,
     placeholderData: (prev, previousQuery) => {
       if (!shouldKeepSearchPlaceholderData(previousQuery?.queryKey, request)) return undefined
       return prev

@@ -20,19 +20,19 @@ describe('resolveHashTargets', () => {
     })
   })
 
-  it('accepts loaded item paths as legacy image hashes during a rolling refresh', () => {
+  it('keeps loaded item paths as folder hashes unless the route uses hashbang', () => {
     const path = '/img.metanomaly.co/r2/extensionless-image-id'
 
-    expect(resolveHashTargets(path, new Set([path]))).toEqual({
-      folderTarget: '/img.metanomaly.co/r2',
-      imageTarget: path,
+    expect(resolveHashTargets(path)).toEqual({
+      folderTarget: path,
+      imageTarget: null,
     })
   })
 
-  it('keeps extension-based legacy image hashes working', () => {
+  it('keeps plain extension-based hashes as folder routes', () => {
     expect(resolveHashTargets('/gallery/sample.webp')).toEqual({
-      folderTarget: '/gallery',
-      imageTarget: '/gallery/sample.webp',
+      folderTarget: '/gallery/sample.webp',
+      imageTarget: null,
     })
   })
 })

@@ -4,8 +4,7 @@ import type { BrowseFolderPayload } from '../../lib/types'
 import { folderQueryKey, useFolder } from '../../api/folders'
 import { api } from '../../api/client'
 import { middleTruncate } from '../../lib/util'
-import { joinPath, sanitizePath } from '../../app/routing/hash'
-import { useFolderTreeDragDrop } from './hooks/useFolderTreeDragDrop'
+import { joinPath, sanitizePath } from '../../lib/paths'
 import { useFolderTreeKeyboardNav } from './hooks/useFolderTreeKeyboardNav'
 
 interface Root {
@@ -78,7 +77,7 @@ export default function FolderTree({
     const recursiveKey = folderQueryKey(target, { recursive: true })
     const cachedRecursive = queryClient.getQueryData<BrowseFolderPayload>(recursiveKey)
     if (cachedRecursive) {
-      const count = cachedRecursive.totalItems ?? cachedRecursive.items.length
+      const count = cachedRecursive.total_items ?? cachedRecursive.items.length
       cache.set(target, count)
       return count
     }
@@ -94,12 +93,11 @@ export default function FolderTree({
             queryKey: recursiveKey,
             queryFn: () => api.getFolder(target, { recursive: true }),
           })
-          const count = folder.totalItems ?? folder.items.length
+          const count = folder.total_items ?? folder.items.length
           cache.set(target, count)
           return count
         }
-        const folder = await api.getFolderCount(target)
-        const count = folder.totalItems ?? folder.items.length
+        const count = await api.getFolderCount(target)
         cache.set(target, count)
         return count
       } finally {
@@ -267,11 +265,13 @@ function TreeNode({
   const isExpanded = expanded.has(path)
   const isActive = current === path
   const shouldFetchFolder = path === '/' || isExpanded || isActive
-  const { data } = useFolder(path, false, { enabled: shouldFetchFolder })
-  const idx = initial && path === initial.path ? initial : data
-  const hasIndex = !!idx
-  const isLeaf = hasIndex ? idx.folders.length === 0 : false
-  const [subtreeCount, setSubtreeCount] = useState<number | null>(idx ? idx.items.length : null)
+  const { data } = useFolder(path, { enabled: shouldFetchFolder })
+  const folderPayload = initial && path === initial.path ? initial : data
+  const hasFolderData = !!folderPayload
+  const isLeaf = hasFolderData ? folderPayload.folders.length === 0 : false
+  const [subtreeCount, setSubtreeCount] = useState<number | null>(
+    folderPayload ? folderPayload.items.length : null,
+  )
 
   const onKeyDown = useFolderTreeKeyboardNav({
     path,
@@ -280,8 +280,6 @@ function TreeNode({
     setExpanded,
     onOpen,
   })
-
-  const { onDragOver, onDragEnter, onDragLeave, onDrop } = useFolderTreeDragDrop({ path, isLeaf })
 
   const toggle = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation()
@@ -306,11 +304,11 @@ function TreeNode({
 
   useEffect(() => {
     let cancelled = false
-    if (!idx) {
+    if (!folderPayload) {
       setSubtreeCount(null)
       return
     }
-    setSubtreeCount(idx.items.length)
+    setSubtreeCount(folderPayload.items.length)
     const shouldResolveRecursiveCount = isExpanded && (depth > 0 || isActive)
     if (!shouldResolveRecursiveCount) {
       return
@@ -325,7 +323,7 @@ function TreeNode({
     return () => {
       cancelled = true
     }
-  }, [idx, path, getSubtreeCount, countVersion, isExpanded, depth, isActive])
+  }, [folderPayload, path, getSubtreeCount, countVersion, isExpanded, depth, isActive])
 
   return (
     <div>
@@ -344,10 +342,6 @@ function TreeNode({
           onContextMenu?.(e, path)
         }}
         onKeyDown={onKeyDown}
-        onDragOver={onDragOver}
-        onDragEnter={onDragEnter}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
       >
         <button
           type="button"
@@ -382,7 +376,7 @@ function TreeNode({
           </button>
         )}
       </div>
-      {isExpanded && idx?.folders?.map(d => (
+      {isExpanded && folderPayload?.folders?.map(d => (
         <TreeNode
           key={d.name}
           path={joinPath(path, d.name)}

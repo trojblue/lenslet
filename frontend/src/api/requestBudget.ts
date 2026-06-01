@@ -81,6 +81,10 @@ function publishSnapshot(): void {
   reportBrowseRequestBudget(snapshotCounts())
 }
 
+export function initializeBrowseRequestBudgetTelemetry(): void {
+  publishSnapshot()
+}
+
 function drainQueue(endpoint: BrowseEndpoint): void {
   const state = endpointState[endpoint]
   while (state.inflight.size < state.limit && state.queued.length > 0) {
@@ -226,5 +230,3 @@ export function resetBrowseRequestBudgetForTests(): void {
   }
   publishSnapshot()
 }
-
-publishSnapshot()

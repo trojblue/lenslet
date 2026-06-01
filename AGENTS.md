@@ -24,8 +24,8 @@ For each proposed change, examine the existing system and redesign it into the m
 - `cd frontend && npm run build && cp -r dist/* ../src/lenslet/frontend/` — build UI bundle.
 - `python scripts/lint_repo.py` — run post-change lint checks (`ruff` + file-size guardrails: warn >1200 lines, fail >2000 lines).
 - `python -m playwright install chromium` — one-time browser install for real browser validation.
-- `python scripts/gui_smoke_acceptance.py` — run Playwright-based end-to-end acceptance checks against a live Lenslet server.
-- `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` — optional large-tree performance probe (40k images across 10k folders).
+- `python -m scripts.browser.gui_smoke.acceptance` — run Playwright-based end-to-end acceptance checks against a live Lenslet server.
+- `python -m scripts.browser.large_tree.smoke --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` — optional large-tree performance probe (40k images across 10k folders).
 - `python -m build` — build wheels into `dist/`.
 - `pytest` — run tests.
 
@@ -44,8 +44,8 @@ For each proposed change, examine the existing system and redesign it into the m
 - Keep smoke checks lean and scenario-driven; avoid bloated smoke-only suites that duplicate low-level unit coverage.
 - Use small, temporary image fixtures for focused unit/integration tests; keep runtime under 30s where practical.
 - After feature completion, run `python scripts/lint_repo.py` before handoff.
-- For frontend/browse behavior changes, run `python scripts/gui_smoke_acceptance.py`.
-- For large-tree performance or hydration regressions, run `python scripts/playwright_large_tree_smoke.py --dataset-dir data/fixtures/large_tree_40k`.
+- For frontend/browse behavior changes, run `python -m scripts.browser.gui_smoke.acceptance`.
+- For large-tree performance or hydration regressions, run `python -m scripts.browser.large_tree.smoke --dataset-dir data/fixtures/large_tree_40k`.
 
 ## Commit & Pull Request Guidelines
 - Commit messages: Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`), imperative mood.

@@ -3,7 +3,7 @@ import Dropdown, { type DropdownGroup } from '../Dropdown'
 import SortDirectionIcon from './SortDirectionIcon'
 import type { CompareOrderMode, ViewMode } from '../../../lib/types'
 import type { ThemePresetId } from '../../../theme/runtime'
-import ThemeSettingsMenu from '../../../app/components/ThemeSettingsMenu'
+import ThemeSettingsMenu from '../ThemeSettingsMenu'
 import ToolbarFilterMenu from './ToolbarFilterMenu'
 
 export interface ToolbarMobileDrawerProps {
@@ -26,7 +26,7 @@ export interface ToolbarMobileDrawerProps {
   filtersRef: React.RefObject<HTMLDivElement>
   totalFilterCount: number
   filterCount?: number
-  starFilterList: number[]
+  starsInFilterList: number[]
   starCounts?: { [k: string]: number }
   refreshEnabled: boolean
   refreshDisabledReason?: string | null
@@ -38,9 +38,9 @@ export interface ToolbarMobileDrawerProps {
   onToggleSortDir: () => void
   onToggleFilters: () => void
   onOpenFilters?: () => void
-  onToggleStar?: (value: number) => void
+  onToggleStarsIn?: (value: number) => void
   onClearFilters?: () => void
-  onClearStars?: () => void
+  onClearStarsIn?: () => void
   onRefreshRoot?: () => void
   onToggleLeft?: () => void
   onToggleRight?: () => void
@@ -71,7 +71,7 @@ export default function ToolbarMobileDrawer({
   filtersRef,
   totalFilterCount,
   filterCount,
-  starFilterList,
+  starsInFilterList,
   starCounts,
   refreshEnabled,
   refreshDisabledReason,
@@ -83,9 +83,9 @@ export default function ToolbarMobileDrawer({
   onToggleSortDir,
   onToggleFilters,
   onOpenFilters,
-  onToggleStar,
+  onToggleStarsIn,
   onClearFilters,
-  onClearStars,
+  onClearStarsIn,
   onRefreshRoot,
   onToggleLeft,
   onToggleRight,
@@ -113,7 +113,7 @@ export default function ToolbarMobileDrawer({
           Grid
         </button>
         <button
-          data-toolbar-control="drawer-layout-masonry"
+          data-toolbar-control="drawer-layout-adaptive"
           className={`mobile-pill ${viewMode === 'adaptive' ? 'is-active' : ''}`}
           onClick={() => onViewMode?.('adaptive')}
           aria-pressed={viewMode === 'adaptive'}
@@ -161,13 +161,13 @@ export default function ToolbarMobileDrawer({
           filtersRef={filtersRef}
           totalFilterCount={totalFilterCount}
           filterCount={filterCount}
-          starFilterList={starFilterList}
+          starsInFilterList={starsInFilterList}
           starCounts={starCounts}
           onToggleFilters={onToggleFilters}
           onOpenFilters={onOpenFilters}
-          onToggleStar={onToggleStar}
+          onToggleStarsIn={onToggleStarsIn}
           onClearFilters={onClearFilters}
-          onClearStars={onClearStars}
+          onClearStarsIn={onClearStarsIn}
         />
         <button
           data-toolbar-control="drawer-refresh"

@@ -10,10 +10,10 @@ import pytest
 
 
 def _load_smoke_module() -> ModuleType:
-    module_path = Path(__file__).resolve().parents[1] / "scripts" / "playwright_large_tree_smoke.py"
-    spec = importlib.util.spec_from_file_location("playwright_large_tree_smoke", module_path)
+    module_path = Path(__file__).resolve().parents[2] / "scripts" / "browser" / "large_tree" / "smoke.py"
+    spec = importlib.util.spec_from_file_location("scripts.browser.large_tree.smoke", module_path)
     if spec is None or spec.loader is None:
-        raise RuntimeError("failed to load playwright_large_tree_smoke module")
+        raise RuntimeError("failed to load large-tree browser smoke module")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
@@ -34,7 +34,7 @@ def _make_args(**overrides: object) -> argparse.Namespace:
         "first_thumbnail_threshold_ms": None,
         "interaction_seconds": None,
         "max_frame_gap_ms": None,
-        "baseline_file": Path("scripts/playwright_large_tree_smoke_baselines.json"),
+        "baseline_file": Path("scripts/browser/large_tree/baselines.json"),
         "baseline_profile": "primary_large_no_write",
         "write_mode": False,
         "scope_path": None,
@@ -48,7 +48,7 @@ def _make_args(**overrides: object) -> argparse.Namespace:
 def test_load_baseline_profile_primary_defaults() -> None:
     smoke = _load_smoke_module()
     profile = smoke.load_baseline_profile(
-        Path("scripts/playwright_large_tree_smoke_baselines.json"),
+        Path("scripts/browser/large_tree/baselines.json"),
         "primary_large_no_write",
     )
 
@@ -62,7 +62,7 @@ def test_load_baseline_profile_primary_defaults() -> None:
 def test_default_baseline_file_is_script_relative() -> None:
     smoke = _load_smoke_module()
     assert smoke.DEFAULT_BASELINE_FILE.is_absolute()
-    assert smoke.DEFAULT_BASELINE_FILE.name == "playwright_large_tree_smoke_baselines.json"
+    assert smoke.DEFAULT_BASELINE_FILE.name == "baselines.json"
     assert smoke.DEFAULT_BASELINE_FILE.exists()
 
 
@@ -87,14 +87,16 @@ def test_thresholds_require_first_grid_hotpath_metric() -> None:
     smoke = _load_smoke_module()
     with pytest.raises(smoke.SmokeFailure, match="first-grid telemetry"):
         smoke.assert_responsiveness_thresholds(
+            thresholds=smoke.SmokeThresholds(
+                first_grid_seconds=5.0,
+                first_grid_hotpath_ms=5_000.0,
+                first_thumbnail_ms=5_000.0,
+                max_frame_gap_ms=700.0,
+            ),
             first_grid_visible_seconds=1.0,
-            first_grid_threshold_seconds=5.0,
             first_grid_hotpath_latency_ms=None,
-            first_grid_hotpath_threshold_ms=5_000.0,
             max_frame_gap_ms=100.0,
-            max_frame_gap_threshold_ms=700.0,
             first_thumbnail_latency_ms=700,
-            first_thumbnail_threshold_ms=5_000.0,
         )
 
 

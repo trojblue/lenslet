@@ -1,0 +1,69 @@
+from __future__ import annotations
+import os
+from ..base import Storage, StorageWriteUnsupportedError, join_storage_path
+
+
+class LocalStorage(Storage):
+    """Read-only local filesystem storage (does not write sidecars/indexes)."""
+
+    def __init__(self, root: str):
+        self.root = os.path.abspath(root)
+        self._root_real = os.path.realpath(self.root)
+
+    @property
+    def root_real(self) -> str:
+        """Real path to the configured root (exposed for fast stat calls)."""
+        return self._root_real
+
+    def resolve_path(self, path: str) -> str:
+        """Convert relative path to absolute, with security checks."""
+        candidate = os.path.abspath(os.path.join(self._root_real, path.lstrip("/")))
+        real = os.path.realpath(candidate)
+        try:
+            common = os.path.commonpath([self._root_real, real])
+        except ValueError as exc:
+            raise ValueError("invalid path") from exc
+        if common != self._root_real:
+            raise ValueError("invalid path")
+        return real
+
+    def list_dir(self, path: str) -> tuple[list[str], list[str]]:
+        p = self.resolve_path(path)
+        files, dirs = [], []
+        with os.scandir(p) as entries:
+            for entry in entries:
+                name = entry.name
+                # Skip hidden files and local Lenslet auxiliary files.
+                if name.startswith("."):
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    dirs.append(name)
+                else:
+                    files.append(name)
+        return files, dirs
+
+    def read_bytes(self, path: str) -> bytes:
+        with open(self.resolve_path(path), "rb") as f:
+            return f.read()
+
+    def write_bytes(self, path: str, data: bytes) -> None:
+        raise StorageWriteUnsupportedError("local storage is read-only")
+
+    def exists(self, path: str) -> bool:
+        try:
+            return os.path.exists(self.resolve_path(path))
+        except ValueError:
+            return False
+
+    def size(self, path: str) -> int:
+        return os.path.getsize(self.resolve_path(path))
+
+    def join(self, *parts: str) -> str:
+        return join_storage_path(*parts)
+
+    def etag(self, path: str) -> str | None:
+        try:
+            st = os.stat(self.resolve_path(path))
+            return f"{st.st_mtime_ns}-{st.st_size}"
+        except FileNotFoundError:
+            return None

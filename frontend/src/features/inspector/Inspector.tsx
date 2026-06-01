@@ -26,15 +26,11 @@ import {
 import { resolveFindSimilarAvailability } from './model/findSimilarAvailability'
 import { INSPECTOR_WIDGETS, type InspectorWidgetContext } from './inspectorWidgets'
 import { resolveCompareMetadataTargets } from './hooks/metadataRequestGuards'
-import { useInspectorMetadataWorkflow } from './hooks/useInspectorMetadataWorkflow'
+import { useInspectorCompareExport } from './hooks/useInspectorCompareExport'
+import { useInspectorCompareMetadata } from './hooks/useInspectorCompareMetadata'
 import { useInspectorSidecarWorkflow } from './hooks/useInspectorSidecarWorkflow'
+import { useInspectorSingleMetadata } from './hooks/useInspectorSingleMetadata'
 import { useInspectorUiState } from './hooks/useInspectorUiState'
-
-// S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
-// - T16 model extraction: metadata normalization/flattening and compare diff helpers.
-// - T17 section extraction: InspectorSection plus typed overview/compare/basics/metadata/notes blocks.
-// - T18 async hook extraction: metadata/compare/export async workflow and sidecar typing/conflict hooks.
-// - T19 render optimization: compare diff + metadata display memoization boundaries.
 
 interface InspectorItem {
   path: string
@@ -203,10 +199,27 @@ export default function Inspector({
     metaState,
     showPilInfo,
     setMetaError,
+    setShowPilInfo,
+    fetchMetadata,
+  } = useInspectorSingleMetadata({
+    path,
+    sidecarUpdatedAt: data?.updated_at,
+    autoloadMetadata: autoloadImageMetadata && !multi,
+  })
+
+  const {
     compareMetaState,
     compareMetaError,
     compareMetaByPath,
     compareIncludePilInfo,
+    setCompareIncludePilInfo,
+    reloadCompareMetadata,
+  } = useInspectorCompareMetadata({
+    compareReady: metadataCompareReady,
+    comparePaths: compareTargetPaths,
+  })
+
+  const {
     compareExportLabelsText,
     compareExportEmbedMetadata,
     compareExportReverseOrder,
@@ -214,22 +227,13 @@ export default function Inspector({
     compareExportMode,
     compareExportError,
     compareExportBusy,
-    setShowPilInfo,
-    setCompareIncludePilInfo,
-    fetchMetadata,
-    reloadCompareMetadata,
     handleCompareExportLabelsTextChange,
     handleCompareExportEmbedMetadataChange,
     handleCompareExportReverseOrderChange,
     handleCompareExportHighQualityGifChange,
     runComparisonExport,
-  } = useInspectorMetadataWorkflow({
-    path,
-    sidecarUpdatedAt: data?.updated_at,
+  } = useInspectorCompareExport({
     selectedPaths: compareTargetPaths,
-    compareReady: metadataCompareReady,
-    comparePaths: compareTargetPaths,
-    autoloadMetadata: autoloadImageMetadata && !multi,
   })
 
   const selectedItems = useMemo(() => {
@@ -242,7 +246,6 @@ export default function Inspector({
     [selectedItems],
   )
 
-  // Keyboard shortcuts for star ratings (0-5)
   useEffect(() => {
     if (!path) return
 

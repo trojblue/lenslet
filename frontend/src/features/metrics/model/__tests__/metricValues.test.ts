@@ -13,8 +13,8 @@ function makeItem(metrics?: Record<string, number | null>): BrowseItemPayload {
     width: 1,
     height: 1,
     size: 1,
-    hasThumbnail: false,
-    hasMetadata: false,
+    has_thumbnail: false,
+    has_metadata: false,
     metrics,
   }
 }

@@ -1,7 +1,33 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any, Protocol
+from typing import Any, Protocol, TypedDict
+
+from .image_media import ImageMime
+
+
+class SidecarState(TypedDict, total=False):
+    width: int
+    height: int
+    tags: list[str]
+    notes: str
+    star: int | None
+    version: int
+    updated_at: str
+    updated_by: str
+    metrics: dict[str, float]
+    source: str
+    source_path: str
+    url: str
+    source_url: str
+
+
+class _SidecarPayloadRequired(TypedDict):
+    path: str
+
+
+class SidecarPayload(_SidecarPayloadRequired, SidecarState, total=False):
+    """JSON event/log payload shape for an item sidecar."""
 
 
 class StorageWriteUnsupportedError(PermissionError):
@@ -16,19 +42,15 @@ class Storage(Protocol):
         ...
 
     def read_bytes(self, path: str) -> bytes:
-        """Read file contents."""
         ...
 
     def exists(self, path: str) -> bool:
-        """Check if path exists."""
         ...
 
     def size(self, path: str) -> int:
-        """Get file size in bytes."""
         ...
 
     def join(self, *parts: str) -> str:
-        """Join path parts."""
         ...
 
     def etag(self, path: str) -> str | None:
@@ -49,7 +71,7 @@ class BrowseItem(Protocol):
 
     path: str
     name: str
-    mime: str
+    mime: ImageMime
     width: int
     height: int
     size: int
@@ -62,19 +84,27 @@ class BrowseItem(Protocol):
 class BrowseIndex(Protocol):
     """Minimal folder-index contract shared by browse storage backends."""
 
+    path: str
+    generated_at: str
     items: list[BrowseItem]
     dirs: list[str]
 
 
 class BrowseStorage(Storage, Protocol):
-    """Server-facing browse storage contract used by the runtime and routes."""
+    """Common browse-tree contract shared by all gallery backends."""
 
-    def get_index(self, path: str) -> BrowseIndex | None:
-        """Return a folder index, or None when the path is outside the browse tree."""
+    def load_index(self, path: str) -> BrowseIndex | None:
+        """Load a folder index, building/cache-warming as needed.
+
+        Returns None when the path is outside the browse tree.
+        """
         ...
 
-    def get_recursive_index(self, path: str) -> BrowseIndex | None:
-        """Return the recursive-traversal index for a folder."""
+    def load_recursive_index(self, path: str) -> BrowseIndex | None:
+        """Load the recursive-traversal index, building/cache-warming as needed.
+
+        Returns None when the path is outside the browse tree.
+        """
         ...
 
     def items_in_scope(self, path: str) -> list[BrowseItem]:
@@ -89,95 +119,186 @@ class BrowseStorage(Storage, Protocol):
         """Raise when the path does not resolve to a valid image item."""
         ...
 
-    def guess_mime(self, path: str) -> str:
-        """Return the MIME type for the requested logical path."""
+    def guess_mime(self, path: str) -> ImageMime:
         ...
 
-    def get_metadata_readonly(self, path: str) -> dict[str, Any]:
-        """Return a detached metadata snapshot for the requested item."""
+
+class SidecarStateStorage(Protocol):
+    """Mutable per-item sidecar state capability."""
+
+    def get_sidecar_readonly(self, path: str) -> SidecarState:
         ...
 
-    def ensure_metadata(self, path: str) -> dict[str, Any]:
-        """Return mutable metadata for the requested item, creating cache state when needed."""
+    def ensure_sidecar(self, path: str) -> SidecarState:
+        """Return mutable sidecar state for the requested item, creating cache state when needed."""
         ...
 
-    def set_metadata(self, path: str, meta: dict[str, Any]) -> None:
-        """Replace metadata for the requested item."""
+    def set_sidecar(self, path: str, sidecar: SidecarState) -> None:
         ...
+
+
+class SourcePathStorage(Protocol):
+    """Logical path to original source path lookup capability."""
 
     def get_source_path(self, logical_path: str) -> str:
-        """Return the backing source path/URL for a logical browse path."""
         ...
 
-    def get_thumbnail(self, path: str) -> bytes:
-        """Return or build thumbnail bytes, raising on missing/read/decode failures."""
+
+class ThumbnailStorage(Protocol):
+    """Thumbnail and dimension lookup/generation capability."""
+
+    def get_or_build_thumbnail(self, path: str) -> bytes:
+        """Return thumbnail bytes, reading source data and updating caches when needed.
+
+        Unlike get_cached_thumbnail(), this may perform I/O, generate WebP bytes,
+        and populate thumbnail and dimension cache state.
+        """
         ...
 
     def get_cached_thumbnail(self, path: str) -> bytes | None:
         """Return an in-memory thumbnail if present, without generating one."""
         ...
 
-    def thumbnail_cache_key(self, path: str) -> str | None:
-        """Return the shared thumbnail cache key for the requested item."""
+    def get_dimensions(self, path: str) -> tuple[int, int]:
+        """Return cached dimensions without reading source bytes."""
         ...
+
+    def load_dimensions(self, path: str) -> tuple[int, int]:
+        """Return dimensions, reading source bytes and updating cache state when needed."""
+        ...
+
+
+class ThumbnailCacheKeyStorage(Protocol):
+    """Stable thumbnail cache-key capability."""
+
+    def thumbnail_cache_key(self, path: str) -> str | None:
+        ...
+
+
+class LocalFileStorage(Protocol):
+    """Local-file fast path capability for media streaming."""
 
     def resolve_local_file_path(self, path: str) -> str | None:
         """Return a local file path when the item is backed by a local file."""
         ...
 
-    def metadata_items(self) -> list[tuple[str, dict[str, Any]]]:
-        """Return storage metadata entries for persistence/export helpers."""
+
+class SidecarInventoryStorage(SidecarStateStorage, Protocol):
+    """Bulk sidecar state inventory/replacement capability."""
+
+    def sidecar_items(self) -> list[tuple[str, SidecarState]]:
         ...
 
-    def metadata_snapshot_for_paths(
+    def sidecar_snapshot_for_paths(
         self,
         paths: Iterable[str],
-    ) -> dict[str, dict[str, Any]]:
-        """Return a canonicalized metadata snapshot limited to the supplied logical paths."""
+    ) -> dict[str, SidecarState]:
+        """Return a canonicalized sidecar snapshot limited to the supplied logical paths."""
         ...
 
-    def replace_metadata(self, metadata: dict[str, dict[str, Any]]) -> None:
-        """Replace storage metadata entries from a caller-owned snapshot."""
+    def replace_sidecars(self, sidecars: dict[str, SidecarState]) -> None:
+        """Replace storage sidecar entries from a caller-owned snapshot."""
         ...
+
+
+class TotalItemsStorage(Protocol):
+    """Dataset-wide item count capability."""
 
     def total_items(self) -> int:
-        """Return the number of indexed browse items."""
         ...
+
+
+class EmbeddingRowLookupStorage(Protocol):
+    """Logical path to embedding row-index lookup capability."""
 
     def row_index_for_path(self, path: str) -> int | None:
         """Return the row index backing a logical path, or None when unavailable."""
         ...
 
+
+class SidecarEnrichmentStorage(Protocol):
+    """Optional sidecar enrichment fields exposed by table-like backends."""
+
     def sidecar_enrichment_for_path(self, path: str) -> dict[str, Any]:
-        """Return storage-specific sidecar payload enrichments for a logical path."""
         ...
+
+
+class IndexingProgressStorage(Protocol):
+    """Indexing progress diagnostics capability."""
 
     def indexing_progress(self) -> dict[str, int | str | bool | None]:
-        """Return the current indexing progress snapshot."""
         ...
 
+
+class BrowseGenerationStorage(Protocol):
+    """Browse-cache invalidation token capability."""
+
     def browse_generation(self) -> int:
-        """Return the current browse generation token."""
         ...
 
     def browse_cache_signature(self) -> str:
-        """Return the stable browse cache signature."""
         ...
 
+
+class RecursiveLimitStorage(Protocol):
+    """Recursive browse safety-limit capability."""
+
     def recursive_items_hard_limit(self) -> int | None:
-        """Return the hard limit for recursive browse expansion."""
         ...
+
+
+class SearchStorage(BrowseStorage, Protocol):
+    """Browse storage with text search capability."""
+
+    def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[BrowseItem]:
+        ...
+
+
+class S3DiagnosticsStorage(Protocol):
+    """S3 media-read diagnostics capability."""
 
     def s3_client_creations(self) -> int | None:
         """Return the number of lazily-created S3 clients, when applicable."""
         ...
 
 
+class MediaStorage(BrowseStorage, ThumbnailStorage, ThumbnailCacheKeyStorage, LocalFileStorage, Protocol):
+    """Storage capability set needed by media and thumbnail responses."""
+
+
+class SidecarStorage(SidecarStateStorage, SidecarEnrichmentStorage, Protocol):
+    """Storage capability set needed by item sidecar responses."""
+
+
+class SourceSidecarStorage(SidecarStateStorage, SourcePathStorage, Protocol):
+    """Storage capability set needed to expose original source paths with item sidecars."""
+
+
+class ItemRouteStorage(BrowseStorage, SidecarStorage, SidecarInventoryStorage, Protocol):
+    """Storage capability set needed by item read/write routes and label snapshots."""
+
+
+class EmbeddingSearchStorage(BrowseStorage, EmbeddingRowLookupStorage, Protocol):
+    """Storage capability set needed by embedding search routes."""
+
+
+class BrowseAppStorage(
+    ItemRouteStorage,
+    MediaStorage,
+    SearchStorage,
+    TotalItemsStorage,
+    BrowseGenerationStorage,
+    RecursiveLimitStorage,
+    Protocol,
+):
+    """Storage capability set required by the full browse FastAPI app."""
+
+
 class RefreshableBrowseStorage(BrowseStorage, Protocol):
     """Browse storage that can refresh a subtree in place."""
 
-    def refresh_subtree(self, path: str, *, preserve_metadata: bool = True) -> None:
-        """Refresh a folder subtree, optionally retaining mutable metadata."""
+    def refresh_subtree(self, path: str, *, preserve_sidecars: bool = True) -> None:
+        """Refresh a folder subtree, optionally retaining mutable sidecar state."""
         ...
 
 

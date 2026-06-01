@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,27 @@ from PIL import Image
 from lenslet.ranking.app import create_ranking_app
 from lenslet.ranking.dataset import load_ranking_dataset
 from lenslet.ranking.persistence import RankingPersistenceError, RankingResultsStore, resolve_results_path
+from lenslet.web.auth import (
+    MutationPolicy,
+    READ_ONLY_MUTATION_POLICY,
+    mutation_denial_payload,
+    trusted_local_mutation_policy,
+    trusted_write_origins_for_host,
+)
+
+LOCAL_ORIGIN = "http://localhost:7070"
+
+
+def _trusted_policy() -> MutationPolicy:
+    return trusted_local_mutation_policy(trusted_write_origins_for_host("127.0.0.1", 7070))
+
+
+def _trusted_ranking_app(dataset_path: Path):
+    return create_ranking_app(dataset_path, trusted_write_origins=(LOCAL_ORIGIN,))
+
+
+def _trusted_client(app) -> TestClient:
+    return TestClient(app, base_url=LOCAL_ORIGIN, headers={"Origin": LOCAL_ORIGIN})
 
 
 def _make_image(path: Path) -> None:
@@ -48,7 +70,7 @@ def test_load_ranking_dataset_resolves_local_paths(tmp_path: Path) -> None:
     assert first.images[1].abs_path.exists()
 
 
-def test_results_store_collapses_latest_and_ignores_malformed_tail(tmp_path: Path) -> None:
+def test_results_store_collapses_latest_and_ignores_malformed_tail(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     results_path = tmp_path / "results.jsonl"
     store = RankingResultsStore(results_path)
 
@@ -59,10 +81,13 @@ def test_results_store_collapses_latest_and_ignores_malformed_tail(tmp_path: Pat
         handle.write("{\"broken_json\":")
     store.append({"instance_id": "two", "instance_index": 1, "completed": True, "save_seq": 1})
 
-    latest = store.latest_entries_by_instance()
+    with caplog.at_level(logging.WARNING, logger="lenslet.ranking.persistence"):
+        latest = store.latest_entries_by_instance()
+
     assert latest["one"]["completed"] is True
     assert latest["one"]["save_seq"] == 2
     assert latest["two"]["completed"] is True
+    assert "Ignoring malformed ranking results entry" in caplog.text
 
 
 def test_results_store_without_save_seq_prefers_latest_line(tmp_path: Path) -> None:
@@ -74,6 +99,19 @@ def test_results_store_without_save_seq_prefers_latest_line(tmp_path: Path) -> N
 
     latest = store.latest_entries_by_instance()
     assert latest["one"]["completed"] is True
+
+
+def test_results_store_append_propagates_file_fsync_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    results_path = tmp_path / "results.jsonl"
+    store = RankingResultsStore(results_path)
+
+    def fail_fsync(_fd: int) -> None:
+        raise OSError("sync failed")
+
+    monkeypatch.setattr("lenslet.ranking.persistence.os.fsync", fail_fsync)
+
+    with pytest.raises(OSError, match="sync failed"):
+        store.append({"instance_id": "one", "instance_index": 0})
 
 
 def test_results_path_validation_rejects_image_directories(tmp_path: Path) -> None:
@@ -104,16 +142,38 @@ def test_default_results_path_allows_nested_workspace_under_image_root(tmp_path:
         encoding="utf-8",
     )
 
-    app = create_ranking_app(dataset_path)
-    health = TestClient(app).get("/health")
+    app = _trusted_ranking_app(dataset_path)
+    health = _trusted_client(app).get("/health")
     assert health.status_code == 200
     assert health.json()["mode"] == "ranking"
 
 
-def test_ranking_routes_end_to_end(tmp_path: Path) -> None:
+def test_ranking_app_without_trusted_origins_is_read_only(tmp_path: Path) -> None:
     dataset_path = _write_dataset(tmp_path)
     app = create_ranking_app(dataset_path)
-    client = TestClient(app)
+    client = _trusted_client(app)
+
+    health = client.get("/health")
+    response = client.post(
+        "/rank/save",
+        json={
+            "instance_id": "one",
+            "final_ranks": [["0", "1"]],
+            "completed": True,
+            "save_seq": 1,
+        },
+    )
+
+    assert health.status_code == 200
+    assert health.json()["can_write"] is False
+    assert response.status_code == 403
+    assert response.json() == mutation_denial_payload(READ_ONLY_MUTATION_POLICY)
+
+
+def test_ranking_routes_end_to_end(tmp_path: Path) -> None:
+    dataset_path = _write_dataset(tmp_path)
+    app = _trusted_ranking_app(dataset_path)
+    client = _trusted_client(app)
 
     health = client.get("/health")
     assert health.status_code == 200
@@ -129,6 +189,9 @@ def test_ranking_routes_end_to_end(tmp_path: Path) -> None:
     image_resp = client.get(first_image["url"])
     assert image_resp.status_code == 200
     assert image_resp.headers["content-type"] == "image/jpeg"
+    missing_image = client.get("/rank/image", params={"instance_id": "one", "image_id": "missing"})
+    assert missing_image.status_code == 404
+    assert missing_image.json()["error"] == "rank_image_not_found"
 
     save_completed = client.post(
         "/rank/save",
@@ -168,9 +231,54 @@ def test_ranking_routes_end_to_end(tmp_path: Path) -> None:
     assert export_completed.json()["count"] == 1
 
 
+def _json_response_schema_ref(operation: dict, status_code: str) -> str:
+    return operation["responses"][status_code]["content"]["application/json"]["schema"]["$ref"]
+
+
+def _json_request_schema_ref(operation: dict) -> str:
+    return operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+
+
+def test_ranking_routes_publish_modeled_openapi_contracts(tmp_path: Path) -> None:
+    app = _trusted_ranking_app(_write_dataset(tmp_path))
+    paths = app.openapi()["paths"]
+
+    assert _json_response_schema_ref(
+        paths["/health"]["get"],
+        "200",
+    ) == "#/components/schemas/RankingHealthResponse"
+    assert _json_response_schema_ref(
+        paths["/rank/dataset"]["get"],
+        "200",
+    ) == "#/components/schemas/RankingDatasetResponse"
+    assert _json_request_schema_ref(
+        paths["/rank/save"]["post"],
+    ) == "#/components/schemas/RankingSavePayload"
+    assert _json_response_schema_ref(
+        paths["/rank/save"]["post"],
+        "200",
+    ) == "#/components/schemas/RankingSaveResponse"
+    assert _json_response_schema_ref(
+        paths["/rank/save"]["post"],
+        "400",
+    ) == "#/components/schemas/ErrorResponse"
+    assert _json_response_schema_ref(
+        paths["/rank/image"]["get"],
+        "404",
+    ) == "#/components/schemas/ErrorResponse"
+    assert _json_response_schema_ref(
+        paths["/rank/progress"]["get"],
+        "200",
+    ) == "#/components/schemas/RankingProgressResponse"
+    assert _json_response_schema_ref(
+        paths["/rank/export"]["get"],
+        "200",
+    ) == "#/components/schemas/RankingExportResponse"
+
+
 def test_ranking_save_requires_local_origin(tmp_path: Path) -> None:
     dataset_path = _write_dataset(tmp_path)
-    app = create_ranking_app(dataset_path)
+    app = _trusted_ranking_app(dataset_path)
     client = TestClient(app, base_url="https://public.trycloudflare.com")
 
     health = client.get("/health")
@@ -179,6 +287,7 @@ def test_ranking_save_requires_local_origin(tmp_path: Path) -> None:
 
     response = client.post(
         "/rank/save",
+        headers={"Host": "localhost:7070"},
         json={
             "instance_id": "one",
             "final_ranks": [["0", "1"]],
@@ -187,16 +296,13 @@ def test_ranking_save_requires_local_origin(tmp_path: Path) -> None:
         },
     )
     assert response.status_code == 403
-    assert response.json() == {
-        "error": "local_origin_required",
-        "message": "mutations require a local Lenslet origin",
-    }
+    assert response.json() == mutation_denial_payload(_trusted_policy())
 
 
 def test_save_rejects_incomplete_completed_payload(tmp_path: Path) -> None:
     dataset_path = _write_dataset(tmp_path)
-    app = create_ranking_app(dataset_path)
-    client = TestClient(app)
+    app = _trusted_ranking_app(dataset_path)
+    client = _trusted_client(app)
 
     response = client.post(
         "/rank/save",
@@ -207,13 +313,15 @@ def test_save_rejects_incomplete_completed_payload(tmp_path: Path) -> None:
         },
     )
     assert response.status_code == 400
-    assert "include every image" in response.json()["detail"]
+    payload = response.json()
+    assert payload["error"] == "invalid_ranking_payload"
+    assert "include every image" in payload["message"]
 
 
 def test_save_rejects_unknown_and_duplicate_image_ids(tmp_path: Path) -> None:
     dataset_path = _write_dataset(tmp_path)
-    app = create_ranking_app(dataset_path)
-    client = TestClient(app)
+    app = _trusted_ranking_app(dataset_path)
+    client = _trusted_client(app)
 
     unknown = client.post(
         "/rank/save",
@@ -224,7 +332,9 @@ def test_save_rejects_unknown_and_duplicate_image_ids(tmp_path: Path) -> None:
         },
     )
     assert unknown.status_code == 400
-    assert "unknown image_id" in unknown.json()["detail"]
+    unknown_payload = unknown.json()
+    assert unknown_payload["error"] == "invalid_ranking_payload"
+    assert "unknown image_id" in unknown_payload["message"]
 
     duplicate = client.post(
         "/rank/save",
@@ -235,13 +345,15 @@ def test_save_rejects_unknown_and_duplicate_image_ids(tmp_path: Path) -> None:
         },
     )
     assert duplicate.status_code == 400
-    assert "duplicate image_id" in duplicate.json()["detail"]
+    duplicate_payload = duplicate.json()
+    assert duplicate_payload["error"] == "invalid_ranking_payload"
+    assert "duplicate image_id" in duplicate_payload["message"]
 
 
 def test_save_accepts_stale_writes_but_progress_uses_latest_seq(tmp_path: Path) -> None:
     dataset_path = _write_dataset(tmp_path)
-    app = create_ranking_app(dataset_path)
-    client = TestClient(app)
+    app = _trusted_ranking_app(dataset_path)
+    client = _trusted_client(app)
 
     first = client.post(
         "/rank/save",
@@ -281,7 +393,7 @@ def test_save_accepts_stale_writes_but_progress_uses_latest_seq(tmp_path: Path) 
 
 def test_save_recovers_from_malformed_tail_fragment(tmp_path: Path) -> None:
     dataset_path = _write_dataset(tmp_path)
-    app = create_ranking_app(dataset_path)
+    app = _trusted_ranking_app(dataset_path)
     results_path = Path(app.state.ranking_results_path)
     results_path.parent.mkdir(parents=True, exist_ok=True)
     results_path.write_text(
@@ -289,7 +401,7 @@ def test_save_recovers_from_malformed_tail_fragment(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    client = TestClient(app)
+    client = _trusted_client(app)
     response = client.post(
         "/rank/save",
         json={

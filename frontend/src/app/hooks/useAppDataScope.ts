@@ -94,7 +94,7 @@ export function useAppDataScope({
     refetch: refetchRecursiveFolder,
     isLoading,
     isError,
-  } = useFolder(current, true)
+  } = useFolder(current, { recursive: true })
   const { data: rootCount } = useFolderCount('/', { enabled: current !== '/' })
   const [data, setData] = useState<BrowseFolderPayload | undefined>()
   const loadTokenRef = useRef(0)
@@ -175,8 +175,8 @@ export function useAppDataScope({
   }, [similarityState, poolItemsByPath, localStarOverrides])
 
   const metricKeys = useMemo(() => (
-    resolveMetricKeys(data?.metricKeys, similarityActive, similarityItems)
-  ), [data?.metricKeys, similarityActive, similarityItems])
+    resolveMetricKeys(data?.metric_keys, similarityActive, similarityItems)
+  ), [data?.metric_keys, similarityActive, similarityItems])
 
   const items = useMemo((): BrowseItemPayload[] => {
     if (similarityState) {
@@ -189,10 +189,10 @@ export function useAppDataScope({
 
   const totalCount = similarityState ? similarityItems.length : poolItems.length
   const filteredCount = items.length
-  const scopeTotal = data?.totalItems ?? data?.items.length ?? totalCount
+  const scopeTotal = data?.total_items ?? data?.items.length ?? totalCount
   const rootTotal = current === '/'
     ? scopeTotal
-    : (rootCount?.totalItems ?? rootCount?.items.length ?? scopeTotal)
+    : (rootCount ?? scopeTotal)
   return {
     data,
     refetch,

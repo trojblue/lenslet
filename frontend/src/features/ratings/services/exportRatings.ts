@@ -51,11 +51,11 @@ export function mapItemsToRatings(items: BrowseItemPayload[]): RatingRecord[] {
       path: it.path,
       folder,
       name: it.name,
-      star: (it as any).star ?? null,
+      star: it.star ?? null,
       type: it.mime,
       size: it.size,
-      width: (it as any).width,
-      height: (it as any).height,
+      width: it.width,
+      height: it.height,
       // tags/notes are not available without sidecar fetch; keep empty
     }
   })

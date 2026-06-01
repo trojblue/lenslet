@@ -1,6 +1,5 @@
-// Single source of truth for API base URL
 export function computeApiBase(): string {
-  const envBase = (import.meta as any).env?.VITE_API_BASE as string | undefined
+  const envBase = import.meta.env.VITE_API_BASE
   const inBrowser = typeof window !== 'undefined'
   const pageOrigin = inBrowser ? window.location.origin : 'http://localhost'
   const pageHost = inBrowser ? window.location.hostname : 'localhost'
@@ -25,12 +24,19 @@ export function computeApiBase(): string {
   return envUrl.origin
 }
 
-export const BASE = computeApiBase()
+export function apiBase(): string {
+  return computeApiBase()
+}
 
-try {
-  if ((import.meta as any).env?.DEV) {
-    // Helpful during local dev to see which API origin is used
-    console.info('[lenslet] API BASE:', BASE || '(same-origin)')
-  }
-} catch {}
+export function apiUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${apiBase()}${normalizedPath}`
+}
 
+export function logApiBaseForDev(): void {
+  try {
+    if (import.meta.env.DEV) {
+      console.info('[lenslet] API BASE:', apiBase() || '(same-origin)')
+    }
+  } catch {}
+}

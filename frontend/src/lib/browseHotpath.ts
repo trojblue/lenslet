@@ -158,5 +158,3 @@ export function resetBrowseHotpathForTests(): void {
   telemetryState.requestBudget = null
   publish()
 }
-
-publish()

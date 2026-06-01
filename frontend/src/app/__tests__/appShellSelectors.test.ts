@@ -18,8 +18,8 @@ function makeItem(path: string, options?: { star?: BrowseItemPayload['star']; me
     width: 100,
     height: 100,
     size: 1,
-    hasThumbnail: true,
-    hasMetadata: true,
+    has_thumbnail: true,
+    has_metadata: true,
     star: options?.star,
     metrics: options?.metrics,
   }

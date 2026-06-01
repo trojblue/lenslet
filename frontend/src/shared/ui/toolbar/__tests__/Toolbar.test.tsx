@@ -146,7 +146,7 @@ describe('Toolbar refresh trigger', () => {
     expect(html).not.toContain('__index_level_0__')
   })
 
-  it('labels adaptive layout as justified rows while preserving the internal option value', () => {
+  it('labels adaptive layout as justified rows with an adaptive option value', () => {
     const html = renderToStaticMarkup(
       <Toolbar
         onSearch={() => {}}
@@ -160,7 +160,7 @@ describe('Toolbar refresh trigger', () => {
       />,
     )
 
-    expect(html).toContain('data-dropdown-option="layout:masonry"')
+    expect(html).toContain('data-dropdown-option="layout:adaptive"')
     expect(html).toContain('Justified rows')
     expect(html).not.toContain('Masonry')
   })

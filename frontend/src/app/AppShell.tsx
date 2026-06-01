@@ -18,10 +18,11 @@ import { api } from '../api/client'
 import type { FullFilePrefetchContext } from '../api/client'
 import { useOldestInflightAgeMs, useSyncStatus } from '../api/items'
 import { usePollingEnabled } from '../api/polling'
-import { readHash, resolveHashTargets, writeHash, sanitizePath, getParentPath } from './routing/hash'
+import { writeHash } from './routing/hash'
+import { sanitizePath } from '../lib/paths'
 import {
   countActiveFilters,
-  getStarFilter,
+  getStarsInFilter,
   normalizeFilterAst,
   setNotesContainsFilter,
   setNotesNotContainsFilter,
@@ -30,7 +31,7 @@ import {
   setMetricRangeFilter,
   setNameContainsFilter,
   setNameNotContainsFilter,
-  setStarFilter,
+  setStarsInFilter,
   setStarsNotInFilter,
   setUrlContainsFilter,
   setUrlNotContainsFilter,
@@ -39,7 +40,6 @@ import {
 import { useSidebars } from './layout/useSidebars'
 import {
   resolveLeftToolToggle,
-  resolveSidebarHotkeyToggle,
   toggleLeftPanelContent,
 } from './layout/sidebarLayout'
 import {
@@ -52,30 +52,18 @@ import type {
   FilterAST,
   HealthMode,
   BrowseItemPayload,
-  SavedView,
   SortSpec,
   StarRating,
   ViewMode,
-  ViewsPayload,
   ViewState,
-  EmbeddingSearchRequest,
 } from '../lib/types'
-import {
-  hasActiveModalDialog,
-  hasShortcutModifier,
-  isInputElement,
-  isKeyboardControlTarget,
-} from '../lib/keyboard'
-import { safeJsonParse } from '../lib/util'
-import { fileCache, thumbCache } from '../lib/blobCache'
-import { FetchError } from '../lib/fetcher'
+import { cssVars } from '../lib/cssVars'
 import LeftSidebar from './components/LeftSidebar'
 import GridTopStack from './components/GridTopStack'
 import { deriveIndicatorState } from './presenceUi'
 import { LONG_SYNC_THRESHOLD_MS } from '../lib/constants'
 import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
 import { LAYOUT_BREAKPOINTS } from '../lib/breakpoints'
-import MoveToDialog from './components/MoveToDialog'
 import AppContextMenuItems from './menu/AppContextMenuItems'
 import { resolveFindSimilarAvailability } from '../features/inspector/model/findSimilarAvailability'
 import { useLatestRef } from '../shared/hooks/useLatestRef'
@@ -89,31 +77,29 @@ import {
 } from './model/appShellSelectors'
 import { shouldShowGridLoading } from './model/loadingState'
 import {
-  downloadBlob,
   formatScopeLabel,
-  getBrowserZoomWarningBucket,
-  makeUniqueViewId,
-  resolveScopeFromHashTarget,
-  resolveVisibleBrowserZoomPercent,
 } from './utils/appShellHelpers'
 import { useAppDataScope, type SimilarityState } from './hooks/useAppDataScope'
 import { useAppSelectionViewerCompare } from './hooks/useAppSelectionViewerCompare'
 import { useAppPresenceSync } from './hooks/useAppPresenceSync'
 import { useAppActions } from './hooks/useAppActions'
+import { useAppHashRouting } from './hooks/useAppHashRouting'
+import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts'
 import { useFolderSessionState } from './hooks/useFolderSessionState'
+import { useFolderRefreshActions } from './hooks/useFolderRefreshActions'
+import { useBrowserZoomWarning } from './hooks/useBrowserZoomWarning'
+import { useGridPinchResize } from './hooks/useGridPinchResize'
+import { useIndexingModePersistence } from './hooks/useIndexingModePersistence'
+import { usePersistedAppShellSettings } from './hooks/usePersistedAppShellSettings'
+import { useSimilaritySearchWorkflow } from './hooks/useSimilaritySearchWorkflow'
+import { useSmartFolders } from './hooks/useSmartFolders'
+import { useViewportSize } from './hooks/useViewportSize'
 import { buildFilterChips } from './model/filterChips'
 import {
-  captureScanGeneration,
-  deriveIndexingBrowseMode,
-  normalizeIndexingGeneration,
-} from './model/indexingBrowseMode'
-import {
-  createDeferredWriteScheduler,
   ItemQueryPathIndex,
   patchIndexedItemQueries,
   syncItemQueryIndexFromEvent,
   type ItemCacheUpdatePayload,
-  type PersistedAppShellSettings,
 } from './model/appShellStateSync'
 import { applyThemePreset, type ThemePresetId } from '../theme/runtime'
 import { loadWorkspaceThemePreset, writeStoredThemePreset } from '../theme/storage'
@@ -121,87 +107,9 @@ import { loadWorkspaceThemePreset, writeStoredThemePreset } from '../theme/stora
 const CompareViewer = lazy(() => import('../features/compare/CompareViewer'))
 const Inspector = lazy(() => import('../features/inspector/Inspector'))
 
-// S0/T1 seam anchors (see docs/dev_notes/20260211_s0_t1_seam_map.md):
-// - T13a data scope: folder/search/similarity loading + derived pools.
-// - T13b selection/viewer/compare: selection state, openViewer/closeViewer, openCompare/closeCompare.
-// - T13c presence/sync: useAppPresenceSync lifecycle, subscriptions, and activity derivations.
-// - T13d mutations/actions: uploadFiles/moveSelectedToFolder/view persistence actions.
-// - T14/T15 selectors + render/effect optimization: filter/select helpers and memo/effect boundaries.
-
-/** Local storage keys for persisted settings */
-const STORAGE_KEYS = {
-  sortKey: 'sortKey',
-  sortDir: 'sortDir',
-  sortSpec: 'sortSpec',
-  starFilters: 'starFilters',
-  filterAst: 'filterAst',
-  selectedMetric: 'selectedMetric',
-  viewMode: 'viewMode',
-  gridItemSize: 'gridItemSize',
-  leftOpen: 'leftOpen',
-  rightOpen: 'rightOpen',
-  autoloadImageMetadata: 'autoloadImageMetadata',
-  compareOrderMode: 'compareOrderMode',
-} as const
-
-const INDEXING_MODE_STORAGE_KEYS = {
-  scanGeneration: 'indexingScanGeneration',
-  recentGeneration: 'indexingMostRecentGeneration',
-} as const
-
-function writePersistedSettings(settings: PersistedAppShellSettings): void {
-  if (typeof window === 'undefined') return
-  try {
-    const storage = window.localStorage
-    storage.setItem(
-      STORAGE_KEYS.sortKey,
-      settings.sortSpec.kind === 'builtin' ? settings.sortSpec.key : 'added',
-    )
-    storage.setItem(STORAGE_KEYS.sortDir, settings.sortSpec.dir)
-    storage.setItem(STORAGE_KEYS.sortSpec, JSON.stringify(settings.sortSpec))
-    storage.setItem(STORAGE_KEYS.starFilters, JSON.stringify(settings.starFilters))
-    storage.setItem(STORAGE_KEYS.filterAst, JSON.stringify(settings.filterAst))
-    if (settings.selectedMetric) {
-      storage.setItem(STORAGE_KEYS.selectedMetric, settings.selectedMetric)
-    } else {
-      storage.removeItem(STORAGE_KEYS.selectedMetric)
-    }
-    storage.setItem(STORAGE_KEYS.viewMode, settings.viewMode)
-    storage.setItem(STORAGE_KEYS.gridItemSize, String(settings.gridItemSize))
-    storage.setItem(STORAGE_KEYS.leftOpen, settings.leftOpen ? '1' : '0')
-    storage.setItem(STORAGE_KEYS.rightOpen, settings.rightOpen ? '1' : '0')
-    storage.setItem(
-      STORAGE_KEYS.autoloadImageMetadata,
-      settings.autoloadImageMetadata ? '1' : '0',
-    )
-    storage.setItem(STORAGE_KEYS.compareOrderMode, settings.compareOrderMode)
-  } catch {
-    // Ignore localStorage errors.
-  }
-}
-
 type AppShellProps = {
   themeHealthMode: HealthMode | null
   themeWorkspaceId: string | null
-}
-
-function readStoredGeneration(key: string): string | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(key)
-    return normalizeIndexingGeneration(raw)
-  } catch {
-    return null
-  }
-}
-
-function writeStoredGeneration(key: string, generation: string): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(key, generation)
-  } catch {
-    // Ignore storage failures.
-  }
 }
 
 function prefetchFilesAndThumbs(paths: readonly string[], context: FullFilePrefetchContext): void {
@@ -300,13 +208,11 @@ export default function AppShell({
   themeHealthMode,
   themeWorkspaceId,
 }: AppShellProps) {
-  // Navigation state
   const [current, setCurrent] = useState<string>('/')
   const [query, setQuery] = useState('')
   const [similarityOpen, setSimilarityOpen] = useState(false)
   const [similarityState, setSimilarityState] = useState<SimilarityState | null>(null)
   
-  // Viewer zoom state
   const [requestedZoom, setRequestedZoom] = useState<number | null>(null)
   const [currentZoom, setCurrentZoom] = useState(100)
   const requestViewerZoom = useCallback((percent: number) => {
@@ -314,11 +220,11 @@ export default function AppShell({
     setRequestedZoom(percent)
   }, [])
 
-  // Browser zoom (best-effort) for UI proportion warning
-  const [browserZoomPercent, setBrowserZoomPercent] = useState<number | null>(null)
-  const [dismissedBrowserZoomBucket, setDismissedBrowserZoomBucket] = useState<number | null>(null)
+  const {
+    visibleBrowserZoomPercent,
+    dismissBrowserZoomWarning,
+  } = useBrowserZoomWarning()
   
-  // View state (filters + sort)
   const [viewState, setViewState] = useState<ViewState>(() => ({
     filters: { and: [] },
     sort: { kind: 'builtin', key: 'added', dir: 'desc' },
@@ -332,47 +238,24 @@ export default function AppShell({
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(true)
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
-  const [viewportWidth, setViewportWidth] = useState(() => (
-    typeof window === 'undefined' ? 1440 : window.innerWidth
-  ))
-  const [viewportHeight, setViewportHeight] = useState(() => (
-    typeof window === 'undefined' ? 900 : window.innerHeight
-  ))
+  const { viewportWidth, viewportHeight } = useViewportSize()
   const [leftTool, setLeftTool] = useState<'folders' | 'metrics'>('folders')
-  const [views, setViews] = useState<SavedView[]>([])
-  const [activeViewId, setActiveViewId] = useState<string | null>(null)
-  const [folderCountsVersion, setFolderCountsVersion] = useState(0)
-  const [headerRefreshBusy, setHeaderRefreshBusy] = useState(false)
-  const [scanGeneration, setScanGeneration] = useState<string | null>(() => (
-    readStoredGeneration(INDEXING_MODE_STORAGE_KEYS.scanGeneration)
-  ))
-  const [recentGeneration, setRecentGeneration] = useState<string | null>(() => (
-    readStoredGeneration(INDEXING_MODE_STORAGE_KEYS.recentGeneration)
-  ))
   const [themePreset, setThemePreset] = useState<ThemePresetId>(() => (
     loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode)
   ))
   const [autoloadImageMetadata, setAutoloadImageMetadata] = useState(true)
   const [compareOrderMode, setCompareOrderMode] = useState<CompareOrderMode>('gallery')
   const [scanStableMode, setScanStableMode] = useState(false)
-  const [persistedSettingsReady, setPersistedSettingsReady] = useState(false)
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
   
-  // Refs
   const appRef = useRef<HTMLDivElement>(null)
   const browseShellRef = useRef<HTMLDivElement>(null)
   const gridShellRef = useRef<HTMLDivElement>(null)
   const gridScrollRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
-  const uploadInputRef = useRef<HTMLInputElement>(null)
-  const similarityPrevSelectionRef = useRef<string[] | null>(null)
-  const initialHashSyncRef = useRef(false)
   const itemQueryIndexRef = useRef(new ItemQueryPathIndex())
-  const persistedSettingsWriterRef = useRef(
-    createDeferredWriteScheduler<PersistedAppShellSettings>(writePersistedSettings),
-  )
 
   const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool, {
     userLeftOpen: leftOpen,
@@ -387,6 +270,24 @@ export default function AppShell({
   } = useFolderSessionState()
   const [restoreGridToTopAnchorToken, setRestoreGridToTopAnchorToken] = useState(0)
   const [scopeSessionResetToken, setScopeSessionResetToken] = useState(0)
+
+  usePersistedAppShellSettings({
+    viewState,
+    viewMode,
+    gridItemSize,
+    leftOpen,
+    rightOpen,
+    autoloadImageMetadata,
+    compareOrderMode,
+    setViewState,
+    setRandomSeed,
+    setViewMode,
+    setGridItemSize,
+    setLeftOpen,
+    setRightOpen,
+    setAutoloadImageMetadata,
+    setCompareOrderMode,
+  })
 
   const queryClient = useQueryClient()
   const syncStatus = useSyncStatus()
@@ -412,20 +313,6 @@ export default function AppShell({
       )
     })
   }, [queryClient])
-
-  useEffect(() => {
-    const writer = persistedSettingsWriterRef.current
-    const flush = () => {
-      writer.flush()
-    }
-    window.addEventListener('pagehide', flush)
-    window.addEventListener('beforeunload', flush)
-    return () => {
-      window.removeEventListener('pagehide', flush)
-      window.removeEventListener('beforeunload', flush)
-      writer.flush()
-    }
-  }, [])
 
   const {
     data,
@@ -461,10 +348,9 @@ export default function AppShell({
     sessionResetToken: scopeSessionResetToken,
   })
   const currentGalleryId = useMemo(() => sanitizePath(current || '/'), [current])
-  const starFilters = useMemo(() => getStarFilter(viewState.filters), [viewState.filters])
+  const starsInFilter = useMemo(() => getStarsInFilter(viewState.filters), [viewState.filters])
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
-  const itemPathSet = useMemo(() => new Set(itemPaths), [itemPaths])
   const focusGridCell = useCallback((path: string | null | undefined) => {
     if (!path) return
     const focus = () => {
@@ -515,14 +401,14 @@ export default function AppShell({
   useEffect(() => {
     const shell = browseShellRef.current
     if (!shell) return
-    if (overlayActive) {
+    if (compareOpen) {
       shell.setAttribute('inert', '')
       shell.setAttribute('aria-hidden', 'true')
       return
     }
     shell.removeAttribute('inert')
     shell.removeAttribute('aria-hidden')
-  }, [overlayActive])
+  }, [compareOpen])
 
   useEffect(() => {
     const toolbar = toolbarRef.current
@@ -536,38 +422,14 @@ export default function AppShell({
     toolbar.removeAttribute('aria-hidden')
   }, [compareOpen])
 
-  const syncHashImageSelectionRef = useLatestRef(syncHashImageSelection)
-  const itemPathSetRef = useLatestRef(itemPathSet)
-  const bumpRestoreGridToSelectionTokenRef = useLatestRef(bumpRestoreGridToSelectionToken)
   const leftOpenRef = useLatestRef(leftOpen)
-  const rightOpenRef = useLatestRef(rightOpen)
   const leftToolRef = useLatestRef(leftTool)
-  // Initialize current folder from URL hash and keep in sync.
-  useEffect(() => {
-    const applyHash = (raw: string) => {
-      const { folderTarget, imageTarget } = resolveHashTargets(raw, itemPathSetRef.current)
-      const isInitialHashSync = !initialHashSyncRef.current
-      initialHashSyncRef.current = true
-      syncHashImageSelectionRef.current(imageTarget)
-      // Only trigger "restore selection into view" when the folder/tab actually changes.
-      setCurrent((prev) => {
-        const nextScope = resolveScopeFromHashTarget(
-          prev,
-          folderTarget,
-          imageTarget,
-          isInitialHashSync,
-        )
-        if (prev === nextScope) return prev
-        bumpRestoreGridToSelectionTokenRef.current()
-        return nextScope
-      })
-    }
 
-    applyHash(readHash())
-    const onHash = () => applyHash(readHash())
-    window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
-  }, [bumpRestoreGridToSelectionTokenRef, itemPathSetRef, syncHashImageSelectionRef])
+  useAppHashRouting({
+    setCurrent,
+    syncHashImageSelection,
+    bumpRestoreGridToSelectionToken,
+  })
   const metricsBaseItems = selectionPool
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
   const hasMetricScrollbar = useMemo(
@@ -615,27 +477,14 @@ export default function AppShell({
     setLocalStarOverrides,
   })
 
-  useEffect(() => {
-    const nextScanGeneration = captureScanGeneration(scanGeneration, indexing)
-    if (!nextScanGeneration || nextScanGeneration === scanGeneration) return
-    setScanGeneration(nextScanGeneration)
-    writeStoredGeneration(INDEXING_MODE_STORAGE_KEYS.scanGeneration, nextScanGeneration)
-  }, [indexing, scanGeneration])
-
-  const indexingBrowseMode = useMemo(() => {
-    return deriveIndexingBrowseMode(indexing, {
-      scanGeneration,
-      recentGeneration,
-    })
-  }, [indexing, recentGeneration, scanGeneration])
-
-  useEffect(() => {
-    setScanStableMode((prev) => (
-      prev === indexingBrowseMode.scanStableActive
-        ? prev
-        : indexingBrowseMode.scanStableActive
-    ))
-  }, [indexingBrowseMode.scanStableActive])
+  const {
+    indexingBrowseMode,
+    handleSwitchToMostRecent,
+  } = useIndexingModePersistence({
+    indexing,
+    setScanStableMode,
+    setViewState,
+  })
 
   useEffect(() => {
     setThemePreset(loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode))
@@ -646,24 +495,6 @@ export default function AppShell({
     writeStoredThemePreset(themeWorkspaceId, themeHealthMode, appliedTheme)
     setThemePreset(appliedTheme)
   }, [themeHealthMode, themeWorkspaceId])
-
-  const handleSwitchToMostRecent = useCallback(() => {
-    const generation = normalizeIndexingGeneration(indexing?.generation) ?? scanGeneration
-    if (!generation) return
-    if (recentGeneration !== generation) {
-      setRecentGeneration(generation)
-      writeStoredGeneration(INDEXING_MODE_STORAGE_KEYS.recentGeneration, generation)
-    }
-    setViewState((prev) => {
-      if (prev.sort.kind === 'builtin' && prev.sort.key === 'added' && prev.sort.dir === 'desc') {
-        return prev
-      }
-      return {
-        ...prev,
-        sort: { kind: 'builtin', key: 'added', dir: 'desc' },
-      }
-    })
-  }, [indexing?.generation, recentGeneration, scanGeneration])
 
   const handleGridTopAnchorPathChange = useCallback((topAnchorPath: string | null) => {
     if (!topAnchorPath) return
@@ -678,78 +509,21 @@ export default function AppShell({
     setRestoreGridToTopAnchorToken((token) => token + 1)
   }, [current])
 
-  const invalidateDerivedCounts = useCallback(() => {
-    setFolderCountsVersion((prev) => prev + 1)
-  }, [])
-
-  const normalizeRefreshPath = useCallback((path: string): string => {
-    const safe = sanitizePath(path || '/')
-    return safe === '' ? '/' : safe
-  }, [])
-
-  const invalidateFolderSubtree = useCallback((target: string) => {
-    const matches = (candidate: string) => {
-      if (target === '/') return true
-      return candidate === target || candidate.startsWith(`${target}/`)
-    }
-
-    queryClient.invalidateQueries({
-      predicate: ({ queryKey }) => {
-        if (!Array.isArray(queryKey)) return false
-        if (queryKey[0] !== 'folder') return false
-        const keyPath = typeof queryKey[1] === 'string' ? queryKey[1] : ''
-        return matches(keyPath)
-      },
-    })
-  }, [queryClient])
-
-  const refreshFolderPath = useCallback(async (path: string) => {
-    if (!refreshEnabled) return
-    const target = normalizeRefreshPath(path)
-    await api.refreshFolder(target)
-    invalidateFolderSubtree(target)
-    invalidateDerivedCounts()
-    invalidateFolderSessionSubtree(target)
-
-    if (current === target || current.startsWith(target === '/' ? '/' : `${target}/`)) {
-      setScopeSessionResetToken((token) => token + 1)
-      await refetch()
-    }
-
-    thumbCache.evictPrefix(target)
-    fileCache.evictPrefix(target)
-  }, [
+  const {
+    folderCountsVersion,
+    headerRefreshBusy,
+    refreshFolderPath,
+    handlePullRefreshFolders,
+    handleHeaderRefresh,
+  } = useFolderRefreshActions({
     current,
-    invalidateDerivedCounts,
-    invalidateFolderSessionSubtree,
-    invalidateFolderSubtree,
-    normalizeRefreshPath,
-    refetch,
     refreshEnabled,
-  ])
+    queryClient,
+    refetch,
+    invalidateFolderSessionSubtree,
+    setScopeSessionResetToken,
+  })
 
-  const handlePullRefreshFolders = useCallback(async () => {
-    if (!refreshEnabled) return
-    try {
-      await refreshFolderPath(current)
-    } catch (err) {
-      console.error('Failed to refresh folder:', err)
-    }
-  }, [current, refreshEnabled, refreshFolderPath])
-
-  const handleHeaderRefresh = useCallback(async () => {
-    if (!refreshEnabled || headerRefreshBusy) return
-    setHeaderRefreshBusy(true)
-    try {
-      await refreshFolderPath('/')
-    } catch (err) {
-      console.error('Failed to refresh root folder:', err)
-    } finally {
-      setHeaderRefreshBusy(false)
-    }
-  }, [headerRefreshBusy, refreshEnabled, refreshFolderPath])
-
-  // Compute star counts for the filter UI
   const starCounts = useMemo(() => {
     const baseItems = similarityState ? similarityItems : poolItems
     return buildStarCounts(baseItems, localStarOverrides)
@@ -837,8 +611,8 @@ export default function AppShell({
     }))
   }, [])
 
-  const handleClearStars = useCallback(() => {
-    updateFilters((filters) => setStarFilter(filters, []))
+  const handleClearStarsIn = useCallback(() => {
+    updateFilters((filters) => setStarsInFilter(filters, []))
   }, [updateFilters])
 
   const handleClearFilters = useCallback(() => {
@@ -848,57 +622,26 @@ export default function AppShell({
     }))
   }, [])
 
-  const clearSimilarity = useCallback(() => {
-    setSimilarityState(null)
-    const prevSelection = similarityPrevSelectionRef.current
-    similarityPrevSelectionRef.current = null
-    if (prevSelection && prevSelection.length) {
-      setSelectedPaths(prevSelection)
-      bumpRestoreGridToSelectionToken()
-    } else {
-      setSelectedPaths([])
-    }
-  }, [bumpRestoreGridToSelectionToken, setSelectedPaths])
-
-  const handleRevealOffView = useCallback(() => {
-    if (similarityState) {
-      clearSimilarity()
-    }
-    setQuery('')
-    setViewState((prev) => ({ ...prev, filters: { and: [] } }))
-  }, [clearSimilarity, similarityState])
-
-  const handleSimilaritySearch = useCallback(async (payload: EmbeddingSearchRequest) => {
-    if (!similarityState && similarityPrevSelectionRef.current === null) {
-      similarityPrevSelectionRef.current = selectedPaths
-    }
-    const res = await api.searchEmbeddings(payload)
-    setSimilarityState({
-      embedding: res.embedding,
-      queryPath: payload.query_path ?? null,
-      queryVector: payload.query_vector_b64 ?? null,
-      topK: payload.top_k ?? 50,
-      minScore: payload.min_score ?? null,
-      items: res.items,
-      createdAt: Date.now(),
-    })
-    if (res.items.length) {
-      const preferred = payload.query_path && res.items.some((item) => item.path === payload.query_path)
-        ? payload.query_path
-        : res.items[0].path
-      setSelectedPaths([preferred])
-      bumpRestoreGridToSelectionToken()
-    } else {
-      setSelectedPaths([])
-    }
-  }, [bumpRestoreGridToSelectionToken, selectedPaths, setSelectedPaths, similarityState])
+  const {
+    clearSimilarity,
+    handleRevealOffView,
+    handleSimilaritySearch,
+  } = useSimilaritySearchWorkflow({
+    similarityState,
+    setSimilarityState,
+    selectedPaths,
+    setSelectedPaths,
+    setQuery,
+    setViewState,
+    bumpRestoreGridToSelectionToken,
+  })
 
   const handleMetricRange = useCallback((key: string, range: { min: number; max: number } | null) => {
     updateFilters((filters) => setMetricRangeFilter(filters, key, range))
   }, [updateFilters])
 
   const filterChips = useMemo(() => buildFilterChips(viewState.filters, {
-    clearStars: handleClearStars,
+    clearStarsIn: handleClearStarsIn,
     clearStarsNotIn: () => updateFilters((filters) => setStarsNotInFilter(filters, [])),
     clearNameContains: () => updateFilters((filters) => setNameContainsFilter(filters, '')),
     clearNameNotContains: () => updateFilters((filters) => setNameNotContainsFilter(filters, '')),
@@ -910,10 +653,10 @@ export default function AppShell({
     clearWidthCompare: () => updateFilters((filters) => setWidthCompareFilter(filters, null)),
     clearHeightCompare: () => updateFilters((filters) => setHeightCompareFilter(filters, null)),
     clearMetricRange: (key: string) => handleMetricRange(key, null),
-  }), [viewState.filters, handleClearStars, handleMetricRange, updateFilters])
+  }), [viewState.filters, handleClearStarsIn, handleMetricRange, updateFilters])
 
-  const handleToggleStar = useCallback((v: number) => {
-    const next = new Set(starFilters)
+  const handleToggleStarsIn = useCallback((v: number) => {
+    const next = new Set(starsInFilter)
     if (next.has(v)) {
       next.delete(v)
     } else {
@@ -921,9 +664,9 @@ export default function AppShell({
     }
     setViewState((prev) => ({
       ...prev,
-      filters: setStarFilter(prev.filters, Array.from(next)),
+      filters: setStarsInFilter(prev.filters, Array.from(next)),
     }))
-  }, [starFilters])
+  }, [starsInFilter])
 
   const openMetricsPanel = useCallback(() => {
     setLeftOpen(true)
@@ -966,209 +709,13 @@ export default function AppShell({
   }, [current, formatTitle])
 
   useEffect(() => {
-    let alive = true
-    api.getViews()
-      .then((payload: ViewsPayload) => {
-        if (!alive) return
-        setViews(payload.views || [])
-      })
-      .catch(() => {
-        if (!alive) return
-        setViews([])
-      })
-    return () => { alive = false }
-  }, [])
-
-  // Clear selection when entering search mode
-  useEffect(() => {
     if (searching) {
       setSelectedPaths([])
       clearViewerForSearch(current)
     }
   }, [clearViewerForSearch, current, searching, setSelectedPaths])
 
-  // Load persisted settings on mount
-  useEffect(() => {
-    try {
-      const storedSortKey = localStorage.getItem(STORAGE_KEYS.sortKey)
-      const storedSortDir = localStorage.getItem(STORAGE_KEYS.sortDir)
-      const storedSortSpec = localStorage.getItem(STORAGE_KEYS.sortSpec)
-      const storedStarFilters = localStorage.getItem(STORAGE_KEYS.starFilters)
-      const storedFilterAst = localStorage.getItem(STORAGE_KEYS.filterAst)
-      const storedSelectedMetric = localStorage.getItem(STORAGE_KEYS.selectedMetric)
-      const storedViewMode = localStorage.getItem(STORAGE_KEYS.viewMode) as ViewMode | null
-      const storedGridSize = localStorage.getItem(STORAGE_KEYS.gridItemSize)
-      const storedLeftOpen = localStorage.getItem(STORAGE_KEYS.leftOpen)
-      const storedRightOpen = localStorage.getItem(STORAGE_KEYS.rightOpen)
-      const storedAutoloadImageMetadata = localStorage.getItem(STORAGE_KEYS.autoloadImageMetadata)
-      const storedCompareOrderMode = localStorage.getItem(STORAGE_KEYS.compareOrderMode)
-
-      const parseSortSpec = (raw: string | null): SortSpec | null => {
-        if (!raw) return null
-        const parsed = safeJsonParse<SortSpec>(raw)
-        if (!parsed || typeof parsed !== 'object') return null
-        if (parsed.kind === 'builtin') {
-          if ((parsed.key === 'name' || parsed.key === 'added' || parsed.key === 'random') &&
-            (parsed.dir === 'asc' || parsed.dir === 'desc')) {
-            return parsed
-          }
-        }
-        if (parsed.kind === 'metric') {
-          if (typeof parsed.key === 'string' && parsed.key.length > 0 &&
-            (parsed.dir === 'asc' || parsed.dir === 'desc')) {
-            return parsed
-          }
-        }
-        return null
-      }
-
-      const sort: SortSpec = parseSortSpec(storedSortSpec) ?? {
-        kind: 'builtin',
-        key: storedSortKey === 'name' || storedSortKey === 'added' || storedSortKey === 'random' ? storedSortKey : 'added',
-        dir: storedSortDir === 'asc' || storedSortDir === 'desc' ? storedSortDir : 'desc',
-      }
-      if (sort.key === 'random') {
-        setRandomSeed(Date.now())
-      }
-
-      const parseFilterAst = (raw: string | null): FilterAST | null => {
-        if (!raw) return null
-        const parsed = safeJsonParse<unknown>(raw)
-        return normalizeFilterAst(parsed)
-      }
-
-      let filters = parseFilterAst(storedFilterAst) ?? { and: [] }
-      if (storedStarFilters) {
-        const parsed = safeJsonParse<number[]>(storedStarFilters)
-        if (Array.isArray(parsed)) {
-          const stars = parsed.filter((n) => [0, 1, 2, 3, 4, 5].includes(n))
-          filters = setStarFilter(filters, stars)
-        }
-      }
-
-      setViewState((prev) => ({
-        ...prev,
-        sort,
-        filters,
-        selectedMetric: storedSelectedMetric || prev.selectedMetric,
-      }))
-
-      if (storedViewMode === 'grid' || storedViewMode === 'adaptive') {
-        setViewMode(storedViewMode)
-      }
-      if (storedGridSize) {
-        const size = Number(storedGridSize)
-        if (!isNaN(size) && size >= 80 && size <= 500) {
-          setGridItemSize(size)
-        }
-      }
-      if (storedLeftOpen === '0' || storedLeftOpen === 'false') setLeftOpen(false)
-      if (storedRightOpen === '0' || storedRightOpen === 'false') setRightOpen(false)
-      if (storedAutoloadImageMetadata === '0' || storedAutoloadImageMetadata === 'false') {
-        setAutoloadImageMetadata(false)
-      } else if (storedAutoloadImageMetadata === '1' || storedAutoloadImageMetadata === 'true') {
-        setAutoloadImageMetadata(true)
-      }
-      if (storedCompareOrderMode === 'gallery' || storedCompareOrderMode === 'selection') {
-        setCompareOrderMode(storedCompareOrderMode)
-      }
-    } catch {
-      // Ignore localStorage errors (private browsing, etc.)
-    }
-    setPersistedSettingsReady(true)
-  }, [])
-
-  // Track browser zoom changes (best-effort heuristic)
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const baseCandidates = [1, 1.25, 1.5, 1.75, 2, 3, 4]
-    const nearestBase = (dpr: number) => baseCandidates.reduce((closest, candidate) => (
-      Math.abs(candidate - dpr) < Math.abs(closest - dpr) ? candidate : closest
-    ), baseCandidates[0])
-    const update = () => {
-      const dpr = window.devicePixelRatio || 1
-      const base = nearestBase(dpr)
-      const pinchScale = window.visualViewport?.scale ?? 1
-      const zoom = (dpr * pinchScale) / base
-      if (!Number.isFinite(zoom)) {
-        setBrowserZoomPercent(null)
-        return
-      }
-      const percent = Math.round(zoom * 100)
-      const clamped = Math.min(500, Math.max(25, percent))
-      setBrowserZoomPercent(clamped)
-    }
-    update()
-    window.addEventListener('resize', update)
-    window.addEventListener('orientationchange', update)
-    const viewport = window.visualViewport
-    if (viewport) viewport.addEventListener('resize', update)
-    return () => {
-      window.removeEventListener('resize', update)
-      window.removeEventListener('orientationchange', update)
-      if (viewport) viewport.removeEventListener('resize', update)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (getBrowserZoomWarningBucket(browserZoomPercent) === null) {
-      setDismissedBrowserZoomBucket(null)
-    }
-  }, [browserZoomPercent])
-
-  const visibleBrowserZoomPercent = useMemo(() => (
-    resolveVisibleBrowserZoomPercent(browserZoomPercent, dismissedBrowserZoomBucket)
-  ), [browserZoomPercent, dismissedBrowserZoomBucket])
-
-  const dismissBrowserZoomWarning = useCallback(() => {
-    setDismissedBrowserZoomBucket(getBrowserZoomWarningBucket(browserZoomPercent))
-  }, [browserZoomPercent])
-
-  const persistedSettings = useMemo<PersistedAppShellSettings>(() => ({
-    sortSpec: viewState.sort,
-    starFilters: getStarFilter(viewState.filters),
-    filterAst: viewState.filters,
-    selectedMetric: viewState.selectedMetric,
-    viewMode,
-    gridItemSize,
-    leftOpen,
-    rightOpen,
-    autoloadImageMetadata,
-    compareOrderMode,
-  }), [
-    autoloadImageMetadata,
-    compareOrderMode,
-    gridItemSize,
-    leftOpen,
-    rightOpen,
-    viewMode,
-    viewState.filters,
-    viewState.selectedMetric,
-    viewState.sort,
-  ])
-
-  useEffect(() => {
-    if (!persistedSettingsReady) return
-    persistedSettingsWriterRef.current.schedule(persistedSettings)
-  }, [persistedSettings, persistedSettingsReady])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const update = () => {
-      setViewportWidth(window.innerWidth)
-      setViewportHeight(window.innerHeight)
-    }
-    update()
-    window.addEventListener('resize', update)
-    window.addEventListener('orientationchange', update)
-    return () => {
-      window.removeEventListener('resize', update)
-      window.removeEventListener('orientationchange', update)
-    }
-  }, [])
-
   const mobileSelectEnabled = viewportWidth <= LAYOUT_BREAKPOINTS.mobileMax
-  const gridItemSizeRef = useLatestRef(gridItemSize)
 
   useEffect(() => {
     if (mobileSelectEnabled) return
@@ -1176,52 +723,13 @@ export default function AppShell({
     setMobileSelectMode(false)
   }, [mobileSelectEnabled, mobileSelectMode])
 
-  // Pinch to resize thumbnails on touch devices
-  useEffect(() => {
-    if (viewer || compareOpen) return
-    const shell = gridShellRef.current
-    if (!shell) return
-    const clamp = (v: number) => Math.min(500, Math.max(80, v))
-    let pinchStart: { dist: number; size: number } | null = null
+  useGridPinchResize({
+    shellRef: gridShellRef,
+    disabled: Boolean(viewer) || compareOpen,
+    gridItemSize,
+    setGridItemSize,
+  })
 
-    const getDistance = (touches: TouchList) => {
-      if (touches.length < 2) return 0
-      const [a, b] = [touches[0], touches[1]]
-      return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
-    }
-
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length !== 2) return
-      const dist = getDistance(e.touches)
-      if (!dist) return
-      pinchStart = { dist, size: gridItemSizeRef.current }
-    }
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (!pinchStart || e.touches.length !== 2) return
-      const dist = getDistance(e.touches)
-      if (!dist) return
-      e.preventDefault()
-      const next = clamp(pinchStart.size * (dist / pinchStart.dist))
-      setGridItemSize(next)
-    }
-
-    const onTouchEnd = () => { pinchStart = null }
-
-    shell.addEventListener('touchstart', onTouchStart, { passive: true })
-    shell.addEventListener('touchmove', onTouchMove, { passive: false })
-    shell.addEventListener('touchend', onTouchEnd)
-    shell.addEventListener('touchcancel', onTouchEnd)
-
-    return () => {
-      shell.removeEventListener('touchstart', onTouchStart)
-      shell.removeEventListener('touchmove', onTouchMove)
-      shell.removeEventListener('touchend', onTouchEnd)
-      shell.removeEventListener('touchcancel', onTouchEnd)
-    }
-  }, [viewer, compareOpen, gridItemSizeRef])
-
-  // Prefetch neighbors for the open viewer (previous and next)
   useEffect(() => {
     prefetchFilesAndThumbs(getViewerFilePrefetchPaths(itemPaths, viewer), 'viewer')
   }, [viewer, itemPaths])
@@ -1231,7 +739,6 @@ export default function AppShell({
     prefetchFilesAndThumbs(getCompareFilePrefetchPaths(comparePaths, compareIndexClamped), 'compare')
   }, [compareOpen, comparePaths, compareIndexClamped])
 
-  // Navigation callbacks
   const openFolder = useCallback((p: string) => {
     resetViewerState()
     const safe = sanitizePath(p)
@@ -1239,145 +746,52 @@ export default function AppShell({
     writeHash(safe)
   }, [resetViewerState])
 
+  const focusDesktopSearch = useCallback(() => {
+    const searchInput = document.querySelector('.toolbar-right .input') as HTMLInputElement | null
+    searchInput?.focus()
+  }, [])
+
   const {
-    uploading,
-    actionError,
-    isDraggingOver,
-    moveDialog,
-    moveFolders,
-    moveFoldersLoading,
     ctx,
     setCtx,
-    closeMoveDialog,
-    openUploadPicker,
-    handleUploadInputChange,
     openGridActions,
     openFolderActions,
-    openMoveDialogForPaths,
-    moveSelectedToFolder,
   } = useAppActions({
-    appRef,
-    uploadInputRef,
-    current,
-    currentDirCount: data?.folders?.length ?? 0,
     selectedPaths,
     setSelectedPaths,
-    refetch,
-    invalidateDerivedCounts,
   })
 
-  const handleSaveView = useCallback(async () => {
-    const name = window.prompt('Save Smart Folder as:', 'New Smart Folder')
-    if (!name) return
-    const id = makeUniqueViewId(name, views)
-    const payload: SavedView = {
-      id,
-      name,
-      pool: { kind: 'folder', path: current },
-      view: JSON.parse(JSON.stringify(viewState)),
-    }
-    const nextViews = [...views.filter((v) => v.id !== id), payload]
-    setViews(nextViews)
-    setActiveViewId(id)
-    try {
-      await api.saveViews({ version: 1, views: nextViews })
-    } catch (err) {
-      if (err instanceof FetchError && err.status === 403) {
-        const blob = new Blob([JSON.stringify({ version: 1, views: nextViews }, null, 2)], { type: 'application/json' })
-        downloadBlob(blob, `lenslet-smart-folder-${id}.json`)
-        alert('No-write mode: exported Smart Folder JSON instead of saving.')
-        return
-      }
-      console.error('Failed to save Smart Folder:', err)
-    }
-  }, [current, viewState, views])
-
-  useEffect(() => {
-    if (!activeViewId) return
-    const view = views.find((v) => v.id === activeViewId)
-    if (!view) {
-      setActiveViewId(null)
-      return
-    }
-    const samePool = view.pool.path === current
-    const sameView = JSON.stringify(view.view) === JSON.stringify(viewState)
-    if (!samePool || !sameView) {
-      setActiveViewId(null)
-    }
-  }, [activeViewId, views, current, viewState])
-
-  const keyboardStateRef = useLatestRef({
+  const {
+    views,
+    activeViewId,
+    activateView,
+    clearActiveView,
+    saveView: handleSaveView,
+  } = useSmartFolders({
     current,
-    items,
-    selectedPaths,
-    viewer,
-    compareOpen,
-    mobileSelectMode,
+    viewState,
+    setViewState,
     openFolder,
   })
 
-  // Global keyboard shortcuts
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const state = keyboardStateRef.current
-      const normalizedKey = e.key.toLowerCase()
-      const hasPlatformShortcutModifier = e.ctrlKey || e.metaKey
-      const hasPlainPlatformShortcut = hasPlatformShortcutModifier && !e.altKey
-
-      // Ignore if a modal surface is open; those surfaces own their keys.
-      if (state.viewer || state.compareOpen || hasActiveModalDialog()) return
-
-      // Toggle sidebars
-      if (hasPlatformShortcutModifier && normalizedKey === 'b' && !isInputElement(e.target)) {
-        e.preventDefault()
-        const next = resolveSidebarHotkeyToggle({
-          leftContentOpen: leftOpenRef.current,
-          rightOpen: rightOpenRef.current,
-          altKey: e.altKey,
-        })
-        setLeftOpen(next.leftContentOpen)
-        setRightOpen(next.rightOpen)
-        return
-      }
-
-      // Ignore if focus is on an interactive control.
-      if (isKeyboardControlTarget(e.target)) return
-
-      if (hasPlainPlatformShortcut && normalizedKey === 'a') {
-        e.preventDefault()
-        setSelectedPaths(state.items.map((i) => i.path))
-        return
-      }
-
-      if (hasShortcutModifier(e)) return
-
-      if (e.key === 'Backspace' || e.key === 'Delete') {
-        e.preventDefault()
-        state.openFolder(getParentPath(state.current))
-      } else if (e.key === 'Escape') {
-        if (state.selectedPaths.length) {
-          e.preventDefault()
-          setSelectedPaths([])
-          return
-        }
-        if (state.mobileSelectMode) {
-          e.preventDefault()
-          setMobileSelectMode(false)
-        }
-      } else if (e.key === '/') {
-        e.preventDefault()
-        if (viewportWidth <= LAYOUT_BREAKPOINTS.narrowMax) {
-          setMobileSearchOpen(true)
-          return
-        }
-        const searchInput = document.querySelector('.toolbar-right .input') as HTMLInputElement | null
-        searchInput?.focus()
-      }
-    }
-    
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [keyboardStateRef, leftOpenRef, rightOpenRef, setSelectedPaths, viewportWidth])
+  useAppKeyboardShortcuts({
+    current,
+    items,
+    selectedPaths,
+    viewerOpen: Boolean(viewer),
+    compareOpen,
+    mobileSelectMode,
+    leftOpen,
+    rightOpen,
+    viewportWidth,
+    openFolder,
+    setSelectedPaths,
+    setLeftOpen,
+    setRightOpen,
+    setMobileSelectMode,
+    setMobileSearchOpen,
+    focusDesktopSearch,
+  })
 
   const overlayMode = useMemo<OverlayMode>(() => {
     if (compareOpen) return 'compare'
@@ -1431,14 +845,14 @@ export default function AppShell({
       data-mobile-drawer-open={mobileDrawerOpen ? 'true' : 'false'}
       data-effective-left-width={layoutModel.leftWidth}
       data-effective-right-width={layoutModel.rightWidth}
-      style={{
-        ['--grid-left' as any]: leftCol,
-        ['--grid-right' as any]: rightCol,
-        ['--overlay-left' as any]: overlayLeft,
-        ['--overlay-right' as any]: overlayRight,
-        ['--toolbar-h' as any]: toolbarHeight,
-        ['--mobile-drawer-h' as any]: mobileDrawerHeight,
-      }}
+      style={cssVars({
+        '--grid-left': leftCol,
+        '--grid-right': rightCol,
+        '--overlay-left': overlayLeft,
+        '--overlay-right': overlayRight,
+        '--toolbar-h': toolbarHeight,
+        '--mobile-drawer-h': mobileDrawerHeight,
+      })}
     >
       <Toolbar
         rootRef={toolbarRef}
@@ -1456,9 +870,9 @@ export default function AppShell({
         sortDisabled={similarityActive || indexingBrowseMode.sortLocked}
         filterCount={activeFilterCount}
         onOpenFilters={openMetricsPanel}
-        starFilters={starFilters}
-        onToggleStar={handleToggleStar}
-        onClearStars={handleClearStars}
+        starsInFilter={starsInFilter}
+        onToggleStarsIn={handleToggleStarsIn}
+        onClearStarsIn={handleClearStarsIn}
         onClearFilters={handleClearFilters}
         starCounts={starCounts}
         viewMode={viewMode}
@@ -1483,9 +897,6 @@ export default function AppShell({
         onMobileSearchOpenChange={setMobileSearchOpen}
         mobileDrawerOpen={mobileDrawerOpen}
         onMobileDrawerOpenChange={setMobileDrawerOpen}
-        onUploadClick={openUploadPicker}
-        uploadBusy={uploading}
-        uploadDisabled={compareOpen}
         themePreset={themePreset}
         onThemePresetChange={handleThemePresetChange}
         autoloadImageMetadata={autoloadImageMetadata}
@@ -1510,16 +921,8 @@ export default function AppShell({
         ref={browseShellRef}
         className="browse-shell"
         data-browse-shell
-        data-overlay-inert={overlayActive ? 'true' : 'false'}
+        data-overlay-inert={compareOpen ? 'true' : 'false'}
       >
-        <input
-          ref={uploadInputRef}
-          type="file"
-          multiple
-          accept="image/*"
-          className="sr-only"
-          onChange={handleUploadInputChange}
-        />
         {layoutModel.leftRailVisible && (
           <LeftSidebar
             leftTool={leftTool}
@@ -1530,16 +933,11 @@ export default function AppShell({
             onOpenCompare={openCompare}
             views={views}
             activeViewId={activeViewId}
-            onActivateView={(view) => {
-              setActiveViewId(view.id)
-              const safeFilters = normalizeFilterAst(view.view?.filters) ?? { and: [] }
-              setViewState({ ...view.view, filters: safeFilters })
-              openFolder(view.pool.path)
-            }}
+            onActivateView={activateView}
             onSaveView={handleSaveView}
             current={current}
             data={data}
-            onOpenFolder={(p) => { setActiveViewId(null); openFolder(p) }}
+            onOpenFolder={(p) => { clearActiveView(); openFolder(p) }}
             onOpenFolderActions={openFolderActions}
             onPullRefreshFolders={refreshEnabled ? handlePullRefreshFolders : undefined}
             onContextMenu={(e, p) => {
@@ -1582,7 +980,7 @@ export default function AppShell({
               browserZoomPercent: visibleBrowserZoomPercent,
               onDismissBrowserZoomWarning: dismissBrowserZoomWarning,
             }}
-            actionError={actionError}
+            actionError={null}
             similarity={similarityState ? {
               embedding: similarityState.embedding,
               topK: similarityState.topK,
@@ -1721,23 +1119,6 @@ export default function AppShell({
           </Suspense>
         </LazySurfaceBoundary>
       )}
-      {moveDialog && (
-        <MoveToDialog
-          paths={moveDialog.paths}
-          defaultDestination={current}
-          destinations={moveFolders}
-          loadingDestinations={moveFoldersLoading}
-          onClose={closeMoveDialog}
-          onSubmit={moveSelectedToFolder}
-        />
-      )}
-      {isDraggingOver && (
-        <div
-          className="toolbar-offset fixed inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] bg-accent/10 border-2 border-dashed border-accent text-text flex items-center justify-center text-lg z-overlay pointer-events-none"
-        >
-          Drop images to upload
-        </div>
-      )}
       {ctx && (
         <AppContextMenuItems
           ctx={ctx}
@@ -1746,8 +1127,6 @@ export default function AppShell({
           setCtx={setCtx}
           refreshEnabled={refreshEnabled}
           refreshDisabledReason={refreshDisabledReason}
-          onRefetch={refetch}
-          onOpenMoveDialog={openMoveDialogForPaths}
           onRefreshFolder={refreshFolderPath}
           canFindSimilar={findSimilarAvailability.canFindSimilar}
           findSimilarDisabledReason={findSimilarAvailability.disabledReason}

@@ -101,19 +101,8 @@ export function buildFallbackItem(path: string, starOverride?: StarRating): Brow
     width: 0,
     height: 0,
     size: 0,
-    hasThumbnail: true,
-    hasMetadata: false,
+    has_thumbnail: true,
+    has_metadata: false,
     star: starOverride ?? null,
   }
-}
-
-export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
 }

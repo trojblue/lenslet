@@ -7,7 +7,6 @@ import {
 function makeSettings(overrides: Partial<PersistedAppShellSettings> = {}): PersistedAppShellSettings {
   return {
     sortSpec: { kind: 'builtin', key: 'added', dir: 'desc' },
-    starFilters: [],
     filterAst: { and: [] },
     selectedMetric: undefined,
     viewMode: 'adaptive',

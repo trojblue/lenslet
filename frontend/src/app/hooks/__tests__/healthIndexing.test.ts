@@ -29,10 +29,8 @@ describe('health indexing contracts', () => {
   })
 
   it('rejects unknown indexing states', () => {
-    const normalized = normalizeHealthIndexing({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      state: 'paused' as any,
-    })
+    const malformedIndexing = { state: 'paused' } as unknown as Parameters<typeof normalizeHealthIndexing>[0]
+    const normalized = normalizeHealthIndexing(malformedIndexing)
     expect(normalized).toBeNull()
   })
 

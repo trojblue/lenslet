@@ -15,25 +15,23 @@ python -m build
 ```
 lenslet/
 ├── src/lenslet/                    # Main package (pip installable)
-│   ├── cli.py                      # CLI entry point
 │   ├── server.py                   # Public FastAPI facade (stable exports)
-│   ├── server_runtime.py           # Runtime wiring
-│   ├── server_browse.py            # Browse traversal helpers
-│   ├── server_factory.py           # App factory assembly
-│   ├── server_routes_*.py          # Route domains (common/presence/embeddings/views/index/og)
-│   ├── server_media.py             # File/thumb/media responses
-│   ├── server_sync.py              # Presence tracker + event broker internals
+│   ├── web/                        # FastAPI app factory, runtime, routes, media, cache, sync
+│   ├── cli/
+│   │   ├── __main__.py             # `python -m lenslet.cli`
+│   │   ├── main.py                 # CLI dispatcher
+│   │   ├── browse.py               # Browse CLI implementation
+│   │   └── rank.py                 # Ranking CLI implementation
 │   ├── storage/
 │   │   ├── base.py                 # Storage protocol
-│   │   ├── local.py                # Read-only filesystem
-│   │   ├── memory.py               # In-memory caching
-│   │   ├── table.py                # TableStorage facade
-│   │   ├── table_facade.py         # Delegated table operations
-│   │   ├── table_schema.py         # Schema/source coercion
-│   │   ├── table_paths.py          # Path/source resolution
-│   │   ├── table_index.py          # Index pipeline
-│   │   ├── table_probe.py          # Remote probe helpers
-│   │   └── table_media.py          # Fast media readers/helpers
+│   │   ├── local/
+│   │   │   ├── __init__.py         # Read-only filesystem storage
+│   │   │   └── preindex.py         # Local preindex support
+│   │   ├── memory/                 # Local browse storage and cache helpers
+│   │   ├── table/                  # TableStorage facade, launch, schema, and row-scan helpers
+│   │   ├── source/                 # Source-backed media, path, catalog, and probe helpers
+│   │   ├── image_media.py          # Media sniffing and dimensions
+│   │   └── index_assembly.py       # Shared browse index assembly
 │   └── frontend/                   # Bundled React UI (built assets)
 │
 ├── frontend/                       # Frontend source (React + Vite)
@@ -120,23 +118,25 @@ python -m lenslet.cli /path/to/images --reload
 
 ### Backend
 
-`src/lenslet/server.py` is intentionally a stable compatibility facade. Route, runtime, and media internals are split into sibling modules to keep imports and monkeypatch touchpoints stable while reducing coupling:
-- `server_runtime.py` builds shared runtime state.
-- `server_factory.py` composes app creation flows.
-- `server_browse.py` owns recursive traversal and related browse helpers.
-- `server_routes_common.py`, `server_routes_presence.py`, `server_routes_embeddings.py`, `server_routes_views.py`, `server_routes_index.py`, and `server_routes_og.py` own route registration by domain.
-- `server_media.py` owns file/thumb/response helpers.
-- `server_sync.py` owns collaboration event replay and presence tracking internals.
+`src/lenslet/server.py` is intentionally a stable facade. Route, runtime, and media internals live under `src/lenslet/web/`:
+- `web/app/factory.py` composes app creation flows for directory, table, dataset, and storage launches.
+- `web/app/builder.py`, `web/app/base.py`, and `web/app/runtime.py` assemble FastAPI routes and shared runtime state.
+- `web/browse.py`, `web/media.py`, `web/metadata.py`, and `web/og/` own browse payloads, file/thumb responses, image metadata parsing, and OG data/style helpers with lazy rendering.
+- `web/routes/` owns route registration by domain.
+- `web/sync/labels.py`, `web/sync/events.py`, `web/sync/presence.py`, and `web/sync/helpers.py` own label mutation, event replay, presence, and shared sync helpers.
 
 **Storage Layer** (`storage/`)
 - `LocalStorage`: Read-only filesystem access with path security
 - `MemoryStorage`: Wraps LocalStorage with in-memory caching
-- `TableStorage` is a facade in `storage/table.py` with delegates in `table_facade.py`, `table_schema.py`, `table_paths.py`, `table_index.py`, `table_probe.py`, and `table_media.py`.
+- `TableStorage`: Table-backed browse storage using `table/schema.py`, `table/index.py`, `table/row_scan.py`, `table/launch.py`, and `table/pyarrow_runtime.py`
+- `DatasetStorage`: Programmatic dataset-map browse storage
+- Shared source-backed helpers live in `source/paths.py`, `image_media.py`, `index_assembly.py`, `source/media.py`, `source/state.py`, and `source/catalog.py`.
 
 **API Endpoints:**
 - `GET /folders?path=<path>` - List folder contents
-  - Recursive mode supports paging via `recursive=1&page=<n>&page_size=<n>` (defaults: `page=1`, `page_size=200`, max `page_size=500`)
-  - Use `legacy_recursive=1` to return full recursive payloads for backward compatibility
+  - Recursive mode uses `recursive=1` and returns the full recursive payload in one response.
+  - `count_only=1` returns the recursive count without materializing the item payload.
+  - The active folder query contract is `path`, `recursive`, and `count_only`.
 - `GET /item?path=<path>` - Get item metadata
 - `PUT /item?path=<path>` - Update item metadata
 - `GET /thumb?path=<path>` - Get/generate thumbnail
@@ -164,6 +164,14 @@ python -m lenslet.cli /path/to/images --reload
 - Dark theme
 
 ## Building and Testing
+
+### Browser Harness Change Gate
+
+Browser harnesses under `scripts/browser/`, browse-cache code, and web route hotspots should not absorb helper-only churn. Before editing those areas, record the issue-specific root cause, the expected open-issue reduction, and the validation command that will prove the browser-facing behavior changed. If the expected reduction is zero, keep the change out of those hotspots and fix the owning product/runtime code instead.
+
+### Skip Debt Gate
+
+Permanent skips and wontfix entries in the Desloppify plan should stay rare and reviewable. Before adding a permanent skip, record the concrete blocker, why fixing it now would be lower value than the live queue, and the condition that should trigger review. When skipped debt grows or survives multiple scans, inspect `desloppify plan queue --include-skipped` before adding more skips so stale wontfix items do not distort prioritization.
 
 ### Test the CLI
 
@@ -213,7 +221,7 @@ python -m build
 Run this matrix before closeout/release:
 
 ```bash
-pytest -q tests/test_presence_lifecycle.py tests/test_hotpath_sprint_s2.py tests/test_hotpath_sprint_s3.py tests/test_hotpath_sprint_s4.py tests/test_refresh.py tests/test_folder_pagination.py tests/test_collaboration_sync.py tests/test_compare_export_endpoint.py tests/test_metadata_endpoint.py tests/test_embeddings_search.py tests/test_embeddings_cache.py tests/test_table_security.py tests/test_remote_worker_scaling.py tests/test_parquet_ingestion.py
+pytest -q tests/web/sync/test_presence_lifecycle.py tests/web/hotpath/test_hotpath_sprint_s2.py tests/web/hotpath/test_hotpath_sprint_s3.py tests/web/hotpath/test_hotpath_sprint_s4.py tests/web/app/test_refresh.py tests/web/routes/test_folder_recursive.py tests/web/sync/test_collaboration_sync.py tests/web/export/test_compare_export_endpoint.py tests/web/metadata/test_metadata_endpoint.py tests/embeddings/test_embeddings_search.py tests/embeddings/test_embeddings_cache.py tests/storage/table/test_table_security.py tests/storage/source/test_remote_worker_scaling.py tests/storage/table/test_parquet_ingestion.py
 python - <<'PY'
 import lenslet.server as server
 import lenslet.storage.table as table
@@ -222,8 +230,6 @@ assert hasattr(server, 'create_app_from_datasets')
 assert hasattr(server, 'create_app_from_table')
 assert hasattr(server, 'create_app_from_storage')
 assert hasattr(server, 'HotpathTelemetry')
-assert hasattr(server, '_file_response')
-assert hasattr(server, '_thumb_response_async')
 assert hasattr(server, 'og')
 assert hasattr(table, 'TableStorage')
 assert hasattr(table, 'load_parquet_table')
@@ -231,17 +237,18 @@ assert hasattr(table, 'load_parquet_schema')
 print('import-contract-ok')
 PY
 cd frontend
-npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/pagedFolder.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts
+npm run test -- src/app/__tests__/appShellHelpers.test.ts src/app/__tests__/presenceActivity.test.ts src/app/__tests__/presenceUi.test.ts src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/model/__tests__/filters.test.ts src/features/browse/model/__tests__/prefetchPolicy.test.ts src/api/__tests__/client.events.test.ts src/api/__tests__/client.presence.test.ts src/api/__tests__/client.exportComparison.test.ts
 npx tsc --noEmit
 cd ..
+python -m scripts.browser.gui_smoke.acceptance
 python -m build
 ```
 
 ## Hotpath Rollout Notes
 
-- Export flows that require legacy full recursive payloads should call:
-  - `api.getFolder(path, { recursive: true, legacyRecursive: true })`
-- Keep recursive folder cache keys page-aware (`page`, `pageSize`) to avoid stale page mixing.
+- Export flows that need descendant items should call `api.getFolder(path, { recursive: true })`.
+- Count-only flows should call `api.getFolderPaths` or `api.getFolder(path, { recursive: true, countOnly: true })` instead of materializing every item.
+- Keep recursive folder cache keys scoped by path and recursive mode so stale descendant payloads are not mixed with direct folder payloads.
 - Keep full-file prefetch scoped to viewer/compare navigation only.
 
 ### Deferred Backlog (Out of Sprint Scope)

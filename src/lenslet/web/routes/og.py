@@ -8,11 +8,12 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, Response
 
-from ... import og
-from ...media_errors import MediaDecodeError, MediaError
+from .. import og
+from ...media_errors import MediaError
 from ..cache.og import OgImageCache
 from ..context import get_request_context
-from ...storage.base import BrowseStorage
+from ..media import media_failure_to_http_error
+from ...storage.base import BrowseStorage, TotalItemsStorage
 from ...workspace import Workspace
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ def _og_path_from_request(path: str | None, request: Request | None) -> str:
     return og.normalize_path(fragment)
 
 
-def _dataset_label(current_workspace: Workspace) -> str:
+def dataset_label(current_workspace: Workspace) -> str:
     if current_workspace.views_override is not None:
         name = current_workspace.views_override.name
         if name.endswith(".lenslet.json"):
@@ -85,7 +86,7 @@ def _dataset_label(current_workspace: Workspace) -> str:
     return "dataset"
 
 
-def _dataset_count(current_storage: BrowseStorage) -> int | None:
+def dataset_count(current_storage: TotalItemsStorage) -> int | None:
     try:
         return current_storage.total_items()
     except Exception as exc:
@@ -93,7 +94,7 @@ def _dataset_count(current_storage: BrowseStorage) -> int | None:
         return None
 
 
-def _og_cache_from_workspace(workspace: Workspace, enabled: bool) -> OgImageCache | None:
+def og_cache_from_workspace(workspace: Workspace, enabled: bool) -> OgImageCache | None:
     if not enabled or not workspace.can_write:
         return None
     cache_dir = workspace.og_cache_dir()
@@ -104,8 +105,8 @@ def _og_cache_from_workspace(workspace: Workspace, enabled: bool) -> OgImageCach
 
 def register_og_routes(app: FastAPI, enabled: bool) -> None:
     def _og_http_exception(exc: Exception) -> HTTPException:
-        if isinstance(exc, MediaDecodeError):
-            return HTTPException(422, "failed to decode source image")
+        if isinstance(exc, (FileNotFoundError, MediaError)):
+            return media_failure_to_http_error(exc)
         return HTTPException(500, OG_PREVIEW_FAILURE_DETAIL)
 
     @app.get("/og-image", include_in_schema=False, name="og_image")
@@ -114,7 +115,7 @@ def register_og_routes(app: FastAPI, enabled: bool) -> None:
         current_storage = context.storage
         current_workspace = context.workspace
         og_cache = context.og_cache
-        label = _dataset_label(current_workspace)
+        label = dataset_label(current_workspace)
         if not enabled:
             return Response(content=og.fallback_og_image(label), media_type="image/png")
         try:
@@ -144,7 +145,7 @@ def register_og_routes(app: FastAPI, enabled: bool) -> None:
         first_failure: Exception | None = None
         for sample_path_entry in sample_paths:
             try:
-                thumb = current_storage.get_thumbnail(sample_path_entry)
+                thumb = current_storage.get_or_build_thumbnail(sample_path_entry)
             except FileNotFoundError as exc:
                 if first_failure is None:
                     first_failure = exc
@@ -164,7 +165,7 @@ def register_og_routes(app: FastAPI, enabled: bool) -> None:
         if not tiles:
             if sample_paths:
                 if first_failure is not None:
-                    raise _og_http_exception(first_failure)
+                    raise _og_http_exception(first_failure) from first_failure
                 raise HTTPException(500, OG_PREVIEW_FAILURE_DETAIL)
             data = og.fallback_og_image(label)
         else:
@@ -181,7 +182,3 @@ def register_og_routes(app: FastAPI, enabled: bool) -> None:
         if og_cache is not None:
             og_cache.set(cache_key, data)
         return Response(content=data, media_type="image/png")
-
-
-dataset_label = _dataset_label
-dataset_count = _dataset_count

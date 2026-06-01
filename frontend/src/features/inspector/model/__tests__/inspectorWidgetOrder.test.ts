@@ -44,28 +44,12 @@ describe('inspector widget order model', () => {
     )
 
     expect(parsed.order).toEqual([
-      'quickView',
       'notes',
       'overview',
       'metadata',
-      'compareMetadata',
-      'basics',
-    ])
-    expect(parsed.shouldRewrite).toBe(true)
-  })
-
-  it('migrates pre-quick-view persisted orders by inserting quick view at the top once', () => {
-    const parsed = parseStoredInspectorWidgetOrder(
-      JSON.stringify(['overview', 'compareMetadata', 'metadata', 'basics', 'notes']),
-    )
-
-    expect(parsed.order).toEqual([
       'quickView',
-      'overview',
       'compareMetadata',
-      'metadata',
       'basics',
-      'notes',
     ])
     expect(parsed.shouldRewrite).toBe(true)
   })

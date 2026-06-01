@@ -4,6 +4,7 @@ import {
   folderQueryKey,
   shouldRemoveRecursiveFolderQuery,
   shouldRetainRecursiveFolderQuery,
+  type UseFolderOptions,
 } from '../folders'
 
 afterEach(() => {
@@ -17,16 +18,14 @@ describe('folder api query helpers', () => {
 
     expect(params.get('path')).toBe('/shots')
     expect(params.get('recursive')).toBe('1')
-    expect(params.get('page')).toBeNull()
-    expect(params.get('page_size')).toBeNull()
   })
 
-  it('does not emit retired legacy recursive params', () => {
-    const query = buildFolderQuery('/shots', { recursive: true })
+  it('builds recursive count-only query params', () => {
+    const query = buildFolderQuery('/shots', { recursive: true, countOnly: true })
     const params = new URLSearchParams(query)
 
     expect(params.get('recursive')).toBe('1')
-    expect(params.get('legacy_recursive')).toBeNull()
+    expect(params.get('count_only')).toBe('1')
   })
 
   it('fetches folder paths from the dedicated endpoint', async () => {
@@ -44,9 +43,34 @@ describe('folder api query helpers', () => {
     expect(String(fetchSpy.mock.calls[0][0])).toContain('/folders/paths')
   })
 
+  it('fetches recursive folder counts as numbers', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ path: '/shots', generated_at: 1, items: [], folders: [], total_items: 42 }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    await expect(api.getFolderCount('/shots')).resolves.toBe(42)
+    const url = new URL(String(fetchSpy.mock.calls[0][0]), 'http://localhost')
+    expect(url.pathname).toBe('/folders')
+    expect(url.searchParams.get('path')).toBe('/shots')
+    expect(url.searchParams.get('recursive')).toBe('1')
+    expect(url.searchParams.get('count_only')).toBe('1')
+  })
+
   it('separates recursive cache keys from non-recursive', () => {
     expect(folderQueryKey('/shots', { recursive: true })).toEqual(['folder', '/shots', 'recursive'])
     expect(folderQueryKey('/shots', { recursive: false })).toEqual(['folder', '/shots'])
+  })
+
+  it('keeps useFolder options scoped to recursive loading and query enablement', () => {
+    const options = {
+      recursive: true,
+      enabled: false,
+    } satisfies UseFolderOptions
+
+    expect(folderQueryKey('/shots', options)).toEqual(['folder', '/shots', 'recursive'])
   })
 
   it('retains only current/root recursive queries', () => {

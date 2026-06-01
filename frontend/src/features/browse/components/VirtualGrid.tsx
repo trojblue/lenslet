@@ -1,9 +1,10 @@
 import React, { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { BrowseItemPayload, ViewMode } from '../../../lib/types'
-import ThumbCard from './ThumbCard'
+import VirtualGridRows from './VirtualGridRows'
 import { api } from '../../../api/client'
 import { getBrowseHotpathSnapshot, markFirstGridItemVisible } from '../../../lib/browseHotpath'
+import { cssVars } from '../../../lib/cssVars'
 import { getVisibleViewportBounds } from '../../../lib/menuPosition'
 import { useVirtualGrid } from '../hooks/useVirtualGrid'
 import { getNextIndexForKeyNav } from '../hooks/useKeyboardNav'
@@ -51,26 +52,6 @@ function toLongPressEvent(ev: React.PointerEvent<HTMLDivElement>) {
     clientY: ev.clientY,
     isPrimary: ev.isPrimary,
   }
-}
-
-function renderHighlightedName(name: string, highlight?: string): React.ReactNode {
-  const query = (highlight ?? '').trim()
-  if (!query) return name
-
-  const matchIndex = name.toLowerCase().indexOf(query.toLowerCase())
-  if (matchIndex === -1) return name
-
-  const before = name.slice(0, matchIndex)
-  const match = name.slice(matchIndex, matchIndex + query.length)
-  const after = name.slice(matchIndex + query.length)
-
-  return (
-    <>
-      {before}
-      <mark className="bg-accent/20 text-inherit rounded px-0.5">{match}</mark>
-      {after}
-    </>
-  )
 }
 
 interface VirtualGridProps {
@@ -249,9 +230,9 @@ export default function VirtualGrid({
       timeoutId = clearScrollIdleTimeout(timeoutId, (id) => window.clearTimeout(id))
       timeoutId = window.setTimeout(() => setIsScrolling(false), SCROLL_IDLE_MS)
     }
-    el.addEventListener('scroll', onScroll, { passive: true } as any)
+    el.addEventListener('scroll', onScroll, { passive: true })
     return () => {
-      el.removeEventListener('scroll', onScroll as any)
+      el.removeEventListener('scroll', onScroll)
       timeoutId = clearScrollIdleTimeout(timeoutId, (id) => window.clearTimeout(id))
     }
   }, [])
@@ -342,7 +323,6 @@ export default function VirtualGrid({
 
   const getNextPath = (current: string | null, e: KeyboardEvent): string | 'open' | null => {
     if (!items.length) return null
-    // Default to first item when nothing is focused
     const currentPath = current ?? items[0].path
 
     if (layout.mode !== 'adaptive') {
@@ -486,37 +466,6 @@ export default function VirtualGrid({
     focusCell(path)
   }
 
-  const handleDragStart = (path: string, e: React.DragEvent<HTMLDivElement>) => {
-    try {
-      const paths = selectedSet.has(path) && selected.length > 0 ? selected : [path]
-      e.dataTransfer?.setData('application/x-lenslet-paths', JSON.stringify(paths))
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove'
-      try { document.body.classList.add('drag-active') } catch {}
-      const host = e.currentTarget as HTMLElement
-      const img = host.querySelector('.cell-content img') as HTMLImageElement | null
-      const ghost = document.createElement('div')
-      ghost.className = 'drag-ghost'
-      const ghostImg = document.createElement('img')
-      ghostImg.draggable = false
-      ghostImg.alt = 'drag'
-      if (img && img.src) ghostImg.src = img.src
-      ghost.appendChild(ghostImg)
-      document.body.appendChild(ghost)
-      const w = ghost.getBoundingClientRect().width || 150
-      e.dataTransfer?.setDragImage(ghost, Math.round(w / 2), 0)
-      const cleanup = () => {
-        try { ghost.remove() } catch {}
-        try { document.body.classList.remove('drag-active') } catch {}
-        window.removeEventListener('dragend', cleanup)
-        window.removeEventListener('pointerup', cleanup)
-        document.removeEventListener('visibilitychange', cleanup)
-      }
-      window.addEventListener('dragend', cleanup)
-      window.addEventListener('pointerup', cleanup)
-      document.addEventListener('visibilitychange', cleanup)
-    } catch {}
-  }
-
   useEffect(() => {
     const el = parentRef.current
     if (!el) return
@@ -531,8 +480,7 @@ export default function VirtualGrid({
       setActive(nextItem.path)
       onSelectionChange([nextItem.path])
       anchorRef.current = nextItem.path
-      
-      // Find row for next item
+
       const nextRowIdx = layout.mode === 'grid'
         ? Math.floor((pathToIndex.get(nextItem.path) ?? 0) / Math.max(1, layout.columns))
         : (adaptivePositions?.get(nextItem.path)?.row ?? 0)
@@ -683,171 +631,36 @@ export default function VirtualGrid({
       aria-activedescendant={activeDescendantId} 
       aria-busy={isLoading || undefined}
       onMouseDown={() => parentRef.current?.focus()} 
-      style={{ ['--gap' as any]: `${GAP}px` }}
+      style={cssVars({ '--gap': `${GAP}px` })}
     >
       <div key={`${viewMode}-${effectiveColumns}`} className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
-        {virtualRows.map(row => {
-          let rowItems: { item: BrowseItemPayload, displayW: number, displayH: number, fit?: 'contain' }[] = []
-          let rowStyle: React.CSSProperties = {}
-          let rowClass = ""
-          let adaptiveImageHeight: number | undefined
-
-          if (layout.mode === 'adaptive') {
-             const rowData = layout.rows[row.index]
-             if (!rowData) return null
-             rowItems = rowData.items
-             adaptiveImageHeight = rowData.imageH
-             rowStyle = {
-                 height: rowData.height,
-                 transform: `translate3d(0, ${row.start}px, 0)`,
-                 display: 'flex',
-                 gap: GAP,
-                 paddingBottom: GAP,
-             }
-             rowClass = "absolute top-0 left-0 right-0 w-full will-change-transform"
-          } else {
-             const start = row.index * layout.columns
-             const slice = items.slice(start, start + layout.columns)
-             rowItems = slice.map(it => ({ item: it, displayW: layout.cellW, displayH: layout.mediaH }))
-             rowStyle = {
-                 transform: `translate3d(0, ${row.start}px, 0)`,
-                 gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
-                 gap: GAP,
-                 paddingBottom: GAP,
-             }
-             rowClass = "absolute top-0 left-0 right-0 w-full grid will-change-transform"
-          }
-          
-          const isTopmostVisibleRow = row.index === virtualRows[0]?.index
-          
-          return (
-            <div 
-              key={row.key} 
-              className={rowClass}
-              role="row" 
-              data-adaptive-image-height={adaptiveImageHeight}
-              style={rowStyle}
-            >
-              {rowItems.map(({ item: it, displayW, displayH, fit }) => {
-                const isVisuallySelected = !suppressSelectionHighlight && ((active===it.path) || selectedSet.has(it.path))
-                const selectionOrder = selectionOrderByPath.get(it.path) ?? null
-                const recentUpdateKey = recentlyUpdated?.get(it.path) ?? null
-                const isRecentlyUpdated = recentUpdateKey != null
-                const wrapperStyle = layout.mode === 'adaptive' ? { width: displayW } : {}
-                const imageContainerStyle = layout.mode === 'adaptive' ? { height: displayH } : {}
-                
-                const itemContainerClass = layout.mode === 'adaptive' 
-                    ? "relative rounded-[10px] group shrink-0" 
-                    : "relative aspect-[4/3] rounded-[10px] group"
-
-                return (
-                <div 
-                  id={`cell-${encodeURIComponent(it.path)}`} 
-                  key={it.path} 
-                  className="relative min-w-0"
-                  role="gridcell" 
-                  data-adaptive-fit={fit}
-                  aria-selected={isVisuallySelected} 
-                  tabIndex={focused===it.path?0:-1}
-                  onFocus={()=> setFocused(it.path)} 
-                  draggable 
-                  style={wrapperStyle}
-                  onDragStart={(e) => handleDragStart(it.path, e)}
-                  onPointerDown={(e) => handleItemPointerDown(it.path, e)}
-                  onPointerMove={handleItemPointerMove}
-                  onPointerUp={handleItemPointerUp}
-                  onPointerCancel={handleItemPointerCancel}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    onContextMenuItem?.(e, it.path)
-                  }}>
-                  <div 
-                    className={itemContainerClass}
-                    style={imageContainerStyle}
-                    onDoubleClick={()=> { if (!multiSelectMode) onOpenViewer(it.path) }} 
-                    onMouseLeave={clearPreview}>
-                    <button
-                      type="button"
-                      className="grid-item-action-btn touch-manipulation"
-                      data-grid-action="1"
-                      aria-label={`Open actions for ${it.name}`}
-                      aria-haspopup="menu"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const rect = e.currentTarget.getBoundingClientRect()
-                        openActionsForPath(it.path, { x: rect.right - 4, y: rect.bottom - 4 })
-                      }}
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <circle cx="12" cy="5" r="1.5" />
-                        <circle cx="12" cy="12" r="1.5" />
-                        <circle cx="12" cy="19" r="1.5" />
-                      </svg>
-                    </button>
-                    <div className="cell-content absolute inset-0">
-                      <ThumbCard
-                        path={it.path}
-                        name={it.name}
-                        selected={isVisuallySelected}
-                        highlighted={isRecentlyUpdated}
-                        highlightKey={recentUpdateKey}
-                        selectionOrder={selectionOrder}
-                        displayW={displayW}
-                        displayH={displayH}
-                        fit={fit}
-                        ioRoot={parentRef.current}
-                        isScrolling={isScrolling}
-                        priority={isTopmostVisibleRow}
-                        onClick={(ev: React.MouseEvent) => handleItemClick(it.path, ev)}
-                      />
-                    </div>
-                    <div 
-                      className="grid-item-preview-hotspot absolute right-0 bottom-0 w-7 h-7 cursor-zoom-in"
-                      onMouseEnter={() => schedulePreview(it.path)}
-                      onMouseLeave={clearPreview}>
-                      <div
-                        className="grid-item-preview-corner absolute right-0 bottom-0 h-[18px] w-[18px] flex items-center justify-center text-text select-none"
-                        style={{
-                          clipPath: 'path("M0 9C0 4.02944 4.02944 0 9 0H18V18H0V9Z")',
-                          background: 'linear-gradient(135deg, rgba(18,18,18,0.9) 0%, rgba(34,34,34,0.9) 60%, rgba(22,22,22,0.9) 100%)',
-                          borderTop: '1px solid rgba(255,255,255,0.08)',
-                          borderLeft: '1px solid rgba(255,255,255,0.08)',
-                          boxShadow: '0 1px 2px rgba(0,0,0,0.45)',
-                          backdropFilter: 'blur(1px)'
-                        }}
-                      >
-                        <svg
-                          width="11"
-                          height="11"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.7"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="text-[#d9dce2]"
-                          aria-hidden="true"
-                          style={{ transform: 'translate(0px,0px)' }}
-                        >
-                          <circle cx="11" cy="11" r="5.4" />
-                          <path d="M15.5 15.5 L19 19" />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-center text-center gap-0.5 mt-2 px-1 text-text-secondary">
-                    <div className="text-xs font-medium leading-[16px] thumb-filename line-clamp-2 break-words hyphens-auto text-center" title={it.name}>
-                      {renderHighlightedName(it.name, highlight)}
-                    </div>
-                    <div className="text-[10px] leading-[14px] text-muted">{it.width} × {it.height}</div>
-                  </div>
-                </div>
-              )})}
-            </div>
-          )
-        })}
+        <VirtualGridRows
+          virtualRows={virtualRows}
+          layout={layout}
+          items={items}
+          gap={GAP}
+          scrollRootRef={parentRef}
+          suppressSelectionHighlight={suppressSelectionHighlight}
+          active={active}
+          focused={focused}
+          selectedSet={selectedSet}
+          selectionOrderByPath={selectionOrderByPath}
+          recentlyUpdated={recentlyUpdated}
+          highlight={highlight}
+          isScrolling={isScrolling}
+          multiSelectMode={multiSelectMode}
+          onCellFocus={setFocused}
+          onPointerDown={handleItemPointerDown}
+          onPointerMove={handleItemPointerMove}
+          onPointerUp={handleItemPointerUp}
+          onPointerCancel={handleItemPointerCancel}
+          onContextMenuItem={onContextMenuItem}
+          onOpenItemActions={openActionsForPath}
+          onOpenViewer={onOpenViewer}
+          onClearPreview={clearPreview}
+          onSchedulePreview={schedulePreview}
+          onItemClick={handleItemClick}
+        />
         {previewFor && previewUrl && delayPassed && previewPosition && previewSize && createPortal(
           <div
             className="grid-hover-preview fixed z-[999] pointer-events-none overflow-hidden rounded-lg border border-border bg-panel/95 shadow-lg"

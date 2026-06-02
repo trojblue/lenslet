@@ -2,16 +2,20 @@ import React, { useMemo, useState } from 'react'
 import type { FilterAST, BrowseItemPayload } from '../../../lib/types'
 import type { Range } from '../model/histogram'
 import {
+  collectMetricCategoriesByKey,
   collectMetricValuesByKey,
+  getMetricCategories,
   getMetricValues,
   type MetricValuesByKey,
 } from '../model/metricValues'
+import MetricCategoryCard from './MetricCategoryCard'
 import MetricHistogramCard from './MetricHistogramCard'
 
 interface MetricRangePanelProps {
   items: BrowseItemPayload[]
   filteredItems: BrowseItemPayload[]
   metricKeys: string[]
+  selectedItems?: BrowseItemPayload[]
   selectedValuesByKey?: MetricValuesByKey | null
   selectedMetric?: string
   onSelectMetric: (key: string) => void
@@ -25,6 +29,7 @@ export default function MetricRangePanel({
   items,
   filteredItems,
   metricKeys,
+  selectedItems,
   selectedValuesByKey,
   selectedMetric,
   onSelectMetric,
@@ -44,7 +49,39 @@ export default function MetricRangePanel({
     () => collectMetricValuesByKey(filteredItems, scopedMetricKeys),
     [filteredItems, scopedMetricKeys]
   )
+  const categoriesByKey = useMemo(
+    () => collectMetricCategoriesByKey(items, filteredItems, selectedItems, scopedMetricKeys),
+    [items, filteredItems, selectedItems, scopedMetricKeys]
+  )
   const selectedValues = selectedValuesByKey ?? EMPTY_VALUES_BY_KEY
+
+  const renderMetricCard = (key: string, showTitle = false) => {
+    const categories = getMetricCategories(categoriesByKey, key)
+    if (categories.length) {
+      return (
+        <MetricCategoryCard
+          key={key}
+          metricKey={key}
+          categories={categories}
+          filters={filters}
+          onChangeRange={onChangeRange}
+          showTitle={showTitle}
+        />
+      )
+    }
+    return (
+      <MetricHistogramCard
+        key={key}
+        metricKey={key}
+        populationValues={getMetricValues(populationValuesByKey, key)}
+        filteredValues={getMetricValues(filteredValuesByKey, key)}
+        selectedValues={getMetricValues(selectedValues, key)}
+        filters={filters}
+        onChangeRange={onChangeRange}
+        showTitle={showTitle}
+      />
+    )
+  }
 
   return (
     <>
@@ -78,29 +115,11 @@ export default function MetricRangePanel({
 
       {showAll ? (
         <div className="space-y-3">
-          {metricKeys.map((key) => (
-            <MetricHistogramCard
-              key={key}
-              metricKey={key}
-              populationValues={getMetricValues(populationValuesByKey, key)}
-              filteredValues={getMetricValues(filteredValuesByKey, key)}
-              selectedValues={getMetricValues(selectedValues, key)}
-              filters={filters}
-              onChangeRange={onChangeRange}
-              showTitle
-            />
-          ))}
+          {metricKeys.map((key) => renderMetricCard(key, true))}
         </div>
       ) : (
         activeMetric ? (
-          <MetricHistogramCard
-            metricKey={activeMetric}
-            populationValues={getMetricValues(populationValuesByKey, activeMetric)}
-            filteredValues={getMetricValues(filteredValuesByKey, activeMetric)}
-            selectedValues={getMetricValues(selectedValues, activeMetric)}
-            filters={filters}
-            onChangeRange={onChangeRange}
-          />
+          renderMetricCard(activeMetric)
         ) : (
           <div className="text-sm text-muted">No values found for this metric.</div>
         )

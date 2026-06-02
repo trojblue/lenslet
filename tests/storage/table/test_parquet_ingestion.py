@@ -117,6 +117,29 @@ def test_parquet_item_payload_exposes_non_metric_row_fields(tmp_path: Path):
     }
 
 
+def test_parquet_folder_payload_exposes_string_classification_metrics(tmp_path: Path):
+    root = tmp_path
+    img_a = root / "a.jpg"
+    img_b = root / "b.jpg"
+    _make_image(img_a)
+    _make_image(img_b)
+
+    _write_parquet(root / "items.parquet", {
+        "path": ["a.jpg", "b.jpg"],
+        "l0p_style_family": ["anime", "photographic"],
+    })
+
+    client = TestClient(create_app(str(root)))
+
+    payload = client.get("/folders", params={"path": "/"}).json()
+
+    assert payload["metric_keys"] == ["l0p_style_family"]
+    assert payload["items"][0]["metrics"] == {"l0p_style_family": 0.0}
+    assert payload["items"][0]["metric_labels"] == {"l0p_style_family": "anime"}
+    assert payload["items"][1]["metrics"] == {"l0p_style_family": 1.0}
+    assert payload["items"][1]["metric_labels"] == {"l0p_style_family": "photographic"}
+
+
 def test_table_recursive_large_listing_bypasses_generic_hard_limit() -> None:
     rows = [
         {

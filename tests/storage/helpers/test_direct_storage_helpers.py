@@ -200,7 +200,8 @@ def test_source_path_helpers_preserve_visible_local_prefix_and_names(tmp_path: P
 def test_table_index_extracts_metrics_and_display_fields() -> None:
     context = _table_index_context()
 
-    assert table_index.extract_row_metrics(context, 0) == {"metric_score": 0.5}
+    assert table_index.extract_row_metrics(context, 0) == {"metric_score": 0.5, "label": 0.0}
+    assert table_index.extract_row_metric_labels(context, 0) == {"label": "cat"}
     assert table_index.extract_row_metrics_map(context, 0) == {"score": 0.75}
     assert table_index.extract_row_display_fields(context, 0) == {
         "metrics": {"note": "sharp"},

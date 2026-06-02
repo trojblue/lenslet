@@ -77,6 +77,7 @@ class TableBrowseItem:
     url: str | None = None
     source: str | None = None
     metrics: dict[str, float] = field(default_factory=dict)
+    metric_labels: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -368,8 +369,6 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
     def _selected_extensionless_source_trust_scope(self) -> str | None:
         if self._source_column.lower() in self.EXTENSIONLESS_IMAGE_SOURCE_COLUMNS:
             return "*"
-        if not self._source_column_was_explicit:
-            return None
         return self._probe_extensionless_source_scope()
 
     def _allows_extensionless_source_image(self, source: str) -> bool:

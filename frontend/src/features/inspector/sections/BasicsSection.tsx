@@ -215,6 +215,7 @@ export function BasicsSection({
           {(() => {
             const metrics = currentItem.metrics || null
             if (!metrics) return null
+            const metricLabels = currentItem.metric_labels || {}
             const entries = Object.entries(metrics).filter(([, v]) => v != null)
             if (!entries.length) return null
             const highlightKey = sortSpec?.kind === 'metric' ? sortSpec.key : null
@@ -242,7 +243,7 @@ export function BasicsSection({
                           {key}
                         </span>
                         <span className={`ui-kv-value flex-1 text-left ${isHighlighted ? 'text-accent font-medium' : ''}`}>
-                          {formatMetricNumber(val)}
+                          {metricLabels[key] ?? formatMetricNumber(val)}
                         </span>
                       </div>
                     )

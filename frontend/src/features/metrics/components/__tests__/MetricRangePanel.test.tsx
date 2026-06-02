@@ -3,7 +3,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { BrowseItemPayload } from '../../../../lib/types'
 import MetricRangePanel from '../MetricRangePanel'
 
-function makeItem(path: string, metrics?: BrowseItemPayload['metrics']): BrowseItemPayload {
+function makeItem(
+  path: string,
+  metrics?: BrowseItemPayload['metrics'],
+  metricLabels?: BrowseItemPayload['metric_labels'],
+): BrowseItemPayload {
   return {
     path,
     name: path.split('/').pop() ?? path,
@@ -14,6 +18,7 @@ function makeItem(path: string, metrics?: BrowseItemPayload['metrics']): BrowseI
     has_thumbnail: true,
     has_metadata: true,
     metrics,
+    metric_labels: metricLabels,
   }
 }
 
@@ -39,5 +44,29 @@ describe('MetricRangePanel', () => {
 
     expect(html).toContain('<option value="quality_score" selected="">quality_score</option>')
     expect(html).toContain('Population: 2')
+  })
+
+  it('renders classification metric labels as category choices', () => {
+    const html = renderToStaticMarkup(
+      <MetricRangePanel
+        items={[
+          makeItem('/a.jpg', { l0p_style_family: 0 }, { l0p_style_family: 'anime' }),
+          makeItem('/b.jpg', { l0p_style_family: 1 }, { l0p_style_family: 'photographic' }),
+        ]}
+        filteredItems={[
+          makeItem('/a.jpg', { l0p_style_family: 0 }, { l0p_style_family: 'anime' }),
+        ]}
+        metricKeys={['l0p_style_family']}
+        selectedMetric="l0p_style_family"
+        onSelectMetric={() => {}}
+        filters={{ and: [] }}
+        onChangeRange={() => {}}
+      />,
+    )
+
+    expect(html).toContain('anime')
+    expect(html).toContain('photographic')
+    expect(html).toContain('Filtered: 1')
+    expect(html).toContain('0/1')
   })
 })

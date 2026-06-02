@@ -27,6 +27,7 @@ class BrowseItemPayload(BaseModel):
     url: str | None = None
     source: str | None = None
     metrics: dict[str, float] | None = None
+    metric_labels: dict[str, str] | None = None
 
 
 class BrowseFolderEntryPayload(BaseModel):

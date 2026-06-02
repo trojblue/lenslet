@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { BrowseItemPayload } from '../../../../lib/types'
 import {
+  collectMetricCategoriesByKey,
   collectMetricValuesByKey,
+  getMetricCategories,
   getMetricValues,
 } from '../metricValues'
 
-function makeItem(metrics?: Record<string, number | null>): BrowseItemPayload {
+function makeItem(
+  metrics?: Record<string, number | null>,
+  metricLabels?: Record<string, string>,
+): BrowseItemPayload {
   return {
     path: '/tmp/example.jpg',
     name: 'example.jpg',
@@ -16,6 +21,7 @@ function makeItem(metrics?: Record<string, number | null>): BrowseItemPayload {
     has_thumbnail: false,
     has_metadata: false,
     metrics,
+    metric_labels: metricLabels,
   }
 }
 
@@ -60,5 +66,27 @@ describe('metrics value map utilities', () => {
     )
 
     expect(getMetricValues(valuesByKey, 'score')).toEqual([1.2, 4])
+  })
+
+  it('collects category counts by metric key', () => {
+    const categoriesByKey = collectMetricCategoriesByKey(
+      [
+        makeItem({ style: 0 }, { style: 'anime' }),
+        makeItem({ style: 1 }, { style: 'photographic' }),
+        makeItem({ style: 0 }, { style: 'anime' }),
+      ],
+      [
+        makeItem({ style: 0 }, { style: 'anime' }),
+      ],
+      [
+        makeItem({ style: 1 }, { style: 'photographic' }),
+      ],
+      ['style'],
+    )
+
+    expect(getMetricCategories(categoriesByKey, 'style')).toEqual([
+      { code: 0, label: 'anime', populationCount: 2, filteredCount: 1, selectedCount: 0 },
+      { code: 1, label: 'photographic', populationCount: 1, filteredCount: 0, selectedCount: 1 },
+    ])
   })
 })

@@ -90,6 +90,34 @@ def test_internal_metrics_map_entries_are_filtered(tmp_path: Path) -> None:
     assert item.metrics == {"quality_score": 0.42}
 
 
+def test_string_classification_columns_become_categorical_metrics(tmp_path: Path) -> None:
+    first = tmp_path / "one.jpg"
+    second = tmp_path / "two.jpg"
+    _make_image(first)
+    _make_image(second)
+
+    rows = [
+        {
+            "source": str(first),
+            "path": "one.jpg",
+            "l0p_style_family": "anime",
+        },
+        {
+            "source": str(second),
+            "path": "two.jpg",
+            "l0p_style_family": "photographic",
+        },
+    ]
+
+    storage = _table_storage(rows, skip_dimension_probe=True)
+    items = _root_items(storage)
+
+    assert items[0].metrics == {"l0p_style_family": 0.0}
+    assert items[0].metric_labels == {"l0p_style_family": "anime"}
+    assert items[1].metrics == {"l0p_style_family": 1.0}
+    assert items[1].metric_labels == {"l0p_style_family": "photographic"}
+
+
 def test_duplicate_logical_paths_keep_stable_row_mappings(tmp_path: Path) -> None:
     first = tmp_path / "first.jpg"
     second = tmp_path / "second.jpg"
@@ -356,24 +384,38 @@ def test_explicit_extensionless_probe_trust_is_limited_to_sample_origin(
     assert storage.path_for_row_index(1) is None
 
 
-def test_auto_detected_extensionless_source_column_does_not_probe(
+def test_auto_detected_extensionless_source_column_uses_one_image_probe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def _fail_probe(self: TableStorage, source: str) -> bool:
-        raise AssertionError(f"auto-detection must not probe extensionless URLs: {source}")
+    probed: list[str] = []
 
-    monkeypatch.setattr(TableStorage, "_source_header_is_image", _fail_probe)
+    def _probe(self: TableStorage, source: str) -> bool:
+        probed.append(source)
+        return True
+
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", _probe)
     rows = [
         {
             "asset_url": "https://images.example.test/r2/encoded-image-key",
             "width": 12,
             "height": 9,
+            "deepghs_ai_prob": 0.91,
+        },
+        {
+            "asset_url": "https://images.example.test/r2/second-encoded-key",
+            "width": 11,
+            "height": 8,
+            "larry_ai_prob": 0.82,
         }
     ]
 
     storage = _table_storage(rows, skip_dimension_probe=True)
 
-    assert storage.count_in_scope("/") == 0
+    assert probed == ["https://images.example.test/r2/encoded-image-key"]
+    assert storage.count_in_scope("/") == 2
+    items = list(storage.items_in_scope("/"))
+    assert items[0].metrics == {"deepghs_ai_prob": 0.91}
+    assert items[1].metrics == {"larry_ai_prob": 0.82}
 
 
 def test_explicit_extensionless_source_column_skips_rows_when_probe_fails(

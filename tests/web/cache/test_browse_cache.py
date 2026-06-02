@@ -54,6 +54,25 @@ def test_recursive_snapshot_window_round_trips_payloads() -> None:
     assert restored.metrics == {"score": 1.0}
 
 
+def test_recursive_snapshot_window_round_trips_metric_labels() -> None:
+    item = RecursiveCachedItemSnapshot(
+        path="/animals/cat.jpg",
+        name="cat.jpg",
+        mime="image/jpeg",
+        width=640,
+        height=480,
+        size=2048,
+        mtime=1700000000.0,
+        metrics={"style": 0.0},
+        metric_labels={"style": "anime"},
+    )
+
+    restored = RecursiveCachedItemSnapshot.from_payload(item.to_payload())
+
+    assert restored.metrics == {"style": 0.0}
+    assert restored.metric_labels == {"style": "anime"}
+
+
 def test_recursive_browse_cache_enforces_disk_cap(tmp_path):
     cap_bytes = 8_000
     cache = RecursiveBrowseCache(

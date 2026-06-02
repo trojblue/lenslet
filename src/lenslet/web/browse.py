@@ -117,6 +117,7 @@ def build_item_payload(
     metrics = getattr(cached, "metrics", None)
     if metrics is None:
         metrics = sidecar_state.get("metrics")
+    metric_labels = getattr(cached, "metric_labels", None)
     added_at = None
     mtime = float(getattr(cached, "mtime", 0) or 0)
     if mtime > 0:
@@ -136,6 +137,7 @@ def build_item_payload(
         url=getattr(cached, "url", None),
         source=source,
         metrics=metrics,
+        metric_labels=metric_labels or None,
     )
 
 

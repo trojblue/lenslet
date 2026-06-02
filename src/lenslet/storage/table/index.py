@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from typing import Any, Callable, TypeAlias
 
@@ -9,7 +10,7 @@ from .display import (
     normalize_metrics_display_value,
 )
 from ..index_assembly import IndexAssemblyResult, assemble_indexes
-from .row_scan import IndexColumns, RemoteDimensionTask, ScanResult, scan_rows
+from .row_scan import CategoricalMetricColumn, IndexColumns, RemoteDimensionTask, ScanResult, scan_rows
 from .index_types import (
     ProgressCallback,
     TableIndexData,
@@ -21,6 +22,7 @@ from .schema import coerce_float
 
 __all__ = [
     "IndexColumns",
+    "CategoricalMetricColumn",
     "ProgressCallback",
     "RemoteDimensionTask",
     "ScanResult",
@@ -31,7 +33,9 @@ __all__ = [
     "build_index_columns",
     "build_table_indexes",
     "collect_metric_columns",
+    "collect_categorical_metric_columns",
     "extract_row_display_fields",
+    "extract_row_metric_labels",
     "extract_row_metrics",
     "extract_row_metrics_map",
     "scan_rows",
@@ -100,13 +104,11 @@ def build_index_columns(context: TableIndexInput) -> IndexColumns:
         mtime_values=values_for(table.mtime_column),
         metrics_values=values_for(table.metrics_column),
         metric_columns=collect_metric_columns(context, none_values),
+        categorical_metric_columns=collect_categorical_metric_columns(context, none_values),
     )
 
 
-def collect_metric_columns(
-    context: TableIndexInput,
-    none_values: list[Any],
-) -> tuple[tuple[str, list[Any]], ...]:
+def _metric_candidate_columns(context: TableIndexInput) -> list[str]:
     table = context.table
     used_columns = {
         table.source_column,
@@ -119,7 +121,7 @@ def collect_metric_columns(
         table.mtime_column,
     }
 
-    metric_columns: list[tuple[str, list[Any]]] = []
+    candidates: list[str] = []
     for column in table.columns:
         if column in used_columns:
             continue
@@ -127,8 +129,73 @@ def collect_metric_columns(
             continue
         if is_internal_metric_key(column):
             continue
+        candidates.append(column)
+    return candidates
+
+
+def collect_metric_columns(
+    context: TableIndexInput,
+    none_values: list[Any],
+) -> tuple[tuple[str, list[Any]], ...]:
+    table = context.table
+    metric_columns: list[tuple[str, list[Any]]] = []
+    for column in _metric_candidate_columns(context):
         metric_columns.append((column, table.column_values.get(column, none_values)))
     return tuple(metric_columns)
+
+
+_MAX_CATEGORICAL_METRIC_CATEGORIES = 128
+_MAX_CATEGORICAL_METRIC_LABEL_LENGTH = 120
+
+
+def collect_categorical_metric_columns(
+    context: TableIndexInput,
+    none_values: list[Any],
+) -> tuple[CategoricalMetricColumn, ...]:
+    table = context.table
+    columns: list[CategoricalMetricColumn] = []
+    for column in _metric_candidate_columns(context):
+        values = table.column_values.get(column, none_values)
+        code_by_label = _categorical_metric_codes(values)
+        if code_by_label is None:
+            continue
+        columns.append(CategoricalMetricColumn(column, values, code_by_label))
+    return tuple(columns)
+
+
+def _categorical_metric_codes(values: list[Any]) -> dict[str, float] | None:
+    labels: set[str] = set()
+    for raw_value in values:
+        numeric_value = coerce_float(raw_value)
+        if numeric_value is not None:
+            if not math.isfinite(numeric_value):
+                continue
+            return None
+        label = _categorical_metric_label(raw_value)
+        if label is None:
+            continue
+        labels.add(label)
+        if len(labels) > _MAX_CATEGORICAL_METRIC_CATEGORIES:
+            return None
+    if not labels:
+        return None
+    return {
+        label: float(idx)
+        for idx, label in enumerate(sorted(labels, key=lambda value: (value.casefold(), value)))
+    }
+
+
+def _categorical_metric_label(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return None
+    label = value.strip()
+    if not label or len(label) > _MAX_CATEGORICAL_METRIC_LABEL_LENGTH:
+        return None
+    if "://" in label or "/" in label or "\\" in label:
+        return None
+    return label
 
 
 def _duplicate_display_columns(context: TableIndexInput) -> set[str]:
@@ -153,6 +220,7 @@ def extract_row_metrics(context: TableIndexInput, row_idx: int) -> dict[str, flo
     table = context.table
     none_values: list[Any] = [None] * table.row_count
     metric_columns = collect_metric_columns(context, none_values)
+    categorical_metric_columns = collect_categorical_metric_columns(context, none_values)
 
     metrics: dict[str, float] = {}
     for column, values in metric_columns:
@@ -160,7 +228,28 @@ def extract_row_metrics(context: TableIndexInput, row_idx: int) -> dict[str, flo
         if num is None:
             continue
         metrics[column] = num
+    for column in categorical_metric_columns:
+        label = _categorical_metric_label(column.values[row_idx])
+        if label is None:
+            continue
+        code = column.code_by_label.get(label)
+        if code is not None:
+            metrics[column.key] = code
     return metrics
+
+
+def extract_row_metric_labels(context: TableIndexInput, row_idx: int) -> dict[str, str]:
+    table = context.table
+    none_values: list[Any] = [None] * table.row_count
+    categorical_metric_columns = collect_categorical_metric_columns(context, none_values)
+
+    labels: dict[str, str] = {}
+    for column in categorical_metric_columns:
+        label = _categorical_metric_label(column.values[row_idx])
+        if label is None or label not in column.code_by_label:
+            continue
+        labels[column.key] = label
+    return labels
 
 
 def extract_row_metrics_map(context: TableIndexInput, row_idx: int) -> dict[str, float]:

@@ -22,6 +22,7 @@ interface MetricsPanelProps {
 
 interface SelectedMetricsPanelProps {
   selectedValuesByKey: MetricValuesByKey
+  selectedItems: BrowseItemPayload[]
   totalItems: number
   metricKeys: string[]
 }
@@ -46,6 +47,7 @@ export default function MetricsPanel({
     ? (
       <SelectedMetricsPanel
         selectedValuesByKey={selectedValuesByKey}
+        selectedItems={selectedItems}
         totalItems={selectedItems.length}
         metricKeys={metricKeys}
       />
@@ -77,6 +79,7 @@ export default function MetricsPanel({
         items={items}
         filteredItems={filteredItems}
         metricKeys={metricKeys}
+        selectedItems={selectedItems}
         selectedValuesByKey={selectedValuesByKey}
         selectedMetric={selectedMetric}
         onSelectMetric={onSelectMetric}
@@ -88,13 +91,17 @@ export default function MetricsPanel({
   )
 }
 
-function SelectedMetricsPanel({ selectedValuesByKey, totalItems, metricKeys }: SelectedMetricsPanelProps) {
+function SelectedMetricsPanel({ selectedValuesByKey, selectedItems, totalItems, metricKeys }: SelectedMetricsPanelProps) {
   const summary = useMemo(() => {
     if (!selectedValuesByKey.size) return null
     const keys = metricKeys.length
       ? metricKeys.filter((key) => selectedValuesByKey.has(key))
       : Array.from(selectedValuesByKey.keys()).sort()
     const entries = keys.map((key) => {
+      const categorySummary = selectedCategorySummary(selectedItems, key)
+      if (categorySummary) {
+        return { key, text: categorySummary, count: selectedValuesByKey.get(key)?.length ?? 0 }
+      }
       const values = selectedValuesByKey.get(key) ?? []
       const min = Math.min(...values)
       const max = Math.max(...values)
@@ -102,7 +109,7 @@ function SelectedMetricsPanel({ selectedValuesByKey, totalItems, metricKeys }: S
       return { key, value: values[0], min, max, avg, count: values.length }
     })
     return { entries, totalItems }
-  }, [selectedValuesByKey, metricKeys, totalItems])
+  }, [selectedValuesByKey, selectedItems, metricKeys, totalItems])
 
   if (!summary) return null
 
@@ -122,8 +129,8 @@ function SelectedMetricsPanel({ selectedValuesByKey, totalItems, metricKeys }: S
           <div key={entry.key} className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 min-w-0">
             <span className="text-muted min-w-0 flex-1 basis-[7rem] truncate" title={entry.key}>{entry.key}</span>
             <span className="text-text text-right tabular-nums min-w-0 flex-1 basis-[6rem] whitespace-normal break-words">
-              {isMulti ? `${formatNumber(entry.min)} – ${formatNumber(entry.max)}` : formatNumber(entry.value)}
-              {isMulti && (
+              {'text' in entry ? entry.text : isMulti ? `${formatNumber(entry.min)} – ${formatNumber(entry.max)}` : formatNumber(entry.value)}
+              {!('text' in entry) && isMulti && (
                 <span className="text-[11px] text-muted ml-1 inline-block">
                   avg {formatNumber(entry.avg)}
                   {entry.count !== summaryTotalItems ? ` · ${entry.count}/${summaryTotalItems}` : ''}
@@ -138,4 +145,18 @@ function SelectedMetricsPanel({ selectedValuesByKey, totalItems, metricKeys }: S
       </div>
     </div>
   )
+}
+
+function selectedCategorySummary(items: BrowseItemPayload[], key: string): string | null {
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    const label = item.metric_labels?.[key]
+    if (!label) continue
+    counts.set(label, (counts.get(label) ?? 0) + 1)
+  }
+  if (!counts.size) return null
+  return Array.from(counts.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([label, count]) => count > 1 ? `${label} (${count})` : label)
+    .join(', ')
 }

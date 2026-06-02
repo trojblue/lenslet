@@ -16,6 +16,7 @@ export type BrowseItemPayload = {
   url?: string | null
   source?: string | null
   metrics?: Record<string, number | null>
+  metric_labels?: Record<string, string> | null
 }
 
 export type BrowseFolderEntryPayload = {
@@ -69,12 +70,14 @@ export type ItemUpdatedEvent = {
   updated_at: string
   updated_by: string
   metrics?: Record<string, number | null>
+  metric_labels?: Record<string, string> | null
 }
 
 export type MetricsUpdatedEvent = {
   path: string
   version: number
   metrics: Record<string, number | null>
+  metric_labels?: Record<string, string> | null
   updated_at: string
   updated_by: string
 }

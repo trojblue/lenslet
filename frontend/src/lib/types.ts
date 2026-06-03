@@ -31,7 +31,9 @@ export type BrowseFolderPayload = {
   items: BrowseItemPayload[]
   folders: BrowseFolderEntryPayload[]
   metric_keys: string[]
-  total_items?: number
+  total_items?: number | null
+  offset?: number | null
+  limit?: number | null
 }
 
 export type BrowseFolderPathsPayload = {

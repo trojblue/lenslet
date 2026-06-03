@@ -273,6 +273,67 @@ def test_build_folder_index_recursive_count_only_uses_canonical_scope_without_it
     assert payload.metric_keys == []
 
 
+def test_build_folder_index_recursive_window_uses_window_loader() -> None:
+    class _Storage:
+        def __init__(self) -> None:
+            self.window_args = None
+            self.count_scope = None
+
+        def load_recursive_index(self, path: str):
+            assert path == "/animals"
+            return SimpleNamespace(items=[], dirs=[], generated_at="2026-05-30T00:00:00+00:00")
+
+        def count_in_scope(self, path: str) -> int:
+            self.count_scope = path
+            return 20
+
+        def items_in_scope(self, path: str):
+            raise AssertionError(f"windowed requests should not materialize scoped items for {path}")
+
+        def items_in_scope_window(self, path: str, offset: int, limit: int):
+            self.window_args = (path, offset, limit)
+            return [
+                SimpleNamespace(
+                    path="/animals/cat.jpg",
+                    name="cat.jpg",
+                    mime="image/jpeg",
+                    width=8,
+                    height=6,
+                    size=123,
+                    mtime=1.0,
+                    metrics={"score": 0.5},
+                )
+            ]
+
+    storage = _Storage()
+
+    payload = browse.build_folder_index(
+        storage,
+        " animals/ ",
+        lambda _storage, item: BrowseItemPayload(
+            path=item.path,
+            name=item.name,
+            mime=item.mime,
+            width=item.width,
+            height=item.height,
+            size=item.size,
+            metrics=item.metrics,
+        ),
+        recursive=True,
+        count_only=False,
+        offset=5,
+        limit=1,
+        browse_cache=None,
+    )
+
+    assert storage.count_scope == "/animals"
+    assert storage.window_args == ("/animals", 5, 1)
+    assert payload.total_items == 20
+    assert payload.offset == 5
+    assert payload.limit == 1
+    assert [item.path for item in payload.items] == ["/animals/cat.jpg"]
+
+
 def test_embedding_payload_preserves_available_and_rejected_specs() -> None:
     manager = SimpleNamespace(
         available=[

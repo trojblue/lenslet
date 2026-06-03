@@ -117,7 +117,7 @@ def test_parquet_item_payload_exposes_non_metric_row_fields(tmp_path: Path):
     }
 
 
-def test_parquet_folder_payload_exposes_string_classification_metrics(tmp_path: Path):
+def test_parquet_folder_payload_keeps_string_classifications_out_of_initial_metrics(tmp_path: Path):
     root = tmp_path
     img_a = root / "a.jpg"
     img_b = root / "b.jpg"
@@ -133,14 +133,17 @@ def test_parquet_folder_payload_exposes_string_classification_metrics(tmp_path: 
 
     payload = client.get("/folders", params={"path": "/"}).json()
 
-    assert payload["metric_keys"] == ["l0p_style_family"]
-    assert payload["items"][0]["metrics"] == {"l0p_style_family": 0.0}
-    assert payload["items"][0]["metric_labels"] == {"l0p_style_family": "anime"}
-    assert payload["items"][1]["metrics"] == {"l0p_style_family": 1.0}
-    assert payload["items"][1]["metric_labels"] == {"l0p_style_family": "photographic"}
+    assert payload["metric_keys"] == []
+    assert payload["items"][0]["metrics"] == {}
+    assert payload["items"][0]["metric_labels"] is None
+    assert payload["items"][1]["metrics"] == {}
+    assert payload["items"][1]["metric_labels"] is None
+
+    item_payload = client.get("/item", params={"path": "/a.jpg"}).json()
+    assert item_payload["table_fields"] == {"l0p_style_family": "anime"}
 
 
-def test_table_recursive_large_listing_bypasses_generic_hard_limit() -> None:
+def test_table_recursive_large_listing_requires_bounded_window() -> None:
     rows = [
         {
             "source": f"https://example.com/gallery/img_{idx:05d}.jpg",
@@ -159,12 +162,23 @@ def test_table_recursive_large_listing_bypasses_generic_hard_limit() -> None:
 
     resp = client.get("/folders", params={"path": "/gallery", "recursive": "1"})
 
-    assert resp.status_code == 200
-    payload = resp.json()
-    assert len(payload["items"]) == 10_001
+    assert resp.status_code == 413
+    assert "safety limit" in resp.json()["detail"]
+
+    window = client.get(
+        "/folders",
+        params={"path": "/gallery", "recursive": "1", "offset": "100", "limit": "20"},
+    )
+
+    assert window.status_code == 200
+    payload = window.json()
+    assert payload["total_items"] == 10_001
+    assert payload["offset"] == 100
+    assert payload["limit"] == 20
+    assert len(payload["items"]) == 20
     assert payload["metric_keys"] == ["quality_score"]
-    assert payload["items"][0]["path"] == "/gallery/img_00000.jpg"
-    assert payload["items"][-1]["path"] == "/gallery/img_10000.jpg"
+    assert payload["items"][0]["path"] == "/gallery/img_00100.jpg"
+    assert payload["items"][-1]["path"] == "/gallery/img_00119.jpg"
 
 
 def test_views_no_write_mode(tmp_path: Path):

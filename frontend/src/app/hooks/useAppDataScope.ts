@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { shouldRemoveRecursiveFolderQuery, useFolder, useFolderCount } from '../../api/folders'
 import { buildCanonicalSearchRequest, useSearch } from '../../api/search'
 import { useEmbeddings } from '../../api/embeddings'
-import { cancelBrowseRequests } from '../../api/client'
+import { api, cancelBrowseRequests } from '../../api/client'
 import { useDebounced } from '../../shared/hooks/useDebounced'
 import { applyFilters, applySort } from '../../features/browse/model/apply'
 import { FetchError } from '../../lib/fetcher'
@@ -22,6 +22,8 @@ import type {
   ViewState,
 } from '../../lib/types'
 import { buildFallbackItem } from '../utils/appShellHelpers'
+
+const FOLDER_PAGE_SIZE = 5000
 
 export type SimilarityState = {
   embedding: string
@@ -67,6 +69,9 @@ type UseAppDataScopeResult = {
   filteredCount: number
   scopeTotal: number
   rootTotal: number
+  hasMoreFolderItems: boolean
+  isLoadingMoreFolderItems: boolean
+  loadMoreFolderItems: () => void
 }
 
 function getEmbeddingsError(isError: boolean, error: unknown): string | null {
@@ -74,6 +79,31 @@ function getEmbeddingsError(isError: boolean, error: unknown): string | null {
   if (error instanceof FetchError) return error.message
   if (error instanceof Error) return error.message
   return 'Failed to load embeddings.'
+}
+
+function mergeFolderPage(
+  current: BrowseFolderPayload,
+  page: BrowseFolderPayload,
+): BrowseFolderPayload {
+  const seen = new Set(current.items.map((item) => item.path))
+  const items = [...current.items]
+  for (const item of page.items) {
+    if (seen.has(item.path)) continue
+    seen.add(item.path)
+    items.push(item)
+  }
+  const metricKeys = Array.from(new Set([
+    ...(current.metric_keys ?? []),
+    ...(page.metric_keys ?? []),
+  ])).sort()
+  return {
+    ...current,
+    items,
+    metric_keys: metricKeys,
+    total_items: page.total_items ?? current.total_items,
+    offset: 0,
+    limit: items.length,
+  }
 }
 
 export function useAppDataScope({
@@ -94,11 +124,17 @@ export function useAppDataScope({
     refetch: refetchRecursiveFolder,
     isLoading,
     isError,
-  } = useFolder(current, { recursive: true })
+  } = useFolder(current, { recursive: true, offset: 0, limit: FOLDER_PAGE_SIZE })
   const { data: rootCount } = useFolderCount('/', { enabled: current !== '/' })
   const [data, setData] = useState<BrowseFolderPayload | undefined>()
+  const [isLoadingMoreFolderItems, setIsLoadingMoreFolderItems] = useState(false)
   const loadTokenRef = useRef(0)
-  const refetch = useCallback(() => refetchRecursiveFolder(), [refetchRecursiveFolder])
+  const pageRequestTokenRef = useRef(0)
+  const refetch = useCallback(() => {
+    pageRequestTokenRef.current += 1
+    setIsLoadingMoreFolderItems(false)
+    return refetchRecursiveFolder()
+  }, [refetchRecursiveFolder])
 
   useEffect(() => {
     queryClient.removeQueries({
@@ -108,6 +144,8 @@ export function useAppDataScope({
 
   useEffect(() => {
     loadTokenRef.current += 1
+    pageRequestTokenRef.current += 1
+    setIsLoadingMoreFolderItems(false)
     startBrowseLoad({ requestId: loadTokenRef.current, path: current })
     const cachedSnapshot = getCachedHydratedSnapshot?.(current) ?? null
     setData(cachedSnapshot ?? undefined)
@@ -193,6 +231,40 @@ export function useAppDataScope({
   const rootTotal = current === '/'
     ? scopeTotal
     : (rootCount ?? scopeTotal)
+  const hasMoreFolderItems = (
+    !similarityActive
+    && !searching
+    && typeof data?.total_items === 'number'
+    && data.items.length < data.total_items
+  )
+  const loadMoreFolderItems = useCallback(() => {
+    if (isLoadingMoreFolderItems || !data || !hasMoreFolderItems) return
+    const loadedCount = data.items.length
+    const requestToken = pageRequestTokenRef.current + 1
+    pageRequestTokenRef.current = requestToken
+    setIsLoadingMoreFolderItems(true)
+    api.getFolder(current, {
+      recursive: true,
+      offset: loadedCount,
+      limit: FOLDER_PAGE_SIZE,
+    })
+      .then((page) => {
+        if (pageRequestTokenRef.current !== requestToken) return
+        if (page.path !== data.path) return
+        const merged = mergeFolderPage(data, page)
+        startTransition(() => {
+          setData(merged)
+          onFolderHydratedSnapshot?.(merged.path, merged)
+        })
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (pageRequestTokenRef.current === requestToken) {
+          setIsLoadingMoreFolderItems(false)
+        }
+      })
+  }, [current, data, hasMoreFolderItems, isLoadingMoreFolderItems, onFolderHydratedSnapshot])
+
   return {
     data,
     refetch,
@@ -214,5 +286,8 @@ export function useAppDataScope({
     filteredCount,
     scopeTotal,
     rootTotal,
+    hasMoreFolderItems,
+    isLoadingMoreFolderItems,
+    loadMoreFolderItems,
   }
 }

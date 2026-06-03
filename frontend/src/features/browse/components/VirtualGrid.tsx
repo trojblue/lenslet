@@ -74,6 +74,9 @@ interface VirtualGridProps {
   targetCellSize?: number
   scrollRef?: React.RefObject<HTMLDivElement>
   isLoading?: boolean
+  hasMore?: boolean
+  isLoadingMore?: boolean
+  onLoadMore?: () => void
 }
 
 export default function VirtualGrid({
@@ -96,6 +99,9 @@ export default function VirtualGrid({
   targetCellSize = 220,
   scrollRef,
   isLoading = false,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: VirtualGridProps) {
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -303,6 +309,19 @@ export default function VirtualGrid({
   }, [])
 
   const effectiveColumns = layout.mode === 'grid' ? layout.columns : Math.max(1, Math.floor(width / (TARGET_CELL + GAP)))
+
+  useEffect(() => {
+    if (!onLoadMore || !hasMore || isLoadingMore || !items.length || !virtualRows.length) return
+    const lastVirtualRow = virtualRows[virtualRows.length - 1]
+    const lastVisibleIndex = layout.mode === 'grid'
+      ? Math.min(items.length - 1, ((lastVirtualRow.index + 1) * Math.max(1, layout.columns)) - 1)
+      : Math.max(
+        -1,
+        ...(layout.rows[lastVirtualRow.index]?.items ?? []).map((entry) => entry.originalIndex),
+      )
+    const threshold = Math.max(30, effectiveColumns * 8)
+    if (lastVisibleIndex >= items.length - threshold) onLoadMore()
+  }, [effectiveColumns, hasMore, isLoadingMore, items.length, layout, onLoadMore, virtualRows])
 
   const findClosestInRow = (rowIdx: number, targetCenter: number): string | null => {
     if (layout.mode !== 'adaptive') return null
@@ -629,7 +648,7 @@ export default function VirtualGrid({
       ref={parentRef} 
       tabIndex={0} 
       aria-activedescendant={activeDescendantId} 
-      aria-busy={isLoading || undefined}
+      aria-busy={(isLoading || isLoadingMore) || undefined}
       onMouseDown={() => parentRef.current?.focus()} 
       style={cssVars({ '--gap': `${GAP}px` })}
     >

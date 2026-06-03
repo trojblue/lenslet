@@ -444,12 +444,16 @@ function postPresenceJSON<TResponse>(path: string, payload: unknown): Promise<TR
 export type GetFolderOptions = {
   recursive?: boolean
   countOnly?: boolean
+  offset?: number
+  limit?: number
 }
 
 export function buildFolderQuery(path: string, options?: GetFolderOptions): string {
   const params = new URLSearchParams({ path })
   if (options?.recursive) params.set('recursive', '1')
   if (options?.countOnly) params.set('count_only', '1')
+  if (options?.offset !== undefined) params.set('offset', String(options.offset))
+  if (options?.limit !== undefined) params.set('limit', String(options.limit))
   return params.toString()
 }
 

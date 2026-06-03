@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from lenslet.storage.table.index import TableIndexData, TableIndexInput, TableIndexPolicy, TableSourceResolver
-from lenslet.storage.table.row_scan import CategoricalMetricColumn, IndexColumns, scan_rows
+from lenslet.storage.table.row_scan import IndexColumns, scan_rows
 
 
 @dataclass
@@ -75,7 +75,6 @@ def test_scan_rows_builds_scanned_rows_and_metrics() -> None:
         mtime_values=[7.5],
         metrics_values=[None],
         metric_columns=(("quality", [0.75]),),
-        categorical_metric_columns=(),
     )
 
     result = scan_rows(_context(), columns, item_factory=_item_factory)
@@ -101,37 +100,8 @@ def test_scan_rows_normalizes_table_supplied_mime_values() -> None:
         mtime_values=[7.5],
         metrics_values=[None],
         metric_columns=(),
-        categorical_metric_columns=(),
     )
 
     result = scan_rows(_context(), columns, item_factory=_item_factory)
 
     assert result.rows[0].item.mime == "image/png"
-
-
-def test_scan_rows_collects_categorical_metric_labels() -> None:
-    columns = IndexColumns(
-        source_values=["/data/cat.jpg"],
-        path_values=["animals/cat.jpg"],
-        name_values=[None],
-        mime_values=[None],
-        width_values=[12],
-        height_values=[9],
-        size_values=[100],
-        mtime_values=[7.5],
-        metrics_values=[None],
-        metric_columns=(),
-        categorical_metric_columns=(
-            CategoricalMetricColumn(
-                key="style_family",
-                values=["anime"],
-                code_by_label={"anime": 0.0},
-            ),
-        ),
-    )
-
-    result = scan_rows(_context(), columns, item_factory=_item_factory)
-
-    item = result.rows[0].item
-    assert item.metrics == {"style_family": 0.0}
-    assert item.metric_labels == {"style_family": "anime"}

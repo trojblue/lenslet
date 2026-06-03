@@ -6,10 +6,13 @@ import type { GetFolderOptions } from './client'
 
 export const DEFAULT_FOLDER_GC_TIME_MS = 5 * 60_000
 export const RECURSIVE_FOLDER_GC_TIME_MS = 60_000
-type RecursiveFolderQueryKey = readonly ['folder', string, 'recursive']
+type RecursiveFolderQueryKey = readonly ['folder', string, 'recursive', number, number | null, 'items' | 'count']
 
 type FolderQueryOptions = {
   recursive?: boolean
+  countOnly?: boolean
+  offset?: number
+  limit?: number
 }
 
 export const folderQueryKey = (
@@ -21,6 +24,9 @@ export const folderQueryKey = (
       'folder',
       path,
       'recursive',
+      options.offset ?? 0,
+      options.limit ?? null,
+      options.countOnly ? 'count' : 'items',
     ] as const
     : ['folder', path] as const
 )
@@ -73,6 +79,9 @@ export function useFolder(path: string, options?: UseFolderOptions) {
   const pollingEnabled = usePollingEnabled()
   const folderOptions: GetFolderOptions = {
     recursive: options?.recursive ?? false,
+    countOnly: options?.countOnly,
+    offset: options?.offset,
+    limit: options?.limit,
   }
   const recursiveQuery = !!folderOptions.recursive
   return useQuery({

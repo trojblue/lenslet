@@ -179,7 +179,7 @@ def main() -> int:
             dataset_dir,
             host=args.host,
             port=port,
-            extra_args=["--verbose", "--no-skip-indexing"],
+            extra_args=["--verbose"],
             cwd=Path(__file__).resolve().parents[1],
             log_prefix="lenslet-gui-smoke-server-",
         ) as server:

@@ -123,6 +123,14 @@ class BrowseStorage(Storage, Protocol):
         ...
 
 
+class BrowseWindowStorage(Protocol):
+    """Optional efficient scoped-window capability for large recursive browse payloads."""
+
+    def items_in_scope_window(self, path: str, offset: int, limit: int) -> list[BrowseItem]:
+        """Return a bounded item window beneath a logical scope."""
+        ...
+
+
 class SidecarStateStorage(Protocol):
     """Mutable per-item sidecar state capability."""
 

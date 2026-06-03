@@ -4,7 +4,7 @@ import hashlib
 import os
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
@@ -15,9 +15,15 @@ from ..progress import ProgressBar
 from ..source.backed import SourceBackedConfig, SourceBackedServices, SourceBackedStorageBase
 from ..source.state import SourceBackedIndexState, SourceRowIndexState
 from ..index_assembly import IndexAssemblyResult
+from .display import (
+    is_internal_metric_key,
+    normalize_display_value,
+    normalize_metrics_display_value,
+)
 from .index import (
     build_table_indexes,
     extract_row_display_fields,
+    is_metric_column_name,
 )
 from .index_types import (
     TableIndexData,
@@ -52,6 +58,7 @@ from ..source.paths import (
     resolve_local_source_lexical,
 )
 from .schema import (
+    coerce_float,
     iter_sample,
     resolve_named_column,
     resolve_path_column,
@@ -102,6 +109,9 @@ class TableStorageOptions:
     skip_dimension_probe: bool = False
     allow_local: bool = True
     skip_local_realpath_validation: bool = False
+    row_field_provider: Callable[[int], dict[str, Any]] | None = None
+    table_field_columns: tuple[str, ...] = ()
+    browse_signature_seed: str = ""
 
 
 def _is_supported_table_image(name: str) -> bool:
@@ -119,6 +129,8 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
     REMOTE_HEADER_BYTES = 65536
     REMOTE_DIM_WORKERS = 16  # baseline concurrency for remote header probing
     REMOTE_DIM_WORKERS_MAX = 128  # avoid unbounded thread creation on huge hosts
+    RECURSIVE_ITEMS_HARD_LIMIT = 10_000
+    BROWSE_SIGNATURE_SAMPLE_SIZE = 128
 
     LOGICAL_PATH_COLUMNS = (
         "path",
@@ -232,6 +244,9 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
         self.sample_size = options.sample_size
         self.loadable_threshold = options.loadable_threshold
         self._skip_dimension_probe = options.skip_dimension_probe
+        self._row_field_provider = options.row_field_provider
+        self._table_field_columns = tuple(options.table_field_columns)
+        self._browse_signature_seed = options.browse_signature_seed
         self._progress_bar = ProgressBar()
 
         self._indexes: dict[str, TableBrowseIndex] = {}
@@ -345,10 +360,50 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
 
     def _compute_browse_signature(self) -> str:
         digest = hashlib.sha256()
+        digest.update(b"table-browse-v3")
         digest.update(str(self.root or "").encode("utf-8"))
+        digest.update(self._browse_signature_seed.encode("utf-8"))
         digest.update(str(self._row_count).encode("utf-8"))
-        for path in self._items.keys():
-            digest.update(path.encode("utf-8"))
+        for column in self._columns:
+            digest.update(repr(column).encode("utf-8"))
+        for column in (
+            self._source_column,
+            self._path_column,
+            self._name_column,
+            self._mime_column,
+            self._width_column,
+            self._height_column,
+            self._size_column,
+            self._mtime_column,
+            self._metrics_column,
+        ):
+            digest.update(repr(column).encode("utf-8"))
+        sample_size = self.BROWSE_SIGNATURE_SAMPLE_SIZE
+        if len(self._sorted_paths) <= sample_size * 2:
+            sampled_paths = self._sorted_paths
+        else:
+            sampled_paths = [
+                *self._sorted_paths[:sample_size],
+                *self._sorted_paths[-sample_size:],
+            ]
+        for path in sampled_paths:
+            item = self._items[path]
+            for value in (
+                path,
+                item.name,
+                item.mime,
+                item.width,
+                item.height,
+                item.size,
+                item.mtime,
+                item.url,
+                item.source,
+            ):
+                digest.update(repr(value).encode("utf-8"))
+            for key, value in sorted(item.metrics.items()):
+                digest.update(repr((key, value)).encode("utf-8"))
+            for key, value in sorted(item.metric_labels.items()):
+                digest.update(repr((key, value)).encode("utf-8"))
         return digest.hexdigest()
 
     def _is_loadable_value(self, value: str) -> bool:
@@ -470,24 +525,29 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
         return join_storage_path(*parts)
 
     def recursive_items_hard_limit(self) -> int | None:
-        return None
+        return self.RECURSIVE_ITEMS_HARD_LIMIT
+
+    def _scope_bounds(self, path: str) -> tuple[int, int]:
+        scope_norm = normalize_search_path(path)
+        if not scope_norm:
+            return 0, len(self._sorted_items)
+        prefix = f"{scope_norm}/"
+        start = bisect_left(self._sorted_paths, prefix)
+        end = bisect_right(self._sorted_paths, prefix + "\uffff")
+        return start, end
 
     def items_in_scope(self, path: str) -> list[TableBrowseItem]:
-        scope_norm = normalize_search_path(path)
-        if not scope_norm:
-            return list(self._sorted_items)
-        prefix = f"{scope_norm}/"
-        start = bisect_left(self._sorted_paths, prefix)
-        end = bisect_right(self._sorted_paths, prefix + "\uffff")
+        start, end = self._scope_bounds(path)
         return list(self._sorted_items[start:end])
 
+    def items_in_scope_window(self, path: str, offset: int, limit: int) -> list[TableBrowseItem]:
+        start, end = self._scope_bounds(path)
+        window_start = min(end, start + max(0, offset))
+        window_end = min(end, window_start + max(0, limit))
+        return list(self._sorted_items[window_start:window_end])
+
     def count_in_scope(self, path: str) -> int:
-        scope_norm = normalize_search_path(path)
-        if not scope_norm:
-            return len(self._sorted_items)
-        prefix = f"{scope_norm}/"
-        start = bisect_left(self._sorted_paths, prefix)
-        end = bisect_right(self._sorted_paths, prefix + "\uffff")
+        start, end = self._scope_bounds(path)
         return max(0, end - start)
 
     def row_dimensions(self) -> list[tuple[int, int] | None]:
@@ -500,10 +560,51 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
         row_idx = self.row_index_for_path(path)
         if row_idx is None:
             return {}
-        table_fields = extract_row_display_fields(self._index_context, row_idx)
+        if self._row_field_provider is None:
+            table_fields = extract_row_display_fields(self._index_context, row_idx)
+        else:
+            table_fields = self._extract_table_fields_from_row(
+                self._row_field_provider(row_idx)
+            )
         if not table_fields:
             return {}
         return {"table_fields": table_fields}
+
+    def _duplicate_display_columns(self) -> set[str]:
+        return {
+            column
+            for column in (
+                self._source_column,
+                self._path_column,
+                self._name_column,
+                self._mime_column,
+                self._width_column,
+                self._height_column,
+                self._size_column,
+                self._mtime_column,
+            )
+            if column
+        }
+
+    def _extract_table_fields_from_row(self, row_values: dict[str, Any]) -> dict[str, Any]:
+        duplicate_columns = self._duplicate_display_columns()
+        display_fields: dict[str, Any] = {}
+        for column in self._table_field_columns:
+            if column in duplicate_columns:
+                continue
+            if is_internal_metric_key(column):
+                continue
+            raw_value = row_values.get(column)
+            if column == self._metrics_column:
+                display_value = normalize_metrics_display_value(raw_value)
+            else:
+                if is_metric_column_name(column) and coerce_float(raw_value) is not None:
+                    continue
+                display_value = normalize_display_value(raw_value)
+            if display_value is None:
+                continue
+            display_fields[column] = display_value
+        return display_fields
 
     def row_index_map(self) -> dict[int, str]:
         return dict(self._row_to_path)

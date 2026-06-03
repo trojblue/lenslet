@@ -90,7 +90,39 @@ def test_internal_metrics_map_entries_are_filtered(tmp_path: Path) -> None:
     assert item.metrics == {"quality_score": 0.42}
 
 
-def test_string_classification_columns_become_categorical_metrics(tmp_path: Path) -> None:
+def test_table_metric_candidates_ignore_ids_and_bookkeeping_fields(tmp_path: Path) -> None:
+    image_path = tmp_path / "one.jpg"
+    _make_image(image_path)
+
+    rows = [
+        {
+            "source": str(image_path),
+            "path": "one.jpg",
+            "left_image_id": "123",
+            "hamming_distance": 2,
+            "quality_score": 0.42,
+            "q1_form_structural_quality__confidence": 0.91,
+            "q1_form_structural_quality__pending_gpt_q4_value_view": 1,
+        }
+    ]
+
+    storage = _table_storage(rows, skip_dimension_probe=True)
+    item = _root_items(storage)[0]
+
+    assert item.metrics == {
+        "hamming_distance": 2.0,
+        "quality_score": 0.42,
+        "q1_form_structural_quality__confidence": 0.91,
+    }
+    assert storage.sidecar_enrichment_for_path("/one.jpg") == {
+        "table_fields": {
+            "left_image_id": "123",
+            "q1_form_structural_quality__pending_gpt_q4_value_view": 1,
+        }
+    }
+
+
+def test_string_classification_columns_stay_in_table_fields(tmp_path: Path) -> None:
     first = tmp_path / "one.jpg"
     second = tmp_path / "two.jpg"
     _make_image(first)
@@ -112,10 +144,35 @@ def test_string_classification_columns_become_categorical_metrics(tmp_path: Path
     storage = _table_storage(rows, skip_dimension_probe=True)
     items = _root_items(storage)
 
-    assert items[0].metrics == {"l0p_style_family": 0.0}
-    assert items[0].metric_labels == {"l0p_style_family": "anime"}
-    assert items[1].metrics == {"l0p_style_family": 1.0}
-    assert items[1].metric_labels == {"l0p_style_family": "photographic"}
+    assert items[0].metrics == {}
+    assert items[0].metric_labels == {}
+    assert items[1].metrics == {}
+    assert items[1].metric_labels == {}
+    assert storage.sidecar_enrichment_for_path("/one.jpg") == {
+        "table_fields": {"l0p_style_family": "anime"}
+    }
+
+
+def test_table_browse_cache_signature_tracks_payload_metric_changes(tmp_path: Path) -> None:
+    image_path = tmp_path / "one.jpg"
+    _make_image(image_path)
+
+    def make_storage(score: float) -> TableStorage:
+        return _table_storage(
+            [
+                {
+                    "source": str(image_path),
+                    "path": "one.jpg",
+                    "quality_score": score,
+                }
+            ],
+            skip_dimension_probe=True,
+        )
+
+    first = make_storage(0.42)
+    second = make_storage(0.84)
+
+    assert first.browse_cache_signature() != second.browse_cache_signature()
 
 
 def test_duplicate_logical_paths_keep_stable_row_mappings(tmp_path: Path) -> None:

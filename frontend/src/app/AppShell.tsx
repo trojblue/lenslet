@@ -335,6 +335,9 @@ export default function AppShell({
     filteredCount,
     scopeTotal,
     rootTotal,
+    hasMoreFolderItems,
+    isLoadingMoreFolderItems,
+    loadMoreFolderItems,
   } = useAppDataScope({
     current,
     query,
@@ -1017,6 +1020,9 @@ export default function AppShell({
                 onOpenItemActions={openGridActions}
                 scrollRef={gridScrollRef}
                 isLoading={showGridLoading}
+                hasMore={hasMoreFolderItems}
+                isLoadingMore={isLoadingMoreFolderItems}
+                onLoadMore={loadMoreFolderItems}
               />
             </div>
             <div

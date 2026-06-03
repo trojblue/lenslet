@@ -43,6 +43,8 @@ class BrowseFolderPayload(BaseModel):
     folders: list[BrowseFolderEntryPayload] = Field(default_factory=list)
     metric_keys: list[str] = Field(default_factory=list)
     total_items: int | None = None
+    offset: int | None = None
+    limit: int | None = None
 
 
 class BrowseFolderPathsPayload(BaseModel):

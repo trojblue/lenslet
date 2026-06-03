@@ -27,13 +27,6 @@ RemoteDimensionTask: TypeAlias = tuple[str, Any, str, str]
 
 
 @dataclass(frozen=True)
-class CategoricalMetricColumn:
-    key: str
-    values: list[Any]
-    code_by_label: dict[str, float]
-
-
-@dataclass(frozen=True)
 class IndexColumns:
     source_values: list[Any]
     path_values: list[Any]
@@ -45,7 +38,6 @@ class IndexColumns:
     mtime_values: list[Any]
     metrics_values: list[Any]
     metric_columns: tuple[tuple[str, list[Any]], ...]
-    categorical_metric_columns: tuple[CategoricalMetricColumn, ...]
 
 
 @dataclass
@@ -143,7 +135,6 @@ def scan_rows(
             local_source,
         )
         metrics = _collect_row_metrics(context, columns, idx)
-        metric_labels = _collect_row_metric_labels(columns, idx)
 
         item = item_factory(
             path=identity.logical_path,
@@ -156,7 +147,7 @@ def scan_rows(
             url=identity.source if identity.is_http else None,
             source=identity.source,
             metrics=metrics,
-            metric_labels=metric_labels,
+            metric_labels={},
         )
 
         folder = os.path.dirname(identity.logical_path).replace("\\", "/")
@@ -413,11 +404,6 @@ def _collect_row_metrics(
         if num is None:
             continue
         metrics[metric_key] = num
-    for column in columns.categorical_metric_columns:
-        label = _categorical_label_for_row(column, idx)
-        if label is None:
-            continue
-        metrics[column.key] = column.code_by_label[label]
 
     if context.table.metrics_column is None:
         return metrics
@@ -433,26 +419,3 @@ def _collect_row_metrics(
             continue
         metrics[str(raw_key)] = num
     return metrics
-
-
-def _collect_row_metric_labels(
-    columns: IndexColumns,
-    idx: int,
-) -> dict[str, str]:
-    labels: dict[str, str] = {}
-    for column in columns.categorical_metric_columns:
-        label = _categorical_label_for_row(column, idx)
-        if label is None:
-            continue
-        labels[column.key] = label
-    return labels
-
-
-def _categorical_label_for_row(column: CategoricalMetricColumn, idx: int) -> str | None:
-    raw = column.values[idx]
-    if raw is None:
-        return None
-    label = str(raw).strip()
-    if not label:
-        return None
-    return label if label in column.code_by_label else None

@@ -146,3 +146,28 @@ def test_recursive_count_only_still_handles_large_listing(tmp_path: Path) -> Non
     payload = resp.json()
     assert payload["items"] == []
     assert payload["total_items"] == 10_001
+
+
+def test_recursive_window_returns_slice_and_total(tmp_path: Path) -> None:
+    root = tmp_path
+    for idx in range(42):
+        _make_image(root / f"paged/img_{idx:03d}.jpg")
+
+    client = TestClient(create_app_from_storage(MemoryStorage(str(root))))
+    resp = _folders_request(
+        client,
+        "/paged",
+        recursive="1",
+        offset="7",
+        limit="5",
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["total_items"] == 42
+    assert payload["offset"] == 7
+    assert payload["limit"] == 5
+    assert [item["path"] for item in payload["items"]] == [
+        f"/paged/img_{idx:03d}.jpg"
+        for idx in range(7, 12)
+    ]

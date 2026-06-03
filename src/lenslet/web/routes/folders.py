@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections import deque
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 
-from ..browse import ToItemFn, build_folder_index, storage_from_request
+from ..browse import RECURSIVE_WINDOW_MAX_LIMIT, ToItemFn, build_folder_index, storage_from_request
 from ..context import get_request_context
 from ..models import BrowseFolderPathsPayload, BrowseFolderPayload
 from ..paths import canonical_path
@@ -42,6 +42,8 @@ def register_folder_routes(
         path: str = "/",
         recursive: bool = False,
         count_only: bool = False,
+        offset: int = Query(0, ge=0),
+        limit: int | None = Query(None, gt=0, le=RECURSIVE_WINDOW_MAX_LIMIT),
     ) -> BrowseFolderPayload:
         storage = storage_from_request(request)
         context = get_request_context(request)
@@ -51,6 +53,8 @@ def register_folder_routes(
             to_item,
             recursive=recursive,
             count_only=count_only,
+            offset=offset,
+            limit=limit,
             browse_cache=context.recursive_browse_cache,
             hotpath_metrics=context.runtime.hotpath_metrics,
         )

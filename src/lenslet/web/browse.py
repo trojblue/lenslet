@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, cast
 
 from fastapi import HTTPException, Request
 
@@ -37,6 +37,7 @@ from ..storage.base import (
     BrowseAppStorage,
     BrowseItem,
     BrowseStorage,
+    BrowseWindowStorage,
     RecursiveLimitStorage,
     SearchStorage,
     SidecarState,
@@ -172,6 +173,7 @@ def _metric_keys_for_folder(
 RECURSIVE_SORT_MODE_SCAN = "scan"
 RECURSIVE_CACHE_BUILD_MAX_RETRIES = 2
 RECURSIVE_ITEMS_HARD_LIMIT = 10_000
+RECURSIVE_WINDOW_MAX_LIMIT = 10_000
 
 
 def _raise_recursive_items_limit() -> None:
@@ -206,15 +208,51 @@ def _snapshots_from_cached_items(
     )
 
 
+def _items_in_scope_window(
+    storage: BrowseStorage,
+    canonical_path: str,
+    *,
+    offset: int,
+    limit: int,
+) -> list[Any]:
+    window_loader = getattr(storage, "items_in_scope_window", None)
+    if callable(window_loader):
+        window_storage = cast(BrowseWindowStorage, storage)
+        return list(window_storage.items_in_scope_window(canonical_path, offset, limit))
+    return list(storage.items_in_scope(canonical_path))[offset:offset + limit]
+
+
+def _validate_recursive_window(offset: int, limit: int | None) -> None:
+    if offset < 0:
+        raise HTTPException(400, "offset must be greater than or equal to 0")
+    if limit is None:
+        return
+    if limit <= 0:
+        raise HTTPException(400, "limit must be greater than 0")
+    if limit > RECURSIVE_WINDOW_MAX_LIMIT:
+        raise HTTPException(400, f"limit must be less than or equal to {RECURSIVE_WINDOW_MAX_LIMIT}")
+
+
 def _build_recursive_snapshots(
     storage: BrowseStorage,
     canonical_path: str,
     *,
     max_items: int | None = None,
 ) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
+    if max_items is not None:
+        try:
+            total_items = int(storage.count_in_scope(canonical_path))
+        except AttributeError:
+            snapshots = _snapshots_from_cached_items(storage.items_in_scope(canonical_path))
+            if len(snapshots) > max_items:
+                _raise_recursive_items_limit()
+            return snapshots, len(snapshots)
+        if total_items > max_items:
+            _raise_recursive_items_limit()
+        snapshots = _snapshots_from_cached_items(storage.items_in_scope(canonical_path))
+        return snapshots, total_items
+
     snapshots = _snapshots_from_cached_items(storage.items_in_scope(canonical_path))
-    if max_items is not None and len(snapshots) > max_items:
-        _raise_recursive_items_limit()
     return snapshots, len(snapshots)
 
 
@@ -223,6 +261,25 @@ def _count_recursive_items(
     canonical_path: str,
 ) -> int:
     return int(storage.count_in_scope(canonical_path))
+
+
+def _build_recursive_window_snapshots(
+    storage: BrowseStorage,
+    canonical_path: str,
+    *,
+    offset: int,
+    limit: int,
+) -> tuple[tuple[RecursiveCachedItemSnapshot, ...], int]:
+    total_items = _count_recursive_items(storage, canonical_path)
+    if offset >= total_items:
+        return (), total_items
+    cached_items = _items_in_scope_window(
+        storage,
+        canonical_path,
+        offset=offset,
+        limit=limit,
+    )
+    return _snapshots_from_cached_items(cached_items), total_items
 
 
 def _record_recursive_cache_persist_status(
@@ -316,6 +373,11 @@ def warm_recursive_cache(
     if root_index is None:
         return 0
     canonical = canonical_path(path)
+    max_items = _recursive_items_hard_limit(storage)
+    if max_items is not None:
+        total_items = _count_recursive_items(storage, canonical)
+        if total_items > max_items:
+            return total_items
     _snapshots, total_items = _load_or_build_recursive_snapshots(
         storage,
         canonical,
@@ -417,9 +479,12 @@ def _build_recursive_folder_payload(
     to_item: ToItemFn,
     *,
     count_only: bool,
+    offset: int = 0,
+    limit: int | None = None,
     browse_cache: RecursiveBrowseCache | None,
     hotpath_metrics: HotpathTelemetry | None,
 ) -> BrowseFolderPayload:
+    _validate_recursive_window(offset, limit)
     if hotpath_metrics is not None:
         hotpath_metrics.increment("folders_recursive_requests_total")
     traversal_started = time.perf_counter()
@@ -436,12 +501,20 @@ def _build_recursive_folder_payload(
             total_items=total_items,
         )
 
-    snapshots, total_items = _load_recursive_payload_snapshots(
-        storage,
-        canonical,
-        browse_cache,
-        hotpath_metrics,
-    )
+    if limit is not None:
+        snapshots, total_items = _build_recursive_window_snapshots(
+            storage,
+            canonical,
+            offset=offset,
+            limit=limit,
+        )
+    else:
+        snapshots, total_items = _load_recursive_payload_snapshots(
+            storage,
+            canonical,
+            browse_cache,
+            hotpath_metrics,
+        )
     _record_recursive_traversal(hotpath_metrics, traversal_started, total_items)
     return BrowseFolderPayload(
         path=canonical,
@@ -455,7 +528,9 @@ def _build_recursive_folder_payload(
             recursive=True,
             snapshots=snapshots,
         ),
-        total_items=None,
+        total_items=total_items if limit is not None else None,
+        offset=offset if limit is not None else None,
+        limit=limit,
     )
 
 
@@ -465,6 +540,8 @@ def build_folder_index(
     to_item: ToItemFn,
     recursive: bool = False,
     count_only: bool = False,
+    offset: int = 0,
+    limit: int | None = None,
     browse_cache: RecursiveBrowseCache | None = None,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> BrowseFolderPayload:
@@ -476,6 +553,8 @@ def build_folder_index(
             _load_folder_index(storage, canonical, recursive=True),
             to_item,
             count_only=count_only,
+            offset=offset,
+            limit=limit,
             browse_cache=browse_cache,
             hotpath_metrics=hotpath_metrics,
         )

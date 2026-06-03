@@ -32,6 +32,9 @@ class SourceCatalog(Generic[ItemT]):
             source = self.state.source_paths.get(candidate)
             if source is not None:
                 return source
+            item = self.state.items.get(candidate)
+            if item is not None and item.source:
+                return item.source
         return None
 
     def source_for_path(self, logical_path: str) -> str:

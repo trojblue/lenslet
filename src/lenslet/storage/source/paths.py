@@ -26,9 +26,17 @@ def is_supported_image(name: str, image_exts: tuple[str, ...]) -> bool:
 
 def extract_name(value: str) -> str:
     if is_s3_uri(value) or is_http_url(value):
-        parsed = urlparse(value)
-        return PurePosixPath(parsed.path).name
-    return Path(value).name
+        cleaned = value.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+        scheme_sep = cleaned.find("://")
+        if scheme_sep < 0:
+            return ""
+        rest = cleaned[scheme_sep + 3:]
+        path_start = rest.find("/")
+        if path_start < 0:
+            return ""
+        path = rest[path_start + 1:].rstrip("/")
+        return path.rsplit("/", 1)[-1] if path else ""
+    return os.path.basename(str(value).rstrip("/\\"))
 
 
 def normalize_path(path: str) -> str:
@@ -188,13 +196,34 @@ def _derive_s3_logical_path(source: str, *, s3_prefixes: dict[str, str], s3_use_
     return trimmed or PurePosixPath(path).name
 
 
-def _derive_http_logical_path(source: str) -> str:
-    parsed = urlparse(source)
-    host = parsed.netloc
-    path = parsed.path.lstrip("/")
+def derive_http_logical_path(source: str) -> str:
+    end = len(source)
+    query_start = source.find("?")
+    if query_start >= 0:
+        end = query_start
+    fragment_start = source.find("#")
+    if 0 <= fragment_start < end:
+        end = fragment_start
+
+    scheme_sep = source.find("://", 0, end)
+    if scheme_sep >= 0:
+        start = scheme_sep + 3
+    else:
+        start = 0
+    path_start = source.find("/", start, end)
+    if path_start < 0:
+        host = source[start:end]
+        path = ""
+    else:
+        host = source[start:path_start]
+        path = source[path_start + 1:end].strip("/")
     if host and path:
         return f"{host}/{path}"
     return host or path
+
+
+def _derive_http_logical_path(source: str) -> str:
+    return derive_http_logical_path(source)
 
 
 def _relpath_within_prefix(source: str, local_prefix: str | None) -> str | None:

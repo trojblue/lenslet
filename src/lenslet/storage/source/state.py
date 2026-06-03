@@ -33,4 +33,4 @@ class SourceBackedIndexState(Generic[ItemT]):
 class SourceRowIndexState:
     row_dimensions: list[tuple[int, int] | None] = field(default_factory=list)
     path_to_row: dict[str, int] = field(default_factory=dict)
-    row_to_path: dict[int, str] = field(default_factory=dict)
+    row_to_path: dict[int, str] | list[str | None] = field(default_factory=dict)

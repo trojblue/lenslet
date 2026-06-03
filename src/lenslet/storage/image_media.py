@@ -9,10 +9,9 @@ ImageMime = Literal["image/webp", "image/jpeg", "image/png"]
 
 
 def guess_image_mime(name: str) -> ImageMime:
-    normalized = name.lower()
-    if normalized.endswith(".webp"):
+    if len(name) >= 5 and name[-5:].lower() == ".webp":
         return "image/webp"
-    if normalized.endswith(".png"):
+    if len(name) >= 4 and name[-4:].lower() == ".png":
         return "image/png"
     return "image/jpeg"
 

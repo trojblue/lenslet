@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import gc
 import hashlib
 import os
 from bisect import bisect_left, bisect_right
@@ -21,6 +23,7 @@ from .display import (
     normalize_metrics_display_value,
 )
 from .index import (
+    build_index_columns,
     build_table_indexes,
     extract_row_display_fields,
     is_metric_column_name,
@@ -36,6 +39,7 @@ from .input import (
     TableRow,
     TableRows,
     is_table_input,
+    table_input_columns,
     table_input_length,
     table_to_columns,
     validate_table_input,
@@ -48,6 +52,7 @@ from ..source.paths import (
     canonical_sidecar_key,
     compute_local_prefix,
     compute_s3_prefixes,
+    derive_http_logical_path,
     extract_name,
     is_http_url,
     is_s3_uri,
@@ -69,9 +74,25 @@ from ..search_text import normalize_search_path
 
 
 TABLE_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+GC_DISABLE_ROW_THRESHOLD = 100_000
 
 
-@dataclass
+MetricProvider = Callable[[int], dict[str, float]]
+
+
+@contextmanager
+def _bulk_table_gc_pause(row_count: int):
+    if row_count < GC_DISABLE_ROW_THRESHOLD or not gc.isenabled():
+        yield
+        return
+    gc.disable()
+    try:
+        yield
+    finally:
+        gc.enable()
+
+
+@dataclass(init=False, slots=True)
 class TableBrowseItem:
     """In-memory cached browse facts for an image loaded from a table."""
     path: str
@@ -83,11 +104,90 @@ class TableBrowseItem:
     mtime: float
     url: str | None = None
     source: str | None = None
-    metrics: dict[str, float] = field(default_factory=dict)
     metric_labels: dict[str, str] = field(default_factory=dict)
+    row_idx: int = -1
+    _metrics: dict[str, float] | None = field(default=None, repr=False)
+    _metrics_provider: MetricProvider | None = field(default=None, repr=False)
+
+    def __init__(
+        self,
+        *,
+        path: str,
+        name: str,
+        mime: ImageMime,
+        width: int,
+        height: int,
+        size: int,
+        mtime: float,
+        url: str | None = None,
+        source: str | None = None,
+        metrics: dict[str, float] | None = None,
+        metric_labels: dict[str, str] | None = None,
+        row_idx: int = -1,
+        metrics_provider: MetricProvider | None = None,
+    ) -> None:
+        self.path = path
+        self.name = name
+        self.mime = mime
+        self.width = width
+        self.height = height
+        self.size = size
+        self.mtime = mtime
+        self.url = url
+        self.source = source
+        self.metric_labels = metric_labels or {}
+        self.row_idx = row_idx
+        self._metrics = metrics
+        self._metrics_provider = metrics_provider
+
+    @property
+    def metrics(self) -> dict[str, float]:
+        metrics = self._metrics
+        if metrics is None:
+            if self._metrics_provider is None or self.row_idx < 0:
+                metrics = {}
+            else:
+                metrics = self._metrics_provider(self.row_idx)
+            self._metrics = metrics
+        return metrics
+
+    @metrics.setter
+    def metrics(self, value: dict[str, float]) -> None:
+        self._metrics = value
+
+    @classmethod
+    def from_fast_row(
+        cls,
+        path: str,
+        name: str,
+        mime: ImageMime,
+        width: int,
+        height: int,
+        size: int,
+        mtime: float,
+        url: str | None,
+        source: str | None,
+        row_idx: int,
+        metrics_provider: MetricProvider,
+    ) -> "TableBrowseItem":
+        item = cls.__new__(cls)
+        item.path = path
+        item.name = name
+        item.mime = mime
+        item.width = width
+        item.height = height
+        item.size = size
+        item.mtime = mtime
+        item.url = url
+        item.source = source
+        item.metric_labels = {}
+        item.row_idx = row_idx
+        item._metrics = None
+        item._metrics_provider = metrics_provider
+        return item
 
 
-@dataclass
+@dataclass(slots=True)
 class TableBrowseIndex:
     """In-memory cached folder index."""
     path: str
@@ -116,6 +216,30 @@ class TableStorageOptions:
 
 def _is_supported_table_image(name: str) -> bool:
     return is_supported_image(name, TABLE_IMAGE_EXTS)
+
+
+def _sample_source_kind(values: list[Any], *, sample_size: int = 1024) -> str | None:
+    kind: str | None = None
+    checked = 0
+    for raw in values:
+        if raw is None:
+            continue
+        if isinstance(raw, os.PathLike):
+            raw = os.fspath(raw)
+        if not isinstance(raw, str):
+            continue
+        source = raw.strip()
+        if not source:
+            continue
+        current = "s3" if is_s3_uri(source) else "http" if is_http_url(source) else "local"
+        if kind is None:
+            kind = current
+        elif kind != current:
+            return "mixed"
+        checked += 1
+        if checked >= sample_size:
+            return kind
+    return kind
 
 
 class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
@@ -252,8 +376,14 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
         self._indexes: dict[str, TableBrowseIndex] = {}
         self._sorted_paths: list[str] = []
         self._sorted_items: list[TableBrowseItem] = []
+        self._search_paths_lower: list[str] | None = None
+        self._search_sources_lower: list[str] | None = None
+        self._path_column_aliases_source = False
 
-        columns, data, row_count = table_to_columns(validate_table_input(table))
+        validated_table = validate_table_input(table)
+        initial_columns = table_input_columns(validated_table)
+        python_columns = self._startup_python_columns(validated_table, initial_columns, options)
+        columns, data, row_count = table_to_columns(validated_table, python_columns=python_columns)
         if row_count == 0:
             raise ValueError("table is empty")
 
@@ -272,8 +402,16 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
             is_loadable_value=self._is_loadable_value,
         )
         source_values = data.get(self._source_column, [])
-        self._s3_prefixes, self._s3_use_bucket = compute_s3_prefixes(source_values)
-        self._local_prefix = compute_local_prefix(source_values) if self._allow_local else None
+        self._source_kind = _sample_source_kind(source_values)
+        if self._source_kind == "http":
+            self._s3_prefixes, self._s3_use_bucket = {}, False
+            self._local_prefix = None
+        elif self._source_kind == "s3":
+            self._s3_prefixes, self._s3_use_bucket = compute_s3_prefixes(source_values)
+            self._local_prefix = None
+        else:
+            self._s3_prefixes, self._s3_use_bucket = compute_s3_prefixes(source_values)
+            self._local_prefix = compute_local_prefix(source_values) if self._allow_local else None
         self._path_column = resolve_path_column(
             columns,
             options.path_column,
@@ -294,18 +432,122 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
         self._extensionless_source_trust_scope = self._selected_extensionless_source_trust_scope()
 
         self._index_context = self._build_index_context()
-        index_result = build_table_indexes(
-            self._index_context,
-            item_factory=TableBrowseItem,
-            index_factory=TableBrowseIndex,
-        )
-        self._apply_index_result(index_result)
+        self._index_columns = build_index_columns(self._index_context)
+        with _bulk_table_gc_pause(row_count):
+            index_result = build_table_indexes(
+                self._index_context,
+                columns=self._index_columns,
+                item_factory=TableBrowseItem,
+                index_factory=TableBrowseIndex,
+                lazy_metrics_provider=self._metrics_for_row,
+                fast_item_factory=TableBrowseItem.from_fast_row,
+            )
+            self._apply_index_result(index_result)
         if index_result.remote_tasks:
             self._probe_remote_dimensions(index_result.remote_tasks)
-        self._build_path_index()
-        self._browse_signature = self._compute_browse_signature()
+        with _bulk_table_gc_pause(row_count):
+            self._build_path_index()
+            self._browse_signature = self._compute_browse_signature()
+
+    def _startup_python_columns(
+        self,
+        table: TableInput,
+        columns: list[str],
+        options: TableStorageOptions,
+    ) -> set[str] | None:
+        if options.source_column is None:
+            return None
+
+        source_column = resolve_source_column(
+            columns,
+            {},
+            options.source_column,
+            loadable_threshold=self.loadable_threshold,
+            sample_size=self.sample_size,
+            allow_local=self._allow_local,
+            is_loadable_value=self._is_loadable_value,
+        )
+        path_column = resolve_path_column(
+            columns,
+            options.path_column,
+            logical_path_columns=self.LOGICAL_PATH_COLUMNS,
+        )
+        path_column_aliases_source = self._auto_path_column_aliases_source(
+            table,
+            source_column=source_column,
+            path_column=path_column,
+            path_column_was_explicit=options.path_column is not None,
+        )
+        self._path_column_aliases_source = path_column_aliases_source
+        selected = {
+            source_column,
+            None if path_column_aliases_source else path_column,
+            resolve_named_column(columns, self.NAME_COLUMNS),
+            resolve_named_column(columns, self.MIME_COLUMNS),
+            resolve_named_column(columns, self.WIDTH_COLUMNS),
+            resolve_named_column(columns, self.HEIGHT_COLUMNS),
+            resolve_named_column(columns, self.SIZE_COLUMNS),
+            resolve_named_column(columns, self.MTIME_COLUMNS),
+        }
+        for column in columns:
+            if column.lower() == "metrics":
+                selected.add(column)
+                break
+        return {column for column in selected if column}
+
+    @staticmethod
+    def _sample_pyarrow_strings(table: TableInput, column: str, sample_size: int = 1024) -> list[str] | None:
+        if not hasattr(table, "__getitem__"):
+            return None
+        try:
+            values = table[column]  # type: ignore[index]
+            if hasattr(values, "slice"):
+                values = values.slice(0, sample_size)
+            if not hasattr(values, "to_pylist"):
+                return None
+            sampled = values.to_pylist()
+        except Exception:
+            return None
+        result: list[str] = []
+        for raw in sampled:
+            if raw is None:
+                continue
+            if isinstance(raw, os.PathLike):
+                raw = os.fspath(raw)
+            if not isinstance(raw, str):
+                return None
+            value = raw.strip()
+            if value:
+                result.append(value)
+        return result
+
+    def _auto_path_column_aliases_source(
+        self,
+        table: TableInput,
+        *,
+        source_column: str,
+        path_column: str | None,
+        path_column_was_explicit: bool,
+    ) -> bool:
+        if path_column is None or path_column_was_explicit or path_column == source_column:
+            return False
+        source_values = self._sample_pyarrow_strings(table, source_column)
+        path_values = self._sample_pyarrow_strings(table, path_column)
+        if not source_values or not path_values or len(source_values) != len(path_values):
+            return False
+        source_matches_path = True
+        http_source_matches_path = True
+        for source, path in zip(source_values, path_values):
+            if source != path:
+                source_matches_path = False
+            if not is_http_url(source) or normalize_item_path(derive_http_logical_path(source)) != normalize_item_path(path):
+                http_source_matches_path = False
+            if not source_matches_path and not http_source_matches_path:
+                return False
+        return True
 
     def _build_index_context(self) -> TableIndexInput:
+        index_path_column = None if self._path_column_aliases_source else self._path_column
         return TableIndexInput(
             table=TableIndexData(
                 root=self.root,
@@ -313,7 +555,7 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
                 column_values=self._data,
                 columns=self._columns,
                 source_column=self._source_column,
-                path_column=self._path_column,
+                path_column=index_path_column,
                 name_column=self._name_column,
                 mime_column=self._mime_column,
                 width_column=self._width_column,
@@ -326,6 +568,8 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
                 s3_prefixes=self._s3_prefixes,
                 s3_use_bucket=self._s3_use_bucket,
                 image_exts=self.IMAGE_EXTS,
+                source_kind=self._source_kind,
+                extensionless_source_all_trusted=self._extensionless_source_trust_scope == "*",
             ),
             policy=TableIndexPolicy(
                 allow_local=self._allow_local,
@@ -357,6 +601,53 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
                 row_to_path=result.row_to_path,
             )
         )
+
+    def _metrics_for_row(self, row_idx: int) -> dict[str, float]:
+        metrics: dict[str, float] = {}
+        for column, values in self._index_columns.metric_columns:
+            num = coerce_float(values[row_idx])
+            if num is not None:
+                metrics[column] = num
+        if self._metrics_column is None:
+            return metrics
+        raw_metrics = self._index_columns.metrics_values[row_idx]
+        if not isinstance(raw_metrics, dict):
+            return metrics
+        for raw_key, raw_value in raw_metrics.items():
+            if is_internal_metric_key(raw_key):
+                continue
+            num = coerce_float(raw_value)
+            if num is not None:
+                metrics[str(raw_key)] = num
+        return metrics
+
+    @staticmethod
+    def _signature_value(value: Any) -> Any:
+        if hasattr(value, "as_py"):
+            try:
+                return value.as_py()
+            except Exception:
+                return value
+        return value
+
+    def _signature_metric_items(self, row_idx: int) -> list[tuple[str, float]]:
+        metrics: list[tuple[str, float]] = []
+        for column, values in self._index_columns.metric_columns:
+            num = coerce_float(self._signature_value(values[row_idx]))
+            if num is not None:
+                metrics.append((column, num))
+        if self._metrics_column is None:
+            return metrics
+        raw_metrics = self._signature_value(self._index_columns.metrics_values[row_idx])
+        if not isinstance(raw_metrics, dict):
+            return metrics
+        for raw_key, raw_value in raw_metrics.items():
+            if is_internal_metric_key(raw_key):
+                continue
+            num = coerce_float(self._signature_value(raw_value))
+            if num is not None:
+                metrics.append((str(raw_key), num))
+        return sorted(metrics)
 
     def _compute_browse_signature(self) -> str:
         digest = hashlib.sha256()
@@ -400,7 +691,7 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
                 item.source,
             ):
                 digest.update(repr(value).encode("utf-8"))
-            for key, value in sorted(item.metrics.items()):
+            for key, value in self._signature_metric_items(item.row_idx):
                 digest.update(repr((key, value)).encode("utf-8"))
             for key, value in sorted(item.metric_labels.items()):
                 digest.update(repr((key, value)).encode("utf-8"))
@@ -489,6 +780,96 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
         paths = sorted(self._items.keys())
         self._sorted_paths = paths
         self._sorted_items = [self._items[path] for path in paths]
+        self._search_paths_lower = None
+        self._search_sources_lower = None
+
+    def _ensure_search_paths_lower(self) -> list[str]:
+        search_paths = self._search_paths_lower
+        if search_paths is None:
+            search_paths = [item.path.lower() for item in self._sorted_items]
+            self._search_paths_lower = search_paths
+        return search_paths
+
+    def _ensure_search_sources_lower(self) -> list[str]:
+        search_sources = self._search_sources_lower
+        if search_sources is None:
+            values: list[str] = []
+            for item in self._sorted_items:
+                source = item.source or self._source_paths.get(item.path) or ""
+                url = item.url or ""
+                if url and url != source:
+                    source = f"{source} {url}" if source else url
+                values.append(source.lower())
+            search_sources = values
+            self._search_sources_lower = search_sources
+        return search_sources
+
+    def _sidecar_search_text(self, item: TableBrowseItem) -> str:
+        sidecar = self._sidecars.get(self._canonical_source_sidecar_key(item.path))
+        if not sidecar:
+            return ""
+        tags = sidecar.get("tags", [])
+        notes = sidecar.get("notes", "")
+        parts: list[str] = []
+        if isinstance(tags, list):
+            parts.append(" ".join(str(tag) for tag in tags if tag is not None))
+        if isinstance(notes, str):
+            parts.append(notes)
+        return " ".join(part for part in parts if part).lower()
+
+    def _source_search_covered_by_path(self) -> bool:
+        return self._source_kind == "http" and (
+            self._path_column is None
+            or self._path_column == self._source_column
+            or self._path_column_aliases_source
+        )
+
+    def _name_search_covered_by_path(self) -> bool:
+        return self._name_column is None and self._source_search_covered_by_path()
+
+    @staticmethod
+    def _path_search_needle(needle: str, *, source_search_covered_by_path: bool) -> str:
+        if not source_search_covered_by_path or "://" not in needle:
+            return needle
+        return normalize_item_path(derive_http_logical_path(needle))
+
+    def search(self, query: str = "", path: str = "/", limit: int = 100) -> list[TableBrowseItem]:
+        if limit <= 0:
+            return []
+        start, end = self._scope_bounds(path)
+        if start >= end:
+            return []
+
+        needle = (query or "").lower()
+        if not needle:
+            return list(self._sorted_items[start:min(end, start + limit)])
+
+        results: list[TableBrowseItem] = []
+        has_sidecars = bool(self._sidecars)
+        search_paths = self._ensure_search_paths_lower()
+        source_search_covered_by_path = self._source_search_covered_by_path()
+        name_search_covered_by_path = self._name_search_covered_by_path()
+        path_needle = self._path_search_needle(
+            needle,
+            source_search_covered_by_path=source_search_covered_by_path,
+        )
+        if not path_needle:
+            return list(self._sorted_items[start:min(end, start + limit)])
+        search_sources: list[str] | None = None
+        for idx in range(start, end):
+            item = self._sorted_items[idx]
+            base_match = path_needle in search_paths[idx]
+            if not base_match and not name_search_covered_by_path and item.name:
+                base_match = path_needle in item.name.lower()
+            if not base_match and self._include_source_in_search and not source_search_covered_by_path:
+                if search_sources is None:
+                    search_sources = self._ensure_search_sources_lower()
+                base_match = needle in search_sources[idx]
+            if base_match or (has_sidecars and needle in self._sidecar_search_text(item)):
+                results.append(item)
+                if len(results) >= limit:
+                    break
+        return results
 
     def _resolve_local_source(self, source: str) -> str:
         return resolve_local_source(
@@ -554,6 +935,10 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
         return list(self._row_dimensions)
 
     def path_for_row_index(self, index: int) -> str | None:
+        if isinstance(self._row_to_path, list):
+            if 0 <= index < len(self._row_to_path):
+                return self._row_to_path[index]
+            return None
         return self._row_to_path.get(index)
 
     def sidecar_enrichment_for_path(self, path: str) -> dict[str, Any]:
@@ -607,6 +992,12 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
         return display_fields
 
     def row_index_map(self) -> dict[int, str]:
+        if isinstance(self._row_to_path, list):
+            return {
+                row_idx: path
+                for row_idx, path in enumerate(self._row_to_path)
+                if path is not None
+            }
         return dict(self._row_to_path)
 
     def s3_client_creations(self) -> int:

@@ -33,13 +33,13 @@ dependencies = [
     "pillow>=12.1,<13",
     "pyarrow>=23.0,<24",
     "tqdm>=4.67,<5",
+    "httpx>=0.27,<1",
 ]
 
 [project.optional-dependencies]
 dev = [
     "build>=1.2",
     "pytest>=8.0",
-    "httpx>=0.27",
     "ruff>=0.6.9",
     "playwright>=1.48.0",
 ]

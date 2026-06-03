@@ -9,23 +9,40 @@ from tqdm import tqdm
 
 
 class ProgressTicker:
+    _TIME_CHECK_INTERVAL = 1024
+
     def __init__(self, *, total: int, label: str, emit: Callable[[int, int, str], None]) -> None:
         self.total = total
         self.label = label
         self.emit = emit
         self.done = 0
         self.last_print = 0.0
+        self._steps_until_time_check = self._TIME_CHECK_INTERVAL
 
-    def step(self) -> None:
-        self.done += 1
+    def step(self, count: int = 1) -> None:
+        if count <= 0:
+            return
+        self.done += count
+        if self.done >= self.total:
+            self.emit(min(self.done, self.total), self.total, self.label)
+            self.last_print = time.monotonic()
+            self._steps_until_time_check = self._TIME_CHECK_INTERVAL
+            return
+
+        self._steps_until_time_check -= count
+        if self._steps_until_time_check > 0:
+            return
+        self._steps_until_time_check = self._TIME_CHECK_INTERVAL
+
         now = time.monotonic()
-        if now - self.last_print > 0.1 or self.done == self.total:
+        if now - self.last_print > 0.1:
             self.emit(self.done, self.total, self.label)
             self.last_print = now
 
     def finish(self) -> None:
         if self.done < self.total:
             self.emit(self.total, self.total, self.label)
+            self.done = self.total
 
 
 class ProgressBar:

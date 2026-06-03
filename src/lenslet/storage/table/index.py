@@ -9,7 +9,13 @@ from .display import (
     normalize_metrics_display_value,
 )
 from ..index_assembly import IndexAssemblyResult, assemble_indexes
-from .row_scan import IndexColumns, RemoteDimensionTask, ScanResult, scan_rows
+from .row_scan import (
+    IndexColumns,
+    RemoteDimensionTask,
+    ScanResult,
+    scan_rows,
+    try_build_uniform_http_indexes,
+)
 from .index_types import (
     ProgressCallback,
     TableIndexData,
@@ -57,12 +63,32 @@ __all__ = [
 def build_table_indexes(
     context: TableIndexInput,
     *,
+    columns: IndexColumns | None = None,
     item_factory: Callable[..., Any],
     index_factory: Callable[..., Any],
+    lazy_metrics_provider: Callable[[int], dict[str, float]] | None = None,
+    fast_item_factory: Callable[..., Any] | None = None,
 ) -> IndexAssemblyResult:
     generated_at = datetime.now(timezone.utc).isoformat()
-    columns = build_index_columns(context)
-    scan = scan_rows(context, columns, item_factory=item_factory)
+    columns = columns or build_index_columns(context)
+    fast_result = try_build_uniform_http_indexes(
+        context,
+        columns,
+        generated_at=generated_at,
+        item_factory=item_factory,
+        index_factory=index_factory,
+        lazy_metrics_provider=lazy_metrics_provider,
+        fast_item_factory=fast_item_factory,
+    )
+    if fast_result is not None:
+        return fast_result
+
+    scan = scan_rows(
+        context,
+        columns,
+        item_factory=item_factory,
+        lazy_metrics_provider=lazy_metrics_provider,
+    )
     result = assemble_indexes(
         scan.rows,
         generated_at=generated_at,

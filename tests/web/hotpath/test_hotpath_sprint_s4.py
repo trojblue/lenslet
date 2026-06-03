@@ -171,6 +171,43 @@ def test_table_file_route_falls_back_to_read_bytes_for_remote_sources(
     assert counters["file_response_fallback_bytes_total"] >= 1
 
 
+def test_table_remote_url_path_column_serves_file_through_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_url = "https://img.metanomaly.co/r2/encoded-image-key"
+    storage = TableStorage(
+        [
+            {
+                "s3key": source_url,
+                "path": source_url,
+                "width": 16,
+                "height": 12,
+            }
+        ],
+        options=TableStorageOptions(root=None),
+    )
+    app = create_app_from_storage(storage)
+    calls = {"read": 0}
+
+    def _read_bytes(path: str) -> bytes:
+        calls["read"] += 1
+        assert path == "/img.metanomaly.co/r2/encoded-image-key"
+        return b"table-remote"
+
+    monkeypatch.setattr(storage, "read_bytes", _read_bytes)
+
+    with TestClient(app) as client:
+        folder = client.get("/folders", params={"path": "/img.metanomaly.co/r2"})
+        item_path = folder.json()["items"][0]["path"]
+        response = client.get("/file", params={"path": item_path})
+
+    assert item_path == "/img.metanomaly.co/r2/encoded-image-key"
+    assert response.status_code == 200
+    assert response.content == b"table-remote"
+    assert response.headers.get("accept-ranges") is None
+    assert calls["read"] == 1
+
+
 def test_dataset_file_route_falls_back_to_read_bytes_for_remote_sources(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -16,6 +16,7 @@ def test_table_storage_disables_local_sources(tmp_path: Path) -> None:
 
     storage = TableStorage(rows, options=TableStorageOptions(allow_local=False, skip_dimension_probe=True))
 
-    assert storage.exists("https://example.com/remote.jpg")
-    assert storage.exists("https://example.com/remote-2.jpg")
+    assert storage.exists("example.com/remote.jpg")
+    assert storage.exists("example.com/remote-2.jpg")
+    assert storage.get_source_path("/example.com/remote.jpg") == "https://example.com/remote.jpg"
     assert not storage.exists("local.jpg")

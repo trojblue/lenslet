@@ -388,6 +388,35 @@ def test_s3key_source_column_allows_extensionless_urls_without_probe(
     assert storage.path_for_row_index(0) == "images.example.test/r2/encoded-image-key"
 
 
+def test_remote_url_path_column_is_normalized_to_lenslet_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fail_probe(self: TableStorage, source: str) -> bool:
+        raise AssertionError(f"s3key should not need an extensionless probe: {source}")
+
+    source_url = "https://img.metanomaly.co/r2/encoded-image-key"
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", _fail_probe)
+
+    storage = _table_storage(
+        [
+            {
+                "s3key": source_url,
+                "path": source_url,
+                "width": 12,
+                "height": 9,
+            }
+        ],
+        skip_dimension_probe=True,
+    )
+
+    item = storage.items_in_scope("/")[0]
+    assert item.path == "img.metanomaly.co/r2/encoded-image-key"
+    assert item.source == source_url
+    assert item.url == source_url
+    assert storage.path_for_row_index(0) == "img.metanomaly.co/r2/encoded-image-key"
+    assert storage.get_source_path("/img.metanomaly.co/r2/encoded-image-key") == source_url
+
+
 def test_explicit_extensionless_source_column_uses_one_image_probe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -197,6 +197,36 @@ def test_duplicate_logical_paths_keep_stable_row_mappings(tmp_path: Path) -> Non
     assert [item.path for item in root_index.items] == ["dup.jpg", "dup-2.jpg"]
 
 
+def test_table_storage_startup_and_counts_do_not_materialize_row_items() -> None:
+    rows = [
+        {
+            "source": f"https://example.test/gallery/img_{idx:04d}.jpg",
+            "path": f"gallery/img_{idx:04d}.jpg",
+            "width": 12,
+            "height": 9,
+        }
+        for idx in range(25)
+    ]
+
+    storage = _table_storage(rows, skip_dimension_probe=True, allow_local=False)
+    row_store = storage._row_store
+
+    assert row_store is not None
+    assert row_store.materialized_item_count == 0
+    assert storage._items == {}
+    assert storage._indexes == {}
+    assert storage.count_in_scope("/gallery") == 25
+    assert row_store.materialized_item_count == 0
+
+    window = storage.items_in_scope_window("/gallery", 5, 7)
+
+    assert [item.path for item in window] == [
+        f"gallery/img_{idx:04d}.jpg"
+        for idx in range(5, 12)
+    ]
+    assert row_store.materialized_item_count == 7
+
+
 def test_local_resolution_uses_realpath_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     image_path = tmp_path / "one.jpg"
     _make_image(image_path)

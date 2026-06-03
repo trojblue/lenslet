@@ -4,16 +4,28 @@ from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from typing import Callable
 
-from ..image_media import ImageMime
+from ..image_media import ImageMime, normalize_image_mime
 from ..progress import ProgressTicker
 from ..search_text import normalize_search_path
 from ..source.backed import SourceBackedConfig, SourceBackedServices
 from ..source.media import MediaReadService
-from ..source.paths import normalize_item_path
+from ..source.paths import (
+    dedupe_path,
+    derive_http_logical_path,
+    derive_logical_path,
+    extract_name,
+    is_http_url,
+    is_s3_uri,
+    normalize_item_path,
+)
+from .schema import coerce_int, coerce_timestamp
 from .row_scan import (
     IndexColumns,
     LocalSkipCounts,
     LocalSourceResolution,
+    _can_scan_uniform_http_rows,
+    _fast_path_folder_and_name,
+    _fast_text,
     _resolve_local_source,
     _resolve_row_identity,
     _resolve_row_media_fields,
@@ -22,6 +34,7 @@ from .index_types import TableIndexInput
 
 
 MetricProvider = Callable[[int], dict[str, float]]
+MediaUpdateCallback = Callable[[int, int, int], None]
 
 
 @dataclass(init=False, slots=True)
@@ -31,9 +44,9 @@ class TableRowViewItem:
     path: str
     name: str
     mime: ImageMime
-    width: int
-    height: int
-    size: int
+    _width: int
+    _height: int
+    _size: int
     mtime: float
     url: str | None
     source: str | None
@@ -41,6 +54,7 @@ class TableRowViewItem:
     row_idx: int
     _metrics: dict[str, float] | None
     _metrics_provider: MetricProvider | None
+    _media_update: MediaUpdateCallback | None
 
     def __init__(
         self,
@@ -58,13 +72,14 @@ class TableRowViewItem:
         metric_labels: dict[str, str] | None = None,
         metrics: dict[str, float] | None = None,
         metrics_provider: MetricProvider | None = None,
+        media_update: MediaUpdateCallback | None = None,
     ) -> None:
         self.path = path
         self.name = name
         self.mime = mime
-        self.width = width
-        self.height = height
-        self.size = size
+        self._width = width
+        self._height = height
+        self._size = size
         self.mtime = mtime
         self.url = url
         self.source = source
@@ -72,6 +87,38 @@ class TableRowViewItem:
         self.row_idx = row_idx
         self._metrics = metrics
         self._metrics_provider = metrics_provider
+        self._media_update = media_update
+
+    def _write_media_update(self) -> None:
+        if self._media_update is not None:
+            self._media_update(self._width, self._height, self._size)
+
+    @property
+    def width(self) -> int:
+        return self._width
+
+    @width.setter
+    def width(self, value: int) -> None:
+        self._width = value
+        self._write_media_update()
+
+    @property
+    def height(self) -> int:
+        return self._height
+
+    @height.setter
+    def height(self, value: int) -> None:
+        self._height = value
+        self._write_media_update()
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    @size.setter
+    def size(self, value: int) -> None:
+        self._size = value
+        self._write_media_update()
 
     @property
     def metrics(self) -> dict[str, float]:
@@ -94,7 +141,6 @@ class TableRowStore:
     """Compact row-owned table state for the row-view backend proof."""
 
     row_count: int
-    row_indices: tuple[int, ...]
     paths: tuple[str, ...]
     sources: tuple[str, ...]
     names: tuple[str, ...]
@@ -108,7 +154,7 @@ class TableRowStore:
     sorted_rows: tuple[int, ...]
     path_to_row: dict[str, int]
     row_to_path: list[str | None]
-    row_to_slot: dict[int, int]
+    row_to_slot: list[int]
     folder_rows: dict[str, tuple[int, ...]]
     folder_children: dict[str, tuple[str, ...]]
     row_dimensions: list[tuple[int, int] | None]
@@ -117,13 +163,14 @@ class TableRowStore:
     materialized_item_count: int = 0
 
     def total_rows(self) -> int:
-        return len(self.row_indices)
+        return len(self.paths)
 
     def _slot_for_row(self, row_idx: int) -> int:
-        try:
-            return self.row_to_slot[row_idx]
-        except KeyError as exc:
-            raise FileNotFoundError(row_idx) from exc
+        if 0 <= row_idx < len(self.row_to_slot):
+            slot = self.row_to_slot[row_idx]
+            if slot >= 0:
+                return slot
+        raise FileNotFoundError(row_idx)
 
     def _path_candidates(self, path: str) -> tuple[str, ...]:
         normalized = normalize_item_path(path)
@@ -170,6 +217,33 @@ class TableRowStore:
     def mtime_for_row(self, row_idx: int) -> float:
         return self.mtimes[self._slot_for_row(row_idx)]
 
+    def source_for_row(self, row_idx: int) -> str:
+        return self.sources[self._slot_for_row(row_idx)]
+
+    def name_for_row(self, row_idx: int) -> str:
+        return self.names[self._slot_for_row(row_idx)]
+
+    def url_for_row(self, row_idx: int) -> str | None:
+        return self.urls[self._slot_for_row(row_idx)]
+
+    def item_fields_for_row(
+        self,
+        row_idx: int,
+    ) -> tuple[str, str, ImageMime, int, int, int, float, str | None, str]:
+        slot = self._slot_for_row(row_idx)
+        width, height = self.dimensions_for_row(row_idx)
+        return (
+            self.paths[slot],
+            self.names[slot],
+            self.mimes[slot],
+            width,
+            height,
+            self.size_for_row(row_idx),
+            self.mtimes[slot],
+            self.urls[slot],
+            self.sources[slot],
+        )
+
     def dimensions_for_row(self, row_idx: int) -> tuple[int, int]:
         path = self.path_for_row_index(row_idx)
         if path is not None and path in self.dimensions:
@@ -203,6 +277,24 @@ class TableRowStore:
         self.row_dimensions[row_idx] = dims
         if size is not None:
             self.size_overrides[row_idx] = size
+
+    def update_size(self, path: str, size: int) -> None:
+        row_idx = self.row_index_for_path(path)
+        if row_idx is None:
+            raise FileNotFoundError(path)
+        self.size_overrides[row_idx] = size
+
+    def _update_materialized_media(
+        self,
+        row_idx: int,
+        path: str,
+        width: int,
+        height: int,
+        size: int,
+    ) -> None:
+        self.dimensions[path] = (width, height)
+        self.row_dimensions[row_idx] = (width, height)
+        self.size_overrides[row_idx] = size
 
     def folder_dirs(self, path: str) -> tuple[str, ...]:
         return self.folder_children.get(normalize_search_path(path), ())
@@ -239,21 +331,27 @@ class TableRowStore:
         *,
         metrics_provider: MetricProvider | None = None,
     ) -> TableRowViewItem:
-        slot = self._slot_for_row(row_idx)
-        width, height = self.dimensions_for_row(row_idx)
+        path, name, mime, width, height, size, mtime, url, source = self.item_fields_for_row(row_idx)
         self.materialized_item_count += 1
         return TableRowViewItem(
-            path=self.paths[slot],
-            name=self.names[slot],
-            mime=self.mimes[slot],
+            path=path,
+            name=name,
+            mime=mime,
             width=width,
             height=height,
-            size=self.size_for_row(row_idx),
-            mtime=self.mtimes[slot],
-            url=self.urls[slot],
-            source=self.sources[slot],
+            size=size,
+            mtime=mtime,
+            url=url,
+            source=source,
             row_idx=row_idx,
             metrics_provider=metrics_provider,
+            media_update=lambda new_width, new_height, new_size: self._update_materialized_media(
+                row_idx,
+                path,
+                new_width,
+                new_height,
+                new_size,
+            ),
         )
 
 
@@ -297,10 +395,66 @@ def _folder_norm(logical_path: str) -> str:
     return logical_path.rsplit("/", 1)[0]
 
 
+def _int_or_zero(value: object) -> int:
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _finish_row_store(
+    *,
+    row_count: int,
+    row_indices: list[int],
+    paths: list[str],
+    sources: list[str],
+    names: list[str],
+    mimes: list[ImageMime],
+    widths: list[int],
+    heights: list[int],
+    sizes: list[int],
+    mtimes: list[float],
+    urls: list[str | None],
+    path_to_row: dict[str, int],
+    row_to_path: list[str | None],
+    row_to_slot: list[int],
+    folder_rows: dict[str, list[int]],
+    dir_children: dict[str, set[str]],
+    row_dimensions: list[tuple[int, int] | None],
+) -> TableRowStore:
+    folder_rows.setdefault("", [])
+    sorted_pairs = sorted(zip(paths, row_indices), key=lambda pair: pair[0])
+    return TableRowStore(
+        row_count=row_count,
+        paths=tuple(paths),
+        sources=tuple(sources),
+        names=tuple(names),
+        mimes=tuple(mimes),
+        widths=tuple(widths),
+        heights=tuple(heights),
+        sizes=tuple(sizes),
+        mtimes=tuple(mtimes),
+        urls=tuple(urls),
+        sorted_paths=tuple(path for path, _row_idx in sorted_pairs),
+        sorted_rows=tuple(row_idx for _path, row_idx in sorted_pairs),
+        path_to_row=path_to_row,
+        row_to_path=row_to_path,
+        row_to_slot=row_to_slot,
+        folder_rows={key: tuple(value) for key, value in folder_rows.items()},
+        folder_children={key: tuple(sorted(value)) for key, value in dir_children.items()},
+        row_dimensions=row_dimensions,
+    )
+
+
 def build_table_row_store(
     context: TableIndexInput,
     columns: IndexColumns,
 ) -> TableRowStoreBuildResult:
+    if _can_scan_uniform_http_rows(context, columns):
+        return _build_uniform_http_row_store(context, columns)
+
     table = context.table
     policy = context.policy
     seen_paths: set[str] = set()
@@ -319,7 +473,7 @@ def build_table_row_store(
     urls: list[str | None] = []
     path_to_row: dict[str, int] = {}
     row_to_path: list[str | None] = [None] * table.row_count
-    row_to_slot: dict[int, int] = {}
+    row_to_slot: list[int] = [-1] * table.row_count
     row_dimensions: list[tuple[int, int] | None] = [None] * table.row_count
     folder_rows: dict[str, list[int]] = {}
     dir_children: dict[str, set[str]] = {}
@@ -369,15 +523,13 @@ def build_table_row_store(
         path_to_row[identity.logical_path] = row_idx
         row_to_path[row_idx] = identity.logical_path
         row_to_slot[row_idx] = slot
-        row_dimensions[row_idx] = (width, height)
+        row_dimensions[row_idx] = discovered_dims or (width, height)
         folder_rows.setdefault(folder_norm, []).append(row_idx)
         _record_folder_children(
             folder_norm,
             seen_folders=seen_folders,
             dir_children=dir_children,
         )
-        if discovered_dims:
-            row_dimensions[row_idx] = discovered_dims
         if (identity.is_s3 or identity.is_http) and (width == 0 or height == 0) and not policy.skip_dimension_probe:
             remote_tasks.append(
                 TableRowRemoteDimensionTask(
@@ -390,27 +542,23 @@ def build_table_row_store(
         progress.step()
 
     progress.finish()
-    folder_rows.setdefault("", [])
-    sorted_pairs = sorted(zip(paths, row_indices), key=lambda pair: pair[0])
-    store = TableRowStore(
+    store = _finish_row_store(
         row_count=table.row_count,
-        row_indices=tuple(row_indices),
-        paths=tuple(paths),
-        sources=tuple(sources),
-        names=tuple(names),
-        mimes=tuple(mimes),
-        widths=tuple(widths),
-        heights=tuple(heights),
-        sizes=tuple(sizes),
-        mtimes=tuple(mtimes),
-        urls=tuple(urls),
-        sorted_paths=tuple(path for path, _row_idx in sorted_pairs),
-        sorted_rows=tuple(row_idx for _path, row_idx in sorted_pairs),
+        row_indices=row_indices,
+        paths=paths,
+        sources=sources,
+        names=names,
+        mimes=mimes,
+        widths=widths,
+        heights=heights,
+        sizes=sizes,
+        mtimes=mtimes,
+        urls=urls,
         path_to_row=path_to_row,
         row_to_path=row_to_path,
         row_to_slot=row_to_slot,
-        folder_rows={key: tuple(value) for key, value in folder_rows.items()},
-        folder_children={key: tuple(sorted(value)) for key, value in dir_children.items()},
+        folder_rows=folder_rows,
+        dir_children=dir_children,
         row_dimensions=row_dimensions,
     )
     return TableRowStoreBuildResult(
@@ -420,6 +568,170 @@ def build_table_row_store(
         skipped_local_outside_root=skipped.outside_root,
         skipped_local_resolved_outside_root=skipped.resolved_outside_root,
         skipped_local_missing=skipped.missing,
+    )
+
+
+def _build_uniform_http_row_store(
+    context: TableIndexInput,
+    columns: IndexColumns,
+) -> TableRowStoreBuildResult:
+    table = context.table
+    policy = context.policy
+    row_count = table.row_count
+    seen_paths: set[str] = set()
+    remote_tasks: list[TableRowRemoteDimensionTask] = []
+
+    row_indices: list[int] = []
+    paths: list[str] = []
+    sources: list[str] = []
+    names: list[str] = []
+    mimes: list[ImageMime] = []
+    widths: list[int] = []
+    heights: list[int] = []
+    sizes: list[int] = []
+    mtimes: list[float] = []
+    urls: list[str | None] = []
+    path_to_row: dict[str, int] = {}
+    row_to_path: list[str | None] = [None] * row_count
+    row_to_slot: list[int] = [-1] * row_count
+    row_dimensions: list[tuple[int, int] | None] = [None] * row_count
+    folder_rows: dict[str, list[int]] = {}
+    dir_children: dict[str, set[str]] = {}
+    seen_folders: set[str] = set()
+
+    source_values = columns.source_values
+    path_values = columns.path_values
+    name_values = columns.name_values
+    mime_values = columns.mime_values
+    width_values = columns.width_values
+    height_values = columns.height_values
+    size_values = columns.size_values
+    mtime_values = columns.mtime_values
+    has_path_column = table.path_column is not None
+    has_name_column = table.name_column is not None
+    has_mime_column = table.mime_column is not None
+    has_size_column = table.size_column is not None
+    has_mtime_column = table.mtime_column is not None
+    has_width_column = table.width_column is not None
+    has_height_column = table.height_column is not None
+
+    progress = ProgressTicker(
+        total=row_count,
+        label=f"table:{table.source_column}",
+        emit=context.progress,
+    )
+    progress_batch_size = 2048
+
+    for row_idx in range(row_count):
+        if (row_idx + 1) % progress_batch_size == 0:
+            progress.step(progress_batch_size)
+
+        source = _fast_text(source_values[row_idx])
+        if not source or not is_http_url(source):
+            continue
+
+        if has_path_column:
+            logical_value = _fast_text(path_values[row_idx]) or source
+            if is_http_url(logical_value):
+                logical_path = normalize_item_path(derive_http_logical_path(logical_value))
+                folder_norm, fallback_name = _fast_path_folder_and_name(logical_path) if logical_path else ("", "")
+            elif is_s3_uri(logical_value):
+                logical_path = normalize_item_path(
+                    derive_logical_path(
+                        logical_value,
+                        root=table.root,
+                        local_prefix=table.local_prefix,
+                        s3_prefixes=table.s3_prefixes,
+                        s3_use_bucket=table.s3_use_bucket,
+                    )
+                )
+                folder_norm, fallback_name = (
+                    _fast_path_folder_and_name(logical_path) if logical_path else ("", extract_name(source))
+                )
+            else:
+                logical_path = normalize_item_path(logical_value)
+                folder_norm, _path_name = _fast_path_folder_and_name(logical_path)
+                fallback_name = extract_name(source)
+        else:
+            logical_path = derive_http_logical_path(source)
+            folder_norm, fallback_name = _fast_path_folder_and_name(logical_path) if logical_path else ("", "")
+        if not logical_path:
+            continue
+
+        explicit_name = _fast_text(name_values[row_idx]) if has_name_column else ""
+        image_name = explicit_name or fallback_name or extract_name(logical_path) or "image"
+
+        if logical_path in seen_paths:
+            logical_path = dedupe_path(logical_path, seen_paths)
+        seen_paths.add(logical_path)
+
+        mime = normalize_image_mime(mime_values[row_idx], image_name) if has_mime_column else context.source_resolver.guess_mime(image_name)
+        size = (coerce_int(size_values[row_idx]) or 0) if has_size_column else 0
+        mtime = (coerce_timestamp(mtime_values[row_idx]) or 0.0) if has_mtime_column else 0.0
+        width = _int_or_zero(width_values[row_idx]) if has_width_column else 0
+        height = _int_or_zero(height_values[row_idx]) if has_height_column else 0
+
+        slot = len(row_indices)
+        row_indices.append(row_idx)
+        paths.append(logical_path)
+        sources.append(source)
+        names.append(image_name)
+        mimes.append(mime)
+        widths.append(width)
+        heights.append(height)
+        sizes.append(size)
+        mtimes.append(mtime)
+        urls.append(source)
+        path_to_row[logical_path] = row_idx
+        row_to_path[row_idx] = logical_path
+        row_to_slot[row_idx] = slot
+        row_dimensions[row_idx] = (width, height)
+        folder_rows.setdefault(folder_norm, []).append(row_idx)
+        _record_folder_children(
+            folder_norm,
+            seen_folders=seen_folders,
+            dir_children=dir_children,
+        )
+        if (width == 0 or height == 0) and not policy.skip_dimension_probe:
+            remote_tasks.append(
+                TableRowRemoteDimensionTask(
+                    row_idx=row_idx,
+                    path=logical_path,
+                    source=source,
+                    name=image_name,
+                )
+            )
+
+    remainder = row_count % progress_batch_size
+    if remainder:
+        progress.step(remainder)
+    progress.finish()
+    store = _finish_row_store(
+        row_count=row_count,
+        row_indices=row_indices,
+        paths=paths,
+        sources=sources,
+        names=names,
+        mimes=mimes,
+        widths=widths,
+        heights=heights,
+        sizes=sizes,
+        mtimes=mtimes,
+        urls=urls,
+        path_to_row=path_to_row,
+        row_to_path=row_to_path,
+        row_to_slot=row_to_slot,
+        folder_rows=folder_rows,
+        dir_children=dir_children,
+        row_dimensions=row_dimensions,
+    )
+    return TableRowStoreBuildResult(
+        store=store,
+        remote_tasks=remote_tasks,
+        skipped_local_disabled=0,
+        skipped_local_outside_root=0,
+        skipped_local_resolved_outside_root=0,
+        skipped_local_missing=0,
     )
 
 

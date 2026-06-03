@@ -181,6 +181,30 @@ def test_table_recursive_large_listing_requires_bounded_window() -> None:
     assert payload["items"][-1]["path"] == "/gallery/img_00119.jpg"
 
 
+def test_table_direct_count_only_does_not_materialize_folder_items() -> None:
+    rows = [
+        {
+            "source": f"https://example.com/gallery/img_{idx:04d}.jpg",
+            "path": f"gallery/img_{idx:04d}.jpg",
+            "width": 8,
+            "height": 6,
+        }
+        for idx in range(25)
+    ]
+    storage = TableStorage(rows, options=TableStorageOptions(skip_dimension_probe=True, allow_local=False))
+    row_store = storage._row_store
+    assert row_store is not None
+
+    client = TestClient(create_app_from_storage(storage))
+    response = client.get("/folders", params={"path": "/gallery", "count_only": "1"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"] == []
+    assert payload["total_items"] == 25
+    assert row_store.materialized_item_count == 0
+
+
 def test_views_no_write_mode(tmp_path: Path):
     root = tmp_path
     _make_image(root / "only.jpg")

@@ -408,6 +408,13 @@ def _folder_entries(index: Any) -> list[BrowseFolderEntryPayload]:
     return [BrowseFolderEntryPayload(name=d, kind="branch") for d in sorted(index.dirs)]
 
 
+def _direct_folder_total_items(index: Any) -> int:
+    total_items = getattr(index, "total_items", None)
+    if isinstance(total_items, int):
+        return total_items
+    return len(getattr(index, "items", []) or [])
+
+
 def _build_direct_folder_payload(
     storage: BrowseStorage,
     canonical: str,
@@ -423,7 +430,7 @@ def _build_direct_folder_payload(
             items=[],
             folders=_folder_entries(index),
             metric_keys=[],
-            total_items=len(getattr(index, "items", []) or []),
+            total_items=_direct_folder_total_items(index),
         )
 
     return BrowseFolderPayload(

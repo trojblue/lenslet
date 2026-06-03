@@ -410,6 +410,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         self._row_store: TableRowStore | None = None
         self._generated_at = datetime.now(timezone.utc).isoformat()
         self._search_paths_lower: list[str] | None = None
+        self._search_names_lower: list[str] | None = None
         self._search_sources_lower: list[str] | None = None
         self._path_column_aliases_source = False
 
@@ -881,6 +882,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
 
     def _build_path_index(self) -> None:
         self._search_paths_lower = None
+        self._search_names_lower = None
         self._search_sources_lower = None
 
     def _ensure_search_paths_lower(self) -> list[str]:
@@ -889,6 +891,16 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             search_paths = [path.lower() for path in self._require_row_store().sorted_paths]
             self._search_paths_lower = search_paths
         return search_paths
+
+    def _ensure_search_names_lower(self) -> list[str]:
+        search_names = self._search_names_lower
+        if search_names is None:
+            row_store = self._require_row_store()
+            search_names = [
+                row_store.name_for_row(row_idx).lower() for row_idx in row_store.sorted_rows
+            ]
+            self._search_names_lower = search_names
+        return search_names
 
     def _ensure_search_sources_lower(self) -> list[str]:
         search_sources = self._search_sources_lower
@@ -973,19 +985,28 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         if not path_needle:
             return self._materialize_rows(row_store.sorted_rows[start:min(end, start + limit)])
         search_sources: list[str] | None = None
+        search_names = None if name_search_covered_by_path else self._ensure_search_names_lower()
         for idx in range(start, end):
             row_idx = row_store.sorted_rows[idx]
             base_match = path_needle in search_paths[idx]
-            if not base_match and not name_search_covered_by_path:
-                name = row_store.name_for_row(row_idx)
-                if name:
-                    base_match = path_needle in name.lower()
-            if not base_match and self._include_source_in_search and not source_search_covered_by_path:
+            if not base_match and search_names is not None:
+                base_match = path_needle in search_names[idx]
+            if (
+                not base_match
+                and self._include_source_in_search
+                and not source_search_covered_by_path
+            ):
                 if search_sources is None:
                     search_sources = self._ensure_search_sources_lower()
                 base_match = needle in search_sources[idx]
-            row_path = row_store.path_for_row_index(row_idx) or ""
-            if base_match or (has_sidecars and needle in self._sidecar_search_text(row_path)):
+            if base_match:
+                results.append(self._materialize_row_item(row_idx))
+                if len(results) >= limit:
+                    break
+                continue
+            if has_sidecars and needle in self._sidecar_search_text(
+                row_store.path_for_row_index(row_idx) or ""
+            ):
                 results.append(self._materialize_row_item(row_idx))
                 if len(results) >= limit:
                     break
@@ -1049,7 +1070,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             raise MediaDecodeError.from_exception(path, exc) from exc
         self._thumbnails[norm] = thumb
         if dims:
-            self._require_row_store().update_dimensions(norm, dims)
+            self._require_row_store().update_dimensions(norm, dims, size=len(raw))
         return thumb
 
     def get_dimensions(self, path: str) -> tuple[int, int]:
@@ -1093,7 +1114,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         except (OSError, ValueError) as exc:
             raise MediaDecodeError.from_exception(path, exc) from exc
 
-        row_store.update_dimensions(norm, dims)
+        row_store.update_dimensions(norm, dims, size=len(raw))
         return dims
 
     def _default_sidecar(self, norm: str):

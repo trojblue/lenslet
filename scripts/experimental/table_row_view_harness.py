@@ -98,7 +98,13 @@ def _normalize_fixture_payload(value: Any, root: Path) -> Any:
 
 def _storage_counts(storage: Any) -> dict[str, Any]:
     indexes = getattr(storage, "_indexes", {})
-    folder_item_refs = sum(len(getattr(index, "items", []) or []) for index in indexes.values())
+    folder_item_refs = 0
+    folder_row_refs = 0
+    for index in indexes.values():
+        materialized = getattr(index, "_items", None)
+        if materialized is not None:
+            folder_item_refs += len(materialized)
+        folder_row_refs += len(getattr(index, "_item_rows", ()) or ())
     row_store = getattr(storage, "_row_store", None)
     row_to_path = getattr(storage, "_row_to_path", {}) or {}
     if isinstance(row_to_path, dict):
@@ -109,8 +115,113 @@ def _storage_counts(storage: Any) -> dict[str, Any]:
         "dense_items": len(getattr(storage, "_items", {}) or {}),
         "sorted_items": len(getattr(storage, "_sorted_items", []) or []),
         "folder_item_refs": folder_item_refs,
+        "folder_row_refs": folder_row_refs,
         "row_to_path_entries": row_to_path_entries,
         "row_store_materialized_items": getattr(row_store, "materialized_item_count", None),
+    }
+
+
+def _sampled_sequence_profile(values: Any) -> dict[str, Any]:
+    import sys
+
+    try:
+        length = len(values)
+    except TypeError:
+        length = None
+    profile: dict[str, Any] = {
+        "type": type(values).__name__,
+        "length": length,
+        "container_bytes": sys.getsizeof(values),
+    }
+    nbytes = getattr(values, "nbytes", None)
+    if isinstance(nbytes, int):
+        profile["arrow_or_numpy_nbytes"] = nbytes
+    if not length:
+        return profile
+    sample_count = min(int(length), 1024)
+    step = max(1, int(length) // sample_count)
+    sampled = [values[idx] for idx in range(0, int(length), step)][:sample_count]
+    if not sampled:
+        return profile
+    profile["sample_count"] = len(sampled)
+    profile["sample_item_avg_bytes"] = sum(sys.getsizeof(item) for item in sampled) / len(sampled)
+    profile["estimated_items_bytes"] = int(profile["sample_item_avg_bytes"] * int(length))
+    return profile
+
+
+def _mapping_profile(values: Any) -> dict[str, Any]:
+    import sys
+
+    try:
+        length = len(values)
+    except TypeError:
+        length = None
+    return {
+        "type": type(values).__name__,
+        "length": length,
+        "container_bytes": sys.getsizeof(values),
+    }
+
+
+def _row_store_profile(row_store: Any) -> dict[str, Any]:
+    if row_store is None:
+        return {}
+    folder_rows = getattr(row_store, "folder_rows", {}) or {}
+    folder_children = getattr(row_store, "folder_children", {}) or {}
+    return {
+        "row_count": getattr(row_store, "row_count", None),
+        "paths": _sampled_sequence_profile(getattr(row_store, "paths", ())),
+        "sources": _sampled_sequence_profile(getattr(row_store, "sources", ())),
+        "names": _sampled_sequence_profile(getattr(row_store, "names", ())),
+        "sorted_paths": _sampled_sequence_profile(getattr(row_store, "sorted_paths", ())),
+        "sorted_rows": _sampled_sequence_profile(getattr(row_store, "sorted_rows", ())),
+        "path_to_row": _mapping_profile(getattr(row_store, "path_to_row", {})),
+        "row_to_path": _sampled_sequence_profile(getattr(row_store, "row_to_path", ())),
+        "row_to_slot": _sampled_sequence_profile(getattr(row_store, "row_to_slot", ())),
+        "folder_count": len(folder_rows),
+        "folder_row_refs": sum(len(rows) for rows in folder_rows.values()),
+        "folder_children_count": len(folder_children),
+        "folder_child_refs": sum(len(children) for children in folder_children.values()),
+        "row_dimensions": _sampled_sequence_profile(getattr(row_store, "row_dimensions", ())),
+        "dimension_overlays": len(getattr(row_store, "dimensions", {}) or {}),
+        "size_overlays": len(getattr(row_store, "size_overrides", {}) or {}),
+        "materialized_item_count": getattr(row_store, "materialized_item_count", None),
+    }
+
+
+def _data_column_profile(storage: Any) -> dict[str, Any]:
+    data = getattr(storage, "_data", {}) or {}
+    columns: dict[str, Any] = {}
+    for name, values in data.items():
+        columns[str(name)] = _sampled_sequence_profile(values)
+    return {
+        "column_count": len(data),
+        "columns": columns,
+    }
+
+
+def _storage_profile(storage: Any) -> dict[str, Any]:
+    return {
+        "data_columns": _data_column_profile(storage),
+        "row_store": _row_store_profile(getattr(storage, "_row_store", None)),
+        "search_caches": {
+            "paths_lower": _sampled_sequence_profile(
+                getattr(storage, "_search_paths_lower", None) or ()
+            ),
+            "names_lower": _sampled_sequence_profile(
+                getattr(storage, "_search_names_lower", None) or ()
+            ),
+            "sources_lower": _sampled_sequence_profile(
+                getattr(storage, "_search_sources_lower", None) or ()
+            ),
+        },
+        "sidecars": _mapping_profile(getattr(storage, "_sidecars", {}) or {}),
+        "thumbnail_cache": {
+            "entries": len(getattr(storage, "_thumbnails", {}) or {}),
+            "bytes": sum(
+                len(value) for value in (getattr(storage, "_thumbnails", {}) or {}).values()
+            ),
+        },
     }
 
 
@@ -219,9 +330,11 @@ def _target_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     launched = _launch_target(args.parquet, source_column=args.source_column, path_column=args.path_column)
     storage = launched.value.storage
     rss_after_launch = _rss_mib()
+    profile_after_launch = _storage_profile(storage)
     recursive = _measure_recursive_window(storage, args.recursive_limit)
     search = _measure_search_miss(storage, args.search_query, args.search_repeats)
     rss_after_checks = _rss_mib()
+    profile_after_checks = _storage_profile(storage)
     response = recursive.value
     return {
         "skipped": False,
@@ -236,6 +349,10 @@ def _target_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "peak": max(rss_before, rss_after_launch, rss_after_checks),
         },
         "storage_counts": _storage_counts(storage),
+        "storage_profile": {
+            "after_launch": profile_after_launch,
+            "after_checks": profile_after_checks,
+        },
         "recursive_window": {
             "limit": args.recursive_limit,
             "elapsed_seconds": recursive.elapsed_seconds,

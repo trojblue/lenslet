@@ -97,7 +97,7 @@ Debloat targets are dense table-mode `_items` as the primary source of truth, `_
    Demo outcome: the table backend is internally row-native, the old dense table startup path is removed only where proven unused, and the 500k scenario meets acceptance or has a measured profile explaining the remaining bottleneck.
 
    - S4-T1: Remove only proven-unused dense table startup code. Keep generic dataset/local assembly intact and avoid broad cleanup of `index_assembly.py` unless call graph and tests prove the removed code is table-only dead code. Validation: lint and focused storage tests pass; no table-mode startup calls `build_table_indexes(... item_factory=TableBrowseItem ...)`.
-   - S4-T2: Run the 500k benchmark and update `docs/20260603_io_speed_optimization_progress.md` plus this plan with results, retained object categories, materialization counts, and remaining bottlenecks. Validation: recorded launch time, RSS, first window, search miss, and memory category notes are present.
+   - S4-T2: Use the Sprint 3 retained-category profile to make one measured memory/launch trim if a narrow table-row cache reduction is available, then run the 500k benchmark and update `docs/20260603_io_speed_optimization_progress.md` plus this plan with results, retained object categories, materialization counts, and remaining bottlenecks. Validation: recorded launch time, RSS, first window, search miss, memory category notes, and any accepted/declined cache-trim decision are present.
    - S4-T3: Run full validation and browser smoke. Validation: `PYTHONPATH=src python scripts/lint_repo.py`, `PYTHONPATH=src python -m pytest -q`, `PYTHONPATH=src python -m scripts.browser.gui_smoke.acceptance`, and the target 500k live browse/search smoke all pass or have explicit fix tickets before handoff.
 
 ### Gate Routine for Every Ticket
@@ -140,6 +140,8 @@ Primary acceptance gates:
 - Browser acceptance smoke passes, and a target live-server browse/search probe on the 500k parquet shows initial grid usability without backend full materialization.
 
 Sprint 2 interim result, recorded in `docs/ralph/20260603_table_row_view_backend/iteration2_browse_cutover_harness.json`: table startup no longer retains dense item objects (`dense_items=0`, `sorted_items=0`, `folder_item_refs=0`) and the first 5k recursive window materialized exactly 5k row items. Performance acceptance is not yet met: `prepare_table_launch` was 3.277s, peak RSS was 842.8 MiB, and repeated search miss median was 0.480s. The remaining measured costs are the Arrow table plus Python path/source/search row caches and row lookup maps, not `TableBrowseItem` ownership.
+
+Sprint 3 interim result, recorded in `docs/ralph/20260603_table_row_view_backend/iteration3_search_media_harness.json`: search miss materialization remains zero and repeated 500k full-miss median returned to the merged baseline range at 0.153s after the first cold cache build. Primary performance acceptance is still not met: `prepare_table_launch` was 3.259s, peak RSS was 877.1 MiB after recursive browse plus search caches, and the first recursive 5k window was 0.959s. The retained-category profile points to projected Arrow/NumPy data columns, Python source/path/name row arrays, `path_to_row`/`row_to_path`/`row_to_slot`, folder row refs, and lowercased path/name search caches after search. No dense table item graph is retained.
 
 Secondary fast gates:
 
@@ -192,7 +194,12 @@ Retries are idempotent if the plan keeps row-store construction pure from the ta
 - [x] 2026-06-03: S2-T3 recomputed browse signatures from sampled row arrays and recorded the 500k cutover harness. Result: `prepare_table_launch` 3.277s, peak RSS 842.8 MiB, first recursive 5k window 0.985s, repeated miss median 0.480s, 0 dense items, 0 sorted items, 0 retained folder item refs, and 5k materialized items after the 5k recursive window.
 - [x] 2026-06-03: Sprint 2 validation passed: focused table/search/dataset tests, route/cache/refresh tests, media/storage/embedding contract tests, harness payload parity compare, full 500k harness, and `PYTHONPATH=src python scripts/lint_repo.py`. Lint passed with warn-only large-file notices including `src/lenslet/storage/table/storage.py` at 1240 lines.
 - [x] Sprint 2 complete: browse cutover and post-sprint 500k benchmark.
-- [ ] Sprint 3 complete: search/media/sidecar/embedding self-consistency and post-sprint 500k benchmark.
+- [x] 2026-06-03: S3-T1 optimized table row-store search. Miss scans now cache lowercased names only when needed, avoid source-cache construction when source search is covered by path, and avoid per-row sidecar path lookup when no sidecars exist. Direct 500k profiling showed warm miss calls around 0.16-0.18s with zero materialized row items.
+- [x] 2026-06-03: S3-T2 hardened media overlays. `load_dimensions` and `get_or_build_thumbnail` now persist decoded width/height plus byte size into the row store, and tests rematerialize row items plus default sidecars after the update.
+- [x] 2026-06-03: S3-T3 preserved sidecar and embedding identity through existing deduped-path row-store APIs. Focused sidecar/enrichment/embedding tests passed. A separate 500k `row_index_map()` measurement built 500k entries in about 0.05s; the dict container is about 20MB and reuses existing path strings.
+- [x] 2026-06-03: Sprint 3 500k harness recorded `prepare_table_launch` 3.259s, peak RSS 877.1 MiB, recursive 5k window 0.959s, repeated search miss median 0.153s, 0 dense items, 0 sorted items, 0 retained folder item refs, and 5k materialized items after the recursive window. Remaining launch/RSS work is now a concrete Sprint 4 retained-cache trim/profile decision.
+- [x] 2026-06-03: Sprint 3 validation passed: focused table/search/dataset/media/storage/source/embedding/web suites, small harness parity compare, full 500k harness, and `PYTHONPATH=src python scripts/lint_repo.py`. Cleanup subagent made Tier 1 formatting/readability edits only; review subagent found no code-level issues and the two documentation-state findings were resolved.
+- [x] Sprint 3 complete: search/media/sidecar/embedding self-consistency and post-sprint 500k benchmark.
 - [ ] Sprint 4 complete: proven-unused dense table startup deletion and real-scenario validation.
 
 
@@ -205,6 +212,7 @@ Read these before implementing:
 - `scripts/experimental/table_row_view_harness.py` for the row-view benchmark and payload parity harness.
 - `docs/ralph/20260603_table_row_view_backend/iteration1_baseline_harness.json` for Sprint 1 dense baseline evidence.
 - `docs/ralph/20260603_table_row_view_backend/iteration2_browse_cutover_harness.json` for Sprint 2 row-store cutover evidence.
+- `docs/ralph/20260603_table_row_view_backend/iteration3_search_media_harness.json` for Sprint 3 search/media evidence and retained-category profiling.
 - `src/lenslet/storage/table/storage.py` for production table storage, row-store browse cutover, and compatibility search.
 - `src/lenslet/storage/table/row_store.py` for the Sprint 1 row-store proof model.
 - `src/lenslet/storage/table/row_scan.py` for current source/path derivation and uniform HTTP fast path.
@@ -225,3 +233,7 @@ The row store is intentionally not wired into production `TableStorage` yet. Spr
 Sprint 2 handoff note:
 
 Production `TableStorage` now owns compact row-store state instead of dense startup items. Sprint 3 should start from S3-T1 and tighten search over compact caches: the current compatibility search preserves payload parity but repeated 500k miss median regressed to 0.480s because it scans cached lowercase paths in Python. Media and sidecar behavior already routes through row overlays, but Sprint 3 should still harden overlay persistence, sidecar inventory/enrichment, and embedding identity against deduped logical paths and original parquet row ids. The main remaining memory categories are Arrow table memory, Python path/source/name arrays, `path_to_row`/`row_to_path`, folder row refs, search lowercase path cache after search, thumbnail cache, sidecar state, and row overlays.
+
+Sprint 3 handoff note:
+
+Search, media overlays, sidecar enrichment, and embedding row identity are self-consistent on focused tests and the 500k harness. Search misses no longer materialize rows and warm repeated miss latency is back near the merged optimized baseline. Sprint 4 should start with S4-T1/S4-T2: remove only proven-unused dense table startup code, then use the Sprint 3 profile to decide whether a narrow retained-cache trim is available before the final benchmark. The most concrete remaining categories are projected Arrow/NumPy metric columns, Python source/path/name row arrays, row lookup structures, folder row refs, and lowercased path/name search caches after first search.

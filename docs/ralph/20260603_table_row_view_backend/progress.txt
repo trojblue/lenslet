@@ -64,3 +64,35 @@ Blockers:
 
 Next step:
 - Start Sprint 3 at S3-T1: optimize compact row-store search, prove search misses do not materialize items, and profile the retained launch/RSS cost categories from the 500k run.
+
+## Iteration 3 - 2026-06-03T13:40:11Z
+
+Completed task IDs:
+- S3-T1
+- S3-T2
+- S3-T3
+
+Files changed:
+- docs/20260603_table_row_view_backend_plan.md
+- docs/ralph/20260603_table_row_view_backend/iteration3_search_media_harness.json
+- docs/ralph/20260603_table_row_view_backend/progress.txt
+- scripts/experimental/table_row_view_harness.py
+- src/lenslet/storage/table/storage.py
+- tests/storage/search/test_search_text_contract.py
+- tests/web/media/test_media_error_contract.py
+
+Validations run:
+- `PYTHONPATH=src python -m pytest -q tests/storage/search/test_search_text_contract.py tests/web/media/test_media_error_contract.py` passed: 40 passed.
+- `PYTHONPATH=src python -m pytest -q tests/storage/table tests/storage/search/test_search_text_contract.py tests/storage/dataset/test_dataset_http.py tests/web/media/test_media_error_contract.py tests/storage/contracts/test_storage_contracts.py tests/storage/source/test_search_source_contract.py tests/embeddings/test_embeddings_cache.py tests/embeddings/test_embeddings_search.py tests/web/app/test_refresh.py tests/web/routes/test_folder_recursive.py tests/web/routes/test_direct_route_helpers.py tests/web/cache/test_browse_cache.py` passed: 194 passed.
+- `PYTHONPATH=src python scripts/experimental/table_row_view_harness.py --skip-target --compare-json docs/ralph/20260603_table_row_view_backend/iteration1_baseline_harness.json` passed, preserving small-fixture payload hashes.
+- `PYTHONPATH=src python scripts/experimental/table_row_view_harness.py --output-json docs/ralph/20260603_table_row_view_backend/iteration3_search_media_harness.json --compare-json docs/ralph/20260603_table_row_view_backend/iteration1_baseline_harness.json` passed. Sprint 3 500k result: launch 3.259s, peak RSS 877.1 MiB, recursive 5k window 0.959s, search miss median 0.153s, dense items 0, sorted items 0, retained folder item refs 0, row-store materialized items 5000 after the 5k window.
+- Separate 500k `row_index_map()` measurement built 500k entries in about 0.05s; the dict container was about 20MB and reused existing path strings.
+- `PYTHONPATH=src python scripts/lint_repo.py` passed. Warn-only large-file notices remained for `frontend/src/styles.css`, `scripts/browser/large_tree/smoke.py`, and `src/lenslet/storage/table/storage.py` at 1277 lines.
+- Code-simplifier subagent applied Tier 1 formatting/readability cleanup only and validated ruff, diff whitespace, lint guardrails, and the search/media focused tests.
+- Code-review subagent reported no code-level findings. It found two documentation-state issues, which were fixed by including the Sprint 3 harness artifact and marking Sprint 3 complete in the plan.
+
+Blockers:
+- None. Primary launch/RSS acceptance is still not met, but Sprint 4 now explicitly owns one measured retained-cache trim/profile decision before final acceptance.
+
+Next step:
+- Start Sprint 4 at S4-T1: remove only proven-unused dense table startup code, then use the Sprint 3 retained-category profile for the S4-T2 memory/launch trim decision and final 500k benchmark.

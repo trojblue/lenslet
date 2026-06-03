@@ -7,12 +7,13 @@ from typing import Any, Callable, TypeAlias
 
 from ..progress import ProgressTicker
 from .display import is_internal_metric_key
-from ..index_assembly import ScannedRow
-from ..image_media import ImageMime, normalize_image_mime, read_dimensions_fast
+from ..index_assembly import IndexAssemblyResult, ScannedRow
+from ..image_media import ImageMime, guess_image_mime, normalize_image_mime, read_dimensions_fast
 from .index_types import TableIndexData, TableIndexInput
 from ..source.paths import (
     LocalSourcePathError,
     dedupe_path,
+    derive_http_logical_path,
     derive_logical_path,
     extract_name,
     is_http_url,
@@ -26,7 +27,7 @@ from .schema import coerce_float, coerce_int, coerce_timestamp
 RemoteDimensionTask: TypeAlias = tuple[str, Any, str, str]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class IndexColumns:
     source_values: list[Any]
     path_values: list[Any]
@@ -40,7 +41,7 @@ class IndexColumns:
     metric_columns: tuple[tuple[str, list[Any]], ...]
 
 
-@dataclass
+@dataclass(slots=True)
 class ScanResult:
     rows: list[ScannedRow]
     remote_tasks: list[RemoteDimensionTask]
@@ -50,7 +51,7 @@ class ScanResult:
     skipped_local_missing: int
 
 
-@dataclass
+@dataclass(slots=True)
 class LocalSkipCounts:
     disabled: int = 0
     outside_root: int = 0
@@ -73,7 +74,7 @@ class LocalSkipCounts:
         return True
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RowIdentity:
     source: str
     name: str
@@ -87,7 +88,7 @@ class RowIdentity:
         return not self.is_s3 and not self.is_http
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LocalSourceResolution:
     resolved_path: str | None
     skip_reason: str | None = None
@@ -98,7 +99,16 @@ def scan_rows(
     columns: IndexColumns,
     *,
     item_factory: Callable[..., Any],
+    lazy_metrics_provider: Callable[[int], dict[str, float]] | None = None,
 ) -> ScanResult:
+    if _can_scan_uniform_http_rows(context, columns):
+        return _scan_uniform_http_rows(
+            context,
+            columns,
+            item_factory=item_factory,
+            lazy_metrics_provider=lazy_metrics_provider,
+        )
+
     table = context.table
     policy = context.policy
     row_count = table.row_count
@@ -134,21 +144,25 @@ def scan_rows(
             identity,
             local_source,
         )
-        metrics = _collect_row_metrics(context, columns, idx)
+        metrics = None if lazy_metrics_provider is not None else _collect_row_metrics(context, columns, idx)
 
-        item = item_factory(
-            path=identity.logical_path,
-            name=identity.name,
-            mime=identity.mime,
-            width=width,
-            height=height,
-            size=size,
-            mtime=mtime or 0.0,
-            url=identity.source if identity.is_http else None,
-            source=identity.source,
-            metrics=metrics,
-            metric_labels={},
-        )
+        item_kwargs = {
+            "path": identity.logical_path,
+            "name": identity.name,
+            "mime": identity.mime,
+            "width": width,
+            "height": height,
+            "size": size,
+            "mtime": mtime or 0.0,
+            "url": identity.source if identity.is_http else None,
+            "source": identity.source,
+            "metrics": metrics,
+            "metric_labels": {},
+        }
+        if lazy_metrics_provider is not None:
+            item_kwargs["row_idx"] = idx
+            item_kwargs["metrics_provider"] = lazy_metrics_provider
+        item = item_factory(**item_kwargs)
 
         folder = os.path.dirname(identity.logical_path).replace("\\", "/")
         folder_norm = normalize_path(folder)
@@ -177,6 +191,420 @@ def scan_rows(
         skipped_local_outside_root=skipped.outside_root,
         skipped_local_resolved_outside_root=skipped.resolved_outside_root,
         skipped_local_missing=skipped.missing,
+    )
+
+
+def try_build_uniform_http_indexes(
+    context: TableIndexInput,
+    columns: IndexColumns,
+    *,
+    generated_at: str,
+    item_factory: Callable[..., Any],
+    index_factory: Callable[..., Any],
+    lazy_metrics_provider: Callable[[int], dict[str, float]] | None = None,
+    fast_item_factory: Callable[..., Any] | None = None,
+) -> IndexAssemblyResult | None:
+    if not _can_scan_uniform_http_rows(context, columns):
+        return None
+    return _build_uniform_http_indexes(
+        context,
+        columns,
+        generated_at=generated_at,
+        item_factory=item_factory,
+        index_factory=index_factory,
+        lazy_metrics_provider=lazy_metrics_provider,
+        fast_item_factory=fast_item_factory,
+    )
+
+
+def _folder_index(
+    indexes: dict[str, Any],
+    folder_norm: str,
+    *,
+    generated_at: str,
+    index_factory: Callable[..., Any],
+) -> Any:
+    index = indexes.get(folder_norm)
+    if index is None:
+        index = index_factory(
+            path="/" + folder_norm if folder_norm else "/",
+            generated_at=generated_at,
+            items=[],
+            dirs=[],
+        )
+        indexes[folder_norm] = index
+    return index
+
+
+def _record_folder_children(
+    folder_norm: str,
+    *,
+    seen_folders: set[str],
+    dir_children: dict[str, set[str]],
+) -> None:
+    if folder_norm in seen_folders:
+        return
+    seen_folders.add(folder_norm)
+    parts = folder_norm.split("/") if folder_norm else []
+    for depth in range(len(parts)):
+        parent = "/".join(parts[:depth])
+        child = parts[depth]
+        dir_children.setdefault(parent, set()).add(child)
+
+
+def _can_scan_uniform_http_rows(context: TableIndexInput, columns: IndexColumns) -> bool:
+    _ = columns
+    table = context.table
+    return table.source_kind == "http" and table.extensionless_source_all_trusted
+
+
+def _fast_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, os.PathLike):
+        return os.fspath(value).strip()
+    return str(value).strip()
+
+
+def _fast_path_folder_and_name(logical_path: str) -> tuple[str, str]:
+    if "/" not in logical_path:
+        return "", logical_path
+    return logical_path.rsplit("/", 1)
+
+
+def _scan_uniform_http_rows(
+    context: TableIndexInput,
+    columns: IndexColumns,
+    *,
+    item_factory: Callable[..., Any],
+    lazy_metrics_provider: Callable[[int], dict[str, float]] | None,
+) -> ScanResult:
+    table = context.table
+    policy = context.policy
+    row_count = table.row_count
+    seen_paths: set[str] = set()
+    rows: list[ScannedRow] = []
+    remote_tasks: list[RemoteDimensionTask] = []
+
+    source_values = columns.source_values
+    path_values = columns.path_values
+    name_values = columns.name_values
+    mime_values = columns.mime_values
+    width_values = columns.width_values
+    height_values = columns.height_values
+    size_values = columns.size_values
+    mtime_values = columns.mtime_values
+    has_path_column = table.path_column is not None
+    has_name_column = table.name_column is not None
+    has_mime_column = table.mime_column is not None
+    has_size_column = table.size_column is not None
+    has_mtime_column = table.mtime_column is not None
+    has_width_column = table.width_column is not None
+    has_height_column = table.height_column is not None
+    needs_path_to_row = not policy.skip_dimension_probe
+
+    progress = ProgressTicker(
+        total=row_count,
+        label=f"table:{table.source_column}",
+        emit=context.progress,
+    )
+
+    for idx in range(row_count):
+        source = _fast_text(source_values[idx])
+        if not source:
+            progress.step()
+            continue
+
+        if has_path_column:
+            logical_value = _fast_text(path_values[idx]) or source
+            if is_http_url(logical_value):
+                logical_path = normalize_item_path(derive_http_logical_path(logical_value))
+                folder_norm, fallback_name = _fast_path_folder_and_name(logical_path) if logical_path else ("", "")
+            elif is_s3_uri(logical_value):
+                logical_path = normalize_item_path(
+                    derive_logical_path(
+                        logical_value,
+                        root=table.root,
+                        local_prefix=table.local_prefix,
+                        s3_prefixes=table.s3_prefixes,
+                        s3_use_bucket=table.s3_use_bucket,
+                    )
+                )
+                folder_norm, fallback_name = (
+                    _fast_path_folder_and_name(logical_path) if logical_path else ("", extract_name(source))
+                )
+            else:
+                logical_path = normalize_item_path(logical_value)
+                folder_norm, _path_name = _fast_path_folder_and_name(logical_path)
+                fallback_name = extract_name(source)
+        else:
+            logical_path = derive_http_logical_path(source)
+            folder_norm, fallback_name = _fast_path_folder_and_name(logical_path) if logical_path else ("", "")
+        if not logical_path:
+            progress.step()
+            continue
+
+        explicit_name = _fast_text(name_values[idx]) if has_name_column else ""
+        image_name = explicit_name or fallback_name or extract_name(logical_path) or "image"
+
+        if logical_path in seen_paths:
+            logical_path = dedupe_path(logical_path, seen_paths)
+        seen_paths.add(logical_path)
+
+        mime = normalize_image_mime(mime_values[idx], image_name) if has_mime_column else guess_image_mime(image_name)
+        size = (coerce_int(size_values[idx]) or 0) if has_size_column else 0
+        mtime = (coerce_timestamp(mtime_values[idx]) or 0.0) if has_mtime_column else 0.0
+        try:
+            width = int(width_values[idx]) if has_width_column and width_values[idx] is not None else 0
+        except (TypeError, ValueError, OverflowError):
+            width = 0
+        try:
+            height = int(height_values[idx]) if has_height_column and height_values[idx] is not None else 0
+        except (TypeError, ValueError, OverflowError):
+            height = 0
+
+        metrics = None if lazy_metrics_provider is not None else _collect_row_metrics(context, columns, idx)
+        if lazy_metrics_provider is None:
+            item = item_factory(
+                path=logical_path,
+                name=image_name,
+                mime=mime,
+                width=width,
+                height=height,
+                size=size,
+                mtime=mtime,
+                url=source,
+                source=source,
+                metrics=metrics,
+                metric_labels={},
+            )
+        else:
+            item = item_factory(
+                path=logical_path,
+                name=image_name,
+                mime=mime,
+                width=width,
+                height=height,
+                size=size,
+                mtime=mtime,
+                url=source,
+                source=source,
+                metrics=None,
+                metric_labels={},
+                row_idx=idx,
+                metrics_provider=lazy_metrics_provider,
+            )
+
+        rows.append(
+            ScannedRow(
+                row_idx=idx,
+                logical_path=logical_path,
+                source=source,
+                folder_norm=folder_norm,
+                item=item,
+                discovered_dims=None,
+            )
+        )
+
+        if (width == 0 or height == 0) and not policy.skip_dimension_probe:
+            remote_tasks.append((logical_path, item, source, image_name))
+
+        progress.step()
+
+    progress.finish()
+    return ScanResult(
+        rows=rows,
+        remote_tasks=remote_tasks,
+        skipped_local_disabled=0,
+        skipped_local_outside_root=0,
+        skipped_local_resolved_outside_root=0,
+        skipped_local_missing=0,
+    )
+
+
+def _build_uniform_http_indexes(
+    context: TableIndexInput,
+    columns: IndexColumns,
+    *,
+    generated_at: str,
+    item_factory: Callable[..., Any],
+    index_factory: Callable[..., Any],
+    lazy_metrics_provider: Callable[[int], dict[str, float]] | None,
+    fast_item_factory: Callable[..., Any] | None,
+) -> IndexAssemblyResult:
+    table = context.table
+    policy = context.policy
+    row_count = table.row_count
+    seen_paths: set[str] = set()
+    indexes: dict[str, Any] = {}
+    items: dict[str, Any] = {}
+    source_paths: dict[str, str] = {}
+    row_dimensions: list[tuple[int, int] | None] = [None] * row_count
+    path_to_row: dict[str, int] = {}
+    row_to_path: list[str | None] = [None] * row_count
+    dimensions: dict[str, tuple[int, int]] = {}
+    remote_tasks: list[RemoteDimensionTask] = []
+    dir_children: dict[str, set[str]] = {}
+    seen_folders: set[str] = set()
+
+    source_values = columns.source_values
+    path_values = columns.path_values
+    name_values = columns.name_values
+    mime_values = columns.mime_values
+    width_values = columns.width_values
+    height_values = columns.height_values
+    size_values = columns.size_values
+    mtime_values = columns.mtime_values
+    has_path_column = table.path_column is not None
+    has_name_column = table.name_column is not None
+    has_mime_column = table.mime_column is not None
+    has_size_column = table.size_column is not None
+    has_mtime_column = table.mtime_column is not None
+    has_width_column = table.width_column is not None
+    has_height_column = table.height_column is not None
+    needs_path_to_row = not policy.skip_dimension_probe
+
+    progress = ProgressTicker(
+        total=row_count,
+        label=f"table:{table.source_column}",
+        emit=context.progress,
+    )
+    progress_batch_size = 2048
+
+    for idx in range(row_count):
+        if (idx + 1) % progress_batch_size == 0:
+            progress.step(progress_batch_size)
+
+        source = _fast_text(source_values[idx])
+        if not source or not is_http_url(source):
+            continue
+
+        if has_path_column:
+            logical_value = _fast_text(path_values[idx]) or source
+            if is_http_url(logical_value):
+                logical_path = normalize_item_path(derive_http_logical_path(logical_value))
+                folder_norm, fallback_name = _fast_path_folder_and_name(logical_path) if logical_path else ("", "")
+            elif is_s3_uri(logical_value):
+                logical_path = normalize_item_path(
+                    derive_logical_path(
+                        logical_value,
+                        root=table.root,
+                        local_prefix=table.local_prefix,
+                        s3_prefixes=table.s3_prefixes,
+                        s3_use_bucket=table.s3_use_bucket,
+                    )
+                )
+                folder_norm, fallback_name = (
+                    _fast_path_folder_and_name(logical_path) if logical_path else ("", extract_name(source))
+                )
+            else:
+                logical_path = normalize_item_path(logical_value)
+                folder_norm, _path_name = _fast_path_folder_and_name(logical_path)
+                fallback_name = extract_name(source)
+        else:
+            logical_path = derive_http_logical_path(source)
+            folder_norm, fallback_name = _fast_path_folder_and_name(logical_path) if logical_path else ("", "")
+        if not logical_path:
+            continue
+
+        explicit_name = _fast_text(name_values[idx]) if has_name_column else ""
+        image_name = explicit_name or fallback_name or extract_name(logical_path) or "image"
+
+        if logical_path in seen_paths:
+            logical_path = dedupe_path(logical_path, seen_paths)
+        seen_paths.add(logical_path)
+
+        mime = normalize_image_mime(mime_values[idx], image_name) if has_mime_column else guess_image_mime(image_name)
+        size = (coerce_int(size_values[idx]) or 0) if has_size_column else 0
+        mtime = (coerce_timestamp(mtime_values[idx]) or 0.0) if has_mtime_column else 0.0
+        try:
+            width = int(width_values[idx]) if has_width_column and width_values[idx] is not None else 0
+        except (TypeError, ValueError, OverflowError):
+            width = 0
+        try:
+            height = int(height_values[idx]) if has_height_column and height_values[idx] is not None else 0
+        except (TypeError, ValueError, OverflowError):
+            height = 0
+
+        if fast_item_factory is not None and lazy_metrics_provider is not None:
+            item = fast_item_factory(
+                logical_path,
+                image_name,
+                mime,
+                width,
+                height,
+                size,
+                mtime,
+                source,
+                source,
+                idx,
+                lazy_metrics_provider,
+            )
+        else:
+            metrics = None if lazy_metrics_provider is not None else _collect_row_metrics(context, columns, idx)
+            item_kwargs = {
+                "path": logical_path,
+                "name": image_name,
+                "mime": mime,
+                "width": width,
+                "height": height,
+                "size": size,
+                "mtime": mtime,
+                "url": source,
+                "source": source,
+                "metrics": metrics,
+                "metric_labels": {},
+            }
+            if lazy_metrics_provider is not None:
+                item_kwargs["row_idx"] = idx
+                item_kwargs["metrics_provider"] = lazy_metrics_provider
+            item = item_factory(**item_kwargs)
+
+        items[logical_path] = item
+        row_dimensions[idx] = (width, height)
+        if needs_path_to_row:
+            path_to_row[logical_path] = idx
+        row_to_path[idx] = logical_path
+        _folder_index(
+            indexes,
+            folder_norm,
+            generated_at=generated_at,
+            index_factory=index_factory,
+        ).items.append(item)
+        _record_folder_children(
+            folder_norm,
+            seen_folders=seen_folders,
+            dir_children=dir_children,
+        )
+
+        if (width == 0 or height == 0) and not policy.skip_dimension_probe:
+            remote_tasks.append((logical_path, item, source, image_name))
+
+    remainder = row_count % progress_batch_size
+    if remainder:
+        progress.step(remainder)
+    progress.finish()
+    if "" not in indexes:
+        indexes[""] = index_factory(path="/", generated_at=generated_at, items=[], dirs=[])
+    for parent, children in dir_children.items():
+        index = _folder_index(
+            indexes,
+            parent,
+            generated_at=generated_at,
+            index_factory=index_factory,
+        )
+        index.dirs = sorted(children)
+    return IndexAssemblyResult(
+        indexes=indexes,
+        items=items,
+        source_paths=source_paths,
+        row_dimensions=row_dimensions,
+        path_to_row=path_to_row,
+        row_to_path=row_to_path,
+        dimensions=dimensions,
+        remote_tasks=remote_tasks,
     )
 
 
@@ -259,6 +687,9 @@ def _image_name_for_row(
     fallback_name: str,
     logical_path: str,
 ) -> str | None:
+    if context.source_resolver.allows_extensionless_source_image(source):
+        return explicit_name or fallback_name or extract_name(logical_path) or "image"
+
     supported_name = _supported_image_name(
         context,
         explicit_name=explicit_name,
@@ -267,9 +698,7 @@ def _image_name_for_row(
     )
     if supported_name is not None:
         return supported_name
-    if not context.source_resolver.allows_extensionless_source_image(source):
-        return None
-    return explicit_name or fallback_name or extract_name(logical_path) or "image"
+    return None
 
 
 def _resolve_row_identity(
@@ -357,10 +786,17 @@ def _resolved_file_size(value: object, local_source: LocalSourceResolution) -> i
         return 0
 
 
-def _resolved_file_mtime(value: object, local_source: LocalSourceResolution) -> float:
+def _resolved_file_mtime(
+    value: object,
+    local_source: LocalSourceResolution,
+    *,
+    is_local: bool,
+) -> float:
     mtime = coerce_timestamp(value)
     if mtime is not None:
         return mtime
+    if not is_local:
+        return 0.0
     if local_source.resolved_path is None:
         return time.time()
     try:
@@ -397,7 +833,7 @@ def _resolve_row_media_fields(
     local_source: LocalSourceResolution,
 ) -> tuple[int, float, int, int, tuple[int, int] | None]:
     size = _resolved_file_size(columns.size_values[idx], local_source)
-    mtime = _resolved_file_mtime(columns.mtime_values[idx], local_source)
+    mtime = _resolved_file_mtime(columns.mtime_values[idx], local_source, is_local=identity.is_local)
     width, height, discovered_dims = _resolved_dimensions(context, columns, idx, identity, local_source)
     return size, mtime, width, height, discovered_dims
 

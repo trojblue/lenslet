@@ -4,14 +4,12 @@ import math
 import os
 from typing import Any, Final
 
-from pyarrow.lib import ArrowException
-
+from .pyarrow_runtime import pyarrow_exception_types
 from .schema import coerce_float
 
 _DISPLAY_DEPTH_LIMIT: Final = 8
 _UNHANDLED: Final = object()
-_SCALAR_CONVERSION_ERRORS = (
-    ArrowException,
+_BASE_SCALAR_CONVERSION_ERRORS = (
     TypeError,
     ValueError,
     OverflowError,
@@ -74,11 +72,15 @@ def _convert_known_scalar(value: object) -> object:
             continue
         try:
             converted = method()
-        except _SCALAR_CONVERSION_ERRORS:
+        except _scalar_conversion_errors():
             converted = value
         if converted is not value:
             return converted
     return value
+
+
+def _scalar_conversion_errors() -> tuple[type[BaseException], ...]:
+    return pyarrow_exception_types() + _BASE_SCALAR_CONVERSION_ERRORS
 
 
 def _normalize_scalar_value(value: object) -> object:

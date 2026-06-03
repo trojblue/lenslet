@@ -63,7 +63,7 @@ class SourceBackedStorageBase(SidecarStateMixin, StorageProgressMixin, Generic[I
     _source_paths: dict[str, str]
     _row_dimensions: list[tuple[int, int] | None]
     _path_to_row: dict[str, int]
-    _row_to_path: dict[int, str]
+    _row_to_path: dict[int, str] | list[str | None]
     _dimensions: dict[str, tuple[int, int]]
     _sidecars: dict[str, SidecarState]
     _normalize_source_item_path: Callable[[str], str]
@@ -359,7 +359,14 @@ class SourceBackedStorageBase(SidecarStateMixin, StorageProgressMixin, Generic[I
         if self._row_index_state is None:
             return None
         norm = self._normalize_source_item_path(path)
-        return self._path_to_row.get(norm)
+        row_idx = self._path_to_row.get(norm)
+        if row_idx is not None:
+            return row_idx
+        item = self._items.get(norm)
+        item_row_idx = getattr(item, "row_idx", None)
+        if isinstance(item_row_idx, int) and item_row_idx >= 0:
+            return item_row_idx
+        return None
 
     def sidecar_enrichment_for_path(self, path: str) -> dict[str, Any]:
         _ = path

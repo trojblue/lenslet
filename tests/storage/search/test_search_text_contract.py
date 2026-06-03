@@ -204,6 +204,38 @@ def test_table_search_source_and_url_fields_respect_toggle(tmp_path: Path) -> No
     assert "gallery/remote.jpg" not in _result_paths(disabled.search(query="cdn.example.com"))
 
 
+def test_table_search_treats_auto_http_path_as_source_alias() -> None:
+    pa = pytest.importorskip("pyarrow")
+
+    table = pa.table(
+        {
+            "s3key": [
+                "https://img.metanomaly.co/r2/one",
+                "https://img.metanomaly.co/r2/two",
+            ],
+            "path": [
+                "img.metanomaly.co/r2/one",
+                "img.metanomaly.co/r2/two",
+            ],
+            "width": [10, 11],
+            "height": [12, 13],
+        }
+    )
+
+    storage = _table_storage(
+        table,
+        source_column="s3key",
+        skip_dimension_probe=True,
+        include_source_in_search=True,
+    )
+
+    assert storage._path_column_aliases_source
+    assert storage._source_search_covered_by_path()
+    assert storage._index_context.table.path_column is None
+    assert "img.metanomaly.co/r2/one" in _result_paths(storage.search(query="https://img.metanomaly.co/r2/one"))
+    assert "img.metanomaly.co/r2/two" in _result_paths(storage.search(query="img.metanomaly.co/r2/two"))
+
+
 def test_dataset_search_source_and_url_fields_respect_toggle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

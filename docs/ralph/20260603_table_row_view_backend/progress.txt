@@ -1,0 +1,36 @@
+# Ralph Progress Log
+Started: 2026-06-03T12:45:54Z
+Mode: plan
+Tool: codex
+Repo: /data/yada/dev_new/lenslet2
+Plan: /data/yada/dev_new/lenslet2/docs/20260603_table_row_view_backend_plan.md
+---
+
+## Iteration 1 - 2026-06-03T12:45:54Z
+
+Completed task IDs:
+- S1-T1
+- S1-T2
+- S1-T3
+
+Files changed:
+- docs/20260603_table_row_view_backend_plan.md
+- docs/ralph/20260603_table_row_view_backend/iteration1_baseline_harness.json
+- docs/ralph/20260603_table_row_view_backend/progress.txt
+- scripts/experimental/table_row_view_harness.py
+- src/lenslet/storage/table/row_store.py
+- tests/storage/table/test_table_row_store.py
+
+Validations run:
+- `PYTHONPATH=src python scripts/experimental/table_row_view_harness.py --output-json docs/ralph/20260603_table_row_view_backend/iteration1_baseline_harness.json` passed. Dense 500k baseline: launch 3.151s, peak RSS 855.7 MiB after checks, recursive 5k window 0.944s, search miss median 0.269s, 500k dense items.
+- `PYTHONPATH=src python -m pytest -q tests/storage/table tests/storage/search/test_search_text_contract.py tests/storage/dataset/test_dataset_http.py` passed: 75 passed.
+- `PYTHONPATH=src python -m pytest -q tests/storage/table/test_table_row_store.py` passed: 2 passed.
+- `python scripts/experimental/table_row_view_harness.py --skip-target --compare-json docs/ralph/20260603_table_row_view_backend/iteration1_baseline_harness.json` passed, verifying direct-run local import guarding and payload parity hashes.
+- `PYTHONPATH=src python scripts/lint_repo.py` passed. Existing warn-only large-file notices remained for `frontend/src/styles.css` and `scripts/browser/large_tree/smoke.py`.
+- Code-simplifier subagent found no Tier 1 cleanup edits. Code-review subagents found one harness parity-gap issue and one direct-run import-path issue; both were fixed and the final rereview reported no actionable findings.
+
+Blockers:
+- None.
+
+Next step:
+- Start Sprint 2 at S2-T1: wire `TableRowStore` into table-mode startup assembly without changing external browse payload behavior, then rerun the harness and focused table/storage tests.

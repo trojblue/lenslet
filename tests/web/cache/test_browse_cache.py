@@ -73,6 +73,23 @@ def test_recursive_snapshot_window_round_trips_metric_labels() -> None:
     assert restored.metric_labels == {"style": "anime"}
 
 
+def test_recursive_snapshot_window_round_trips_categoricals() -> None:
+    item = RecursiveCachedItemSnapshot(
+        path="/gallery/a.jpg",
+        name="a.jpg",
+        mime="image/jpeg",
+        width=8,
+        height=6,
+        size=1,
+        mtime=1.0,
+        categoricals={"l0r_viewpoint_family": "frontal"},
+    )
+
+    restored = RecursiveCachedItemSnapshot.from_payload(item.to_payload())
+
+    assert restored.categoricals == {"l0r_viewpoint_family": "frontal"}
+
+
 def test_recursive_browse_cache_enforces_disk_cap(tmp_path):
     cap_bytes = 8_000
     cache = RecursiveBrowseCache(

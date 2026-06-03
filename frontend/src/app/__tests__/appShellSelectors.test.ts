@@ -7,10 +7,18 @@ import {
   getSimilarityCountLabel,
   getSimilarityQueryLabel,
   hasMetricSortValues,
+  resolveCategoricalKeys,
   resolveMetricKeys,
 } from '../model/appShellSelectors'
 
-function makeItem(path: string, options?: { star?: BrowseItemPayload['star']; metrics?: BrowseItemPayload['metrics'] }): BrowseItemPayload {
+function makeItem(
+  path: string,
+  options?: {
+    star?: BrowseItemPayload['star']
+    metrics?: BrowseItemPayload['metrics']
+    categoricals?: BrowseItemPayload['categoricals']
+  }
+): BrowseItemPayload {
   return {
     path,
     name: path.split('/').pop() ?? path,
@@ -22,6 +30,7 @@ function makeItem(path: string, options?: { star?: BrowseItemPayload['star']; me
     has_metadata: true,
     star: options?.star,
     metrics: options?.metrics,
+    categoricals: options?.categoricals,
   }
 }
 
@@ -84,6 +93,19 @@ describe('appShellSelectors', () => {
     })
 
     expect(resolveMetricKeys(['folder_only'], true, items)).toEqual(['quality', 'score'])
+  })
+
+  it('resolves categorical keys from folder payload or similarity items', () => {
+    const items = [
+      makeItem('/a.jpg', { categoricals: { l0r_viewpoint_family: 'frontal' } }),
+      makeItem('/b.jpg', { categoricals: { l0r_focus_mechanism: 'face_or_gaze' } }),
+    ]
+
+    expect(resolveCategoricalKeys(['folder_only'], false, items)).toEqual(['folder_only'])
+    expect(resolveCategoricalKeys(['folder_only'], true, items)).toEqual([
+      'l0r_focus_mechanism',
+      'l0r_viewpoint_family',
+    ])
   })
 
   it('formats display counts for similarity and standard browsing modes', () => {

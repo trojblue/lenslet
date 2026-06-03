@@ -28,6 +28,7 @@ class BrowseItemPayload(BaseModel):
     source: str | None = None
     metrics: dict[str, float] | None = None
     metric_labels: dict[str, str] | None = None
+    categoricals: dict[str, str] | None = None
 
 
 class BrowseFolderEntryPayload(BaseModel):
@@ -42,6 +43,7 @@ class BrowseFolderPayload(BaseModel):
     items: list[BrowseItemPayload] = Field(default_factory=list)
     folders: list[BrowseFolderEntryPayload] = Field(default_factory=list)
     metric_keys: list[str] = Field(default_factory=list)
+    categorical_keys: list[str] = Field(default_factory=list)
     total_items: int | None = None
     offset: int | None = None
     limit: int | None = None

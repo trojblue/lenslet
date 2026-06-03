@@ -7,7 +7,7 @@ import { api, cancelBrowseRequests } from '../../api/client'
 import { useDebounced } from '../../shared/hooks/useDebounced'
 import { applyFilters, applySort } from '../../features/browse/model/apply'
 import { FetchError } from '../../lib/fetcher'
-import { resolveMetricKeys } from '../model/appShellSelectors'
+import { resolveCategoricalKeys, resolveMetricKeys } from '../model/appShellSelectors'
 import {
   completeBrowseLoad,
   startBrowseLoad,
@@ -64,6 +64,7 @@ type UseAppDataScopeResult = {
   poolItems: BrowseItemPayload[]
   similarityItems: BrowseItemPayload[]
   metricKeys: string[]
+  categoricalKeys: string[]
   items: BrowseItemPayload[]
   totalCount: number
   filteredCount: number
@@ -96,10 +97,15 @@ function mergeFolderPage(
     ...(current.metric_keys ?? []),
     ...(page.metric_keys ?? []),
   ])).sort()
+  const categoricalKeys = Array.from(new Set([
+    ...(current.categorical_keys ?? []),
+    ...(page.categorical_keys ?? []),
+  ])).sort()
   return {
     ...current,
     items,
     metric_keys: metricKeys,
+    categorical_keys: categoricalKeys,
     total_items: page.total_items ?? current.total_items,
     offset: 0,
     limit: items.length,
@@ -215,6 +221,9 @@ export function useAppDataScope({
   const metricKeys = useMemo(() => (
     resolveMetricKeys(data?.metric_keys, similarityActive, similarityItems)
   ), [data?.metric_keys, similarityActive, similarityItems])
+  const categoricalKeys = useMemo(() => (
+    resolveCategoricalKeys(data?.categorical_keys, similarityActive, similarityItems)
+  ), [data?.categorical_keys, similarityActive, similarityItems])
 
   const items = useMemo((): BrowseItemPayload[] => {
     if (similarityState) {
@@ -281,6 +290,7 @@ export function useAppDataScope({
     poolItems,
     similarityItems,
     metricKeys,
+    categoricalKeys,
     items,
     totalCount,
     filteredCount,

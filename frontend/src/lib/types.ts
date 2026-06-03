@@ -17,6 +17,7 @@ export type BrowseItemPayload = {
   source?: string | null
   metrics?: Record<string, number | null>
   metric_labels?: Record<string, string> | null
+  categoricals?: Record<string, string> | null
 }
 
 export type BrowseFolderEntryPayload = {
@@ -31,6 +32,7 @@ export type BrowseFolderPayload = {
   items: BrowseItemPayload[]
   folders: BrowseFolderEntryPayload[]
   metric_keys: string[]
+  categorical_keys: string[]
   total_items?: number | null
   offset?: number | null
   limit?: number | null
@@ -212,6 +214,7 @@ export type FilterClause =
   | { widthCompare: { op: '<' | '<=' | '>' | '>='; value: number } }
   | { heightCompare: { op: '<' | '<=' | '>' | '>='; value: number } }
   | { metricRange: { key: string; min: number; max: number } }
+  | { categoricalIn: { key: string; values: string[] } }
 
 export type FilterAST = {
   and: FilterClause[]

@@ -26,6 +26,7 @@ function makeFolder(path: string, items: BrowseItemPayload[]): BrowseFolderPaylo
     path,
     generated_at: '2026-03-07T00:00:00Z',
     metric_keys: [],
+    categorical_keys: [],
     items,
     folders: [],
   }

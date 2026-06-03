@@ -74,6 +74,7 @@ def _table_index_context() -> table_index.TableIndexInput:
         size_column=None,
         mtime_column=None,
         metrics_column="metrics",
+        categorical_columns=(),
         reserved_columns={"source", "path", "metrics"},
         local_prefix=None,
         s3_prefixes={},

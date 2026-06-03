@@ -6,6 +6,7 @@ import {
   setNotesNotContainsFilter,
   setDateRangeFilter,
   setHeightCompareFilter,
+  setCategoricalInFilter,
   setMetricRangeFilter,
   setNameContainsFilter,
   setNameNotContainsFilter,
@@ -64,6 +65,17 @@ describe('filter AST', () => {
       baseItem({ path: 'c', metrics: { score: null } }),
     ]
     const filters = setMetricRangeFilter({ and: [] }, 'score', { min: 0.5, max: 1.0 })
+    const result = applyFilterAst(items, filters)
+    expect(result.map((i) => i.path)).toEqual(['a'])
+  })
+
+  it('filters by categorical membership', () => {
+    const items = [
+      baseItem({ path: 'a', categoricals: { l0r_viewpoint_family: 'frontal' } }),
+      baseItem({ path: 'b', categoricals: { l0r_viewpoint_family: 'profile' } }),
+      baseItem({ path: 'c', categoricals: { l0r_focus_mechanism: 'face_or_gaze' } }),
+    ]
+    const filters = setCategoricalInFilter({ and: [] }, 'l0r_viewpoint_family', ['frontal'])
     const result = applyFilterAst(items, filters)
     expect(result.map((i) => i.path)).toEqual(['a'])
   })

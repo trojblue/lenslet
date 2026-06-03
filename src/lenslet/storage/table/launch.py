@@ -41,6 +41,45 @@ _WIDTH_COLUMNS = ("width", "w")
 _HEIGHT_COLUMNS = ("height", "h")
 _SIZE_COLUMNS = ("size", "bytes")
 _MTIME_COLUMNS = ("mtime", "modified", "modified_at")
+_CATEGORICAL_MAX_UNIQUE_VALUES = 60
+_CATEGORICAL_MAX_VALUE_LENGTH = 256
+_CATEGORICAL_IDENTIFIER_LEAVES = {
+    "id",
+    "key",
+    "hash",
+    "sha",
+    "source",
+    "src",
+    "url",
+    "uri",
+    "path",
+    "s3key",
+    "local_path",
+    "image_path",
+    "logical_path",
+    "rel_path",
+    "relative_path",
+    "display_path",
+    "name",
+    "filename",
+    "file_name",
+    "mime",
+    "mime_type",
+}
+_CATEGORICAL_LONG_TEXT_LEAVES = {
+    "caption",
+    "captions",
+    "comment",
+    "comments",
+    "description",
+    "explanation",
+    "notes",
+    "prompt",
+    "prompts",
+    "reason",
+    "reasoning",
+    "text",
+}
 
 
 def _table_schema_errors() -> tuple[type[BaseException], ...]:
@@ -128,6 +167,7 @@ class BrowseColumnSelection:
     source_column: str | None
     path_column: str | None
     table_field_columns: tuple[str, ...]
+    categorical_columns: tuple[str, ...]
     is_projected: bool
 
 
@@ -180,6 +220,13 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
         if browse_columns.is_projected and browse_columns.table_field_columns
         else None
     )
+    categorical_row_provider = (
+        ArrowTableRowFieldProvider(
+            load_parquet_table(str(parquet_path), columns=list(browse_columns.categorical_columns))
+        )
+        if browse_columns.categorical_columns
+        else None
+    )
     storage = TableStorage(
         table=table,
         options=TableStorageOptions(
@@ -191,6 +238,8 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
             skip_dimension_probe=dimension_probe_policy.skip_dimension_probe,
             row_field_provider=row_field_provider,
             table_field_columns=browse_columns.table_field_columns,
+            categorical_columns=browse_columns.categorical_columns,
+            categorical_row_provider=categorical_row_provider,
             browse_signature_seed=parquet_browse_signature_seed(parquet_path),
         ),
     )
@@ -263,6 +312,7 @@ def select_browse_columns(
             source_column=None,
             path_column=request.path_column,
             table_field_columns=(),
+            categorical_columns=(),
             is_projected=readable_columns is not None,
         )
 
@@ -308,11 +358,21 @@ def select_browse_columns(
         source_column=source_column,
         path_column=path_column,
     )
+    categorical_columns = select_categorical_columns(
+        parquet_path=parquet_path,
+        schema=schema,
+        readable=readable,
+        source_column=source_column,
+        path_column=path_column,
+        table_field_columns=tuple(table_field_columns),
+    )
+
     return BrowseColumnSelection(
         columns=selected,
         source_column=source_column,
         path_column=path_column,
         table_field_columns=tuple(table_field_columns),
+        categorical_columns=tuple(categorical_columns),
         is_projected=set(selected) != readable,
     )
 
@@ -353,6 +413,20 @@ def is_numeric_browse_column(schema: Any, column: str) -> bool:
             or pyarrow.types.is_floating(dtype)
             or pyarrow.types.is_decimal(dtype)
         )
+    except _table_schema_errors():
+        return False
+
+
+def is_string_browse_column(schema: Any, column: str) -> bool:
+    try:
+        pyarrow, _parquet = require_pyarrow()
+        dtype = schema.field(column).type
+        if pyarrow.types.is_string(dtype) or pyarrow.types.is_large_string(dtype):
+            return True
+        if pyarrow.types.is_dictionary(dtype):
+            value_type = dtype.value_type
+            return pyarrow.types.is_string(value_type) or pyarrow.types.is_large_string(value_type)
+        return False
     except _table_schema_errors():
         return False
 
@@ -410,6 +484,117 @@ def select_table_field_columns(
             continue
         fields.append(column)
     return fields
+
+
+def select_categorical_columns(
+    *,
+    parquet_path: Path,
+    schema: Any,
+    readable: set[str],
+    source_column: str,
+    path_column: str | None,
+    table_field_columns: tuple[str, ...],
+    max_unique_values: int = _CATEGORICAL_MAX_UNIQUE_VALUES,
+) -> tuple[str, ...]:
+    candidates = [
+        column
+        for column in table_field_columns
+        if (
+            column in readable
+            and not _is_categorical_identifier_column(column)
+            and column not in _duplicate_display_columns(
+                source_column=source_column,
+                path_column=path_column,
+                schema_names=list(schema.names),
+            )
+            and is_string_browse_column(schema, column)
+            and is_browse_scalar_column(schema, column)
+        )
+    ]
+    if not candidates:
+        return ()
+
+    try:
+        _pyarrow, parquet = require_pyarrow()
+        import pyarrow.compute as compute
+
+        categorical_table = parquet.read_table(str(parquet_path), columns=candidates)
+    except _table_schema_errors():
+        return ()
+
+    selected: list[str] = []
+    for column in candidates:
+        if _array_has_low_cardinality(
+            categorical_table[column],
+            compute,
+            max_unique_values=max_unique_values,
+        ):
+            selected.append(column)
+    return tuple(selected)
+
+
+def _is_categorical_identifier_column(column: str) -> bool:
+    lower = column.strip().lower()
+    if not lower:
+        return True
+    leaf = lower.rsplit("__", 1)[-1]
+    if lower in _CATEGORICAL_IDENTIFIER_LEAVES or leaf in _CATEGORICAL_IDENTIFIER_LEAVES:
+        return True
+    if leaf in _CATEGORICAL_LONG_TEXT_LEAVES:
+        return True
+    return leaf.endswith((
+        "_id",
+        "_key",
+        "_hash",
+        "_url",
+        "_uri",
+        "_path",
+        "_caption",
+        "_comment",
+        "_description",
+        "_explanation",
+        "_notes",
+        "_prompt",
+        "_reason",
+        "_reasoning",
+        "_text",
+    ))
+
+
+def _normalize_categorical_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if len(text) > _CATEGORICAL_MAX_VALUE_LENGTH:
+        return None
+    return text
+
+
+def _array_has_low_cardinality(
+    values: Any,
+    compute: Any,
+    *,
+    max_unique_values: int,
+) -> bool:
+    unique_values: set[str] = set()
+    try:
+        unique = compute.unique(values)
+        if len(unique) > max_unique_values + 2:
+            return False
+        for raw_value in unique.to_pylist():
+            value = _normalize_categorical_value(raw_value)
+            if value is None:
+                if raw_value is not None and len(str(raw_value).strip()) > _CATEGORICAL_MAX_VALUE_LENGTH:
+                    return False
+                continue
+            unique_values.add(value)
+            if len(unique_values) >= max_unique_values:
+                return False
+    except _table_schema_errors():
+        return False
+    return 0 < len(unique_values) < max_unique_values
 
 
 def parquet_browse_signature_seed(parquet_path: Path) -> str:
@@ -682,4 +867,21 @@ class ParquetRowFieldProvider:
             column: values[local_idx]
             for column, values in self._cached_columns.items()
             if local_idx < len(values)
+        }
+
+
+class ArrowTableRowFieldProvider:
+    def __init__(self, table: PyArrowTable) -> None:
+        self._columns = {
+            column: table[column]
+            for column in table.schema.names
+        }
+        self._row_count = table.num_rows
+
+    def __call__(self, row_idx: int) -> dict[str, Any]:
+        if row_idx < 0 or row_idx >= self._row_count:
+            return {}
+        return {
+            column: values[row_idx].as_py()
+            for column, values in self._columns.items()
         }

@@ -105,6 +105,13 @@ function matchesClause(item: BrowseItemPayload, clause: FilterClause): boolean {
     if (raw > max) return false
     return true
   }
+  if ('categoricalIn' in clause) {
+    const { key, values } = clause.categoricalIn
+    if (!key || !values.length) return true
+    const raw = item.categoricals?.[key]
+    if (!raw) return false
+    return values.includes(raw)
+  }
   return true
 }
 
@@ -278,6 +285,24 @@ export function setMetricRangeFilter(
   return { and: [{ metricRange: { key, min: range.min, max: range.max } }, ...rest] }
 }
 
+export function getCategoricalInFilter(filters: FilterAST, key: string): string[] {
+  const clause = filters.and.find((c) => 'categoricalIn' in c && c.categoricalIn.key === key) as
+    | { categoricalIn: { key: string; values: string[] } }
+    | undefined
+  return clause?.categoricalIn?.values ?? []
+}
+
+export function setCategoricalInFilter(
+  filters: FilterAST,
+  key: string,
+  values: string[] | null
+): FilterAST {
+  const rest = filters.and.filter((c) => !('categoricalIn' in c && c.categoricalIn.key === key))
+  const normalized = normalizeCategoricalValues(values)
+  if (!key || !normalized.length) return { and: rest }
+  return { and: [{ categoricalIn: { key, values: normalized } }, ...rest] }
+}
+
 export function countActiveFilters(filters: FilterAST): number {
   const normalized = normalizeFilterAst(filters)
   return normalized ? normalized.and.length : 0
@@ -354,6 +379,14 @@ function normalizeClause(clause: unknown): FilterClause | null {
     if (min > max) return null
     return { metricRange: { key, min, max } }
   }
+  if ('categoricalIn' in clause) {
+    const raw = (clause as { categoricalIn?: { key?: unknown; values?: unknown } }).categoricalIn
+    if (!raw || typeof raw !== 'object') return null
+    const key = typeof raw.key === 'string' ? raw.key.trim() : ''
+    const values = normalizeCategoricalValues(raw.values)
+    if (!key || !values.length) return null
+    return { categoricalIn: { key, values } }
+  }
   return null
 }
 
@@ -376,6 +409,20 @@ function normalizeTextValue(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed ? trimmed : null
+}
+
+function normalizeCategoricalValues(values: unknown): string[] {
+  if (!Array.isArray(values)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of values) {
+    if (typeof raw !== 'string') continue
+    const value = raw.trim()
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    out.push(value)
+  }
+  return out
 }
 
 function normalizeDateValue(value: unknown): string | null {

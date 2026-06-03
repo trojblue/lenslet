@@ -16,6 +16,7 @@ function createActions() {
     clearWidthCompare: vi.fn(),
     clearHeightCompare: vi.fn(),
     clearMetricRange: vi.fn(),
+    clearCategoricalIn: vi.fn(),
   }
 }
 
@@ -35,6 +36,7 @@ describe('filterChips', () => {
         { widthCompare: { op: '>=', value: 640 } },
         { heightCompare: { op: '<', value: 800 } },
         { metricRange: { key: 'aesthetic', min: 0.1, max: 0.9 } },
+        { categoricalIn: { key: 'l0r_viewpoint_family', values: ['frontal', 'profile', 'back_view', 'mixed'] } },
       ],
     }
     const actions = createActions()
@@ -54,6 +56,7 @@ describe('filterChips', () => {
       { id: 'width-compare', label: 'Width >= 640' },
       { id: 'height-compare', label: 'Height < 800' },
       { id: 'metric:aesthetic', label: 'aesthetic: 0.100–0.900' },
+      { id: 'categorical:l0r_viewpoint_family', label: 'l0r_viewpoint_family: frontal, profile, back_view, +1' },
     ])
 
     for (const chip of chips) chip.onRemove()
@@ -71,6 +74,8 @@ describe('filterChips', () => {
     expect(actions.clearHeightCompare).toHaveBeenCalledTimes(1)
     expect(actions.clearMetricRange).toHaveBeenCalledTimes(1)
     expect(actions.clearMetricRange).toHaveBeenCalledWith('aesthetic')
+    expect(actions.clearCategoricalIn).toHaveBeenCalledTimes(1)
+    expect(actions.clearCategoricalIn).toHaveBeenCalledWith('l0r_viewpoint_family')
   })
 
   it('skips empty star/text/date clauses', () => {

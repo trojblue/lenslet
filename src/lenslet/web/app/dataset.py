@@ -11,7 +11,7 @@ from ...storage.base import SourceSidecarStorage
 from ...storage.dataset.storage import DatasetStorage
 from ...workspace import Workspace
 from ..auth import set_mutation_policy
-from ..browse import build_item_payload
+from ..browse import build_item_payload, categoricals_for_cached_item
 from ..context import get_app_context
 from ..models import HealthResponse
 from .base import create_api_app
@@ -106,7 +106,12 @@ def build_dataset_browse_adapters(
                 source = storage.get_source_path(cached.path)
             except _SOURCE_LOOKUP_ERRORS:
                 source = None
-        return build_item_payload(cached, sidecar_state, source=source)
+        return build_item_payload(
+            cached,
+            sidecar_state,
+            source=source,
+            categoricals=categoricals_for_cached_item(storage, cached),
+        )
 
     def _health_payload(request: Request) -> HealthResponse:
         context = get_app_context(app)

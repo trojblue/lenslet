@@ -63,6 +63,18 @@ def _normalize_metric_labels(raw: Any) -> dict[str, str] | None:
     return labels or None
 
 
+def _normalize_categoricals(raw: Any) -> dict[str, str] | None:
+    if not isinstance(raw, dict):
+        return None
+    categoricals: dict[str, str] = {}
+    for key, value in raw.items():
+        key_text = str(key).strip()
+        value_text = str(value).strip()
+        if key_text and value_text:
+            categoricals[key_text] = value_text
+    return categoricals or None
+
+
 class _RecursiveCachedItemSnapshotPayloadRequired(TypedDict):
     path: str
     name: str
@@ -78,6 +90,7 @@ class RecursiveCachedItemSnapshotPayload(_RecursiveCachedItemSnapshotPayloadRequ
     source: str
     metrics: dict[str, float]
     metric_labels: dict[str, str]
+    categoricals: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -93,6 +106,7 @@ class RecursiveCachedItemSnapshot:
     source: str | None = None
     metrics: dict[str, float] | None = None
     metric_labels: dict[str, str] | None = None
+    categoricals: dict[str, str] | None = None
 
     @classmethod
     def from_cached_item(cls, cached: Any) -> "RecursiveCachedItemSnapshot":
@@ -108,6 +122,7 @@ class RecursiveCachedItemSnapshot:
             source=_coerce_optional_text(getattr(cached, "source", None)),
             metrics=_normalize_metrics(getattr(cached, "metrics", None)),
             metric_labels=_normalize_metric_labels(getattr(cached, "metric_labels", None)),
+            categoricals=_normalize_categoricals(getattr(cached, "categoricals", None)),
         )
 
     @classmethod
@@ -126,6 +141,7 @@ class RecursiveCachedItemSnapshot:
             source=_coerce_optional_text(payload.get("source")),
             metrics=_normalize_metrics(payload.get("metrics")),
             metric_labels=_normalize_metric_labels(payload.get("metric_labels")),
+            categoricals=_normalize_categoricals(payload.get("categoricals")),
         )
 
     def to_payload(self) -> RecursiveCachedItemSnapshotPayload:
@@ -146,6 +162,8 @@ class RecursiveCachedItemSnapshot:
             payload["metrics"] = self.metrics
         if self.metric_labels is not None:
             payload["metric_labels"] = self.metric_labels
+        if self.categoricals is not None:
+            payload["categoricals"] = self.categoricals
         return payload
 
 

@@ -85,6 +85,7 @@ class TableBrowseItem:
     source: str | None = None
     metrics: dict[str, float] = field(default_factory=dict)
     metric_labels: dict[str, str] = field(default_factory=dict)
+    categoricals: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -111,11 +112,20 @@ class TableStorageOptions:
     skip_local_realpath_validation: bool = False
     row_field_provider: Callable[[int], dict[str, Any]] | None = None
     table_field_columns: tuple[str, ...] = ()
+    categorical_columns: tuple[str, ...] = ()
+    categorical_row_provider: Callable[[int], dict[str, Any]] | None = None
     browse_signature_seed: str = ""
 
 
 def _is_supported_table_image(name: str) -> bool:
     return is_supported_image(name, TABLE_IMAGE_EXTS)
+
+
+def _normalize_categorical_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
@@ -246,6 +256,8 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
         self._skip_dimension_probe = options.skip_dimension_probe
         self._row_field_provider = options.row_field_provider
         self._table_field_columns = tuple(options.table_field_columns)
+        self._categorical_columns = tuple(options.categorical_columns)
+        self._categorical_row_provider = options.categorical_row_provider
         self._browse_signature_seed = options.browse_signature_seed
         self._progress_bar = ProgressBar()
 
@@ -321,6 +333,7 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
                 size_column=self._size_column,
                 mtime_column=self._mtime_column,
                 metrics_column=self._metrics_column,
+                categorical_columns=self._categorical_columns,
                 reserved_columns=self.RESERVED_COLUMNS,
                 local_prefix=self._local_prefix,
                 s3_prefixes=self._s3_prefixes,
@@ -360,12 +373,14 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
 
     def _compute_browse_signature(self) -> str:
         digest = hashlib.sha256()
-        digest.update(b"table-browse-v3")
+        digest.update(b"table-browse-v4")
         digest.update(str(self.root or "").encode("utf-8"))
         digest.update(self._browse_signature_seed.encode("utf-8"))
         digest.update(str(self._row_count).encode("utf-8"))
         for column in self._columns:
             digest.update(repr(column).encode("utf-8"))
+        for column in self._categorical_columns:
+            digest.update(repr(("categorical", column)).encode("utf-8"))
         for column in (
             self._source_column,
             self._path_column,
@@ -404,6 +419,11 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
                 digest.update(repr((key, value)).encode("utf-8"))
             for key, value in sorted(item.metric_labels.items()):
                 digest.update(repr((key, value)).encode("utf-8"))
+            if self._categorical_row_provider is None:
+                row_idx = self.row_index_for_path(path)
+                if row_idx is not None:
+                    for key, value in sorted(self._categoricals_for_row(row_idx).items()):
+                        digest.update(repr((key, value)).encode("utf-8"))
         return digest.hexdigest()
 
     def _is_loadable_value(self, value: str) -> bool:
@@ -549,6 +569,38 @@ class TableStorage(SourceBackedStorageBase[TableBrowseItem]):
     def count_in_scope(self, path: str) -> int:
         start, end = self._scope_bounds(path)
         return max(0, end - start)
+
+    def categorical_keys(self) -> list[str]:
+        return list(self._categorical_columns)
+
+    def categoricals_for_path(self, path: str) -> dict[str, str]:
+        row_idx = self.row_index_for_path(path)
+        if row_idx is None:
+            return {}
+        if self._categorical_row_provider is not None:
+            return self._extract_categoricals_from_row(
+                self._categorical_row_provider(row_idx)
+            )
+        return self._categoricals_for_row(row_idx)
+
+    def _extract_categoricals_from_row(self, row_values: dict[str, Any]) -> dict[str, str]:
+        categoricals: dict[str, str] = {}
+        for column in self._categorical_columns:
+            value = _normalize_categorical_value(row_values.get(column))
+            if value is not None:
+                categoricals[column] = value
+        return categoricals
+
+    def _categoricals_for_row(self, row_idx: int) -> dict[str, str]:
+        categoricals: dict[str, str] = {}
+        for column in self._categorical_columns:
+            values = self._data.get(column)
+            if values is None or row_idx >= len(values):
+                continue
+            value = _normalize_categorical_value(values[row_idx])
+            if value is not None:
+                categoricals[column] = value
+        return categoricals
 
     def row_dimensions(self) -> list[tuple[int, int] | None]:
         return list(self._row_dimensions)

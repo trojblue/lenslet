@@ -29,6 +29,22 @@ function collectSimilarityMetricKeys(items: readonly BrowseItemPayload[], scanLi
   return Array.from(keys).sort()
 }
 
+function collectSimilarityCategoricalKeys(items: readonly BrowseItemPayload[], scanLimit = 250): string[] {
+  const keys = new Set<string>()
+  let scanned = 0
+  for (const item of items) {
+    const categoricals = item.categoricals
+    if (categoricals) {
+      for (const key of Object.keys(categoricals)) {
+        keys.add(key)
+      }
+    }
+    scanned += 1
+    if (scanned >= scanLimit && keys.size > 0) break
+  }
+  return Array.from(keys).sort()
+}
+
 export function resolveMetricKeys(
   folderMetricKeys: readonly string[] | undefined,
   similarityActive: boolean,
@@ -36,6 +52,15 @@ export function resolveMetricKeys(
 ): string[] {
   if (!similarityActive) return folderMetricKeys ? [...folderMetricKeys] : []
   return collectSimilarityMetricKeys(similarityItems)
+}
+
+export function resolveCategoricalKeys(
+  folderCategoricalKeys: readonly string[] | undefined,
+  similarityActive: boolean,
+  similarityItems: readonly BrowseItemPayload[],
+): string[] {
+  if (!similarityActive) return folderCategoricalKeys ? [...folderCategoricalKeys] : []
+  return collectSimilarityCategoricalKeys(similarityItems)
 }
 
 export function buildStarCounts(

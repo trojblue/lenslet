@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 import type { FilterAST, BrowseItemPayload } from '../../lib/types'
 import AttributesPanel from './components/AttributesPanel'
+import CategoricalPanel from './components/CategoricalPanel'
 import MetricRangePanel from './components/MetricRangePanel'
 import { formatNumber, type Range } from './model/histogram'
 import {
@@ -12,11 +13,13 @@ interface MetricsPanelProps {
   items: BrowseItemPayload[]
   filteredItems: BrowseItemPayload[]
   metricKeys: string[]
+  categoricalKeys: string[]
   selectedItems?: BrowseItemPayload[]
   selectedMetric?: string
   onSelectMetric: (key: string) => void
   filters: FilterAST
   onChangeRange: (key: string, range: Range | null) => void
+  onChangeCategoricalValues: (key: string, values: string[] | null) => void
   onChangeFilters: (filters: FilterAST) => void
 }
 
@@ -33,11 +36,13 @@ export default function MetricsPanel({
   items,
   filteredItems,
   metricKeys,
+  categoricalKeys,
   selectedItems,
   selectedMetric,
   onSelectMetric,
   filters,
   onChangeRange,
+  onChangeCategoricalValues,
   onChangeFilters,
 }: MetricsPanelProps) {
   const selectedValuesByKey = useMemo(() => (
@@ -59,14 +64,24 @@ export default function MetricsPanel({
       onChangeFilters={onChangeFilters}
     />
   )
+  const categoricalPanel = (
+    <CategoricalPanel
+      items={items}
+      filteredItems={filteredItems}
+      categoricalKeys={categoricalKeys}
+      selectedItems={selectedItems}
+      filters={filters}
+      onChangeValues={onChangeCategoricalValues}
+    />
+  )
 
-  if (!metricKeys.length) {
+  if (!metricKeys.length && !categoricalKeys.length) {
     return (
       <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
         {metricsSummary}
         {attributesPanel}
         <div className="p-4 text-sm text-muted">
-          No metrics found in this dataset.
+          No metrics or categoricals found in this dataset.
         </div>
       </div>
     )
@@ -75,17 +90,20 @@ export default function MetricsPanel({
   return (
     <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
       {metricsSummary}
-      <MetricRangePanel
-        items={items}
-        filteredItems={filteredItems}
-        metricKeys={metricKeys}
-        selectedItems={selectedItems}
-        selectedValuesByKey={selectedValuesByKey}
-        selectedMetric={selectedMetric}
-        onSelectMetric={onSelectMetric}
-        filters={filters}
-        onChangeRange={onChangeRange}
-      />
+      {metricKeys.length > 0 && (
+        <MetricRangePanel
+          items={items}
+          filteredItems={filteredItems}
+          metricKeys={metricKeys}
+          selectedItems={selectedItems}
+          selectedValuesByKey={selectedValuesByKey}
+          selectedMetric={selectedMetric}
+          onSelectMetric={onSelectMetric}
+          filters={filters}
+          onChangeRange={onChangeRange}
+        />
+      )}
+      {categoricalPanel}
       {attributesPanel}
     </div>
   )

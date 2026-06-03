@@ -26,11 +26,13 @@ type LeftSidebarProps = {
   items: BrowseItemPayload[]
   filteredItems: BrowseItemPayload[]
   metricKeys: string[]
+  categoricalKeys: string[]
   selectedItems?: BrowseItemPayload[]
   selectedMetric?: string
   onSelectMetric: (key: string) => void
   filters: FilterAST
   onChangeRange: (key: string, range: { min: number; max: number } | null) => void
+  onChangeCategoricalValues: (key: string, values: string[] | null) => void
   onChangeFilters: (filters: FilterAST) => void
   onResize: (event: PointerEvent<HTMLDivElement>) => void
   themePreset: ThemePresetId
@@ -71,11 +73,13 @@ export default function LeftSidebar({
   items,
   filteredItems,
   metricKeys,
+  categoricalKeys,
   selectedItems,
   selectedMetric,
   onSelectMetric,
   filters,
   onChangeRange,
+  onChangeCategoricalValues,
   onChangeFilters,
   onResize,
   themePreset,
@@ -212,11 +216,13 @@ export default function LeftSidebar({
                 items={items}
                 filteredItems={filteredItems}
                 metricKeys={metricKeys}
+                categoricalKeys={categoricalKeys}
                 selectedItems={selectedItems}
                 selectedMetric={selectedMetric}
                 onSelectMetric={onSelectMetric}
                 filters={filters}
                 onChangeRange={onChangeRange}
+                onChangeCategoricalValues={onChangeCategoricalValues}
                 onChangeFilters={onChangeFilters}
               />
             )}

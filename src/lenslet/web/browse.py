@@ -111,6 +111,7 @@ def build_item_payload(
     cached: BrowseItemRecord,
     sidecar_state: SidecarState,
     source: str | None = None,
+    categoricals: dict[str, str] | None = None,
 ) -> BrowseItemPayload:
     if source is None:
         source = getattr(cached, "source", None)
@@ -119,6 +120,8 @@ def build_item_payload(
     if metrics is None:
         metrics = sidecar_state.get("metrics")
     metric_labels = getattr(cached, "metric_labels", None)
+    if categoricals is None:
+        categoricals = getattr(cached, "categoricals", None)
     added_at = None
     mtime = float(getattr(cached, "mtime", 0) or 0)
     if mtime > 0:
@@ -139,7 +142,17 @@ def build_item_payload(
         source=source,
         metrics=metrics,
         metric_labels=metric_labels or None,
+        categoricals=categoricals or None,
     )
+
+
+def categoricals_for_cached_item(storage: BrowseStorage, cached: BrowseItemRecord) -> dict[str, str] | None:
+    getter = getattr(storage, "categoricals_for_path", None)
+    if callable(getter):
+        categoricals = getter(cached.path)
+        return categoricals or None
+    categoricals = getattr(cached, "categoricals", None)
+    return categoricals or None
 
 
 def _metric_keys_from_cached_items(cached_items: Iterable[Any]) -> list[str]:
@@ -155,6 +168,31 @@ def _metric_keys_from_cached_items(cached_items: Iterable[Any]) -> list[str]:
     return sorted(metric_keys)
 
 
+def _categorical_keys_from_cached_items(cached_items: Iterable[Any]) -> list[str]:
+    categorical_keys: set[str] = set()
+    for cached in cached_items:
+        categoricals = getattr(cached, "categoricals", None)
+        if not isinstance(categoricals, dict):
+            continue
+        for raw_key in categoricals.keys():
+            key = str(raw_key).strip()
+            if key:
+                categorical_keys.add(key)
+    return sorted(categorical_keys)
+
+
+def _categorical_keys_from_storage(storage: BrowseStorage) -> list[str] | None:
+    getter = getattr(storage, "categorical_keys", None)
+    if not callable(getter):
+        return None
+    keys: set[str] = set()
+    for raw_key in getter():
+        key = str(raw_key).strip()
+        if key:
+            keys.add(key)
+    return sorted(keys)
+
+
 def _metric_keys_for_folder(
     storage: BrowseStorage,
     canonical_path: str,
@@ -168,6 +206,24 @@ def _metric_keys_for_folder(
             return _metric_keys_from_cached_items(snapshots)
         return _metric_keys_from_cached_items(storage.items_in_scope(canonical_path))
     return _metric_keys_from_cached_items(getattr(index, "items", []) or [])
+
+
+def _categorical_keys_for_folder(
+    storage: BrowseStorage,
+    canonical_path: str,
+    index: Any,
+    *,
+    recursive: bool,
+    snapshots: Iterable[RecursiveCachedItemSnapshot] | None = None,
+) -> list[str]:
+    storage_keys = _categorical_keys_from_storage(storage)
+    if storage_keys is not None:
+        return storage_keys
+    if recursive:
+        if snapshots is not None:
+            return _categorical_keys_from_cached_items(snapshots)
+        return _categorical_keys_from_cached_items(storage.items_in_scope(canonical_path))
+    return _categorical_keys_from_cached_items(getattr(index, "items", []) or [])
 
 
 RECURSIVE_SORT_MODE_SCAN = "scan"
@@ -423,6 +479,7 @@ def _build_direct_folder_payload(
             items=[],
             folders=_folder_entries(index),
             metric_keys=[],
+            categorical_keys=[],
             total_items=len(getattr(index, "items", []) or []),
         )
 
@@ -432,6 +489,7 @@ def _build_direct_folder_payload(
         items=[to_item(storage, it) for it in index.items],
         folders=_folder_entries(index),
         metric_keys=_metric_keys_for_folder(storage, canonical, index, recursive=False),
+        categorical_keys=_categorical_keys_for_folder(storage, canonical, index, recursive=False),
         total_items=None,
     )
 
@@ -498,6 +556,7 @@ def _build_recursive_folder_payload(
             items=[],
             folders=_folder_entries(index),
             metric_keys=[],
+            categorical_keys=[],
             total_items=total_items,
         )
 
@@ -522,6 +581,13 @@ def _build_recursive_folder_payload(
         items=[to_item(storage, snapshot) for snapshot in snapshots],
         folders=_folder_entries(index),
         metric_keys=_metric_keys_for_folder(
+            storage,
+            canonical,
+            index,
+            recursive=True,
+            snapshots=snapshots,
+        ),
+        categorical_keys=_categorical_keys_for_folder(
             storage,
             canonical,
             index,

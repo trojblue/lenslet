@@ -117,7 +117,7 @@ def test_parquet_item_payload_exposes_non_metric_row_fields(tmp_path: Path):
     }
 
 
-def test_parquet_folder_payload_keeps_string_classifications_out_of_initial_metrics(tmp_path: Path):
+def test_parquet_folder_payload_exposes_low_cardinality_string_categoricals(tmp_path: Path):
     root = tmp_path
     img_a = root / "a.jpg"
     img_b = root / "b.jpg"
@@ -134,13 +134,39 @@ def test_parquet_folder_payload_keeps_string_classifications_out_of_initial_metr
     payload = client.get("/folders", params={"path": "/"}).json()
 
     assert payload["metric_keys"] == []
+    assert payload["categorical_keys"] == ["l0p_style_family"]
     assert payload["items"][0]["metrics"] == {}
     assert payload["items"][0]["metric_labels"] is None
+    assert payload["items"][0]["categoricals"] == {"l0p_style_family": "anime"}
     assert payload["items"][1]["metrics"] == {}
     assert payload["items"][1]["metric_labels"] is None
+    assert payload["items"][1]["categoricals"] == {"l0p_style_family": "photographic"}
 
     item_payload = client.get("/item", params={"path": "/a.jpg"}).json()
     assert item_payload["table_fields"] == {"l0p_style_family": "anime"}
+
+
+def test_parquet_folder_payload_rejects_sixty_value_string_categoricals(tmp_path: Path):
+    root = tmp_path
+    paths = []
+    values = []
+    for idx in range(60):
+        image_path = root / f"img_{idx:02d}.jpg"
+        _make_image(image_path)
+        paths.append(image_path.name)
+        values.append(f"value_{idx:02d}")
+
+    _write_parquet(root / "items.parquet", {
+        "path": paths,
+        "review_bucket": values,
+    })
+
+    client = TestClient(create_app(str(root)))
+
+    payload = client.get("/folders", params={"path": "/"}).json()
+
+    assert payload["categorical_keys"] == []
+    assert all(item.get("categoricals") is None for item in payload["items"])
 
 
 def test_table_recursive_large_listing_requires_bounded_window() -> None:

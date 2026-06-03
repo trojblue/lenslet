@@ -33,7 +33,7 @@ from ...storage.table.storage import TableStorage, TableStorageOptions
 from ...storage.table.launch import TableLaunchRequest, TableLaunchResult, prepare_table_launch
 from ...workspace import Workspace
 from ..auth import set_mutation_policy
-from ..browse import build_item_payload
+from ..browse import build_item_payload, categoricals_for_cached_item
 from ..context import AppContext, get_app_context, get_request_context
 from ..lifecycle import register_lifecycle_handlers
 from ..models import ErrorResponse, HealthResponse, RefreshResponse
@@ -517,7 +517,11 @@ def build_local_browse_adapters(
 ) -> BrowseAppAdapters:
     def _to_item(storage: SidecarStateStorage, cached: Any) -> Any:
         sidecar_state = storage.get_sidecar_readonly(cached.path)
-        return build_item_payload(cached, sidecar_state)
+        return build_item_payload(
+            cached,
+            sidecar_state,
+            categoricals=categoricals_for_cached_item(storage, cached),
+        )
 
     def _health_payload(request: Request) -> HealthResponse:
         context = get_app_context(app)

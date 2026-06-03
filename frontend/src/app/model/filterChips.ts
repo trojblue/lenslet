@@ -20,6 +20,7 @@ export type FilterChipActions = {
   clearWidthCompare: () => void
   clearHeightCompare: () => void
   clearMetricRange: (key: string) => void
+  clearCategoricalIn: (key: string) => void
 }
 
 type FilterChipTemplate = {
@@ -40,6 +41,7 @@ type FilterClauseKey =
   | 'widthCompare'
   | 'heightCompare'
   | 'metricRange'
+  | 'categoricalIn'
 
 type FilterClauseByKey<K extends FilterClauseKey> = Extract<FilterClause, Record<K, unknown>>
 
@@ -169,6 +171,17 @@ const FILTER_CHIP_REGISTRY: { [K in FilterClauseKey]: FilterChipRegistryEntry<K>
     }),
     clear: (clause, actions) => actions.clearMetricRange(clause.metricRange.key),
   },
+  categoricalIn: {
+    read: (clause) => {
+      const values = clause.categoricalIn.values || []
+      if (!values.length) return null
+      return {
+        id: `categorical:${clause.categoricalIn.key}`,
+        label: `${clause.categoricalIn.key}: ${formatCategoricalValues(values)}`,
+      }
+    },
+    clear: (clause, actions) => actions.clearCategoricalIn(clause.categoricalIn.key),
+  },
 }
 
 function visitFilterClause(
@@ -187,6 +200,7 @@ function visitFilterClause(
   if ('widthCompare' in clause) return visit('widthCompare', clause)
   if ('heightCompare' in clause) return visit('heightCompare', clause)
   if ('metricRange' in clause) return visit('metricRange', clause)
+  if ('categoricalIn' in clause) return visit('categoricalIn', clause)
 }
 
 export function buildFilterChips(filters: FilterAST, actions: FilterChipActions): FilterChip[] {
@@ -204,4 +218,10 @@ export function buildFilterChips(filters: FilterAST, actions: FilterChipActions)
     })
   }
   return chips
+}
+
+function formatCategoricalValues(values: readonly string[]): string {
+  const shown = values.slice(0, 3)
+  const suffix = values.length > shown.length ? `, +${values.length - shown.length}` : ''
+  return `${shown.join(', ')}${suffix}`
 }

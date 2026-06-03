@@ -22,6 +22,7 @@ import { writeHash } from './routing/hash'
 import { sanitizePath } from '../lib/paths'
 import {
   countActiveFilters,
+  setCategoricalInFilter,
   getStarsInFilter,
   normalizeFilterAst,
   setNotesContainsFilter,
@@ -330,6 +331,7 @@ export default function AppShell({
     poolItems,
     similarityItems,
     metricKeys,
+    categoricalKeys,
     items,
     totalCount,
     filteredCount,
@@ -643,6 +645,10 @@ export default function AppShell({
     updateFilters((filters) => setMetricRangeFilter(filters, key, range))
   }, [updateFilters])
 
+  const handleCategoricalValues = useCallback((key: string, values: string[] | null) => {
+    updateFilters((filters) => setCategoricalInFilter(filters, key, values))
+  }, [updateFilters])
+
   const filterChips = useMemo(() => buildFilterChips(viewState.filters, {
     clearStarsIn: handleClearStarsIn,
     clearStarsNotIn: () => updateFilters((filters) => setStarsNotInFilter(filters, [])),
@@ -656,7 +662,8 @@ export default function AppShell({
     clearWidthCompare: () => updateFilters((filters) => setWidthCompareFilter(filters, null)),
     clearHeightCompare: () => updateFilters((filters) => setHeightCompareFilter(filters, null)),
     clearMetricRange: (key: string) => handleMetricRange(key, null),
-  }), [viewState.filters, handleClearStarsIn, handleMetricRange, updateFilters])
+    clearCategoricalIn: (key: string) => handleCategoricalValues(key, null),
+  }), [viewState.filters, handleClearStarsIn, handleMetricRange, handleCategoricalValues, updateFilters])
 
   const handleToggleStarsIn = useCallback((v: number) => {
     const next = new Set(starsInFilter)
@@ -951,11 +958,13 @@ export default function AppShell({
             items={metricsBaseItems}
             filteredItems={items}
             metricKeys={metricKeys}
+            categoricalKeys={categoricalKeys}
             selectedItems={selectedItems}
             selectedMetric={viewState.selectedMetric}
             onSelectMetric={(key) => setViewState((prev) => ({ ...prev, selectedMetric: key }))}
             filters={viewState.filters}
             onChangeRange={handleMetricRange}
+            onChangeCategoricalValues={handleCategoricalValues}
             onChangeFilters={handleFiltersChange}
             onResize={onResizeLeft}
             themePreset={themePreset}

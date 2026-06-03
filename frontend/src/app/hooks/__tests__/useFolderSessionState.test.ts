@@ -31,6 +31,7 @@ function makeFolder(path: string, itemPaths: string[], generated_at = '2026-02-1
     path,
     generated_at,
     metric_keys: [],
+    categorical_keys: [],
     folders: [],
     items: itemPaths.map((itemPath) => makeItem(itemPath)),
     total_items: itemPaths.length,

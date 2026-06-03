@@ -141,16 +141,25 @@ def test_string_classification_columns_stay_in_table_fields(tmp_path: Path) -> N
         },
     ]
 
-    storage = _table_storage(rows, skip_dimension_probe=True)
+    storage = _table_storage(
+        rows,
+        skip_dimension_probe=True,
+        categorical_columns=("l0p_style_family",),
+    )
     items = _root_items(storage)
 
     assert items[0].metrics == {}
     assert items[0].metric_labels == {}
+    assert items[0].categoricals == {}
     assert items[1].metrics == {}
     assert items[1].metric_labels == {}
+    assert items[1].categoricals == {}
+    assert storage.categoricals_for_path("/one.jpg") == {"l0p_style_family": "anime"}
+    assert storage.categoricals_for_path("/two.jpg") == {"l0p_style_family": "photographic"}
     assert storage.sidecar_enrichment_for_path("/one.jpg") == {
         "table_fields": {"l0p_style_family": "anime"}
     }
+    assert storage.categorical_keys() == ["l0p_style_family"]
 
 
 def test_table_browse_cache_signature_tracks_payload_metric_changes(tmp_path: Path) -> None:

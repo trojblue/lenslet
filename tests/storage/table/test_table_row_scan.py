@@ -42,6 +42,7 @@ def _context() -> TableIndexInput:
             size_column=None,
             mtime_column=None,
             metrics_column=None,
+            categorical_columns=("style",),
             reserved_columns={"source", "path"},
             local_prefix=None,
             s3_prefixes={},

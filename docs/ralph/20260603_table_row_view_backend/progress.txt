@@ -96,3 +96,40 @@ Blockers:
 
 Next step:
 - Start Sprint 4 at S4-T1: remove only proven-unused dense table startup code, then use the Sprint 3 retained-category profile for the S4-T2 memory/launch trim decision and final 500k benchmark.
+
+## Iteration 4 - 2026-06-03T13:55:29Z
+
+Completed task IDs:
+- S4-T1
+- S4-T2
+- S4-T3
+
+Files changed:
+- docs/20260603_io_speed_optimization_progress.md
+- docs/20260603_table_row_view_backend_plan.md
+- docs/ralph/20260603_table_row_view_backend/iteration4_final_harness.json
+- docs/ralph/20260603_table_row_view_backend/progress.txt
+- src/lenslet/storage/table/__init__.py
+- src/lenslet/storage/table/index.py
+- src/lenslet/storage/table/row_scan.py
+- src/lenslet/storage/table/row_store.py
+- src/lenslet/storage/table/storage.py
+- tests/storage/table/test_table_row_scan.py
+- tests/storage/table/test_table_row_store.py
+
+Validations run:
+- `PYTHONPATH=src python -m pytest -q tests/storage/table tests/storage/search/test_search_text_contract.py tests/storage/dataset/test_dataset_http.py` passed: 77 passed.
+- `PYTHONPATH=src python scripts/experimental/table_row_view_harness.py --skip-target --compare-json docs/ralph/20260603_table_row_view_backend/iteration1_baseline_harness.json` passed, preserving small-fixture payload hashes.
+- `PYTHONPATH=src python scripts/experimental/table_row_view_harness.py --output-json docs/ralph/20260603_table_row_view_backend/iteration4_final_harness.json --compare-json docs/ralph/20260603_table_row_view_backend/iteration1_baseline_harness.json` passed. Final 500k result: launch 3.339s, RSS 827.4 MiB after launch and 856.9 MiB after checks, recursive 5k window 0.949s, search miss median 0.168s, dense items 0, sorted items 0, retained folder item refs 0, row-store materialized items 5000, and `row_to_slot` retained as `NoneType`.
+- `PYTHONPATH=src python scripts/lint_repo.py` passed after cleanup. Warn-only large-file notices remained for `frontend/src/styles.css` and `scripts/browser/large_tree/smoke.py`.
+- `PYTHONPATH=src python -m pytest -q` passed after cleanup: 595 passed.
+- `PYTHONPATH=src python -m scripts.browser.gui_smoke.acceptance` passed.
+- Live 500k server smoke passed using `python -m lenslet.cli ... --source-column s3key --no-write --no-cache-dimensions`: health ready for 500k rows, recursive 5k window 0.387s, and repeated warm search miss median 0.129s with zero hits.
+- Code-simplifier subagent applied Tier 1 import/docstring/doc wording cleanup only and validated JSON formatting, targeted ruff, and `tests/storage/table/test_table_row_store.py`.
+- Code-review subagent reported no actionable findings on the post-cleanup diff.
+
+Blockers:
+- None. The aspirational launch/RSS target remains unmet (`prepare_table_launch` 3.339s, peak after checks 856.9 MiB), but the dense table item graph is removed and the retained categories are measured.
+
+Next step:
+- Planned sprint work is complete. Any further launch/RSS reduction should be a new approved scope around reducing duplicated path/source/name/search arrays, narrowing row lookup structures, or true lazy/windowed parquet reads.

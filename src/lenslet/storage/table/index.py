@@ -1,21 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Callable, TypeAlias
+from typing import Any, TypeAlias
 
 from .display import (
     is_internal_metric_key,
     normalize_display_value,
     normalize_metrics_display_value,
 )
-from ..index_assembly import IndexAssemblyResult, assemble_indexes
-from .row_scan import (
-    IndexColumns,
-    RemoteDimensionTask,
-    ScanResult,
-    scan_rows,
-    try_build_uniform_http_indexes,
-)
+from .row_scan import IndexColumns
 from .index_types import (
     ProgressCallback,
     TableIndexData,
@@ -43,82 +35,17 @@ METRIC_COLUMN_LEAF_KEYWORDS = (
 __all__ = [
     "IndexColumns",
     "ProgressCallback",
-    "RemoteDimensionTask",
-    "ScanResult",
     "TableIndexData",
     "TableIndexInput",
     "TableIndexPolicy",
     "TableSourceResolver",
     "build_index_columns",
-    "build_table_indexes",
     "collect_metric_columns",
     "extract_row_display_fields",
     "extract_row_metrics",
     "extract_row_metrics_map",
     "is_metric_column_name",
-    "scan_rows",
 ]
-
-
-def build_table_indexes(
-    context: TableIndexInput,
-    *,
-    columns: IndexColumns | None = None,
-    item_factory: Callable[..., Any],
-    index_factory: Callable[..., Any],
-    lazy_metrics_provider: Callable[[int], dict[str, float]] | None = None,
-    fast_item_factory: Callable[..., Any] | None = None,
-) -> IndexAssemblyResult:
-    generated_at = datetime.now(timezone.utc).isoformat()
-    columns = columns or build_index_columns(context)
-    fast_result = try_build_uniform_http_indexes(
-        context,
-        columns,
-        generated_at=generated_at,
-        item_factory=item_factory,
-        index_factory=index_factory,
-        lazy_metrics_provider=lazy_metrics_provider,
-        fast_item_factory=fast_item_factory,
-    )
-    if fast_result is not None:
-        return fast_result
-
-    scan = scan_rows(
-        context,
-        columns,
-        item_factory=item_factory,
-        lazy_metrics_provider=lazy_metrics_provider,
-    )
-    result = assemble_indexes(
-        scan.rows,
-        generated_at=generated_at,
-        row_count=context.table.row_count,
-        index_factory=index_factory,
-    )
-    result.remote_tasks = scan.remote_tasks
-    result.skipped_local_disabled = scan.skipped_local_disabled
-    result.skipped_local_outside_root = scan.skipped_local_outside_root
-    result.skipped_local_resolved_outside_root = scan.skipped_local_resolved_outside_root
-    result.skipped_local_missing = scan.skipped_local_missing
-
-    if scan.skipped_local_disabled:
-        print(f"[lenslet] Skipped {scan.skipped_local_disabled} local path(s): local sources are disabled.")
-    if scan.skipped_local_outside_root:
-        boundary = context.table.root or "(unset)"
-        print(
-            f"[lenslet] Skipped {scan.skipped_local_outside_root} local path(s) outside "
-            f"base_dir boundary: {boundary}"
-        )
-    if scan.skipped_local_resolved_outside_root:
-        boundary = context.table.root or "(unset)"
-        print(
-            f"[lenslet] Skipped {scan.skipped_local_resolved_outside_root} local path(s) that are "
-            f"inside base_dir but resolve outside it: {boundary}. "
-            "This commonly means symlinks point outside the launched directory."
-        )
-    if scan.skipped_local_missing:
-        print(f"[lenslet] Skipped {scan.skipped_local_missing} missing local path(s).")
-    return result
 
 
 def build_index_columns(context: TableIndexInput) -> IndexColumns:

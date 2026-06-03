@@ -88,9 +88,6 @@ TABLE_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 GC_DISABLE_ROW_THRESHOLD = 100_000
 
 
-MetricProvider = Callable[[int], dict[str, float]]
-
-
 @contextmanager
 def _bulk_table_gc_pause(row_count: int):
     if row_count < GC_DISABLE_ROW_THRESHOLD or not gc.isenabled():
@@ -101,101 +98,6 @@ def _bulk_table_gc_pause(row_count: int):
         yield
     finally:
         gc.enable()
-
-
-@dataclass(init=False, slots=True)
-class TableBrowseItem:
-    """In-memory cached browse facts for an image loaded from a table."""
-    path: str
-    name: str
-    mime: ImageMime
-    width: int
-    height: int
-    size: int
-    mtime: float
-    url: str | None = None
-    source: str | None = None
-    metric_labels: dict[str, str] = field(default_factory=dict)
-    row_idx: int = -1
-    _metrics: dict[str, float] | None = field(default=None, repr=False)
-    _metrics_provider: MetricProvider | None = field(default=None, repr=False)
-
-    def __init__(
-        self,
-        *,
-        path: str,
-        name: str,
-        mime: ImageMime,
-        width: int,
-        height: int,
-        size: int,
-        mtime: float,
-        url: str | None = None,
-        source: str | None = None,
-        metrics: dict[str, float] | None = None,
-        metric_labels: dict[str, str] | None = None,
-        row_idx: int = -1,
-        metrics_provider: MetricProvider | None = None,
-    ) -> None:
-        self.path = path
-        self.name = name
-        self.mime = mime
-        self.width = width
-        self.height = height
-        self.size = size
-        self.mtime = mtime
-        self.url = url
-        self.source = source
-        self.metric_labels = metric_labels or {}
-        self.row_idx = row_idx
-        self._metrics = metrics
-        self._metrics_provider = metrics_provider
-
-    @property
-    def metrics(self) -> dict[str, float]:
-        metrics = self._metrics
-        if metrics is None:
-            if self._metrics_provider is None or self.row_idx < 0:
-                metrics = {}
-            else:
-                metrics = self._metrics_provider(self.row_idx)
-            self._metrics = metrics
-        return metrics
-
-    @metrics.setter
-    def metrics(self, value: dict[str, float]) -> None:
-        self._metrics = value
-
-    @classmethod
-    def from_fast_row(
-        cls,
-        path: str,
-        name: str,
-        mime: ImageMime,
-        width: int,
-        height: int,
-        size: int,
-        mtime: float,
-        url: str | None,
-        source: str | None,
-        row_idx: int,
-        metrics_provider: MetricProvider,
-    ) -> "TableBrowseItem":
-        item = cls.__new__(cls)
-        item.path = path
-        item.name = name
-        item.mime = mime
-        item.width = width
-        item.height = height
-        item.size = size
-        item.mtime = mtime
-        item.url = url
-        item.source = source
-        item.metric_labels = {}
-        item.row_idx = row_idx
-        item._metrics = None
-        item._metrics_provider = metrics_provider
-        return item
 
 
 @dataclass(slots=True)

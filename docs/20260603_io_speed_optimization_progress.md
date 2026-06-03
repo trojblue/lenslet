@@ -44,6 +44,7 @@ Corrected measurements after the first local optimization passes (`PYTHONPATH=sr
 | Fast HTTP logical path + remote mtime | ~7.2s | ~1.2GB | ~1.3s/query | Avoided generic URL parsing/time calls for uniform HTTP rows. |
 | Fast trusted-HTTP scanner + fixed index assembly + lazy search cache | ~4.2s storage, ~4.7s `prepare_table_launch` | ~1.15GB before first search, ~1.25GB after miss/source cache | cold common path hit ~0.13s, first miss ~0.48-0.60s, repeated miss ~0.28-0.30s, warm common hit ~0.0001s | 500k HTTP parquet is now under the 5s backend launch target. |
 | Continued HTTP fast-path pass | ~2.1s storage, ~2.37-2.55s `prepare_table_launch` | ~0.98-0.99GB | common prefix hit warm ~0.0000s, repeated full miss median ~0.17s | Fused HTTP scan+assembly, skipped aliased path/source columns, disabled GC during bulk object creation, converted numeric startup columns to NumPy, removed redundant source/name search. |
+| Table row-view backend final | 3.339s `prepare_table_launch` | 827.4 MiB after launch, 856.9 MiB after recursive browse/search checks | repeated full miss median 0.168s in harness; live warm miss median 0.129s | Removed retained dense table item graph and folder item lists; first recursive 5k window 0.949s in harness, 0.387s over live HTTP probe. Target RSS remains above 750 MiB due to retained Arrow/NumPy metric columns and Python row/path/source/search caches. |
 
 HTTP media benchmark on 24 `img.metanomaly.co` URLs:
 
@@ -56,7 +57,7 @@ HTTP media benchmark on 24 `img.metanomaly.co` URLs:
 
 Next active targets if continuing:
 
-- Move from dense per-row `TableBrowseItem` objects to row/materialized-window views only if pushing below ~2s startup or below ~750MB RSS is worth the larger rewrite.
+- Further reduce retained row-view memory only with new scope: avoid duplicated path/source/name/search arrays, narrow row lookup structures, or move toward true lazy/windowed parquet reads.
 - Add a true server-side filter/sort endpoint for large table scopes instead of filtering only loaded React pages.
 - Consider a compact substring/token index if repeated full-scan miss latency (~0.17s at 500k) becomes user-visible at million-row scale.
 
@@ -120,6 +121,9 @@ This should be a hard cutover, not a compatibility layer. The project is alpha a
   - Null-free numeric startup columns use Arrow/NumPy conversion instead of `to_pylist()`.
   - HTTP-derived names are treated as covered by path search, avoiding per-row `item.name.lower()` in large miss scans.
   - HTTP logical-path derivation, MIME suffix guessing, and folder/name extraction were tightened in the fast loop.
+  - Table mode now uses a row-view backend instead of retaining dense `TableBrowseItem` objects at startup.
+  - Removed the old table-specific dense scan/build entrypoints while keeping generic dataset/local index assembly intact.
+  - `TableRowStore.row_to_slot` is identity-lazy, so no-skip tables do not retain a redundant 500k-entry slot map.
 
 ### Backend Data Model
 
@@ -134,7 +138,7 @@ Replace eager dense browse-item construction for table mode with a columnar/lazy
   - path -> row and row -> path maps only if needed for sidecars/embedding lookup
   - folder directory index
   - metric column names and Arrow arrays, not per-row metric dicts
-- Materialize `TableBrowseItem` only for the requested API window or item route.
+- Materialize `TableRowViewItem` only for the requested API window or item route.
 - Avoid storing `metrics: dict[str, float]` per row. Build metrics on payload conversion for visible/search/result rows.
 - Add fast uniform-source handling:
   - if the source column is detected/explicit HTTP, use string prefix/path operations, not `urlparse` for every row.
@@ -219,6 +223,14 @@ Latest validation after the continued HTTP fast-path pass:
 - `PYTHONPATH=src python -m pytest -q` passed: 590 tests.
 - `PYTHONPATH=src python -m scripts.browser.gui_smoke.acceptance` passed. It still emitted the known non-fatal folder re-entry anchor warning.
 - Target 500k HTTP parquet benchmark: `prepare_table_launch` measured 2.37s on the best run after the continued pass, with peak RSS around 983MB. The index progress loop reported about 395k rows/sec. Repeated full-scan miss search median was about 0.17s.
+
+Latest validation after the table row-view backend final pass:
+
+- `PYTHONPATH=src python scripts/lint_repo.py` passed. Warn-only file-size notices remain for `frontend/src/styles.css` and `scripts/browser/large_tree/smoke.py`.
+- `PYTHONPATH=src python -m pytest -q` passed: 595 tests.
+- `PYTHONPATH=src python -m scripts.browser.gui_smoke.acceptance` passed.
+- Target 500k HTTP parquet harness: `prepare_table_launch` 3.339s, RSS 827.4 MiB after launch and 856.9 MiB after checks, recursive 5k window 0.949s, repeated full-scan miss median 0.168s, and no dense table item graph at startup.
+- Target live server probe: health ready for 500k rows, recursive 5k window 0.387s, and repeated warm search miss median 0.129s with zero hits.
 
 Performance evidence to collect:
 

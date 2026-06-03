@@ -138,7 +138,7 @@ class TableRowViewItem:
 
 @dataclass(slots=True)
 class TableRowStore:
-    """Compact row-owned table state for the row-view backend proof."""
+    """Compact row-owned table state for the row-view backend."""
 
     row_count: int
     paths: tuple[str, ...]
@@ -154,7 +154,7 @@ class TableRowStore:
     sorted_rows: tuple[int, ...]
     path_to_row: dict[str, int]
     row_to_path: list[str | None]
-    row_to_slot: list[int]
+    row_to_slot: list[int] | None
     folder_rows: dict[str, tuple[int, ...]]
     folder_children: dict[str, tuple[str, ...]]
     row_dimensions: list[tuple[int, int] | None]
@@ -166,6 +166,10 @@ class TableRowStore:
         return len(self.paths)
 
     def _slot_for_row(self, row_idx: int) -> int:
+        if self.row_to_slot is None:
+            if 0 <= row_idx < len(self.paths):
+                return row_idx
+            raise FileNotFoundError(row_idx)
         if 0 <= row_idx < len(self.row_to_slot):
             slot = self.row_to_slot[row_idx]
             if slot >= 0:
@@ -404,6 +408,24 @@ def _int_or_zero(value: object) -> int:
         return 0
 
 
+def _remember_row_slot(
+    row_to_slot: list[int] | None,
+    *,
+    row_indices: list[int],
+    row_count: int,
+    row_idx: int,
+    slot: int,
+) -> list[int] | None:
+    if row_to_slot is None:
+        if row_idx == slot:
+            return None
+        row_to_slot = [-1] * row_count
+        for previous_slot, previous_row_idx in enumerate(row_indices):
+            row_to_slot[previous_row_idx] = previous_slot
+    row_to_slot[row_idx] = slot
+    return row_to_slot
+
+
 def _finish_row_store(
     *,
     row_count: int,
@@ -419,7 +441,7 @@ def _finish_row_store(
     urls: list[str | None],
     path_to_row: dict[str, int],
     row_to_path: list[str | None],
-    row_to_slot: list[int],
+    row_to_slot: list[int] | None,
     folder_rows: dict[str, list[int]],
     dir_children: dict[str, set[str]],
     row_dimensions: list[tuple[int, int] | None],
@@ -473,7 +495,7 @@ def build_table_row_store(
     urls: list[str | None] = []
     path_to_row: dict[str, int] = {}
     row_to_path: list[str | None] = [None] * table.row_count
-    row_to_slot: list[int] = [-1] * table.row_count
+    row_to_slot: list[int] | None = None
     row_dimensions: list[tuple[int, int] | None] = [None] * table.row_count
     folder_rows: dict[str, list[int]] = {}
     dir_children: dict[str, set[str]] = {}
@@ -509,6 +531,13 @@ def build_table_row_store(
         )
         slot = len(row_indices)
         folder_norm = _folder_norm(identity.logical_path)
+        row_to_slot = _remember_row_slot(
+            row_to_slot,
+            row_indices=row_indices,
+            row_count=table.row_count,
+            row_idx=row_idx,
+            slot=slot,
+        )
 
         row_indices.append(row_idx)
         paths.append(identity.logical_path)
@@ -522,7 +551,6 @@ def build_table_row_store(
         urls.append(identity.source if identity.is_http else None)
         path_to_row[identity.logical_path] = row_idx
         row_to_path[row_idx] = identity.logical_path
-        row_to_slot[row_idx] = slot
         row_dimensions[row_idx] = discovered_dims or (width, height)
         folder_rows.setdefault(folder_norm, []).append(row_idx)
         _record_folder_children(
@@ -593,7 +621,7 @@ def _build_uniform_http_row_store(
     urls: list[str | None] = []
     path_to_row: dict[str, int] = {}
     row_to_path: list[str | None] = [None] * row_count
-    row_to_slot: list[int] = [-1] * row_count
+    row_to_slot: list[int] | None = None
     row_dimensions: list[tuple[int, int] | None] = [None] * row_count
     folder_rows: dict[str, list[int]] = {}
     dir_children: dict[str, set[str]] = {}
@@ -672,6 +700,13 @@ def _build_uniform_http_row_store(
         height = _int_or_zero(height_values[row_idx]) if has_height_column else 0
 
         slot = len(row_indices)
+        row_to_slot = _remember_row_slot(
+            row_to_slot,
+            row_indices=row_indices,
+            row_count=row_count,
+            row_idx=row_idx,
+            slot=slot,
+        )
         row_indices.append(row_idx)
         paths.append(logical_path)
         sources.append(source)
@@ -684,7 +719,6 @@ def _build_uniform_http_row_store(
         urls.append(source)
         path_to_row[logical_path] = row_idx
         row_to_path[row_idx] = logical_path
-        row_to_slot[row_idx] = slot
         row_dimensions[row_idx] = (width, height)
         folder_rows.setdefault(folder_norm, []).append(row_idx)
         _record_folder_children(
@@ -737,7 +771,7 @@ def _build_uniform_http_row_store(
 
 @dataclass(slots=True)
 class TableRowSourceAdapter:
-    """Row-native source/media lookup proof without a dense item map."""
+    """Row-native source/media lookup without a dense item map."""
 
     row_store: TableRowStore
     media_reads: MediaReadService

@@ -110,6 +110,7 @@ def test_row_store_preserves_http_aliases_duplicates_scope_and_original_rows() -
     assert store.path_for_row_index(1) == "logical/dup.jpg"
     assert store.path_for_row_index(2) == "logical/dup-2.jpg"
     assert store.row_index_for_path("/logical/dup-2.jpg") == 2
+    assert store.row_to_slot is None
     assert store.folder_dirs("/") == ("img.metanomaly.co", "logical")
     assert store.direct_rows("/logical") == (1, 2)
     assert store.count_in_scope("/logical") == 2
@@ -181,3 +182,22 @@ def test_row_source_adapter_reads_media_and_uses_overlays_without_item_map(tmp_p
 
     item = store.materialize_item(0)
     assert (item.width, item.height, item.size) == (13, 7, 321)
+
+
+def test_row_store_allocates_slot_map_only_when_rows_are_skipped() -> None:
+    values = {
+        "source": [None, "/data/cat.jpg"],
+        "path": [None, "animals/cat.jpg"],
+        "width": [0, 12],
+        "height": [0, 9],
+    }
+    context = _context(values, skip_dimension_probe=True)
+
+    result = build_table_row_store(context, build_index_columns(context))
+    store = result.store
+
+    assert store.row_to_slot == [-1, 0]
+    assert store.path_for_row_index(0) is None
+    assert store.path_for_row_index(1) == "animals/cat.jpg"
+    assert store.row_index_for_path("animals/cat.jpg") == 1
+    assert store.materialize_item(1).name == "cat.jpg"

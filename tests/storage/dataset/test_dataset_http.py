@@ -1,28 +1,12 @@
-import urllib.error
-import urllib.request
 from pathlib import Path
 
+import httpx
 import pytest
 from PIL import Image
 
 from lenslet.media_errors import RemoteMediaNotFoundError, RemoteMediaReadError
 from lenslet.storage.dataset import DatasetStorage
-
-
-class _FakeResponse:
-    """Minimal context manager to fake urllib responses."""
-
-    def __init__(self, payload: bytes):
-        self._payload = payload
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):  # pragma: no cover - nothing to clean up
-        return False
-
-    def read(self) -> bytes:
-        return self._payload
+from lenslet.storage.source.media import MediaReadService
 
 
 @pytest.fixture
@@ -35,8 +19,18 @@ def _make_image(path: Path) -> None:
     Image.new("RGB", (12, 8), color=(44, 88, 132)).save(path, format="JPEG")
 
 
+def _http_response(url: str, status_code: int, payload: bytes = b"") -> httpx.Response:
+    return httpx.Response(
+        status_code,
+        content=payload,
+        request=httpx.Request("GET", url),
+    )
+
+
 def test_http_url_index_and_read(monkeypatch, http_image_url):
     """HTTP/HTTPS URLs should be indexed and readable like local/S3 entries."""
+
+    monkeypatch.setattr(DatasetStorage, "_probe_remote_dimensions", lambda self, tasks: None)
 
     # Prepare storage with a single HTTP image
     ds = DatasetStorage({"web": [http_image_url]})
@@ -52,35 +46,40 @@ def test_http_url_index_and_read(monkeypatch, http_image_url):
     # Mock network fetch when reading bytes
     payload = b"fake-image-data"
 
-    def _fake_urlopen(url):
+    def _fake_http_get(self, url):
+        _ = self
         assert url == http_image_url
-        return _FakeResponse(payload)
+        return _http_response(url, 200, payload)
 
-    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(MediaReadService, "_http_get", _fake_http_get)
 
     data = ds.read_bytes(logical_path)
     assert data == payload
 
 
 def test_http_read_404_maps_to_remote_not_found(monkeypatch, http_image_url):
+    monkeypatch.setattr(DatasetStorage, "_probe_remote_dimensions", lambda self, tasks: None)
     ds = DatasetStorage({"web": [http_image_url]})
 
-    def _fake_urlopen(url):
-        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+    def _fake_http_get(self, url):
+        _ = self
+        return _http_response(url, 404)
 
-    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(MediaReadService, "_http_get", _fake_http_get)
 
     with pytest.raises(RemoteMediaNotFoundError):
         ds.read_bytes("/web/cat.jpg")
 
 
 def test_http_read_403_preserves_permission_category(monkeypatch, http_image_url):
+    monkeypatch.setattr(DatasetStorage, "_probe_remote_dimensions", lambda self, tasks: None)
     ds = DatasetStorage({"web": [http_image_url]})
 
-    def _fake_urlopen(url):
-        raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+    def _fake_http_get(self, url):
+        _ = self
+        return _http_response(url, 403)
 
-    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(MediaReadService, "_http_get", _fake_http_get)
 
     with pytest.raises(RemoteMediaReadError) as exc_info:
         ds.read_bytes("/web/cat.jpg")

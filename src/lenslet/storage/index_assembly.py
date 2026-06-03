@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 
-@dataclass
+@dataclass(slots=True)
 class ScannedRow:
     row_idx: int
     logical_path: str
@@ -14,14 +14,14 @@ class ScannedRow:
     discovered_dims: tuple[int, int] | None = None
 
 
-@dataclass
+@dataclass(slots=True)
 class IndexAssemblyResult:
     indexes: dict[str, Any]
     items: dict[str, Any]
     source_paths: dict[str, str]
     row_dimensions: list[tuple[int, int] | None]
     path_to_row: dict[str, int]
-    row_to_path: dict[int, str]
+    row_to_path: dict[int, str] | list[str | None]
     dimensions: dict[str, tuple[int, int]]
     remote_tasks: list[tuple[str, Any, str, str]] = field(default_factory=list)
     skipped_local_disabled: int = 0
@@ -45,6 +45,7 @@ def assemble_indexes(
     row_to_path: dict[int, str] = {}
     dimensions: dict[str, tuple[int, int]] = {}
     dir_children: dict[str, set[str]] = {}
+    seen_folders: set[str] = set()
 
     for row in rows:
         items[row.logical_path] = row.item
@@ -56,37 +57,38 @@ def assemble_indexes(
         if row.discovered_dims:
             dimensions[row.logical_path] = row.discovered_dims
 
-        indexes.setdefault(
-            row.folder_norm,
-            index_factory(
+        index = indexes.get(row.folder_norm)
+        if index is None:
+            index = index_factory(
                 path="/" + row.folder_norm if row.folder_norm else "/",
                 generated_at=generated_at,
                 items=[],
                 dirs=[],
-            ),
-        ).items.append(row.item)
+            )
+            indexes[row.folder_norm] = index
+        index.items.append(row.item)
 
-        parts = row.folder_norm.split("/") if row.folder_norm else []
-        for depth in range(len(parts)):
-            parent = "/".join(parts[:depth])
-            child = parts[depth]
-            dir_children.setdefault(parent, set()).add(child)
+        if row.folder_norm not in seen_folders:
+            seen_folders.add(row.folder_norm)
+            parts = row.folder_norm.split("/") if row.folder_norm else []
+            for depth in range(len(parts)):
+                parent = "/".join(parts[:depth])
+                child = parts[depth]
+                dir_children.setdefault(parent, set()).add(child)
 
-    indexes.setdefault(
-        "",
-        index_factory(path="/", generated_at=generated_at, items=[], dirs=[]),
-    )
+    if "" not in indexes:
+        indexes[""] = index_factory(path="/", generated_at=generated_at, items=[], dirs=[])
 
     for parent, children in dir_children.items():
-        index = indexes.setdefault(
-            parent,
-            index_factory(
+        index = indexes.get(parent)
+        if index is None:
+            index = index_factory(
                 path="/" + parent if parent else "/",
                 generated_at=generated_at,
                 items=[],
                 dirs=[],
-            ),
-        )
+            )
+            indexes[parent] = index
         index.dirs = sorted(children)
     return IndexAssemblyResult(
         indexes=indexes,

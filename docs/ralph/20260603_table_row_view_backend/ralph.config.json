@@ -1,0 +1,10 @@
+{
+  "mode": "plan",
+  "tool": "codex",
+  "maxIterations": 20,
+  "maxTasksPerIteration": 6,
+  "planFile": "/data/yada/dev_new/lenslet2/docs/20260603_table_row_view_backend_plan.md",
+  "prdFile": "prd.json",
+  "progressFile": "progress.txt",
+  "sharedDir": "../shared"
+}

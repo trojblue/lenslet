@@ -3,30 +3,25 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, TypeAlias
+from typing import Any
 
-from ..progress import ProgressTicker
-from .display import is_internal_metric_key
-from ..index_assembly import ScannedRow
 from ..image_media import ImageMime, normalize_image_mime, read_dimensions_fast
 from .index_types import TableIndexData, TableIndexInput
 from ..source.paths import (
     LocalSourcePathError,
     dedupe_path,
+    derive_http_logical_path,
     derive_logical_path,
     extract_name,
     is_http_url,
     is_s3_uri,
     is_supported_image,
     normalize_item_path,
-    normalize_path,
 )
-from .schema import coerce_float, coerce_int, coerce_timestamp
-
-RemoteDimensionTask: TypeAlias = tuple[str, Any, str, str]
+from .schema import coerce_int, coerce_timestamp
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class IndexColumns:
     source_values: list[Any]
     path_values: list[Any]
@@ -40,17 +35,7 @@ class IndexColumns:
     metric_columns: tuple[tuple[str, list[Any]], ...]
 
 
-@dataclass
-class ScanResult:
-    rows: list[ScannedRow]
-    remote_tasks: list[RemoteDimensionTask]
-    skipped_local_disabled: int
-    skipped_local_outside_root: int
-    skipped_local_resolved_outside_root: int
-    skipped_local_missing: int
-
-
-@dataclass
+@dataclass(slots=True)
 class LocalSkipCounts:
     disabled: int = 0
     outside_root: int = 0
@@ -73,7 +58,7 @@ class LocalSkipCounts:
         return True
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RowIdentity:
     source: str
     name: str
@@ -87,97 +72,32 @@ class RowIdentity:
         return not self.is_s3 and not self.is_http
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LocalSourceResolution:
     resolved_path: str | None
     skip_reason: str | None = None
 
 
-def scan_rows(
-    context: TableIndexInput,
-    columns: IndexColumns,
-    *,
-    item_factory: Callable[..., Any],
-) -> ScanResult:
+def _can_scan_uniform_http_rows(context: TableIndexInput, columns: IndexColumns) -> bool:
+    _ = columns
     table = context.table
-    policy = context.policy
-    row_count = table.row_count
-    seen_paths: set[str] = set()
-    rows: list[ScannedRow] = []
-    remote_tasks: list[RemoteDimensionTask] = []
-    skipped = LocalSkipCounts()
+    return table.source_kind == "http" and table.extensionless_source_all_trusted
 
-    progress = ProgressTicker(
-        total=row_count,
-        label=f"table:{table.source_column}",
-        emit=context.progress,
-    )
 
-    for idx in range(row_count):
-        identity = _resolve_row_identity(context, columns, idx, seen_paths)
-        if identity is None:
-            progress.step()
-            continue
-        local_source = (
-            _resolve_local_source(context, identity.source)
-            if identity.is_local
-            else LocalSourceResolution(resolved_path=None)
-        )
-        if skipped.record(local_source.skip_reason):
-            progress.step()
-            continue
+def _fast_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, os.PathLike):
+        return os.fspath(value).strip()
+    return str(value).strip()
 
-        size, mtime, width, height, discovered_dims = _resolve_row_media_fields(
-            context,
-            columns,
-            idx,
-            identity,
-            local_source,
-        )
-        metrics = _collect_row_metrics(context, columns, idx)
 
-        item = item_factory(
-            path=identity.logical_path,
-            name=identity.name,
-            mime=identity.mime,
-            width=width,
-            height=height,
-            size=size,
-            mtime=mtime or 0.0,
-            url=identity.source if identity.is_http else None,
-            source=identity.source,
-            metrics=metrics,
-            metric_labels={},
-        )
-
-        folder = os.path.dirname(identity.logical_path).replace("\\", "/")
-        folder_norm = normalize_path(folder)
-
-        rows.append(
-            ScannedRow(
-                row_idx=idx,
-                logical_path=identity.logical_path,
-                source=identity.source,
-                folder_norm=folder_norm,
-                item=item,
-                discovered_dims=discovered_dims,
-            )
-        )
-
-        if (identity.is_s3 or identity.is_http) and (width == 0 or height == 0) and not policy.skip_dimension_probe:
-            remote_tasks.append((identity.logical_path, item, identity.source, identity.name))
-
-        progress.step()
-
-    progress.finish()
-    return ScanResult(
-        rows=rows,
-        remote_tasks=remote_tasks,
-        skipped_local_disabled=skipped.disabled,
-        skipped_local_outside_root=skipped.outside_root,
-        skipped_local_resolved_outside_root=skipped.resolved_outside_root,
-        skipped_local_missing=skipped.missing,
-    )
+def _fast_path_folder_and_name(logical_path: str) -> tuple[str, str]:
+    if "/" not in logical_path:
+        return "", logical_path
+    return logical_path.rsplit("/", 1)
 
 
 def _coerce_source_value(source_value: object) -> str | None:
@@ -259,6 +179,9 @@ def _image_name_for_row(
     fallback_name: str,
     logical_path: str,
 ) -> str | None:
+    if context.source_resolver.allows_extensionless_source_image(source):
+        return explicit_name or fallback_name or extract_name(logical_path) or "image"
+
     supported_name = _supported_image_name(
         context,
         explicit_name=explicit_name,
@@ -267,9 +190,7 @@ def _image_name_for_row(
     )
     if supported_name is not None:
         return supported_name
-    if not context.source_resolver.allows_extensionless_source_image(source):
-        return None
-    return explicit_name or fallback_name or extract_name(logical_path) or "image"
+    return None
 
 
 def _resolve_row_identity(
@@ -357,10 +278,17 @@ def _resolved_file_size(value: object, local_source: LocalSourceResolution) -> i
         return 0
 
 
-def _resolved_file_mtime(value: object, local_source: LocalSourceResolution) -> float:
+def _resolved_file_mtime(
+    value: object,
+    local_source: LocalSourceResolution,
+    *,
+    is_local: bool,
+) -> float:
     mtime = coerce_timestamp(value)
     if mtime is not None:
         return mtime
+    if not is_local:
+        return 0.0
     if local_source.resolved_path is None:
         return time.time()
     try:
@@ -397,34 +325,7 @@ def _resolve_row_media_fields(
     local_source: LocalSourceResolution,
 ) -> tuple[int, float, int, int, tuple[int, int] | None]:
     size = _resolved_file_size(columns.size_values[idx], local_source)
-    mtime = _resolved_file_mtime(columns.mtime_values[idx], local_source)
+    mtime = _resolved_file_mtime(columns.mtime_values[idx], local_source, is_local=identity.is_local)
     width, height, discovered_dims = _resolved_dimensions(context, columns, idx, identity, local_source)
     return size, mtime, width, height, discovered_dims
 
-
-def _collect_row_metrics(
-    context: TableIndexInput,
-    columns: IndexColumns,
-    idx: int,
-) -> dict[str, float]:
-    metrics: dict[str, float] = {}
-    for metric_key, metric_values in columns.metric_columns:
-        num = coerce_float(metric_values[idx])
-        if num is None:
-            continue
-        metrics[metric_key] = num
-
-    if context.table.metrics_column is None:
-        return metrics
-
-    raw_metrics = columns.metrics_values[idx]
-    if not isinstance(raw_metrics, dict):
-        return metrics
-    for raw_key, raw_value in raw_metrics.items():
-        if is_internal_metric_key(raw_key):
-            continue
-        num = coerce_float(raw_value)
-        if num is None:
-            continue
-        metrics[str(raw_key)] = num
-    return metrics

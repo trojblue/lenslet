@@ -1,0 +1,1231 @@
+{
+  "comparison": {
+    "baseline": "docs/ralph/20260603_table_row_view_backend/iteration1_baseline_harness.json",
+    "mismatches": {},
+    "ok": true
+  },
+  "small_fixture": {
+    "payload_hashes": {
+      "embedding_row_lookup": "57ba30ac32f3723672836d97a5ea379999b8e48b8fea4be5a4669a0ab07fbe75",
+      "media_metadata": "4c50e891e7806b2c2ffae73325940177a4ad2dfe3d8f2639a20c849a50238a49",
+      "recursive_window": "2a448890d43c5e77a83e1eb90081626fa6cee9e9ff27c78dd69468db4725dd75",
+      "root_browse": "da58b75ed48a7ea86fa12f1ff15ab957981a88fd23878426be6f43188d2da098",
+      "search_hit": "c04cfcb6bd1830c0c1f0129e9319387a9d5b9df7658cc8eb8ffcae9c952f3b35",
+      "search_miss": "eef46741adfc3a9f76294d3b78f37a45f113092ac9d44ee77c7a038a88ff09a1",
+      "sidecar_item": "a40feebb929f64bc8b042110a23abf9e42fe6accd1eea1b5830769dcc0f72496"
+    },
+    "payloads": {
+      "embedding_row_lookup": {
+        "cat": 0,
+        "row_index_map": {
+          "0": "gallery/cat.jpg",
+          "1": "gallery/dog.jpg"
+        }
+      },
+      "media_metadata": {
+        "format": "jpeg",
+        "meta": {
+          "exif": {},
+          "pil_info": {
+            "jfif": 257,
+            "jfif_density": [
+              1.0,
+              1.0
+            ],
+            "jfif_unit": 0,
+            "jfif_version": [
+              1.0,
+              1.0
+            ]
+          },
+          "quick_fields": {},
+          "xmp": null
+        },
+        "path": "/gallery/cat.jpg"
+      },
+      "recursive_window": {
+        "folders": [],
+        "generated_at": "<generated_at>",
+        "items": [
+          {
+            "added_at": "<added_at>",
+            "has_metadata": true,
+            "has_thumbnail": true,
+            "hash": null,
+            "height": 0,
+            "metric_labels": null,
+            "metrics": {
+              "quality_score": 0.91
+            },
+            "mime": "image/jpeg",
+            "name": "cat.jpg",
+            "notes": "",
+            "path": "/gallery/cat.jpg",
+            "size": 632,
+            "source": "<fixture_root>/src/cat.jpg",
+            "star": null,
+            "url": null,
+            "width": 0
+          }
+        ],
+        "limit": 1,
+        "metric_keys": [
+          "quality_score"
+        ],
+        "offset": 0,
+        "path": "/gallery",
+        "total_items": 2,
+        "version": 1
+      },
+      "root_browse": {
+        "folders": [
+          {
+            "kind": "branch",
+            "name": "gallery"
+          }
+        ],
+        "generated_at": "<generated_at>",
+        "items": [],
+        "limit": null,
+        "metric_keys": [],
+        "offset": null,
+        "path": "/",
+        "total_items": null,
+        "version": 1
+      },
+      "search_hit": {
+        "items": [
+          {
+            "added_at": "<added_at>",
+            "has_metadata": true,
+            "has_thumbnail": true,
+            "hash": null,
+            "height": 0,
+            "metric_labels": null,
+            "metrics": {
+              "quality_score": 0.91
+            },
+            "mime": "image/jpeg",
+            "name": "cat.jpg",
+            "notes": "",
+            "path": "/gallery/cat.jpg",
+            "size": 632,
+            "source": "<fixture_root>/src/cat.jpg",
+            "star": null,
+            "url": null,
+            "width": 0
+          }
+        ]
+      },
+      "search_miss": {
+        "items": []
+      },
+      "sidecar_item": {
+        "exif": {
+          "height": 0,
+          "width": 0
+        },
+        "hash": null,
+        "notes": "",
+        "original_position": null,
+        "star": null,
+        "table_fields": {
+          "label": "cat"
+        },
+        "tags": [],
+        "updated_at": "",
+        "updated_by": "server",
+        "v": 1,
+        "version": 1
+      }
+    },
+    "storage_counts": {
+      "dense_items": 0,
+      "folder_item_refs": 0,
+      "folder_row_refs": 0,
+      "row_store_materialized_items": 2,
+      "row_to_path_entries": 2,
+      "sorted_items": 0
+    }
+  },
+  "target_500k": {
+    "parquet": "/data/yada/dev_new/pclb2/outputs/dit03_pretrain_pool_sample_500k_l0l1_multihead_http/dit03_pretrain_pool_sample_500k_l0l1_multihead_http.parquet",
+    "path_column": null,
+    "prepare_table_launch_seconds": 3.339119102805853,
+    "recursive_window": {
+      "elapsed_seconds": 0.9489334225654602,
+      "item_count": 5000,
+      "limit": 5000,
+      "status_code": 200,
+      "total_items": 500000
+    },
+    "rss_mib": {
+      "after_checks": 856.921875,
+      "after_launch": 827.43359375,
+      "before": 83.30859375,
+      "peak": 856.921875
+    },
+    "search_miss": {
+      "hit_counts": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "median_seconds": 0.1679936069995165,
+      "min_seconds": 0.16077183559536934,
+      "query": "__lenslet_row_view_no_match__",
+      "repeats": 5,
+      "seconds": [
+        0.478865560144186,
+        0.16767923720180988,
+        0.17002085782587528,
+        0.1679936069995165,
+        0.16077183559536934
+      ]
+    },
+    "skipped": false,
+    "source_column": "s3key",
+    "storage_counts": {
+      "dense_items": 0,
+      "folder_item_refs": 0,
+      "folder_row_refs": 0,
+      "row_store_materialized_items": 5000,
+      "row_to_path_entries": 500000,
+      "sorted_items": 0
+    },
+    "storage_profile": {
+      "after_checks": {
+        "data_columns": {
+          "column_count": 45,
+          "columns": {
+            "filename": {
+              "container_bytes": 4000056,
+              "estimated_items_bytes": 45086914,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 90.173828125,
+              "type": "list"
+            },
+            "height": {
+              "arrow_or_numpy_nbytes": 4000000,
+              "container_bytes": 112,
+              "estimated_items_bytes": 16000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 32.0,
+              "type": "ndarray"
+            },
+            "l0m_caption_profile_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_external_safety_score_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_safety_bucket_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_source_type_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_text_presence_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_text_role_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_visible_explicitness_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0p_detail_density_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0p_saturation_regime_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0p_style_family_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0p_stylization_level_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0p_value_contrast_regime_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_affect_carrier_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_background_complexity_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_background_role_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_color_mode_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_depth_regime_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_expressive_intent_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_figure_presence_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_focus_mechanism_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_form_rendering_regime_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_image_format_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_line_prominence_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_perspective_strength_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_primary_composition_regime_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_shot_scale_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_staging_mode_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_viewpoint_family_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_visual_guidance_path_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0s_exposed_difficulty_level_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0s_finish_state_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0s_interaction_complexity_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0s_rendering_mixture_state_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l1_artifact_severity_score": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l1_catastrophic_break_probability": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l1_catastrophic_break_score": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l1_review_priority_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "met__overall_is_ai_probability": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "met__overall_is_ai_score": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "met__wdv3_rating_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "path": {
+              "arrow_or_numpy_nbytes": 41098363,
+              "container_bytes": 41098451,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "s3key": {
+              "container_bytes": 4000056,
+              "estimated_items_bytes": 59586914,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 119.173828125,
+              "type": "list"
+            },
+            "width": {
+              "arrow_or_numpy_nbytes": 4000000,
+              "container_bytes": 112,
+              "estimated_items_bytes": 16000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 32.0,
+              "type": "ndarray"
+            }
+          }
+        },
+        "row_store": {
+          "dimension_overlays": 0,
+          "folder_child_refs": 2,
+          "folder_children_count": 2,
+          "folder_count": 2,
+          "folder_row_refs": 500000,
+          "materialized_item_count": 5000,
+          "names": {
+            "container_bytes": 4000040,
+            "estimated_items_bytes": 45086914,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 90.173828125,
+            "type": "tuple"
+          },
+          "path_to_row": {
+            "container_bytes": 15379200,
+            "length": 500000,
+            "type": "dict"
+          },
+          "paths": {
+            "container_bytes": 4000040,
+            "estimated_items_bytes": 55586914,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 111.173828125,
+            "type": "tuple"
+          },
+          "row_count": 500000,
+          "row_dimensions": {
+            "container_bytes": 4000056,
+            "estimated_items_bytes": 28000000,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 56.0,
+            "type": "list"
+          },
+          "row_to_path": {
+            "container_bytes": 4000056,
+            "estimated_items_bytes": 55586914,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 111.173828125,
+            "type": "list"
+          },
+          "row_to_slot": {
+            "container_bytes": 16,
+            "length": null,
+            "type": "NoneType"
+          },
+          "size_overlays": 0,
+          "sorted_paths": {
+            "container_bytes": 4000040,
+            "estimated_items_bytes": 55604492,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 111.208984375,
+            "type": "tuple"
+          },
+          "sorted_rows": {
+            "container_bytes": 4000040,
+            "estimated_items_bytes": 14000000,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 28.0,
+            "type": "tuple"
+          },
+          "sources": {
+            "container_bytes": 4000040,
+            "estimated_items_bytes": 59586914,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 119.173828125,
+            "type": "tuple"
+          }
+        },
+        "search_caches": {
+          "names_lower": {
+            "container_bytes": 4167352,
+            "estimated_items_bytes": 45104492,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 90.208984375,
+            "type": "list"
+          },
+          "paths_lower": {
+            "container_bytes": 4167352,
+            "estimated_items_bytes": 55604492,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 111.208984375,
+            "type": "list"
+          },
+          "sources_lower": {
+            "container_bytes": 40,
+            "length": 0,
+            "type": "tuple"
+          }
+        },
+        "sidecars": {
+          "container_bytes": 64,
+          "length": 0,
+          "type": "dict"
+        },
+        "thumbnail_cache": {
+          "bytes": 0,
+          "entries": 0
+        }
+      },
+      "after_launch": {
+        "data_columns": {
+          "column_count": 45,
+          "columns": {
+            "filename": {
+              "container_bytes": 4000056,
+              "estimated_items_bytes": 45086914,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 90.173828125,
+              "type": "list"
+            },
+            "height": {
+              "arrow_or_numpy_nbytes": 4000000,
+              "container_bytes": 112,
+              "estimated_items_bytes": 16000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 32.0,
+              "type": "ndarray"
+            },
+            "l0m_caption_profile_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_external_safety_score_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_safety_bucket_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_source_type_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_text_presence_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_text_role_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0m_visible_explicitness_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0p_detail_density_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0p_saturation_regime_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0p_style_family_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0p_stylization_level_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0p_value_contrast_regime_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_affect_carrier_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_background_complexity_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_background_role_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_color_mode_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_depth_regime_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_expressive_intent_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_figure_presence_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_focus_mechanism_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_form_rendering_regime_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_image_format_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_line_prominence_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_perspective_strength_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_primary_composition_regime_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_shot_scale_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_staging_mode_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_viewpoint_family_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0r_visual_guidance_path_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0s_exposed_difficulty_level_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0s_finish_state_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0s_interaction_complexity_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l0s_rendering_mixture_state_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l1_artifact_severity_score": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l1_catastrophic_break_probability": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l1_catastrophic_break_score": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "l1_review_priority_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "met__overall_is_ai_probability": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "met__overall_is_ai_score": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "met__wdv3_rating_confidence": {
+              "arrow_or_numpy_nbytes": 4062500,
+              "container_bytes": 4062588,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "path": {
+              "arrow_or_numpy_nbytes": 41098363,
+              "container_bytes": 41098451,
+              "estimated_items_bytes": 24000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 48.0,
+              "type": "ChunkedArray"
+            },
+            "s3key": {
+              "container_bytes": 4000056,
+              "estimated_items_bytes": 59586914,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 119.173828125,
+              "type": "list"
+            },
+            "width": {
+              "arrow_or_numpy_nbytes": 4000000,
+              "container_bytes": 112,
+              "estimated_items_bytes": 16000000,
+              "length": 500000,
+              "sample_count": 1024,
+              "sample_item_avg_bytes": 32.0,
+              "type": "ndarray"
+            }
+          }
+        },
+        "row_store": {
+          "dimension_overlays": 0,
+          "folder_child_refs": 2,
+          "folder_children_count": 2,
+          "folder_count": 2,
+          "folder_row_refs": 500000,
+          "materialized_item_count": 0,
+          "names": {
+            "container_bytes": 4000040,
+            "estimated_items_bytes": 45086914,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 90.173828125,
+            "type": "tuple"
+          },
+          "path_to_row": {
+            "container_bytes": 15379200,
+            "length": 500000,
+            "type": "dict"
+          },
+          "paths": {
+            "container_bytes": 4000040,
+            "estimated_items_bytes": 55586914,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 111.173828125,
+            "type": "tuple"
+          },
+          "row_count": 500000,
+          "row_dimensions": {
+            "container_bytes": 4000056,
+            "estimated_items_bytes": 28000000,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 56.0,
+            "type": "list"
+          },
+          "row_to_path": {
+            "container_bytes": 4000056,
+            "estimated_items_bytes": 55586914,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 111.173828125,
+            "type": "list"
+          },
+          "row_to_slot": {
+            "container_bytes": 16,
+            "length": null,
+            "type": "NoneType"
+          },
+          "size_overlays": 0,
+          "sorted_paths": {
+            "container_bytes": 4000040,
+            "estimated_items_bytes": 55604492,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 111.208984375,
+            "type": "tuple"
+          },
+          "sorted_rows": {
+            "container_bytes": 4000040,
+            "estimated_items_bytes": 14000000,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 28.0,
+            "type": "tuple"
+          },
+          "sources": {
+            "container_bytes": 4000040,
+            "estimated_items_bytes": 59586914,
+            "length": 500000,
+            "sample_count": 1024,
+            "sample_item_avg_bytes": 119.173828125,
+            "type": "tuple"
+          }
+        },
+        "search_caches": {
+          "names_lower": {
+            "container_bytes": 40,
+            "length": 0,
+            "type": "tuple"
+          },
+          "paths_lower": {
+            "container_bytes": 40,
+            "length": 0,
+            "type": "tuple"
+          },
+          "sources_lower": {
+            "container_bytes": 40,
+            "length": 0,
+            "type": "tuple"
+          }
+        },
+        "sidecars": {
+          "container_bytes": 64,
+          "length": 0,
+          "type": "dict"
+        },
+        "thumbnail_cache": {
+          "bytes": 0,
+          "entries": 0
+        }
+      }
+    }
+  }
+}

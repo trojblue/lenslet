@@ -204,6 +204,69 @@ def test_table_search_source_and_url_fields_respect_toggle(tmp_path: Path) -> No
     assert "gallery/remote.jpg" not in _result_paths(disabled.search(query="cdn.example.com"))
 
 
+def test_table_search_name_cache_preserves_hits_without_materializing_misses() -> None:
+    rows = [
+        {
+            "path": f"custom/id-{idx:04d}.jpg",
+            "source": f"https://cdn.example.test/source-name-{idx:04d}.jpg",
+            "width": 12,
+            "height": 9,
+        }
+        for idx in range(50)
+    ]
+
+    storage = _table_storage(
+        rows,
+        root=None,
+        include_source_in_search=False,
+        skip_dimension_probe=True,
+        allow_local=False,
+    )
+    row_store = storage._row_store
+    assert row_store is not None
+    assert row_store.materialized_item_count == 0
+
+    assert storage.search(query="definitely-not-present") == []
+    assert row_store.materialized_item_count == 0
+    assert storage._search_names_lower is not None
+    assert storage._search_sources_lower is None
+
+    assert "custom/id-0007.jpg" in _result_paths(storage.search(query="source-name-0007"))
+    assert row_store.materialized_item_count == 1
+
+
+def test_table_search_treats_auto_http_path_as_source_alias() -> None:
+    pa = pytest.importorskip("pyarrow")
+
+    table = pa.table(
+        {
+            "s3key": [
+                "https://img.metanomaly.co/r2/one",
+                "https://img.metanomaly.co/r2/two",
+            ],
+            "path": [
+                "img.metanomaly.co/r2/one",
+                "img.metanomaly.co/r2/two",
+            ],
+            "width": [10, 11],
+            "height": [12, 13],
+        }
+    )
+
+    storage = _table_storage(
+        table,
+        source_column="s3key",
+        skip_dimension_probe=True,
+        include_source_in_search=True,
+    )
+
+    assert storage._path_column_aliases_source
+    assert storage._source_search_covered_by_path()
+    assert storage._index_context.table.path_column is None
+    assert "img.metanomaly.co/r2/one" in _result_paths(storage.search(query="https://img.metanomaly.co/r2/one"))
+    assert "img.metanomaly.co/r2/two" in _result_paths(storage.search(query="img.metanomaly.co/r2/two"))
+
+
 def test_dataset_search_source_and_url_fields_respect_toggle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

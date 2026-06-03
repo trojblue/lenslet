@@ -7,7 +7,7 @@ from typing import Any, Callable
 import urllib.error
 from urllib.parse import urlparse
 
-from ...http_safety import open_http_url, require_http_url
+from ...http_safety import require_http_url
 from ...media_errors import RemoteMediaNotFoundError, RemoteMediaReadError
 from ..s3 import S3_DEPENDENCY_ERROR, create_s3_client
 from .probe import (
@@ -39,6 +39,16 @@ _S3_PERMISSION_CODES = frozenset(
         "Unauthorized",
     },
 )
+_HTTPX_MODULE: Any | None = None
+
+
+def _require_httpx() -> Any:
+    global _HTTPX_MODULE
+    if _HTTPX_MODULE is None:
+        import httpx
+
+        _HTTPX_MODULE = httpx
+    return _HTTPX_MODULE
 
 
 def _exception_detail(exc: BaseException) -> str:
@@ -72,6 +82,8 @@ class MediaReadService:
     _s3_session: Any | None = field(default=None, init=False)
     _s3_client: Any | None = field(default=None, init=False)
     _s3_client_creations: int = field(default=0, init=False)
+    _http_client_lock: Lock = field(default_factory=Lock, init=False)
+    _http_client: Any | None = field(default=None, init=False)
 
     @property
     def s3_client_creations(self) -> int:
@@ -124,6 +136,29 @@ class MediaReadService:
             self._s3_client_creations += 1
             return self._s3_client
 
+    def _ensure_http_client(self) -> Any:
+        with self._http_client_lock:
+            if self._http_client is not None:
+                return self._http_client
+            httpx = _require_httpx()
+            self._http_client = httpx.Client(
+                follow_redirects=True,
+                timeout=httpx.Timeout(connect=3.0, read=30.0, write=5.0, pool=5.0),
+                limits=httpx.Limits(
+                    max_connections=64,
+                    max_keepalive_connections=32,
+                    keepalive_expiry=30.0,
+                ),
+                headers={
+                    "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.1",
+                    "User-Agent": "lenslet-image-fetch/1.0",
+                },
+            )
+            return self._http_client
+
+    def _http_get(self, url: str) -> Any:
+        return self._ensure_http_client().get(url)
+
     def get_presigned_url(self, s3_uri: str, expires_in: int = 3600) -> str:
         if not _S3_CLIENT_EXCEPTIONS:
             raise ImportError(S3_DEPENDENCY_ERROR)
@@ -170,14 +205,24 @@ class MediaReadService:
         source: str,
         exc: urllib.error.HTTPError,
     ) -> None:
-        reason = f"HTTP {exc.code}"
-        if exc.code == _HTTP_NOT_FOUND:
-            raise RemoteMediaNotFoundError(path, source, reason) from exc
-        if exc.code in _HTTP_PERMISSION_CODES:
-            raise RemoteMediaReadError(path, source, "permission", reason) from exc
-        if exc.code in _HTTP_TIMEOUT_CODES:
-            raise RemoteMediaReadError(path, source, "timeout", reason) from exc
-        raise RemoteMediaReadError(path, source, "http", reason) from exc
+        self._raise_http_status_read_error(path, source, exc.code, cause=exc)
+
+    def _raise_http_status_read_error(
+        self,
+        path: str,
+        source: str,
+        status_code: int,
+        *,
+        cause: BaseException | None = None,
+    ) -> None:
+        reason = f"HTTP {status_code}"
+        if status_code == _HTTP_NOT_FOUND:
+            raise RemoteMediaNotFoundError(path, source, reason) from cause
+        if status_code in _HTTP_PERMISSION_CODES:
+            raise RemoteMediaReadError(path, source, "permission", reason) from cause
+        if status_code in _HTTP_TIMEOUT_CODES:
+            raise RemoteMediaReadError(path, source, "timeout", reason) from cause
+        raise RemoteMediaReadError(path, source, "http", reason) from cause
 
     def _raise_remote_read_error(
         self,
@@ -200,21 +245,46 @@ class MediaReadService:
             raise RemoteMediaReadError(path, source, "timeout", detail) from exc
         raise RemoteMediaReadError(path, source, default_category, detail) from exc
 
+    def _read_http_bytes(
+        self,
+        *,
+        path: str,
+        source: str,
+        url: str,
+        default_category: str,
+    ) -> bytes:
+        httpx = _require_httpx()
+        try:
+            response = self._http_get(require_http_url(url))
+            response.raise_for_status()
+            return response.content
+        except httpx.HTTPStatusError as exc:
+            self._raise_http_status_read_error(path, source, exc.response.status_code, cause=exc)
+        except httpx.TimeoutException as exc:
+            raise RemoteMediaReadError(path, source, "timeout", _exception_detail(exc)) from exc
+        except (httpx.HTTPError, ValueError, OSError) as exc:
+            self._raise_remote_read_error(path, source, exc, default_category=default_category)
+
     def read_bytes(self, path: str, source: str) -> bytes:
         if self.is_s3_uri(source):
             try:
-                url = require_http_url(self.get_presigned_url(source))
-                with open_http_url(url) as response:
-                    return response.read()
+                url = self.get_presigned_url(source)
+                return self._read_http_bytes(
+                    path=path,
+                    source=source,
+                    url=url,
+                    default_category="s3",
+                )
             except (ImportError, RuntimeError, ValueError, OSError, urllib.error.URLError) as exc:
                 self._raise_remote_read_error(path, source, exc, default_category="s3")
 
         if self.is_http_url(source):
-            try:
-                with open_http_url(source) as response:
-                    return response.read()
-            except (ValueError, OSError, urllib.error.URLError) as exc:
-                self._raise_remote_read_error(path, source, exc, default_category="network")
+            return self._read_http_bytes(
+                path=path,
+                source=source,
+                url=source,
+                default_category="network",
+            )
 
         try:
             resolved = self.resolve_local_source(source)

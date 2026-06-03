@@ -202,7 +202,7 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
         readable_columns=column_selection.columns,
     )
     table = load_parquet_table(str(parquet_path), columns=browse_columns.columns)
-    dimensions = inspect_table_dimensions(table)
+    dimensions = inspect_table_dimensions(table, count_missing=request.cache_dimensions)
     dimension_probe_policy = resolve_dimension_probe_policy(
         cache_dimensions=request.cache_dimensions,
         skip_dimension_probe=request.skip_dimension_probe,
@@ -234,7 +234,7 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
             thumb_size=request.thumb_size,
             thumb_quality=request.thumb_quality,
             source_column=browse_columns.source_column or request.source_column,
-            path_column=browse_columns.path_column or request.path_column,
+            path_column=request.path_column,
             skip_dimension_probe=dimension_probe_policy.skip_dimension_probe,
             row_field_provider=row_field_provider,
             table_field_columns=browse_columns.table_field_columns,
@@ -605,13 +605,17 @@ def parquet_browse_signature_seed(parquet_path: Path) -> str:
     return f"{parquet_path.resolve()}:{stat.st_mtime_ns}:{stat.st_size}"
 
 
-def inspect_table_dimensions(table: PyArrowTable) -> TableDimensionState:
+def inspect_table_dimensions(table: PyArrowTable, *, count_missing: bool = True) -> TableDimensionState:
     width_name = find_dimension_column(table, "width")
     height_name = find_dimension_column(table, "height")
+    if not count_missing:
+        missing_count = 0 if width_name and height_name else table.num_rows
+    else:
+        missing_count = count_missing_dimensions(table, width_name, height_name)
     return TableDimensionState(
         width_name=width_name,
         height_name=height_name,
-        missing_count=count_missing_dimensions(table, width_name, height_name),
+        missing_count=missing_count,
     )
 
 

@@ -18,7 +18,6 @@ _STORAGE_EXPORTS = frozenset(
     {
         "TABLE_IMAGE_EXTS",
         "TableBrowseIndex",
-        "TableBrowseItem",
         "TableStorage",
         "TableStorageOptions",
         "load_parquet_schema",
@@ -29,7 +28,6 @@ _STORAGE_EXPORTS = frozenset(
 __all__ = [
     "TABLE_IMAGE_EXTS",
     "TableBrowseIndex",
-    "TableBrowseItem",
     "TableInput",
     "TableRow",
     "TableRows",

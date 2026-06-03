@@ -94,6 +94,52 @@ def _table_storage_without_cached_dimensions(tmp_path: Path) -> TableStorage:
     return storage
 
 
+def test_table_media_updates_persist_in_row_overlays(tmp_path: Path) -> None:
+    image_path = tmp_path / "gallery" / "sample.jpg"
+    _make_image(image_path)
+    storage = TableStorage(
+        [
+            {
+                "path": "gallery/sample.jpg",
+                "source": str(image_path),
+                "width": 0,
+                "height": 0,
+                "size": 0,
+            }
+        ],
+        options=TableStorageOptions(
+            root=None,
+            source_column="source",
+            path_column="path",
+            skip_dimension_probe=True,
+        ),
+    )
+    row_store = storage._row_store
+    assert row_store is not None
+
+    before = storage.items_in_scope("/gallery")[0]
+    assert (before.width, before.height, before.size) == (0, 0, 0)
+
+    assert storage.load_dimensions("/gallery/sample.jpg") == (8, 8)
+    after_load = storage.items_in_scope("/gallery")[0]
+    assert (after_load.width, after_load.height, after_load.size) == (
+        8,
+        8,
+        image_path.stat().st_size,
+    )
+    assert storage.get_sidecar_readonly("/gallery/sample.jpg")["width"] == 8
+    assert storage.get_sidecar_readonly("/gallery/sample.jpg")["height"] == 8
+
+    row_store.update_dimensions("/gallery/sample.jpg", (0, 0), size=0)
+    storage.get_or_build_thumbnail("/gallery/sample.jpg")
+    after_thumb = storage.items_in_scope("/gallery")[0]
+    assert (after_thumb.width, after_thumb.height, after_thumb.size) == (
+        8,
+        8,
+        image_path.stat().st_size,
+    )
+
+
 def test_source_backed_load_dimensions_maps_source_read_failure_to_read_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

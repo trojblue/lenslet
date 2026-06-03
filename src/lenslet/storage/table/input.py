@@ -88,11 +88,71 @@ def table_input_length(obj: TableInput) -> int:
     return 0
 
 
-def table_to_columns(table: TableInput) -> tuple[list[str], dict[str, list[Any]], int]:
+def table_input_columns(table: TableInput) -> list[str]:
     if _is_pydict_table_input(table):
-        data = table.to_pydict()
         schema_names = getattr(getattr(table, "schema", None), "names", None)
+        if schema_names is not None:
+            return [str(column) for column in schema_names]
+        return [str(column) for column in table.to_pydict().keys()]
+    if _is_pandas_table_input(table):
+        return [str(column) for column in list(table.columns)]
+    if isinstance(table, list):
+        if not table:
+            return []
+        columns = list(table[0].keys())
+        for row in table[1:]:
+            for key in row.keys():
+                if key not in columns:
+                    columns.append(key)
+        return [str(column) for column in columns]
+    raise TypeError(f"table must be {TABLE_INPUT_DESCRIPTION}")
+
+
+def _pydict_table_to_columns(
+    table: PyDictTableInput,
+    *,
+    python_columns: set[str] | None,
+) -> tuple[list[str], dict[str, Any], int]:
+    schema_names = getattr(getattr(table, "schema", None), "names", None)
+    if python_columns is None or schema_names is None or not hasattr(table, "__getitem__"):
+        data = table.to_pydict()
         columns = [str(column) for column in (schema_names if schema_names is not None else data.keys())]
+        row_count = len(data.get(columns[0], [])) if columns else 0
+        return columns, data, row_count
+
+    columns = [str(column) for column in schema_names]
+    data: dict[str, Any] = {}
+    for column in columns:
+        values = table[column]  # type: ignore[index]
+        data[column] = _startup_column_values(values) if column in python_columns else values
+    return columns, data, table_input_length(table)
+
+
+def _startup_column_values(values: Any) -> Any:
+    if _null_free_numeric_arrow_column(values):
+        to_numpy = getattr(values, "to_numpy", None)
+        if callable(to_numpy):
+            try:
+                return to_numpy(zero_copy_only=False)
+            except Exception:
+                pass
+    return values.to_pylist()
+
+
+def _null_free_numeric_arrow_column(values: Any) -> bool:
+    if int(getattr(values, "null_count", 0) or 0) != 0:
+        return False
+    type_name = str(getattr(values, "type", "")).lower()
+    return type_name.startswith(("int", "uint", "float", "double"))
+
+
+def table_to_columns(
+    table: TableInput,
+    *,
+    python_columns: set[str] | None = None,
+) -> tuple[list[str], dict[str, Any], int]:
+    if _is_pydict_table_input(table):
+        return _pydict_table_to_columns(table, python_columns=python_columns)
     elif _is_pandas_table_input(table):
         raw_columns = list(table.columns)
         columns = [str(column) for column in raw_columns]

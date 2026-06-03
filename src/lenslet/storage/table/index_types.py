@@ -9,7 +9,7 @@ from ..image_media import ImageMime
 ProgressCallback: TypeAlias = Callable[[int, int, str], None]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TableIndexData:
     """Immutable table data and resolved schema choices used by the indexer."""
 
@@ -32,9 +32,11 @@ class TableIndexData:
     s3_prefixes: dict[str, str]
     s3_use_bucket: bool
     image_exts: tuple[str, ...]
+    source_kind: str | None = None
+    extensionless_source_all_trusted: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TableIndexPolicy:
     """Table index switches that affect source validation and dimension probing."""
 
@@ -43,7 +45,7 @@ class TableIndexPolicy:
     skip_local_realpath_validation: bool
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TableSourceResolver:
     """Storage-specific source behavior needed by the pure table indexer."""
 
@@ -53,7 +55,7 @@ class TableSourceResolver:
     resolve_local_source_lexical: Callable[[str], str]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TableIndexInput:
     """Explicit table-indexing boundary supplied by TableStorage."""
 

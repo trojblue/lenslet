@@ -1,0 +1,192 @@
+{
+  "small_fixture": {
+    "payload_hashes": {
+      "embedding_row_lookup": "57ba30ac32f3723672836d97a5ea379999b8e48b8fea4be5a4669a0ab07fbe75",
+      "media_metadata": "4c50e891e7806b2c2ffae73325940177a4ad2dfe3d8f2639a20c849a50238a49",
+      "recursive_window": "2a448890d43c5e77a83e1eb90081626fa6cee9e9ff27c78dd69468db4725dd75",
+      "root_browse": "da58b75ed48a7ea86fa12f1ff15ab957981a88fd23878426be6f43188d2da098",
+      "search_hit": "c04cfcb6bd1830c0c1f0129e9319387a9d5b9df7658cc8eb8ffcae9c952f3b35",
+      "search_miss": "eef46741adfc3a9f76294d3b78f37a45f113092ac9d44ee77c7a038a88ff09a1",
+      "sidecar_item": "a40feebb929f64bc8b042110a23abf9e42fe6accd1eea1b5830769dcc0f72496"
+    },
+    "payloads": {
+      "embedding_row_lookup": {
+        "cat": 0,
+        "row_index_map": {
+          "0": "gallery/cat.jpg",
+          "1": "gallery/dog.jpg"
+        }
+      },
+      "media_metadata": {
+        "format": "jpeg",
+        "meta": {
+          "exif": {},
+          "pil_info": {
+            "jfif": 257,
+            "jfif_density": [
+              1.0,
+              1.0
+            ],
+            "jfif_unit": 0,
+            "jfif_version": [
+              1.0,
+              1.0
+            ]
+          },
+          "quick_fields": {},
+          "xmp": null
+        },
+        "path": "/gallery/cat.jpg"
+      },
+      "recursive_window": {
+        "folders": [],
+        "generated_at": "<generated_at>",
+        "items": [
+          {
+            "added_at": "<added_at>",
+            "has_metadata": true,
+            "has_thumbnail": true,
+            "hash": null,
+            "height": 0,
+            "metric_labels": null,
+            "metrics": {
+              "quality_score": 0.91
+            },
+            "mime": "image/jpeg",
+            "name": "cat.jpg",
+            "notes": "",
+            "path": "/gallery/cat.jpg",
+            "size": 632,
+            "source": "<fixture_root>/src/cat.jpg",
+            "star": null,
+            "url": null,
+            "width": 0
+          }
+        ],
+        "limit": 1,
+        "metric_keys": [
+          "quality_score"
+        ],
+        "offset": 0,
+        "path": "/gallery",
+        "total_items": 2,
+        "version": 1
+      },
+      "root_browse": {
+        "folders": [
+          {
+            "kind": "branch",
+            "name": "gallery"
+          }
+        ],
+        "generated_at": "<generated_at>",
+        "items": [],
+        "limit": null,
+        "metric_keys": [],
+        "offset": null,
+        "path": "/",
+        "total_items": null,
+        "version": 1
+      },
+      "search_hit": {
+        "items": [
+          {
+            "added_at": "<added_at>",
+            "has_metadata": true,
+            "has_thumbnail": true,
+            "hash": null,
+            "height": 0,
+            "metric_labels": null,
+            "metrics": {
+              "quality_score": 0.91
+            },
+            "mime": "image/jpeg",
+            "name": "cat.jpg",
+            "notes": "",
+            "path": "/gallery/cat.jpg",
+            "size": 632,
+            "source": "<fixture_root>/src/cat.jpg",
+            "star": null,
+            "url": null,
+            "width": 0
+          }
+        ]
+      },
+      "search_miss": {
+        "items": []
+      },
+      "sidecar_item": {
+        "exif": {
+          "height": 0,
+          "width": 0
+        },
+        "hash": null,
+        "notes": "",
+        "original_position": null,
+        "star": null,
+        "table_fields": {
+          "label": "cat"
+        },
+        "tags": [],
+        "updated_at": "",
+        "updated_by": "server",
+        "v": 1,
+        "version": 1
+      }
+    },
+    "storage_counts": {
+      "dense_items": 2,
+      "folder_item_refs": 2,
+      "row_store_materialized_items": null,
+      "row_to_path_entries": 2,
+      "sorted_items": 2
+    }
+  },
+  "target_500k": {
+    "parquet": "/data/yada/dev_new/pclb2/outputs/dit03_pretrain_pool_sample_500k_l0l1_multihead_http/dit03_pretrain_pool_sample_500k_l0l1_multihead_http.parquet",
+    "path_column": null,
+    "prepare_table_launch_seconds": 3.151121584698558,
+    "recursive_window": {
+      "elapsed_seconds": 0.9442970585078001,
+      "item_count": 5000,
+      "limit": 5000,
+      "status_code": 200,
+      "total_items": 500000
+    },
+    "rss_mib": {
+      "after_checks": 855.6796875,
+      "after_launch": 804.7421875,
+      "before": 82.671875,
+      "peak": 855.6796875
+    },
+    "search_miss": {
+      "hit_counts": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "median_seconds": 0.2691671084612608,
+      "min_seconds": 0.2632927671074867,
+      "query": "__lenslet_row_view_no_match__",
+      "repeats": 5,
+      "seconds": [
+        0.4163315314799547,
+        0.2633829899132252,
+        0.2632927671074867,
+        0.2691671084612608,
+        0.2709348201751709
+      ]
+    },
+    "skipped": false,
+    "source_column": "s3key",
+    "storage_counts": {
+      "dense_items": 500000,
+      "folder_item_refs": 500000,
+      "row_store_materialized_items": null,
+      "row_to_path_entries": 500000,
+      "sorted_items": 500000
+    }
+  }
+}

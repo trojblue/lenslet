@@ -227,7 +227,16 @@ def _raw_logical_path(
 ) -> str:
     if table.path_column is not None:
         logical_value = columns.path_values[idx]
-        return str(logical_value).strip() if logical_value else ""
+        logical_path = str(logical_value).strip() if logical_value else ""
+        if is_s3_uri(logical_path) or is_http_url(logical_path):
+            return derive_logical_path(
+                logical_path,
+                root=table.root,
+                local_prefix=table.local_prefix,
+                s3_prefixes=table.s3_prefixes,
+                s3_use_bucket=table.s3_use_bucket,
+            )
+        return logical_path
     return derive_logical_path(
         source,
         root=table.root,

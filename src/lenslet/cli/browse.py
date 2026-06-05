@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from .browse_args import BrowseCliArgs, _normalize_browse_args, _parse_browse_args_or_exit
 from .common import _find_available_port
+from .hf_table import RemoteTableLoadResult, is_hf_table_uri, load_hf_parquet_table
 from .share import ShareTunnelOptions, _start_share_tunnel
 from .. import server as server_api
 from ..degraded import report_degraded_feature
@@ -47,7 +48,14 @@ def _looks_like_hf_dataset(value: str) -> bool:
     return bool(name_pattern.match(org)) and bool(name_pattern.match(repo_base))
 
 
-def _load_remote_table(uri: str) -> TableInput:
+def _load_remote_table(
+    uri: str,
+    *,
+    source_column: str | None = None,
+) -> RemoteTableLoadResult:
+    if is_hf_table_uri(uri):
+        return load_hf_parquet_table(uri, preferred_source_column=source_column)
+
     try:
         import unibox as ub
     except ImportError as exc:
@@ -57,7 +65,7 @@ def _load_remote_table(uri: str) -> TableInput:
     table = ub.loads(uri)
     if hasattr(table, "to_pandas"):
         table = table.to_pandas()
-    return table
+    return RemoteTableLoadResult(table=table)
 
 
 @dataclass(frozen=True)
@@ -123,12 +131,13 @@ def _resolve_browse_target_or_exit(raw_target: str) -> BrowseTarget:
             is_remote_table=False,
         )
     if _is_remote_uri(raw_target):
+        remote_kind = "hf" if urlparse(raw_target).scheme == "hf" else "remote"
         return BrowseTarget(
             raw_target=raw_target,
             target=None,
             is_table_file=False,
             is_remote_table=True,
-            remote_kind="remote",
+            remote_kind=remote_kind,
             remote_uri=raw_target,
         )
     if _looks_like_hf_dataset(raw_target):
@@ -372,17 +381,18 @@ def _create_remote_table_app_or_exit(plan: BrowseLaunchPlan) -> object:
     target_info = plan.target_info
     remote_label = target_info.remote_uri or target_info.raw_target
     try:
-        table = _load_remote_table(remote_label)
+        loaded_table = _load_remote_table(remote_label, source_column=args.source_column)
     except (ImportError, OSError, RuntimeError, ValueError) as exc:
         raise BrowseCliError(f"failed to load remote table '{remote_label}': {exc}") from exc
+    source_column = args.source_column or loaded_table.source_column
     workspace = Workspace.for_dataset(None, can_write=False)
     return server_api.create_app_from_table(
-        table=table,
+        table=loaded_table.table,
         options=server_api.TableAppOptions(
             browse=plan.browse_options,
             embedding=plan.embedding_options,
             base_dir=args.base_dir,
-            source_column=args.source_column,
+            source_column=source_column,
             path_column=args.path_column,
             skip_dimension_probe=args.skip_dimension_probe,
             allow_local=False,

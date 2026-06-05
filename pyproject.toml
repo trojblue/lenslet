@@ -48,6 +48,7 @@ s3 = [
 ]
 remote = [
     "unibox>=0.12",
+    "huggingface-hub>=0.25",
 ]
 embeddings = [
     "numpy>=1.26",

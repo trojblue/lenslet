@@ -5,6 +5,7 @@ from typing import Any
 
 import lenslet.cli.browse as cli_browse
 import lenslet.web.app.local as local_app
+from lenslet.cli.hf_table import RemoteTableLoadResult
 from lenslet.embeddings.config import EmbeddingConfig
 from lenslet.server import BrowseAppOptions, EmbeddingAppOptions
 from lenslet.storage.table.launch import TableLaunchNotice, TableLaunchRequest, TableLaunchResult
@@ -123,3 +124,94 @@ def test_directory_items_parquet_launch_result_passed_to_create_app(
     assert captured["table_launch"] is launch_result
     assert captured["root_path"] == str(root.resolve())
     assert capsys.readouterr().out.count("[lenslet] prepared once") == 1
+
+
+def test_remote_table_launch_uses_detected_source_column(monkeypatch) -> None:
+    sentinel_app = object()
+    rows = [{"image_url": "https://example.test/a.jpg", "path": "a.jpg"}]
+    captured: dict[str, Any] = {}
+
+    def _fake_load_remote_table(uri: str, *, source_column: str | None = None):
+        captured["uri"] = uri
+        captured["requested_source_column"] = source_column
+        return RemoteTableLoadResult(table=rows, source_column="image_url")
+
+    def _fake_create_app_from_table(table, *, options):
+        captured["table"] = table
+        captured["options"] = options
+        return sentinel_app
+
+    monkeypatch.setattr(cli_browse, "_load_remote_table", _fake_load_remote_table)
+    monkeypatch.setattr(cli_browse.server_api, "create_app_from_table", _fake_create_app_from_table)
+
+    plan = cli_browse.BrowseLaunchPlan(
+        args=_browse_args(directory="owner/repo", skip_dimension_probe=True),
+        target_info=cli_browse.BrowseTarget(
+            raw_target="owner/repo",
+            target=None,
+            is_table_file=False,
+            is_remote_table=True,
+            remote_kind="hf",
+            remote_uri="hf://owner/repo",
+        ),
+        port=7070,
+        dataset_workspace=None,
+        preindex_signature=None,
+        embedding_config=EmbeddingConfig(),
+        browse_options=BrowseAppOptions(),
+        embedding_options=EmbeddingAppOptions(),
+        trusted_write_origins=(),
+    )
+
+    app = cli_browse._create_remote_table_app_or_exit(plan)
+
+    assert app is sentinel_app
+    assert captured["uri"] == "hf://owner/repo"
+    assert captured["requested_source_column"] is None
+    assert captured["table"] is rows
+    assert captured["options"].source_column == "image_url"
+
+
+def test_remote_table_launch_prefers_explicit_source_column(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        cli_browse,
+        "_load_remote_table",
+        lambda uri, *, source_column=None: RemoteTableLoadResult(
+            table=[{"explicit": "https://example.test/a.jpg"}],
+            source_column="detected",
+        ),
+    )
+    monkeypatch.setattr(
+        cli_browse.server_api,
+        "create_app_from_table",
+        lambda table, *, options: captured.setdefault("options", options),
+    )
+
+    plan = cli_browse.BrowseLaunchPlan(
+        args=_browse_args(
+            directory="owner/repo",
+            source_column="explicit",
+            skip_dimension_probe=True,
+        ),
+        target_info=cli_browse.BrowseTarget(
+            raw_target="owner/repo",
+            target=None,
+            is_table_file=False,
+            is_remote_table=True,
+            remote_kind="hf",
+            remote_uri="hf://owner/repo",
+        ),
+        port=7070,
+        dataset_workspace=None,
+        preindex_signature=None,
+        embedding_config=EmbeddingConfig(),
+        browse_options=BrowseAppOptions(),
+        embedding_options=EmbeddingAppOptions(),
+        trusted_write_origins=(),
+    )
+
+    cli_browse._create_remote_table_app_or_exit(plan)
+
+    assert captured["options"].source_column == "explicit"

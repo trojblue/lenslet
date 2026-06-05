@@ -6,7 +6,13 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import lenslet.web.app.local as local_app
-from lenslet.server import LocalAppOptions, create_app, create_app_from_storage
+from lenslet.server import (
+    LocalAppOptions,
+    TableAppOptions,
+    create_app,
+    create_app_from_storage,
+    create_app_from_table,
+)
 from lenslet.storage.table import TableStorage, TableStorageOptions
 from lenslet.storage.table.launch import TableLaunchRequest, prepare_table_launch
 from lenslet.storage.table.launch_sources import detect_source_column
@@ -144,6 +150,45 @@ def test_parquet_folder_payload_exposes_low_cardinality_string_categoricals(tmp_
 
     item_payload = client.get("/item", params={"path": "/a.jpg"}).json()
     assert item_payload["table_fields"] == {"l0p_style_family": "anime"}
+
+
+def test_table_app_payload_infers_low_cardinality_string_categoricals():
+    rows = [
+        {
+            "image": "https://example.test/images/a.jpg",
+            "path": "a.jpg",
+            "width": 8,
+            "height": 6,
+            "categorical": "anime",
+            "image_id": "id-a",
+            "prompt": "a long prompt should stay a table field",
+        },
+        {
+            "image": "https://example.test/images/b.jpg",
+            "path": "b.jpg",
+            "width": 8,
+            "height": 6,
+            "categorical": "photographic",
+            "image_id": "id-b",
+            "prompt": "another long prompt should stay a table field",
+        },
+    ]
+
+    app = create_app_from_table(
+        rows,
+        options=TableAppOptions(
+            source_column="image",
+            path_column="path",
+            skip_dimension_probe=True,
+            allow_local=False,
+        ),
+    )
+    payload = TestClient(app).get("/folders", params={"path": "/"}).json()
+
+    assert payload["metric_keys"] == []
+    assert payload["categorical_keys"] == ["categorical"]
+    assert payload["items"][0]["categoricals"] == {"categorical": "anime"}
+    assert payload["items"][1]["categoricals"] == {"categorical": "photographic"}
 
 
 def test_parquet_folder_payload_rejects_sixty_value_string_categoricals(tmp_path: Path):

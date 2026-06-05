@@ -6,6 +6,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
 
+from .categoricals import (
+    CATEGORICAL_MAX_UNIQUE_VALUES,
+    arrow_array_has_low_cardinality,
+    is_categorical_identifier_column,
+)
 from ...embeddings.config import EmbeddingConfig
 from .display import is_internal_metric_key
 from .index import is_metric_column_name
@@ -41,45 +46,6 @@ _WIDTH_COLUMNS = ("width", "w")
 _HEIGHT_COLUMNS = ("height", "h")
 _SIZE_COLUMNS = ("size", "bytes")
 _MTIME_COLUMNS = ("mtime", "modified", "modified_at")
-_CATEGORICAL_MAX_UNIQUE_VALUES = 60
-_CATEGORICAL_MAX_VALUE_LENGTH = 256
-_CATEGORICAL_IDENTIFIER_LEAVES = {
-    "id",
-    "key",
-    "hash",
-    "sha",
-    "source",
-    "src",
-    "url",
-    "uri",
-    "path",
-    "s3key",
-    "local_path",
-    "image_path",
-    "logical_path",
-    "rel_path",
-    "relative_path",
-    "display_path",
-    "name",
-    "filename",
-    "file_name",
-    "mime",
-    "mime_type",
-}
-_CATEGORICAL_LONG_TEXT_LEAVES = {
-    "caption",
-    "captions",
-    "comment",
-    "comments",
-    "description",
-    "explanation",
-    "notes",
-    "prompt",
-    "prompts",
-    "reason",
-    "reasoning",
-    "text",
-}
 
 
 def _table_schema_errors() -> tuple[type[BaseException], ...]:
@@ -494,14 +460,14 @@ def select_categorical_columns(
     source_column: str,
     path_column: str | None,
     table_field_columns: tuple[str, ...],
-    max_unique_values: int = _CATEGORICAL_MAX_UNIQUE_VALUES,
+    max_unique_values: int = CATEGORICAL_MAX_UNIQUE_VALUES,
 ) -> tuple[str, ...]:
     candidates = [
         column
         for column in table_field_columns
         if (
             column in readable
-            and not _is_categorical_identifier_column(column)
+            and not is_categorical_identifier_column(column)
             and column not in _duplicate_display_columns(
                 source_column=source_column,
                 path_column=path_column,
@@ -524,77 +490,14 @@ def select_categorical_columns(
 
     selected: list[str] = []
     for column in candidates:
-        if _array_has_low_cardinality(
+        if arrow_array_has_low_cardinality(
             categorical_table[column],
             compute,
             max_unique_values=max_unique_values,
+            error_types=_table_schema_errors(),
         ):
             selected.append(column)
     return tuple(selected)
-
-
-def _is_categorical_identifier_column(column: str) -> bool:
-    lower = column.strip().lower()
-    if not lower:
-        return True
-    leaf = lower.rsplit("__", 1)[-1]
-    if lower in _CATEGORICAL_IDENTIFIER_LEAVES or leaf in _CATEGORICAL_IDENTIFIER_LEAVES:
-        return True
-    if leaf in _CATEGORICAL_LONG_TEXT_LEAVES:
-        return True
-    return leaf.endswith((
-        "_id",
-        "_key",
-        "_hash",
-        "_url",
-        "_uri",
-        "_path",
-        "_caption",
-        "_comment",
-        "_description",
-        "_explanation",
-        "_notes",
-        "_prompt",
-        "_reason",
-        "_reasoning",
-        "_text",
-    ))
-
-
-def _normalize_categorical_value(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    if len(text) > _CATEGORICAL_MAX_VALUE_LENGTH:
-        return None
-    return text
-
-
-def _array_has_low_cardinality(
-    values: Any,
-    compute: Any,
-    *,
-    max_unique_values: int,
-) -> bool:
-    unique_values: set[str] = set()
-    try:
-        unique = compute.unique(values)
-        if len(unique) > max_unique_values + 2:
-            return False
-        for raw_value in unique.to_pylist():
-            value = _normalize_categorical_value(raw_value)
-            if value is None:
-                if raw_value is not None and len(str(raw_value).strip()) > _CATEGORICAL_MAX_VALUE_LENGTH:
-                    return False
-                continue
-            unique_values.add(value)
-            if len(unique_values) >= max_unique_values:
-                return False
-    except _table_schema_errors():
-        return False
-    return 0 < len(unique_values) < max_unique_values
 
 
 def parquet_browse_signature_seed(parquet_path: Path) -> str:

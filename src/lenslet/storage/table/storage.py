@@ -21,6 +21,7 @@ from ..progress import ProgressBar
 from ..sidecar_state import default_sidecar_state
 from ..source.backed import SourceBackedConfig, SourceBackedServices, SourceBackedStorageBase
 from ..source.state import SourceBackedIndexState, SourceRowIndexState
+from .categoricals import infer_categorical_columns
 from .display import (
     is_internal_metric_key,
     normalize_display_value,
@@ -374,6 +375,21 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             if col.lower() == "metrics":
                 self._metrics_column = col
                 break
+
+        if not self._categorical_columns:
+            self._categorical_columns = infer_categorical_columns(
+                columns=self._columns,
+                data=self._data,
+                source_column=self._source_column,
+                path_column=self._path_column,
+                name_column=self._name_column,
+                mime_column=self._mime_column,
+                width_column=self._width_column,
+                height_column=self._height_column,
+                size_column=self._size_column,
+                mtime_column=self._mtime_column,
+                metrics_column=self._metrics_column,
+            )
 
         self._extensionless_source_trust_scope = self._selected_extensionless_source_trust_scope()
 

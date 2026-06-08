@@ -15,10 +15,14 @@ export type StatusBarProps = {
   browserZoomPercent?: number | null
   onDismissBrowserZoomWarning?: () => void
   tableSourceWarning?: string | null
+  derivedMetricWarning?: string | null
   onDismissTableSourceWarning?: () => void
 }
 
-type StatusBarStateInput = Omit<StatusBarProps, 'onClearOffView' | 'onDismissBrowserZoomWarning' | 'onDismissTableSourceWarning'>
+type StatusBarStateInput = Omit<
+  StatusBarProps,
+  'onClearOffView' | 'onDismissBrowserZoomWarning' | 'onDismissTableSourceWarning'
+>
 
 type StatusBarState = {
   offViewLabel: string
@@ -44,6 +48,7 @@ function deriveStatusBarState({
   canRevealOffView = false,
   browserZoomPercent,
   tableSourceWarning,
+  derivedMetricWarning,
 }: StatusBarStateInput): StatusBarState {
   const offViewLabel = offViewSummary?.names.length
     ? ` (${offViewSummary.names.join(', ')}${offViewSummary.extra ? ` +${offViewSummary.extra}` : ''})`
@@ -52,6 +57,7 @@ function deriveStatusBarState({
   const zoomPercent = typeof browserZoomPercent === 'number' ? browserZoomPercent : null
   const showZoomWarning = zoomPercent !== null && Math.abs(zoomPercent - 100) >= 2
   const showTableSourceWarning = !!tableSourceWarning
+  const showDerivedMetricWarning = !!derivedMetricWarning
   const showIndexingRunning = indexing?.state === 'running'
   const showIndexingError = indexing?.state === 'error'
   const indexingScopeLabel = indexing?.scope && indexing.scope !== '/' ? ` (${indexing.scope})` : ''
@@ -64,9 +70,16 @@ function deriveStatusBarState({
     return `${Math.min(done ?? 0, total)} / ${total}`
   })()
   const showSwitchBanner = showSwitchToMostRecentBanner && onSwitchToMostRecent != null
-  const showAnyBanner =
-    !persistenceEnabled || showIndexingRunning || showIndexingError || showSwitchBanner || showZoomWarning || !!offViewSummary
+  const showAnyBanner = (
+    !persistenceEnabled
+    || showIndexingRunning
+    || showIndexingError
+    || showSwitchBanner
+    || showZoomWarning
+    || !!offViewSummary
     || showTableSourceWarning
+    || showDerivedMetricWarning
+  )
   return {
     offViewLabel,
     canReveal,
@@ -98,6 +111,7 @@ export default function StatusBar({
   browserZoomPercent,
   onDismissBrowserZoomWarning,
   tableSourceWarning,
+  derivedMetricWarning,
   onDismissTableSourceWarning,
 }: StatusBarProps): JSX.Element | null {
   const {
@@ -122,6 +136,7 @@ export default function StatusBar({
     canRevealOffView,
     browserZoomPercent,
     tableSourceWarning,
+    derivedMetricWarning,
   })
   if (!showAnyBanner) return null
   return (
@@ -165,6 +180,13 @@ export default function StatusBar({
                 ×
               </button>
             )}
+          </div>
+        )}
+        {derivedMetricWarning && (
+          <div className="ui-banner ui-banner-danger text-xs">
+            <span className="font-semibold">Derived score.</span>
+            {' '}
+            {derivedMetricWarning}
           </div>
         )}
         {showSwitchBanner && (

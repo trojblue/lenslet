@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { BrowseItemPayload } from '../../lib/types'
+import type { DerivedMetricEvaluation } from '../../features/metrics/model/derivedMetric'
 import {
+  buildDerivedMetricWarning,
   buildStarCounts,
   getDisplayItemCount,
   getDisplayTotalCount,
   getSimilarityCountLabel,
   getSimilarityQueryLabel,
+  getUnavailableDerivedMetricFilterKeys,
   hasMetricSortValues,
   resolveCategoricalKeys,
   resolveDerivedMetricTotalItems,
@@ -34,6 +37,30 @@ function makeItem(
     star: options?.star,
     metrics: options?.metrics,
     categoricals: options?.categoricals,
+  }
+}
+
+function makeDerivedMetricEvaluation(
+  overrides: Partial<DerivedMetricEvaluation> = {},
+): DerivedMetricEvaluation {
+  return {
+    items: [],
+    metricKeys: ['q1', '@derived/rubric_1'],
+    categoricalKeys: [],
+    metricDisplayNames: { '@derived/rubric_1': 'Rubric score' },
+    spec: null,
+    key: '@derived/rubric_1',
+    name: 'Rubric score',
+    status: 'valid',
+    validCount: 2,
+    invalidCount: 0,
+    invalidReasons: [],
+    missingMetricKeys: [],
+    missingCategoricalKeys: [],
+    loadedCount: 2,
+    totalItems: 2,
+    partialLoadWarning: false,
+    ...overrides,
   }
 }
 
@@ -169,6 +196,59 @@ describe('appShellSelectors', () => {
       ['score'],
       true,
     )).toBe(false)
+  })
+
+  it('builds warnings for unavailable derived sorts and filters', () => {
+    const filters = {
+      and: [{ metricRange: { key: '@derived/rubric_1', min: 0, max: 10 } }],
+    }
+    const unavailable = makeDerivedMetricEvaluation({
+      metricKeys: ['q1'],
+      status: 'unavailable',
+      validCount: 0,
+      invalidCount: 2,
+      missingMetricKeys: ['q2'],
+      missingCategoricalKeys: ['dataset_from'],
+    })
+
+    expect(getUnavailableDerivedMetricFilterKeys(filters, unavailable)).toEqual(['@derived/rubric_1'])
+    expect(buildDerivedMetricWarning(
+      { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      filters,
+      unavailable,
+    )).toBe('Derived score inputs unavailable in this view: dataset_from, q2.')
+  })
+
+  it('detects stale derived filter keys and clears the warning when inputs return', () => {
+    const filters = {
+      and: [{ metricRange: { key: '@derived/stale', min: 0, max: 10 } }],
+    }
+    expect(buildDerivedMetricWarning(
+      { kind: 'builtin', key: 'added', dir: 'desc' },
+      filters,
+      makeDerivedMetricEvaluation(),
+    )).toBe('Saved derived score is unavailable in this view.')
+
+    const validFilters = {
+      and: [{ metricRange: { key: '@derived/rubric_1', min: 0, max: 10 } }],
+    }
+    expect(buildDerivedMetricWarning(
+      { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      validFilters,
+      makeDerivedMetricEvaluation(),
+    )).toBeNull()
+  })
+
+  it('warns when an active derived sort ranks only a loaded window', () => {
+    expect(buildDerivedMetricWarning(
+      { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      { and: [] },
+      makeDerivedMetricEvaluation({
+        loadedCount: 25,
+        totalItems: 100,
+        partialLoadWarning: true,
+      }),
+    )).toBe('Derived score ranks only the 25 loaded items out of 100.')
   })
 
   it('uses loaded counts for search and similarity derived-score partial metadata', () => {

@@ -240,6 +240,8 @@ export type DerivedMetricSpec = {
   categoricalTerms: DerivedMetricCategoricalTerm[]
 }
 
+export type DerivedMetricViewSpec = DerivedMetricSpec | Record<string, unknown>
+
 export type MetricDisplayNames = Record<string, string>
 
 export type FilterClause =
@@ -265,7 +267,7 @@ export type ViewState = {
   filters: FilterAST
   sort: SortSpec
   selectedMetric?: string
-  derivedMetric?: DerivedMetricSpec | null
+  derivedMetric?: DerivedMetricViewSpec | null
 }
 
 export type ViewPool = { kind: 'folder'; path: string }

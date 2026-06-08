@@ -1,13 +1,12 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import type {
   CompareOrderMode,
-  FilterAST,
   BrowseFolderPayload,
   BrowseItemPayload,
   BrowseSearchResultsPayload,
-  SortSpec,
   StarRating,
   ViewMode,
+  ViewState,
 } from '../../lib/types'
 
 type QueryLike = {
@@ -26,9 +25,7 @@ export type ItemCacheUpdatePayload = {
 }
 
 export type PersistedAppShellSettings = {
-  sortSpec: SortSpec
-  filterAst: FilterAST
-  selectedMetric?: string
+  viewState: ViewState
   viewMode: ViewMode
   gridItemSize: number
   leftOpen: boolean

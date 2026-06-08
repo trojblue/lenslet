@@ -3,12 +3,58 @@ import {
   createDeferredWriteScheduler,
   type PersistedAppShellSettings,
 } from '../model/appShellStateSync'
+import {
+  readPersistedSettingsFromStorage,
+  writePersistedSettingsToStorage,
+} from '../hooks/usePersistedAppShellSettings'
+import type { DerivedMetricSpec } from '../../lib/types'
+
+class MemoryStorage implements Storage {
+  private values = new Map<string, string>()
+
+  get length(): number {
+    return this.values.size
+  }
+
+  clear(): void {
+    this.values.clear()
+  }
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.values.keys())[index] ?? null
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key)
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, value)
+  }
+}
+
+function makeDerivedSpec(overrides: Partial<DerivedMetricSpec> = {}): DerivedMetricSpec {
+  return {
+    version: 1,
+    id: 'rubric_1',
+    name: 'Rubric score',
+    intercept: 0,
+    numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid' }],
+    categoricalTerms: [],
+    ...overrides,
+  }
+}
 
 function makeSettings(overrides: Partial<PersistedAppShellSettings> = {}): PersistedAppShellSettings {
   return {
-    sortSpec: { kind: 'builtin', key: 'added', dir: 'desc' },
-    filterAst: { and: [] },
-    selectedMetric: undefined,
+    viewState: {
+      sort: { kind: 'builtin', key: 'added', dir: 'desc' },
+      filters: { and: [] },
+    },
     viewMode: 'adaptive',
     gridItemSize: 220,
     leftOpen: true,
@@ -69,5 +115,54 @@ describe('settings persistence scheduling', () => {
 
     vi.runAllTimers()
     expect(writes).toEqual([pending])
+  })
+})
+
+describe('settings persistence view-state contract', () => {
+  it('stores filters, sort, selected metric, and derived metric under one viewState key', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('sortSpec', JSON.stringify({ kind: 'builtin', key: 'name', dir: 'asc' }))
+    storage.setItem('filterAst', JSON.stringify({ and: [{ starsIn: { values: [5] } }] }))
+    storage.setItem('selectedMetric', 'score')
+
+    const viewState = {
+      sort: { kind: 'metric' as const, key: '@derived/rubric_1', dir: 'desc' as const },
+      filters: {
+        and: [{ metricRange: { key: '@derived/rubric_1', min: 0, max: 10 } }],
+      },
+      selectedMetric: '@derived/rubric_1',
+      derivedMetric: makeDerivedSpec(),
+    }
+
+    writePersistedSettingsToStorage(storage, makeSettings({
+      viewState,
+      viewMode: 'grid',
+      gridItemSize: 260,
+      leftOpen: false,
+      compareOrderMode: 'selection',
+    }))
+
+    expect(JSON.parse(storage.getItem('viewState') ?? '{}')).toEqual(viewState)
+    expect(storage.getItem('sortSpec')).toBeNull()
+    expect(storage.getItem('filterAst')).toBeNull()
+    expect(storage.getItem('selectedMetric')).toBeNull()
+
+    expect(readPersistedSettingsFromStorage(storage)).toEqual({
+      viewState,
+      viewMode: 'grid',
+      gridItemSize: 260,
+      leftOpen: false,
+      autoloadImageMetadata: true,
+      compareOrderMode: 'selection',
+    })
+  })
+
+  it('does not restore legacy separate sort, filter, or selected metric keys', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('sortSpec', JSON.stringify({ kind: 'metric', key: '@derived/rubric_1', dir: 'desc' }))
+    storage.setItem('filterAst', JSON.stringify({ and: [{ metricRange: { key: '@derived/rubric_1', min: 0, max: 1 } }] }))
+    storage.setItem('selectedMetric', '@derived/rubric_1')
+
+    expect(readPersistedSettingsFromStorage(storage).viewState).toBeUndefined()
   })
 })

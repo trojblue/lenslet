@@ -23,6 +23,10 @@ export type FilterChipActions = {
   clearCategoricalIn: (key: string) => void
 }
 
+export type FilterChipOptions = {
+  unavailableMetricKeys?: readonly string[]
+}
+
 type FilterChipTemplate = {
   id: string
   label: string
@@ -203,16 +207,23 @@ function visitFilterClause(
   if ('categoricalIn' in clause) return visit('categoricalIn', clause)
 }
 
-export function buildFilterChips(filters: FilterAST, actions: FilterChipActions): FilterChip[] {
+export function buildFilterChips(
+  filters: FilterAST,
+  actions: FilterChipActions,
+  options: FilterChipOptions = {},
+): FilterChip[] {
   const chips: FilterChip[] = []
+  const unavailableMetricKeys = new Set(options.unavailableMetricKeys ?? [])
   for (const clause of filters.and) {
     visitFilterClause(clause, (key, typedClause) => {
       const entry = FILTER_CHIP_REGISTRY[key]
       const template = entry.read(typedClause)
       if (!template) return
+      const unavailableMetric = 'metricRange' in typedClause
+        && unavailableMetricKeys.has(typedClause.metricRange.key)
       chips.push({
         id: template.id,
-        label: template.label,
+        label: unavailableMetric ? `${template.label} (unavailable)` : template.label,
         onRemove: () => entry.clear(typedClause, actions),
       })
     })

@@ -90,6 +90,26 @@ describe('derived metric normalization', () => {
       categoricalTerms: [{ key: '@derived/other', value: 'gt', weight: 1 }],
     }))).toBeNull()
   })
+
+  it('retains malformed saved definitions in normalized view state', () => {
+    const invalidSpec = {
+      version: 1,
+      id: 'rubric_1',
+      name: 'Saved score',
+      intercept: null,
+      numericTerms: [],
+      categoricalTerms: [],
+    }
+
+    const normalized = normalizeViewState({
+      filters: { and: [] },
+      sort: { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      selectedMetric: '@derived/rubric_1',
+      derivedMetric: invalidSpec,
+    })
+
+    expect(normalized.derivedMetric).toEqual(invalidSpec)
+  })
 })
 
 describe('derived metric evaluation', () => {
@@ -189,6 +209,32 @@ describe('derived metric evaluation', () => {
     expect(result.loadedCount).toBe(1)
     expect(result.totalItems).toBe(5)
     expect(result.partialLoadWarning).toBe(true)
+  })
+
+  it('revalidates the same saved spec when metric and categorical inputs return', () => {
+    const items = [makeItem('/a.jpg', {
+      metrics: { q1: 1, q2: 2 },
+      categoricals: { dataset_from: 'gt' },
+    })]
+    const spec = makeSpec()
+
+    const unavailable = evaluateDerivedMetric({
+      items,
+      metricKeys: ['q1'],
+      categoricalKeys: ['dataset_from'],
+      spec,
+    })
+    const available = evaluateDerivedMetric({
+      items,
+      metricKeys: ['q1', 'q2'],
+      categoricalKeys: ['dataset_from'],
+      spec,
+    })
+
+    expect(unavailable.status).toBe('unavailable')
+    expect(unavailable.missingMetricKeys).toEqual(['q2'])
+    expect(available.status).toBe('valid')
+    expect(available.items[0].metrics?.['@derived/rubric_1']).toBe(10.5)
   })
 
   it('distinguishes malformed saved specs from an absent derived metric', () => {

@@ -6,6 +6,7 @@ import type {
   DerivedMetricNumericMissingPolicy,
   DerivedMetricNumericTerm,
   DerivedMetricSpec,
+  DerivedMetricViewSpec,
   FilterAST,
   MetricDisplayNames,
   SortSpec,
@@ -118,7 +119,7 @@ export function normalizeViewState(raw: unknown, fallback: ViewState = DEFAULT_V
   const filters = normalizeFilterAst(value.filters) ?? fallback.filters
   const sort = normalizeSortSpec(value.sort) ?? fallback.sort
   const selectedMetric = normalizeMetricKey(value.selectedMetric) ?? fallback.selectedMetric
-  const derivedMetric = normalizeDerivedMetricSpec(value.derivedMetric)
+  const derivedMetric = normalizeDerivedMetricViewSpec(value.derivedMetric)
 
   return {
     filters,
@@ -126,6 +127,13 @@ export function normalizeViewState(raw: unknown, fallback: ViewState = DEFAULT_V
     ...(selectedMetric ? { selectedMetric } : {}),
     ...(derivedMetric ? { derivedMetric } : {}),
   }
+}
+
+function normalizeDerivedMetricViewSpec(raw: unknown): DerivedMetricViewSpec | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const normalized = normalizeDerivedMetricSpec(raw)
+  if (normalized) return normalized
+  return { ...(raw as Record<string, unknown>) }
 }
 
 export function evaluateDerivedMetric({

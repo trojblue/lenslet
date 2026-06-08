@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { FetchError } from '../../../lib/fetcher'
-import type { SavedView, ViewState } from '../../../lib/types'
+import type { DerivedMetricSpec, SavedView, ViewState } from '../../../lib/types'
 import {
   buildSmartFolderNoWriteExport,
+  createSavedViewDraft,
   isSmartFolderNoWriteSaveError,
   shouldClearActiveSavedView,
 } from '../smartFolders'
@@ -21,6 +22,18 @@ function makeSavedView(overrides: Partial<SavedView> = {}): SavedView {
     name: 'Recent cats',
     pool: { kind: 'folder', path: '/cats' },
     view: makeViewState(),
+    ...overrides,
+  }
+}
+
+function makeDerivedSpec(overrides: Partial<DerivedMetricSpec> = {}): DerivedMetricSpec {
+  return {
+    version: 1,
+    id: 'rubric_1',
+    name: 'Rubric score',
+    intercept: 0,
+    numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid' }],
+    categoricalTerms: [],
     ...overrides,
   }
 }
@@ -48,5 +61,48 @@ describe('smart folder persistence helpers', () => {
     expect(shouldClearActiveSavedView('missing', [savedView], '/cats', savedView.view)).toBe(true)
     expect(shouldClearActiveSavedView('recent-cats', [savedView], '/dogs', savedView.view)).toBe(true)
     expect(shouldClearActiveSavedView('recent-cats', [savedView], '/cats', changedView)).toBe(true)
+  })
+
+  it('roundtrips derived metric view state when saving a smart folder', () => {
+    const viewState = makeViewState({
+      sort: { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      selectedMetric: '@derived/rubric_1',
+      derivedMetric: makeDerivedSpec(),
+      filters: {
+        and: [{ metricRange: { key: '@derived/rubric_1', min: 0, max: 10 } }],
+      },
+    })
+
+    const draft = createSavedViewDraft('Recent cats', [], '/cats', viewState)
+
+    expect(draft.payload.view).toEqual(viewState)
+    expect(draft.nextViews[0].view).toEqual(viewState)
+  })
+
+  it('retains invalid saved derived definitions and marks changed definitions stale', () => {
+    const invalidDerived = {
+      version: 1,
+      id: 'rubric_1',
+      name: 'Saved score',
+      intercept: null,
+      numericTerms: [],
+      categoricalTerms: [],
+    }
+    const savedView = makeSavedView({
+      view: makeViewState({
+        sort: { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+        selectedMetric: '@derived/rubric_1',
+        derivedMetric: invalidDerived,
+      }),
+    })
+    const changedSpecView = makeViewState({
+      sort: { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      selectedMetric: '@derived/rubric_1',
+      derivedMetric: makeDerivedSpec({ intercept: 1 }),
+    })
+
+    expect(shouldClearActiveSavedView('recent-cats', [savedView], '/cats', savedView.view)).toBe(false)
+    expect(savedView.view.derivedMetric).toEqual(invalidDerived)
+    expect(shouldClearActiveSavedView('recent-cats', [savedView], '/cats', changedSpecView)).toBe(true)
   })
 })

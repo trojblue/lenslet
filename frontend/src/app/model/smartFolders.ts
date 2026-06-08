@@ -1,5 +1,6 @@
 import type { SavedView, ViewState, ViewsPayload } from '../../lib/types'
 import { FetchError } from '../../lib/fetcher'
+import { normalizeViewState } from '../../features/metrics/model/derivedMetric'
 import { makeUniqueViewId } from '../utils/appShellHelpers'
 
 export const SMART_FOLDER_NO_WRITE_MESSAGE = 'No-write mode: exported Smart Folder JSON instead of saving.'
@@ -27,7 +28,7 @@ export function createSavedViewDraft(
     id,
     name,
     pool: { kind: 'folder', path: current },
-    view: JSON.parse(JSON.stringify(viewState)) as ViewState,
+    view: normalizeViewState(JSON.parse(JSON.stringify(viewState))),
   }
   return {
     id,
@@ -45,7 +46,8 @@ export function shouldClearActiveSavedView(
   if (!activeViewId) return false
   const view = views.find((candidate) => candidate.id === activeViewId)
   if (!view) return true
-  return view.pool.path !== current || JSON.stringify(view.view) !== JSON.stringify(viewState)
+  return view.pool.path !== current
+    || JSON.stringify(normalizeViewState(view.view)) !== JSON.stringify(normalizeViewState(viewState))
 }
 
 export function isSmartFolderNoWriteSaveError(error: unknown): boolean {

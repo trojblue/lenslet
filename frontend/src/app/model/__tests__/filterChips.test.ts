@@ -95,4 +95,21 @@ describe('filterChips', () => {
 
     expect(buildFilterChips(filters, createActions())).toEqual([])
   })
+
+  it('marks unavailable derived metric-range chips while preserving removal', () => {
+    const filters: FilterAST = {
+      and: [{ metricRange: { key: '@derived/rubric_1', min: 0, max: 1 } }],
+    }
+    const actions = createActions()
+
+    const chips = buildFilterChips(filters, actions, {
+      unavailableMetricKeys: ['@derived/rubric_1'],
+    })
+
+    expect(chips.map((chip) => ({ id: chip.id, label: chip.label }))).toEqual([
+      { id: 'metric:@derived/rubric_1', label: '@derived/rubric_1: 0.000–1.000 (unavailable)' },
+    ])
+    chips[0].onRemove()
+    expect(actions.clearMetricRange).toHaveBeenCalledWith('@derived/rubric_1')
+  })
 })

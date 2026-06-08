@@ -100,3 +100,37 @@ review/cleanup:
 - follow-up review subagent 019ea6e8-e383-7060-b1ed-09e745e66df4: no actionable issues.
 blockers: none.
 next step: start Sprint 4 at T4.1, atomic persistence and invalid-state UX.
+---
+2026-06-08T11:33:34Z iteration 4/9
+completed task IDs: T4.1, T4.2, T4.3, T4.4
+files changed:
+- frontend/src/lib/types.ts
+- frontend/src/features/metrics/model/derivedMetric.ts
+- frontend/src/features/metrics/model/__tests__/derivedMetric.test.ts
+- frontend/src/app/hooks/usePersistedAppShellSettings.ts
+- frontend/src/app/model/appShellStateSync.ts
+- frontend/src/app/__tests__/settingsPersistence.test.ts
+- frontend/src/app/model/smartFolders.ts
+- frontend/src/app/hooks/useSmartFolders.ts
+- frontend/src/app/model/__tests__/smartFolders.test.ts
+- frontend/src/app/model/appShellSelectors.ts
+- frontend/src/app/__tests__/appShellSelectors.test.ts
+- frontend/src/app/model/filterChips.ts
+- frontend/src/app/model/__tests__/filterChips.test.ts
+- frontend/src/app/components/StatusBar.tsx
+- frontend/src/app/components/__tests__/StatusBar.test.tsx
+- frontend/src/app/AppShell.tsx
+- docs/20260608_derived_metric_ranking_plan.md
+- docs/ralph/20260608_derived_metric_ranking/progress.txt
+validations:
+- npm --prefix frontend test -- --run src/app/__tests__/settingsPersistence.test.ts src/app/model/__tests__/smartFolders.test.ts src/features/metrics/model/__tests__/derivedMetric.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/model/__tests__/filterChips.test.ts src/app/components/__tests__/StatusBar.test.tsx: passed, 6 files / 47 tests.
+- npm --prefix frontend test -- --run src/features/browse/model src/features/metrics src/app: passed, 39 files / 211 tests.
+- npm --prefix frontend run build: passed; used for TypeScript/bundling validation only, and packaged assets were not regenerated.
+- pytest tests/web/routes/test_table_source_settings.py -q: passed, 3 tests.
+- git diff --check: passed.
+- python scripts/lint_repo.py: passed; existing warn-only file-size notices remain.
+review/cleanup:
+- cleanup subagent 019ea6fc-5c1b-78f2-b584-81a8926aa153: applied Tier 1 formatting/readability cleanup in AppShell.tsx, StatusBar.tsx, and appShellSelectors.ts.
+- code-review subagent 019ea700-624f-7df1-8b5f-8340adf58c49: no actionable issues; noted residual end-to-end source-switch coverage remains for Sprint 5 browser acceptance.
+blockers: none.
+next step: start Sprint 5 at T5.1, Metrics Panel builder and browser acceptance.

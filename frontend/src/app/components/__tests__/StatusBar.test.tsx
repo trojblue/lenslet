@@ -92,4 +92,14 @@ describe('StatusBar indexing banner lifecycle', () => {
     expect(html).toContain('no loadable gallery entries')
     expect(html).toContain('aria-label="Dismiss image source warning"')
   })
+
+  it('renders derived metric warnings', () => {
+    const html = renderStatusBar({
+      derivedMetricWarning: 'Derived score inputs unavailable in this view: q2.',
+    })
+
+    expect(html).toContain('Derived score.')
+    expect(html).toContain('inputs unavailable')
+    expect(html).toContain('q2')
+  })
 })

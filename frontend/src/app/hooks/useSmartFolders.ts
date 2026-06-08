@@ -6,7 +6,7 @@ import {
   type SetStateAction,
 } from 'react'
 import { api } from '../../api/client'
-import { normalizeFilterAst } from '../../features/browse/model/filters'
+import { normalizeViewState } from '../../features/metrics/model/derivedMetric'
 import type { SavedView, ViewState, ViewsPayload } from '../../lib/types'
 import {
   SMART_FOLDER_NO_WRITE_MESSAGE,
@@ -86,8 +86,7 @@ export function useSmartFolders({
 
   const activateView = useCallback((view: SavedView) => {
     setActiveViewId(view.id)
-    const safeFilters = normalizeFilterAst(view.view?.filters) ?? { and: [] }
-    setViewState({ ...view.view, filters: safeFilters })
+    setViewState(normalizeViewState(view.view))
     openFolder(view.pool.path)
   }, [openFolder, setViewState])
 

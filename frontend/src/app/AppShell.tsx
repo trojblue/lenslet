@@ -24,7 +24,6 @@ import {
   countActiveFilters,
   setCategoricalInFilter,
   getStarsInFilter,
-  normalizeFilterAst,
   setNotesContainsFilter,
   setNotesNotContainsFilter,
   setDateRangeFilter,
@@ -71,11 +70,13 @@ import AppContextMenuItems from './menu/AppContextMenuItems'
 import { resolveFindSimilarAvailability } from '../features/inspector/model/findSimilarAvailability'
 import { useLatestRef } from '../shared/hooks/useLatestRef'
 import {
+  buildDerivedMetricWarning,
   buildStarCounts,
   getDisplayItemCount,
   getDisplayTotalCount,
   getSimilarityCountLabel,
   getSimilarityQueryLabel,
+  getUnavailableDerivedMetricFilterKeys,
   hasMetricSortValues,
   resolveSelectedMetricKey,
   shouldResetUnavailableMetricSort,
@@ -700,21 +701,41 @@ export default function AppShell({
     updateFilters((filters) => setCategoricalInFilter(filters, key, values))
   }, [updateFilters])
 
-  const filterChips = useMemo(() => buildFilterChips(viewState.filters, {
-    clearStarsIn: handleClearStarsIn,
-    clearStarsNotIn: () => updateFilters((filters) => setStarsNotInFilter(filters, [])),
-    clearNameContains: () => updateFilters((filters) => setNameContainsFilter(filters, '')),
-    clearNameNotContains: () => updateFilters((filters) => setNameNotContainsFilter(filters, '')),
-    clearNotesContains: () => updateFilters((filters) => setNotesContainsFilter(filters, '')),
-    clearNotesNotContains: () => updateFilters((filters) => setNotesNotContainsFilter(filters, '')),
-    clearUrlContains: () => updateFilters((filters) => setUrlContainsFilter(filters, '')),
-    clearUrlNotContains: () => updateFilters((filters) => setUrlNotContainsFilter(filters, '')),
-    clearDateRange: () => updateFilters((filters) => setDateRangeFilter(filters, null)),
-    clearWidthCompare: () => updateFilters((filters) => setWidthCompareFilter(filters, null)),
-    clearHeightCompare: () => updateFilters((filters) => setHeightCompareFilter(filters, null)),
-    clearMetricRange: (key: string) => handleMetricRange(key, null),
-    clearCategoricalIn: (key: string) => handleCategoricalValues(key, null),
-  }), [viewState.filters, handleClearStarsIn, handleMetricRange, handleCategoricalValues, updateFilters])
+  const unavailableDerivedMetricFilterKeys = useMemo(
+    () => getUnavailableDerivedMetricFilterKeys(viewState.filters, derivedMetric),
+    [derivedMetric, viewState.filters],
+  )
+  const derivedMetricWarning = useMemo(
+    () => buildDerivedMetricWarning(viewState.sort, viewState.filters, derivedMetric),
+    [derivedMetric, viewState.filters, viewState.sort],
+  )
+
+  const filterChips = useMemo(() => buildFilterChips(
+    viewState.filters,
+    {
+      clearStarsIn: handleClearStarsIn,
+      clearStarsNotIn: () => updateFilters((filters) => setStarsNotInFilter(filters, [])),
+      clearNameContains: () => updateFilters((filters) => setNameContainsFilter(filters, '')),
+      clearNameNotContains: () => updateFilters((filters) => setNameNotContainsFilter(filters, '')),
+      clearNotesContains: () => updateFilters((filters) => setNotesContainsFilter(filters, '')),
+      clearNotesNotContains: () => updateFilters((filters) => setNotesNotContainsFilter(filters, '')),
+      clearUrlContains: () => updateFilters((filters) => setUrlContainsFilter(filters, '')),
+      clearUrlNotContains: () => updateFilters((filters) => setUrlNotContainsFilter(filters, '')),
+      clearDateRange: () => updateFilters((filters) => setDateRangeFilter(filters, null)),
+      clearWidthCompare: () => updateFilters((filters) => setWidthCompareFilter(filters, null)),
+      clearHeightCompare: () => updateFilters((filters) => setHeightCompareFilter(filters, null)),
+      clearMetricRange: (key: string) => handleMetricRange(key, null),
+      clearCategoricalIn: (key: string) => handleCategoricalValues(key, null),
+    },
+    { unavailableMetricKeys: unavailableDerivedMetricFilterKeys },
+  ), [
+    viewState.filters,
+    handleClearStarsIn,
+    handleMetricRange,
+    handleCategoricalValues,
+    updateFilters,
+    unavailableDerivedMetricFilterKeys,
+  ])
 
   const handleToggleStarsIn = useCallback((v: number) => {
     const next = new Set(starsInFilter)
@@ -1049,6 +1070,7 @@ export default function AppShell({
               browserZoomPercent: visibleBrowserZoomPercent,
               onDismissBrowserZoomWarning: dismissBrowserZoomWarning,
               tableSourceWarning,
+              derivedMetricWarning,
               onDismissTableSourceWarning: tableSourceWarningKey
                 ? () => setDismissedTableSourceWarning(tableSourceWarningKey)
                 : undefined,

@@ -1,6 +1,10 @@
-import type { BrowseItemPayload, SortSpec, StarRating } from '../../lib/types'
+import type { BrowseItemPayload, FilterAST, SortSpec, StarRating } from '../../lib/types'
 import { finiteMetricValue } from '../../lib/metrics'
-import { isDerivedMetricKey, type DerivedMetricStatus } from '../../features/metrics/model/derivedMetric'
+import {
+  isDerivedMetricKey,
+  type DerivedMetricEvaluation,
+  type DerivedMetricStatus,
+} from '../../features/metrics/model/derivedMetric'
 
 type SimilarityStateLike = {
   queryPath: string | null
@@ -97,6 +101,77 @@ export function shouldResetUnavailableMetricSort(
     return !(derivedMetricKey === sort.key && derivedMetricStatus !== 'none')
   }
   return true
+}
+
+function derivedMetricKeyIsUsable(
+  key: string,
+  derivedMetric: DerivedMetricEvaluation,
+): boolean {
+  return derivedMetric.key === key
+    && derivedMetric.status === 'valid'
+    && derivedMetric.validCount > 0
+}
+
+export function getUnavailableDerivedMetricFilterKeys(
+  filters: FilterAST,
+  derivedMetric: DerivedMetricEvaluation,
+): string[] {
+  const keys = new Set<string>()
+  for (const clause of filters.and) {
+    if (!('metricRange' in clause)) continue
+    const key = clause.metricRange.key
+    if (!isDerivedMetricKey(key)) continue
+    if (!derivedMetricKeyIsUsable(key, derivedMetric)) {
+      keys.add(key)
+    }
+  }
+  return Array.from(keys).sort()
+}
+
+function formatInputList(keys: readonly string[]): string {
+  return keys.length ? keys.join(', ') : 'unknown inputs'
+}
+
+export function buildDerivedMetricWarning(
+  sort: SortSpec,
+  filters: FilterAST,
+  derivedMetric: DerivedMetricEvaluation,
+): string | null {
+  const sortKey = sort.kind === 'metric' && isDerivedMetricKey(sort.key) ? sort.key : null
+  const unavailableFilterKeys = getUnavailableDerivedMetricFilterKeys(filters, derivedMetric)
+  const referencesDerivedMetric = sortKey !== null || unavailableFilterKeys.length > 0
+  if (!referencesDerivedMetric) return null
+
+  const referencedKeys = new Set(unavailableFilterKeys)
+  if (sortKey) referencedKeys.add(sortKey)
+  const referencesStaleKey = Array.from(referencedKeys).some((key) => key !== derivedMetric.key)
+
+  if (referencesStaleKey) {
+    return 'Saved derived score is unavailable in this view.'
+  }
+
+  if (derivedMetric.status === 'invalid') {
+    return derivedMetric.invalidReasons[0] ?? 'Saved derived score definition is invalid.'
+  }
+
+  if (derivedMetric.status === 'unavailable') {
+    const missing = [
+      ...derivedMetric.missingMetricKeys,
+      ...derivedMetric.missingCategoricalKeys,
+    ].sort()
+    return `Derived score inputs unavailable in this view: ${formatInputList(missing)}.`
+  }
+
+  if (derivedMetric.status === 'valid' && derivedMetric.validCount === 0) {
+    return 'Derived score has no valid values in this view.'
+  }
+
+  if (sortKey && derivedMetric.partialLoadWarning) {
+    const total = derivedMetric.totalItems ?? derivedMetric.loadedCount
+    return `Derived score ranks only the ${derivedMetric.loadedCount} loaded items out of ${total}.`
+  }
+
+  return null
 }
 
 export function resolveCategoricalKeys(

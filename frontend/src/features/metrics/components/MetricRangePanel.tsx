@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
-import type { FilterAST, BrowseItemPayload } from '../../../lib/types'
+import type { FilterAST, BrowseItemPayload, MetricDisplayNames } from '../../../lib/types'
+import { getMetricDisplayName } from '../../../lib/metricDisplay'
 import type { Range } from '../model/histogram'
 import {
   collectMetricCategoriesByKey,
@@ -15,6 +16,7 @@ interface MetricRangePanelProps {
   items: BrowseItemPayload[]
   filteredItems: BrowseItemPayload[]
   metricKeys: string[]
+  metricDisplayNames?: MetricDisplayNames | null
   selectedItems?: BrowseItemPayload[]
   selectedValuesByKey?: MetricValuesByKey | null
   selectedMetric?: string
@@ -29,6 +31,7 @@ export default function MetricRangePanel({
   items,
   filteredItems,
   metricKeys,
+  metricDisplayNames,
   selectedItems,
   selectedValuesByKey,
   selectedMetric,
@@ -62,6 +65,7 @@ export default function MetricRangePanel({
         <MetricCategoryCard
           key={key}
           metricKey={key}
+          metricLabel={getMetricDisplayName(key, metricDisplayNames)}
           categories={categories}
           filters={filters}
           onChangeRange={onChangeRange}
@@ -73,6 +77,7 @@ export default function MetricRangePanel({
       <MetricHistogramCard
         key={key}
         metricKey={key}
+        metricLabel={getMetricDisplayName(key, metricDisplayNames)}
         populationValues={getMetricValues(populationValuesByKey, key)}
         filteredValues={getMetricValues(filteredValuesByKey, key)}
         selectedValues={getMetricValues(selectedValues, key)}
@@ -107,7 +112,7 @@ export default function MetricRangePanel({
             onChange={(e) => onSelectMetric(e.target.value)}
           >
             {metricKeys.map((key) => (
-              <option key={key} value={key}>{key}</option>
+              <option key={key} value={key}>{getMetricDisplayName(key, metricDisplayNames)}</option>
             ))}
           </select>
         )}

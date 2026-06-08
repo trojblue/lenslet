@@ -104,10 +104,11 @@ describe('filterChips', () => {
 
     const chips = buildFilterChips(filters, actions, {
       unavailableMetricKeys: ['@derived/rubric_1'],
+      metricDisplayNames: { '@derived/rubric_1': 'Rubric score' },
     })
 
     expect(chips.map((chip) => ({ id: chip.id, label: chip.label }))).toEqual([
-      { id: 'metric:@derived/rubric_1', label: '@derived/rubric_1: 0.000–1.000 (unavailable)' },
+      { id: 'metric:@derived/rubric_1', label: 'Rubric score: 0.000–1.000 (unavailable)' },
     ])
     chips[0].onRemove()
     expect(actions.clearMetricRange).toHaveBeenCalledWith('@derived/rubric_1')

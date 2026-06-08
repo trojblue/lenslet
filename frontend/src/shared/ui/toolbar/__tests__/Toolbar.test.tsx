@@ -146,6 +146,25 @@ describe('Toolbar refresh trigger', () => {
     expect(html).not.toContain('__index_level_0__')
   })
 
+  it('uses metric display names for derived sort options', () => {
+    const html = renderToStaticMarkup(
+      <Toolbar
+        onSearch={() => {}}
+        metricKeys={['@derived/rubric_1']}
+        metricDisplayNames={{ '@derived/rubric_1': 'Rubric score' }}
+        themePreset="teal"
+        onThemePresetChange={() => {}}
+        autoloadImageMetadata={false}
+        onAutoloadImageMetadataChange={() => {}}
+        compareOrderMode="gallery"
+        onCompareOrderModeChange={() => {}}
+      />,
+    )
+
+    expect(html).toContain('>Rubric score</span>')
+    expect(html).not.toContain('>@derived/rubric_1</span>')
+  })
+
   it('labels adaptive layout as justified rows with an adaptive option value', () => {
     const html = renderToStaticMarkup(
       <Toolbar

@@ -3,12 +3,15 @@ import FolderTree from '../../features/folders/FolderTree'
 import MetricsPanel from '../../features/metrics/MetricsPanel'
 import type {
   CompareOrderMode,
+  DerivedMetricSpec,
   FilterAST,
   BrowseFolderPayload,
   BrowseItemPayload,
+  MetricDisplayNames,
   SavedView,
   TableSourceColumnsPayload,
 } from '../../lib/types'
+import type { DerivedMetricEvaluation } from '../../features/metrics/model/derivedMetric'
 import type { ThemePresetId } from '../../theme/runtime'
 import ThemeSettingsMenu from '../../shared/ui/ThemeSettingsMenu'
 
@@ -34,9 +37,14 @@ type LeftSidebarProps = {
   filteredItems: BrowseItemPayload[]
   metricKeys: string[]
   categoricalKeys: string[]
+  metricDisplayNames?: MetricDisplayNames | null
+  derivedMetric: DerivedMetricEvaluation
+  derivedRankDisabledReason?: string | null
   selectedItems?: BrowseItemPayload[]
   selectedMetric?: string
   onSelectMetric: (key: string) => void
+  onApplyDerivedMetric: (spec: DerivedMetricSpec | null) => void
+  onRankByDerivedMetric: (spec: DerivedMetricSpec) => void
   filters: FilterAST
   onChangeRange: (key: string, range: { min: number; max: number } | null) => void
   onChangeCategoricalValues: (key: string, values: string[] | null) => void
@@ -84,9 +92,14 @@ export default function LeftSidebar({
   filteredItems,
   metricKeys,
   categoricalKeys,
+  metricDisplayNames,
+  derivedMetric,
+  derivedRankDisabledReason,
   selectedItems,
   selectedMetric,
   onSelectMetric,
+  onApplyDerivedMetric,
+  onRankByDerivedMetric,
   filters,
   onChangeRange,
   onChangeCategoricalValues,
@@ -233,9 +246,14 @@ export default function LeftSidebar({
                 filteredItems={filteredItems}
                 metricKeys={metricKeys}
                 categoricalKeys={categoricalKeys}
+                metricDisplayNames={metricDisplayNames}
+                derivedMetric={derivedMetric}
+                derivedRankDisabledReason={derivedRankDisabledReason}
                 selectedItems={selectedItems}
                 selectedMetric={selectedMetric}
                 onSelectMetric={onSelectMetric}
+                onApplyDerivedMetric={onApplyDerivedMetric}
+                onRankByDerivedMetric={onRankByDerivedMetric}
                 filters={filters}
                 onChangeRange={onChangeRange}
                 onChangeCategoricalValues={onChangeCategoricalValues}

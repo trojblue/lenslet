@@ -471,3 +471,12 @@ def test_gui_smoke_fixture_image_helpers(tmp_path: Path) -> None:
     gui_smoke_fixtures._write_image(target, payload)
 
     assert target.read_bytes().startswith(b"\xff\xd8")
+
+
+def test_gui_smoke_derived_metric_table_fixture(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    parquet_path = gui_smoke_fixtures.build_derived_metric_table_fixture(tmp_path, row_count=12)
+
+    assert parquet_path == tmp_path / "items.parquet"
+    assert parquet_path.is_file()
+    assert (tmp_path / "shared.jpg").is_file()

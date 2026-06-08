@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import Dropdown from './Dropdown'
 import SyncIndicator, { type SyncIndicatorData } from './SyncIndicator'
-import type { CompareOrderMode, SortSpec, TableSourceColumnsPayload, ViewMode } from '../../lib/types'
+import type { CompareOrderMode, MetricDisplayNames, SortSpec, TableSourceColumnsPayload, ViewMode } from '../../lib/types'
+import { getMetricDisplayName } from '../../lib/metricDisplay'
 import { LAYOUT_MEDIA_QUERIES } from '../../lib/breakpoints'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import SortDirectionIcon from './toolbar/SortDirectionIcon'
@@ -21,6 +22,7 @@ export interface ToolbarProps {
   totalCount?: number
   sortSpec?: SortSpec
   metricKeys?: string[]
+  metricDisplayNames?: MetricDisplayNames | null
   onSortChange?: (spec: SortSpec) => void
   sortDisabled?: boolean
   filterCount?: number
@@ -82,6 +84,7 @@ export default function Toolbar({
   totalCount,
   sortSpec,
   metricKeys,
+  metricDisplayNames,
   onSortChange,
   sortDisabled = false,
   filterCount,
@@ -199,7 +202,11 @@ export default function Toolbar({
   const sortControlsDisabled = viewerActive || sortDisabled
 
   const metricOptions = metricKeys?.length
-    ? metricKeys.map((key) => ({ value: `metric:${key}`, label: key, disabled: sortDisabled }))
+    ? metricKeys.map((key) => ({
+      value: `metric:${key}`,
+      label: getMetricDisplayName(key, metricDisplayNames),
+      disabled: sortDisabled,
+    }))
     : []
   const sortByOptions = [
     { value: 'builtin:added', label: 'Date added', disabled: sortDisabled },

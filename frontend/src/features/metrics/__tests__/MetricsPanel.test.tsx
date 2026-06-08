@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import MetricsPanel from '../MetricsPanel'
 import type { BrowseItemPayload } from '../../../lib/types'
+import type { DerivedMetricEvaluation } from '../model/derivedMetric'
 
 function makeItem(path: string, metrics?: BrowseItemPayload['metrics']): BrowseItemPayload {
   return {
@@ -14,6 +15,30 @@ function makeItem(path: string, metrics?: BrowseItemPayload['metrics']): BrowseI
     has_thumbnail: true,
     has_metadata: true,
     metrics,
+  }
+}
+
+function makeDerivedMetricEvaluation(
+  overrides: Partial<DerivedMetricEvaluation> = {},
+): DerivedMetricEvaluation {
+  return {
+    items: [],
+    metricKeys: [],
+    categoricalKeys: [],
+    metricDisplayNames: {},
+    spec: null,
+    key: null,
+    name: null,
+    status: 'none',
+    validCount: 0,
+    invalidCount: 0,
+    invalidReasons: [],
+    missingMetricKeys: [],
+    missingCategoricalKeys: [],
+    loadedCount: 0,
+    totalItems: null,
+    partialLoadWarning: false,
+    ...overrides,
   }
 }
 
@@ -30,8 +55,11 @@ describe('MetricsPanel', () => {
         filteredItems={items}
         metricKeys={['quality_score']}
         categoricalKeys={[]}
+        derivedMetric={makeDerivedMetricEvaluation()}
         selectedMetric="quality_score"
         onSelectMetric={() => {}}
+        onApplyDerivedMetric={() => {}}
+        onRankByDerivedMetric={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}
@@ -55,7 +83,10 @@ describe('MetricsPanel', () => {
         filteredItems={items.slice(0, 1)}
         metricKeys={[]}
         categoricalKeys={['l0r_viewpoint_family']}
+        derivedMetric={makeDerivedMetricEvaluation()}
         onSelectMetric={() => {}}
+        onApplyDerivedMetric={() => {}}
+        onRankByDerivedMetric={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}
@@ -67,5 +98,62 @@ describe('MetricsPanel', () => {
     expect(html).toContain('frontal')
     expect(html).toContain('profile')
     expect(html).toContain('Filtered: 1')
+  })
+
+  it('renders the derived score card even when no source inputs exist', () => {
+    const html = renderToStaticMarkup(
+      <MetricsPanel
+        items={[]}
+        filteredItems={[]}
+        metricKeys={[]}
+        categoricalKeys={[]}
+        derivedMetric={makeDerivedMetricEvaluation()}
+        onSelectMetric={() => {}}
+        onApplyDerivedMetric={() => {}}
+        onRankByDerivedMetric={() => {}}
+        filters={{ and: [] }}
+        onChangeRange={() => {}}
+        onChangeCategoricalValues={() => {}}
+        onChangeFilters={() => {}}
+      />,
+    )
+
+    expect(html).toContain('Derived Score')
+    expect(html).toContain('No score inputs in this view.')
+  })
+
+  it('uses derived metric display names in primary metric labels', () => {
+    const items = [
+      makeItem('/a.jpg', { '@derived/rubric_1': 0.2 }),
+      makeItem('/b.jpg', { '@derived/rubric_1': 0.8 }),
+    ]
+
+    const html = renderToStaticMarkup(
+      <MetricsPanel
+        items={items}
+        filteredItems={items}
+        metricKeys={['@derived/rubric_1']}
+        categoricalKeys={[]}
+        metricDisplayNames={{ '@derived/rubric_1': 'Rubric score' }}
+        derivedMetric={makeDerivedMetricEvaluation({
+          key: '@derived/rubric_1',
+          name: 'Rubric score',
+          status: 'valid',
+          metricKeys: ['@derived/rubric_1'],
+          metricDisplayNames: { '@derived/rubric_1': 'Rubric score' },
+        })}
+        selectedMetric="@derived/rubric_1"
+        onSelectMetric={() => {}}
+        onApplyDerivedMetric={() => {}}
+        onRankByDerivedMetric={() => {}}
+        filters={{ and: [] }}
+        onChangeRange={() => {}}
+        onChangeCategoricalValues={() => {}}
+        onChangeFilters={() => {}}
+      />,
+    )
+
+    expect(html).toContain('>Rubric score</option>')
+    expect(html).not.toContain('>@derived/rubric_1</option>')
   })
 })

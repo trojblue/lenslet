@@ -8,11 +8,12 @@ const QUANTILES = [0.1, 0.24, 0.5, 0.74, 0.9]
 interface MetricScrollbarProps {
   items: BrowseItemPayload[]
   metricKey: string
+  metricLabel?: string
   scrollRef: React.RefObject<HTMLDivElement>
   sortDir: 'asc' | 'desc'
 }
 
-export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }: MetricScrollbarProps) {
+export default function MetricScrollbar({ items, metricKey, metricLabel, scrollRef, sortDir }: MetricScrollbarProps) {
   const { orderedValues, numericValues } = useMemo(() => {
     const ordered: Array<number | null> = []
     const numeric: number[] = []
@@ -56,6 +57,7 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
 
   if (!histogram) return null
 
+  const label = metricLabel ?? metricKey
   const domain = { min: histogram.min, max: histogram.max }
   const hoverY = hoverProgress != null ? progressToY(hoverProgress) : null
   const scrollY = progressToY(scrollProgress)
@@ -93,6 +95,7 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
         viewBox="0 0 10 100"
         preserveAspectRatio="none"
         className="w-full h-full rounded bg-surface-inset border border-border/60 cursor-ns-resize"
+        aria-label={`${label} metric rail`}
         onPointerDown={(e) => {
           e.preventDefault()
           const progress = getProgressFromEvent(e)
@@ -119,6 +122,7 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
           if (!scrubbing) clearHover()
         }}
       >
+        <title>{label}</title>
         {renderScrollbarBars(histogram.bins, 'var(--border-strong)', { flip: isDesc })}
         {renderQuantileTicks(quantiles, domain, { flip: isDesc, color: 'var(--muted)' })}
         {renderLine(scrollY, { color: 'var(--highlight)', strokeWidth: 0.8 })}

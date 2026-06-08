@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from scripts.smoke_harness import SmokeFailure
 from scripts.browser.waits import wait_for_grid_selection_count, wait_for_ui_settled
@@ -41,6 +42,16 @@ class SmokeResult:
     inspector_reordered_order: list[str]
     inspector_reloaded_order: list[str]
     inspector_compare_over_cap_message: str
+
+
+@dataclass(frozen=True)
+class DerivedMetricSmokeResult:
+    metric_inputs: list[str]
+    top_path_after_rank: str
+    top_path_after_reload: str
+    top_path_after_smart_folder_restore: str
+    partial_warning: str
+    restored_sort_key: str
 
 
 @dataclass(frozen=True)
@@ -120,6 +131,18 @@ def visible_grid_cell_ids(page: Page) -> list[str]:
     return result
 
 
+def visible_grid_paths(page: Page) -> list[str]:
+    paths: list[str] = []
+    for cell_id in visible_grid_cell_ids(page):
+        encoded = cell_id.removeprefix("cell-")
+        try:
+            path = unquote(encoded)
+        except Exception:
+            continue
+        paths.append(path if path.startswith("/") else f"/{path}")
+    return paths
+
+
 def wait_for_visible_grid_cell_ids(page: Page, minimum_count: int, timeout_ms: float) -> list[str]:
     deadline = time.monotonic() + (timeout_ms / 1000.0)
     latest_ids: list[str] = []
@@ -131,6 +154,31 @@ def wait_for_visible_grid_cell_ids(page: Page, minimum_count: int, timeout_ms: f
     raise SmokeFailure(
         f"Timed out waiting for {minimum_count} visible gallery grid cells. Last visible ids: {latest_ids!r}"
     )
+
+
+def wait_for_top_path(page: Page, expected_path: str, timeout_ms: float) -> str:
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    last_path: str | None = None
+    while time.monotonic() < deadline:
+        try:
+            last_path = top_visible_grid_path(page)
+            if last_path == expected_path:
+                return last_path
+        except SmokeFailure:
+            pass
+        page.wait_for_timeout(120)
+    raise SmokeFailure(f"Timed out waiting for top path {expected_path!r}. Last observed: {last_path!r}")
+
+
+def switch_to_most_recent_if_available(page: Page, timeout_ms: float) -> bool:
+    button = page.get_by_role("button", name="Switch to Most recent").first
+    try:
+        button.wait_for(state="visible", timeout=1_500)
+    except PlaywrightTimeoutError:
+        return False
+    button.click()
+    wait_for_ui_settled(page, timeout_ms)
+    return True
 
 
 def wait_for_top_name_prefix(page: Page, prefix: str, timeout_ms: float) -> str:
@@ -439,6 +487,118 @@ def run_inspector_reorder_scenario(page: Page, timeout_ms: float) -> InspectorRe
     )
 
 
+def metric_input_labels(page: Page) -> list[str]:
+    raw = page.locator("[data-derived-numeric-key='0'] option").evaluate_all(
+        "nodes => nodes.map((node) => (node.textContent || '').trim()).filter(Boolean)"
+    )
+    return [value for value in raw if isinstance(value, str)]
+
+
+def wait_for_view_state_sort(page: Page, expected_kind: str, expected_key: str | None, timeout_ms: float) -> str:
+    payload = page.wait_for_function(
+        """([expectedKind, expectedKey]) => {
+          const raw = window.localStorage.getItem('viewState')
+          if (!raw) return false
+          try {
+            const state = JSON.parse(raw)
+            const sort = state && state.sort
+            if (!sort || sort.kind !== expectedKind) return false
+            if (expectedKey !== null && sort.key !== expectedKey) return false
+            if (expectedKind === 'metric' && state.selectedMetric !== expectedKey) return false
+            return { sortKey: sort.key }
+          } catch {
+            return false
+          }
+        }""",
+        arg=[expected_kind, expected_key],
+        timeout=timeout_ms,
+    ).json_value()
+    if not isinstance(payload, dict) or not isinstance(payload.get("sortKey"), str):
+        raise SmokeFailure("Timed out waiting for persisted viewState sort.")
+    return payload["sortKey"]
+
+
+def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricSmokeResult:
+    expected_top_path = "/ranked/item_0001.jpg"
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    wait_for_visible_grid_cell_ids(page, minimum_count=8, timeout_ms=timeout_ms)
+    switch_to_most_recent_if_available(page, timeout_ms)
+
+    page.get_by_role("button", name="Metrics and Filters").click()
+    card = page.locator("[data-derived-score-card]").first
+    card.wait_for(state="visible", timeout=timeout_ms)
+
+    metric_inputs = metric_input_labels(page)
+    missing_inputs = [key for key in ("q1", "q2", "q3") if key not in metric_inputs]
+    if missing_inputs:
+        raise SmokeFailure(f"Derived score metric inputs missing from Metrics panel: {missing_inputs!r}.")
+
+    card.locator("[data-derived-score-name]").fill("new_score")
+    card.locator("[data-derived-score-intercept]").fill("0")
+    card.locator("[data-derived-numeric-key='0']").select_option("q1")
+    card.locator("[data-derived-numeric-weight='0']").fill("1")
+    card.locator("[data-derived-numeric-missing='0']").select_option("invalid")
+
+    add_numeric = card.locator("button[title='Add numeric term']")
+    add_numeric.click()
+    card.locator("[data-derived-numeric-key='1']").select_option("q2")
+    card.locator("[data-derived-numeric-weight='1']").fill("1")
+    card.locator("[data-derived-numeric-missing='1']").select_option("invalid")
+    add_numeric.click()
+    card.locator("[data-derived-numeric-key='2']").select_option("q3")
+    card.locator("[data-derived-numeric-weight='2']").fill("1")
+    card.locator("[data-derived-numeric-missing='2']").select_option("invalid")
+
+    card.locator("button[title='Add categorical bonus']").click()
+    card.locator("[data-derived-categorical-key='0']").select_option("dataset_from")
+    card.locator("[data-derived-categorical-value='0']").select_option("gt")
+    card.locator("[data-derived-categorical-weight='0']").fill("100")
+    formula_preview = " ".join(card.locator("[data-derived-formula-preview]").inner_text().split())
+    if "new_score" not in formula_preview or "dataset_from = gt" not in formula_preview:
+        raise SmokeFailure(f"Unexpected derived score formula preview: {formula_preview!r}.")
+
+    rank_button = card.locator("[data-derived-score-rank]")
+    if rank_button.is_disabled() and "scan order" in (rank_button.get_attribute("title") or ""):
+        switch_to_most_recent_if_available(page, timeout_ms)
+    if rank_button.is_disabled():
+        raise SmokeFailure(f"Rank by score is unexpectedly disabled: {rank_button.get_attribute('title')!r}.")
+    rank_button.click()
+
+    restored_sort_key = wait_for_view_state_sort(page, "metric", "@derived/score_v1", timeout_ms)
+    top_path_after_rank = wait_for_top_path(page, expected_top_path, timeout_ms)
+    partial_warning_locator = page.get_by_text(re.compile(r"Derived score ranks only the 5000 loaded items out of 5006\.")).first
+    partial_warning_locator.wait_for(state="visible", timeout=timeout_ms)
+    partial_warning = " ".join(partial_warning_locator.inner_text().split())
+
+    page.get_by_role("button", name="Folders").click()
+    page.once("dialog", lambda dialog: dialog.accept("Derived ranking"))
+    page.locator(".app-left-panel button[title='Save current view as Smart Folder']").dispatch_event("click")
+    page.get_by_role("button", name="Derived ranking").first.wait_for(state="visible", timeout=timeout_ms)
+
+    page.get_by_role("button", name="Metrics and Filters").click()
+    card.locator("[data-derived-score-clear]").click()
+    wait_for_view_state_sort(page, "builtin", "added", timeout_ms)
+
+    page.get_by_role("button", name="Folders").click()
+    page.get_by_role("button", name="Derived ranking").first.click()
+    wait_for_view_state_sort(page, "metric", "@derived/score_v1", timeout_ms)
+    top_path_after_smart_folder_restore = wait_for_top_path(page, expected_top_path, timeout_ms)
+
+    page.reload(wait_until="domcontentloaded")
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    wait_for_view_state_sort(page, "metric", "@derived/score_v1", timeout_ms)
+    top_path_after_reload = wait_for_top_path(page, expected_top_path, timeout_ms)
+
+    return DerivedMetricSmokeResult(
+        metric_inputs=metric_inputs,
+        top_path_after_rank=top_path_after_rank,
+        top_path_after_reload=top_path_after_reload,
+        top_path_after_smart_folder_restore=top_path_after_smart_folder_restore,
+        partial_warning=partial_warning,
+        restored_sort_key=restored_sort_key,
+    )
+
+
 def run_compare_export_scenario(page: Page, timeout_ms: float) -> None:
     set_right_panel_open(page, open_state=False, timeout_ms=10_000)
     visible_cell_ids = wait_for_visible_grid_cell_ids(page, minimum_count=2, timeout_ms=timeout_ms)
@@ -559,6 +719,20 @@ def run_browser_checks(base_url: str, timeout_ms: float, strict_reentry_anchor: 
                 inspector_reloaded_order=inspector_reorder.inspector_reloaded_order,
                 inspector_compare_over_cap_message=inspector_compare_over_cap_message,
             )
+        finally:
+            context.close()
+            browser.close()
+
+
+def run_derived_metric_checks(base_url: str, timeout_ms: float) -> DerivedMetricSmokeResult:
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        context = browser.new_context(viewport={"width": 1440, "height": 980})
+        try:
+            page = context.new_page()
+            page.set_default_timeout(timeout_ms)
+            page.goto(base_url, wait_until="domcontentloaded")
+            return run_derived_metric_workflow(page, timeout_ms)
         finally:
             context.close()
             browser.close()

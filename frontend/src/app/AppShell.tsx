@@ -58,6 +58,7 @@ import type {
   ViewMode,
   ViewState,
 } from '../lib/types'
+import { getMetricDisplayName } from '../lib/metricDisplay'
 import { cssVars } from '../lib/cssVars'
 import { fileCache, thumbCache } from '../lib/blobCache'
 import LeftSidebar from './components/LeftSidebar'
@@ -70,14 +71,17 @@ import AppContextMenuItems from './menu/AppContextMenuItems'
 import { resolveFindSimilarAvailability } from '../features/inspector/model/findSimilarAvailability'
 import { useLatestRef } from '../shared/hooks/useLatestRef'
 import {
+  applyDerivedMetricToViewState,
   buildDerivedMetricWarning,
   buildStarCounts,
   getDisplayItemCount,
   getDisplayTotalCount,
+  getDerivedMetricRankDisabledReason,
   getSimilarityCountLabel,
   getSimilarityQueryLabel,
   getUnavailableDerivedMetricFilterKeys,
   hasMetricSortValues,
+  rankByDerivedMetricInViewState,
   resolveSelectedMetricKey,
   shouldResetUnavailableMetricSort,
 } from './model/appShellSelectors'
@@ -360,6 +364,7 @@ export default function AppShell({
     similarityItems,
     metricKeys,
     categoricalKeys,
+    metricDisplayNames,
     derivedMetric,
     items,
     totalCount,
@@ -727,7 +732,10 @@ export default function AppShell({
       clearMetricRange: (key: string) => handleMetricRange(key, null),
       clearCategoricalIn: (key: string) => handleCategoricalValues(key, null),
     },
-    { unavailableMetricKeys: unavailableDerivedMetricFilterKeys },
+    {
+      unavailableMetricKeys: unavailableDerivedMetricFilterKeys,
+      metricDisplayNames,
+    },
   ), [
     viewState.filters,
     handleClearStarsIn,
@@ -735,6 +743,7 @@ export default function AppShell({
     handleCategoricalValues,
     updateFilters,
     unavailableDerivedMetricFilterKeys,
+    metricDisplayNames,
   ])
 
   const handleToggleStarsIn = useCallback((v: number) => {
@@ -775,6 +784,14 @@ export default function AppShell({
     }
   }, [])
 
+  const handleApplyDerivedMetric = useCallback((spec: Parameters<typeof applyDerivedMetricToViewState>[1]) => {
+    setViewState((prev) => applyDerivedMetricToViewState(prev, spec))
+  }, [])
+
+  const handleRankByDerivedMetric = useCallback((spec: Parameters<typeof rankByDerivedMetricInViewState>[1]) => {
+    setViewState((prev) => rankByDerivedMetricInViewState(prev, spec))
+  }, [])
+
   const formatTitle = useCallback((path: string) => {
     if (path === '/' || path === '') return 'Lenslet | Root'
     const segments = path.split('/').filter(Boolean)
@@ -785,6 +802,10 @@ export default function AppShell({
   }, [])
 
   const scopeLabel = useMemo(() => formatScopeLabel(current), [current])
+  const derivedRankDisabledReason = getDerivedMetricRankDisabledReason(
+    similarityActive,
+    indexingBrowseMode.sortLocked,
+  )
 
   useEffect(() => {
     document.title = formatTitle(current)
@@ -948,6 +969,7 @@ export default function AppShell({
         totalCount={displayTotalCount}
         sortSpec={viewState.sort}
         metricKeys={metricKeys}
+        metricDisplayNames={metricDisplayNames}
         onSortChange={handleSortChange}
         sortDisabled={similarityActive || indexingBrowseMode.sortLocked}
         filterCount={activeFilterCount}
@@ -1034,9 +1056,14 @@ export default function AppShell({
             filteredItems={items}
             metricKeys={metricKeys}
             categoricalKeys={categoricalKeys}
+            metricDisplayNames={metricDisplayNames}
+            derivedMetric={derivedMetric}
+            derivedRankDisabledReason={derivedRankDisabledReason}
             selectedItems={selectedItems}
             selectedMetric={viewState.selectedMetric}
             onSelectMetric={(key) => setViewState((prev) => ({ ...prev, selectedMetric: key }))}
+            onApplyDerivedMetric={handleApplyDerivedMetric}
+            onRankByDerivedMetric={handleRankByDerivedMetric}
             filters={viewState.filters}
             onChangeRange={handleMetricRange}
             onChangeCategoricalValues={handleCategoricalValues}
@@ -1128,6 +1155,7 @@ export default function AppShell({
                   <MetricScrollbar
                     items={items}
                     metricKey={metricSortKey!}
+                    metricLabel={getMetricDisplayName(metricSortKey!, metricDisplayNames)}
                     scrollRef={gridScrollRef}
                     sortDir={viewState.sort.dir}
                   />
@@ -1155,6 +1183,7 @@ export default function AppShell({
                 compareB={compareB}
                 onOpenCompare={openCompare}
                 sortSpec={viewState.sort}
+                metricDisplayNames={metricDisplayNames}
                 onResize={onResizeRight}
                 onStarChanged={(paths, val)=>{
                   setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })

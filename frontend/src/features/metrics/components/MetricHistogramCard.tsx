@@ -18,6 +18,7 @@ export type { Range } from '../model/histogram'
 
 export interface MetricHistogramCardProps {
   metricKey: string
+  metricLabel?: string
   populationValues: number[]
   filteredValues: number[]
   selectedValues?: number[]
@@ -30,6 +31,7 @@ const BIN_COUNT = 40
 
 export default function MetricHistogramCard({
   metricKey,
+  metricLabel,
   populationValues,
   filteredValues,
   selectedValues = [],
@@ -64,6 +66,7 @@ export default function MetricHistogramCard({
   const [maxInput, setMaxInput] = useState('')
   const [editingField, setEditingField] = useState<'min' | 'max' | null>(null)
   const selectedValue = selectedValues.length === 1 ? selectedValues[0] : null
+  const displayLabel = metricLabel ?? metricKey
   const selectedHistogram = useMemo(() => {
     if (!population || selectedValues.length < 2) return null
     return computeHistogramFromValues(selectedValues, BIN_COUNT, population)
@@ -118,7 +121,7 @@ export default function MetricHistogramCard({
     return (
       <div className="ui-card">
         {showTitle && (
-          <div className="ui-section-title mb-2">{metricKey}</div>
+          <div className="ui-section-title mb-2">{displayLabel}</div>
         )}
         <div className="text-sm text-muted">No values found for this metric.</div>
       </div>
@@ -129,7 +132,7 @@ export default function MetricHistogramCard({
   return (
     <div className="ui-card">
       {showTitle && (
-        <div className="ui-section-title mb-2">{metricKey}</div>
+        <div className="ui-section-title mb-2">{displayLabel}</div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted mb-2 tabular-nums">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">

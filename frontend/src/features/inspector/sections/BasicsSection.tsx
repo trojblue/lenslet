@@ -1,7 +1,8 @@
 import React from 'react'
 import { finiteMetricValue } from '../../../lib/metrics'
+import { getMetricDisplayName } from '../../../lib/metricDisplay'
 import { formatBytes, formatMetricNumber } from '../../../lib/util'
-import type { SortSpec, StarRating } from '../../../lib/types'
+import type { MetricDisplayNames, SortSpec, StarRating } from '../../../lib/types'
 import type { InspectorWidgetId } from '../model/inspectorWidgetOrder'
 import { InspectorSection } from './InspectorSection'
 
@@ -14,6 +15,7 @@ interface BasicsInspectorItem {
   source?: string | null
   star?: number | null
   metrics?: Record<string, number | null> | null
+  metric_labels?: Record<string, string> | null
 }
 
 interface BasicsSectionProps {
@@ -31,6 +33,7 @@ interface BasicsSectionProps {
   currentItem: BasicsInspectorItem | null
   sourceValue: string
   sortSpec?: SortSpec
+  metricDisplayNames?: MetricDisplayNames | null
   copiedField: string | null
   onCopyInfo: (key: string, text: string) => void
   metricsExpanded: boolean
@@ -101,6 +104,7 @@ export function BasicsSection({
   currentItem,
   sourceValue,
   sortSpec,
+  metricDisplayNames,
   copiedField,
   onCopyInfo,
   metricsExpanded,
@@ -243,7 +247,7 @@ export function BasicsSection({
                     return (
                       <div key={key} className="ui-kv-row justify-start">
                         <span className={`w-24 shrink-0 ${isHighlighted ? 'text-accent font-medium' : 'ui-kv-label'}`}>
-                          {key}
+                          {getMetricDisplayName(key, metricDisplayNames)}
                         </span>
                         <span className={`ui-kv-value flex-1 text-left ${isHighlighted ? 'text-accent font-medium' : ''}`}>
                           {metricLabels[key] ?? formatMetricNumber(val)}

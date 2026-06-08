@@ -1,22 +1,30 @@
 import React, { useMemo } from 'react'
-import type { FilterAST, BrowseItemPayload } from '../../lib/types'
+import type { FilterAST, BrowseItemPayload, DerivedMetricSpec, MetricDisplayNames } from '../../lib/types'
 import AttributesPanel from './components/AttributesPanel'
 import CategoricalPanel from './components/CategoricalPanel'
+import DerivedScoreCard from './components/DerivedScoreCard'
 import MetricRangePanel from './components/MetricRangePanel'
 import { formatNumber, type Range } from './model/histogram'
 import {
   collectMetricValuesByKey,
   type MetricValuesByKey,
 } from './model/metricValues'
+import type { DerivedMetricEvaluation } from './model/derivedMetric'
+import { getMetricDisplayName } from '../../lib/metricDisplay'
 
 interface MetricsPanelProps {
   items: BrowseItemPayload[]
   filteredItems: BrowseItemPayload[]
   metricKeys: string[]
   categoricalKeys: string[]
+  metricDisplayNames?: MetricDisplayNames | null
+  derivedMetric: DerivedMetricEvaluation
+  derivedRankDisabledReason?: string | null
   selectedItems?: BrowseItemPayload[]
   selectedMetric?: string
   onSelectMetric: (key: string) => void
+  onApplyDerivedMetric: (spec: DerivedMetricSpec | null) => void
+  onRankByDerivedMetric: (spec: DerivedMetricSpec) => void
   filters: FilterAST
   onChangeRange: (key: string, range: Range | null) => void
   onChangeCategoricalValues: (key: string, values: string[] | null) => void
@@ -28,6 +36,7 @@ interface SelectedMetricsPanelProps {
   selectedItems: BrowseItemPayload[]
   totalItems: number
   metricKeys: string[]
+  metricDisplayNames?: MetricDisplayNames | null
 }
 
 const MAX_SELECTED_METRICS = 12
@@ -37,9 +46,14 @@ export default function MetricsPanel({
   filteredItems,
   metricKeys,
   categoricalKeys,
+  metricDisplayNames,
+  derivedMetric,
+  derivedRankDisabledReason,
   selectedItems,
   selectedMetric,
   onSelectMetric,
+  onApplyDerivedMetric,
+  onRankByDerivedMetric,
   filters,
   onChangeRange,
   onChangeCategoricalValues,
@@ -55,6 +69,7 @@ export default function MetricsPanel({
         selectedItems={selectedItems}
         totalItems={selectedItems.length}
         metricKeys={metricKeys}
+        metricDisplayNames={metricDisplayNames}
       />
     )
     : null
@@ -79,6 +94,16 @@ export default function MetricsPanel({
     return (
       <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
         {metricsSummary}
+        <DerivedScoreCard
+          items={items}
+          metricKeys={metricKeys}
+          categoricalKeys={categoricalKeys}
+          metricDisplayNames={metricDisplayNames}
+          derivedMetric={derivedMetric}
+          rankDisabledReason={derivedRankDisabledReason}
+          onApplyDerivedMetric={onApplyDerivedMetric}
+          onRankByDerivedMetric={onRankByDerivedMetric}
+        />
         {attributesPanel}
         <div className="p-4 text-sm text-muted">
           No metrics or categoricals found in this dataset.
@@ -90,11 +115,22 @@ export default function MetricsPanel({
   return (
     <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
       {metricsSummary}
+      <DerivedScoreCard
+        items={items}
+        metricKeys={metricKeys}
+        categoricalKeys={categoricalKeys}
+        metricDisplayNames={metricDisplayNames}
+        derivedMetric={derivedMetric}
+        rankDisabledReason={derivedRankDisabledReason}
+        onApplyDerivedMetric={onApplyDerivedMetric}
+        onRankByDerivedMetric={onRankByDerivedMetric}
+      />
       {metricKeys.length > 0 && (
         <MetricRangePanel
           items={items}
           filteredItems={filteredItems}
           metricKeys={metricKeys}
+          metricDisplayNames={metricDisplayNames}
           selectedItems={selectedItems}
           selectedValuesByKey={selectedValuesByKey}
           selectedMetric={selectedMetric}
@@ -109,7 +145,13 @@ export default function MetricsPanel({
   )
 }
 
-function SelectedMetricsPanel({ selectedValuesByKey, selectedItems, totalItems, metricKeys }: SelectedMetricsPanelProps) {
+function SelectedMetricsPanel({
+  selectedValuesByKey,
+  selectedItems,
+  totalItems,
+  metricKeys,
+  metricDisplayNames,
+}: SelectedMetricsPanelProps) {
   const summary = useMemo(() => {
     if (!selectedValuesByKey.size) return null
     const keys = metricKeys.length
@@ -145,7 +187,9 @@ function SelectedMetricsPanel({ selectedValuesByKey, selectedItems, totalItems, 
       <div className="space-y-1 text-[12px]">
         {show.map((entry) => (
           <div key={entry.key} className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 min-w-0">
-            <span className="text-muted min-w-0 flex-1 basis-[7rem] truncate" title={entry.key}>{entry.key}</span>
+            <span className="text-muted min-w-0 flex-1 basis-[7rem] truncate" title={getMetricDisplayName(entry.key, metricDisplayNames)}>
+              {getMetricDisplayName(entry.key, metricDisplayNames)}
+            </span>
             <span className="text-text text-right tabular-nums min-w-0 flex-1 basis-[6rem] whitespace-normal break-words">
               {'text' in entry ? entry.text : isMulti ? `${formatNumber(entry.min)} – ${formatNumber(entry.max)}` : formatNumber(entry.value)}
               {!('text' in entry) && isMulti && (

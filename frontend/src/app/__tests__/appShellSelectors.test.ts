@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import type { BrowseItemPayload } from '../../lib/types'
+import type { BrowseItemPayload, DerivedMetricSpec, ViewState } from '../../lib/types'
 import type { DerivedMetricEvaluation } from '../../features/metrics/model/derivedMetric'
 import {
+  applyDerivedMetricToViewState,
   buildDerivedMetricWarning,
   buildStarCounts,
   getDisplayItemCount,
   getDisplayTotalCount,
+  getDerivedMetricRankDisabledReason,
   getSimilarityCountLabel,
   getSimilarityQueryLabel,
   getUnavailableDerivedMetricFilterKeys,
   hasMetricSortValues,
+  rankByDerivedMetricInViewState,
   resolveCategoricalKeys,
   resolveDerivedMetricTotalItems,
   resolveMetricKeys,
@@ -60,6 +63,18 @@ function makeDerivedMetricEvaluation(
     loadedCount: 2,
     totalItems: 2,
     partialLoadWarning: false,
+    ...overrides,
+  }
+}
+
+function makeDerivedMetricSpec(overrides: Partial<DerivedMetricSpec> = {}): DerivedMetricSpec {
+  return {
+    version: 1,
+    id: 'rubric_1',
+    name: 'Rubric score',
+    intercept: 0,
+    numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid' }],
+    categoricalTerms: [],
     ...overrides,
   }
 }
@@ -249,6 +264,59 @@ describe('appShellSelectors', () => {
         partialLoadWarning: true,
       }),
     )).toBe('Derived score ranks only the 25 loaded items out of 100.')
+  })
+
+  it('reports mode-level disabled reasons for derived ranking', () => {
+    expect(getDerivedMetricRankDisabledReason(true, false)).toBe('Ranking disabled in similarity mode.')
+    expect(getDerivedMetricRankDisabledReason(false, true)).toBe('Ranking disabled while scan order is locked.')
+    expect(getDerivedMetricRankDisabledReason(false, false)).toBeNull()
+  })
+
+  it('applies and clears derived metrics without losing unrelated view state', () => {
+    const viewState: ViewState = {
+      filters: {
+        and: [
+          { nameContains: { value: 'cat' } },
+          { metricRange: { key: '@derived/rubric_1', min: 0, max: 10 } },
+          { metricRange: { key: 'q1', min: 0, max: 10 } },
+        ],
+      },
+      sort: { kind: 'metric', key: '@derived/rubric_1', dir: 'asc' },
+      selectedMetric: '@derived/rubric_1',
+      derivedMetric: makeDerivedMetricSpec(),
+    }
+
+    const cleared = applyDerivedMetricToViewState(viewState, null)
+    expect(cleared).toEqual({
+      filters: {
+        and: [
+          { nameContains: { value: 'cat' } },
+          { metricRange: { key: 'q1', min: 0, max: 10 } },
+        ],
+      },
+      sort: { kind: 'builtin', key: 'added', dir: 'asc' },
+      derivedMetric: null,
+    })
+
+    const applied = applyDerivedMetricToViewState(
+      { ...viewState, sort: { kind: 'metric', key: 'q1', dir: 'desc' }, selectedMetric: 'q1' },
+      makeDerivedMetricSpec({ name: 'Renamed score' }),
+    )
+    expect(applied.sort).toEqual({ kind: 'metric', key: 'q1', dir: 'desc' })
+    expect(applied.selectedMetric).toBe('q1')
+    expect(applied.derivedMetric).toMatchObject({ name: 'Renamed score' })
+  })
+
+  it('ranks by a derived metric through the stable key', () => {
+    const spec = makeDerivedMetricSpec()
+    const ranked = rankByDerivedMetricInViewState({
+      filters: { and: [] },
+      sort: { kind: 'builtin', key: 'added', dir: 'asc' },
+    }, spec)
+
+    expect(ranked.derivedMetric).toBe(spec)
+    expect(ranked.selectedMetric).toBe('@derived/rubric_1')
+    expect(ranked.sort).toEqual({ kind: 'metric', key: '@derived/rubric_1', dir: 'desc' })
   })
 
   it('uses loaded counts for search and similarity derived-score partial metadata', () => {

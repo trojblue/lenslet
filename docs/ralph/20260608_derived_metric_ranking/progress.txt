@@ -134,3 +134,50 @@ review/cleanup:
 - code-review subagent 019ea700-624f-7df1-8b5f-8340adf58c49: no actionable issues; noted residual end-to-end source-switch coverage remains for Sprint 5 browser acceptance.
 blockers: none.
 next step: start Sprint 5 at T5.1, Metrics Panel builder and browser acceptance.
+---
+2026-06-08T12:25:09Z iteration 5/9
+completed task IDs: T5.1, T5.2, T5.3, T5.4
+files changed:
+- frontend/src/lib/metricDisplay.ts
+- frontend/src/features/metrics/model/derivedMetricDraft.ts
+- frontend/src/features/metrics/model/__tests__/derivedMetricDraft.test.ts
+- frontend/src/features/metrics/components/DerivedScoreCard.tsx
+- frontend/src/features/metrics/MetricsPanel.tsx
+- frontend/src/features/metrics/__tests__/MetricsPanel.test.tsx
+- frontend/src/features/metrics/components/MetricRangePanel.tsx
+- frontend/src/features/metrics/components/MetricHistogramCard.tsx
+- frontend/src/features/metrics/components/MetricCategoryCard.tsx
+- frontend/src/shared/ui/Toolbar.tsx
+- frontend/src/shared/ui/toolbar/__tests__/Toolbar.test.tsx
+- frontend/src/app/AppShell.tsx
+- frontend/src/app/components/LeftSidebar.tsx
+- frontend/src/app/model/appShellSelectors.ts
+- frontend/src/app/__tests__/appShellSelectors.test.ts
+- frontend/src/app/model/filterChips.ts
+- frontend/src/app/model/__tests__/filterChips.test.ts
+- frontend/src/features/browse/components/MetricScrollbar.tsx
+- frontend/src/features/inspector/Inspector.tsx
+- frontend/src/features/inspector/sections/BasicsSection.tsx
+- scripts/browser/gui_smoke/fixtures.py
+- scripts/browser/gui_smoke/scenarios.py
+- scripts/browser/gui_smoke/acceptance.py
+- tests/scripts/test_direct_script_helpers.py
+- src/lenslet/frontend/index.html
+- src/lenslet/frontend/assets/* packaged frontend bundle swap
+- docs/20260608_derived_metric_ranking_plan.md
+- docs/ralph/20260608_derived_metric_ranking/progress.txt
+validations:
+- npm --prefix frontend test -- --run src/features/browse/model src/features/metrics src/app: passed, 40 files / 220 tests.
+- pytest tests/storage/table/test_table_index_pipeline.py tests/storage/table/test_parquet_ingestion.py tests/web/routes/test_table_source_settings.py -q: passed, 52 tests.
+- pytest tests/scripts/test_direct_script_helpers.py -q: passed, 20 tests.
+- npm --prefix frontend run build: passed.
+- rsync -a --delete frontend/dist/ src/lenslet/frontend/: completed, packaged frontend assets regenerated.
+- python -m scripts.browser.gui_smoke.acceptance: passed after one-time browser dependency install; derived score ranked /ranked/item_0001.jpg first, restored through Smart Folder and reload, and showed the 5000-of-5006 loaded-window warning.
+- git diff --check: passed before this progress append.
+- python scripts/lint_repo.py: passed; existing warn-only file-size notices remain.
+review/cleanup:
+- cleanup subagent 019ea71f-3a85-7603-8b87-b110ecda8b44: applied Tier 1 SVG title cleanup in MetricScrollbar.
+- code-review subagent 019ea723-0820-7311-855e-6328184cfc48: found derived-filter clear behavior and asset-staging issues; source behavior was fixed and assets are included in this commit.
+- follow-up review subagent 019ea72b-e55f-7732-886b-94e940ab2d10: confirmed the derived-filter fix and found no additional source-level behavioral issues.
+blockers: none.
+next step: all planned sprints are complete; create final validated commit.

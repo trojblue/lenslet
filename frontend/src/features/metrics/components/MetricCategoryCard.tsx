@@ -6,6 +6,7 @@ import type { MetricCategoryBucket } from '../model/metricValues'
 
 interface MetricCategoryCardProps {
   metricKey: string
+  metricLabel?: string
   categories: MetricCategoryBucket[]
   filters: FilterAST
   onChangeRange: (key: string, range: Range | null) => void
@@ -14,6 +15,7 @@ interface MetricCategoryCardProps {
 
 export default function MetricCategoryCard({
   metricKey,
+  metricLabel,
   categories,
   filters,
   onChangeRange,
@@ -27,10 +29,12 @@ export default function MetricCategoryCard({
   const filteredCount = categories.reduce((sum, category) => sum + category.filteredCount, 0)
   const selectedCount = categories.reduce((sum, category) => sum + category.selectedCount, 0)
 
+  const displayLabel = metricLabel ?? metricKey
+
   if (!categories.length) {
     return (
       <div className="ui-card">
-        {showTitle && <div className="ui-section-title mb-2">{metricKey}</div>}
+        {showTitle && <div className="ui-section-title mb-2">{displayLabel}</div>}
         <div className="text-sm text-muted">No values found for this metric.</div>
       </div>
     )
@@ -38,7 +42,7 @@ export default function MetricCategoryCard({
 
   return (
     <div className="ui-card">
-      {showTitle && <div className="ui-section-title mb-2">{metricKey}</div>}
+      {showTitle && <div className="ui-section-title mb-2">{displayLabel}</div>}
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted mb-2 tabular-nums">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span>Population: {populationCount}</span>

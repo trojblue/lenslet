@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict } from '../../api/items'
 import { api, makeIdempotencyKey } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
-import type { BrowseItemPayload, SortSpec, StarRating } from '../../lib/types'
+import type { BrowseItemPayload, MetricDisplayNames, SortSpec, StarRating } from '../../lib/types'
 import { isInputElement } from '../../lib/keyboard'
 import {
   buildMetadataPathCopyPayload,
@@ -41,6 +41,7 @@ interface InspectorItem {
   source?: string | null
   star?: StarRating | null
   metrics?: Record<string, number | null> | null
+  metric_labels?: Record<string, string> | null
 }
 
 interface InspectorProps {
@@ -55,6 +56,7 @@ interface InspectorProps {
   onResize?: (e: React.PointerEvent<HTMLDivElement>) => void
   onStarChanged?: (paths: string[], val: StarRating) => void
   sortSpec?: SortSpec
+  metricDisplayNames?: MetricDisplayNames | null
   onFindSimilar?: () => void
   embeddingsAvailable?: boolean
   embeddingsLoading?: boolean
@@ -83,6 +85,7 @@ export default function Inspector({
   onResize,
   onStarChanged,
   sortSpec,
+  metricDisplayNames,
   onFindSimilar,
   embeddingsAvailable = false,
   embeddingsLoading = false,
@@ -594,6 +597,7 @@ export default function Inspector({
       currentItem: currentItem ?? null,
       sourceValue,
       sortSpec,
+      metricDisplayNames,
       copiedField,
       onCopyInfo: copyInfo,
       metricsExpanded,

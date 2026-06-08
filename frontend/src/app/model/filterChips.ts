@@ -1,4 +1,5 @@
-import type { FilterAST, FilterClause } from '../../lib/types'
+import type { FilterAST, FilterClause, MetricDisplayNames } from '../../lib/types'
+import { getMetricDisplayName } from '../../lib/metricDisplay'
 import { formatDateRange, formatRange, formatStarValues } from '../utils/appShellHelpers'
 
 export type FilterChip = {
@@ -25,6 +26,7 @@ export type FilterChipActions = {
 
 export type FilterChipOptions = {
   unavailableMetricKeys?: readonly string[]
+  metricDisplayNames?: MetricDisplayNames | null
 }
 
 type FilterChipTemplate = {
@@ -214,6 +216,7 @@ export function buildFilterChips(
 ): FilterChip[] {
   const chips: FilterChip[] = []
   const unavailableMetricKeys = new Set(options.unavailableMetricKeys ?? [])
+  const metricDisplayNames = options.metricDisplayNames ?? null
   for (const clause of filters.and) {
     visitFilterClause(clause, (key, typedClause) => {
       const entry = FILTER_CHIP_REGISTRY[key]
@@ -221,9 +224,12 @@ export function buildFilterChips(
       if (!template) return
       const unavailableMetric = 'metricRange' in typedClause
         && unavailableMetricKeys.has(typedClause.metricRange.key)
+      const label = 'metricRange' in typedClause
+        ? `${getMetricDisplayName(typedClause.metricRange.key, metricDisplayNames)}: ${formatRange(typedClause.metricRange.min, typedClause.metricRange.max)}`
+        : template.label
       chips.push({
         id: template.id,
-        label: unavailableMetric ? `${template.label} (unavailable)` : template.label,
+        label: unavailableMetric ? `${label} (unavailable)` : label,
         onRemove: () => entry.clear(typedClause, actions),
       })
     })

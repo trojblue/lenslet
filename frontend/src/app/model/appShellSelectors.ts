@@ -1,6 +1,14 @@
-import type { BrowseItemPayload, FilterAST, SortSpec, StarRating } from '../../lib/types'
+import type {
+  BrowseItemPayload,
+  DerivedMetricSpec,
+  FilterAST,
+  SortSpec,
+  StarRating,
+  ViewState,
+} from '../../lib/types'
 import { finiteMetricValue } from '../../lib/metrics'
 import {
+  derivedMetricKey,
   isDerivedMetricKey,
   type DerivedMetricEvaluation,
   type DerivedMetricStatus,
@@ -192,6 +200,48 @@ export function resolveDerivedMetricTotalItems(
 ): number {
   if (similarityActive || searching) return loadedCount
   return folderTotalItems ?? loadedCount
+}
+
+export function getDerivedMetricRankDisabledReason(
+  similarityActive: boolean,
+  sortLocked: boolean,
+): string | null {
+  if (similarityActive) return 'Ranking disabled in similarity mode.'
+  if (sortLocked) return 'Ranking disabled while scan order is locked.'
+  return null
+}
+
+export function applyDerivedMetricToViewState(
+  viewState: ViewState,
+  spec: DerivedMetricSpec | null,
+): ViewState {
+  if (spec) return { ...viewState, derivedMetric: spec }
+  const filters = {
+    and: viewState.filters.and.filter((clause) => (
+      !('metricRange' in clause && isDerivedMetricKey(clause.metricRange.key))
+    )),
+  }
+  const next: ViewState = { ...viewState, filters, derivedMetric: null }
+  if (viewState.sort.kind === 'metric' && isDerivedMetricKey(viewState.sort.key)) {
+    next.sort = { kind: 'builtin', key: 'added', dir: viewState.sort.dir }
+  }
+  if (viewState.selectedMetric && isDerivedMetricKey(viewState.selectedMetric)) {
+    delete next.selectedMetric
+  }
+  return next
+}
+
+export function rankByDerivedMetricInViewState(
+  viewState: ViewState,
+  spec: DerivedMetricSpec,
+): ViewState {
+  const key = derivedMetricKey(spec)
+  return {
+    ...viewState,
+    derivedMetric: spec,
+    selectedMetric: key,
+    sort: { kind: 'metric', key, dir: 'desc' },
+  }
 }
 
 export function buildStarCounts(

@@ -1,0 +1,10 @@
+{
+  "mode": "plan",
+  "tool": "codex",
+  "maxIterations": 9,
+  "maxTasksPerIteration": 6,
+  "planFile": "/fsx/yada/dev/lenslet/docs/20260608_derived_metric_ranking_plan.md",
+  "prdFile": "prd.json",
+  "progressFile": "progress.txt",
+  "sharedDir": "../shared"
+}

@@ -31,7 +31,6 @@ from .display import (
 from .index import (
     build_index_columns,
     extract_row_display_fields,
-    is_metric_column_name,
 )
 from .index_types import (
     TableIndexData,
@@ -452,6 +451,8 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         self._extensionless_source_trust_scope = self._selected_extensionless_source_trust_scope()
         self._index_context = self._build_index_context()
         self._index_columns = build_index_columns(self._index_context)
+        self._metric_column_names = frozenset(column for column, _values in self._index_columns.metric_columns)
+        self._metric_keys = tuple(sorted(self._metric_column_names))
         self._thumbnails.clear()
         self._build_path_index()
         self._generated_at = datetime.now(timezone.utc).isoformat()
@@ -461,6 +462,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
                 columns=self._index_columns,
             )
             self._apply_row_store_result(row_store_result)
+        self._metric_keys = self._compute_metric_keys()
         if row_store_result.remote_tasks:
             self._probe_row_remote_dimensions(row_store_result.remote_tasks)
         with _bulk_table_gc_pause(self._row_count):
@@ -913,6 +915,28 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             if num is not None:
                 metrics.append((str(raw_key), num))
         return sorted(metrics)
+
+    def _compute_metric_keys(self) -> tuple[str, ...]:
+        keys = set(self._metric_column_names)
+        if self._metrics_column is None:
+            return tuple(sorted(keys))
+        for row_idx, path in enumerate(self._require_row_store().row_to_path):
+            if path is None:
+                continue
+            raw_metrics = self._index_columns.metrics_values[row_idx]
+            metrics = self._signature_value(raw_metrics)
+            if not isinstance(metrics, dict):
+                continue
+            for raw_key, raw_value in metrics.items():
+                if is_internal_metric_key(raw_key):
+                    continue
+                key = str(raw_key).strip()
+                if not key:
+                    continue
+                value = self._signature_value(raw_value)
+                if coerce_finite_metric_value(value) is not None:
+                    keys.add(key)
+        return tuple(sorted(keys))
 
     def _compute_browse_signature(self) -> str:
         digest = hashlib.sha256()
@@ -1381,6 +1405,9 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
     def categorical_keys(self) -> list[str]:
         return list(self._categorical_columns)
 
+    def metric_keys(self) -> list[str]:
+        return list(self._metric_keys)
+
     def categoricals_for_path(self, path: str) -> dict[str, str]:
         row_idx = self.row_index_for_path(path)
         if row_idx is None:
@@ -1464,7 +1491,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             if column == self._metrics_column:
                 display_value = normalize_metrics_display_value(raw_value)
             else:
-                if is_metric_column_name(column) and coerce_float(raw_value) is not None:
+                if column in self._metric_column_names and coerce_float(raw_value) is not None:
                     continue
                 display_value = normalize_display_value(raw_value)
             if display_value is None:

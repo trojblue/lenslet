@@ -100,6 +100,88 @@ def test_parquet_folder_payload_exposes_sorted_metric_keys(tmp_path: Path):
     )
 
 
+def test_parquet_q_formula_columns_are_metrics_not_table_fields(tmp_path: Path):
+    root = tmp_path
+    img_a = root / "a.jpg"
+    img_b = root / "b.jpg"
+    _make_image(img_a)
+    _make_image(img_b)
+
+    _write_parquet(root / "items.parquet", {
+        "path": ["a.jpg", "b.jpg"],
+        "q1": [0.75, 0.25],
+        "q2": [0.10, None],
+        "q3": [1, 0],
+        "dataset_from": ["gt", "synthetic"],
+        "image_id": [101, 102],
+    })
+
+    client = TestClient(create_app(str(root)))
+
+    payload = client.get("/folders", params={"path": "/"}).json()
+
+    assert payload["metric_keys"] == ["q1", "q2", "q3"]
+    assert payload["categorical_keys"] == ["dataset_from"]
+    assert payload["items"][0]["metrics"] == {"q1": 0.75, "q2": 0.1, "q3": 1.0}
+    assert payload["items"][1]["metrics"] == {"q1": 0.25, "q3": 0.0}
+    assert payload["items"][0]["categoricals"] == {"dataset_from": "gt"}
+
+    item_payload = client.get("/item", params={"path": "/a.jpg"}).json()
+    assert item_payload["table_fields"] == {
+        "dataset_from": "gt",
+        "image_id": 101,
+    }
+
+
+def test_parquet_string_q_columns_remain_visible_table_fields(tmp_path: Path):
+    root = tmp_path
+    img = root / "a.jpg"
+    _make_image(img)
+
+    _write_parquet(root / "items.parquet", {
+        "path": ["a.jpg"],
+        "q1": ["0.75"],
+    })
+
+    client = TestClient(create_app(str(root)))
+
+    payload = client.get("/folders", params={"path": "/"}).json()
+    assert payload["metric_keys"] == []
+
+    item_payload = client.get("/item", params={"path": "/a.jpg"}).json()
+    assert item_payload["table_fields"] == {"q1": "0.75"}
+
+
+def test_parquet_metric_keys_include_schema_backed_q_columns_for_null_only_folder(tmp_path: Path):
+    root = tmp_path
+    null_img = root / "nulls" / "a.jpg"
+    finite_img = root / "finite" / "b.jpg"
+    _make_image(null_img)
+    _make_image(finite_img)
+
+    _write_parquet(root / "items.parquet", {
+        "path": ["nulls/a.jpg", "finite/b.jpg"],
+        "q1": [None, 0.5],
+    })
+
+    launch_result = prepare_table_launch(
+        TableLaunchRequest(
+            parquet_path=root / "items.parquet",
+            base_dir=str(root),
+            source_column="path",
+            cache_dimensions=False,
+            skip_dimension_probe=True,
+        )
+    )
+    assert launch_result.storage.metric_keys() == ["q1"]
+
+    client = TestClient(create_app_from_storage(launch_result.storage))
+    payload = client.get("/folders", params={"path": "/nulls"}).json()
+
+    assert payload["metric_keys"] == ["q1"]
+    assert payload["items"][0]["metrics"] == {}
+
+
 def test_parquet_item_payload_exposes_non_metric_row_fields(tmp_path: Path):
     root = tmp_path
     img = root / "a.jpg"

@@ -195,6 +195,18 @@ def _categorical_keys_from_storage(storage: BrowseStorage) -> list[str] | None:
     return sorted(keys)
 
 
+def _metric_keys_from_storage(storage: BrowseStorage) -> list[str] | None:
+    getter = getattr(storage, "metric_keys", None)
+    if not callable(getter):
+        return None
+    keys: set[str] = set()
+    for raw_key in getter():
+        key = str(raw_key).strip()
+        if key:
+            keys.add(key)
+    return sorted(keys)
+
+
 def _metric_keys_for_folder(
     storage: BrowseStorage,
     canonical_path: str,
@@ -203,6 +215,9 @@ def _metric_keys_for_folder(
     recursive: bool,
     snapshots: Iterable[RecursiveCachedItemSnapshot] | None = None,
 ) -> list[str]:
+    storage_keys = _metric_keys_from_storage(storage)
+    if storage_keys is not None:
+        return storage_keys
     if recursive:
         if snapshots is not None:
             return _metric_keys_from_cached_items(snapshots)

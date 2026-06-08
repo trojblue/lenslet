@@ -13,14 +13,15 @@ from .categoricals import (
 )
 from ...embeddings.config import EmbeddingConfig
 from .display import is_internal_metric_key
-from .index import is_metric_column_name
+from .index import is_formula_metric_column_name
 from .launch_sources import (
     detect_source_column,
     is_safe_auto_root,
     local_source_layout,
     path_is_within_root,
+    source_column_score,
 )
-from .pyarrow_runtime import pyarrow_exception_types, require_pyarrow
+from .pyarrow_runtime import pyarrow_exception_types, require_pyarrow, require_pyarrow_parquet
 from .schema import resolve_column, resolve_named_column, resolve_path_column
 
 if TYPE_CHECKING:
@@ -307,14 +308,18 @@ def select_browse_columns(
         add(resolve_named_column(schema_names, candidates))
     metrics_column = next((name for name in schema_names if name.lower() == "metrics"), None)
     add(metrics_column)
+    for column in select_source_candidate_columns(
+        parquet_path=parquet_path,
+        request=request,
+        schema=schema,
+        readable=readable,
+        source_column=source_column,
+    ):
+        add(column)
     for column in schema_names:
         if column not in readable:
             continue
-        if not is_metric_column_name(column):
-            continue
-        if not is_numeric_browse_column(schema, column):
-            continue
-        if not is_browse_scalar_column(schema, column):
+        if not is_formula_metric_browse_column(schema, column):
             continue
         add(column)
 
@@ -357,6 +362,50 @@ def resolve_launch_source_column(
     return detect_source_column(str(parquet_path), request.base_dir or default_root)
 
 
+def select_source_candidate_columns(
+    *,
+    parquet_path: Path,
+    request: TableLaunchRequest,
+    schema: Any,
+    readable: set[str],
+    source_column: str,
+    sample_size: int = 50,
+) -> tuple[str, ...]:
+    candidate_columns = [
+        column
+        for column in schema.names
+        if (
+            column != source_column
+            and column in readable
+            and is_string_browse_column(schema, column)
+            and is_browse_scalar_column(schema, column)
+        )
+    ]
+    if not candidate_columns:
+        return ()
+    try:
+        parquet = require_pyarrow_parquet()
+        parquet_file = parquet.ParquetFile(str(parquet_path))
+        batch = next(
+            parquet_file.iter_batches(batch_size=sample_size, columns=candidate_columns),
+            None,
+        )
+    except _table_schema_errors():
+        return ()
+    if batch is None or getattr(batch, "num_rows", 0) == 0:
+        return ()
+
+    default_root = os.path.abspath(str(parquet_path.parent))
+    base_dir = request.base_dir or default_root
+    candidates: list[tuple[float, str]] = []
+    for column in candidate_columns:
+        score = source_column_score(column, batch, base_dir)
+        if score is None:
+            continue
+        candidates.append((score.score, column))
+    return tuple(column for _score, column in sorted(candidates, reverse=True))
+
+
 def is_browse_scalar_column(schema: Any, column: str) -> bool:
     try:
         pyarrow, _parquet = require_pyarrow()
@@ -381,6 +430,25 @@ def is_numeric_browse_column(schema: Any, column: str) -> bool:
         )
     except _table_schema_errors():
         return False
+
+
+def is_boolean_browse_column(schema: Any, column: str) -> bool:
+    try:
+        pyarrow, _parquet = require_pyarrow()
+        dtype = schema.field(column).type
+        return pyarrow.types.is_boolean(dtype)
+    except _table_schema_errors():
+        return False
+
+
+def is_formula_metric_browse_column(schema: Any, column: str) -> bool:
+    if not is_formula_metric_column_name(column):
+        return False
+    if not is_numeric_browse_column(schema, column):
+        return False
+    if is_boolean_browse_column(schema, column):
+        return False
+    return is_browse_scalar_column(schema, column)
 
 
 def is_string_browse_column(schema: Any, column: str) -> bool:
@@ -440,11 +508,7 @@ def select_table_field_columns(
             continue
         if is_internal_metric_key(column):
             continue
-        if (
-            column.lower() != "metrics"
-            and is_metric_column_name(column)
-            and is_numeric_browse_column(schema, column)
-        ):
+        if column.lower() != "metrics" and is_formula_metric_browse_column(schema, column):
             continue
         if not is_browse_scalar_column(schema, column):
             continue

@@ -152,6 +152,62 @@ def test_table_metric_candidates_ignore_ids_and_bookkeeping_fields(tmp_path: Pat
     }
 
 
+def test_q_style_formula_columns_are_metrics_not_table_fields(tmp_path: Path) -> None:
+    image_path = tmp_path / "one.jpg"
+    _make_image(image_path)
+
+    rows = [
+        {
+            "source": str(image_path),
+            "path": "one.jpg",
+            "q1": 0.42,
+            "q2": None,
+            "q10": "0.91",
+            "q3": True,
+        }
+    ]
+
+    storage = _table_storage(rows, skip_dimension_probe=True)
+    item = _root_items(storage)[0]
+
+    assert item.metrics == {"q1": 0.42, "q10": 0.91}
+    assert storage.metric_keys() == ["q1", "q10", "q2"]
+    assert storage.sidecar_enrichment_for_path("/one.jpg") == {
+        "table_fields": {
+            "q3": True,
+        }
+    }
+
+
+def test_metric_keys_ignore_metrics_map_entries_from_skipped_rows(tmp_path: Path) -> None:
+    image_path = tmp_path / "one.jpg"
+    missing_path = tmp_path / "missing.jpg"
+    _make_image(image_path)
+
+    rows = [
+        {
+            "source": str(missing_path),
+            "path": "missing.jpg",
+            "metrics": {"ghost_score": 0.99},
+        },
+        {
+            "source": str(image_path),
+            "path": "one.jpg",
+            "metrics": {"real_score": 0.42},
+        },
+    ]
+
+    storage = _table_storage(
+        rows,
+        root=str(tmp_path),
+        source_column="source",
+        skip_dimension_probe=True,
+    )
+
+    assert storage.metric_keys() == ["real_score"]
+    assert [item.path for item in storage.items_in_scope("/")] == ["one.jpg"]
+
+
 def test_string_classification_columns_stay_in_table_fields(tmp_path: Path) -> None:
     first = tmp_path / "one.jpg"
     second = tmp_path / "two.jpg"

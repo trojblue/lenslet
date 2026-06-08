@@ -47,3 +47,31 @@ review/cleanup:
 - follow-up review subagent 019ea6aa-d709-70a1-a077-2bd00aaa3d39: no actionable issues.
 blockers: none.
 next step: start Sprint 2 at T2.1, formula-eligible table inputs.
+---
+2026-06-08T10:39:10Z iteration 2/9
+completed task IDs: T2.1, T2.2, T2.3, T2.4
+files changed:
+- src/lenslet/storage/table/index.py
+- src/lenslet/storage/table/launch.py
+- src/lenslet/storage/table/storage.py
+- src/lenslet/web/browse.py
+- tests/storage/table/test_table_formula_metrics.py
+- tests/storage/table/test_table_index_pipeline.py
+- tests/storage/table/test_parquet_ingestion.py
+- tests/web/routes/test_table_source_settings.py
+- docs/20260608_derived_metric_ranking_plan.md
+- docs/ralph/20260608_derived_metric_ranking/progress.txt
+validations:
+- pytest tests/storage/table/test_table_formula_metrics.py tests/storage/table/test_table_index_pipeline.py tests/storage/table/test_parquet_ingestion.py tests/web/routes/test_table_source_settings.py -q: passed, 54 tests before review fixes.
+- pytest tests/web/routes/test_direct_route_helpers.py tests/web/routes/test_folder_recursive.py -q: passed, 24 tests.
+- pytest tests/storage/table/test_table_formula_metrics.py tests/storage/table/test_table_index_pipeline.py tests/storage/table/test_parquet_ingestion.py tests/web/routes/test_table_source_settings.py tests/web/routes/test_direct_route_helpers.py tests/web/routes/test_folder_recursive.py -q: passed, 78 tests after review fixes.
+- python -m ruff check src/lenslet/storage/table/launch.py src/lenslet/storage/table/storage.py tests/web/routes/test_table_source_settings.py tests/storage/table/test_table_index_pipeline.py tests/storage/table/test_parquet_ingestion.py tests/storage/table/test_table_formula_metrics.py: passed.
+- git diff --check: passed.
+- python scripts/lint_repo.py: passed; existing warn-only file-size notices remain.
+review/cleanup:
+- cleanup subagent 019ea6ba-4802-7ef3-b2dc-ab2e2605136d: applied one Tier 1 formatting cleanup in launch.py.
+- code-review subagent 019ea6bc-b757-7c91-abc1-dce55871becc: found skipped-row metric key leakage, string q table-field suppression, and missing projected Parquet source-switch coverage; all fixed.
+- follow-up review subagent 019ea6c9-1d8a-7630-85d4-430afb927e25: confirmed prior fixes and found source-candidate sampling was reading all Parquet columns; fixed by sampling only readable scalar string candidate columns.
+- final targeted review subagent 019ea6cd-9c09-7bc0-81aa-43f0782678bc: no actionable issues.
+blockers: none.
+next step: start Sprint 3 at T3.1, derived metric model and normalization.

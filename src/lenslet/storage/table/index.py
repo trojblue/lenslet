@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, TypeAlias
 
 from .display import (
@@ -32,6 +33,87 @@ METRIC_COLUMN_LEAF_KEYWORDS = (
     "score",
     "similarity",
 )
+Q_EVAL_METRIC_RE = re.compile(r"q\d+\Z", re.IGNORECASE)
+FORMULA_METRIC_EXACT_EXCLUSIONS = frozenset(
+    {
+        "bytes",
+        "created",
+        "created_at",
+        "date",
+        "display_path",
+        "file_name",
+        "filename",
+        "h",
+        "height",
+        "id",
+        "idx",
+        "image_id",
+        "image_path",
+        "index",
+        "local_path",
+        "logical_path",
+        "mime",
+        "mime_type",
+        "modified",
+        "modified_at",
+        "mtime",
+        "name",
+        "path",
+        "rel_path",
+        "relative_path",
+        "row_id",
+        "row_idx",
+        "row_index",
+        "row_number",
+        "s3",
+        "s3_uri",
+        "s3uri",
+        "size",
+        "source",
+        "src",
+        "time",
+        "timestamp",
+        "updated",
+        "updated_at",
+        "uri",
+        "url",
+        "w",
+        "width",
+    }
+)
+FORMULA_METRIC_BOOKKEEPING_SUFFIXES = (
+    "_bytes",
+    "_count",
+    "_date",
+    "_filename",
+    "_height",
+    "_id",
+    "_idx",
+    "_index",
+    "_mime",
+    "_mime_type",
+    "_name",
+    "_num",
+    "_number",
+    "_path",
+    "_size",
+    "_source",
+    "_src",
+    "_time",
+    "_timestamp",
+    "_total",
+    "_uri",
+    "_url",
+    "_width",
+)
+FORMULA_METRIC_BOOKKEEPING_PREFIXES = (
+    "count_",
+    "has_",
+    "is_",
+    "num_",
+    "total_",
+    "was_",
+)
 
 __all__ = [
     "IndexColumns",
@@ -45,6 +127,7 @@ __all__ = [
     "extract_row_display_fields",
     "extract_row_metrics",
     "extract_row_metrics_map",
+    "is_formula_metric_column_name",
     "is_metric_column_name",
 ]
 
@@ -94,17 +177,68 @@ def _metric_candidate_columns(context: TableIndexInput) -> list[str]:
             continue
         if is_internal_metric_key(column):
             continue
-        if not is_metric_column_name(column):
+        if not is_formula_metric_column_name(column):
+            continue
+        if _column_values_are_boolean_only(table.column_values.get(column)):
             continue
         candidates.append(column)
     return candidates
 
 
+def _metric_column_leaf(column: str) -> str:
+    return column.rsplit("__", 1)[-1].strip().lower()
+
+
 def is_metric_column_name(column: str) -> bool:
-    leaf = column.rsplit("__", 1)[-1].lower()
+    leaf = _metric_column_leaf(column)
     if leaf == "id" or leaf.endswith("_id"):
         return False
     return any(keyword in leaf for keyword in METRIC_COLUMN_LEAF_KEYWORDS)
+
+
+def is_formula_metric_column_name(column: str) -> bool:
+    normalized = column.strip().lower()
+    leaf = _metric_column_leaf(column)
+    if is_internal_metric_key(column):
+        return False
+    if normalized in FORMULA_METRIC_EXACT_EXCLUSIONS or leaf in FORMULA_METRIC_EXACT_EXCLUSIONS:
+        return False
+    if normalized.startswith("__") and normalized.endswith("__"):
+        return False
+    if leaf.startswith(FORMULA_METRIC_BOOKKEEPING_PREFIXES):
+        return False
+    if leaf.endswith(FORMULA_METRIC_BOOKKEEPING_SUFFIXES):
+        return False
+    return is_metric_column_name(column) or Q_EVAL_METRIC_RE.fullmatch(leaf) is not None
+
+
+def _coerce_scalar(value: object) -> object:
+    if hasattr(value, "as_py"):
+        try:
+            return value.as_py()
+        except Exception:
+            return value
+    return value
+
+
+def _column_values_are_boolean_only(values: Any, *, sample_size: int = 128) -> bool:
+    if values is None:
+        return False
+    checked = 0
+    try:
+        iterator = iter(values)
+    except TypeError:
+        return False
+    for raw_value in iterator:
+        value = _coerce_scalar(raw_value)
+        if value is None:
+            continue
+        if not isinstance(value, bool):
+            return False
+        checked += 1
+        if checked >= sample_size:
+            break
+    return checked > 0
 
 
 def collect_metric_columns(

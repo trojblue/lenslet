@@ -41,6 +41,9 @@ def test_normalize_metrics_display_value_keeps_only_non_numeric_display_fields()
         {
             "__index_level_0__": "hidden",
             "score": "0.75",
+            "nan_score": math.nan,
+            "infinite_score": "Infinity",
+            "negative_infinite_score": -math.inf,
             "label": "sharp",
         }
     ) == {"label": "sharp"}

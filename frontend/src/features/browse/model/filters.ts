@@ -1,4 +1,5 @@
 import type { FilterAST, FilterClause, BrowseItemPayload } from '../../../lib/types'
+import { finiteMetricValue } from '../../../lib/metrics'
 
 type CompareOp = '<' | '<=' | '>' | '>='
 
@@ -99,10 +100,10 @@ function matchesClause(item: BrowseItemPayload, clause: FilterClause): boolean {
   }
   if ('metricRange' in clause) {
     const { key, min, max } = clause.metricRange
-    const raw = item.metrics?.[key]
-    if (raw == null) return false
-    if (raw < min) return false
-    if (raw > max) return false
+    const value = finiteMetricValue(item.metrics?.[key])
+    if (value == null) return false
+    if (value < min) return false
+    if (value > max) return false
     return true
   }
   if ('categoricalIn' in clause) {
@@ -282,7 +283,10 @@ export function setMetricRangeFilter(
 ): FilterAST {
   const rest = filters.and.filter((c) => !('metricRange' in c && c.metricRange.key === key))
   if (!range) return { and: rest }
-  return { and: [{ metricRange: { key, min: range.min, max: range.max } }, ...rest] }
+  const min = finiteMetricValue(range.min)
+  const max = finiteMetricValue(range.max)
+  if (min == null || max == null || min > max) return { and: rest }
+  return { and: [{ metricRange: { key, min, max } }, ...rest] }
 }
 
 export function getCategoricalInFilter(filters: FilterAST, key: string): string[] {

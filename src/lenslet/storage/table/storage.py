@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     import pyarrow as pa
 
 from ...media_errors import MediaDecodeError, MediaReadError
+from ...metrics import coerce_finite_metric_value
 from ..base import join_storage_path
 from ..progress import ProgressBar
 from ..sidecar_state import default_sidecar_state
@@ -869,7 +870,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
     def _metrics_for_row(self, row_idx: int) -> dict[str, float]:
         metrics: dict[str, float] = {}
         for column, values in self._index_columns.metric_columns:
-            num = coerce_float(values[row_idx])
+            num = coerce_finite_metric_value(values[row_idx])
             if num is not None:
                 metrics[column] = num
         if self._metrics_column is None:
@@ -880,7 +881,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         for raw_key, raw_value in raw_metrics.items():
             if is_internal_metric_key(raw_key):
                 continue
-            num = coerce_float(raw_value)
+            num = coerce_finite_metric_value(raw_value)
             if num is not None:
                 metrics[str(raw_key)] = num
         return metrics
@@ -897,7 +898,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
     def _signature_metric_items(self, row_idx: int) -> list[tuple[str, float]]:
         metrics: list[tuple[str, float]] = []
         for column, values in self._index_columns.metric_columns:
-            num = coerce_float(self._signature_value(values[row_idx]))
+            num = coerce_finite_metric_value(self._signature_value(values[row_idx]))
             if num is not None:
                 metrics.append((column, num))
         if self._metrics_column is None:
@@ -908,7 +909,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         for raw_key, raw_value in raw_metrics.items():
             if is_internal_metric_key(raw_key):
                 continue
-            num = coerce_float(self._signature_value(raw_value))
+            num = coerce_finite_metric_value(self._signature_value(raw_value))
             if num is not None:
                 metrics.append((str(raw_key), num))
         return sorted(metrics)

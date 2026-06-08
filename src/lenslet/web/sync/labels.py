@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, TypedDict
 
 from .events import EventBroker, IdempotencyCache
+from ...metrics import coerce_finite_metric_value
 from ..paths import canonical_path
 from ...storage.sidecar_state import ensure_sidecar_fields
 from ...storage.base import SidecarInventoryStorage, SidecarState
@@ -129,7 +130,7 @@ def _should_persist_sidecar(sidecar: SidecarState) -> bool:
         return True
     if sidecar.get("star") is not None:
         return True
-    if sidecar.get("metrics"):
+    if _coerce_metrics(sidecar.get("metrics")) is not None:
         return True
     return False
 
@@ -202,7 +203,9 @@ def _coerce_metrics(value: object) -> dict[str, float] | None:
         if not isinstance(key, str) or isinstance(metric_value, bool):
             continue
         if isinstance(metric_value, (int, float)):
-            metrics[key] = float(metric_value)
+            coerced = coerce_finite_metric_value(metric_value)
+            if coerced is not None:
+                metrics[key] = coerced
     return metrics
 
 

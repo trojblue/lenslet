@@ -15,6 +15,7 @@ from .index_types import (
     TableIndexPolicy,
     TableSourceResolver,
 )
+from ...metrics import coerce_finite_metric_value
 from .schema import coerce_float
 
 METRIC_COLUMN_LEAF_KEYWORDS = (
@@ -142,7 +143,7 @@ def extract_row_metrics(context: TableIndexInput, row_idx: int) -> dict[str, flo
 
     metrics: dict[str, float] = {}
     for column, values in metric_columns:
-        num = coerce_float(values[row_idx])
+        num = coerce_finite_metric_value(values[row_idx])
         if num is None:
             continue
         metrics[column] = num
@@ -162,7 +163,7 @@ def extract_row_metrics_map(context: TableIndexInput, row_idx: int) -> dict[str,
     for key, value in raw.items():
         if is_internal_metric_key(key):
             continue
-        num = coerce_float(value)
+        num = coerce_finite_metric_value(value)
         if num is None:
             continue
         result[str(key)] = num

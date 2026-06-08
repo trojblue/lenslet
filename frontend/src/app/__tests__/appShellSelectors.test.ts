@@ -39,6 +39,17 @@ describe('appShellSelectors', () => {
     const items = [
       makeItem('/a.jpg', { metrics: { score: null } }),
       makeItem('/b.jpg', { metrics: { score: Number.NaN } }),
+      makeItem('/c.jpg', { metrics: { score: Number.POSITIVE_INFINITY } }),
+      makeItem('/d.jpg', { metrics: { score: Number.NEGATIVE_INFINITY } }),
+    ]
+
+    expect(hasMetricSortValues(items, 'score')).toBe(false)
+  })
+
+  it('detects a finite metric sort value among missing values', () => {
+    const items = [
+      makeItem('/a.jpg', { metrics: { score: null } }),
+      makeItem('/b.jpg', { metrics: { score: Number.NaN } }),
       makeItem('/c.jpg', { metrics: { score: 0.42 } }),
     ]
 

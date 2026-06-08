@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { BrowseItemPayload } from '../../../lib/types'
+import { finiteMetricValue } from '../../../lib/metrics'
 
 const BIN_COUNT = 48
 const QUANTILES = [0.1, 0.24, 0.5, 0.74, 0.9]
@@ -16,8 +17,7 @@ export default function MetricScrollbar({ items, metricKey, scrollRef, sortDir }
     const ordered: Array<number | null> = []
     const numeric: number[] = []
     for (const it of items) {
-      const raw = it.metrics?.[metricKey]
-      const value = raw == null || Number.isNaN(raw) ? null : raw
+      const value = finiteMetricValue(it.metrics?.[metricKey])
       ordered.push(value)
       if (value != null) numeric.push(value)
     }
@@ -260,9 +260,10 @@ function clamp01(value: number): number {
 }
 
 function formatNumber(value?: number | null): string {
-  if (value == null || Number.isNaN(value)) return '-'
-  const abs = Math.abs(value)
-  if (abs >= 1000) return value.toFixed(0)
-  if (abs >= 10) return value.toFixed(2)
-  return value.toFixed(3)
+  const metricValue = finiteMetricValue(value)
+  if (metricValue == null) return '-'
+  const abs = Math.abs(metricValue)
+  if (abs >= 1000) return metricValue.toFixed(0)
+  if (abs >= 10) return metricValue.toFixed(2)
+  return metricValue.toFixed(3)
 }

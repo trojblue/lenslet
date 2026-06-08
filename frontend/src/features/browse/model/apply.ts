@@ -34,8 +34,9 @@ export function applySort(items: BrowseItemPayload[], sort: SortSpec, randomSeed
 
   let cmp = sortByAdded
   if (sort.kind === 'metric') {
-    cmp = sortByMetric(sort.key)
-  } else if (sort.key === 'name') {
+    return [...items].sort(sortByMetric(sort.key, sort.dir))
+  }
+  if (sort.key === 'name') {
     cmp = sortByName
   }
   const arr = [...items].sort(cmp)

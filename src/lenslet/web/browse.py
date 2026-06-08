@@ -9,6 +9,7 @@ from typing import Any, Callable, Iterable, cast
 
 from fastapi import HTTPException, Request
 
+from ..metrics import normalize_metric_mapping
 from ..media_errors import MediaDecodeError, MediaError, MediaReadError
 from .cache.browse import (
     CACHE_PERSIST_QUEUED,
@@ -116,9 +117,10 @@ def build_item_payload(
     if source is None:
         source = getattr(cached, "source", None)
     canonical = canonical_path(cached.path)
-    metrics = getattr(cached, "metrics", None)
-    if metrics is None:
-        metrics = sidecar_state.get("metrics")
+    raw_metrics = getattr(cached, "metrics", None)
+    if raw_metrics is None:
+        raw_metrics = sidecar_state.get("metrics")
+    metrics = normalize_metric_mapping(raw_metrics)
     metric_labels = getattr(cached, "metric_labels", None)
     if categoricals is None:
         categoricals = getattr(cached, "categoricals", None)
@@ -158,7 +160,7 @@ def categoricals_for_cached_item(storage: BrowseStorage, cached: BrowseItemRecor
 def _metric_keys_from_cached_items(cached_items: Iterable[Any]) -> list[str]:
     metric_keys: set[str] = set()
     for cached in cached_items:
-        metrics = getattr(cached, "metrics", None)
+        metrics = normalize_metric_mapping(getattr(cached, "metrics", None))
         if not isinstance(metrics, dict):
             continue
         for raw_key in metrics.keys():

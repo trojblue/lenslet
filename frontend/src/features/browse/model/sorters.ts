@@ -1,6 +1,8 @@
 import type { BrowseItemPayload } from '../../../lib/types'
+import { finiteMetricValue } from '../../../lib/metrics'
 
 export type Comparator<T> = (a: T, b: T) => number
+type SortDirection = 'asc' | 'desc'
 
 function getAddedMs(item: BrowseItemPayload): number {
   return item.added_at ? Date.parse(item.added_at) : 0
@@ -17,14 +19,14 @@ export function sortByAdded(a: BrowseItemPayload, b: BrowseItemPayload): number 
   return ta - tb
 }
 
-export function sortByMetric(key: string): Comparator<BrowseItemPayload> {
+export function sortByMetric(key: string, dir: SortDirection = 'asc'): Comparator<BrowseItemPayload> {
   return (a, b) => {
-    const va = a.metrics?.[key]
-    const vb = b.metrics?.[key]
+    const va = finiteMetricValue(a.metrics?.[key])
+    const vb = finiteMetricValue(b.metrics?.[key])
     if (va == null && vb == null) return sortByName(a, b)
     if (va == null) return 1
     if (vb == null) return -1
     if (va === vb) return sortByName(a, b)
-    return va - vb
+    return dir === 'desc' ? vb - va : va - vb
   }
 }

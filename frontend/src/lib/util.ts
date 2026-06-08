@@ -1,3 +1,5 @@
+import { finiteMetricValue } from './metrics'
+
 export function formatBytes(n: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let idx = 0
@@ -10,11 +12,12 @@ export function formatBytes(n: number): string {
 }
 
 export function formatMetricNumber(value?: number | null): string {
-  if (value == null || Number.isNaN(value)) return '–'
-  const abs = Math.abs(value)
-  if (abs >= 1000) return value.toFixed(0)
-  if (abs >= 10) return value.toFixed(2)
-  return value.toFixed(3)
+  const metricValue = finiteMetricValue(value)
+  if (metricValue == null) return '–'
+  const abs = Math.abs(metricValue)
+  if (abs >= 1000) return metricValue.toFixed(0)
+  if (abs >= 10) return metricValue.toFixed(2)
+  return metricValue.toFixed(3)
 }
 
 export function safeJsonParse<T>(raw: string | null): T | null {

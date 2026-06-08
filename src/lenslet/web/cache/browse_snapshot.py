@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
+from ...metrics import normalize_metric_mapping
 from ...storage.image_media import ImageMime, normalize_image_mime
 
 
@@ -40,15 +41,7 @@ def _coerce_optional_text(value: Any) -> str | None:
 
 
 def _normalize_metrics(raw: Any) -> dict[str, float] | None:
-    if not isinstance(raw, dict):
-        return None
-    metrics: dict[str, float] = {}
-    for key, value in raw.items():
-        try:
-            metrics[str(key)] = float(value)
-        except (TypeError, ValueError):
-            continue
-    return metrics or None
+    return normalize_metric_mapping(raw)
 
 
 def _normalize_metric_labels(raw: Any) -> dict[str, str] | None:
@@ -158,8 +151,9 @@ class RecursiveCachedItemSnapshot:
             payload["url"] = self.url
         if self.source:
             payload["source"] = self.source
-        if self.metrics is not None:
-            payload["metrics"] = self.metrics
+        metrics = _normalize_metrics(self.metrics)
+        if metrics is not None:
+            payload["metrics"] = metrics
         if self.metric_labels is not None:
             payload["metric_labels"] = self.metric_labels
         if self.categoricals is not None:

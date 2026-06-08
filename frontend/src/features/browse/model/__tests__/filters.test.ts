@@ -58,15 +58,23 @@ describe('filter AST', () => {
     expect(normalizeFilterAst({ and: [{ stars: [5, 0] }] })).toEqual({ and: [] })
   })
 
-  it('filters by metric range', () => {
+  it('filters by metric range and treats non-finite metric values as missing', () => {
     const items = [
       baseItem({ path: 'a', metrics: { score: 0.9 } }),
       baseItem({ path: 'b', metrics: { score: 0.4 } }),
       baseItem({ path: 'c', metrics: { score: null } }),
+      baseItem({ path: 'd', metrics: { score: Number.NaN } }),
+      baseItem({ path: 'e', metrics: { score: Number.POSITIVE_INFINITY } }),
+      baseItem({ path: 'f', metrics: { score: Number.NEGATIVE_INFINITY } }),
     ]
     const filters = setMetricRangeFilter({ and: [] }, 'score', { min: 0.5, max: 1.0 })
     const result = applyFilterAst(items, filters)
     expect(result.map((i) => i.path)).toEqual(['a'])
+  })
+
+  it('drops metric range filters with non-finite bounds', () => {
+    expect(setMetricRangeFilter({ and: [] }, 'score', { min: 0, max: Number.POSITIVE_INFINITY })).toEqual({ and: [] })
+    expect(setMetricRangeFilter({ and: [] }, 'score', { min: Number.NaN, max: 1 })).toEqual({ and: [] })
   })
 
   it('filters by categorical membership', () => {

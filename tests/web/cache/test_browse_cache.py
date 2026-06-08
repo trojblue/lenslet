@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import gzip
+import json
 import logging
+import math
 import threading
 import time
 
@@ -71,6 +74,68 @@ def test_recursive_snapshot_window_round_trips_metric_labels() -> None:
 
     assert restored.metrics == {"style": 0.0}
     assert restored.metric_labels == {"style": "anime"}
+
+
+def test_recursive_snapshot_payload_omits_nonfinite_metrics() -> None:
+    item = RecursiveCachedItemSnapshot(
+        path="/animals/cat.jpg",
+        name="cat.jpg",
+        mime="image/jpeg",
+        width=640,
+        height=480,
+        size=2048,
+        mtime=1700000000.0,
+        metrics={
+            "score": 1.0,
+            "nan_score": math.nan,
+            "infinite_score": math.inf,
+            "negative_infinite_score": -math.inf,
+        },
+    )
+
+    payload = item.to_payload()
+    restored = RecursiveCachedItemSnapshot.from_payload(
+        {
+            **payload,
+            "metrics": {
+                "score": 1.0,
+                "nan_score": math.nan,
+                "infinite_score": "Infinity",
+                "negative_infinite_score": -math.inf,
+            },
+        }
+    )
+
+    assert payload["metrics"] == {"score": 1.0}
+    assert restored.metrics == {"score": 1.0}
+
+
+def test_recursive_browse_cache_disk_payload_omits_nonfinite_metrics(tmp_path) -> None:
+    cache = RecursiveBrowseCache(
+        cache_dir=tmp_path / "browse-cache",
+        max_disk_bytes=100_000,
+        max_memory_entries=2,
+    )
+    item = RecursiveCachedItemSnapshot(
+        path="/animals/cat.jpg",
+        name="cat.jpg",
+        mime="image/jpeg",
+        width=640,
+        height=480,
+        size=2048,
+        mtime=1700000000.0,
+        metrics={"score": 1.0, "nan_score": math.nan, "infinite_score": math.inf},
+    )
+
+    _window, status = cache.save("/", "name", "gen", [item])
+
+    assert status == CACHE_PERSIST_WRITTEN
+    cache_file = next((cache.cache_dir or tmp_path).rglob("*.json.gz"))
+    with gzip.open(cache_file, "rt", encoding="utf-8") as handle:
+        raw = handle.read()
+    assert "NaN" not in raw
+    assert "Infinity" not in raw
+    assert json.loads(raw)["items"][0]["metrics"] == {"score": 1.0}
 
 
 def test_recursive_snapshot_window_round_trips_categoricals() -> None:

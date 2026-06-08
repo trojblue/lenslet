@@ -1,4 +1,5 @@
 import React from 'react'
+import { finiteMetricValue } from '../../../lib/metrics'
 import { formatBytes, formatMetricNumber } from '../../../lib/util'
 import type { SortSpec, StarRating } from '../../../lib/types'
 import type { InspectorWidgetId } from '../model/inspectorWidgetOrder'
@@ -216,7 +217,9 @@ export function BasicsSection({
             const metrics = currentItem.metrics || null
             if (!metrics) return null
             const metricLabels = currentItem.metric_labels || {}
-            const entries = Object.entries(metrics).filter(([, v]) => v != null)
+            const entries = Object.entries(metrics)
+              .map(([key, value]) => [key, finiteMetricValue(value)] as const)
+              .filter((entry): entry is readonly [string, number] => entry[1] != null)
             if (!entries.length) return null
             const highlightKey = sortSpec?.kind === 'metric' ? sortSpec.key : null
             const sorted = [...entries].sort(([a], [b]) => a.localeCompare(b))

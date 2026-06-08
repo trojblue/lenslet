@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
@@ -88,6 +89,35 @@ def test_internal_metrics_map_entries_are_filtered(tmp_path: Path) -> None:
 
     assert item.path == "one.jpg"
     assert item.metrics == {"quality_score": 0.42}
+
+
+def test_nonfinite_table_metrics_are_omitted_from_items_and_fields(tmp_path: Path) -> None:
+    image_path = tmp_path / "one.jpg"
+    _make_image(image_path)
+
+    rows = [
+        {
+            "source": str(image_path),
+            "path": "one.jpg",
+            "clip_aesthetic": 0.5,
+            "quality_score": math.inf,
+            "loss_metric": math.nan,
+            "metrics": {
+                "score": 0.8,
+                "nan_score": math.nan,
+                "infinite_score": "Infinity",
+                "note": "sharp",
+            },
+        }
+    ]
+
+    storage = _table_storage(rows, skip_dimension_probe=True)
+    item = _root_items(storage)[0]
+
+    assert item.metrics == {"clip_aesthetic": 0.5, "score": 0.8}
+    assert storage.sidecar_enrichment_for_path("/one.jpg") == {
+        "table_fields": {"metrics": {"note": "sharp"}}
+    }
 
 
 def test_table_metric_candidates_ignore_ids_and_bookkeeping_fields(tmp_path: Path) -> None:

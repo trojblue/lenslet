@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +19,7 @@ import lenslet.web.routes.folders as folder_routes
 import lenslet.web.routes.items as item_routes
 import lenslet.web.routes.og as og
 import lenslet.web.routes.views as views
+import lenslet.web.sync.labels as label_sync
 from lenslet.web.models import BrowseItemPayload, SidecarPatch
 import lenslet.web.sidecars as sidecars
 from lenslet.storage.sidecar_state import copy_sidecar_state
@@ -123,7 +125,12 @@ def test_web_sidecar_helpers_normalize_state_and_patch_payloads() -> None:
     assert request_headers.parse_if_match('W/"7"') == 7
     assert request_headers.parse_if_match("not-a-version") is None
 
-    sidecar_state = {"tags": ["old"], "notes": "", "version": 2, "metrics": {"score": 0.5}}
+    sidecar_state = {
+        "tags": ["old"],
+        "notes": "",
+        "version": 2,
+        "metrics": {"score": 0.5, "nan_score": math.nan, "infinite_score": math.inf},
+    }
     patch = SidecarPatch(base_version=2, add_tags=["new"], remove_tags=["old"], set_notes="note")
 
     assert sidecars.apply_patch_to_sidecar(sidecar_state, patch) is True
@@ -143,7 +150,18 @@ def test_web_sidecar_helpers_normalize_state_and_patch_payloads() -> None:
     payload["tags"].append("mutated")
     payload["metrics"]["score"] = 1.0
     assert sidecar_state["tags"] == ["new"]
-    assert sidecar_state["metrics"] == {"score": 0.5}
+    assert sidecar_state["metrics"]["score"] == 0.5
+    assert math.isnan(sidecar_state["metrics"]["nan_score"])
+    invalid_payload = sidecars.sidecar_payload(
+        "cat.jpg",
+        {
+            "tags": [],
+            "notes": "",
+            "version": 3,
+            "metrics": {"nan_score": math.nan, "infinite_score": math.inf},
+        },
+    )
+    assert invalid_payload["metrics"] == {}
 
 
 def test_build_item_payload_is_public_factory_boundary() -> None:
@@ -160,7 +178,11 @@ def test_build_item_payload_is_public_factory_boundary() -> None:
 
     payload = browse.build_item_payload(
         cached,
-        {"star": 4, "notes": "favorite", "metrics": {"score": 0.5}},
+        {
+            "star": 4,
+            "notes": "favorite",
+            "metrics": {"score": 0.5, "nan_score": math.nan, "infinite_score": math.inf},
+        },
         source="s3://bucket/cat.jpg",
     )
 
@@ -169,6 +191,49 @@ def test_build_item_payload_is_public_factory_boundary() -> None:
     assert payload.notes == "favorite"
     assert payload.source == "s3://bucket/cat.jpg"
     assert payload.metrics == {"score": 0.5}
+
+
+def test_label_sync_metric_payloads_omit_nonfinite_values() -> None:
+    sidecar_state = {
+        "tags": [],
+        "notes": "",
+        "star": None,
+        "version": 1,
+        "updated_at": "",
+        "updated_by": "server",
+        "metrics": {"score": 0.5, "nan_score": math.nan, "infinite_score": math.inf},
+    }
+
+    assert label_sync._persistable_sidecar(sidecar_state)["metrics"] == {"score": 0.5}
+    invalid_only = dict(sidecar_state, metrics={"nan_score": math.nan, "infinite_score": math.inf})
+    assert label_sync._should_persist_sidecar(invalid_only) is True
+    assert label_sync._persistable_sidecar(invalid_only)["metrics"] == {}
+
+    class _Storage:
+        def __init__(self) -> None:
+            self.sidecar = {
+                "tags": [],
+                "notes": "",
+                "star": None,
+                "version": 1,
+                "metrics": {"stale_score": 0.9},
+            }
+
+        def ensure_sidecar(self, _path: str) -> dict[str, object]:
+            return dict(self.sidecar)
+
+        def set_sidecar(self, _path: str, sidecar_state: dict) -> None:
+            self.sidecar = dict(sidecar_state)
+
+    storage = _Storage()
+    applied = label_sync._apply_persisted_record(
+        storage,
+        "/cat.jpg",
+        {"version": 2, "metrics": {"nan_score": math.nan, "infinite_score": math.inf}},
+    )
+
+    assert applied is True
+    assert storage.sidecar["metrics"] == {}
 
 
 def test_common_route_helpers_collect_folder_paths() -> None:
@@ -210,6 +275,16 @@ def test_build_folder_index_recursive_without_cache_uses_canonical_scope() -> No
                     size=123,
                     mtime=1.0,
                     metrics={"score": 0.5},
+                ),
+                SimpleNamespace(
+                    path="/animals/dog.jpg",
+                    name="dog.jpg",
+                    mime="image/jpeg",
+                    width=8,
+                    height=6,
+                    size=123,
+                    mtime=1.0,
+                    metrics={"bad_score": math.inf},
                 )
             ]
 
@@ -233,7 +308,7 @@ def test_build_folder_index_recursive_without_cache_uses_canonical_scope() -> No
     )
 
     assert storage.items_scope == "/animals"
-    assert [item.path for item in payload.items] == ["/animals/cat.jpg"]
+    assert [item.path for item in payload.items] == ["/animals/cat.jpg", "/animals/dog.jpg"]
     assert payload.metric_keys == ["score"]
 
 

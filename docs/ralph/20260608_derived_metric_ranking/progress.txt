@@ -5,3 +5,45 @@ Tool: codex
 Repo: /fsx/yada/dev/lenslet
 Plan: /fsx/yada/dev/lenslet/docs/20260608_derived_metric_ranking_plan.md
 ---
+2026-06-08T10:02:00Z iteration 1/9
+completed task IDs: T1.1, T1.2, T1.3, T1.4
+files changed:
+- frontend/src/lib/metrics.ts
+- frontend/src/lib/util.ts
+- frontend/src/app/model/appShellSelectors.ts
+- frontend/src/app/__tests__/appShellSelectors.test.ts
+- frontend/src/features/browse/model/apply.ts
+- frontend/src/features/browse/model/sorters.ts
+- frontend/src/features/browse/model/filters.ts
+- frontend/src/features/browse/model/__tests__/sorters.test.ts
+- frontend/src/features/browse/model/__tests__/filters.test.ts
+- frontend/src/features/browse/components/MetricScrollbar.tsx
+- frontend/src/features/metrics/model/metricValues.ts
+- frontend/src/features/metrics/model/__tests__/metricValues.test.ts
+- frontend/src/features/inspector/sections/BasicsSection.tsx
+- src/lenslet/metrics.py
+- src/lenslet/storage/table/index.py
+- src/lenslet/storage/table/storage.py
+- src/lenslet/web/browse.py
+- src/lenslet/web/cache/browse_snapshot.py
+- src/lenslet/web/sidecars.py
+- src/lenslet/web/sync/labels.py
+- tests/storage/helpers/test_direct_storage_helpers.py
+- tests/storage/table/test_table_display.py
+- tests/storage/table/test_table_index_pipeline.py
+- tests/web/cache/test_browse_cache.py
+- tests/web/routes/test_direct_route_helpers.py
+- docs/20260608_derived_metric_ranking_plan.md
+- docs/ralph/20260608_derived_metric_ranking/progress.txt
+validations:
+- npm --prefix frontend test -- --run src/features/browse/model src/features/metrics src/app: passed, 38 files / 185 tests.
+- pytest tests/storage/table/test_table_index_pipeline.py tests/storage/table/test_parquet_ingestion.py tests/web/routes/test_table_source_settings.py tests/web/cache/test_browse_cache.py tests/web/routes/test_direct_route_helpers.py -q: passed, 76 tests.
+- python scripts/lint_repo.py: passed; existing warn-only file-size notices remain.
+- git diff --check: passed.
+- rg source checks found no remaining active frontend metric-specific Number.isNaN-only handling; generated packaged frontend assets were excluded and not regenerated.
+review/cleanup:
+- cleanup subagent 019ea69c-df3d-7da3-a05f-e34be939d2fd: Tier 1 cleanup only, applied.
+- code-review subagent 019ea6a1-8658-75a0-82da-f4a340627d27: found sync replay clearing and invalid metric_keys issues, fixed.
+- follow-up review subagent 019ea6aa-d709-70a1-a077-2bd00aaa3d39: no actionable issues.
+blockers: none.
+next step: start Sprint 2 at T2.1, formula-eligible table inputs.

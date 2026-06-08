@@ -1,4 +1,5 @@
 import type { BrowseItemPayload, StarRating } from '../../lib/types'
+import { finiteMetricValue } from '../../lib/metrics'
 
 type SimilarityStateLike = {
   queryPath: string | null
@@ -7,10 +8,7 @@ type SimilarityStateLike = {
 
 export function hasMetricSortValues(items: readonly BrowseItemPayload[], metricSortKey: string | null): boolean {
   if (!metricSortKey) return false
-  return items.some((item) => {
-    const raw = item.metrics?.[metricSortKey]
-    return raw != null && !Number.isNaN(raw)
-  })
+  return items.some((item) => finiteMetricValue(item.metrics?.[metricSortKey]) != null)
 }
 
 function collectSimilarityMetricKeys(items: readonly BrowseItemPayload[], scanLimit = 250): string[] {

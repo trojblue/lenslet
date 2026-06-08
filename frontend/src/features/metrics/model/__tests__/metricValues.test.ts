@@ -26,10 +26,11 @@ function makeItem(
 }
 
 describe('metrics value map utilities', () => {
-  it('collects values by metric key and drops null/NaN inputs', () => {
+  it('collects values by metric key and drops null or non-finite inputs', () => {
     const valuesByKey = collectMetricValuesByKey([
       makeItem({ score: 1.2, quality: 0.9 }),
       makeItem({ score: null, quality: Number.NaN }),
+      makeItem({ score: Number.POSITIVE_INFINITY, quality: Number.NEGATIVE_INFINITY }),
       makeItem({ score: 4.8 }),
       makeItem(),
     ])
@@ -59,6 +60,8 @@ describe('metrics value map utilities', () => {
         makeItem({ score: 1.2 }),
         makeItem({ score: null }),
         makeItem({ score: Number.NaN }),
+        makeItem({ score: Number.POSITIVE_INFINITY }),
+        makeItem({ score: Number.NEGATIVE_INFINITY }),
         makeItem({ score: 4 }),
         makeItem(),
       ],
@@ -74,12 +77,15 @@ describe('metrics value map utilities', () => {
         makeItem({ style: 0 }, { style: 'anime' }),
         makeItem({ style: 1 }, { style: 'photographic' }),
         makeItem({ style: 0 }, { style: 'anime' }),
+        makeItem({ style: Number.POSITIVE_INFINITY }, { style: 'invalid' }),
       ],
       [
         makeItem({ style: 0 }, { style: 'anime' }),
+        makeItem({ style: Number.NaN }, { style: 'invalid' }),
       ],
       [
         makeItem({ style: 1 }, { style: 'photographic' }),
+        makeItem({ style: Number.NEGATIVE_INFINITY }, { style: 'invalid' }),
       ],
       ['style'],
     )

@@ -1,4 +1,5 @@
 import type { BrowseItemPayload } from '../../../lib/types'
+import { finiteMetricValue } from '../../../lib/metrics'
 
 export type MetricValuesByKey = Map<string, number[]>
 export type MetricCategoryBucket = {
@@ -24,10 +25,11 @@ export function collectMetricValuesByKey(items: BrowseItemPayload[], metricKeys?
     const metrics = it.metrics
     if (!metrics) continue
     for (const [key, raw] of Object.entries(metrics)) {
-      if (raw == null || Number.isNaN(raw)) continue
+      const value = finiteMetricValue(raw)
+      if (value == null) continue
       const existing = valuesByKey.get(key)
-      if (existing) existing.push(raw)
-      else valuesByKey.set(key, [raw])
+      if (existing) existing.push(value)
+      else valuesByKey.set(key, [value])
     }
   }
 
@@ -41,9 +43,9 @@ function collectMetricValuesForKeys(items: BrowseItemPayload[], metricKeys: read
     const metrics = it.metrics
     if (!metrics) continue
     for (const bucket of buckets) {
-      const raw = metrics[bucket.key]
-      if (raw == null || Number.isNaN(raw)) continue
-      bucket.values.push(raw)
+      const value = finiteMetricValue(metrics[bucket.key])
+      if (value == null) continue
+      bucket.values.push(value)
     }
   }
 
@@ -90,18 +92,18 @@ function addCategoryCounts(
 ): void {
   for (const item of items) {
     const label = item.metric_labels?.[key]
-    const rawCode = item.metrics?.[key]
-    if (!label || rawCode == null || Number.isNaN(rawCode)) continue
-    let bucket = byCode.get(rawCode)
+    const code = finiteMetricValue(item.metrics?.[key])
+    if (!label || code == null) continue
+    let bucket = byCode.get(code)
     if (!bucket) {
       bucket = {
-        code: rawCode,
+        code,
         label,
         populationCount: 0,
         filteredCount: 0,
         selectedCount: 0,
       }
-      byCode.set(rawCode, bucket)
+      byCode.set(code, bucket)
     }
     bucket[countKey] += 1
   }

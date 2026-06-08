@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -59,12 +60,31 @@ def _table_index_context() -> table_index.TableIndexInput:
         column_values={
             "source": ["/tmp/cat.jpg"],
             "path": ["animals/cat.jpg"],
-            "metrics": [{"score": "0.75", "note": "sharp", "__index_level_0__": 2}],
+            "metrics": [
+                {
+                    "score": "0.75",
+                    "note": "sharp",
+                    "nan_score": math.nan,
+                    "infinite_score": "Infinity",
+                    "__index_level_0__": 2,
+                }
+            ],
             "metric_score": ["0.5"],
+            "quality_score": [math.inf],
+            "loss_metric": [math.nan],
             "label": ["cat"],
             "__index_level_1__": ["hidden"],
         },
-        columns=["source", "path", "metrics", "metric_score", "label", "__index_level_1__"],
+        columns=[
+            "source",
+            "path",
+            "metrics",
+            "metric_score",
+            "quality_score",
+            "loss_metric",
+            "label",
+            "__index_level_1__",
+        ],
         source_column="source",
         path_column="path",
         name_column=None,

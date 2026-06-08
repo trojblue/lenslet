@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import Request
 
+from ..metrics import normalize_metric_mapping
 from ..storage.base import SidecarPayload, SidecarState
 from ..storage.sidecar_state import ensure_sidecar_fields
 from .auth import request_actor_id
@@ -48,8 +49,9 @@ def sidecar_payload(path: str, sidecar: SidecarState) -> SidecarPayload:
         "updated_by": sidecar.get("updated_by", "server"),
     }
     if "metrics" in sidecar:
-        metrics = sidecar.get("metrics")
-        payload["metrics"] = dict(metrics) if isinstance(metrics, dict) else metrics
+        metrics = normalize_metric_mapping(sidecar.get("metrics"))
+        if metrics is not None:
+            payload["metrics"] = metrics
     return payload
 
 

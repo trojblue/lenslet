@@ -5,6 +5,8 @@ describe('formatMetricNumber', () => {
   it('formats metric values with stable threshold precision', () => {
     expect(formatMetricNumber(null)).toBe('–')
     expect(formatMetricNumber(Number.NaN)).toBe('–')
+    expect(formatMetricNumber(Number.POSITIVE_INFINITY)).toBe('–')
+    expect(formatMetricNumber(Number.NEGATIVE_INFINITY)).toBe('–')
     expect(formatMetricNumber(1234.56)).toBe('1235')
     expect(formatMetricNumber(12.3456)).toBe('12.35')
     expect(formatMetricNumber(1.23456)).toBe('1.235')

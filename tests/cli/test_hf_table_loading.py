@@ -106,3 +106,51 @@ def test_load_hf_parquet_table_reads_shards_without_datasets_cast(
         ("data/train-00000.parquet", "owner/repo", "dataset", "rev1"),
         ("data/train-00001.parquet", "owner/repo", "dataset", "rev1"),
     ]
+
+
+def test_load_hf_parquet_table_prefers_image_url_over_page_source_url(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    shard = tmp_path / "train-00000.parquet"
+    _write_parquet(
+        shard,
+        {
+            "source_url": [
+                "https://example.test/report.html",
+                "https://example.test/report.html",
+            ],
+            "image_url": [
+                "https://images.example.test/a.webp",
+                "https://images.example.test/r2/encoded-image-key",
+            ],
+            "width": [10, 12],
+            "height": [8, 9],
+        },
+    )
+
+    class _FakeHfApi:
+        def list_repo_files(self, repo_id, *, repo_type=None, revision=None):
+            assert repo_id == "owner/repo"
+            assert repo_type == "dataset"
+            assert revision == "main"
+            return ["data/train-00000.parquet"]
+
+    def _fake_download(repo_id, filename, *, repo_type=None, revision=None):
+        assert (repo_id, filename, repo_type, revision) == (
+            "owner/repo",
+            "data/train-00000.parquet",
+            "dataset",
+            "main",
+        )
+        return str(shard)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(HfApi=_FakeHfApi, hf_hub_download=_fake_download),
+    )
+
+    result = load_hf_parquet_table("hf://owner/repo")
+
+    assert result.source_column == "image_url"

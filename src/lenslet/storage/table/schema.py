@@ -5,6 +5,8 @@ import os
 from datetime import datetime
 from typing import Any, Callable, Iterable
 
+from .source_detection import best_source_column_name
+
 
 def resolve_named_column(columns: list[str], candidates: tuple[str, ...]) -> str | None:
     candidates_lower = {candidate.lower() for candidate in candidates}
@@ -74,16 +76,15 @@ def resolve_source_column(
             raise ValueError(f"source column '{source_column}' not found")
         return resolved
 
-    for column in columns:
-        total, matches = loadable_score(
-            data.get(column, []),
-            sample_size=sample_size,
-            is_loadable_value=is_loadable_value,
-        )
-        if total == 0:
-            continue
-        if matches / total >= loadable_threshold:
-            return column
+    detected = best_source_column_name(
+        columns,
+        lambda column: data.get(column, []),
+        is_loadable_value=is_loadable_value,
+        loadable_threshold=loadable_threshold,
+        sample_size=sample_size,
+    )
+    if detected is not None:
+        return detected
 
     if not allow_local:
         raise ValueError(

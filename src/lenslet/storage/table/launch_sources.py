@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-import math
 import os
-from dataclasses import dataclass
 from pathlib import Path
 
 from .pyarrow_runtime import pyarrow_exception_types, require_pyarrow_parquet
+from .source_detection import (
+    SourceColumnScore,
+    best_source_column_name,
+    better_source_column,
+    is_remote_source,
+    normalized_source_text,
+    score_source_column_values,
+    source_loadability_score as _source_loadability_score,
+)
 
 _SOURCE_MATCH_THRESHOLD = 0.7
-
-
-@dataclass(frozen=True, slots=True)
-class SourceColumnScore:
-    name: str
-    score: float
-    total: int
 
 
 def _table_value_errors() -> tuple[type[BaseException], ...]:
@@ -59,60 +59,27 @@ def first_batch(parquet_file, sample_size: int):
     return None
 
 
-def normalized_source_text(value) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, float) and math.isnan(value):
-        return None
-    if isinstance(value, os.PathLike):
-        value = os.fspath(value)
-    if not isinstance(value, str):
-        return None
-    candidate = value.strip()
-    return candidate or None
-
-
-def is_remote_source(value: str) -> bool:
-    return value.startswith("s3://") or value.startswith("http://") or value.startswith("https://")
-
-
 def source_loadability_score(values: list[object], base_dir: str | None) -> tuple[int, int]:
-    total = 0
-    matches = 0
-    for raw_value in values:
-        value = normalized_source_text(raw_value)
-        if value is None:
-            continue
-        total += 1
-        if is_loadable_value(value, base_dir):
-            matches += 1
-    return total, matches
+    return _source_loadability_score(values, lambda value: is_loadable_value(value, base_dir))
 
 
 def source_column_score(name: str, batch, base_dir: str | None) -> SourceColumnScore | None:
     values = batch.column(name).to_pylist()
-    total, matches = source_loadability_score(values, base_dir)
-    if total == 0:
-        return None
-    score = matches / total
-    if score < _SOURCE_MATCH_THRESHOLD:
-        return None
-    return SourceColumnScore(name=name, score=score, total=total)
-
-
-def better_source_column(candidate: SourceColumnScore, current: SourceColumnScore | None) -> bool:
-    if current is None:
-        return True
-    return candidate.score > current.score or (candidate.score == current.score and candidate.total > current.total)
+    return score_source_column_values(
+        name,
+        values,
+        is_loadable_value=lambda value: is_loadable_value(value, base_dir),
+        loadable_threshold=_SOURCE_MATCH_THRESHOLD,
+    )
 
 
 def best_source_column(columns: list[str], batch, base_dir: str | None) -> str | None:
-    best: SourceColumnScore | None = None
-    for name in columns:
-        score = source_column_score(name, batch, base_dir)
-        if score is not None and better_source_column(score, best):
-            best = score
-    return best.name if best is not None else None
+    return best_source_column_name(
+        columns,
+        lambda name: batch.column(name).to_pylist(),
+        is_loadable_value=lambda value: is_loadable_value(value, base_dir),
+        loadable_threshold=_SOURCE_MATCH_THRESHOLD,
+    )
 
 
 def detect_source_column(parquet_path: str, base_dir: str | None, sample_size: int = 50) -> str | None:

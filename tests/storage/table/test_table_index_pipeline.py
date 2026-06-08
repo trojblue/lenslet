@@ -543,6 +543,35 @@ def test_auto_detected_extensionless_source_column_uses_one_image_probe(
     assert items[1].metrics == {"larry_ai_prob": 0.82}
 
 
+def test_auto_source_detection_prefers_image_url_over_page_source_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", lambda self, source: False)
+    rows = [
+        {
+            "source_url": "https://example.test/report.html",
+            "image_url": "https://images.example.test/a.webp",
+            "width": 12,
+            "height": 9,
+        },
+        {
+            "source_url": "https://example.test/report.html",
+            "image_url": "https://images.example.test/b.webp",
+            "width": 11,
+            "height": 8,
+        },
+    ]
+
+    storage = _table_storage(rows, allow_local=False, skip_dimension_probe=True)
+
+    assert storage._source_column == "image_url"
+    assert storage.count_in_scope("/") == 2
+    assert [item.source for item in storage.items_in_scope("/")] == [
+        "https://images.example.test/a.webp",
+        "https://images.example.test/b.webp",
+    ]
+
+
 def test_explicit_extensionless_source_column_skips_rows_when_probe_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -7,7 +7,16 @@ import { api, cancelBrowseRequests } from '../../api/client'
 import { useDebounced } from '../../shared/hooks/useDebounced'
 import { applyFilters, applySort } from '../../features/browse/model/apply'
 import { FetchError } from '../../lib/fetcher'
-import { resolveCategoricalKeys, resolveMetricKeys } from '../model/appShellSelectors'
+import {
+  resolveCategoricalKeys,
+  resolveDerivedMetricTotalItems,
+  resolveMetricKeys,
+} from '../model/appShellSelectors'
+import {
+  evaluateDerivedMetric,
+  getDerivedMetricInputKeys,
+  type DerivedMetricEvaluation,
+} from '../../features/metrics/model/derivedMetric'
 import {
   completeBrowseLoad,
   startBrowseLoad,
@@ -65,6 +74,8 @@ type UseAppDataScopeResult = {
   similarityItems: BrowseItemPayload[]
   metricKeys: string[]
   categoricalKeys: string[]
+  metricDisplayNames: DerivedMetricEvaluation['metricDisplayNames']
+  derivedMetric: DerivedMetricEvaluation
   items: BrowseItemPayload[]
   totalCount: number
   filteredCount: number
@@ -187,7 +198,7 @@ export function useAppDataScope({
   const embeddingsAvailable = embeddings.length > 0
   const embeddingsError = getEmbeddingsError(embeddingsQuery.isError, embeddingsQuery.error)
 
-  const poolItems = useMemo((): BrowseItemPayload[] => {
+  const rawPoolItems = useMemo((): BrowseItemPayload[] => {
     const base = searching ? (search.data?.items ?? []) : (data?.items ?? [])
     return base.map((it) => ({
       ...it,
@@ -195,9 +206,9 @@ export function useAppDataScope({
     }))
   }, [searching, search.data, data, localStarOverrides])
 
-  const poolItemsByPath = useMemo(() => {
+  const rawPoolItemsByPath = useMemo(() => {
     const map = new Map<string, BrowseItemPayload>()
-    for (const it of poolItems) {
+    for (const it of rawPoolItems) {
       map.set(it.path, it)
     }
     const extras = search.data?.items ?? []
@@ -207,23 +218,65 @@ export function useAppDataScope({
       map.set(it.path, { ...it, star })
     }
     return map
-  }, [poolItems, search.data, localStarOverrides])
+  }, [rawPoolItems, search.data, localStarOverrides])
 
-  const similarityItems = useMemo((): BrowseItemPayload[] => {
+  const rawSimilarityItems = useMemo((): BrowseItemPayload[] => {
     if (!similarityState) return []
     return similarityState.items.map((entry) => {
-      const existing = poolItemsByPath.get(entry.path)
+      const existing = rawPoolItemsByPath.get(entry.path)
       if (existing) return existing
       return buildFallbackItem(entry.path, localStarOverrides[entry.path])
     })
-  }, [similarityState, poolItemsByPath, localStarOverrides])
+  }, [similarityState, rawPoolItemsByPath, localStarOverrides])
 
-  const metricKeys = useMemo(() => (
-    resolveMetricKeys(data?.metric_keys, similarityActive, similarityItems)
-  ), [data?.metric_keys, similarityActive, similarityItems])
-  const categoricalKeys = useMemo(() => (
-    resolveCategoricalKeys(data?.categorical_keys, similarityActive, similarityItems)
-  ), [data?.categorical_keys, similarityActive, similarityItems])
+  const derivedMetricInputKeys = useMemo(() => (
+    getDerivedMetricInputKeys(viewState.derivedMetric)
+  ), [viewState.derivedMetric])
+  const sourceMetricKeys = useMemo(() => (
+    resolveMetricKeys(
+      data?.metric_keys,
+      similarityActive,
+      rawSimilarityItems,
+      derivedMetricInputKeys.metricKeys,
+    )
+  ), [data?.metric_keys, derivedMetricInputKeys.metricKeys, similarityActive, rawSimilarityItems])
+  const sourceCategoricalKeys = useMemo(() => (
+    resolveCategoricalKeys(
+      data?.categorical_keys,
+      similarityActive,
+      rawSimilarityItems,
+      derivedMetricInputKeys.categoricalKeys,
+    )
+  ), [data?.categorical_keys, derivedMetricInputKeys.categoricalKeys, similarityActive, rawSimilarityItems])
+  const derivedMetric = useMemo(() => {
+    const sourceItems = similarityActive ? rawSimilarityItems : rawPoolItems
+    return evaluateDerivedMetric({
+      items: sourceItems,
+      metricKeys: sourceMetricKeys,
+      categoricalKeys: sourceCategoricalKeys,
+      spec: viewState.derivedMetric ?? null,
+      loadedCount: sourceItems.length,
+      totalItems: resolveDerivedMetricTotalItems(
+        searching,
+        similarityActive,
+        sourceItems.length,
+        data?.total_items,
+      ),
+    })
+  }, [
+    data?.total_items,
+    rawPoolItems,
+    rawSimilarityItems,
+    searching,
+    similarityActive,
+    sourceCategoricalKeys,
+    sourceMetricKeys,
+    viewState.derivedMetric,
+  ])
+  const poolItems = similarityActive ? rawPoolItems : derivedMetric.items
+  const similarityItems = similarityActive ? derivedMetric.items : rawSimilarityItems
+  const metricKeys = derivedMetric.metricKeys
+  const categoricalKeys = derivedMetric.categoricalKeys
 
   const items = useMemo((): BrowseItemPayload[] => {
     if (similarityState) {
@@ -291,6 +344,8 @@ export function useAppDataScope({
     similarityItems,
     metricKeys,
     categoricalKeys,
+    metricDisplayNames: derivedMetric.metricDisplayNames,
+    derivedMetric,
     items,
     totalCount,
     filteredCount,

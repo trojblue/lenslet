@@ -217,6 +217,31 @@ export type SortSpec =
   | { kind: 'builtin'; key: 'added' | 'name' | 'random'; dir: 'asc' | 'desc' }
   | { kind: 'metric'; key: string; dir: 'asc' | 'desc' }
 
+export type DerivedMetricNumericMissingPolicy = 'zero' | 'invalid'
+
+export type DerivedMetricNumericTerm = {
+  key: string
+  weight: number
+  missing: DerivedMetricNumericMissingPolicy
+}
+
+export type DerivedMetricCategoricalTerm = {
+  key: string
+  value: string
+  weight: number
+}
+
+export type DerivedMetricSpec = {
+  version: 1
+  id: string
+  name: string
+  intercept: number
+  numericTerms: DerivedMetricNumericTerm[]
+  categoricalTerms: DerivedMetricCategoricalTerm[]
+}
+
+export type MetricDisplayNames = Record<string, string>
+
 export type FilterClause =
   | { starsIn: { values: number[] } }
   | { starsNotIn: { values: number[] } }
@@ -240,6 +265,7 @@ export type ViewState = {
   filters: FilterAST
   sort: SortSpec
   selectedMetric?: string
+  derivedMetric?: DerivedMetricSpec | null
 }
 
 export type ViewPool = { kind: 'folder'; path: string }

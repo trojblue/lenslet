@@ -8,7 +8,10 @@ import {
   getSimilarityQueryLabel,
   hasMetricSortValues,
   resolveCategoricalKeys,
+  resolveDerivedMetricTotalItems,
   resolveMetricKeys,
+  resolveSelectedMetricKey,
+  shouldResetUnavailableMetricSort,
 } from '../model/appShellSelectors'
 
 function makeItem(
@@ -104,6 +107,75 @@ describe('appShellSelectors', () => {
     })
 
     expect(resolveMetricKeys(['folder_only'], true, items)).toEqual(['quality', 'score'])
+  })
+
+  it('does not expose reserved derived keys from raw source metric keys', () => {
+    const items = [
+      makeItem('/a.jpg', { metrics: { '@derived/raw': 1, score: 2 } }),
+    ]
+
+    expect(resolveMetricKeys(['@derived/raw', 'score'], false, [])).toEqual(['score'])
+    expect(resolveMetricKeys([], true, items)).toEqual(['score'])
+  })
+
+  it('scans similarity items until required derived metric inputs are found', () => {
+    const items = Array.from({ length: 260 }, (_, index) => {
+      if (index === 0) {
+        return makeItem(`/item-${index}.jpg`, { metrics: { score: 1 } })
+      }
+      if (index === 259) {
+        return makeItem(`/item-${index}.jpg`, { metrics: { q_late: 2 } })
+      }
+      return makeItem(`/item-${index}.jpg`)
+    })
+
+    expect(resolveMetricKeys([], true, items)).toEqual(['score'])
+    expect(resolveMetricKeys([], true, items, ['q_late'])).toEqual(['q_late', 'score'])
+  })
+
+  it('keeps selected derived metrics when the active definition owns the key', () => {
+    expect(resolveSelectedMetricKey(
+      '@derived/rubric_1',
+      ['score', '@derived/rubric_1'],
+      '@derived/rubric_1',
+    )).toBe('@derived/rubric_1')
+    expect(resolveSelectedMetricKey('@derived/rubric_1', ['score'], '@derived/rubric_1')).toBe('@derived/rubric_1')
+    expect(resolveSelectedMetricKey('missing_score', ['score'])).toBe('score')
+    expect(resolveSelectedMetricKey('@derived/stale', ['score'], '@derived/rubric_1')).toBe('score')
+  })
+
+  it('resets missing raw and stale derived metric sorts but keeps active unavailable derived sorts', () => {
+    expect(shouldResetUnavailableMetricSort(
+      { kind: 'metric', key: 'missing_score', dir: 'desc' },
+      ['score'],
+      false,
+    )).toBe(true)
+    expect(shouldResetUnavailableMetricSort(
+      { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      ['score'],
+      false,
+      '@derived/rubric_1',
+      'unavailable',
+    )).toBe(false)
+    expect(shouldResetUnavailableMetricSort(
+      { kind: 'metric', key: '@derived/stale', dir: 'desc' },
+      ['score'],
+      false,
+      '@derived/rubric_1',
+      'unavailable',
+    )).toBe(true)
+    expect(shouldResetUnavailableMetricSort(
+      { kind: 'metric', key: 'missing_score', dir: 'desc' },
+      ['score'],
+      true,
+    )).toBe(false)
+  })
+
+  it('uses loaded counts for search and similarity derived-score partial metadata', () => {
+    expect(resolveDerivedMetricTotalItems(false, false, 5000, 40000)).toBe(40000)
+    expect(resolveDerivedMetricTotalItems(true, false, 2, 40000)).toBe(2)
+    expect(resolveDerivedMetricTotalItems(false, true, 10, 40000)).toBe(10)
+    expect(resolveDerivedMetricTotalItems(false, false, 3, null)).toBe(3)
   })
 
   it('resolves categorical keys from folder payload or similarity items', () => {

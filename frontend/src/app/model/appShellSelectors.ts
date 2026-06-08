@@ -1,5 +1,6 @@
-import type { BrowseItemPayload, StarRating } from '../../lib/types'
+import type { BrowseItemPayload, SortSpec, StarRating } from '../../lib/types'
 import { finiteMetricValue } from '../../lib/metrics'
+import { isDerivedMetricKey, type DerivedMetricStatus } from '../../features/metrics/model/derivedMetric'
 
 type SimilarityStateLike = {
   queryPath: string | null
@@ -11,24 +12,42 @@ export function hasMetricSortValues(items: readonly BrowseItemPayload[], metricS
   return items.some((item) => finiteMetricValue(item.metrics?.[metricSortKey]) != null)
 }
 
-function collectSimilarityMetricKeys(items: readonly BrowseItemPayload[], scanLimit = 250): string[] {
+function hasAllRequiredKeys(keys: Set<string>, requiredKeys: Set<string>): boolean {
+  for (const key of requiredKeys) {
+    if (!keys.has(key)) return false
+  }
+  return true
+}
+
+function collectSimilarityMetricKeys(
+  items: readonly BrowseItemPayload[],
+  scanLimit = 250,
+  requiredMetricKeys: readonly string[] = [],
+): string[] {
   const keys = new Set<string>()
+  const requiredKeys = new Set(requiredMetricKeys.filter((key) => !isDerivedMetricKey(key)))
   let scanned = 0
   for (const item of items) {
     const metrics = item.metrics
     if (metrics) {
       for (const key of Object.keys(metrics)) {
+        if (isDerivedMetricKey(key)) continue
         keys.add(key)
       }
     }
     scanned += 1
-    if (scanned >= scanLimit && keys.size > 0) break
+    if (scanned >= scanLimit && keys.size > 0 && hasAllRequiredKeys(keys, requiredKeys)) break
   }
   return Array.from(keys).sort()
 }
 
-function collectSimilarityCategoricalKeys(items: readonly BrowseItemPayload[], scanLimit = 250): string[] {
+function collectSimilarityCategoricalKeys(
+  items: readonly BrowseItemPayload[],
+  scanLimit = 250,
+  requiredCategoricalKeys: readonly string[] = [],
+): string[] {
   const keys = new Set<string>()
+  const requiredKeys = new Set(requiredCategoricalKeys)
   let scanned = 0
   for (const item of items) {
     const categoricals = item.categoricals
@@ -38,7 +57,7 @@ function collectSimilarityCategoricalKeys(items: readonly BrowseItemPayload[], s
       }
     }
     scanned += 1
-    if (scanned >= scanLimit && keys.size > 0) break
+    if (scanned >= scanLimit && keys.size > 0 && hasAllRequiredKeys(keys, requiredKeys)) break
   }
   return Array.from(keys).sort()
 }
@@ -47,18 +66,57 @@ export function resolveMetricKeys(
   folderMetricKeys: readonly string[] | undefined,
   similarityActive: boolean,
   similarityItems: readonly BrowseItemPayload[],
+  requiredMetricKeys: readonly string[] = [],
 ): string[] {
-  if (!similarityActive) return folderMetricKeys ? [...folderMetricKeys] : []
-  return collectSimilarityMetricKeys(similarityItems)
+  if (!similarityActive) return folderMetricKeys ? folderMetricKeys.filter((key) => !isDerivedMetricKey(key)) : []
+  return collectSimilarityMetricKeys(similarityItems, 250, requiredMetricKeys)
+}
+
+export function resolveSelectedMetricKey(
+  selectedMetric: string | undefined,
+  metricKeys: readonly string[],
+  derivedMetricKey: string | null = null,
+): string | undefined {
+  if (selectedMetric && (metricKeys.includes(selectedMetric) || selectedMetric === derivedMetricKey)) {
+    return selectedMetric
+  }
+  return metricKeys[0]
+}
+
+export function shouldResetUnavailableMetricSort(
+  sort: SortSpec,
+  metricKeys: readonly string[],
+  similarityActive: boolean,
+  derivedMetricKey: string | null = null,
+  derivedMetricStatus: DerivedMetricStatus = 'none',
+): boolean {
+  if (similarityActive) return false
+  if (sort.kind !== 'metric') return false
+  if (metricKeys.includes(sort.key)) return false
+  if (isDerivedMetricKey(sort.key)) {
+    return !(derivedMetricKey === sort.key && derivedMetricStatus !== 'none')
+  }
+  return true
 }
 
 export function resolveCategoricalKeys(
   folderCategoricalKeys: readonly string[] | undefined,
   similarityActive: boolean,
   similarityItems: readonly BrowseItemPayload[],
+  requiredCategoricalKeys: readonly string[] = [],
 ): string[] {
   if (!similarityActive) return folderCategoricalKeys ? [...folderCategoricalKeys] : []
-  return collectSimilarityCategoricalKeys(similarityItems)
+  return collectSimilarityCategoricalKeys(similarityItems, 250, requiredCategoricalKeys)
+}
+
+export function resolveDerivedMetricTotalItems(
+  searching: boolean,
+  similarityActive: boolean,
+  loadedCount: number,
+  folderTotalItems: number | null | undefined,
+): number {
+  if (similarityActive || searching) return loadedCount
+  return folderTotalItems ?? loadedCount
 }
 
 export function buildStarCounts(

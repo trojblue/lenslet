@@ -75,3 +75,28 @@ review/cleanup:
 - final targeted review subagent 019ea6cd-9c09-7bc0-81aa-43f0782678bc: no actionable issues.
 blockers: none.
 next step: start Sprint 3 at T3.1, derived metric model and normalization.
+---
+2026-06-08T11:11:31Z iteration 3/9
+completed task IDs: T3.1, T3.2, T3.3, T3.4
+files changed:
+- frontend/src/lib/types.ts
+- frontend/src/features/metrics/model/derivedMetric.ts
+- frontend/src/features/metrics/model/__tests__/derivedMetric.test.ts
+- frontend/src/app/hooks/useAppDataScope.ts
+- frontend/src/app/model/appShellSelectors.ts
+- frontend/src/app/__tests__/appShellSelectors.test.ts
+- frontend/src/app/AppShell.tsx
+- docs/20260608_derived_metric_ranking_plan.md
+- docs/ralph/20260608_derived_metric_ranking/progress.txt
+validations:
+- npm --prefix frontend test -- --run src/features/metrics/model/__tests__/derivedMetric.test.ts src/app/__tests__/appShellSelectors.test.ts: passed, 23 tests.
+- npm --prefix frontend test -- --run src/features/browse/model src/features/metrics src/app: passed, 39 files / 200 tests.
+- npm --prefix frontend run build: passed; used for TypeScript/bundling validation only, and packaged assets were not regenerated.
+- git diff --check: passed.
+- python scripts/lint_repo.py: passed; existing warn-only file-size notices remain.
+review/cleanup:
+- cleanup subagent 019ea6dc-97c5-7441-bd4d-4ff9785112d8: no Tier 1 cleanup required.
+- code-review subagent 019ea6df-c6b8-76d0-acb0-15b4a27dee52: found invalid-spec diagnostics, similarity scan-limit, and search partial-warning issues; all fixed.
+- follow-up review subagent 019ea6e8-e383-7060-b1ed-09e745e66df4: no actionable issues.
+blockers: none.
+next step: start Sprint 4 at T4.1, atomic persistence and invalid-state UX.

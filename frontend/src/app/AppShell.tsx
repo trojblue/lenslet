@@ -77,6 +77,8 @@ import {
   getSimilarityCountLabel,
   getSimilarityQueryLabel,
   hasMetricSortValues,
+  resolveSelectedMetricKey,
+  shouldResetUnavailableMetricSort,
 } from './model/appShellSelectors'
 import { shouldShowGridLoading } from './model/loadingState'
 import {
@@ -357,6 +359,7 @@ export default function AppShell({
     similarityItems,
     metricKeys,
     categoricalKeys,
+    derivedMetric,
     items,
     totalCount,
     filteredCount,
@@ -584,23 +587,25 @@ export default function AppShell({
     if (similarityActive) return
     if (!metricKeys.length) return
     setViewState((prev) => {
-      const nextKey = prev.selectedMetric && metricKeys.includes(prev.selectedMetric)
-        ? prev.selectedMetric
-        : metricKeys[0]
+      const nextKey = resolveSelectedMetricKey(prev.selectedMetric, metricKeys, derivedMetric.key)
       if (nextKey === prev.selectedMetric) return prev
       return { ...prev, selectedMetric: nextKey }
     })
-  }, [metricKeys, similarityActive])
+  }, [derivedMetric.key, metricKeys, similarityActive])
 
   useEffect(() => {
-    if (similarityActive) return
-    if (viewState.sort.kind !== 'metric') return
-    if (metricKeys.includes(viewState.sort.key)) return
+    if (!shouldResetUnavailableMetricSort(
+      viewState.sort,
+      metricKeys,
+      similarityActive,
+      derivedMetric.key,
+      derivedMetric.status,
+    )) return
     setViewState((prev) => ({
       ...prev,
       sort: { kind: 'builtin', key: 'added', dir: prev.sort.dir },
     }))
-  }, [metricKeys, viewState.sort, similarityActive])
+  }, [derivedMetric.key, derivedMetric.status, metricKeys, viewState.sort, similarityActive])
 
   const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
   const showFilteredCounts = similarityActive || searching || activeFilterCount > 0

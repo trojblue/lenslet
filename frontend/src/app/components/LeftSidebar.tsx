@@ -1,7 +1,14 @@
 import type { MouseEvent, PointerEvent } from 'react'
 import FolderTree from '../../features/folders/FolderTree'
 import MetricsPanel from '../../features/metrics/MetricsPanel'
-import type { CompareOrderMode, FilterAST, BrowseFolderPayload, BrowseItemPayload, SavedView } from '../../lib/types'
+import type {
+  CompareOrderMode,
+  FilterAST,
+  BrowseFolderPayload,
+  BrowseItemPayload,
+  SavedView,
+  TableSourceColumnsPayload,
+} from '../../lib/types'
 import type { ThemePresetId } from '../../theme/runtime'
 import ThemeSettingsMenu from '../../shared/ui/ThemeSettingsMenu'
 
@@ -41,6 +48,9 @@ type LeftSidebarProps = {
   onAutoloadImageMetadataChange: (enabled: boolean) => void
   compareOrderMode: CompareOrderMode
   onCompareOrderModeChange: (mode: CompareOrderMode) => void
+  tableSourceColumns?: TableSourceColumnsPayload | null
+  tableSourceSwitching?: boolean
+  onTableSourceColumnChange?: (sourceColumn: string) => void
 }
 
 const ROOTS = [{ label: 'Root', path: '/' }]
@@ -88,6 +98,9 @@ export default function LeftSidebar({
   onAutoloadImageMetadataChange,
   compareOrderMode,
   onCompareOrderModeChange,
+  tableSourceColumns,
+  tableSourceSwitching,
+  onTableSourceColumnChange,
 }: LeftSidebarProps): JSX.Element {
   const folderButtonClass = getSidebarIconButtonClass(leftTool === 'folders')
   const metricsButtonClass = getSidebarIconButtonClass(leftTool === 'metrics')
@@ -161,6 +174,9 @@ export default function LeftSidebar({
           onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
           compareOrderMode={compareOrderMode}
           onCompareOrderModeChange={onCompareOrderModeChange}
+          sourceColumns={tableSourceColumns}
+          sourceColumnSwitching={tableSourceSwitching}
+          onSourceColumnChange={onTableSourceColumnChange}
         />
       </div>
       {contentOpen && (

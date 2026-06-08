@@ -1,7 +1,7 @@
 import React from 'react'
 import Dropdown, { type DropdownGroup } from '../Dropdown'
 import SortDirectionIcon from './SortDirectionIcon'
-import type { CompareOrderMode, ViewMode } from '../../../lib/types'
+import type { CompareOrderMode, TableSourceColumnsPayload, ViewMode } from '../../../lib/types'
 import type { ThemePresetId } from '../../../theme/runtime'
 import ThemeSettingsMenu from '../ThemeSettingsMenu'
 import ToolbarFilterMenu from './ToolbarFilterMenu'
@@ -22,6 +22,8 @@ export interface ToolbarMobileDrawerProps {
   themePreset: ThemePresetId
   autoloadImageMetadata: boolean
   compareOrderMode: CompareOrderMode
+  sourceColumns?: TableSourceColumnsPayload | null
+  sourceColumnSwitching?: boolean
   filtersOpen: boolean
   filtersRef: React.RefObject<HTMLDivElement>
   totalFilterCount: number
@@ -49,6 +51,7 @@ export interface ToolbarMobileDrawerProps {
   onThemePresetChange: (themeId: ThemePresetId) => void
   onAutoloadImageMetadataChange: (enabled: boolean) => void
   onCompareOrderModeChange: (mode: CompareOrderMode) => void
+  onSourceColumnChange?: (sourceColumn: string) => void
 }
 
 export default function ToolbarMobileDrawer({
@@ -67,6 +70,8 @@ export default function ToolbarMobileDrawer({
   themePreset,
   autoloadImageMetadata,
   compareOrderMode,
+  sourceColumns,
+  sourceColumnSwitching,
   filtersOpen,
   filtersRef,
   totalFilterCount,
@@ -94,6 +99,7 @@ export default function ToolbarMobileDrawer({
   onThemePresetChange,
   onAutoloadImageMetadataChange,
   onCompareOrderModeChange,
+  onSourceColumnChange,
 }: ToolbarMobileDrawerProps): JSX.Element {
   const canShowUpload = Boolean(onUploadClick)
   const refreshDisabled = refreshBusy || !refreshEnabled || !onRefreshRoot
@@ -129,6 +135,9 @@ export default function ToolbarMobileDrawer({
             onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
             compareOrderMode={compareOrderMode}
             onCompareOrderModeChange={onCompareOrderModeChange}
+            sourceColumns={sourceColumns}
+            sourceColumnSwitching={sourceColumnSwitching}
+            onSourceColumnChange={onSourceColumnChange}
           />
         </div>
         <div className="mobile-drawer-sort-control" data-toolbar-control="drawer-sort">

@@ -55,10 +55,12 @@ import type {
   BrowseItemPayload,
   SortSpec,
   StarRating,
+  TableSourceColumnsPayload,
   ViewMode,
   ViewState,
 } from '../lib/types'
 import { cssVars } from '../lib/cssVars'
+import { fileCache, thumbCache } from '../lib/blobCache'
 import LeftSidebar from './components/LeftSidebar'
 import GridTopStack from './components/GridTopStack'
 import { deriveIndicatorState } from './presenceUi'
@@ -247,6 +249,9 @@ export default function AppShell({
   const [autoloadImageMetadata, setAutoloadImageMetadata] = useState(true)
   const [compareOrderMode, setCompareOrderMode] = useState<CompareOrderMode>('gallery')
   const [scanStableMode, setScanStableMode] = useState(false)
+  const [tableSourceColumns, setTableSourceColumns] = useState<TableSourceColumnsPayload | null>(null)
+  const [tableSourceSwitching, setTableSourceSwitching] = useState(false)
+  const [dismissedTableSourceWarning, setDismissedTableSourceWarning] = useState<string | null>(null)
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
@@ -295,6 +300,26 @@ export default function AppShell({
   const pollingEnabled = usePollingEnabled()
   const oldestInflightAgeMs = useOldestInflightAgeMs()
   const [localTypingActive, setLocalTypingActive] = useState(false)
+
+  const refreshTableSourceColumns = useCallback(async () => {
+    try {
+      const next = await api.getTableSourceColumns()
+      setTableSourceColumns(next.enabled ? next : null)
+    } catch {
+      setTableSourceColumns(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshTableSourceColumns()
+  }, [refreshTableSourceColumns])
+
+  const tableSourceWarningKey = tableSourceColumns?.warning
+    ? `${tableSourceColumns.current ?? ''}:${tableSourceColumns.warning}`
+    : null
+  const tableSourceWarning = tableSourceWarningKey && dismissedTableSourceWarning !== tableSourceWarningKey
+    ? `${tableSourceColumns?.warning ?? ''} Switch image columns from Settings > Source.`
+    : null
 
   useEffect(() => {
     const itemQueryIndex = itemQueryIndexRef.current
@@ -402,6 +427,27 @@ export default function AppShell({
     compareOrderMode,
     focusGridCell,
   })
+
+  const handleTableSourceColumnChange = useCallback((sourceColumn: string) => {
+    if (!sourceColumn || sourceColumn === tableSourceColumns?.current || tableSourceSwitching) return
+    setTableSourceSwitching(true)
+    api.switchTableSourceColumn(sourceColumn)
+      .then((next) => {
+        setTableSourceColumns(next.enabled ? next : null)
+        setDismissedTableSourceWarning(null)
+        fileCache.clear()
+        thumbCache.clear()
+        queryClient.invalidateQueries()
+        setSelectedPaths([])
+        setSimilarityState(null)
+        resetViewerState()
+        setCurrent('/')
+        writeHash('/')
+        setScopeSessionResetToken((token) => token + 1)
+      })
+      .catch(() => {})
+      .finally(() => setTableSourceSwitching(false))
+  }, [queryClient, resetViewerState, setSelectedPaths, tableSourceColumns?.current, tableSourceSwitching])
 
   useEffect(() => {
     const shell = browseShellRef.current
@@ -913,6 +959,9 @@ export default function AppShell({
         onAutoloadImageMetadataChange={setAutoloadImageMetadata}
         compareOrderMode={compareOrderMode}
         onCompareOrderModeChange={setCompareOrderMode}
+        sourceColumns={tableSourceColumns}
+        sourceColumnSwitching={tableSourceSwitching}
+        onSourceColumnChange={handleTableSourceColumnChange}
         multiSelectMode={mobileSelectMode}
         selectedCount={selectedPaths.length}
         onToggleMultiSelectMode={mobileSelectEnabled ? (() => setMobileSelectMode((prev) => !prev)) : undefined}
@@ -973,6 +1022,9 @@ export default function AppShell({
             onAutoloadImageMetadataChange={setAutoloadImageMetadata}
             compareOrderMode={compareOrderMode}
             onCompareOrderModeChange={setCompareOrderMode}
+            tableSourceColumns={tableSourceColumns}
+            tableSourceSwitching={tableSourceSwitching}
+            onTableSourceColumnChange={handleTableSourceColumnChange}
           />
         )}
         <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>
@@ -991,6 +1043,10 @@ export default function AppShell({
               onClearOffView: clearOffViewActivity,
               browserZoomPercent: visibleBrowserZoomPercent,
               onDismissBrowserZoomWarning: dismissBrowserZoomWarning,
+              tableSourceWarning,
+              onDismissTableSourceWarning: tableSourceWarningKey
+                ? () => setDismissedTableSourceWarning(tableSourceWarningKey)
+                : undefined,
             }}
             actionError={null}
             similarity={similarityState ? {

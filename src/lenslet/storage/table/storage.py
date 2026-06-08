@@ -42,6 +42,7 @@ from .input import (
     TableInput,
     TableRow,
     TableRows,
+    _startup_column_values,
     is_table_input,
     table_input_columns,
     table_input_length,
@@ -68,10 +69,17 @@ from ..source.paths import (
 )
 from .schema import (
     coerce_float,
+    coerce_int,
     iter_sample,
     resolve_named_column,
+    resolve_column,
     resolve_path_column,
     resolve_source_column,
+)
+from .source_detection import (
+    normalized_source_text,
+    score_source_column_values,
+    source_column_name_priority,
 )
 from .pyarrow_runtime import require_pyarrow_parquet
 from .row_store import (
@@ -86,6 +94,7 @@ from ..search_text import normalize_search_path
 
 TABLE_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 GC_DISABLE_ROW_THRESHOLD = 100_000
+SOURCE_COLUMN_SAMPLE_SIZE = 100
 
 
 @contextmanager
@@ -144,6 +153,30 @@ class TableStorageOptions:
 
 
 @dataclass(frozen=True, slots=True)
+class TableSourceColumnStatus:
+    name: str
+    selected: bool
+    sample_total: int
+    sample_loadable: int
+    sample_usable: int
+    score: float
+
+    @property
+    def warning(self) -> str | None:
+        if self.selected and self.sample_total > 0 and self.sample_usable == 0:
+            return "The selected source column has no image-like values in the startup sample."
+        return None
+
+
+@dataclass(frozen=True, slots=True)
+class TableSourceColumnState:
+    enabled: bool
+    current: str | None
+    columns: tuple[TableSourceColumnStatus, ...]
+    warning: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class _RowRemoteProbeResult:
     row_idx: int
     path: str
@@ -166,14 +199,8 @@ def _sample_source_kind(values: list[Any], *, sample_size: int = 1024) -> str | 
     kind: str | None = None
     checked = 0
     for raw in values:
-        if raw is None:
-            continue
-        if isinstance(raw, os.PathLike):
-            raw = os.fspath(raw)
-        if not isinstance(raw, str):
-            continue
-        source = raw.strip()
-        if not source:
+        source = normalized_source_text(raw)
+        if source is None:
             continue
         current = "s3" if is_s3_uri(source) else "http" if is_http_url(source) else "local"
         if kind is None:
@@ -337,9 +364,11 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         self._columns = columns
         self._data = data
         self._row_count = row_count
-        self._source_column_was_explicit = options.source_column is not None
+        self._configured_path_column = options.path_column
+        self._configured_categorical_columns = tuple(options.categorical_columns)
+        self._source_column_warning: str | None = None
 
-        self._source_column = resolve_source_column(
+        source_column = resolve_source_column(
             columns,
             data,
             options.source_column,
@@ -348,7 +377,19 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             allow_local=self._allow_local,
             is_loadable_value=self._is_loadable_value,
         )
-        source_values = data.get(self._source_column, [])
+        source_column = self._source_column_with_sample_fallback(
+            source_column,
+            explicit=options.source_column is not None,
+        )
+        self._rebuild_for_source_column(source_column)
+
+    def _rebuild_for_source_column(self, source_column: str) -> None:
+        resolved = resolve_column(self._columns, source_column)
+        if resolved is None:
+            raise ValueError(f"source column '{source_column}' not found")
+        self._ensure_python_column(resolved)
+        self._source_column = resolved
+        source_values = self._data.get(self._source_column, [])
         self._source_kind = _sample_source_kind(source_values)
         if self._source_kind == "http":
             self._s3_prefixes, self._s3_use_bucket = {}, False
@@ -359,24 +400,40 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         else:
             self._s3_prefixes, self._s3_use_bucket = compute_s3_prefixes(source_values)
             self._local_prefix = compute_local_prefix(source_values) if self._allow_local else None
+
         self._path_column = resolve_path_column(
-            columns,
-            options.path_column,
+            self._columns,
+            self._configured_path_column,
             logical_path_columns=self.LOGICAL_PATH_COLUMNS,
         )
-        self._name_column = resolve_named_column(columns, self.NAME_COLUMNS)
-        self._mime_column = resolve_named_column(columns, self.MIME_COLUMNS)
-        self._width_column = resolve_named_column(columns, self.WIDTH_COLUMNS)
-        self._height_column = resolve_named_column(columns, self.HEIGHT_COLUMNS)
-        self._size_column = resolve_named_column(columns, self.SIZE_COLUMNS)
-        self._mtime_column = resolve_named_column(columns, self.MTIME_COLUMNS)
-        self._metrics_column = None
-        for col in columns:
-            if col.lower() == "metrics":
-                self._metrics_column = col
-                break
+        self._path_column_aliases_source = self._auto_path_column_aliases_source_from_data(
+            source_column=self._source_column,
+            path_column=self._path_column,
+            path_column_was_explicit=self._configured_path_column is not None,
+        )
+        if self._path_column and not self._path_column_aliases_source:
+            self._ensure_python_column(self._path_column)
+        self._name_column = resolve_named_column(self._columns, self.NAME_COLUMNS)
+        self._mime_column = resolve_named_column(self._columns, self.MIME_COLUMNS)
+        self._width_column = resolve_named_column(self._columns, self.WIDTH_COLUMNS)
+        self._height_column = resolve_named_column(self._columns, self.HEIGHT_COLUMNS)
+        self._size_column = resolve_named_column(self._columns, self.SIZE_COLUMNS)
+        self._mtime_column = resolve_named_column(self._columns, self.MTIME_COLUMNS)
+        for column in (
+            self._name_column,
+            self._mime_column,
+            self._width_column,
+            self._height_column,
+            self._size_column,
+            self._mtime_column,
+        ):
+            if column:
+                self._ensure_python_column(column)
+        self._metrics_column = next((col for col in self._columns if col.lower() == "metrics"), None)
 
-        if not self._categorical_columns:
+        if self._configured_categorical_columns:
+            self._categorical_columns = self._configured_categorical_columns
+        else:
             self._categorical_columns = infer_categorical_columns(
                 columns=self._columns,
                 data=self._data,
@@ -392,10 +449,12 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             )
 
         self._extensionless_source_trust_scope = self._selected_extensionless_source_trust_scope()
-
         self._index_context = self._build_index_context()
         self._index_columns = build_index_columns(self._index_context)
-        with _bulk_table_gc_pause(row_count):
+        self._thumbnails.clear()
+        self._build_path_index()
+        self._generated_at = datetime.now(timezone.utc).isoformat()
+        with _bulk_table_gc_pause(self._row_count):
             row_store_result = build_table_row_store(
                 self._index_context,
                 columns=self._index_columns,
@@ -403,8 +462,174 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             self._apply_row_store_result(row_store_result)
         if row_store_result.remote_tasks:
             self._probe_row_remote_dimensions(row_store_result.remote_tasks)
-        with _bulk_table_gc_pause(row_count):
+        with _bulk_table_gc_pause(self._row_count):
             self._browse_signature = self._compute_browse_signature()
+        current_status = self._source_column_status(self._source_column, selected=True)
+        if row_store_result.store.total_rows() == 0:
+            self._source_column_warning = "The selected source column produced no loadable gallery entries."
+        else:
+            self._source_column_warning = current_status.warning
+
+    def _source_column_with_sample_fallback(self, source_column: str, *, explicit: bool) -> str:
+        if explicit:
+            return source_column
+        current_status = self._source_column_status(source_column, selected=True)
+        if current_status.sample_usable > 0 or current_status.sample_total == 0:
+            return source_column
+        for status in self._source_column_statuses(selected=source_column):
+            if status.name == source_column:
+                continue
+            if status.sample_usable > 0:
+                return status.name
+        return source_column
+
+    def _ensure_python_column(self, column: str) -> None:
+        values = self._data.get(column)
+        if values is None or isinstance(values, list):
+            return
+        to_pylist = getattr(values, "to_pylist", None)
+        if callable(to_pylist):
+            self._data[column] = _startup_column_values(values)
+
+    def _sample_column_values(self, column: str, sample_size: int = SOURCE_COLUMN_SAMPLE_SIZE) -> list[Any]:
+        values = self._data.get(column)
+        if values is None:
+            return []
+        if isinstance(values, list):
+            return values[:sample_size]
+        sliced = values
+        if hasattr(sliced, "slice"):
+            try:
+                sliced = sliced.slice(0, sample_size)
+            except Exception:
+                sliced = values
+        to_pylist = getattr(sliced, "to_pylist", None)
+        if callable(to_pylist):
+            try:
+                return list(to_pylist())
+            except Exception:
+                return []
+        result: list[Any] = []
+        try:
+            iterator = iter(values)
+        except TypeError:
+            return []
+        for value in iterator:
+            result.append(value)
+            if len(result) >= sample_size:
+                break
+        return result
+
+    def _sample_column_strings(self, column: str, sample_size: int = 1024) -> list[str] | None:
+        sampled = self._sample_column_values(column, sample_size)
+        result: list[str] = []
+        for raw in sampled:
+            value = normalized_source_text(raw)
+            if value is not None:
+                result.append(value)
+        return result
+
+    def _sample_dimension_present(self, row_idx: int) -> bool:
+        width_column = resolve_named_column(self._columns, self.WIDTH_COLUMNS)
+        height_column = resolve_named_column(self._columns, self.HEIGHT_COLUMNS)
+        if width_column is None or height_column is None:
+            return False
+        width = coerce_int(self._column_value(width_column, row_idx)) or 0
+        height = coerce_int(self._column_value(height_column, row_idx)) or 0
+        return width > 0 and height > 0
+
+    def _column_value(self, column: str, row_idx: int) -> Any:
+        values = self._data.get(column)
+        if values is None:
+            return None
+        try:
+            return values[row_idx]
+        except (IndexError, KeyError, TypeError):
+            return None
+
+    def _sample_source_value_usable(self, column: str, value: str, row_idx: int) -> bool:
+        if not self._is_loadable_value(value):
+            return False
+        if _is_supported_table_image(extract_name(value)):
+            return True
+        priority = source_column_name_priority(column)
+        if is_s3_uri(value) or is_http_url(value):
+            if column.lower() in self.EXTENSIONLESS_IMAGE_SOURCE_COLUMNS:
+                return True
+            return priority >= 80 and self._sample_dimension_present(row_idx)
+        return False
+
+    def _source_column_status(self, column: str, *, selected: bool) -> TableSourceColumnStatus:
+        sample = self._sample_column_values(column)
+        total = 0
+        loadable = 0
+        usable = 0
+        for row_idx, raw_value in enumerate(sample):
+            value = normalized_source_text(raw_value)
+            if value is None:
+                continue
+            total += 1
+            if self._is_loadable_value(value):
+                loadable += 1
+            if self._sample_source_value_usable(column, value, row_idx):
+                usable += 1
+        score = 0.0
+        scored = score_source_column_values(
+            column,
+            sample,
+            is_loadable_value=self._is_loadable_value,
+            loadable_threshold=0.0,
+        )
+        if scored is not None:
+            score = scored.score
+        return TableSourceColumnStatus(
+            name=column,
+            selected=selected,
+            sample_total=total,
+            sample_loadable=loadable,
+            sample_usable=usable,
+            score=score,
+        )
+
+    def _source_column_statuses(self, *, selected: str | None = None) -> tuple[TableSourceColumnStatus, ...]:
+        statuses: list[TableSourceColumnStatus] = []
+        for column in self._columns:
+            status = self._source_column_status(column, selected=column == selected)
+            if status.sample_total == 0 and source_column_name_priority(column) <= 0:
+                continue
+            if status.sample_loadable == 0 and source_column_name_priority(column) <= 0:
+                continue
+            statuses.append(status)
+        return tuple(sorted(
+            statuses,
+            key=lambda status: (
+                status.name != selected,
+                -status.sample_usable,
+                -status.score,
+                status.name.lower(),
+            ),
+        ))
+
+    def table_source_column_state(self) -> TableSourceColumnState:
+        statuses = self._source_column_statuses(selected=self._source_column)
+        warning = self._source_column_warning
+        if warning is None:
+            selected_status = next((status for status in statuses if status.selected), None)
+            warning = selected_status.warning if selected_status is not None else None
+        return TableSourceColumnState(
+            enabled=True,
+            current=self._source_column,
+            columns=statuses,
+            warning=warning,
+        )
+
+    def switch_source_column(self, source_column: str) -> TableSourceColumnState:
+        resolved = resolve_column(self._columns, source_column)
+        if resolved is None:
+            raise ValueError(f"source column '{source_column}' not found")
+        if resolved != self._source_column:
+            self._rebuild_for_source_column(resolved)
+        return self.table_source_column_state()
 
     def _startup_python_columns(
         self,
@@ -467,15 +692,10 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             return None
         result: list[str] = []
         for raw in sampled:
-            if raw is None:
-                continue
-            if isinstance(raw, os.PathLike):
-                raw = os.fspath(raw)
-            if not isinstance(raw, str):
+            value = normalized_source_text(raw)
+            if value is None:
                 return None
-            value = raw.strip()
-            if value:
-                result.append(value)
+            result.append(value)
         return result
 
     def _auto_path_column_aliases_source(
@@ -490,6 +710,30 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             return False
         source_values = self._sample_pyarrow_strings(table, source_column)
         path_values = self._sample_pyarrow_strings(table, path_column)
+        if not source_values or not path_values or len(source_values) != len(path_values):
+            return False
+        source_matches_path = True
+        http_source_matches_path = True
+        for source, path in zip(source_values, path_values):
+            if source != path:
+                source_matches_path = False
+            if not is_http_url(source) or normalize_item_path(derive_http_logical_path(source)) != normalize_item_path(path):
+                http_source_matches_path = False
+            if not source_matches_path and not http_source_matches_path:
+                return False
+        return True
+
+    def _auto_path_column_aliases_source_from_data(
+        self,
+        *,
+        source_column: str,
+        path_column: str | None,
+        path_column_was_explicit: bool,
+    ) -> bool:
+        if path_column is None or path_column_was_explicit or path_column == source_column:
+            return False
+        source_values = self._sample_column_strings(source_column)
+        path_values = self._sample_column_strings(path_column)
         if not source_values or not path_values or len(source_values) != len(path_values):
             return False
         source_matches_path = True
@@ -746,7 +990,10 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             return os.path.exists(value)
         if self.root:
             try:
-                resolved = self._resolve_local_source(value)
+                if self._skip_local_realpath_validation:
+                    resolved = self._resolve_local_source_lexical(value)
+                else:
+                    resolved = self._resolve_local_source(value)
             except ValueError:
                 return False
             return os.path.exists(resolved)

@@ -42,6 +42,22 @@ export type BrowseFolderPathsPayload = {
   paths: string[]
 }
 
+export type TableSourceColumnOption = {
+  name: string
+  selected: boolean
+  sample_total: number
+  sample_loadable: number
+  sample_usable: number
+  warning?: string | null
+}
+
+export type TableSourceColumnsPayload = {
+  enabled: boolean
+  current?: string | null
+  columns: TableSourceColumnOption[]
+  warning?: string | null
+}
+
 export type Sidecar = {
   v: 1
   tags: string[]

@@ -1544,7 +1544,7 @@
 
 .theme-settings-menu-panel {
   z-index: var(--z-menu);
-  min-width: 190px;
+  width: min(310px, calc(100vw - 16px));
   padding: 8px;
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -1619,6 +1619,32 @@
   border-radius: 999px;
   border: 1px solid var(--border-subtle);
   flex-shrink: 0;
+}
+
+.theme-settings-menu-field {
+  width: 100%;
+  border-radius: 7px;
+  padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
+}
+
+.theme-settings-menu-select {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+.theme-settings-menu-select:disabled {
+  opacity: 0.65;
 }
 
 .theme-settings-menu-toggle {

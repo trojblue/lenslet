@@ -572,6 +572,95 @@ def test_auto_source_detection_prefers_image_url_over_page_source_url(
     ]
 
 
+def test_auto_source_detection_samples_before_falling_back_from_bad_extensionless_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fail_probe(self: TableStorage, source: str) -> bool:
+        raise AssertionError(f"fallback should avoid probing the bad source column: {source}")
+
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", _fail_probe)
+    rows = [
+        {
+            "image_url": "https://pages.example.test/report-a",
+            "candidate": "https://images.example.test/a.jpg",
+        },
+        {
+            "image_url": "https://pages.example.test/report-b",
+            "candidate": "https://images.example.test/b.jpg",
+        },
+    ]
+
+    storage = _table_storage(rows, allow_local=False, skip_dimension_probe=True)
+
+    assert storage._source_column == "candidate"
+    assert storage.count_in_scope("/") == 2
+    state = storage.table_source_column_state()
+    selected = next(column for column in state.columns if column.selected)
+    assert state.current == "candidate"
+    assert selected.sample_usable == 2
+
+
+def test_source_column_state_warns_when_selected_column_loads_no_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", lambda self, source: False)
+    rows = [
+        {
+            "image_url": "https://pages.example.test/report-a",
+            "candidate": "https://images.example.test/a.jpg",
+        },
+        {
+            "image_url": "https://pages.example.test/report-b",
+            "candidate": "https://images.example.test/b.jpg",
+        },
+    ]
+
+    storage = _table_storage(
+        rows,
+        source_column="image_url",
+        allow_local=False,
+        skip_dimension_probe=True,
+    )
+
+    state = storage.table_source_column_state()
+    assert storage.count_in_scope("/") == 0
+    assert state.current == "image_url"
+    assert state.warning == "The selected source column produced no loadable gallery entries."
+
+
+def test_source_column_switch_rebuilds_table_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", lambda self, source: False)
+    rows = [
+        {
+            "image_url": "https://pages.example.test/report-a",
+            "candidate": "https://images.example.test/a.jpg",
+        },
+        {
+            "image_url": "https://pages.example.test/report-b",
+            "candidate": "https://images.example.test/b.jpg",
+        },
+    ]
+
+    storage = _table_storage(
+        rows,
+        source_column="image_url",
+        allow_local=False,
+        skip_dimension_probe=True,
+    )
+
+    state = storage.switch_source_column("candidate")
+
+    assert state.current == "candidate"
+    assert state.warning is None
+    assert storage.count_in_scope("/") == 2
+    assert [item.source for item in storage.items_in_scope("/")] == [
+        "https://images.example.test/a.jpg",
+        "https://images.example.test/b.jpg",
+    ]
+
+
 def test_explicit_extensionless_source_column_skips_rows_when_probe_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

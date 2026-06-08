@@ -14,15 +14,18 @@ export type StatusBarProps = {
   onClearOffView: () => void
   browserZoomPercent?: number | null
   onDismissBrowserZoomWarning?: () => void
+  tableSourceWarning?: string | null
+  onDismissTableSourceWarning?: () => void
 }
 
-type StatusBarStateInput = Omit<StatusBarProps, 'onClearOffView' | 'onDismissBrowserZoomWarning'>
+type StatusBarStateInput = Omit<StatusBarProps, 'onClearOffView' | 'onDismissBrowserZoomWarning' | 'onDismissTableSourceWarning'>
 
 type StatusBarState = {
   offViewLabel: string
   canReveal: boolean
   zoomPercent: number | null
   showZoomWarning: boolean
+  showTableSourceWarning: boolean
   showIndexingRunning: boolean
   showIndexingError: boolean
   indexingScopeLabel: string
@@ -40,6 +43,7 @@ function deriveStatusBarState({
   onRevealOffView,
   canRevealOffView = false,
   browserZoomPercent,
+  tableSourceWarning,
 }: StatusBarStateInput): StatusBarState {
   const offViewLabel = offViewSummary?.names.length
     ? ` (${offViewSummary.names.join(', ')}${offViewSummary.extra ? ` +${offViewSummary.extra}` : ''})`
@@ -47,6 +51,7 @@ function deriveStatusBarState({
   const canReveal = canRevealOffView && onRevealOffView != null
   const zoomPercent = typeof browserZoomPercent === 'number' ? browserZoomPercent : null
   const showZoomWarning = zoomPercent !== null && Math.abs(zoomPercent - 100) >= 2
+  const showTableSourceWarning = !!tableSourceWarning
   const showIndexingRunning = indexing?.state === 'running'
   const showIndexingError = indexing?.state === 'error'
   const indexingScopeLabel = indexing?.scope && indexing.scope !== '/' ? ` (${indexing.scope})` : ''
@@ -61,11 +66,13 @@ function deriveStatusBarState({
   const showSwitchBanner = showSwitchToMostRecentBanner && onSwitchToMostRecent != null
   const showAnyBanner =
     !persistenceEnabled || showIndexingRunning || showIndexingError || showSwitchBanner || showZoomWarning || !!offViewSummary
+    || showTableSourceWarning
   return {
     offViewLabel,
     canReveal,
     zoomPercent,
     showZoomWarning,
+    showTableSourceWarning,
     showIndexingRunning,
     showIndexingError,
     indexingScopeLabel,
@@ -90,12 +97,15 @@ export default function StatusBar({
   onClearOffView,
   browserZoomPercent,
   onDismissBrowserZoomWarning,
+  tableSourceWarning,
+  onDismissTableSourceWarning,
 }: StatusBarProps): JSX.Element | null {
   const {
     offViewLabel,
     canReveal,
     zoomPercent,
     showZoomWarning,
+    showTableSourceWarning,
     showIndexingRunning,
     showIndexingError,
     indexingScopeLabel,
@@ -111,6 +121,7 @@ export default function StatusBar({
     onRevealOffView,
     canRevealOffView,
     browserZoomPercent,
+    tableSourceWarning,
   })
   if (!showAnyBanner) return null
   return (
@@ -135,6 +146,25 @@ export default function StatusBar({
             <span className="font-semibold">Indexing failed.</span>
             {' '}
             {indexing?.error || 'Open server logs for details.'}
+          </div>
+        )}
+        {showTableSourceWarning && (
+          <div className="ui-banner ui-banner-accent text-xs flex items-center justify-between gap-3">
+            <span>
+              <span className="font-semibold">Image source warning.</span>
+              {' '}
+              {tableSourceWarning}
+            </span>
+            {onDismissTableSourceWarning && (
+              <button
+                type="button"
+                className="text-muted hover:text-text transition-colors text-base leading-none shrink-0"
+                onClick={onDismissTableSourceWarning}
+                aria-label="Dismiss image source warning"
+              >
+                ×
+              </button>
+            )}
           </div>
         )}
         {showSwitchBanner && (

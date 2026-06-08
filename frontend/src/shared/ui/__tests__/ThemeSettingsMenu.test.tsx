@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import ThemeSettingsMenu, {
   getThemeMenuPanelPosition,
   reduceThemeSettingsMenuOpenState,
+  resolveSourceColumnMenuState,
   resolveThemeMenuSelection,
 } from '../ThemeSettingsMenu'
 
@@ -27,6 +28,34 @@ describe('ThemeSettingsMenu selection model', () => {
   it('normalizes unknown selection to default', () => {
     expect(resolveThemeMenuSelection('teal')).toBe('teal')
     expect(resolveThemeMenuSelection('not-a-theme')).toBe('default')
+  })
+
+  it('resolves source column selector state from table source options', () => {
+    const state = resolveSourceColumnMenuState({
+      enabled: true,
+      current: 'image_url',
+      columns: [
+        {
+          name: 'image_url',
+          selected: true,
+          sample_total: 100,
+          sample_loadable: 0,
+          sample_usable: 0,
+        },
+        {
+          name: 'candidate',
+          selected: false,
+          sample_total: 100,
+          sample_loadable: 100,
+          sample_usable: 100,
+        },
+      ],
+      warning: 'The selected source column produced no loadable gallery entries.',
+    })
+
+    expect(state.enabled).toBe(true)
+    expect(state.selectedSourceColumn).toBe('image_url')
+    expect(state.selectedSourceStatus?.sample_usable).toBe(0)
   })
 })
 

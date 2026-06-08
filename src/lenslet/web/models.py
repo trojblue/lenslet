@@ -53,6 +53,26 @@ class BrowseFolderPathsPayload(BaseModel):
     paths: list[str] = Field(default_factory=list)
 
 
+class TableSourceColumnOptionPayload(BaseModel):
+    name: str
+    selected: bool = False
+    sample_total: int = 0
+    sample_loadable: int = 0
+    sample_usable: int = 0
+    warning: str | None = None
+
+
+class TableSourceColumnsPayload(BaseModel):
+    enabled: bool
+    current: str | None = None
+    columns: list[TableSourceColumnOptionPayload] = Field(default_factory=list)
+    warning: str | None = None
+
+
+class TableSourceColumnSwitchRequest(BaseModel):
+    source_column: str
+
+
 class Sidecar(BaseModel):
     v: int = 1
     tags: list[str] = Field(default_factory=list)

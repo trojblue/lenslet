@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { THEME_PRESETS, resolveThemePresetId, type ThemePresetId } from '../../theme/runtime'
-import type { CompareOrderMode } from '../../lib/types'
+import type { CompareOrderMode, TableSourceColumnOption, TableSourceColumnsPayload } from '../../lib/types'
 import {
   clampMenuPosition,
   getVisibleViewportBounds,
@@ -20,12 +20,21 @@ type ThemeSettingsMenuProps = {
   onAutoloadImageMetadataChange?: (enabled: boolean) => void
   compareOrderMode?: CompareOrderMode
   onCompareOrderModeChange?: (mode: CompareOrderMode) => void
+  sourceColumns?: TableSourceColumnsPayload | null
+  sourceColumnSwitching?: boolean
+  onSourceColumnChange?: (sourceColumn: string) => void
 }
 
 type ThemeMenuOption = {
   id: ThemePresetId
   label: string
   accent: string
+}
+
+export type SourceColumnMenuState = {
+  enabled: boolean
+  selectedSourceColumn: string
+  selectedSourceStatus: TableSourceColumnOption | null
 }
 
 type RectLike = {
@@ -97,6 +106,17 @@ export function resolveThemeMenuSelection(value: string | null | undefined): The
   return resolveThemePresetId(value)
 }
 
+export function resolveSourceColumnMenuState(
+  sourceColumns?: TableSourceColumnsPayload | null,
+): SourceColumnMenuState {
+  const selectedSourceColumn = sourceColumns?.current ?? ''
+  return {
+    enabled: sourceColumns?.enabled === true && sourceColumns.columns.length > 0,
+    selectedSourceColumn,
+    selectedSourceStatus: sourceColumns?.columns.find((column) => column.name === selectedSourceColumn) ?? null,
+  }
+}
+
 export function reduceThemeSettingsMenuOpenState(open: boolean, intent: ThemeSettingsMenuCloseIntent): boolean {
   if (intent === 'toggle') return !open
   return false
@@ -117,6 +137,9 @@ export default function ThemeSettingsMenu({
   onAutoloadImageMetadataChange,
   compareOrderMode = 'gallery',
   onCompareOrderModeChange,
+  sourceColumns = null,
+  sourceColumnSwitching = false,
+  onSourceColumnChange,
 }: ThemeSettingsMenuProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -126,6 +149,9 @@ export default function ThemeSettingsMenu({
   const selectedTheme = THEME_PRESETS[selectedThemeId]
   const supportsInspectorAutoloadSetting = typeof onAutoloadImageMetadataChange === 'function'
   const supportsCompareOrderSetting = typeof onCompareOrderModeChange === 'function'
+  const sourceColumnState = resolveSourceColumnMenuState(sourceColumns)
+  const supportsSourceColumnSetting = sourceColumnState.enabled && typeof onSourceColumnChange === 'function'
+  const { selectedSourceColumn, selectedSourceStatus } = sourceColumnState
   const updatePanelPosition = useCallback(() => {
     if (!open || typeof window === 'undefined') return
     const rootElement = rootRef.current
@@ -232,6 +258,34 @@ export default function ThemeSettingsMenu({
           )
         })}
       </div>
+      {supportsSourceColumnSetting && (
+        <>
+          <div className="theme-settings-menu-divider" />
+          <div className="theme-settings-menu-header">Source</div>
+          <div className="theme-settings-menu-options">
+            <label className="theme-settings-menu-field">
+              <span className="theme-settings-menu-option-label">Image column</span>
+              <select
+                className="theme-settings-menu-select"
+                value={selectedSourceColumn}
+                disabled={sourceColumnSwitching}
+                onChange={(event) => onSourceColumnChange?.(event.currentTarget.value)}
+              >
+                {sourceColumns.columns.map((column) => (
+                  <option key={column.name} value={column.name}>
+                    {column.name}
+                  </option>
+                ))}
+              </select>
+              {selectedSourceStatus && (
+                <span className="theme-settings-menu-option-subtitle">
+                  {selectedSourceStatus.sample_usable} / {selectedSourceStatus.sample_total} sampled rows look image-like
+                </span>
+              )}
+            </label>
+          </div>
+        </>
+      )}
       {supportsInspectorAutoloadSetting && (
         <>
           <div className="theme-settings-menu-divider" />

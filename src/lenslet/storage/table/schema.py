@@ -112,6 +112,11 @@ def resolve_path_column(
 def coerce_float(value: object) -> float | None:
     if value is None:
         return None
+    if hasattr(value, "as_py"):
+        try:
+            value = value.as_py()
+        except Exception:
+            return None
     if isinstance(value, (int, float)):
         return float(value)
     try:
@@ -123,6 +128,11 @@ def coerce_float(value: object) -> float | None:
 def coerce_int(value: object) -> int | None:
     if value is None:
         return None
+    if hasattr(value, "as_py"):
+        try:
+            value = value.as_py()
+        except Exception:
+            return None
     if isinstance(value, int):
         return value
     if isinstance(value, float):
@@ -136,6 +146,11 @@ def coerce_int(value: object) -> int | None:
 def coerce_timestamp(value: object) -> float | None:
     if value is None:
         return None
+    if hasattr(value, "as_py"):
+        try:
+            value = value.as_py()
+        except Exception:
+            return None
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, datetime):

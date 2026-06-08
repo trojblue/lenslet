@@ -81,4 +81,15 @@ describe('StatusBar indexing banner lifecycle', () => {
     expect(html).toContain('Browser zoom 110%.')
     expect(html).toContain('aria-label="Dismiss browser zoom warning"')
   })
+
+  it('renders a dismiss action for table source warnings', () => {
+    const html = renderStatusBar({
+      tableSourceWarning: 'The selected source column produced no loadable gallery entries.',
+      onDismissTableSourceWarning: noop,
+    })
+
+    expect(html).toContain('Image source warning.')
+    expect(html).toContain('no loadable gallery entries')
+    expect(html).toContain('aria-label="Dismiss image source warning"')
+  })
 })

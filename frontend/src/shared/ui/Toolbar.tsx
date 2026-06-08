@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import Dropdown from './Dropdown'
 import SyncIndicator, { type SyncIndicatorData } from './SyncIndicator'
-import type { CompareOrderMode, SortSpec, ViewMode } from '../../lib/types'
+import type { CompareOrderMode, SortSpec, TableSourceColumnsPayload, ViewMode } from '../../lib/types'
 import { LAYOUT_MEDIA_QUERIES } from '../../lib/breakpoints'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import SortDirectionIcon from './toolbar/SortDirectionIcon'
@@ -61,6 +61,9 @@ export interface ToolbarProps {
   onAutoloadImageMetadataChange: (enabled: boolean) => void
   compareOrderMode: CompareOrderMode
   onCompareOrderModeChange: (mode: CompareOrderMode) => void
+  sourceColumns?: TableSourceColumnsPayload | null
+  sourceColumnSwitching?: boolean
+  onSourceColumnChange?: (sourceColumn: string) => void
   multiSelectMode?: boolean
   selectedCount?: number
   onToggleMultiSelectMode?: () => void
@@ -119,6 +122,9 @@ export default function Toolbar({
   onAutoloadImageMetadataChange,
   compareOrderMode,
   onCompareOrderModeChange,
+  sourceColumns,
+  sourceColumnSwitching,
+  onSourceColumnChange,
   multiSelectMode = false,
   selectedCount = 0,
   onToggleMultiSelectMode,
@@ -587,6 +593,8 @@ export default function Toolbar({
           themePreset={themePreset}
           autoloadImageMetadata={autoloadImageMetadata}
           compareOrderMode={compareOrderMode}
+          sourceColumns={sourceColumns}
+          sourceColumnSwitching={sourceColumnSwitching}
           filtersOpen={filtersOpen}
           filtersRef={filtersRef}
           totalFilterCount={totalFilterCount}
@@ -617,6 +625,7 @@ export default function Toolbar({
           onThemePresetChange={onThemePresetChange}
           onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
           onCompareOrderModeChange={onCompareOrderModeChange}
+          onSourceColumnChange={onSourceColumnChange}
         />
       )}
     </div>

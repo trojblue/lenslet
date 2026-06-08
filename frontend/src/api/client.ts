@@ -24,6 +24,7 @@ import type {
   PresenceEvent,
   ItemUpdatedEvent,
   MetricsUpdatedEvent,
+  TableSourceColumnsPayload,
 } from '../lib/types'
 import { apiUrl } from './base'
 
@@ -545,6 +546,18 @@ export const api = {
 
   getHealth: (): Promise<HealthResponse> => {
     return fetchJSON<HealthResponse>(apiUrl('/health')).promise
+  },
+
+  getTableSourceColumns: (): Promise<TableSourceColumnsPayload> => {
+    return fetchJSON<TableSourceColumnsPayload>(apiUrl('/table/source-columns')).promise
+  },
+
+  switchTableSourceColumn: (sourceColumn: string): Promise<TableSourceColumnsPayload> => {
+    return fetchJSON<TableSourceColumnsPayload>(apiUrl('/table/source-column'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_column: sourceColumn }),
+    }).promise
   },
 
   joinPresence: (galleryId: string, leaseId?: string): Promise<PresenceSessionResponse> => {

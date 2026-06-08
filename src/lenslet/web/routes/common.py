@@ -12,6 +12,7 @@ from .folders import register_folder_routes
 from .items import register_item_routes
 from .media import register_media_routes
 from .search import register_search_routes
+from .table_settings import register_table_settings_routes
 
 
 def register_common_api_routes(
@@ -26,3 +27,4 @@ def register_common_api_routes(
     register_event_routes(app)
     register_media_routes(app)
     register_search_routes(app, to_item)
+    register_table_settings_routes(app)

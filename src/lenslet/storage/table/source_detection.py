@@ -58,6 +58,11 @@ _EXACT_SOURCE_NAME_PRIORITIES = {
 def normalized_source_text(value: object) -> str | None:
     if value is None:
         return None
+    if hasattr(value, "as_py"):
+        try:
+            value = value.as_py()
+        except Exception:
+            return None
     if isinstance(value, float) and math.isnan(value):
         return None
     if isinstance(value, os.PathLike):

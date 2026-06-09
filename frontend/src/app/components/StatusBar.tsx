@@ -5,6 +5,8 @@ type HealthIndexing = HealthResponse['indexing'] | null
 
 export type StatusBarProps = {
   persistenceEnabled: boolean
+  showPersistenceWarning?: boolean
+  onDismissPersistenceWarning?: () => void
   indexing?: HealthIndexing
   showSwitchToMostRecentBanner?: boolean
   onSwitchToMostRecent?: () => void
@@ -22,6 +24,7 @@ export type StatusBarProps = {
 type StatusBarStateInput = Omit<
   StatusBarProps,
   'onClearOffView' | 'onDismissBrowserZoomWarning' | 'onDismissTableSourceWarning'
+  | 'onDismissPersistenceWarning'
 >
 
 type StatusBarState = {
@@ -35,11 +38,13 @@ type StatusBarState = {
   indexingScopeLabel: string
   indexingProgressLabel: string | null
   showSwitchBanner: boolean
+  showReadOnlyWarning: boolean
   showAnyBanner: boolean
 }
 
 function deriveStatusBarState({
   persistenceEnabled,
+  showPersistenceWarning,
   indexing = null,
   showSwitchToMostRecentBanner = false,
   onSwitchToMostRecent,
@@ -70,8 +75,9 @@ function deriveStatusBarState({
     return `${Math.min(done ?? 0, total)} / ${total}`
   })()
   const showSwitchBanner = showSwitchToMostRecentBanner && onSwitchToMostRecent != null
+  const showReadOnlyWarning = !persistenceEnabled && showPersistenceWarning !== false
   const showAnyBanner = (
-    !persistenceEnabled
+    showReadOnlyWarning
     || showIndexingRunning
     || showIndexingError
     || showSwitchBanner
@@ -92,6 +98,7 @@ function deriveStatusBarState({
     indexingProgressLabel,
     showSwitchBanner,
     showAnyBanner,
+    showReadOnlyWarning,
   }
 }
 
@@ -101,6 +108,8 @@ export function hasStatusBarContent(props: StatusBarProps): boolean {
 
 export default function StatusBar({
   persistenceEnabled,
+  showPersistenceWarning,
+  onDismissPersistenceWarning,
   indexing = null,
   showSwitchToMostRecentBanner = false,
   onSwitchToMostRecent,
@@ -126,8 +135,10 @@ export default function StatusBar({
     indexingProgressLabel,
     showSwitchBanner,
     showAnyBanner,
+    showReadOnlyWarning,
   } = deriveStatusBarState({
     persistenceEnabled,
+    showPersistenceWarning,
     indexing,
     showSwitchToMostRecentBanner,
     onSwitchToMostRecent,
@@ -142,9 +153,21 @@ export default function StatusBar({
   return (
     <div className="border-b border-border bg-panel">
       <div className="px-3 py-2 flex flex-col gap-2">
-        {!persistenceEnabled && (
-          <div className="ui-banner ui-banner-danger text-xs">
-            <span className="font-semibold">Not persisted.</span> Workspace is read-only; edits stay in memory until restart.
+        {showReadOnlyWarning && (
+          <div className="ui-banner ui-banner-danger text-xs flex items-center justify-between gap-3">
+            <span>
+              <span className="font-semibold">Not persisted.</span> Workspace is read-only; edits stay in memory until restart.
+            </span>
+            {onDismissPersistenceWarning && (
+              <button
+                type="button"
+                className="text-muted hover:text-text transition-colors text-base leading-none shrink-0"
+                onClick={onDismissPersistenceWarning}
+                aria-label="Dismiss persistence warning"
+              >
+                ×
+              </button>
+            )}
           </div>
         )}
         {showIndexingRunning && (

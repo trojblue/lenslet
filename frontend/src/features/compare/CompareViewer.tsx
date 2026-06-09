@@ -7,10 +7,12 @@ import type { BrowseItemPayload } from '../../lib/types'
 import { buildComparePairKey, shouldAutoFitComparePair } from './compareAutoFit'
 import { useDividerDrag } from './hooks/useDividerDrag'
 import { useCompareZoomPan } from './hooks/useCompareZoomPan'
+import { directOriginalImageUrl } from '../media/originalImageResource'
 
 interface CompareViewerProps {
   aItem: BrowseItemPayload | null
   bItem: BrowseItemPayload | null
+  proxyHttpOriginals?: boolean
   index: number
   total: number
   canPrev: boolean
@@ -22,6 +24,7 @@ interface CompareViewerProps {
 export default function CompareViewer({
   aItem,
   bItem,
+  proxyHttpOriginals = false,
   index,
   total,
   canPrev,
@@ -99,8 +102,14 @@ export default function CompareViewer({
     return () => window.removeEventListener('keydown', onKey)
   }, [onNavigate, canPrev, canNext])
 
-  const aUrl = useBlobUrl(aPath ? () => api.getFile(aPath) : null, [aPath])
-  const bUrl = useBlobUrl(bPath ? () => api.getFile(bPath) : null, [bPath])
+  const aDirectUrl = directOriginalImageUrl(aItem, proxyHttpOriginals)
+  const bDirectUrl = directOriginalImageUrl(bItem, proxyHttpOriginals)
+  const aBlobUrl = useBlobUrl(aPath && !aDirectUrl ? () => api.getFile(aPath) : null, [aPath, aDirectUrl])
+  const bBlobUrl = useBlobUrl(bPath && !bDirectUrl ? () => api.getFile(bPath) : null, [bPath, bDirectUrl])
+  const aUrl = aDirectUrl ?? aBlobUrl
+  const bUrl = bDirectUrl ?? bBlobUrl
+  const aResourceIdentity = aDirectUrl ? `${aPath ?? ''}\n${aDirectUrl}` : aUrl
+  const bResourceIdentity = bDirectUrl ? `${bPath ?? ''}\n${bDirectUrl}` : bUrl
   const aThumb = useBlobUrl(aPath ? () => api.getThumb(aPath) : null, [aPath])
   const bThumb = useBlobUrl(bPath ? () => api.getThumb(bPath) : null, [bPath])
   const markImageAReady = useCallback(() => {
@@ -157,7 +166,7 @@ export default function CompareViewer({
   // URL changes bind the blob URL to the current path; path-only renders with
   // the previous URL must stay hidden until a new URL arrives.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aUrl])
+  }, [aResourceIdentity])
 
   useEffect(() => {
     if (!bUrl) {
@@ -174,7 +183,7 @@ export default function CompareViewer({
   // URL changes bind the blob URL to the current path; path-only renders with
   // the previous URL must stay hidden until a new URL arrives.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bUrl])
+  }, [bResourceIdentity])
 
   const handleStagePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement | null

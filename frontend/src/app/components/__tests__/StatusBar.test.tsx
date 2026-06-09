@@ -82,6 +82,25 @@ describe('StatusBar indexing banner lifecycle', () => {
     expect(html).toContain('aria-label="Dismiss browser zoom warning"')
   })
 
+  it('renders a dismiss action for the read-only workspace warning', () => {
+    const html = renderStatusBar({
+      persistenceEnabled: false,
+      onDismissPersistenceWarning: noop,
+    })
+
+    expect(html).toContain('Not persisted.')
+    expect(html).toContain('aria-label="Dismiss persistence warning"')
+  })
+
+  it('hides the read-only workspace warning after dismissal', () => {
+    const html = renderStatusBar({
+      persistenceEnabled: false,
+      showPersistenceWarning: false,
+    })
+
+    expect(html).not.toContain('Not persisted.')
+  })
+
   it('renders a dismiss action for table source warnings', () => {
     const html = renderStatusBar({
       tableSourceWarning: 'The selected source column produced no loadable gallery entries.',

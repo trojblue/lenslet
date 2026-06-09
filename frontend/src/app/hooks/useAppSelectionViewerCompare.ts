@@ -99,6 +99,20 @@ export function resolveCompareOrderedItems(
   return resolveGalleryOrderedItems(selectedPaths, items)
 }
 
+export function resolveAdjacentImagePath(
+  itemPaths: readonly string[],
+  currentPath: string | null | undefined,
+  delta: number,
+): string | null {
+  if (!itemPaths.length || !currentPath) return null
+  const idx = itemPaths.indexOf(currentPath)
+  if (idx === -1) return null
+  const next = Math.min(itemPaths.length - 1, Math.max(0, idx + delta))
+  const nextPath = itemPaths[next]
+  if (!nextPath || nextPath === currentPath) return null
+  return nextPath
+}
+
 export function useAppSelectionViewerCompare({
   current,
   itemPaths,
@@ -111,6 +125,7 @@ export function useAppSelectionViewerCompare({
   const [viewer, setViewer] = useState<string | null>(null)
   const [compareOpen, setCompareOpen] = useState(false)
   const [compareIndex, setCompareIndex] = useState(0)
+  const [viewerNavPaths, setViewerNavPaths] = useState<string[]>([])
   const [restoreGridToSelectionToken, setRestoreGridToSelectionToken] = useState(0)
   const viewerHistoryPushedRef = useRef(false)
   const compareHistoryPushedRef = useRef(false)
@@ -134,9 +149,10 @@ export function useAppSelectionViewerCompare({
   const compareEnabled = compareItems.length >= 2
   const overlayActive = viewer != null || compareOpen
   const navCurrent = viewer ?? selectedPaths[0] ?? null
-  const navIdx = navCurrent ? itemPaths.indexOf(navCurrent) : -1
+  const activeViewerNavPaths = viewer && viewerNavPaths.length ? viewerNavPaths : itemPaths
+  const navIdx = navCurrent ? activeViewerNavPaths.indexOf(navCurrent) : -1
   const canPrevImage = navIdx > 0
-  const canNextImage = navIdx >= 0 && navIdx < itemPaths.length - 1
+  const canNextImage = navIdx >= 0 && navIdx < activeViewerNavPaths.length - 1
 
   useEffect(() => {
     setCompareIndex((prev) => (prev > compareMaxIndex ? compareMaxIndex : prev))
@@ -152,33 +168,38 @@ export function useAppSelectionViewerCompare({
 
   const resetViewerState = useCallback(() => {
     setViewer(null)
+    setViewerNavPaths([])
     viewerHistoryPushedRef.current = false
   }, [])
 
   const syncHashImageSelection = useCallback((imageTarget: string | null) => {
     if (imageTarget) {
       setViewer(imageTarget)
+      setViewerNavPaths(itemPaths.includes(imageTarget) ? itemPaths : [])
       setSelectedPaths([imageTarget])
       return
     }
     resetViewerState()
-  }, [resetViewerState])
+  }, [itemPaths, resetViewerState])
 
   const clearViewerForSearch = useCallback((scopePath: string) => {
     if (!viewer) return
     setViewer(null)
+    setViewerNavPaths([])
     viewerHistoryPushedRef.current = false
     replaceHash(scopePath)
   }, [viewer])
 
   const openViewer = useCallback((path: string) => {
     setViewer(path)
+    setViewerNavPaths(itemPaths.includes(path) ? itemPaths : [])
     viewerHistoryPushedRef.current = true
     writeImageHash(path)
-  }, [])
+  }, [itemPaths])
 
   const closeViewer = useCallback(() => {
     setViewer(null)
+    setViewerNavPaths([])
     if (viewerHistoryPushedRef.current) {
       viewerHistoryPushedRef.current = false
       window.history.back()
@@ -196,6 +217,7 @@ export function useAppSelectionViewerCompare({
 
     if (viewer) {
       setViewer(null)
+      setViewerNavPaths([])
       if (viewerHistoryPushedRef.current) {
         viewerHistoryPushedRef.current = false
       }
@@ -226,20 +248,20 @@ export function useAppSelectionViewerCompare({
   }, [compareItems.length])
 
   const handleNavigate = useCallback((delta: number) => {
-    if (!itemPaths.length) return
     const currentPath = viewer ?? selectedPaths[0]
-    if (!currentPath) return
-    const idx = itemPaths.indexOf(currentPath)
-    if (idx === -1) return
-    const next = Math.min(itemPaths.length - 1, Math.max(0, idx + delta))
-    const nextPath = itemPaths[next]
-    if (!nextPath || nextPath === currentPath) return
+    const nextPath = resolveAdjacentImagePath(activeViewerNavPaths, currentPath, delta)
+    if (!nextPath) return
     if (viewer) {
       setViewer(nextPath)
       replaceImageHash(nextPath)
     }
     setSelectedPaths([nextPath])
-  }, [itemPaths, selectedPaths, viewer])
+  }, [activeViewerNavPaths, selectedPaths, viewer])
+
+  useEffect(() => {
+    if (!viewer || viewerNavPaths.length || !itemPaths.includes(viewer)) return
+    setViewerNavPaths(itemPaths)
+  }, [itemPaths, viewer, viewerNavPaths.length])
 
   useEffect(() => {
     if (!shouldCloseCompareForSelectionChange(compareOpen, compareEnabled)) return
@@ -253,6 +275,7 @@ export function useAppSelectionViewerCompare({
       if (next.resetViewer) {
         viewerHistoryPushedRef.current = false
         setViewer(null)
+        setViewerNavPaths([])
       }
       if (next.resetCompare) {
         compareHistoryPushedRef.current = false

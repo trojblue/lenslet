@@ -54,6 +54,8 @@ describe('Toolbar refresh trigger', () => {
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
         onAutoloadImageMetadataChange={() => {}}
+        proxyHttpOriginals={false}
+        onProxyHttpOriginalsChange={() => {}}
         compareOrderMode="gallery"
         onCompareOrderModeChange={() => {}}
       />,
@@ -74,6 +76,8 @@ describe('Toolbar refresh trigger', () => {
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
         onAutoloadImageMetadataChange={() => {}}
+        proxyHttpOriginals={false}
+        onProxyHttpOriginalsChange={() => {}}
         compareOrderMode="gallery"
         onCompareOrderModeChange={() => {}}
       />,
@@ -96,6 +100,8 @@ describe('Toolbar refresh trigger', () => {
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
         onAutoloadImageMetadataChange={() => {}}
+        proxyHttpOriginals={false}
+        onProxyHttpOriginalsChange={() => {}}
         compareOrderMode="gallery"
         onCompareOrderModeChange={() => {}}
       />,
@@ -119,6 +125,8 @@ describe('Toolbar refresh trigger', () => {
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
         onAutoloadImageMetadataChange={() => {}}
+        proxyHttpOriginals={false}
+        onProxyHttpOriginalsChange={() => {}}
         compareOrderMode="gallery"
         onCompareOrderModeChange={() => {}}
       />,
@@ -137,6 +145,8 @@ describe('Toolbar refresh trigger', () => {
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
         onAutoloadImageMetadataChange={() => {}}
+        proxyHttpOriginals={false}
+        onProxyHttpOriginalsChange={() => {}}
         compareOrderMode="gallery"
         onCompareOrderModeChange={() => {}}
       />,
@@ -156,6 +166,8 @@ describe('Toolbar refresh trigger', () => {
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
         onAutoloadImageMetadataChange={() => {}}
+        proxyHttpOriginals={false}
+        onProxyHttpOriginalsChange={() => {}}
         compareOrderMode="gallery"
         onCompareOrderModeChange={() => {}}
       />,
@@ -174,6 +186,8 @@ describe('Toolbar refresh trigger', () => {
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
         onAutoloadImageMetadataChange={() => {}}
+        proxyHttpOriginals={false}
+        onProxyHttpOriginalsChange={() => {}}
         compareOrderMode="gallery"
         onCompareOrderModeChange={() => {}}
       />,

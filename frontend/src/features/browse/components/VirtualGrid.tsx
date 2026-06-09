@@ -28,6 +28,7 @@ import {
 } from '../model/virtualGridScrollLifecycle'
 import { LongPressController } from '../../../lib/touch'
 import { shouldOpenOnTap, toggleSelectedPath } from '../../../lib/mobileSelection'
+import { directOriginalImageUrl } from '../../media/originalImageResource'
 
 const GAP = 16
 const CAPTION_H = 56
@@ -77,6 +78,7 @@ interface VirtualGridProps {
   hasMore?: boolean
   isLoadingMore?: boolean
   onLoadMore?: () => void
+  proxyHttpOriginals?: boolean
 }
 
 export default function VirtualGrid({
@@ -102,6 +104,7 @@ export default function VirtualGrid({
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
+  proxyHttpOriginals = false,
 }: VirtualGridProps) {
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -283,6 +286,9 @@ export default function VirtualGrid({
     if (isScrolling) return
     cancelPreviewTimer()
     previewControllerRef.current?.clear()
+    const itemIndex = pathToIndex.get(path)
+    const item = itemIndex === undefined ? null : items[itemIndex]
+    const directUrl = directOriginalImageUrl(item, proxyHttpOriginals)
     const viewport = getVisibleViewportBounds()
     const surfaceSize = getHoverPreviewSurfaceSize(viewport)
     const position = getHoverPreviewPosition({
@@ -296,6 +302,12 @@ export default function VirtualGrid({
     setDelayPassed(false)
     previewTimerRef.current = window.setTimeout(() => {
       previewTimerRef.current = null
+      if (directUrl) {
+        setPreviewFor(path)
+        setPreviewUrl(directUrl)
+        setDelayPassed(true)
+        return
+      }
       previewControllerRef.current?.begin(path)
     }, PREVIEW_DELAY_MS)
   }

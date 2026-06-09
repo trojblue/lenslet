@@ -61,6 +61,7 @@ function makeSettings(overrides: Partial<PersistedAppShellSettings> = {}): Persi
     rightOpen: true,
     autoloadImageMetadata: true,
     compareOrderMode: 'gallery',
+    proxyHttpOriginals: false,
     ...overrides,
   }
 }
@@ -140,6 +141,7 @@ describe('settings persistence view-state contract', () => {
       gridItemSize: 260,
       leftOpen: false,
       compareOrderMode: 'selection',
+      proxyHttpOriginals: true,
     }))
 
     expect(JSON.parse(storage.getItem('viewState') ?? '{}')).toEqual(viewState)
@@ -154,6 +156,7 @@ describe('settings persistence view-state contract', () => {
       leftOpen: false,
       autoloadImageMetadata: true,
       compareOrderMode: 'selection',
+      proxyHttpOriginals: true,
     })
   })
 

@@ -21,6 +21,7 @@ const baseProps = {
   uploadDisabled: false,
   themePreset: 'teal' as const,
   autoloadImageMetadata: false,
+  proxyHttpOriginals: false,
   compareOrderMode: 'gallery' as const,
   filtersOpen: false,
   filtersRef: { current: null },
@@ -35,6 +36,7 @@ const baseProps = {
   onRefreshRoot: () => {},
   onThemePresetChange: () => {},
   onAutoloadImageMetadataChange: () => {},
+  onProxyHttpOriginalsChange: () => {},
   onCompareOrderModeChange: () => {},
 }
 

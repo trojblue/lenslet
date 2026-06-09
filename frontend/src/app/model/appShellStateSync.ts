@@ -32,6 +32,7 @@ export type PersistedAppShellSettings = {
   rightOpen: boolean
   autoloadImageMetadata: boolean
   compareOrderMode: CompareOrderMode
+  proxyHttpOriginals: boolean
 }
 
 export type DeferredWriteScheduler<T> = {

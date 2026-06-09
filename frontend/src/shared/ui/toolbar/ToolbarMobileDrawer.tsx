@@ -21,6 +21,7 @@ export interface ToolbarMobileDrawerProps {
   uploadDisabled: boolean
   themePreset: ThemePresetId
   autoloadImageMetadata: boolean
+  proxyHttpOriginals: boolean
   compareOrderMode: CompareOrderMode
   sourceColumns?: TableSourceColumnsPayload | null
   sourceColumnSwitching?: boolean
@@ -50,6 +51,7 @@ export interface ToolbarMobileDrawerProps {
   onUploadClick?: () => void
   onThemePresetChange: (themeId: ThemePresetId) => void
   onAutoloadImageMetadataChange: (enabled: boolean) => void
+  onProxyHttpOriginalsChange: (enabled: boolean) => void
   onCompareOrderModeChange: (mode: CompareOrderMode) => void
   onSourceColumnChange?: (sourceColumn: string) => void
 }
@@ -69,6 +71,7 @@ export default function ToolbarMobileDrawer({
   uploadDisabled,
   themePreset,
   autoloadImageMetadata,
+  proxyHttpOriginals,
   compareOrderMode,
   sourceColumns,
   sourceColumnSwitching,
@@ -98,6 +101,7 @@ export default function ToolbarMobileDrawer({
   onUploadClick,
   onThemePresetChange,
   onAutoloadImageMetadataChange,
+  onProxyHttpOriginalsChange,
   onCompareOrderModeChange,
   onSourceColumnChange,
 }: ToolbarMobileDrawerProps): JSX.Element {
@@ -133,6 +137,8 @@ export default function ToolbarMobileDrawer({
             placement="mobile"
             autoloadImageMetadata={autoloadImageMetadata}
             onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
+            proxyHttpOriginals={proxyHttpOriginals}
+            onProxyHttpOriginalsChange={onProxyHttpOriginalsChange}
             compareOrderMode={compareOrderMode}
             onCompareOrderModeChange={onCompareOrderModeChange}
             sourceColumns={sourceColumns}

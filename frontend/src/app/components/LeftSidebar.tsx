@@ -57,6 +57,8 @@ type LeftSidebarProps = {
   onThemePresetChange: (themeId: ThemePresetId) => void
   autoloadImageMetadata: boolean
   onAutoloadImageMetadataChange: (enabled: boolean) => void
+  proxyHttpOriginals: boolean
+  onProxyHttpOriginalsChange: (enabled: boolean) => void
   compareOrderMode: CompareOrderMode
   onCompareOrderModeChange: (mode: CompareOrderMode) => void
   tableSourceColumns?: TableSourceColumnsPayload | null
@@ -114,6 +116,8 @@ export default function LeftSidebar({
   onThemePresetChange,
   autoloadImageMetadata,
   onAutoloadImageMetadataChange,
+  proxyHttpOriginals,
+  onProxyHttpOriginalsChange,
   compareOrderMode,
   onCompareOrderModeChange,
   tableSourceColumns,
@@ -190,6 +194,8 @@ export default function LeftSidebar({
           placement="sidebar"
           autoloadImageMetadata={autoloadImageMetadata}
           onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
+          proxyHttpOriginals={proxyHttpOriginals}
+          onProxyHttpOriginalsChange={onProxyHttpOriginalsChange}
           compareOrderMode={compareOrderMode}
           onCompareOrderModeChange={onCompareOrderModeChange}
           sourceColumns={tableSourceColumns}

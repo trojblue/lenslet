@@ -26,6 +26,7 @@ export const STORAGE_KEYS = {
   rightOpen: 'rightOpen',
   autoloadImageMetadata: 'autoloadImageMetadata',
   compareOrderMode: 'compareOrderMode',
+  proxyHttpOriginals: 'proxyHttpOriginals',
 } as const
 
 const LEGACY_VIEW_STORAGE_KEYS = [
@@ -44,6 +45,7 @@ export type RestoredAppShellSettings = {
   rightOpen?: boolean
   autoloadImageMetadata?: boolean
   compareOrderMode?: CompareOrderMode
+  proxyHttpOriginals?: boolean
 }
 
 type UsePersistedAppShellSettingsParams = {
@@ -54,6 +56,7 @@ type UsePersistedAppShellSettingsParams = {
   rightOpen: boolean
   autoloadImageMetadata: boolean
   compareOrderMode: CompareOrderMode
+  proxyHttpOriginals: boolean
   setViewState: Dispatch<SetStateAction<ViewState>>
   setRandomSeed: Dispatch<SetStateAction<number>>
   setViewMode: Dispatch<SetStateAction<ViewMode>>
@@ -62,6 +65,7 @@ type UsePersistedAppShellSettingsParams = {
   setRightOpen: Dispatch<SetStateAction<boolean>>
   setAutoloadImageMetadata: Dispatch<SetStateAction<boolean>>
   setCompareOrderMode: Dispatch<SetStateAction<CompareOrderMode>>
+  setProxyHttpOriginals: Dispatch<SetStateAction<boolean>>
 }
 
 export function writePersistedSettingsToStorage(
@@ -81,6 +85,7 @@ export function writePersistedSettingsToStorage(
     settings.autoloadImageMetadata ? '1' : '0',
   )
   storage.setItem(STORAGE_KEYS.compareOrderMode, settings.compareOrderMode)
+  storage.setItem(STORAGE_KEYS.proxyHttpOriginals, settings.proxyHttpOriginals ? '1' : '0')
 }
 
 export function readPersistedSettingsFromStorage(storage: Storage): RestoredAppShellSettings {
@@ -125,6 +130,13 @@ export function readPersistedSettingsFromStorage(storage: Storage): RestoredAppS
     restored.compareOrderMode = storedCompareOrderMode
   }
 
+  const storedProxyHttpOriginals = storage.getItem(STORAGE_KEYS.proxyHttpOriginals)
+  if (storedProxyHttpOriginals === '1' || storedProxyHttpOriginals === 'true') {
+    restored.proxyHttpOriginals = true
+  } else if (storedProxyHttpOriginals === '0' || storedProxyHttpOriginals === 'false') {
+    restored.proxyHttpOriginals = false
+  }
+
   return restored
 }
 
@@ -145,6 +157,7 @@ export function usePersistedAppShellSettings({
   rightOpen,
   autoloadImageMetadata,
   compareOrderMode,
+  proxyHttpOriginals,
   setViewState,
   setRandomSeed,
   setViewMode,
@@ -153,6 +166,7 @@ export function usePersistedAppShellSettings({
   setRightOpen,
   setAutoloadImageMetadata,
   setCompareOrderMode,
+  setProxyHttpOriginals,
 }: UsePersistedAppShellSettingsParams): void {
   const [persistedSettingsReady, setPersistedSettingsReady] = useState(false)
   const writerRef = useRef(
@@ -207,6 +221,9 @@ export function usePersistedAppShellSettings({
       if (restored.compareOrderMode) {
         setCompareOrderMode(restored.compareOrderMode)
       }
+      if (restored.proxyHttpOriginals !== undefined) {
+        setProxyHttpOriginals(restored.proxyHttpOriginals)
+      }
     } catch {
       // Ignore localStorage errors.
     }
@@ -216,6 +233,7 @@ export function usePersistedAppShellSettings({
     setCompareOrderMode,
     setGridItemSize,
     setLeftOpen,
+    setProxyHttpOriginals,
     setRandomSeed,
     setRightOpen,
     setViewMode,
@@ -230,11 +248,13 @@ export function usePersistedAppShellSettings({
     rightOpen,
     autoloadImageMetadata,
     compareOrderMode,
+    proxyHttpOriginals,
   }), [
     autoloadImageMetadata,
     compareOrderMode,
     gridItemSize,
     leftOpen,
+    proxyHttpOriginals,
     rightOpen,
     viewMode,
     viewState,

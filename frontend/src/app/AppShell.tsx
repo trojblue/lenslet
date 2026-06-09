@@ -67,6 +67,7 @@ import GridTopStack from './components/GridTopStack'
 import { deriveIndicatorState } from './presenceUi'
 import { LONG_SYNC_THRESHOLD_MS } from '../lib/constants'
 import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
+import { directOriginalImageUrl } from '../features/media/originalImageResource'
 import { LAYOUT_BREAKPOINTS } from '../lib/breakpoints'
 import AppContextMenuItems from './menu/AppContextMenuItems'
 import { resolveFindSimilarAvailability } from '../features/inspector/model/findSimilarAvailability'
@@ -123,9 +124,16 @@ type AppShellProps = {
   themeWorkspaceId: string | null
 }
 
-function prefetchFilesAndThumbs(paths: readonly string[], context: FullFilePrefetchContext): void {
+function prefetchFilesAndThumbs(
+  paths: readonly string[],
+  context: FullFilePrefetchContext,
+  itemByPath: ReadonlyMap<string, BrowseItemPayload>,
+  proxyHttpOriginals: boolean,
+): void {
   for (const path of paths) {
-    api.prefetchFile(path, context)
+    if (!directOriginalImageUrl(itemByPath.get(path), proxyHttpOriginals)) {
+      api.prefetchFile(path, context)
+    }
     api.prefetchThumb(path)
   }
 }
@@ -255,11 +263,13 @@ export default function AppShell({
     loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode)
   ))
   const [autoloadImageMetadata, setAutoloadImageMetadata] = useState(true)
+  const [proxyHttpOriginals, setProxyHttpOriginals] = useState(false)
   const [compareOrderMode, setCompareOrderMode] = useState<CompareOrderMode>('gallery')
   const [scanStableMode, setScanStableMode] = useState(false)
   const [tableSourceColumns, setTableSourceColumns] = useState<TableSourceColumnsPayload | null>(null)
   const [tableSourceSwitching, setTableSourceSwitching] = useState(false)
   const [dismissedTableSourceWarning, setDismissedTableSourceWarning] = useState<string | null>(null)
+  const [readOnlyWarningDismissed, setReadOnlyWarningDismissed] = useState(false)
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
@@ -293,6 +303,7 @@ export default function AppShell({
     rightOpen,
     autoloadImageMetadata,
     compareOrderMode,
+    proxyHttpOriginals,
     setViewState,
     setRandomSeed,
     setViewMode,
@@ -301,6 +312,7 @@ export default function AppShell({
     setRightOpen,
     setAutoloadImageMetadata,
     setCompareOrderMode,
+    setProxyHttpOriginals,
   })
 
   const queryClient = useQueryClient()
@@ -391,6 +403,17 @@ export default function AppShell({
   const starsInFilter = useMemo(() => getStarsInFilter(viewState.filters), [viewState.filters])
 
   const itemPaths = useMemo(() => items.map((i) => i.path), [items])
+  const selectionPool = similarityState ? similarityItems : poolItems
+  const itemByPath = useMemo(() => {
+    const map = new Map<string, BrowseItemPayload>()
+    for (const item of selectionPool) {
+      map.set(item.path, item)
+    }
+    for (const item of items) {
+      map.set(item.path, item)
+    }
+    return map
+  }, [items, selectionPool])
   const focusGridCell = useCallback((path: string | null | undefined) => {
     if (!path) return
     const focus = () => {
@@ -399,7 +422,6 @@ export default function AppShell({
     }
     requestAnimationFrame(() => requestAnimationFrame(focus))
   }, [])
-  const selectionPool = similarityState ? similarityItems : poolItems
   const {
     selectedPaths,
     setSelectedPaths,
@@ -550,6 +572,12 @@ export default function AppShell({
     updateItemCaches,
     setLocalStarOverrides,
   })
+
+  useEffect(() => {
+    if (persistenceEnabled) {
+      setReadOnlyWarningDismissed(false)
+    }
+  }, [persistenceEnabled])
 
   const {
     indexingBrowseMode,
@@ -847,13 +875,23 @@ export default function AppShell({
   })
 
   useEffect(() => {
-    prefetchFilesAndThumbs(getViewerFilePrefetchPaths(itemPaths, viewer), 'viewer')
-  }, [viewer, itemPaths])
+    prefetchFilesAndThumbs(
+      getViewerFilePrefetchPaths(itemPaths, viewer),
+      'viewer',
+      itemByPath,
+      proxyHttpOriginals,
+    )
+  }, [itemByPath, itemPaths, proxyHttpOriginals, viewer])
 
   useEffect(() => {
     if (!compareOpen) return
-    prefetchFilesAndThumbs(getCompareFilePrefetchPaths(comparePaths, compareIndexClamped), 'compare')
-  }, [compareOpen, comparePaths, compareIndexClamped])
+    prefetchFilesAndThumbs(
+      getCompareFilePrefetchPaths(comparePaths, compareIndexClamped),
+      'compare',
+      itemByPath,
+      proxyHttpOriginals,
+    )
+  }, [compareIndexClamped, compareOpen, comparePaths, itemByPath, proxyHttpOriginals])
 
   const openFolder = useCallback((p: string) => {
     resetViewerState()
@@ -1018,6 +1056,8 @@ export default function AppShell({
         onThemePresetChange={handleThemePresetChange}
         autoloadImageMetadata={autoloadImageMetadata}
         onAutoloadImageMetadataChange={setAutoloadImageMetadata}
+        proxyHttpOriginals={proxyHttpOriginals}
+        onProxyHttpOriginalsChange={setProxyHttpOriginals}
         compareOrderMode={compareOrderMode}
         onCompareOrderModeChange={setCompareOrderMode}
         sourceColumns={tableSourceColumns}
@@ -1088,6 +1128,8 @@ export default function AppShell({
             onThemePresetChange={handleThemePresetChange}
             autoloadImageMetadata={autoloadImageMetadata}
             onAutoloadImageMetadataChange={setAutoloadImageMetadata}
+            proxyHttpOriginals={proxyHttpOriginals}
+            onProxyHttpOriginalsChange={setProxyHttpOriginals}
             compareOrderMode={compareOrderMode}
             onCompareOrderModeChange={setCompareOrderMode}
             tableSourceColumns={tableSourceColumns}
@@ -1102,6 +1144,8 @@ export default function AppShell({
           <GridTopStack
             statusBarProps={{
               persistenceEnabled,
+              showPersistenceWarning: !readOnlyWarningDismissed,
+              onDismissPersistenceWarning: () => setReadOnlyWarningDismissed(true),
               indexing,
               showSwitchToMostRecentBanner: indexingBrowseMode.showSwitchToMostRecentBanner,
               onSwitchToMostRecent: handleSwitchToMostRecent,
@@ -1133,6 +1177,7 @@ export default function AppShell({
             <div className="grid-body-main relative min-h-0 min-w-0" data-grid-body-main>
               <VirtualGrid
                 items={items}
+                proxyHttpOriginals={proxyHttpOriginals}
                 selected={selectedPaths}
                 restoreToSelectionToken={restoreGridToSelectionToken}
                 restoreToTopAnchorToken={restoreGridToTopAnchorToken}
@@ -1230,6 +1275,8 @@ export default function AppShell({
         >
           <Viewer
             path={viewer}
+            item={itemByPath.get(viewer) ?? null}
+            proxyHttpOriginals={proxyHttpOriginals}
             onClose={closeViewer}
             onZoomChange={(p)=> setCurrentZoom(Math.round(p))}
             requestedZoomPercent={requestedZoom}
@@ -1251,6 +1298,7 @@ export default function AppShell({
             <CompareViewer
               aItem={compareA}
               bItem={compareB}
+              proxyHttpOriginals={proxyHttpOriginals}
               index={compareIndexClamped}
               total={compareItems.length}
               canPrev={canComparePrev}

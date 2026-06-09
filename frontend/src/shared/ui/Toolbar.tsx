@@ -61,6 +61,8 @@ export interface ToolbarProps {
   onThemePresetChange: (themeId: ThemePresetId) => void
   autoloadImageMetadata: boolean
   onAutoloadImageMetadataChange: (enabled: boolean) => void
+  proxyHttpOriginals: boolean
+  onProxyHttpOriginalsChange: (enabled: boolean) => void
   compareOrderMode: CompareOrderMode
   onCompareOrderModeChange: (mode: CompareOrderMode) => void
   sourceColumns?: TableSourceColumnsPayload | null
@@ -123,6 +125,8 @@ export default function Toolbar({
   onThemePresetChange,
   autoloadImageMetadata,
   onAutoloadImageMetadataChange,
+  proxyHttpOriginals,
+  onProxyHttpOriginalsChange,
   compareOrderMode,
   onCompareOrderModeChange,
   sourceColumns,
@@ -599,6 +603,7 @@ export default function Toolbar({
           uploadDisabled={uploadDisabled}
           themePreset={themePreset}
           autoloadImageMetadata={autoloadImageMetadata}
+          proxyHttpOriginals={proxyHttpOriginals}
           compareOrderMode={compareOrderMode}
           sourceColumns={sourceColumns}
           sourceColumnSwitching={sourceColumnSwitching}
@@ -631,6 +636,7 @@ export default function Toolbar({
           onUploadClick={onUploadClick}
           onThemePresetChange={onThemePresetChange}
           onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
+          onProxyHttpOriginalsChange={onProxyHttpOriginalsChange}
           onCompareOrderModeChange={onCompareOrderModeChange}
           onSourceColumnChange={onSourceColumnChange}
         />

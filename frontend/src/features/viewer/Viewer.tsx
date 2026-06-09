@@ -7,6 +7,8 @@ import {
   shouldHandleViewerNavigationKey,
 } from '../../lib/keyboard'
 import { useZoomPan } from './hooks/useZoomPan'
+import { directOriginalImageUrl } from '../media/originalImageResource'
+import type { BrowseItemPayload } from '../../lib/types'
 
 const VIEWER_LOADER_DELAY_MS = 150
 
@@ -27,6 +29,8 @@ function getImageLabel(path: string): string {
 
 interface ViewerProps {
   path: string
+  item?: BrowseItemPayload | null
+  proxyHttpOriginals?: boolean
   onClose: () => void
   onNavigate?: (delta: number) => void
   canPrev?: boolean
@@ -38,6 +42,8 @@ interface ViewerProps {
 
 export default function Viewer({
   path,
+  item = null,
+  proxyHttpOriginals = false,
   onClose,
   onNavigate,
   canPrev = false,
@@ -66,7 +72,10 @@ export default function Viewer({
     handlePointerCancel,
     shouldSuppressSurfaceClick,
   } = useZoomPan()
-  const url = useBlobUrl(() => api.getFile(path), [path])
+  const directUrl = directOriginalImageUrl(item, proxyHttpOriginals)
+  const blobUrl = useBlobUrl(directUrl ? null : () => api.getFile(path), [path, directUrl])
+  const url = directUrl ?? blobUrl
+  const resourceIdentity = directUrl ? `${path}\n${directUrl}` : url
   const [imageResource, setImageResource] = useState<ViewerImageResource | null>(null)
   const [readyPath, setReadyPath] = useState<string | null>(null)
   const [showDelayedLoader, setShowDelayedLoader] = useState(false)
@@ -165,7 +174,7 @@ export default function Viewer({
   // URL changes bind the blob URL to the current path; path-only renders with
   // the previous URL must not rebind or render that stale resource.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url])
+  }, [resourceIdentity])
 
   useEffect(() => {
     if (!activeResource) return

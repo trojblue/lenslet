@@ -20,6 +20,8 @@ type ThemeSettingsMenuProps = {
   onAutoloadImageMetadataChange?: (enabled: boolean) => void
   compareOrderMode?: CompareOrderMode
   onCompareOrderModeChange?: (mode: CompareOrderMode) => void
+  proxyHttpOriginals?: boolean
+  onProxyHttpOriginalsChange?: (enabled: boolean) => void
   sourceColumns?: TableSourceColumnsPayload | null
   sourceColumnSwitching?: boolean
   onSourceColumnChange?: (sourceColumn: string) => void
@@ -137,6 +139,8 @@ export default function ThemeSettingsMenu({
   onAutoloadImageMetadataChange,
   compareOrderMode = 'gallery',
   onCompareOrderModeChange,
+  proxyHttpOriginals = false,
+  onProxyHttpOriginalsChange,
   sourceColumns = null,
   sourceColumnSwitching = false,
   onSourceColumnChange,
@@ -149,6 +153,7 @@ export default function ThemeSettingsMenu({
   const selectedTheme = THEME_PRESETS[selectedThemeId]
   const supportsInspectorAutoloadSetting = typeof onAutoloadImageMetadataChange === 'function'
   const supportsCompareOrderSetting = typeof onCompareOrderModeChange === 'function'
+  const supportsMediaSetting = typeof onProxyHttpOriginalsChange === 'function'
   const sourceColumnState = resolveSourceColumnMenuState(sourceColumns)
   const supportsSourceColumnSetting = sourceColumnState.enabled && typeof onSourceColumnChange === 'function'
   const { selectedSourceColumn, selectedSourceStatus } = sourceColumnState
@@ -304,6 +309,32 @@ export default function ThemeSettingsMenu({
               </span>
               <span
                 className={`theme-settings-menu-toggle ${autoloadImageMetadata ? 'is-active' : ''}`}
+                aria-hidden="true"
+              >
+                <span className="theme-settings-menu-toggle-knob" />
+              </span>
+            </button>
+          </div>
+        </>
+      )}
+      {supportsMediaSetting && (
+        <>
+          <div className="theme-settings-menu-divider" />
+          <div className="theme-settings-menu-header">Media</div>
+          <div className="theme-settings-menu-options">
+            <button
+              type="button"
+              className={`theme-settings-menu-option theme-settings-menu-option-toggle ${proxyHttpOriginals ? 'is-active' : ''}`}
+              role="menuitemcheckbox"
+              aria-checked={proxyHttpOriginals}
+              onClick={() => onProxyHttpOriginalsChange?.(!proxyHttpOriginals)}
+            >
+              <span className="theme-settings-menu-option-label-group">
+                <span className="theme-settings-menu-option-label">Proxy HTTP originals</span>
+                <span className="theme-settings-menu-option-subtitle">Off loads full-size HTTP images directly</span>
+              </span>
+              <span
+                className={`theme-settings-menu-toggle ${proxyHttpOriginals ? 'is-active' : ''}`}
                 aria-hidden="true"
               >
                 <span className="theme-settings-menu-toggle-knob" />

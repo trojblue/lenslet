@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   resolveCompareOrderedItems,
+  resolveAdjacentImagePath,
   resolveGalleryOrderedItems,
   resolveSelectionOrderedItems,
   resolveOverlayPopstateResult,
@@ -67,6 +68,15 @@ describe('useAppSelectionViewerCompare guards', () => {
 
     const selectionOrdered = resolveCompareOrderedItems(selectedPaths, selectionPool, items, 'selection')
     expect(selectionOrdered.map((item) => item.path)).toEqual(['/images/b.png', '/images/a.png'])
+  })
+
+  it('resolves fullscreen next and previous from the supplied sorted path order', () => {
+    const metricSortedPaths = ['/images/high.png', '/images/mid.png', '/images/low.png']
+
+    expect(resolveAdjacentImagePath(metricSortedPaths, '/images/mid.png', 1)).toBe('/images/low.png')
+    expect(resolveAdjacentImagePath(metricSortedPaths, '/images/mid.png', -1)).toBe('/images/high.png')
+    expect(resolveAdjacentImagePath(metricSortedPaths, '/images/low.png', 1)).toBeNull()
+    expect(resolveAdjacentImagePath(metricSortedPaths, '/images/missing.png', 1)).toBeNull()
   })
 
   it('auto-closes compare only when compare is open and selection drops below compare support', () => {

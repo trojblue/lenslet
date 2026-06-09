@@ -1,14 +1,14 @@
 {
-  "base_url": "http://127.0.0.1:56889",
-  "dataset_dir": "/tmp/lenslet-gui-smoke-k9qeeu6h",
-  "server_log": "/tmp/lenslet-gui-smoke-server-zb3qazdv.log",
+  "base_url": "http://127.0.0.1:37907",
+  "dataset_dir": "/tmp/lenslet-gui-smoke-7sgt0r95",
+  "server_log": "/tmp/lenslet-gui-smoke-server-ukvbv4ac.log",
   "initial_health": {
     "ok": true,
     "mode": "table",
     "can_write": false,
-    "workspace_id": "c77a4eb028d7de242496ddac",
+    "workspace_id": "849c9e32af72540114c178ab",
     "storage_origin": "preindex",
-    "root": "/tmp/lenslet-gui-smoke-k9qeeu6h",
+    "root": "/tmp/lenslet-gui-smoke-7sgt0r95",
     "refresh": {
       "enabled": false,
       "note": "preindex refresh disabled (no-write workspace)"
@@ -16,7 +16,7 @@
     "browse_cache": {
       "enabled": true,
       "persisted": true,
-      "path": "/tmp/lenslet-gui-smoke-k9qeeu6h/.lenslet/browse-cache",
+      "path": "/tmp/lenslet-gui-smoke-7sgt0r95/.lenslet/browse-cache",
       "max_bytes": 209715200,
       "pending_warms": 0
     },
@@ -35,9 +35,9 @@
       "scope": "/",
       "done": 2890,
       "total": 2890,
-      "generation": "1733b21e3a1c72b7ad37ccec5ed5fa23d57ecc7e87092be80eff590d58a7a199|0",
-      "started_at": "2026-06-09T15:27:21.816477+00:00",
-      "finished_at": "2026-06-09T15:27:21.816888+00:00"
+      "generation": "b412db08024ddea01c0dad7262d46b3a6b514f7f587ec31baf8a4e4a89d1b64f|0",
+      "started_at": "2026-06-09T16:08:31.996402+00:00",
+      "finished_at": "2026-06-09T16:08:31.996885+00:00"
     },
     "presence": {
       "view_ttl_seconds": 75.0,
@@ -63,9 +63,9 @@
     "ok": true,
     "mode": "table",
     "can_write": false,
-    "workspace_id": "c77a4eb028d7de242496ddac",
+    "workspace_id": "849c9e32af72540114c178ab",
     "storage_origin": "preindex",
-    "root": "/tmp/lenslet-gui-smoke-k9qeeu6h",
+    "root": "/tmp/lenslet-gui-smoke-7sgt0r95",
     "refresh": {
       "enabled": false,
       "note": "preindex refresh disabled (no-write workspace)"
@@ -73,7 +73,7 @@
     "browse_cache": {
       "enabled": true,
       "persisted": true,
-      "path": "/tmp/lenslet-gui-smoke-k9qeeu6h/.lenslet/browse-cache",
+      "path": "/tmp/lenslet-gui-smoke-7sgt0r95/.lenslet/browse-cache",
       "max_bytes": 209715200,
       "pending_warms": 0
     },
@@ -92,9 +92,9 @@
       "scope": "/",
       "done": 2890,
       "total": 2890,
-      "generation": "1733b21e3a1c72b7ad37ccec5ed5fa23d57ecc7e87092be80eff590d58a7a199|0",
-      "started_at": "2026-06-09T15:27:21.816477+00:00",
-      "finished_at": "2026-06-09T15:27:21.816888+00:00"
+      "generation": "b412db08024ddea01c0dad7262d46b3a6b514f7f587ec31baf8a4e4a89d1b64f|0",
+      "started_at": "2026-06-09T16:08:31.996402+00:00",
+      "finished_at": "2026-06-09T16:08:31.996885+00:00"
     },
     "presence": {
       "view_ttl_seconds": 75.0,
@@ -122,8 +122,8 @@
       "timers_ms": {
         "folders_recursive_traversal_ms": {
           "count": 8,
-          "total_ms": 0.094,
-          "avg_ms": 0.012
+          "total_ms": 0.073,
+          "avg_ms": 0.009
         }
       }
     }
@@ -178,7 +178,7 @@
         "/backend-query/target_1005.jpg"
       ],
       "toolbar_count_label": "2 / 1,006 items",
-      "server_log": "/tmp/lenslet-backend-filter-smoke-server-c5yywahx.log"
+      "server_log": "/tmp/lenslet-backend-filter-smoke-server-k4mhad59.log"
     },
     "derived_metric_ranking": {
       "metric_inputs": [
@@ -190,10 +190,23 @@
         "q5",
         "q6"
       ],
-      "unavailable_warning": "Derived score. Derived score sorting is unavailable in backend browse.",
+      "backend_request_seen": true,
       "restored_sort_key": "@derived/score_v1",
-      "visible_paths_after_rank": [],
-      "server_log": "/tmp/lenslet-derived-metric-smoke-server-c381yydr.log"
+      "visible_paths_after_rank": [
+        "/ranked/item_0001.jpg",
+        "/ranked/item_0209.jpg",
+        "/ranked/item_1364.jpg",
+        "/ranked/item_2519.jpg",
+        "/ranked/item_3674.jpg",
+        "/ranked/item_4829.jpg",
+        "/ranked/item_0979.jpg",
+        "/ranked/item_1034.jpg",
+        "/ranked/item_1133.jpg",
+        "/ranked/item_2134.jpg",
+        "/ranked/item_2189.jpg",
+        "/ranked/item_2288.jpg"
+      ],
+      "server_log": "/tmp/lenslet-derived-metric-smoke-server-8h40z99w.log"
     }
   },
   "warnings": [

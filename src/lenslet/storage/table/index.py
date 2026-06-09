@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import re
+import math
+import numbers
 from typing import Any, TypeAlias
 
 from .display import (
@@ -19,23 +20,6 @@ from .index_types import (
 from ...metrics import coerce_finite_metric_value
 from .schema import coerce_float
 
-METRIC_COLUMN_LEAF_KEYWORDS = (
-    "anatomy_",
-    "aesthetic",
-    "confidence",
-    "distance",
-    "logit",
-    "loss",
-    "manual_",
-    "metric",
-    "prob",
-    "quality",
-    "rank",
-    "rating",
-    "score",
-    "similarity",
-)
-Q_EVAL_METRIC_RE = re.compile(r"q\d+\Z", re.IGNORECASE)
 FORMULA_METRIC_EXACT_EXCLUSIONS = frozenset(
     {
         "bytes",
@@ -181,7 +165,7 @@ def _metric_candidate_columns(context: TableIndexInput) -> list[str]:
             continue
         if not is_formula_metric_column_name(column):
             continue
-        if _column_values_are_boolean_only(table.column_values.get(column)):
+        if not _column_values_are_numeric_metric(table.column_values.get(column)):
             continue
         candidates.append(column)
     return candidates
@@ -192,10 +176,7 @@ def _metric_column_leaf(column: str) -> str:
 
 
 def is_metric_column_name(column: str) -> bool:
-    leaf = _metric_column_leaf(column)
-    if leaf == "id" or leaf.endswith("_id"):
-        return False
-    return any(keyword in leaf for keyword in METRIC_COLUMN_LEAF_KEYWORDS)
+    return is_formula_metric_column_name(column)
 
 
 def is_formula_metric_column_name(column: str) -> bool:
@@ -211,7 +192,7 @@ def is_formula_metric_column_name(column: str) -> bool:
         return False
     if leaf.endswith(FORMULA_METRIC_BOOKKEEPING_SUFFIXES):
         return False
-    return is_metric_column_name(column) or Q_EVAL_METRIC_RE.fullmatch(leaf) is not None
+    return True
 
 
 def _coerce_scalar(value: object) -> object:
@@ -220,7 +201,61 @@ def _coerce_scalar(value: object) -> object:
             return value.as_py()
         except Exception:
             return value
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            return value
     return value
+
+
+def _column_values_are_numeric_metric(values: Any, *, sample_size: int = 256) -> bool:
+    if values is None:
+        return False
+    typed = _typed_values_are_numeric_metric(values)
+    if typed is not None:
+        return typed
+
+    saw_numeric = False
+    checked = 0
+    try:
+        iterator = iter(values)
+    except TypeError:
+        return False
+    for raw_value in iterator:
+        value = _coerce_scalar(raw_value)
+        if value is None:
+            continue
+        if isinstance(value, float) and math.isnan(value):
+            saw_numeric = True
+            checked += 1
+        elif isinstance(value, bool) or not isinstance(value, numbers.Real):
+            return False
+        else:
+            saw_numeric = True
+            checked += 1
+        if checked >= sample_size:
+            break
+    return saw_numeric
+
+
+def _typed_values_are_numeric_metric(values: Any) -> bool | None:
+    dtype = getattr(values, "dtype", None)
+    dtype_kind = getattr(dtype, "kind", None)
+    if isinstance(dtype_kind, str):
+        if dtype_kind == "b":
+            return False
+        if dtype_kind in {"i", "u", "f"}:
+            return True
+
+    type_text = str(getattr(values, "type", "")).lower()
+    if not type_text:
+        return None
+    if type_text.startswith("bool"):
+        return False
+    if type_text.startswith(("int", "uint", "float", "double", "halffloat", "decimal")):
+        return True
+    return None
 
 
 def _column_values_are_boolean_only(values: Any, *, sample_size: int = 128) -> bool:

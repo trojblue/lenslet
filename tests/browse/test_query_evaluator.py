@@ -10,6 +10,9 @@ from lenslet.browse.query import (
     BuiltinSortSpec,
     CategoricalInFilter,
     DateRangeFilter,
+    DerivedMetricCategoricalTerm,
+    DerivedMetricNumericTerm,
+    DerivedMetricSpec,
     HeightCompareFilter,
     MetricRangeFilter,
     MetricSortSpec,
@@ -21,6 +24,7 @@ from lenslet.browse.query import (
     StarsNotInFilter,
     UrlContainsFilter,
     WidthCompareFilter,
+    derived_metric_key,
     evaluate_browse_records,
 )
 
@@ -224,3 +228,66 @@ def test_filtered_window_is_sliced_after_full_scope_filtering() -> None:
 
     assert result.filtered_total == 2
     assert [record.name for record in result.window] == ["img4.jpg", "img5.jpg"]
+
+
+def test_derived_metric_sort_and_filter_run_before_windowing() -> None:
+    spec = DerivedMetricSpec(
+        id="rubric_1",
+        name="Rubric score",
+        intercept=1.0,
+        numeric_terms=(
+            DerivedMetricNumericTerm("q1", 2.0, "invalid"),
+            DerivedMetricNumericTerm("q2", 1.0, "zero"),
+        ),
+        categorical_terms=(DerivedMetricCategoricalTerm("dataset_from", "gt", 3.0),),
+    )
+    key = derived_metric_key(spec)
+    records = (
+        _record("low.jpg", metrics={"q1": 0.1}, categoricals={"dataset_from": "synthetic"}),
+        _record("high.jpg", metrics={"q1": 0.9, "q2": 1.2}, categoricals={"dataset_from": "gt"}),
+        _record("mid.jpg", metrics={"q1": 0.5}, categoricals={"dataset_from": "gt"}),
+        _record("invalid.jpg", metrics={"q2": 1.0}, categoricals={"dataset_from": "gt"}),
+    )
+
+    result = evaluate_browse_records(
+        records,
+        BrowseQuerySpec(
+            path="/gallery",
+            recursive=True,
+            offset=0,
+            limit=2,
+            filters=BrowseFilterAst(and_clauses=(MetricRangeFilter(key, 4.0, 10.0),)),
+            sort=MetricSortSpec(key, "desc"),
+            derived_metric=spec,
+        ),
+        metric_keys=("q1", "q2"),
+        categorical_keys=("dataset_from",),
+    )
+
+    assert result.filtered_total == 2
+    assert [record.name for record in result.window] == ["high.jpg", "mid.jpg"]
+    assert result.window[0].metrics and result.window[0].metrics[key] == 7.0
+
+
+def test_derived_metric_is_not_applied_when_inputs_are_unavailable() -> None:
+    spec = DerivedMetricSpec(
+        id="rubric_1",
+        name="Rubric score",
+        intercept=0.0,
+        numeric_terms=(DerivedMetricNumericTerm("missing_q", 1.0, "zero"),),
+    )
+    key = derived_metric_key(spec)
+    result = evaluate_browse_records(
+        (_record("a.jpg", metrics={"q1": 0.9}),),
+        BrowseQuerySpec(
+            path="/gallery",
+            recursive=True,
+            offset=0,
+            limit=10,
+            sort=MetricSortSpec(key, "desc"),
+            derived_metric=spec,
+        ),
+        metric_keys=("q1",),
+    )
+
+    assert result.window[0].metrics == {"q1": 0.9}

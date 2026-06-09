@@ -5,8 +5,14 @@ from lenslet.browse.query import (
     BrowseQuerySpec,
     BuiltinSortSpec,
     CategoricalInFilter,
+    DerivedMetricCategoricalTerm,
+    DerivedMetricNumericTerm,
+    DerivedMetricSpec,
+    MetricRangeFilter,
+    MetricSortSpec,
     NotesContainsFilter,
     StarsInFilter,
+    derived_metric_key,
 )
 from lenslet.storage.table import TableStorage, TableStorageOptions
 
@@ -150,3 +156,44 @@ def test_table_query_text_search_respects_source_toggle() -> None:
 
     assert [item.path for item in enabled.query_browse_scope(spec).items] == ["gallery/local.jpg"]
     assert disabled.query_browse_scope(spec).items == ()
+
+
+def test_table_query_sorts_by_derived_metric_across_full_scope() -> None:
+    rows = [
+        {
+            "source": f"https://example.test/gallery/img{index}.jpg",
+            "path": f"gallery/img{index}.jpg",
+            "width": 8,
+            "height": 6,
+            "q1": float(index),
+            "dataset_from": "gt" if index == 4 else "other",
+        }
+        for index in range(6)
+    ]
+    storage = _table_storage(rows)
+    row_store = storage._row_store
+    assert row_store is not None
+    spec = DerivedMetricSpec(
+        id="rubric_1",
+        name="Rubric score",
+        intercept=0.0,
+        numeric_terms=(DerivedMetricNumericTerm("q1", 1.0, "invalid"),),
+        categorical_terms=(DerivedMetricCategoricalTerm("dataset_from", "gt", 10.0),),
+    )
+    key = derived_metric_key(spec)
+
+    result = storage.query_browse_scope(
+        BrowseQuerySpec(
+            path="/gallery",
+            recursive=True,
+            offset=0,
+            limit=1,
+            filters=BrowseFilterAst(and_clauses=(MetricRangeFilter(key, 10.0, 20.0),)),
+            sort=MetricSortSpec(key, "desc"),
+            derived_metric=spec,
+        )
+    )
+
+    assert result.filtered_total == 1
+    assert [item.path for item in result.items] == ["gallery/img4.jpg"]
+    assert row_store.materialized_item_count == 1

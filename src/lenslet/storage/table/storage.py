@@ -1308,7 +1308,12 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             raise FileNotFoundError(spec.path)
 
         records = [self._query_record_for_row(row_store, row_idx) for row_idx in rows]
-        evaluation = evaluate_browse_records(records, spec)
+        evaluation = evaluate_browse_records(
+            records,
+            spec,
+            metric_keys=self.metric_keys(),
+            categorical_keys=self.categorical_keys(),
+        )
         window_rows = tuple(record.payload for record in evaluation.window)
         return BrowseQueryResult(
             path=_canonical_query_path(norm),

@@ -267,7 +267,7 @@ describe('appShellSelectors', () => {
     )).toBe('Derived score ranks only the 25 loaded items out of 100.')
   })
 
-  it('blocks derived metric filters and sorts in normal backend browse', () => {
+  it('allows derived metric filters and sorts in normal backend browse', () => {
     const filters = {
       and: [{ metricRange: { key: '@derived/rubric_1', min: 0, max: 10 } }],
     }
@@ -276,17 +276,17 @@ describe('appShellSelectors', () => {
       { kind: 'builtin', key: 'added', dir: 'desc' },
       filters,
       false,
-    )).toBe('Derived score filters are unavailable in backend browse.')
+    )).toBeNull()
     expect(getBackendBrowseDerivedMetricUnsupportedReason(
       { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
       { and: [] },
       false,
-    )).toBe('Derived score sorting is unavailable in backend browse.')
+    )).toBeNull()
     expect(getBackendBrowseDerivedMetricUnsupportedReason(
       { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
       filters,
       false,
-    )).toBe('Derived score filters and sorting are unavailable in backend browse.')
+    )).toBeNull()
     expect(getBackendBrowseDerivedMetricUnsupportedReason(
       { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
       filters,

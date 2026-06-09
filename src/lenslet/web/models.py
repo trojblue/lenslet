@@ -13,8 +13,10 @@ ExportComparisonOutputFormat = Literal["png", "gif"]
 StarRating = Annotated[int, Field(ge=0, le=5, strict=True)]
 BrowseQuerySortDirection = Literal["asc", "desc"]
 BrowseQueryCompareOp = Literal["<", "<=", ">", ">="]
+DerivedMetricNumericMissingPolicy = Literal["zero", "invalid"]
 BROWSE_QUERY_DEFAULT_LIMIT = 1000
 BROWSE_QUERY_MAX_LIMIT = 10_000
+DERIVED_METRIC_KEY_PREFIX = "@derived/"
 
 
 class StrictModel(BaseModel):
@@ -223,6 +225,92 @@ class BrowseQueryMetricSortPayload(StrictModel):
 BrowseQuerySortPayload = BrowseQueryBuiltinSortPayload | BrowseQueryMetricSortPayload
 
 
+class BrowseQueryDerivedMetricNumericTermPayload(StrictModel):
+    key: str
+    weight: float
+    missing: DerivedMetricNumericMissingPolicy
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, value: str) -> str:
+        key = value.strip()
+        if not key:
+            raise ValueError("derived metric numeric term key must be non-empty")
+        if key.startswith(DERIVED_METRIC_KEY_PREFIX):
+            raise ValueError("derived metric numeric term key cannot be another derived metric")
+        return value
+
+    @field_validator("weight")
+    @classmethod
+    def validate_weight(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("derived metric numeric term weight must be finite")
+        return value
+
+
+class BrowseQueryDerivedMetricCategoricalTermPayload(StrictModel):
+    key: str
+    value: str
+    weight: float
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, value: str) -> str:
+        key = value.strip()
+        if not key:
+            raise ValueError("derived metric categorical term key must be non-empty")
+        if key.startswith(DERIVED_METRIC_KEY_PREFIX):
+            raise ValueError("derived metric categorical term key cannot be another derived metric")
+        return value
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("derived metric categorical term value must be non-empty")
+        return value
+
+    @field_validator("weight")
+    @classmethod
+    def validate_weight(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("derived metric categorical term weight must be finite")
+        return value
+
+
+class BrowseQueryDerivedMetricPayload(StrictModel):
+    version: Literal[1]
+    id: str
+    name: str
+    intercept: float
+    numeric_terms: list[BrowseQueryDerivedMetricNumericTermPayload] = Field(default_factory=list, alias="numericTerms")
+    categorical_terms: list[BrowseQueryDerivedMetricCategoricalTermPayload] = Field(
+        default_factory=list,
+        alias="categoricalTerms",
+    )
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("derived metric id must be non-empty")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("derived metric name must be non-empty")
+        return value
+
+    @field_validator("intercept")
+    @classmethod
+    def validate_intercept(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("derived metric intercept must be finite")
+        return value
+
+
 class BrowseQueryRequest(StrictModel):
     path: str = "/"
     recursive: bool = False
@@ -234,6 +322,7 @@ class BrowseQueryRequest(StrictModel):
     )
     text_query: str | None = None
     random_seed: str | int | None = None
+    derived_metric: BrowseQueryDerivedMetricPayload | None = None
 
 
 class BrowseQueryResponse(BaseModel):

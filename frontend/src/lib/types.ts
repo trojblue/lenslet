@@ -47,6 +47,7 @@ export type BrowseQueryRequest = {
   sort: SortSpec
   text_query?: string | null
   random_seed?: string | number | null
+  derived_metric?: DerivedMetricSpec | null
 }
 
 export type BrowseQueryResponse = {

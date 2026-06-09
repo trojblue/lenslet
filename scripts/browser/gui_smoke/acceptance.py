@@ -180,7 +180,7 @@ def build_summary(
             },
             "derived_metric_ranking": None if derived_metric_result is None else {
                 "metric_inputs": derived_metric_result.metric_inputs,
-                "unavailable_warning": derived_metric_result.unavailable_warning,
+                "backend_request_seen": derived_metric_result.backend_request_seen,
                 "restored_sort_key": derived_metric_result.restored_sort_key,
                 "visible_paths_after_rank": derived_metric_result.visible_paths_after_rank,
                 "server_log": None if derived_metric_server_log is None else str(derived_metric_server_log),

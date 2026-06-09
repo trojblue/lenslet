@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import re
-from typing import Generic, Literal, Mapping, TypeVar
+from typing import Generic, Iterable, Literal, Mapping, TypeVar
 
 
 CompareOp = Literal["<", "<=", ">", ">="]
@@ -15,6 +15,9 @@ BuiltinSortKey = Literal["added", "name", "random"]
 
 DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _VALID_STAR_VALUES = frozenset({0, 1, 2, 3, 4, 5})
+DERIVED_METRIC_PREFIX = "@derived/"
+DERIVED_METRIC_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$")
+DerivedMetricNumericMissingPolicy = Literal["zero", "invalid"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +91,29 @@ class CategoricalInFilter:
     values: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class DerivedMetricNumericTerm:
+    key: str
+    weight: float
+    missing: DerivedMetricNumericMissingPolicy
+
+
+@dataclass(frozen=True, slots=True)
+class DerivedMetricCategoricalTerm:
+    key: str
+    value: str
+    weight: float
+
+
+@dataclass(frozen=True, slots=True)
+class DerivedMetricSpec:
+    id: str
+    name: str
+    intercept: float
+    numeric_terms: tuple[DerivedMetricNumericTerm, ...] = ()
+    categorical_terms: tuple[DerivedMetricCategoricalTerm, ...] = ()
+
+
 BrowseFilterClause = (
     StarsInFilter
     | StarsNotInFilter
@@ -135,6 +161,7 @@ class BrowseQuerySpec:
     sort: BrowseSortSpec = field(default_factory=BuiltinSortSpec)
     text_query: str | None = None
     random_seed: str | None = None
+    derived_metric: DerivedMetricSpec | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +225,9 @@ def normalize_filter_ast(ast: BrowseFilterAst) -> BrowseFilterAst:
 def evaluate_browse_records(
     records: tuple[BrowseQueryRecord[T], ...] | list[BrowseQueryRecord[T]],
     spec: BrowseQuerySpec,
+    *,
+    metric_keys: Iterable[str] | None = None,
+    categorical_keys: Iterable[str] | None = None,
 ) -> BrowseQueryEvaluation[T]:
     normalized = BrowseQuerySpec(
         path=spec.path,
@@ -208,9 +238,20 @@ def evaluate_browse_records(
         sort=spec.sort,
         text_query=_normalize_text(spec.text_query),
         random_seed=spec.random_seed,
+        derived_metric=normalize_derived_metric_spec(spec.derived_metric),
+    )
+    query_records = (
+        apply_derived_metric_to_records(
+            records,
+            normalized.derived_metric,
+            metric_keys=metric_keys,
+            categorical_keys=categorical_keys,
+        )
+        if normalized.derived_metric is not None or _query_references_derived_metric(normalized)
+        else records
     )
     searched = [
-        record for record in records
+        record for record in query_records
         if _matches_text_query(record, normalized.text_query)
     ]
     filtered = [
@@ -224,6 +265,210 @@ def evaluate_browse_records(
         filtered_total=len(ordered),
         window=tuple(ordered[start:end]),
     )
+
+
+def apply_derived_metric_to_records(
+    records: tuple[BrowseQueryRecord[T], ...] | list[BrowseQueryRecord[T]],
+    spec: DerivedMetricSpec | None,
+    *,
+    metric_keys: Iterable[str] | None = None,
+    categorical_keys: Iterable[str] | None = None,
+) -> list[BrowseQueryRecord[T]]:
+    stripped = [_record_without_derived_metrics(record) for record in records]
+    spec = normalize_derived_metric_spec(spec)
+    if spec is None:
+        return stripped
+    if not _derived_metric_inputs_available(
+        stripped,
+        spec,
+        metric_keys=metric_keys,
+        categorical_keys=categorical_keys,
+    ):
+        return stripped
+
+    key = derived_metric_key(spec)
+    out: list[BrowseQueryRecord[T]] = []
+    for record in stripped:
+        score = _derived_metric_score(record, spec)
+        if score is None:
+            out.append(record)
+            continue
+        metrics = dict(record.metrics or {})
+        metrics[key] = score
+        out.append(
+            BrowseQueryRecord(
+                payload=record.payload,
+                stable_identity=record.stable_identity,
+                path=record.path,
+                name=record.name,
+                added_at=record.added_at,
+                width=record.width,
+                height=record.height,
+                source=record.source,
+                url=record.url,
+                metrics=metrics,
+                categoricals=record.categoricals,
+                star=record.star,
+                notes=record.notes,
+                search_text=record.search_text,
+            )
+        )
+    return out
+
+
+def derived_metric_key(spec: DerivedMetricSpec | str) -> str:
+    metric_id = spec if isinstance(spec, str) else spec.id
+    return f"{DERIVED_METRIC_PREFIX}{metric_id}"
+
+
+def is_derived_metric_key(key: str | None) -> bool:
+    return isinstance(key, str) and key.startswith(DERIVED_METRIC_PREFIX) and len(key) > len(DERIVED_METRIC_PREFIX)
+
+
+def normalize_derived_metric_spec(spec: DerivedMetricSpec | None) -> DerivedMetricSpec | None:
+    if spec is None:
+        return None
+    metric_id = spec.id.strip()
+    if not DERIVED_METRIC_ID_RE.fullmatch(metric_id):
+        return None
+    if not math.isfinite(spec.intercept):
+        return None
+    numeric_terms: list[DerivedMetricNumericTerm] = []
+    for term in spec.numeric_terms:
+        key = _normalize_text(term.key)
+        if key is None or is_derived_metric_key(key):
+            return None
+        if not math.isfinite(term.weight) or term.missing not in {"zero", "invalid"}:
+            return None
+        numeric_terms.append(DerivedMetricNumericTerm(key=key, weight=term.weight, missing=term.missing))
+    categorical_terms: list[DerivedMetricCategoricalTerm] = []
+    for term in spec.categorical_terms:
+        key = _normalize_text(term.key)
+        value = _normalize_text(term.value)
+        if key is None or value is None or is_derived_metric_key(key):
+            return None
+        if not math.isfinite(term.weight):
+            return None
+        categorical_terms.append(DerivedMetricCategoricalTerm(key=key, value=value, weight=term.weight))
+    name = spec.name.strip() or "Derived score"
+    return DerivedMetricSpec(
+        id=metric_id,
+        name=name,
+        intercept=spec.intercept,
+        numeric_terms=tuple(numeric_terms),
+        categorical_terms=tuple(categorical_terms),
+    )
+
+
+def _record_with_metrics(
+    record: BrowseQueryRecord[T],
+    metrics: Mapping[str, object] | None,
+) -> BrowseQueryRecord[T]:
+    return BrowseQueryRecord(
+        payload=record.payload,
+        stable_identity=record.stable_identity,
+        path=record.path,
+        name=record.name,
+        added_at=record.added_at,
+        width=record.width,
+        height=record.height,
+        source=record.source,
+        url=record.url,
+        metrics=metrics,
+        categoricals=record.categoricals,
+        star=record.star,
+        notes=record.notes,
+        search_text=record.search_text,
+    )
+
+
+def _record_without_derived_metrics(record: BrowseQueryRecord[T]) -> BrowseQueryRecord[T]:
+    metrics = record.metrics
+    if not metrics:
+        return record
+    if not any(is_derived_metric_key(key) for key in metrics):
+        return record
+    filtered = {
+        key: value
+        for key, value in metrics.items()
+        if not is_derived_metric_key(key)
+    }
+    return _record_with_metrics(record, filtered or None)
+
+
+def _derived_metric_inputs_available(
+    records: list[BrowseQueryRecord[T]],
+    spec: DerivedMetricSpec,
+    *,
+    metric_keys: Iterable[str] | None,
+    categorical_keys: Iterable[str] | None,
+) -> bool:
+    available_metrics = _available_metric_keys(records) if metric_keys is None else _normalized_key_set(metric_keys)
+    available_categoricals = (
+        _available_categorical_keys(records) if categorical_keys is None else _normalized_key_set(categorical_keys)
+    )
+    for term in spec.numeric_terms:
+        if term.key not in available_metrics:
+            return False
+    for term in spec.categorical_terms:
+        if term.key not in available_categoricals:
+            return False
+    return True
+
+
+def _normalized_key_set(values: Iterable[str]) -> set[str]:
+    keys: set[str] = set()
+    for value in values:
+        key = _normalize_text(value)
+        if key is not None and not is_derived_metric_key(key):
+            keys.add(key)
+    return keys
+
+
+def _available_metric_keys(records: list[BrowseQueryRecord[T]]) -> set[str]:
+    keys: set[str] = set()
+    for record in records:
+        for key in record.metrics or {}:
+            normalized = _normalize_text(key)
+            if normalized is not None and not is_derived_metric_key(normalized):
+                keys.add(normalized)
+    return keys
+
+
+def _available_categorical_keys(records: list[BrowseQueryRecord[T]]) -> set[str]:
+    keys: set[str] = set()
+    for record in records:
+        for key in record.categoricals or {}:
+            normalized = _normalize_text(key)
+            if normalized is not None:
+                keys.add(normalized)
+    return keys
+
+
+def _derived_metric_score(record: BrowseQueryRecord[object], spec: DerivedMetricSpec) -> float | None:
+    score = spec.intercept
+    metrics = record.metrics or {}
+    for term in spec.numeric_terms:
+        value = _finite_number(metrics.get(term.key))
+        if value is None:
+            if term.missing == "invalid":
+                return None
+            continue
+        score += value * term.weight
+    categoricals = record.categoricals or {}
+    for term in spec.categorical_terms:
+        if categoricals.get(term.key) == term.value:
+            score += term.weight
+    return _finite_number(score)
+
+
+def _query_references_derived_metric(spec: BrowseQuerySpec) -> bool:
+    if isinstance(spec.sort, MetricSortSpec) and is_derived_metric_key(spec.sort.key):
+        return True
+    for clause in spec.filters.and_clauses:
+        if isinstance(clause, MetricRangeFilter) and is_derived_metric_key(clause.key):
+            return True
+    return False
 
 
 def sort_browse_records(
@@ -252,6 +497,7 @@ def browse_query_request_token(spec: BrowseQuerySpec) -> str:
         "sort": _sort_token(spec.sort),
         "text_query": _normalize_text(spec.text_query),
         "random_seed": spec.random_seed,
+        "derived_metric": _derived_metric_token(spec.derived_metric),
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
@@ -551,3 +797,23 @@ def _sort_token(sort: BrowseSortSpec) -> dict[str, object]:
     if isinstance(sort, MetricSortSpec):
         return {"kind": "metric", "key": sort.key, "dir": sort.direction}
     return {"kind": "builtin", "key": sort.key, "dir": sort.direction}
+
+
+def _derived_metric_token(spec: DerivedMetricSpec | None) -> dict[str, object] | None:
+    normalized = normalize_derived_metric_spec(spec)
+    if normalized is None:
+        return None
+    return {
+        "version": 1,
+        "id": normalized.id,
+        "name": normalized.name,
+        "intercept": normalized.intercept,
+        "numericTerms": [
+            {"key": term.key, "weight": term.weight, "missing": term.missing}
+            for term in normalized.numeric_terms
+        ],
+        "categoricalTerms": [
+            {"key": term.key, "value": term.value, "weight": term.weight}
+            for term in normalized.categorical_terms
+        ],
+    }

@@ -3,11 +3,13 @@ import { api } from './client'
 import { usePollingEnabled } from './polling'
 import { normalizeSearchQuery, normalizeSearchScopePath } from './search'
 import { normalizeFilterAst } from '../features/browse/model/filters'
+import { normalizeDerivedMetricSpec } from '../features/metrics/model/derivedMetric'
 import type {
   BrowseFacetsPayload,
   BrowseFolderPayload,
   BrowseQueryRequest,
   BrowseQueryResponse,
+  DerivedMetricViewSpec,
   FilterAST,
   SortSpec,
 } from '../lib/types'
@@ -32,6 +34,7 @@ export type BrowseQueryOptions = {
   sort: SortSpec
   textQuery?: string | null
   randomSeed?: string | number | null
+  derivedMetric?: DerivedMetricViewSpec | null
   limit?: number
   unsupportedToken?: string | null
 }
@@ -66,6 +69,7 @@ export function buildBrowseQueryRequest(
 ): BrowseQueryRequest {
   const limit = options.limit ?? BACKEND_BROWSE_PAGE_SIZE
   const textQuery = normalizeSearchQuery(options.textQuery ?? '')
+  const derivedMetric = normalizeDerivedMetricSpec(options.derivedMetric ?? null)
   return {
     path: normalizeSearchScopePath(options.path),
     recursive: options.recursive ?? true,
@@ -75,6 +79,7 @@ export function buildBrowseQueryRequest(
     sort: options.sort,
     text_query: textQuery || null,
     random_seed: options.randomSeed ?? null,
+    derived_metric: derivedMetric,
   }
 }
 
@@ -89,6 +94,7 @@ export const browseQueryKey = (options: BrowseQueryOptions) => {
     request.sort,
     request.text_query ?? '',
     request.random_seed ?? null,
+    request.derived_metric,
     options.unsupportedToken ?? null,
   ] as const
 }

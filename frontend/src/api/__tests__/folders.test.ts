@@ -135,6 +135,33 @@ describe('folder api query helpers', () => {
       sort: { kind: 'metric', key: 'score', dir: 'desc' },
       text_query: 'tabby cat',
       random_seed: 123,
+      derived_metric: null,
+    })
+  })
+
+  it('includes valid derived metrics in browse-query request bodies', () => {
+    const request = buildBrowseQueryRequest({
+      path: '/shots',
+      recursive: true,
+      filters: { and: [] },
+      sort: { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      derivedMetric: {
+        version: 1,
+        id: 'rubric_1',
+        name: 'Rubric score',
+        intercept: 0,
+        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid' }],
+        categoricalTerms: [{ key: 'dataset_from', value: 'gt', weight: 3 }],
+      },
+    })
+
+    expect(request.derived_metric).toEqual({
+      version: 1,
+      id: 'rubric_1',
+      name: 'Rubric score',
+      intercept: 0,
+      numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid' }],
+      categoricalTerms: [{ key: 'dataset_from', value: 'gt', weight: 3 }],
     })
   })
 
@@ -157,6 +184,16 @@ describe('folder api query helpers', () => {
     expect(key({ sort: { kind: 'builtin', key: 'name', dir: 'asc' } })).not.toBe(key())
     expect(key({ textQuery: 'cat' })).not.toBe(key())
     expect(key({ randomSeed: 2 })).not.toBe(key())
+    expect(key({
+      derivedMetric: {
+        version: 1,
+        id: 'rubric_1',
+        name: 'Rubric score',
+        intercept: 0,
+        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid' }],
+        categoricalTerms: [],
+      },
+    })).not.toBe(key())
     expect(key({ unsupportedToken: 'derived-filter' })).not.toBe(key())
     expect(key({ filters: { and: [{ starsIn: { values: [] } }] } })).toBe(key())
   })

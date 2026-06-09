@@ -153,6 +153,7 @@ export function useAppDataScope({
     sort: backendBrowseSort,
     textQuery: normalizedQ,
     randomSeed,
+    derivedMetric: viewState.derivedMetric ?? null,
     limit: BACKEND_BROWSE_PAGE_SIZE,
     unsupportedToken: browseQueryUnavailableReason,
     enabled: !similarityActive && browseQueryUnavailableReason === null,
@@ -269,16 +270,11 @@ export function useAppDataScope({
       categoricalKeys: sourceCategoricalKeys,
       spec: viewState.derivedMetric ?? null,
       loadedCount: sourceItems.length,
-      totalItems: similarityActive
-        ? sourceItems.length
-        : (firstBrowsePage?.filtered_total ?? data?.total_items ?? sourceItems.length),
+      totalItems: sourceItems.length,
     })
   }, [
-    data?.total_items,
-    firstBrowsePage?.filtered_total,
     rawPoolItems,
     rawSimilarityItems,
-    searching,
     similarityActive,
     sourceCategoricalKeys,
     sourceMetricKeys,

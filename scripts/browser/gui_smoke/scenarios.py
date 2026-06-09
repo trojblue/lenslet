@@ -47,7 +47,7 @@ class SmokeResult:
 @dataclass(frozen=True)
 class DerivedMetricSmokeResult:
     metric_inputs: list[str]
-    unavailable_warning: str
+    backend_request_seen: bool
     restored_sort_key: str
     visible_paths_after_rank: list[str]
 
@@ -533,20 +533,6 @@ def wait_for_expected_visible_paths(
     )
 
 
-def wait_for_no_visible_grid_paths(page: Page, timeout_ms: float) -> list[str]:
-    deadline = time.monotonic() + (timeout_ms / 1000.0)
-    latest_paths: list[str] = []
-    while time.monotonic() < deadline:
-        latest_paths = visible_grid_paths(page)
-        if not latest_paths:
-            return []
-        page.wait_for_timeout(120)
-    raise SmokeFailure(
-        "Derived metric backend-browse fallback left grid cells visible after unsupported sort. "
-        f"Last visible paths={latest_paths!r}."
-    )
-
-
 def wait_for_toolbar_count_label(page: Page, expected_label: str, timeout_ms: float) -> str:
     deadline = time.monotonic() + (timeout_ms / 1000.0)
     latest_label = ""
@@ -704,34 +690,28 @@ def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricS
         switch_to_most_recent_if_available(page, timeout_ms)
     if rank_button.is_disabled():
         raise SmokeFailure(f"Rank by score is unexpectedly disabled: {rank_button.get_attribute('title')!r}.")
-    folder_query_requests: list[str] = []
-
-    def record_folder_query_request(request: Any) -> None:
-        if request.method == "POST" and request.url.endswith("/folders/query"):
-            folder_query_requests.append(request.url)
-
-    page.on("request", record_folder_query_request)
-    try:
+    with page.expect_response(
+        lambda response: response.request.method == "POST" and response.url.endswith("/folders/query"),
+        timeout=timeout_ms,
+    ) as response_info:
         rank_button.click()
 
-        restored_sort_key = wait_for_view_state_sort(page, "metric", "@derived/score_v1", timeout_ms)
-        warning_locator = page.get_by_text("Derived score sorting is unavailable in backend browse.").first
-        warning_locator.wait_for(state="visible", timeout=timeout_ms)
-        unavailable_warning = " ".join(warning_locator.inner_text().split())
-        visible_paths_after_rank = wait_for_no_visible_grid_paths(page, timeout_ms)
-        page.wait_for_timeout(750)
-    finally:
-        page.remove_listener("request", record_folder_query_request)
+    response = response_info.value
+    if response.status != 200:
+        raise SmokeFailure(f"Derived metric browse query returned unexpected status: {response.status}.")
 
-    if folder_query_requests:
+    restored_sort_key = wait_for_view_state_sort(page, "metric", "@derived/score_v1", timeout_ms)
+    top_path = wait_for_top_path(page, "/ranked/item_0001.jpg", timeout_ms)
+    visible_paths_after_rank = visible_grid_paths(page)
+    if not visible_paths_after_rank or visible_paths_after_rank[0] != top_path:
         raise SmokeFailure(
-            "Derived metric backend-browse sort sent a folder-query request instead of failing closed: "
-            f"{folder_query_requests!r}."
+            "Derived metric backend ranking did not keep the expected top item first. "
+            f"Top={top_path!r}, visible={visible_paths_after_rank!r}."
         )
 
     return DerivedMetricSmokeResult(
         metric_inputs=metric_inputs,
-        unavailable_warning=unavailable_warning,
+        backend_request_seen=True,
         restored_sort_key=restored_sort_key,
         visible_paths_after_rank=visible_paths_after_rank,
     )

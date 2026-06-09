@@ -187,17 +187,10 @@ export function getBackendBrowseDerivedMetricUnsupportedReason(
   filters: FilterAST,
   similarityActive: boolean,
 ): string | null {
-  if (similarityActive) return null
-  const hasDerivedSort = sort.kind === 'metric' && isDerivedMetricKey(sort.key)
-  const hasDerivedFilter = filters.and.some((clause) => (
-    'metricRange' in clause && isDerivedMetricKey(clause.metricRange.key)
-  ))
-  if (!hasDerivedSort && !hasDerivedFilter) return null
-  if (hasDerivedSort && hasDerivedFilter) {
-    return 'Derived score filters and sorting are unavailable in backend browse.'
-  }
-  if (hasDerivedSort) return 'Derived score sorting is unavailable in backend browse.'
-  return 'Derived score filters are unavailable in backend browse.'
+  void sort
+  void filters
+  void similarityActive
+  return null
 }
 
 export function resolveCategoricalKeys(

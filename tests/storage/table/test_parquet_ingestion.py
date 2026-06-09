@@ -134,6 +134,40 @@ def test_parquet_q_formula_columns_are_metrics_not_table_fields(tmp_path: Path):
     }
 
 
+def test_parquet_numeric_scalar_columns_are_metrics_without_name_whitelist(tmp_path: Path):
+    root = tmp_path
+    img_a = root / "a.jpg"
+    img_b = root / "b.jpg"
+    _make_image(img_a)
+    _make_image(img_b)
+
+    _write_parquet(root / "items.parquet", {
+        "path": ["a.jpg", "b.jpg"],
+        "fresh_value": [7.0, 4.0],
+        "manual_pick": [0.25, 0.75],
+        "anatomy_pose": [3, 2],
+        "row_number": [1, 2],
+        "is_selected": [True, False],
+        "string_number": ["0.5", "0.6"],
+    })
+
+    client = TestClient(create_app(str(root)))
+    payload = client.get("/folders", params={"path": "/"}).json()
+
+    assert payload["metric_keys"] == ["anatomy_pose", "fresh_value", "manual_pick"]
+    assert payload["items"][0]["metrics"] == {
+        "fresh_value": 7.0,
+        "manual_pick": 0.25,
+        "anatomy_pose": 3.0,
+    }
+
+    item_payload = client.get("/item", params={"path": "/a.jpg"}).json()
+    assert "fresh_value" not in item_payload["table_fields"]
+    assert item_payload["table_fields"]["row_number"] == 1
+    assert item_payload["table_fields"]["is_selected"] is True
+    assert item_payload["table_fields"]["string_number"] == "0.5"
+
+
 def test_parquet_string_q_columns_remain_visible_table_fields(tmp_path: Path):
     root = tmp_path
     img = root / "a.jpg"

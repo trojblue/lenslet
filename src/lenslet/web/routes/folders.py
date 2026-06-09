@@ -11,6 +11,9 @@ from ...browse.query import (
     BuiltinSortSpec,
     CategoricalInFilter,
     DateRangeFilter,
+    DerivedMetricCategoricalTerm,
+    DerivedMetricNumericTerm,
+    DerivedMetricSpec,
     HeightCompareFilter,
     MetricRangeFilter,
     MetricSortSpec,
@@ -39,6 +42,7 @@ from ..models import (
     BrowseFolderPayload,
     BrowseQueryCategoricalInClausePayload,
     BrowseQueryDateRangeClausePayload,
+    BrowseQueryDerivedMetricPayload,
     BrowseQueryFilterClausePayload,
     BrowseQueryHeightCompareClausePayload,
     BrowseQueryMetricRangeClausePayload,
@@ -117,6 +121,32 @@ def _query_filter_clause(clause: BrowseQueryFilterClausePayload) -> BrowseFilter
     raise TypeError(f"unsupported browse query filter clause: {clause!r}")
 
 
+def _query_derived_metric_spec(payload: BrowseQueryDerivedMetricPayload | None) -> DerivedMetricSpec | None:
+    if payload is None:
+        return None
+    return DerivedMetricSpec(
+        id=payload.id,
+        name=payload.name,
+        intercept=payload.intercept,
+        numeric_terms=tuple(
+            DerivedMetricNumericTerm(
+                key=term.key,
+                weight=term.weight,
+                missing=term.missing,
+            )
+            for term in payload.numeric_terms
+        ),
+        categorical_terms=tuple(
+            DerivedMetricCategoricalTerm(
+                key=term.key,
+                value=term.value,
+                weight=term.weight,
+            )
+            for term in payload.categorical_terms
+        ),
+    )
+
+
 def _query_spec_from_payload(body: BrowseQueryRequest) -> BrowseQuerySpec:
     sort = (
         MetricSortSpec(key=body.sort.key, direction=body.sort.dir)
@@ -134,6 +164,7 @@ def _query_spec_from_payload(body: BrowseQueryRequest) -> BrowseQuerySpec:
         sort=sort,
         text_query=body.text_query,
         random_seed=None if body.random_seed is None else str(body.random_seed),
+        derived_metric=_query_derived_metric_spec(body.derived_metric),
     )
 
 

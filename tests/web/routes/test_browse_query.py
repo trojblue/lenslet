@@ -85,6 +85,37 @@ def test_browse_query_contract_filters_before_windowing(tmp_path: Path) -> None:
     assert changed_payload["request_token"] != payload["request_token"]
 
 
+def test_browse_query_accepts_derived_metric_for_backend_sort_and_filter(tmp_path: Path) -> None:
+    client = _client_for_six_row_table(tmp_path)
+    body = {
+        "path": "/gallery",
+        "recursive": True,
+        "offset": 0,
+        "limit": 1,
+        "filters": {
+            "and": [
+                {"metricRange": {"key": "@derived/rubric_1", "min": 8.0, "max": 20.0}},
+            ],
+        },
+        "sort": {"kind": "metric", "key": "@derived/rubric_1", "dir": "desc"},
+        "derived_metric": {
+            "version": 1,
+            "id": "rubric_1",
+            "name": "Rubric score",
+            "intercept": 0.0,
+            "numericTerms": [{"key": "score", "weight": 1.0, "missing": "invalid"}],
+            "categoricalTerms": [{"key": "source_column", "value": "target", "weight": 10.0}],
+        },
+    }
+
+    response = client.post("/folders/query", json=body)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filtered_total"] == 2
+    assert [item["name"] for item in payload["items"]] == ["img5.jpg"]
+
+
 def test_browse_query_rejects_malformed_filter_ast(tmp_path: Path) -> None:
     client = _client_for_six_row_table(tmp_path)
 

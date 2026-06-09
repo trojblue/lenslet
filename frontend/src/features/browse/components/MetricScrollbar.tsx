@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { BrowseItemPayload } from '../../../lib/types'
 import { finiteMetricValue } from '../../../lib/metrics'
+import {
+  clamp01,
+  computeMetricRailHistogram,
+  metricRailProgressFromValue,
+  metricValueAtProgress,
+  metricValueFromRailProgress,
+} from '../model/metricRail'
 
 const BIN_COUNT = 48
 const QUANTILES = [0.1, 0.24, 0.5, 0.74, 0.9]
@@ -11,9 +18,19 @@ interface MetricScrollbarProps {
   metricLabel?: string
   scrollRef: React.RefObject<HTMLDivElement>
   sortDir: 'asc' | 'desc'
+  currentPath?: string | null
+  onJumpToMetricValue: (value: number) => void
 }
 
-export default function MetricScrollbar({ items, metricKey, metricLabel, scrollRef, sortDir }: MetricScrollbarProps) {
+export default function MetricScrollbar({
+  items,
+  metricKey,
+  metricLabel,
+  scrollRef,
+  sortDir,
+  currentPath = null,
+  onJumpToMetricValue,
+}: MetricScrollbarProps) {
   const { orderedValues, numericValues } = useMemo(() => {
     const ordered: Array<number | null> = []
     const numeric: number[] = []
@@ -24,7 +41,7 @@ export default function MetricScrollbar({ items, metricKey, metricLabel, scrollR
     }
     return { orderedValues: ordered, numericValues: numeric }
   }, [items, metricKey])
-  const histogram = useMemo(() => computeHistogram(numericValues, BIN_COUNT), [numericValues])
+  const histogram = useMemo(() => computeMetricRailHistogram(numericValues, BIN_COUNT), [numericValues])
   const quantiles = useMemo(() => computeQuantiles(numericValues, QUANTILES), [numericValues])
 
   const [scrollProgress, setScrollProgress] = useState(0)
@@ -55,17 +72,31 @@ export default function MetricScrollbar({ items, metricKey, metricLabel, scrollR
     setHoverProgress(null)
   }, [metricKey, items.length])
 
-  if (!histogram) return null
+  const domain = histogram ? { min: histogram.min, max: histogram.max } : null
+  const scrollValue = useMemo(
+    () => {
+      if (currentPath) {
+        const current = items.find((item) => item.path === currentPath)
+        const value = finiteMetricValue(current?.metrics?.[metricKey])
+        if (value != null) return value
+      }
+      return metricValueAtProgress(orderedValues, scrollProgress)
+    },
+    [currentPath, items, metricKey, orderedValues, scrollProgress],
+  )
+  const hoverValue = useMemo(() => {
+    if (hoverProgress == null || domain == null) return null
+    return metricValueFromRailProgress(hoverProgress, domain, sortDir)
+  }, [domain?.max, domain?.min, hoverProgress, sortDir])
+
+  if (!histogram || !domain) return null
 
   const label = metricLabel ?? metricKey
-  const domain = { min: histogram.min, max: histogram.max }
   const hoverY = hoverProgress != null ? progressToY(hoverProgress) : null
-  const scrollY = progressToY(scrollProgress)
   const isDesc = sortDir === 'desc'
-  const hoverValue = useMemo(() => {
-    if (hoverProgress == null) return null
-    return valueAtProgress(orderedValues, hoverProgress)
-  }, [orderedValues, hoverProgress])
+  const scrollY = scrollValue == null
+    ? progressToY(scrollProgress)
+    : progressToY(metricRailProgressFromValue(scrollValue, domain, sortDir))
 
   function updateHover(progress: number) {
     setHoverProgress(clamp01(progress))
@@ -75,11 +106,8 @@ export default function MetricScrollbar({ items, metricKey, metricLabel, scrollR
     setHoverProgress(null)
   }
 
-  function scrollToProgress(progress: number) {
-    const el = scrollRef.current
-    if (!el) return
-    const max = Math.max(0, el.scrollHeight - el.clientHeight)
-    el.scrollTop = clamp01(progress) * max
+  function jumpToProgress(progress: number) {
+    onJumpToMetricValue(metricValueFromRailProgress(progress, domain, sortDir))
   }
 
   function getProgressFromEvent(e: React.PointerEvent<SVGSVGElement>): number | null {
@@ -94,15 +122,15 @@ export default function MetricScrollbar({ items, metricKey, metricLabel, scrollR
         ref={svgRef}
         viewBox="0 0 10 100"
         preserveAspectRatio="none"
-        className="w-full h-full rounded bg-surface-inset border border-border/60 cursor-ns-resize"
-        aria-label={`${label} metric rail`}
+        className="w-full h-full rounded bg-surface-inset border border-border/60 cursor-crosshair"
+        aria-label={`${label} metric distribution rail`}
         onPointerDown={(e) => {
           e.preventDefault()
           const progress = getProgressFromEvent(e)
           if (progress == null) return
           setScrubbing(true)
           updateHover(progress)
-          scrollToProgress(progress)
+          jumpToProgress(progress)
           svgRef.current?.setPointerCapture(e.pointerId)
         }}
         onPointerMove={(e) => {
@@ -112,7 +140,7 @@ export default function MetricScrollbar({ items, metricKey, metricLabel, scrollR
             return
           }
           updateHover(progress)
-          if (scrubbing) scrollToProgress(progress)
+          if (scrubbing) jumpToProgress(progress)
         }}
         onPointerUp={(e) => {
           setScrubbing(false)
@@ -124,7 +152,7 @@ export default function MetricScrollbar({ items, metricKey, metricLabel, scrollR
       >
         <title>{label}</title>
         {renderScrollbarBars(histogram.bins, 'var(--border-strong)', { flip: isDesc })}
-        {renderQuantileTicks(quantiles, domain, { flip: isDesc, color: 'var(--muted)' })}
+        {renderQuantileTicks(quantiles, domain, { sortDir, color: 'var(--muted)' })}
         {renderLine(scrollY, { color: 'var(--highlight)', strokeWidth: 0.8 })}
         {hoverY != null && renderLine(hoverY, { color: 'var(--text-secondary)', strokeWidth: 0.6, dashed: true })}
       </svg>
@@ -138,21 +166,6 @@ export default function MetricScrollbar({ items, metricKey, metricLabel, scrollR
       )}
     </div>
   )
-}
-
-function computeHistogram(values: number[], bins: number) {
-  if (!values.length) return null
-  const min = Math.min(...values)
-  let max = Math.max(...values)
-  if (min === max) max = min + 1
-
-  const counts = new Array(bins).fill(0)
-  const scale = bins / (max - min)
-  for (const v of values) {
-    const idx = Math.max(0, Math.min(bins - 1, Math.floor((v - min) * scale)))
-    counts[idx] += 1
-  }
-  return { bins: counts, min, max }
 }
 
 function computeQuantiles(values: number[], quantiles: number[]): number[] {
@@ -193,12 +206,12 @@ function renderScrollbarBars(bins: number[], color: string, options?: { flip?: b
 function renderQuantileTicks(
   values: number[],
   domain: { min: number; max: number },
-  options?: { flip?: boolean; color?: string }
+  options?: { sortDir?: 'asc' | 'desc'; color?: string }
 ) {
-  const flip = options?.flip ?? false
+  const sortDir = options?.sortDir ?? 'asc'
   const color = options?.color ?? 'currentColor'
   return values.map((value, idx) => {
-    const y = valueToY(value, domain, flip)
+    const y = progressToY(metricRailProgressFromValue(value, domain, sortDir))
     const isMedian = idx === 2
     return (
       <line
@@ -232,35 +245,8 @@ function renderLine(y: number, options: { color: string; strokeWidth?: number; d
   )
 }
 
-function valueAtProgress(values: Array<number | null>, progress: number): number | null {
-  if (!values.length) return null
-  const idx = Math.round(clamp01(progress) * (values.length - 1))
-  const direct = values[idx]
-  if (direct != null) return direct
-  for (let offset = 1; offset < values.length; offset++) {
-    const up = idx - offset
-    if (up >= 0 && values[up] != null) return values[up] as number
-    const down = idx + offset
-    if (down < values.length && values[down] != null) return values[down] as number
-  }
-  return null
-}
-
-function valueToY(value: number, domain: { min: number; max: number }, flip: boolean): number {
-  const range = domain.max - domain.min
-  if (range === 0) return 0
-  const t = clamp01((value - domain.min) / range)
-  return (flip ? (1 - t) : t) * 100
-}
-
 function progressToY(progress: number): number {
   return clamp01(progress) * 100
-}
-
-function clamp01(value: number): number {
-  if (value < 0) return 0
-  if (value > 1) return 1
-  return value
 }
 
 function formatNumber(value?: number | null): string {

@@ -68,6 +68,7 @@ import GridTopStack from './components/GridTopStack'
 import { deriveIndicatorState } from './presenceUi'
 import { LONG_SYNC_THRESHOLD_MS } from '../lib/constants'
 import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
+import { closestMetricPathForValue } from '../features/browse/model/metricRail'
 import { directOriginalImageUrl } from '../features/media/originalImageResource'
 import { LAYOUT_BREAKPOINTS } from '../lib/breakpoints'
 import AppContextMenuItems from './menu/AppContextMenuItems'
@@ -290,6 +291,7 @@ export default function AppShell({
     invalidateSubtree: invalidateFolderSessionSubtree,
   } = useFolderSessionState()
   const [restoreGridToTopAnchorToken, setRestoreGridToTopAnchorToken] = useState(0)
+  const [gridTopAnchorPath, setGridTopAnchorPath] = useState<string | null>(null)
   const [scopeSessionResetToken, setScopeSessionResetToken] = useState(0)
 
   usePersistedAppShellSettings({
@@ -518,7 +520,7 @@ export default function AppShell({
   const metricsFacets = metricsFacetsQuery.data?.path === (data?.path ?? current)
     ? metricsFacetsQuery.data
     : null
-  const metricsItemPopulationComplete = similarityState !== null
+  const metricsItemPopulationComplete = similarityState !== null || items.length >= filteredCount
   const hasMetricScrollbar = useMemo(
     () => hasMetricSortValues(items, metricSortKey),
     [items, metricSortKey],
@@ -581,6 +583,7 @@ export default function AppShell({
   }, [themeHealthMode, themeWorkspaceId])
 
   const handleGridTopAnchorPathChange = useCallback((topAnchorPath: string | null) => {
+    setGridTopAnchorPath(topAnchorPath)
     if (!topAnchorPath) return
     saveTopAnchorPath(current, topAnchorPath)
   }, [current, saveTopAnchorPath])
@@ -590,6 +593,7 @@ export default function AppShell({
   )
 
   useEffect(() => {
+    setGridTopAnchorPath(null)
     setRestoreGridToTopAnchorToken((token) => token + 1)
   }, [current])
 
@@ -714,6 +718,23 @@ export default function AppShell({
       filters: { and: [] },
     }))
   }, [])
+
+  const handleMetricRailJump = useCallback((value: number) => {
+    if (!metricSortKey) return
+    const path = closestMetricPathForValue(items, metricSortKey, value)
+    if (!path) return
+    rememberFocusedPath(path)
+    setSelectedPaths([path])
+    bumpRestoreGridToSelectionToken()
+    focusGridCell(path)
+  }, [
+    bumpRestoreGridToSelectionToken,
+    focusGridCell,
+    items,
+    metricSortKey,
+    rememberFocusedPath,
+    setSelectedPaths,
+  ])
 
   const {
     clearSimilarity,
@@ -1203,6 +1224,8 @@ export default function AppShell({
                     metricLabel={getMetricDisplayName(metricSortKey!, metricDisplayNames)}
                     scrollRef={gridScrollRef}
                     sortDir={viewState.sort.dir}
+                    currentPath={gridTopAnchorPath}
+                    onJumpToMetricValue={handleMetricRailJump}
                   />
                 )
                 : <div className="metric-rail-placeholder" aria-hidden="true" />}

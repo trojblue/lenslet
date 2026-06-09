@@ -85,6 +85,34 @@ def test_browse_query_contract_filters_before_windowing(tmp_path: Path) -> None:
     assert changed_payload["request_token"] != payload["request_token"]
 
 
+def test_browse_query_accepts_large_metric_sort_hydration_window(tmp_path: Path) -> None:
+    client = _client_for_six_row_table(tmp_path)
+
+    response = client.post(
+        "/folders/query",
+        json={
+            "path": "/gallery",
+            "recursive": True,
+            "offset": 0,
+            "limit": 50_000,
+            "sort": {"kind": "metric", "key": "score", "dir": "desc"},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 50_000
+    assert payload["filtered_total"] == 6
+    assert [item["name"] for item in payload["items"]] == [
+        "img5.jpg",
+        "img4.jpg",
+        "img3.jpg",
+        "img2.jpg",
+        "img1.jpg",
+        "img0.jpg",
+    ]
+
+
 def test_browse_query_accepts_derived_metric_for_backend_sort_and_filter(tmp_path: Path) -> None:
     client = _client_for_six_row_table(tmp_path)
     body = {

@@ -15,7 +15,7 @@ BrowseQuerySortDirection = Literal["asc", "desc"]
 BrowseQueryCompareOp = Literal["<", "<=", ">", ">="]
 DerivedMetricNumericMissingPolicy = Literal["zero", "invalid"]
 BROWSE_QUERY_DEFAULT_LIMIT = 1000
-BROWSE_QUERY_MAX_LIMIT = 10_000
+BROWSE_QUERY_MAX_LIMIT = 50_000
 DERIVED_METRIC_KEY_PREFIX = "@derived/"
 
 

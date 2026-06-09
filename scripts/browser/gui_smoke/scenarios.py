@@ -53,6 +53,7 @@ class DerivedMetricSmokeResult:
     backend_request_seen: bool
     restored_sort_key: str
     visible_paths_after_rank: list[str]
+    metric_rail_jump_path: str
 
 
 @dataclass(frozen=True)
@@ -759,6 +760,19 @@ def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricS
     response = response_info.value
     if response.status != 200:
         raise SmokeFailure(f"Derived metric browse query returned unexpected status: {response.status}.")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise SmokeFailure("Derived metric browse query returned a non-object payload.")
+    hydrated_items = payload.get("items")
+    if (
+        payload.get("limit") != 50_000
+        or not isinstance(hydrated_items, list)
+        or len(hydrated_items) <= 1000
+    ):
+        raise SmokeFailure(
+            "Derived metric browse query did not hydrate the metric-sorted population: "
+            f"limit={payload.get('limit')!r}, item_count={len(hydrated_items) if isinstance(hydrated_items, list) else None!r}."
+        )
 
     restored_sort_key = wait_for_view_state_sort(page, "metric", "@derived/score_v1", timeout_ms)
     top_path = wait_for_top_path(page, "/ranked/item_0001.jpg", timeout_ms)
@@ -769,11 +783,24 @@ def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricS
             f"Top={top_path!r}, visible={visible_paths_after_rank!r}."
         )
 
+    rail = page.locator("svg[aria-label*='metric distribution rail']").first
+    rail.wait_for(state="visible", timeout=timeout_ms)
+    rail_box = rail.bounding_box()
+    if rail_box is None:
+        raise SmokeFailure("Metric distribution rail has no visible bounding box.")
+    page.mouse.click(
+        float(rail_box["x"]) + float(rail_box["width"]) / 2.0,
+        float(rail_box["y"]) + float(rail_box["height"]) / 2.0,
+    )
+    metric_rail_jump_path = "/ranked/item_0002.jpg"
+    wait_for_grid_cell_restored_to_path(page, metric_rail_jump_path, timeout_ms)
+
     return DerivedMetricSmokeResult(
         metric_inputs=metric_inputs,
         backend_request_seen=True,
         restored_sort_key=restored_sort_key,
         visible_paths_after_rank=visible_paths_after_rank,
+        metric_rail_jump_path=metric_rail_jump_path,
     )
 
 

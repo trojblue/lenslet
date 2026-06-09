@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
+  BACKEND_BROWSE_METRIC_SORT_LIMIT,
   BACKEND_BROWSE_PAGE_SIZE,
   shouldRemoveRecursiveFolderQuery,
   useBrowseQuery,
@@ -190,6 +191,9 @@ export function useAppDataScope({
       similarityActive,
     )
   ), [similarityActive, viewState.filters, viewState.sort])
+  const browseLimit = viewState.sort.kind === 'metric'
+    ? BACKEND_BROWSE_METRIC_SORT_LIMIT
+    : BACKEND_BROWSE_PAGE_SIZE
   const browseQuery = useBrowseQuery({
     path: current,
     recursive: true,
@@ -198,7 +202,7 @@ export function useAppDataScope({
     textQuery: normalizedQ,
     randomSeed,
     derivedMetric: viewState.derivedMetric ?? null,
-    limit: BACKEND_BROWSE_PAGE_SIZE,
+    limit: browseLimit,
     unsupportedToken: browseQueryUnavailableReason,
     enabled: !similarityActive && browseQueryUnavailableReason === null,
   })

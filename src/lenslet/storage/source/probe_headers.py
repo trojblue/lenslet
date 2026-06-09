@@ -16,6 +16,10 @@ HEADER_FETCH_ERRORS: tuple[type[BaseException], ...] = (
     ValueError,
     urllib.error.URLError,
 )
+IMAGE_PROBE_HEADERS = {
+    "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.1",
+    "User-Agent": "lenslet-image-probe/1.0",
+}
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -67,9 +71,8 @@ def get_safe_remote_header_bytes(
         req = urllib.request.Request(
             url,
             headers={
-                "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.1",
+                **IMAGE_PROBE_HEADERS,
                 "Range": f"bytes=0-{max_bytes - 1}",
-                "User-Agent": "lenslet-image-probe/1.0",
             },
         )
         opener = urllib.request.build_opener(NoRedirectHandler)
@@ -90,7 +93,10 @@ def get_remote_header_bytes(
     try:
         req = http_request(
             url,
-            headers={"Range": f"bytes=0-{max_bytes - 1}"},
+            headers={
+                **IMAGE_PROBE_HEADERS,
+                "Range": f"bytes=0-{max_bytes - 1}",
+            },
         )
         with open_http_url(req) as response:
             data = response.read(max_bytes)

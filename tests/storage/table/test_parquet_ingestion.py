@@ -585,6 +585,42 @@ def test_create_app_uses_retained_cache_dimensions_launch_result(tmp_path: Path)
     assert cached_table["height"].to_pylist() == [6]
 
 
+def test_prepare_table_launch_caches_extensionless_remote_dimensions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    source_url = "https://images.example.test/r2/encoded-image-key"
+    parquet_path = tmp_path / "items.parquet"
+    _write_parquet(parquet_path, {"url": [source_url]})
+
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", lambda self, source: True)
+    monkeypatch.setattr(
+        TableStorage,
+        "_get_remote_header_info",
+        lambda self, url, name: ((21, 13), 456),
+    )
+
+    launch_result = prepare_table_launch(
+        TableLaunchRequest(
+            parquet_path=parquet_path,
+            base_dir=None,
+            source_column=None,
+            cache_dimensions=True,
+            skip_dimension_probe=True,
+        )
+    )
+
+    cached_table = pq.read_table(parquet_path)
+    assert launch_result.storage.table_source_column_state().current == "url"
+    assert launch_result.storage.row_dimensions() == [(21, 13)]
+    assert cached_table["width"].to_pylist() == [21]
+    assert cached_table["height"].to_pylist() == [13]
+    assert {notice.kind for notice in launch_result.notices} >= {
+        "dimension_cache_requires_probe",
+        "dimensions_cached",
+    }
+
+
 def test_parquet_source_detection_ignores_nested_leaf_field_names(tmp_path: Path):
     root = tmp_path
     img_a = root / "dataset" / "a.jpg"

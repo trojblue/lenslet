@@ -629,6 +629,29 @@ def test_auto_detected_extensionless_source_column_uses_one_image_probe(
     assert items[1].metrics == {"larry_ai_prob": 0.82}
 
 
+def test_trusted_extensionless_url_column_reports_usable_samples(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(TableStorage, "_source_header_is_image", lambda self, source: True)
+    rows = [
+        {"url": "https://images.example.test/r2/encoded-image-key"},
+        {"url": "https://images.example.test/r2/second-encoded-key"},
+    ]
+
+    storage = _table_storage(
+        rows,
+        source_column="url",
+        allow_local=False,
+        skip_dimension_probe=True,
+    )
+
+    state = storage.table_source_column_state()
+    selected = next(column for column in state.columns if column.selected)
+    assert storage.count_in_scope("/") == 2
+    assert selected.sample_usable == 2
+    assert state.warning is None
+
+
 def test_auto_source_detection_prefers_image_url_over_page_source_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

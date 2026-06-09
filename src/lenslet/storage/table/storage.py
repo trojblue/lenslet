@@ -594,6 +594,8 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         if is_s3_uri(value) or is_http_url(value):
             if column.lower() in self.EXTENSIONLESS_IMAGE_SOURCE_COLUMNS:
                 return True
+            if column == getattr(self, "_source_column", None) and self._allows_extensionless_source_image(value):
+                return True
             return priority >= 80 and self._sample_dimension_present(row_idx)
         return False
 

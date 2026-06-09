@@ -102,7 +102,6 @@ import { useFolderSessionState } from './hooks/useFolderSessionState'
 import { useFolderRefreshActions } from './hooks/useFolderRefreshActions'
 import { useBrowserZoomWarning } from './hooks/useBrowserZoomWarning'
 import { useGridPinchResize } from './hooks/useGridPinchResize'
-import { useIndexingModePersistence } from './hooks/useIndexingModePersistence'
 import { usePersistedAppShellSettings } from './hooks/usePersistedAppShellSettings'
 import { useSimilaritySearchWorkflow } from './hooks/useSimilaritySearchWorkflow'
 import { useSmartFolders } from './hooks/useSmartFolders'
@@ -266,7 +265,6 @@ export default function AppShell({
   const [autoloadImageMetadata, setAutoloadImageMetadata] = useState(true)
   const [proxyHttpOriginals, setProxyHttpOriginals] = useState(false)
   const [compareOrderMode, setCompareOrderMode] = useState<CompareOrderMode>('gallery')
-  const [scanStableMode, setScanStableMode] = useState(false)
   const [tableSourceColumns, setTableSourceColumns] = useState<TableSourceColumnsPayload | null>(null)
   const [tableSourceSwitching, setTableSourceSwitching] = useState(false)
   const [dismissedTableSourceWarning, setDismissedTableSourceWarning] = useState<string | null>(null)
@@ -392,7 +390,6 @@ export default function AppShell({
     current,
     query,
     similarityState,
-    scanStableMode,
     viewState,
     randomSeed,
     localStarOverrides,
@@ -572,15 +569,6 @@ export default function AppShell({
       setReadOnlyWarningDismissed(false)
     }
   }, [persistenceEnabled])
-
-  const {
-    indexingBrowseMode,
-    handleSwitchToMostRecent,
-  } = useIndexingModePersistence({
-    indexing,
-    setScanStableMode,
-    setViewState,
-  })
 
   useEffect(() => {
     setThemePreset(loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode))
@@ -845,10 +833,7 @@ export default function AppShell({
   }, [])
 
   const scopeLabel = useMemo(() => formatScopeLabel(current), [current])
-  const derivedRankDisabledReason = getDerivedMetricRankDisabledReason(
-    similarityActive,
-    indexingBrowseMode.sortLocked,
-  )
+  const derivedRankDisabledReason = getDerivedMetricRankDisabledReason(similarityActive)
 
   useEffect(() => {
     document.title = formatTitle(current)
@@ -1024,7 +1009,7 @@ export default function AppShell({
         metricKeys={metricKeys}
         metricDisplayNames={metricDisplayNames}
         onSortChange={handleSortChange}
-        sortDisabled={similarityActive || indexingBrowseMode.sortLocked}
+        sortDisabled={similarityActive}
         filterCount={activeFilterCount}
         onOpenFilters={openMetricsPanel}
         starsInFilter={starsInFilter}
@@ -1149,8 +1134,6 @@ export default function AppShell({
               showPersistenceWarning: !readOnlyWarningDismissed,
               onDismissPersistenceWarning: () => setReadOnlyWarningDismissed(true),
               indexing,
-              showSwitchToMostRecentBanner: indexingBrowseMode.showSwitchToMostRecentBanner,
-              onSwitchToMostRecent: handleSwitchToMostRecent,
               offViewSummary,
               canRevealOffView: showFilteredCounts,
               onRevealOffView: handleRevealOffView,

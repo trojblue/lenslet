@@ -52,7 +52,6 @@ type UseAppDataScopeParams = {
   current: string
   query: string
   similarityState: SimilarityState | null
-  scanStableMode?: boolean
   viewState: ViewState
   randomSeed: number
   localStarOverrides: Record<string, StarRating>
@@ -166,7 +165,6 @@ export function useAppDataScope({
   current,
   query,
   similarityState,
-  scanStableMode = false,
   viewState,
   randomSeed,
   localStarOverrides,
@@ -185,23 +183,18 @@ export function useAppDataScope({
   ), [similarityActive, debouncedQ, current])
   const searching = searchRequest !== null
   const normalizedQ = searchRequest?.q ?? ''
-  const backendBrowseSort = useMemo(() => (
-    scanStableMode
-      ? { kind: 'builtin' as const, key: 'added' as const, dir: viewState.sort.dir }
-      : viewState.sort
-  ), [scanStableMode, viewState.sort])
   const browseQueryUnavailableReason = useMemo(() => (
     getBackendBrowseDerivedMetricUnsupportedReason(
-      backendBrowseSort,
+      viewState.sort,
       viewState.filters,
       similarityActive,
     )
-  ), [backendBrowseSort, similarityActive, viewState.filters])
+  ), [similarityActive, viewState.filters, viewState.sort])
   const browseQuery = useBrowseQuery({
     path: current,
     recursive: true,
     filters: viewState.filters,
-    sort: backendBrowseSort,
+    sort: viewState.sort,
     textQuery: normalizedQ,
     randomSeed,
     derivedMetric: viewState.derivedMetric ?? null,
@@ -232,10 +225,9 @@ export function useAppDataScope({
     current,
     normalizedQ,
     randomSeed,
-    scanStableMode,
     sessionResetToken,
     viewState.filters,
-    backendBrowseSort,
+    viewState.sort,
   ])
 
   useEffect(() => {

@@ -295,9 +295,8 @@ describe('appShellSelectors', () => {
   })
 
   it('reports mode-level disabled reasons for derived ranking', () => {
-    expect(getDerivedMetricRankDisabledReason(true, false)).toBe('Ranking disabled in similarity mode.')
-    expect(getDerivedMetricRankDisabledReason(false, true)).toBe('Ranking disabled while scan order is locked.')
-    expect(getDerivedMetricRankDisabledReason(false, false)).toBeNull()
+    expect(getDerivedMetricRankDisabledReason(true)).toBe('Ranking disabled in similarity mode.')
+    expect(getDerivedMetricRankDisabledReason(false)).toBeNull()
   })
 
   it('applies and clears derived metrics without losing unrelated view state', () => {

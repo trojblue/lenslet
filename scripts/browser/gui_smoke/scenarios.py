@@ -191,15 +191,10 @@ def wait_for_top_path(page: Page, expected_path: str, timeout_ms: float) -> str:
     raise SmokeFailure(f"Timed out waiting for top path {expected_path!r}. Last observed: {last_path!r}")
 
 
-def switch_to_most_recent_if_available(page: Page, timeout_ms: float) -> bool:
+def assert_switch_to_most_recent_absent(page: Page) -> None:
     button = page.get_by_role("button", name="Switch to Most recent").first
-    try:
-        button.wait_for(state="visible", timeout=1_500)
-    except PlaywrightTimeoutError:
-        return False
-    button.click()
-    wait_for_ui_settled(page, timeout_ms)
-    return True
+    if button.count() > 0 and button.is_visible():
+        raise SmokeFailure("Obsolete scan-stable Switch to Most recent banner is visible.")
 
 
 def wait_for_top_name_prefix(page: Page, prefix: str, timeout_ms: float) -> str:
@@ -650,7 +645,7 @@ def wait_for_view_state_sort(page: Page, expected_kind: str, expected_key: str |
 def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricSmokeResult:
     page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
     wait_for_visible_grid_cell_ids(page, minimum_count=8, timeout_ms=timeout_ms)
-    switch_to_most_recent_if_available(page, timeout_ms)
+    assert_switch_to_most_recent_absent(page)
 
     page.get_by_role("button", name="Derived Score").click()
     card = page.locator("[data-derived-score-card]").first
@@ -686,8 +681,6 @@ def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricS
         raise SmokeFailure(f"Unexpected derived score formula preview: {formula_preview!r}.")
 
     rank_button = card.locator("[data-derived-score-rank]")
-    if rank_button.is_disabled() and "scan order" in (rank_button.get_attribute("title") or ""):
-        switch_to_most_recent_if_available(page, timeout_ms)
     if rank_button.is_disabled():
         raise SmokeFailure(f"Rank by score is unexpectedly disabled: {rank_button.get_attribute('title')!r}.")
     with page.expect_response(

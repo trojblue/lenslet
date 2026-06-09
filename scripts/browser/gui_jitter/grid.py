@@ -58,21 +58,10 @@ class GridProbeSnapshots:
 
 
 def ensure_sort_trigger(page: Any, browser_timeout_ms: float) -> Any:
+    del browser_timeout_ms
     trigger = page.locator('button[aria-label="Sort and layout"]').first
     if trigger.count() == 0:
         raise SmokeFailure("Sort dropdown trigger is missing.")
-    if not trigger.is_disabled():
-        return trigger
-    switch_button = page.locator('button:has-text("Switch to Most recent")').first
-    if switch_button.count() > 0:
-        switch_button.click()
-        page.wait_for_function(
-            """() => {
-              const button = document.querySelector('button[aria-label="Sort and layout"]');
-              return button instanceof HTMLButtonElement ? !button.disabled : false;
-            }""",
-            timeout=browser_timeout_ms,
-        )
     if trigger.is_disabled():
         raise SmokeFailure("Sort dropdown trigger is disabled.")
     return trigger

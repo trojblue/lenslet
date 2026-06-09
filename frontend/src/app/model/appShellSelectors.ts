@@ -215,10 +215,8 @@ export function resolveDerivedMetricTotalItems(
 
 export function getDerivedMetricRankDisabledReason(
   similarityActive: boolean,
-  sortLocked: boolean,
 ): string | null {
   if (similarityActive) return 'Ranking disabled in similarity mode.'
-  if (sortLocked) return 'Ranking disabled while scan order is locked.'
   return null
 }
 

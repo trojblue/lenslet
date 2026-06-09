@@ -887,18 +887,10 @@ def _collect_scroll_probe(page: Any, interaction_seconds: float) -> tuple[dict[s
 
 
 def _ensure_sort_controls_enabled(page: Any, sort_trigger: Any, browser_timeout_ms: float) -> None:
+    del page, browser_timeout_ms
     if not sort_trigger.is_disabled():
         return
-    switch_button = page.get_by_role("button", name="Switch to Most recent").first
-    if switch_button.count() == 0:
-        raise SmokeFailure("sort controls are disabled and no switch-to-most-recent banner is available")
-    switch_button.click()
-    deadline = time.monotonic() + (browser_timeout_ms / 1000.0)
-    while time.monotonic() < deadline:
-        if not sort_trigger.is_disabled():
-            return
-        page.wait_for_timeout(120)
-    raise SmokeFailure("sort controls stayed disabled after switching to most recent")
+    raise SmokeFailure("sort controls are disabled")
 
 
 def _open_metric_sort_option(

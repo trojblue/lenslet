@@ -8,8 +8,6 @@ export type StatusBarProps = {
   showPersistenceWarning?: boolean
   onDismissPersistenceWarning?: () => void
   indexing?: HealthIndexing
-  showSwitchToMostRecentBanner?: boolean
-  onSwitchToMostRecent?: () => void
   offViewSummary: RecentSummary | null
   onRevealOffView?: () => void
   canRevealOffView?: boolean
@@ -37,7 +35,6 @@ type StatusBarState = {
   showIndexingError: boolean
   indexingScopeLabel: string
   indexingProgressLabel: string | null
-  showSwitchBanner: boolean
   showReadOnlyWarning: boolean
   showAnyBanner: boolean
 }
@@ -46,8 +43,6 @@ function deriveStatusBarState({
   persistenceEnabled,
   showPersistenceWarning,
   indexing = null,
-  showSwitchToMostRecentBanner = false,
-  onSwitchToMostRecent,
   offViewSummary,
   onRevealOffView,
   canRevealOffView = false,
@@ -74,13 +69,11 @@ function deriveStatusBarState({
     if (total === null) return `${done ?? 0} indexed`
     return `${Math.min(done ?? 0, total)} / ${total}`
   })()
-  const showSwitchBanner = showSwitchToMostRecentBanner && onSwitchToMostRecent != null
   const showReadOnlyWarning = !persistenceEnabled && showPersistenceWarning !== false
   const showAnyBanner = (
     showReadOnlyWarning
     || showIndexingRunning
     || showIndexingError
-    || showSwitchBanner
     || showZoomWarning
     || !!offViewSummary
     || showTableSourceWarning
@@ -96,7 +89,6 @@ function deriveStatusBarState({
     showIndexingError,
     indexingScopeLabel,
     indexingProgressLabel,
-    showSwitchBanner,
     showAnyBanner,
     showReadOnlyWarning,
   }
@@ -111,8 +103,6 @@ export default function StatusBar({
   showPersistenceWarning,
   onDismissPersistenceWarning,
   indexing = null,
-  showSwitchToMostRecentBanner = false,
-  onSwitchToMostRecent,
   offViewSummary,
   onRevealOffView,
   canRevealOffView = false,
@@ -133,15 +123,12 @@ export default function StatusBar({
     showIndexingError,
     indexingScopeLabel,
     indexingProgressLabel,
-    showSwitchBanner,
     showAnyBanner,
     showReadOnlyWarning,
   } = deriveStatusBarState({
     persistenceEnabled,
     showPersistenceWarning,
     indexing,
-    showSwitchToMostRecentBanner,
-    onSwitchToMostRecent,
     offViewSummary,
     onRevealOffView,
     canRevealOffView,
@@ -210,21 +197,6 @@ export default function StatusBar({
             <span className="font-semibold">Derived score.</span>
             {' '}
             {derivedMetricWarning}
-          </div>
-        )}
-        {showSwitchBanner && (
-          <div className="ui-banner ui-banner-accent text-xs flex flex-wrap items-center justify-between gap-3">
-            <span>
-              <span className="font-semibold">Indexing complete.</span>
-              {' '}
-              Scan-stable ordering is active for this generation.
-            </span>
-            <button
-              className="text-muted hover:text-text transition-colors"
-              onClick={onSwitchToMostRecent}
-            >
-              Switch to Most recent
-            </button>
           </div>
         )}
         {showZoomWarning && (

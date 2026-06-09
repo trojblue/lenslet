@@ -434,20 +434,7 @@ def verify_desktop_layout_label(page: Any, timeout_ms: float) -> dict[str, Any]:
     trigger = page.get_by_role("button", name="Sort and layout").first
     trigger.wait_for(state="visible", timeout=timeout_ms)
     if trigger.is_disabled():
-        switch_button = page.locator('button:has-text("Switch to Most recent")').first
-        if switch_button.count() > 0:
-            switch_button.click()
-            page.wait_for_function(
-                """() => {
-                  const button = document.querySelector('button[aria-label="Sort and layout"]')
-                  return button instanceof HTMLButtonElement ? !button.disabled : false
-                }""",
-                timeout=timeout_ms,
-            )
-    if trigger.is_disabled():
-        raise OverallCleanupBrowserFailure(
-            "Sort and layout trigger stayed disabled after scan-stable unlock."
-        )
+        raise OverallCleanupBrowserFailure("Sort and layout trigger is disabled.")
     trigger.click()
     panel = page.locator('.dropdown-panel[aria-label="Sort and layout"]').first
     panel.wait_for(state="visible", timeout=timeout_ms)

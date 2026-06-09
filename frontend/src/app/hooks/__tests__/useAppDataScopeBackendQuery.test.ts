@@ -21,9 +21,10 @@ describe('useAppDataScope backend browse-query boundary', () => {
     expect(SOURCE).not.toContain('api.getFolder(')
     expect(SOURCE).not.toContain('applyFilters(poolItems')
     expect(SOURCE).toContain('enabled: !similarityActive && browseQueryUnavailableReason === null')
-    expect(SOURCE).toContain('const backendBrowseSort')
     expect(SOURCE).toContain('getBackendBrowseDerivedMetricUnsupportedReason(')
-    expect(SOURCE).toContain('backendBrowseSort,')
+    expect(SOURCE).toContain('sort: viewState.sort,')
+    expect(SOURCE).not.toContain('backendBrowseSort')
+    expect(SOURCE).not.toContain('scanStableMode')
   })
 
   it('does not request raw folder facets while backend text search is active', () => {

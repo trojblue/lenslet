@@ -179,6 +179,9 @@ def build_summary(
                 "initial_visible_paths": backend_filter_result.initial_visible_paths,
                 "filtered_visible_paths": backend_filter_result.filtered_visible_paths,
                 "toolbar_count_label": backend_filter_result.toolbar_count_label,
+                "shared_url_sort": backend_filter_result.shared_url_sort,
+                "shared_url_filter_count": backend_filter_result.shared_url_filter_count,
+                "shared_url_restored_paths": backend_filter_result.shared_url_restored_paths,
                 "server_log": None if backend_filter_server_log is None else str(backend_filter_server_log),
             },
             "derived_metric_ranking": None if derived_metric_result is None else {

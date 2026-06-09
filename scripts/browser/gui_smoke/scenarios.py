@@ -63,6 +63,9 @@ class BackendBrowseFilterSmokeResult:
     initial_visible_paths: list[str]
     filtered_visible_paths: list[str]
     toolbar_count_label: str
+    shared_url_sort: str
+    shared_url_filter_count: int
+    shared_url_restored_paths: list[str]
 
 
 @dataclass(frozen=True)
@@ -627,6 +630,87 @@ def select_option_when_available(page: Page, option_value: str) -> bool:
     return False
 
 
+def select_toolbar_sort(page: Page, option_label: str, timeout_ms: float) -> None:
+    trigger = page.get_by_label("Sort and layout")
+    trigger.click()
+    option = page.get_by_role("option", name=option_label).first
+    option.wait_for(state="visible", timeout=timeout_ms)
+    option.click()
+
+
+def wait_for_shared_view_url(
+    page: Page,
+    timeout_ms: float,
+    *,
+    expected_sort: str,
+    categorical_key: str,
+    categorical_value: str,
+) -> dict[str, Any]:
+    payload = page.wait_for_function(
+        """([expectedSort, categoricalKey, categoricalValue]) => {
+          const params = new URLSearchParams(window.location.search)
+          const sort = params.get('sort')
+          const rawFilters = params.get('filters')
+          if (sort !== expectedSort || !rawFilters) return false
+          let filters = null
+          try {
+            filters = JSON.parse(rawFilters)
+          } catch {
+            return false
+          }
+          const clauses = Array.isArray(filters && filters.and) ? filters.and : []
+          const hasCategorical = clauses.some((clause) => (
+            clause
+            && clause.categoricalIn
+            && clause.categoricalIn.key === categoricalKey
+            && Array.isArray(clause.categoricalIn.values)
+            && clause.categoricalIn.values.includes(categoricalValue)
+          ))
+          if (!hasCategorical) return false
+          return { href: window.location.href, sort, filterCount: clauses.length }
+        }""",
+        arg=[expected_sort, categorical_key, categorical_value],
+        timeout=timeout_ms,
+    ).json_value()
+    if not isinstance(payload, dict):
+        raise SmokeFailure("Timed out waiting for shared sort/filter URL params.")
+    return payload
+
+
+def browse_response_matches_shared_view(
+    response: Any,
+    *,
+    sort_key: str,
+    sort_dir: str,
+    categorical_key: str,
+    categorical_value: str,
+) -> bool:
+    if response.request.method != "POST" or not response.url.endswith("/folders/query"):
+        return False
+    try:
+        raw_payload = response.request.post_data_json
+        payload = raw_payload() if callable(raw_payload) else raw_payload
+    except Exception:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    sort = payload.get("sort")
+    if sort != {"kind": "metric", "key": sort_key, "dir": sort_dir}:
+        return False
+    filters = payload.get("filters")
+    clauses = filters.get("and") if isinstance(filters, dict) else None
+    if not isinstance(clauses, list):
+        return False
+    return any(
+        isinstance(clause, dict)
+        and clause.get("categoricalIn") == {
+            "key": categorical_key,
+            "values": [categorical_value],
+        }
+        for clause in clauses
+    )
+
+
 def run_backend_browse_filter_workflow(
     page: Page,
     timeout_ms: float,
@@ -644,6 +728,15 @@ def run_backend_browse_filter_workflow(
             "Backend filter fixture target rows were already visible before filtering: "
             f"{sorted(leaked_targets)!r}."
         )
+
+    with page.expect_response(
+        lambda response: response.request.method == "POST" and response.url.endswith("/folders/query"),
+        timeout=timeout_ms,
+    ) as sort_response_info:
+        select_toolbar_sort(page, "quality_score", timeout_ms)
+    sort_response = sort_response_info.value
+    if sort_response.status != 200:
+        raise SmokeFailure(f"Metric sort browse query returned unexpected status: {sort_response.status}.")
 
     page.get_by_role("button", name="Metrics and Filters").click()
     select_option_when_available(page, categorical_key)
@@ -677,12 +770,60 @@ def run_backend_browse_filter_workflow(
         f"{filtered_total:,} / {scope_total:,} items",
         timeout_ms,
     )
+    shared_url_payload = wait_for_shared_view_url(
+        page,
+        timeout_ms,
+        expected_sort="metric:desc:quality_score",
+        categorical_key=categorical_key,
+        categorical_value=categorical_value,
+    )
+    shared_url = shared_url_payload.get("href")
+    if not isinstance(shared_url, str) or not shared_url:
+        raise SmokeFailure(f"Shared view URL payload is invalid: {shared_url_payload!r}.")
+    page.evaluate(
+        """() => {
+          window.localStorage.setItem('viewState', JSON.stringify({
+            sort: { kind: 'builtin', key: 'name', dir: 'asc' },
+            filters: { and: [] }
+          }))
+        }"""
+    )
+    with page.expect_response(
+        lambda response: browse_response_matches_shared_view(
+            response,
+            sort_key="quality_score",
+            sort_dir="desc",
+            categorical_key=categorical_key,
+            categorical_value=categorical_value,
+        ),
+        timeout=timeout_ms,
+    ) as shared_response_info:
+        page.goto(shared_url, wait_until="domcontentloaded")
+    shared_response_payload = shared_response_info.value.json()
+    if shared_response_payload.get("filtered_total") != filtered_total:
+        raise SmokeFailure(
+            "Shared URL browse query did not preserve filtered_total: "
+            f"{shared_response_payload.get('filtered_total')!r} != {filtered_total!r}."
+        )
+    restored_visible_paths = wait_for_expected_visible_paths(page, expected_path_set, timeout_ms)
+    expected_sorted_paths = [
+        "/backend-query/target_1005.jpg",
+        "/backend-query/target_1004.jpg",
+    ]
+    if restored_visible_paths[:len(expected_sorted_paths)] != expected_sorted_paths:
+        raise SmokeFailure(
+            "Shared URL did not preserve metric sort order. "
+            f"Expected first paths={expected_sorted_paths!r}, got={restored_visible_paths!r}."
+        )
     return BackendBrowseFilterSmokeResult(
         scope_total=scope_total,
         filtered_total=filtered_total,
         initial_visible_paths=initial_visible_paths[:8],
         filtered_visible_paths=filtered_visible_paths[:8],
         toolbar_count_label=toolbar_count_label,
+        shared_url_sort=str(shared_url_payload.get("sort")),
+        shared_url_filter_count=int(shared_url_payload.get("filterCount") or 0),
+        shared_url_restored_paths=restored_visible_paths[:8],
     )
 
 

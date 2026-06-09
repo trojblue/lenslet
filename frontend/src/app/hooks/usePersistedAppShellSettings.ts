@@ -66,6 +66,7 @@ type UsePersistedAppShellSettingsParams = {
   setAutoloadImageMetadata: Dispatch<SetStateAction<boolean>>
   setCompareOrderMode: Dispatch<SetStateAction<CompareOrderMode>>
   setProxyHttpOriginals: Dispatch<SetStateAction<boolean>>
+  restoreViewState?: boolean
 }
 
 export function writePersistedSettingsToStorage(
@@ -167,6 +168,7 @@ export function usePersistedAppShellSettings({
   setAutoloadImageMetadata,
   setCompareOrderMode,
   setProxyHttpOriginals,
+  restoreViewState = true,
 }: UsePersistedAppShellSettingsParams): void {
   const [persistedSettingsReady, setPersistedSettingsReady] = useState(false)
   const writerRef = useRef(
@@ -196,7 +198,7 @@ export function usePersistedAppShellSettings({
     try {
       const storage = window.localStorage
       const restored = readPersistedSettingsFromStorage(storage)
-      if (restored.viewState) {
+      if (restoreViewState && restored.viewState) {
         if (restored.viewState.sort.kind === 'builtin' && restored.viewState.sort.key === 'random') {
           setRandomSeed(Date.now())
         }
@@ -238,6 +240,7 @@ export function usePersistedAppShellSettings({
     setRightOpen,
     setViewMode,
     setViewState,
+    restoreViewState,
   ])
 
   const persistedSettings = useMemo<PersistedAppShellSettings>(() => ({

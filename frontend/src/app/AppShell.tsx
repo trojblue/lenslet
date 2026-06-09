@@ -20,6 +20,10 @@ import { useFolderFacets } from '../api/folders'
 import { useOldestInflightAgeMs, useSyncStatus } from '../api/items'
 import { usePollingEnabled } from '../api/polling'
 import { writeHash } from './routing/hash'
+import {
+  readSharedViewStateFromCurrentUrl,
+  replaceSharedViewStateInCurrentUrl,
+} from './routing/viewStateUrl'
 import { sanitizePath } from '../lib/paths'
 import {
   countActiveFilters,
@@ -245,11 +249,8 @@ export default function AppShell({
     dismissBrowserZoomWarning,
   } = useBrowserZoomWarning()
   
-  const [viewState, setViewState] = useState<ViewState>(() => ({
-    filters: { and: [] },
-    sort: { kind: 'builtin', key: 'added', dir: 'desc' },
-    selectedMetric: undefined,
-  }))
+  const [initialSharedViewState] = useState(() => readSharedViewStateFromCurrentUrl())
+  const [viewState, setViewState] = useState<ViewState>(() => initialSharedViewState.viewState)
   const [randomSeed, setRandomSeed] = useState<number>(() => Date.now())
   const [viewMode, setViewMode] = useState<ViewMode>('adaptive')
   const [gridItemSize, setGridItemSize] = useState<number>(220)
@@ -312,7 +313,12 @@ export default function AppShell({
     setAutoloadImageMetadata,
     setCompareOrderMode,
     setProxyHttpOriginals,
+    restoreViewState: !initialSharedViewState.hasSharedViewState,
   })
+
+  useEffect(() => {
+    replaceSharedViewStateInCurrentUrl(viewState)
+  }, [viewState])
 
   const queryClient = useQueryClient()
   const syncStatus = useSyncStatus()

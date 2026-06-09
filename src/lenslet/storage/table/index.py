@@ -20,11 +20,13 @@ from ...metrics import coerce_finite_metric_value
 from .schema import coerce_float
 
 METRIC_COLUMN_LEAF_KEYWORDS = (
+    "anatomy_",
     "aesthetic",
     "confidence",
     "distance",
     "logit",
     "loss",
+    "manual_",
     "metric",
     "prob",
     "quality",

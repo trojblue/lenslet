@@ -190,6 +190,8 @@ Browser acceptance should run:
 
 Do not mark Sprint 4 complete from unit tests alone. The real parquet scenario and browser acceptance are the gates that prove this bug is fixed in the intended environment.
 
+Sprint 4 acceptance passed on 2026-06-09. The real parquet scenario returned `filtered_total = 3,264` over `scope_total = 16,320` for `source_column = v0603_ema14k_image_url`, the toolbar showed `3,264 / 16,320 items`, and visible filtered grid paths were nonzero without scrolling. Browser acceptance also passed with a backend-filter smoke fixture whose target rows are outside the first 1,000-row backend page.
+
 
 ## Risks and Recovery
 
@@ -227,7 +229,7 @@ Rollback is a scoped revert of the new query route/data-flow changes. The plan a
 - [x] S1 complete: backend query contract and evaluator implemented and tested.
 - [x] S2 complete: table row-query and backend facets implemented and tested.
 - [x] S3 complete: frontend hard cutover implemented and tested.
-- [ ] S4 complete: real parquet, browser, build, packaged frontend, and lint validation complete.
+- [x] S4 complete: real parquet, browser, build, packaged frontend, and lint validation complete.
 - [x] 2026-06-09: Sprint 1 implementation completed. Added storage-neutral browse query dataclasses/evaluator, strict `/folders/query` request and response models, route adapter, bounded generic fallback, sidecar-aware text query composition, deterministic hash random ordering, stable sort tie-breakers, and focused route/evaluator tests.
 - [x] 2026-06-09: Sprint 1 cleanup pass completed with the `code-simplifier` routine. No broad formatting was applied because repo lint does not require `ruff format`; small non-semantic cleanups were applied for route typing, strict model reuse, and private helper naming.
 - [x] 2026-06-09: Sprint 1 review pass completed with the `code-review` routine. Fixes applied: generic fallback is bounded even when storage reports no limit, fallback over-limit errors are explicit, text search includes sidecar source/url fields, and blank categorical keys are rejected at the API boundary. The remaining large-table native execution concern is deferred to planned Sprint 2 row-query work rather than hidden by the fallback.
@@ -237,6 +239,8 @@ Rollback is a scoped revert of the new query route/data-flow changes. The plan a
 - [x] 2026-06-09: Sprint 3 implementation completed. Added typed frontend browse-query request/response models, canonical request/key helpers, abortable `/folders/query` client calls, backend-query infinite windows in `useAppDataScope`, backend-owned totals and load-more offsets, query/facet invalidation on sidecar and metric changes, metrics population guardrails, and explicit derived metric filter/sort fail-closed handling for normal browse.
 - [x] 2026-06-09: Sprint 3 cleanup pass completed with the `code-simplifier` routine. Applied non-semantic cleanup for dead hydrated-snapshot hook wiring, duplicated abort bridge setup, redundant limit plumbing, and derived metric total simplification.
 - [x] 2026-06-09: Sprint 3 review pass completed with the `code-review` routine. Fixes applied: queued browse-query aborts now dequeue request-budget entries, raw folder facets are disabled during backend text search until query-aware facets exist, `folder-query` pages are reset/refetched rather than locally patched after sidecar/metric changes, and scan-stable mode checks derived metric support against the actual backend sort. Follow-up review found no remaining Sprint 3 correctness issues.
+- [x] 2026-06-09: Sprint 4 implementation completed. Added a GUI smoke table fixture with 1,006 rows, deterministic `mtime` ordering, and target categorical rows outside the first backend browse page; wired browser coverage that clicks the categorical filter, asserts the `/folders/query` filtered total, and verifies nonzero target grid paths without scrolling. Updated the derived-metric smoke to assert the Sprint 3 fail-closed backend-browse contract instead of the stale local ranking expectation.
+- [x] 2026-06-09: Sprint 4 validation completed. Installed missing Playwright Chromium system dependencies after the first browser launch failed on `libnspr4.so`, then reran acceptance successfully. The real parquet scenario passed with `source_column = v0603_ema14k_image_url`, `filtered_total = 3,264`, `scope_total = 16,320`, toolbar label `3,264 / 16,320 items`, and visible filtered paths.
 
 
 ## Artifacts and Handoff

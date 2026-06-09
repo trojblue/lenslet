@@ -1,0 +1,164 @@
+{
+  "status": "passed",
+  "base_url": "http://127.0.0.1:41339",
+  "parquet": "/fsx/yada/dev/new-aes-workspace/outputs/09_aiimg_mining/rapidata_labeling_setup/xgboost_feature_experiments_r1300_x15/rapidata_best_xgboost_image_scores_tall.parquet",
+  "server_log": "/tmp/lenslet-real-parquet-filter-server-ci_fjnqa.log",
+  "filter": {
+    "key": "source_column",
+    "value": "v0603_ema14k_image_url"
+  },
+  "scope_total": 16320,
+  "filtered_total": 3264,
+  "toolbar_count_label": "3,264 / 16,320 items",
+  "initial_visible_paths": [
+    "/cotar-worker.mewtant.workers.dev/r2/eWFuZGVyZV9jaHVua18wMDA2MiQ3MTIxNjk0NzIkMTUxOTg2",
+    "/cotar-worker.mewtant.workers.dev/r2/eWFuZGVyZV9jaHVua18wMDA0NSQxMTMzMjgwNzY4JDQ4OTEyNA",
+    "/cotar-worker.mewtant.workers.dev/r2/dHdpdHRlcl9jaHVua18wMDczNSQ1MjEwMTI3MzYkMzAwMTIy",
+    "/cotar-worker.mewtant.workers.dev/r2/dHdpdHRlcl9jaHVua18wMDQxNyQxMDUyOTU1MTM2JDM0NTk1MA",
+    "/cotar-worker.mewtant.workers.dev/r2/dHdpdHRlcl9jaHVua18wMDQ1MiQyMjExMzMyNjA4JDEyMDY0MA",
+    "/cotar-worker.mewtant.workers.dev/r2/dHdpdHRlcl9jaHVua18wMDA0NiQzMTgwNDYyMDgkMjYwMjQ2",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s24k/cmp_hf-webtoon_refined_row0047.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s14k/cmp_hf-webtoon_refined_row0047.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s0/cmp_hf-webtoon_refined_row0047.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/ptv03/cmp_hf-webtoon_refined_row0047.webp"
+  ],
+  "filtered_visible_paths": [
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s14k/cmp_hf-webtoon_refined_row0047.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s14k/cmp_hf-webtoon_refined_row0046.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s14k/cmp_hf-webtoon_refined_row0045.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s14k/cmp_hf-webtoon_refined_row0044.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s14k/cmp_hf-webtoon_refined_row0043.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s14k/cmp_hf-webtoon_refined_row0042.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s14k/cmp_hf-webtoon_refined_row0041.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s14k/cmp_hf-webtoon_refined_row0040.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s14k/cmp_hf-webtoon_refined_row0039.webp",
+    "/r2-training-ap.metanomaly.co/nyanko/public/ceval-0604-images/s14k/cmp_hf-webtoon_refined_row0038.webp"
+  ],
+  "initial_health": {
+    "ok": true,
+    "mode": "table",
+    "can_write": false,
+    "workspace_id": "f3c0a503fd780013b9594fbf",
+    "storage_origin": "parquet",
+    "total_images": 16320,
+    "refresh": {
+      "enabled": false,
+      "note": "table mode is static"
+    },
+    "browse_cache": {
+      "enabled": true,
+      "persisted": true,
+      "path": "/fsx/yada/dev/new-aes-workspace/outputs/09_aiimg_mining/rapidata_labeling_setup/xgboost_feature_experiments_r1300_x15/rapidata_best_xgboost_image_scores_tall.parquet.cache/browse-cache",
+      "max_bytes": 209715200,
+      "pending_warms": 0
+    },
+    "compare_export": {
+      "supported_versions": [
+        2
+      ],
+      "max_paths_v2": 12,
+      "max_paths_v2_gif": 24
+    },
+    "labels": {
+      "enabled": false
+    },
+    "indexing": {
+      "state": "ready",
+      "scope": "/",
+      "done": 16320,
+      "total": 16320,
+      "generation": "acdba81f055b567776c31b925b03ce771fad9c8aa22509f8fe63383a458c155a|0",
+      "started_at": "2026-06-09T15:19:25.679761+00:00",
+      "finished_at": "2026-06-09T15:19:25.679761+00:00"
+    },
+    "presence": {
+      "view_ttl_seconds": 75.0,
+      "edit_ttl_seconds": 60.0,
+      "prune_interval_seconds": 5.0,
+      "active_clients": 0,
+      "active_scopes": 0,
+      "stale_pruned_total": 0,
+      "invalid_lease_total": 0,
+      "replay_miss_total": 0,
+      "replay_buffer_size": 0,
+      "replay_buffer_capacity": 500,
+      "connected_sse_clients": 0
+    },
+    "hotpath": {
+      "counters": {
+        "s3_client_create_total": 0
+      },
+      "timers_ms": {}
+    }
+  },
+  "final_health": {
+    "ok": true,
+    "mode": "table",
+    "can_write": false,
+    "workspace_id": "f3c0a503fd780013b9594fbf",
+    "storage_origin": "parquet",
+    "total_images": 16320,
+    "refresh": {
+      "enabled": false,
+      "note": "table mode is static"
+    },
+    "browse_cache": {
+      "enabled": true,
+      "persisted": true,
+      "path": "/fsx/yada/dev/new-aes-workspace/outputs/09_aiimg_mining/rapidata_labeling_setup/xgboost_feature_experiments_r1300_x15/rapidata_best_xgboost_image_scores_tall.parquet.cache/browse-cache",
+      "max_bytes": 209715200,
+      "pending_warms": 0
+    },
+    "compare_export": {
+      "supported_versions": [
+        2
+      ],
+      "max_paths_v2": 12,
+      "max_paths_v2_gif": 24
+    },
+    "labels": {
+      "enabled": false
+    },
+    "indexing": {
+      "state": "ready",
+      "scope": "/",
+      "done": 16320,
+      "total": 16320,
+      "generation": "acdba81f055b567776c31b925b03ce771fad9c8aa22509f8fe63383a458c155a|0",
+      "started_at": "2026-06-09T15:19:25.679761+00:00",
+      "finished_at": "2026-06-09T15:19:25.679761+00:00"
+    },
+    "presence": {
+      "view_ttl_seconds": 75.0,
+      "edit_ttl_seconds": 60.0,
+      "prune_interval_seconds": 5.0,
+      "active_clients": 1,
+      "active_scopes": 1,
+      "stale_pruned_total": 0,
+      "invalid_lease_total": 0,
+      "replay_miss_total": 0,
+      "replay_buffer_size": 1,
+      "replay_buffer_capacity": 500,
+      "replay_oldest_event_id": 1,
+      "replay_newest_event_id": 1,
+      "connected_sse_clients": 0
+    },
+    "hotpath": {
+      "counters": {
+        "folders_recursive_requests_total": 1,
+        "folders_recursive_items_total": 16320,
+        "thumb_disconnect_cancel_total": 5,
+        "thumb_disconnect_cancel_inflight_total": 4,
+        "thumb_disconnect_cancel_queued_total": 1,
+        "s3_client_create_total": 0
+      },
+      "timers_ms": {
+        "folders_recursive_traversal_ms": {
+          "count": 1,
+          "total_ms": 0.013,
+          "avg_ms": 0.013
+        }
+      }
+    }
+  }
+}

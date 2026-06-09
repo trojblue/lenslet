@@ -150,6 +150,38 @@ describe('MetricsPanel', () => {
     expect(html).not.toContain('Filtered:')
   })
 
+  it('does not use loaded-window categorical values when population is incomplete', () => {
+    const items = [
+      { ...makeItem('/a.jpg'), categoricals: { original_source: 'ptv03' } },
+      { ...makeItem('/b.jpg'), categoricals: { original_source: 'gt' } },
+    ]
+
+    const html = renderToStaticMarkup(
+      <MetricsPanel
+        items={items}
+        filteredItems={items.slice(0, 1)}
+        metricKeys={[]}
+        categoricalKeys={['original_source']}
+        itemPopulationComplete={false}
+        derivedMetric={makeDerivedMetricEvaluation()}
+        onSelectMetric={() => {}}
+        onApplyDerivedMetric={() => {}}
+        onRankByDerivedMetric={() => {}}
+        filters={{ and: [] }}
+        onChangeRange={() => {}}
+        onChangeCategoricalValues={() => {}}
+        onChangeFilters={() => {}}
+      />,
+    )
+
+    expect(html).not.toContain('ptv03')
+    expect(html).not.toContain('title="gt"')
+    expect(html).not.toContain('>gt<')
+    expect(html).not.toContain('Filtered:')
+    expect(html).not.toContain('1/1')
+    expect(html).toContain('No values found for this field.')
+  })
+
   it('renders the derived score card even when no source inputs exist', () => {
     const html = renderToStaticMarkup(
       <MetricsPanel

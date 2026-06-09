@@ -286,9 +286,7 @@ export default function AppShell({
     userRightOpen: rightOpen,
   })
   const {
-    getHydratedSnapshot: getFolderHydratedSnapshot,
     getTopAnchorPath,
-    saveHydratedSnapshot: saveFolderHydratedSnapshot,
     saveTopAnchorPath,
     invalidateSubtree: invalidateFolderSessionSubtree,
   } = useFolderSessionState()
@@ -387,6 +385,7 @@ export default function AppShell({
     hasMoreFolderItems,
     isLoadingMoreFolderItems,
     loadMoreFolderItems,
+    browseQueryUnavailableReason,
   } = useAppDataScope({
     current,
     query,
@@ -395,8 +394,6 @@ export default function AppShell({
     viewState,
     randomSeed,
     localStarOverrides,
-    onFolderHydratedSnapshot: saveFolderHydratedSnapshot,
-    getCachedHydratedSnapshot: getFolderHydratedSnapshot,
     sessionResetToken: scopeSessionResetToken,
   })
   const currentGalleryId = useMemo(() => sanitizePath(current || '/'), [current])
@@ -522,12 +519,7 @@ export default function AppShell({
   const metricsFacets = metricsFacetsQuery.data?.path === (data?.path ?? current)
     ? metricsFacetsQuery.data
     : null
-  const metricsItemPopulationComplete = (
-    similarityState !== null
-    || searching
-    || typeof data?.total_items !== 'number'
-    || metricsBaseItems.length >= data.total_items
-  )
+  const metricsItemPopulationComplete = similarityState !== null
   const hasMetricScrollbar = useMemo(
     () => hasMetricSortValues(items, metricSortKey),
     [items, metricSortKey],
@@ -752,8 +744,8 @@ export default function AppShell({
     [derivedMetric, viewState.filters],
   )
   const derivedMetricWarning = useMemo(
-    () => buildDerivedMetricWarning(viewState.sort, viewState.filters, derivedMetric),
-    [derivedMetric, viewState.filters, viewState.sort],
+    () => browseQueryUnavailableReason ?? buildDerivedMetricWarning(viewState.sort, viewState.filters, derivedMetric),
+    [browseQueryUnavailableReason, derivedMetric, viewState.filters, viewState.sort],
   )
 
   const filterChips = useMemo(() => buildFilterChips(

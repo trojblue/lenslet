@@ -373,6 +373,8 @@ export function useUpdateSidecar(path: string) {
     onSuccess: (data) => {
       clearConflict(path)
       qc.setQueryData(sidecarQueryKey(path), data)
+      void qc.resetQueries({ queryKey: ['folder-query'] })
+      qc.invalidateQueries({ queryKey: ['folder-facets'] })
     },
     onError: (err) => {
       if (err instanceof FetchError && err.status === 409) return

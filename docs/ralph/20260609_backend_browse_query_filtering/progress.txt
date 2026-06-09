@@ -58,3 +58,43 @@ Cleanup and review:
 Blockers: none for Sprint 2. Frontend still needs planned Sprint 3 hard cutover to call `/folders/query` instead of local loaded-page filtering.
 
 Next step: start Sprint 3 with S3-T1, adding frontend API/types/query keys for the backend browse-query endpoint.
+
+## Iteration 3 - 2026-06-09T14:45:16Z
+Completed task IDs: S3-T1, S3-T2, S3-T3, S3-T4.
+
+Files changed:
+- frontend/src/lib/types.ts
+- frontend/src/lib/fetcher.ts
+- frontend/src/api/client.ts
+- frontend/src/api/folders.ts
+- frontend/src/api/items.ts
+- frontend/src/api/__tests__/folders.test.ts
+- frontend/src/app/AppShell.tsx
+- frontend/src/app/hooks/useAppDataScope.ts
+- frontend/src/app/hooks/useAppSyncEvents.ts
+- frontend/src/app/hooks/useFolderRefreshActions.ts
+- frontend/src/app/hooks/__tests__/useAppDataScopeBackendQuery.test.ts
+- frontend/src/app/model/appShellSelectors.ts
+- frontend/src/app/model/appShellStateSync.ts
+- frontend/src/app/__tests__/appShellSelectors.test.ts
+- frontend/src/app/__tests__/liveUpdateCachePatch.test.ts
+- frontend/src/features/metrics/components/CategoricalPanel.tsx
+- frontend/src/features/metrics/components/MetricRangePanel.tsx
+- frontend/src/features/metrics/__tests__/MetricsPanel.test.tsx
+- docs/20260609_backend_browse_query_plan.md
+- docs/ralph/20260609_backend_browse_query_filtering/progress.txt
+
+Validations run:
+- cd frontend && npm test -- --run src/api/__tests__/folders.test.ts src/api/__tests__/requestBudget.test.ts src/lib/__tests__/fetcher.test.ts src/app/hooks/__tests__/useAppDataScopeBackendQuery.test.ts src/app/__tests__/appShellSelectors.test.ts src/app/__tests__/liveUpdateCachePatch.test.ts src/features/metrics/__tests__/MetricsPanel.test.tsx src/features/metrics/components/__tests__/MetricRangePanel.test.tsx: passed (54 passed)
+- cd frontend && npm test -- --run src/api src/app/hooks src/features/metrics: passed (109 passed)
+- cd frontend && npm run build: passed
+- python scripts/lint_repo.py: passed; existing warn-only file-size notices remain for AppShell.tsx, styles.css, large_tree/smoke.py, and table/storage.py
+- git diff --check: passed
+
+Cleanup and review:
+- code-simplifier subagent completed; applied non-semantic cleanup for dead hydrated-snapshot hook wiring, shared fetch abort bridge setup, redundant browse-query limit plumbing, and derived metric total simplification.
+- code-review subagent completed; fixed queued browse-query abort/dequeue behavior, search-mode raw facet mismatch, folder-query local patching after sidecar/metric events, and scan-stable derived-sort support checks. Follow-up review found no remaining Sprint 3 correctness issues.
+
+Blockers: none for Sprint 3. Browser smoke, the real parquet scenario, packaged frontend asset copy, and final acceptance gates remain for Sprint 4.
+
+Next step: start Sprint 4 with S4-T1, adding or updating browser smoke coverage for backend-owned filtered browse before running the real parquet scenario and packaging frontend assets.

@@ -48,17 +48,20 @@ function isIndexedQueryKey(queryKey: QueryKey): boolean {
   return Array.isArray(queryKey) && (queryKey[0] === 'folder' || queryKey[0] === 'search')
 }
 
-function extractIndexedPaths(data: unknown): string[] {
-  if (!data || typeof data !== 'object') return []
-  const items = (data as { items?: unknown }).items
-  if (!Array.isArray(items)) return []
-  const paths = new Set<string>()
+function collectItemPaths(items: unknown, paths: Set<string>): void {
+  if (!Array.isArray(items)) return
   for (const item of items) {
     const path = (item as { path?: unknown }).path
     if (typeof path === 'string' && path) {
       paths.add(path)
     }
   }
+}
+
+function extractIndexedPaths(data: unknown): string[] {
+  if (!data || typeof data !== 'object') return []
+  const paths = new Set<string>()
+  collectItemPaths((data as { items?: unknown }).items, paths)
   return Array.from(paths)
 }
 

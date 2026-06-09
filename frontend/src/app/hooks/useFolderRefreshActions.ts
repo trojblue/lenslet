@@ -55,7 +55,9 @@ export function useFolderRefreshActions({
     queryClient.invalidateQueries({
       predicate: ({ queryKey }) => {
         if (!Array.isArray(queryKey)) return false
-        if (queryKey[0] !== 'folder') return false
+        if (queryKey[0] !== 'folder' && queryKey[0] !== 'folder-query' && queryKey[0] !== 'folder-facets') {
+          return false
+        }
         const keyPath = typeof queryKey[1] === 'string' ? queryKey[1] : ''
         return matches(keyPath)
       },

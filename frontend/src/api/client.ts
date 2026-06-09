@@ -9,6 +9,8 @@ import {
 } from './requestBudget'
 import type {
   BrowseFolderPayload,
+  BrowseQueryRequest,
+  BrowseQueryResponse,
   BrowseFacetsPayload,
   BrowseFolderPathsPayload,
   Sidecar,
@@ -450,6 +452,10 @@ export type GetFolderOptions = {
   limit?: number
 }
 
+export type ApiRequestOptions = {
+  signal?: AbortSignal
+}
+
 export function buildFolderQuery(path: string, options?: GetFolderOptions): string {
   const params = new URLSearchParams({ path })
   if (options?.recursive) params.set('recursive', '1')
@@ -483,6 +489,28 @@ export const api = {
     return runWithRequestBudget('folders', () =>
       fetchJSON<BrowseFacetsPayload>(apiUrl(`/folders/facets?${buildFolderQuery(path, facetOptions)}`)),
     ).promise
+  },
+
+  queryFolder: (body: BrowseQueryRequest, options?: ApiRequestOptions): Promise<BrowseQueryResponse> => {
+    const task = runWithRequestBudget('folders', () =>
+      fetchJSON<BrowseQueryResponse>(apiUrl('/folders/query'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: options?.signal,
+      }),
+    )
+    const signal = options?.signal
+    if (!signal) return task.promise
+    const abortTask = () => task.abort?.()
+    if (signal.aborted) {
+      abortTask()
+      return task.promise
+    }
+    signal.addEventListener('abort', abortTask, { once: true })
+    return task.promise.finally(() => {
+      signal.removeEventListener('abort', abortTask)
+    })
   },
 
   getFolderPaths: (): Promise<BrowseFolderPathsPayload> => {

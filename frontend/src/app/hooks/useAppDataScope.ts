@@ -1,15 +1,20 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { shouldRemoveRecursiveFolderQuery, useFolder, useFolderCount } from '../../api/folders'
-import { buildCanonicalSearchRequest, useSearch } from '../../api/search'
+import {
+  BACKEND_BROWSE_PAGE_SIZE,
+  shouldRemoveRecursiveFolderQuery,
+  useBrowseQuery,
+  useFolderCount,
+} from '../../api/folders'
+import { buildCanonicalSearchRequest } from '../../api/search'
 import { useEmbeddings } from '../../api/embeddings'
-import { api, cancelBrowseRequests } from '../../api/client'
+import { cancelBrowseRequests } from '../../api/client'
 import { useDebounced } from '../../shared/hooks/useDebounced'
-import { applyFilters, applySort } from '../../features/browse/model/apply'
+import { applyFilters } from '../../features/browse/model/apply'
 import { FetchError } from '../../lib/fetcher'
 import {
+  getBackendBrowseDerivedMetricUnsupportedReason,
   resolveCategoricalKeys,
-  resolveDerivedMetricTotalItems,
   resolveMetricKeys,
 } from '../model/appShellSelectors'
 import {
@@ -22,6 +27,7 @@ import {
   startBrowseLoad,
 } from '../../lib/browseHotpath'
 import type {
+  BrowseQueryResponse,
   EmbeddingRejected,
   EmbeddingSearchItem,
   EmbeddingSpec,
@@ -31,8 +37,6 @@ import type {
   ViewState,
 } from '../../lib/types'
 import { buildFallbackItem } from '../utils/appShellHelpers'
-
-const FOLDER_PAGE_SIZE = 5000
 
 export type SimilarityState = {
   embedding: string
@@ -53,8 +57,6 @@ type UseAppDataScopeParams = {
   randomSeed: number
   localStarOverrides: Record<string, StarRating>
   sessionResetToken?: number
-  onFolderHydratedSnapshot?: (path: string, snapshot: BrowseFolderPayload) => void
-  getCachedHydratedSnapshot?: (path: string) => BrowseFolderPayload | null
 }
 
 type UseAppDataScopeResult = {
@@ -84,6 +86,7 @@ type UseAppDataScopeResult = {
   hasMoreFolderItems: boolean
   isLoadingMoreFolderItems: boolean
   loadMoreFolderItems: () => void
+  browseQueryUnavailableReason: string | null
 }
 
 function getEmbeddingsError(isError: boolean, error: unknown): string | null {
@@ -93,31 +96,20 @@ function getEmbeddingsError(isError: boolean, error: unknown): string | null {
   return 'Failed to load embeddings.'
 }
 
-function mergeFolderPage(
-  current: BrowseFolderPayload,
-  page: BrowseFolderPayload,
-): BrowseFolderPayload {
-  const seen = new Set(current.items.map((item) => item.path))
-  const items = [...current.items]
-  for (const item of page.items) {
-    if (seen.has(item.path)) continue
-    seen.add(item.path)
-    items.push(item)
-  }
-  const metricKeys = Array.from(new Set([
-    ...(current.metric_keys ?? []),
-    ...(page.metric_keys ?? []),
-  ])).sort()
-  const categoricalKeys = Array.from(new Set([
-    ...(current.categorical_keys ?? []),
-    ...(page.categorical_keys ?? []),
-  ])).sort()
+function buildFolderPayloadFromBrowseQuery(
+  firstPage: BrowseQueryResponse | undefined,
+  items: BrowseItemPayload[],
+): BrowseFolderPayload | undefined {
+  if (!firstPage) return undefined
   return {
-    ...current,
+    version: 1,
+    path: firstPage.path,
+    generated_at: firstPage.generated_at,
     items,
-    metric_keys: metricKeys,
-    categorical_keys: categoricalKeys,
-    total_items: page.total_items ?? current.total_items,
+    folders: firstPage.folders,
+    metric_keys: firstPage.metric_keys,
+    categorical_keys: firstPage.categorical_keys,
+    total_items: firstPage.scope_total,
     offset: 0,
     limit: items.length,
   }
@@ -132,41 +124,67 @@ export function useAppDataScope({
   randomSeed,
   localStarOverrides,
   sessionResetToken = 0,
-  onFolderHydratedSnapshot,
-  getCachedHydratedSnapshot,
 }: UseAppDataScopeParams): UseAppDataScopeResult {
   const queryClient = useQueryClient()
-  const {
-    data: recursiveFolderData,
-    refetch: refetchRecursiveFolder,
-    isLoading,
-    isError,
-  } = useFolder(current, { recursive: true, offset: 0, limit: FOLDER_PAGE_SIZE })
-  const { data: rootCount } = useFolderCount('/', { enabled: current !== '/' })
-  const [data, setData] = useState<BrowseFolderPayload | undefined>()
-  const [isLoadingMoreFolderItems, setIsLoadingMoreFolderItems] = useState(false)
   const loadTokenRef = useRef(0)
-  const pageRequestTokenRef = useRef(0)
-  const refetch = useCallback(() => {
-    pageRequestTokenRef.current += 1
-    setIsLoadingMoreFolderItems(false)
-    return refetchRecursiveFolder()
-  }, [refetchRecursiveFolder])
+  const similarityActive = similarityState !== null
+  const debouncedQ = useDebounced(query, 250)
+  const searchRequest = useMemo(() => (
+    similarityActive ? null : buildCanonicalSearchRequest(debouncedQ, current)
+  ), [similarityActive, debouncedQ, current])
+  const searching = searchRequest !== null
+  const normalizedQ = searchRequest?.q ?? ''
+  const backendBrowseSort = useMemo(() => (
+    scanStableMode
+      ? { kind: 'builtin' as const, key: 'added' as const, dir: viewState.sort.dir }
+      : viewState.sort
+  ), [scanStableMode, viewState.sort])
+  const browseQueryUnavailableReason = useMemo(() => (
+    getBackendBrowseDerivedMetricUnsupportedReason(
+      backendBrowseSort,
+      viewState.filters,
+      similarityActive,
+    )
+  ), [backendBrowseSort, similarityActive, viewState.filters])
+  const browseQuery = useBrowseQuery({
+    path: current,
+    recursive: true,
+    filters: viewState.filters,
+    sort: backendBrowseSort,
+    textQuery: normalizedQ,
+    randomSeed,
+    limit: BACKEND_BROWSE_PAGE_SIZE,
+    unsupportedToken: browseQueryUnavailableReason,
+    enabled: !similarityActive && browseQueryUnavailableReason === null,
+  })
+  const { data: rootCount } = useFolderCount('/', { enabled: current !== '/' })
+  const refetch = useCallback(() => browseQuery.refetch(), [browseQuery.refetch])
 
   useEffect(() => {
     queryClient.removeQueries({
-      predicate: ({ queryKey }) => shouldRemoveRecursiveFolderQuery(queryKey, current, false),
+      predicate: ({ queryKey }) => {
+        if (Array.isArray(queryKey) && queryKey[0] === 'folder-query') {
+          const keyPath = typeof queryKey[1] === 'string' ? queryKey[1] : ''
+          return keyPath !== current
+        }
+        return shouldRemoveRecursiveFolderQuery(queryKey, current, false)
+      },
     })
   }, [current, queryClient])
 
   useEffect(() => {
     loadTokenRef.current += 1
-    pageRequestTokenRef.current += 1
-    setIsLoadingMoreFolderItems(false)
     startBrowseLoad({ requestId: loadTokenRef.current, path: current })
-    const cachedSnapshot = getCachedHydratedSnapshot?.(current) ?? null
-    setData(cachedSnapshot ?? undefined)
-  }, [current, getCachedHydratedSnapshot, sessionResetToken])
+  }, [
+    browseQueryUnavailableReason,
+    current,
+    normalizedQ,
+    randomSeed,
+    scanStableMode,
+    sessionResetToken,
+    viewState.filters,
+    backendBrowseSort,
+  ])
 
   useEffect(() => {
     return () => {
@@ -175,50 +193,45 @@ export function useAppDataScope({
   }, [current])
 
   useEffect(() => {
-    if (!recursiveFolderData) return
+    if (!browseQuery.data?.pages[0]) return
     const requestId = loadTokenRef.current
-    startTransition(() => {
-      setData(recursiveFolderData)
-      onFolderHydratedSnapshot?.(recursiveFolderData.path, recursiveFolderData)
-    })
     completeBrowseLoad(requestId)
-  }, [onFolderHydratedSnapshot, recursiveFolderData])
+  }, [browseQuery.data])
 
-  const similarityActive = similarityState !== null
-  const debouncedQ = useDebounced(query, 250)
-  const searchRequest = useMemo(() => (
-    similarityActive ? null : buildCanonicalSearchRequest(debouncedQ, current)
-  ), [similarityActive, debouncedQ, current])
-  const searching = searchRequest !== null
-  const normalizedQ = searchRequest?.q ?? ''
-  const search = useSearch(searchRequest?.q ?? '', searchRequest?.path ?? current)
+  useEffect(() => {
+    if (browseQueryUnavailableReason === null) return
+    completeBrowseLoad(loadTokenRef.current)
+  }, [browseQueryUnavailableReason])
+
   const embeddingsQuery = useEmbeddings()
   const embeddings = embeddingsQuery.data?.embeddings ?? []
   const embeddingsRejected = embeddingsQuery.data?.rejected ?? []
   const embeddingsAvailable = embeddings.length > 0
   const embeddingsError = getEmbeddingsError(embeddingsQuery.isError, embeddingsQuery.error)
 
+  const firstBrowsePage = browseQuery.data?.pages[0]
+  const browseItems = useMemo((): BrowseItemPayload[] => (
+    browseQuery.data?.pages.flatMap((page) => page.items) ?? []
+  ), [browseQuery.data])
+
   const rawPoolItems = useMemo((): BrowseItemPayload[] => {
-    const base = searching ? (search.data?.items ?? []) : (data?.items ?? [])
-    return base.map((it) => ({
+    return browseItems.map((it) => ({
       ...it,
       star: localStarOverrides[it.path] !== undefined ? localStarOverrides[it.path] : it.star,
     }))
-  }, [searching, search.data, data, localStarOverrides])
+  }, [browseItems, localStarOverrides])
+
+  const data = useMemo(() => (
+    buildFolderPayloadFromBrowseQuery(firstBrowsePage, rawPoolItems)
+  ), [firstBrowsePage, rawPoolItems])
 
   const rawPoolItemsByPath = useMemo(() => {
     const map = new Map<string, BrowseItemPayload>()
     for (const it of rawPoolItems) {
       map.set(it.path, it)
     }
-    const extras = search.data?.items ?? []
-    for (const it of extras) {
-      if (map.has(it.path)) continue
-      const star = localStarOverrides[it.path] !== undefined ? localStarOverrides[it.path] : it.star
-      map.set(it.path, { ...it, star })
-    }
     return map
-  }, [rawPoolItems, search.data, localStarOverrides])
+  }, [rawPoolItems])
 
   const rawSimilarityItems = useMemo((): BrowseItemPayload[] => {
     if (!similarityState) return []
@@ -256,15 +269,13 @@ export function useAppDataScope({
       categoricalKeys: sourceCategoricalKeys,
       spec: viewState.derivedMetric ?? null,
       loadedCount: sourceItems.length,
-      totalItems: resolveDerivedMetricTotalItems(
-        searching,
-        similarityActive,
-        sourceItems.length,
-        data?.total_items,
-      ),
+      totalItems: similarityActive
+        ? sourceItems.length
+        : (firstBrowsePage?.filtered_total ?? data?.total_items ?? sourceItems.length),
     })
   }, [
     data?.total_items,
+    firstBrowsePage?.filtered_total,
     rawPoolItems,
     rawSimilarityItems,
     searching,
@@ -282,56 +293,30 @@ export function useAppDataScope({
     if (similarityState) {
       return applyFilters(similarityItems, viewState.filters)
     }
-    const filtered = applyFilters(poolItems, viewState.filters)
-    if (scanStableMode) return filtered
-    return applySort(filtered, viewState.sort, randomSeed)
-  }, [similarityState, similarityItems, poolItems, scanStableMode, viewState.filters, viewState.sort, randomSeed])
+    return poolItems
+  }, [similarityState, similarityItems, poolItems, viewState.filters])
 
-  const totalCount = similarityState ? similarityItems.length : poolItems.length
-  const filteredCount = items.length
-  const scopeTotal = data?.total_items ?? data?.items.length ?? totalCount
+  const totalCount = similarityState ? similarityItems.length : (firstBrowsePage?.scope_total ?? poolItems.length)
+  const filteredCount = similarityState ? items.length : (firstBrowsePage?.filtered_total ?? items.length)
+  const scopeTotal = firstBrowsePage?.scope_total ?? data?.total_items ?? data?.items.length ?? totalCount
   const rootTotal = current === '/'
     ? scopeTotal
     : (rootCount ?? scopeTotal)
   const hasMoreFolderItems = (
     !similarityActive
-    && !searching
-    && typeof data?.total_items === 'number'
-    && data.items.length < data.total_items
+    && browseQueryUnavailableReason === null
+    && items.length < filteredCount
   )
   const loadMoreFolderItems = useCallback(() => {
-    if (isLoadingMoreFolderItems || !data || !hasMoreFolderItems) return
-    const loadedCount = data.items.length
-    const requestToken = pageRequestTokenRef.current + 1
-    pageRequestTokenRef.current = requestToken
-    setIsLoadingMoreFolderItems(true)
-    api.getFolder(current, {
-      recursive: true,
-      offset: loadedCount,
-      limit: FOLDER_PAGE_SIZE,
-    })
-      .then((page) => {
-        if (pageRequestTokenRef.current !== requestToken) return
-        if (page.path !== data.path) return
-        const merged = mergeFolderPage(data, page)
-        startTransition(() => {
-          setData(merged)
-          onFolderHydratedSnapshot?.(merged.path, merged)
-        })
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (pageRequestTokenRef.current === requestToken) {
-          setIsLoadingMoreFolderItems(false)
-        }
-      })
-  }, [current, data, hasMoreFolderItems, isLoadingMoreFolderItems, onFolderHydratedSnapshot])
+    if (!hasMoreFolderItems || browseQuery.isFetchingNextPage) return
+    void browseQuery.fetchNextPage()
+  }, [browseQuery, hasMoreFolderItems])
 
   return {
     data,
     refetch,
-    isLoading,
-    isError,
+    isLoading: browseQuery.isLoading,
+    isError: browseQuery.isError,
     searching,
     normalizedQ,
     similarityActive,
@@ -352,7 +337,8 @@ export function useAppDataScope({
     scopeTotal,
     rootTotal,
     hasMoreFolderItems,
-    isLoadingMoreFolderItems,
+    isLoadingMoreFolderItems: browseQuery.isFetchingNextPage,
     loadMoreFolderItems,
+    browseQueryUnavailableReason,
   }
 }

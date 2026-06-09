@@ -37,15 +37,19 @@ export default function CategoricalPanel({
     showAll ? categoricalKeys : activeCategorical ? [activeCategorical] : []
   ), [showAll, categoricalKeys, activeCategorical])
   const bucketsByKey = useMemo(
-    () => facets
-      ? collectCategoricalBucketsFromFacets(
-        facets,
-        filteredItems,
-        selectedItems,
-        scopedCategoricalKeys,
-        itemPopulationComplete,
-      )
-      : collectCategoricalBucketsByKey(items, filteredItems, selectedItems, scopedCategoricalKeys),
+    () => {
+      if (facets) {
+        return collectCategoricalBucketsFromFacets(
+          facets,
+          filteredItems,
+          selectedItems,
+          scopedCategoricalKeys,
+          itemPopulationComplete,
+        )
+      }
+      if (!itemPopulationComplete) return new Map()
+      return collectCategoricalBucketsByKey(items, filteredItems, selectedItems, scopedCategoricalKeys)
+    },
     [facets, filteredItems, itemPopulationComplete, items, selectedItems, scopedCategoricalKeys]
   )
 
@@ -59,7 +63,7 @@ export default function CategoricalPanel({
       filters={filters}
       onChangeValues={onChangeValues}
       showTitle={showTitle}
-      showFilteredCounts={!facets || itemPopulationComplete}
+      showFilteredCounts={itemPopulationComplete}
     />
   )
 

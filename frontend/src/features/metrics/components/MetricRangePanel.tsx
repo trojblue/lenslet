@@ -51,23 +51,27 @@ export default function MetricRangePanel({
     showAll ? metricKeys : activeMetric ? [activeMetric] : []
   ), [showAll, metricKeys, activeMetric])
   const populationValuesByKey = useMemo(
-    () => collectMetricValuesByKey(items, scopedMetricKeys),
-    [items, scopedMetricKeys]
+    () => itemPopulationComplete ? collectMetricValuesByKey(items, scopedMetricKeys) : EMPTY_VALUES_BY_KEY,
+    [itemPopulationComplete, items, scopedMetricKeys]
   )
   const filteredValuesByKey = useMemo(
     () => collectMetricValuesByKey(filteredItems, scopedMetricKeys),
     [filteredItems, scopedMetricKeys]
   )
   const categoriesByKey = useMemo(
-    () => facets
-      ? collectMetricCategoriesFromFacets(
-        facets,
-        filteredItems,
-        selectedItems,
-        scopedMetricKeys,
-        itemPopulationComplete,
-      )
-      : collectMetricCategoriesByKey(items, filteredItems, selectedItems, scopedMetricKeys),
+    () => {
+      if (facets) {
+        return collectMetricCategoriesFromFacets(
+          facets,
+          filteredItems,
+          selectedItems,
+          scopedMetricKeys,
+          itemPopulationComplete,
+        )
+      }
+      if (!itemPopulationComplete) return new Map()
+      return collectMetricCategoriesByKey(items, filteredItems, selectedItems, scopedMetricKeys)
+    },
     [facets, filteredItems, itemPopulationComplete, items, selectedItems, scopedMetricKeys]
   )
   const selectedValues = selectedValuesByKey ?? EMPTY_VALUES_BY_KEY
@@ -76,7 +80,7 @@ export default function MetricRangePanel({
     const categories = getMetricCategories(categoriesByKey, key)
     const metricFacet = facets?.metrics[key] ?? null
     const facetHistogram = metricHistogramFromFacet(metricFacet?.histogram)
-    const showFilteredCounts = !facets || itemPopulationComplete
+    const showFilteredCounts = itemPopulationComplete
     if (categories.length) {
       return (
         <MetricCategoryCard

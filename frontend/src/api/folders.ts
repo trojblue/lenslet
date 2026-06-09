@@ -1,11 +1,21 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { usePollingEnabled } from './polling'
-import type { BrowseFacetsPayload, BrowseFolderPayload } from '../lib/types'
+import { normalizeSearchQuery, normalizeSearchScopePath } from './search'
+import { normalizeFilterAst } from '../features/browse/model/filters'
+import type {
+  BrowseFacetsPayload,
+  BrowseFolderPayload,
+  BrowseQueryRequest,
+  BrowseQueryResponse,
+  FilterAST,
+  SortSpec,
+} from '../lib/types'
 import type { GetFolderOptions } from './client'
 
 export const DEFAULT_FOLDER_GC_TIME_MS = 5 * 60_000
 export const RECURSIVE_FOLDER_GC_TIME_MS = 60_000
+export const BACKEND_BROWSE_PAGE_SIZE = 1000
 type RecursiveFolderQueryKey = readonly ['folder', string, 'recursive', number, number | null, 'items' | 'count']
 
 type FolderQueryOptions = {
@@ -13,6 +23,17 @@ type FolderQueryOptions = {
   countOnly?: boolean
   offset?: number
   limit?: number
+}
+
+export type BrowseQueryOptions = {
+  path: string
+  recursive?: boolean
+  filters: FilterAST
+  sort: SortSpec
+  textQuery?: string | null
+  randomSeed?: string | number | null
+  limit?: number
+  unsupportedToken?: string | null
 }
 
 export const folderQueryKey = (
@@ -34,6 +55,43 @@ export const folderQueryKey = (
 export const folderFacetsQueryKey = (path: string, recursive = true) => (
   ['folder-facets', path, recursive ? 'recursive' : 'direct'] as const
 )
+
+export function normalizeBrowseQueryFilters(filters: FilterAST | null | undefined): FilterAST {
+  return normalizeFilterAst(filters) ?? { and: [] }
+}
+
+export function buildBrowseQueryRequest(
+  options: BrowseQueryOptions,
+  offset = 0,
+): BrowseQueryRequest {
+  const limit = options.limit ?? BACKEND_BROWSE_PAGE_SIZE
+  const textQuery = normalizeSearchQuery(options.textQuery ?? '')
+  return {
+    path: normalizeSearchScopePath(options.path),
+    recursive: options.recursive ?? true,
+    offset,
+    limit,
+    filters: normalizeBrowseQueryFilters(options.filters),
+    sort: options.sort,
+    text_query: textQuery || null,
+    random_seed: options.randomSeed ?? null,
+  }
+}
+
+export const browseQueryKey = (options: BrowseQueryOptions) => {
+  const request = buildBrowseQueryRequest(options, 0)
+  return [
+    'folder-query',
+    request.path,
+    request.recursive ? 'recursive' : 'direct',
+    request.limit,
+    request.filters,
+    request.sort,
+    request.text_query ?? '',
+    request.random_seed ?? null,
+    options.unsupportedToken ?? null,
+  ] as const
+}
 
 function parseRecursiveFolderQueryKey(queryKey: readonly unknown[]): RecursiveFolderQueryKey | null {
   if (queryKey[0] !== 'folder' || queryKey[2] !== 'recursive') return null
@@ -73,6 +131,34 @@ const FALLBACK_REFETCH_INTERVAL = 15_000
 
 function fetchFolder(path: string, options?: GetFolderOptions): Promise<BrowseFolderPayload> {
   return api.getFolder(path, options)
+}
+
+export function useBrowseQuery(options: BrowseQueryOptions & { enabled?: boolean }) {
+  const pollingEnabled = usePollingEnabled()
+  const queryKey = browseQueryKey(options)
+  return useInfiniteQuery<BrowseQueryResponse>({
+    queryKey,
+    queryFn: ({ pageParam, signal }) => {
+      const offset = typeof pageParam === 'number' ? pageParam : 0
+      return api.queryFolder(
+        buildBrowseQueryRequest(options, offset),
+        { signal },
+      )
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      const loadedThrough = lastPage.offset + lastPage.items.length
+      return loadedThrough < lastPage.filtered_total ? loadedThrough : undefined
+    },
+    enabled: options.enabled ?? true,
+    staleTime: 3_000,
+    gcTime: RECURSIVE_FOLDER_GC_TIME_MS,
+    retry: 1,
+    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 5000),
+    refetchOnWindowFocus: false,
+    refetchInterval: pollingEnabled ? FALLBACK_REFETCH_INTERVAL : false,
+    refetchIntervalInBackground: pollingEnabled,
+  })
 }
 
 export type UseFolderOptions = FolderQueryOptions & {

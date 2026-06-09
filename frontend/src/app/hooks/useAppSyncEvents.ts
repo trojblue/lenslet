@@ -82,6 +82,8 @@ export function useAppSyncEvents({
           metrics: payload.metrics,
           notes: payload.notes ?? '',
         })
+        void queryClient.resetQueries({ queryKey: ['folder-query'] })
+        queryClient.invalidateQueries({ queryKey: ['folder-facets'] })
         updateConflictFromServer(path, sidecar)
         markRecentActivity(path, 'item-updated', evt.id)
         markRecentTouch(path, 'item-updated', payload.updated_at)
@@ -95,6 +97,8 @@ export function useAppSyncEvents({
       } else if (evt.type === 'metrics-updated') {
         const payload = evt.data
         updateItemCaches({ path, metrics: payload.metrics })
+        void queryClient.resetQueries({ queryKey: ['folder-query'] })
+        queryClient.invalidateQueries({ queryKey: ['folder-facets'] })
         markRecentActivity(path, 'metrics-updated', evt.id)
         markRecentTouch(path, 'metrics-updated', payload.updated_at)
         updateLastEdited(payload.updated_at)

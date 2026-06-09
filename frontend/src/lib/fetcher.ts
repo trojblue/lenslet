@@ -67,44 +67,58 @@ function buildMessage(status: number, body: unknown, url: string): string {
   return `HTTP ${status} for ${url}`
 }
 
-export function fetchJSON<T>(url: string, opts: FetchOpts = {}) {
-  const { timeoutMs, ...init } = opts
+function createAbortBridge(timeoutMs: number | undefined, signal: AbortSignal | null | undefined) {
   const ctrl = new AbortController()
   let timeoutId: number | undefined
+  const abortFromSignal = () => ctrl.abort(signal?.reason)
   if (timeoutMs) {
     timeoutId = window.setTimeout(() => ctrl.abort(), timeoutMs)
   }
+  if (signal?.aborted) {
+    ctrl.abort(signal.reason)
+  } else {
+    signal?.addEventListener('abort', abortFromSignal, { once: true })
+  }
+  return {
+    signal: ctrl.signal,
+    abort: () => ctrl.abort(),
+    cleanup: () => {
+      if (timeoutId) window.clearTimeout(timeoutId)
+      signal?.removeEventListener('abort', abortFromSignal)
+    },
+  }
+}
 
-  const promise = fetch(url, { ...init, signal: ctrl.signal }).then(async (res) => {
+export function fetchJSON<T>(url: string, opts: FetchOpts = {}) {
+  const { timeoutMs, signal, ...init } = opts
+  const abortBridge = createAbortBridge(timeoutMs, signal)
+
+  const promise = fetch(url, { ...init, signal: abortBridge.signal }).then(async (res) => {
     const body = await readResponseBody(res)
     if (!res.ok) {
       throw new FetchError(res.status, buildMessage(res.status, body, url), url, body)
     }
     return body as T
   }).finally(() => {
-    if (timeoutId) window.clearTimeout(timeoutId)
+    abortBridge.cleanup()
   })
 
-  return { promise, abort: () => ctrl.abort() }
+  return { promise, abort: abortBridge.abort }
 }
 
 export function fetchBlob(url: string, opts: FetchOpts = {}) {
-  const { timeoutMs, ...init } = opts
-  const ctrl = new AbortController()
-  let timeoutId: number | undefined
-  if (timeoutMs) {
-    timeoutId = window.setTimeout(() => ctrl.abort(), timeoutMs)
-  }
+  const { timeoutMs, signal, ...init } = opts
+  const abortBridge = createAbortBridge(timeoutMs, signal)
 
-  const promise = fetch(url, { ...init, signal: ctrl.signal }).then(async (res) => {
+  const promise = fetch(url, { ...init, signal: abortBridge.signal }).then(async (res) => {
     if (!res.ok) {
       const body = await readResponseBody(res)
       throw new FetchError(res.status, buildMessage(res.status, body, url), url, body)
     }
     return res.blob()
   }).finally(() => {
-    if (timeoutId) window.clearTimeout(timeoutId)
+    abortBridge.cleanup()
   })
 
-  return { promise, abort: () => ctrl.abort() }
+  return { promise, abort: abortBridge.abort }
 }

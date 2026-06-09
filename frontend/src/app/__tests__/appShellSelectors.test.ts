@@ -5,6 +5,7 @@ import {
   applyDerivedMetricToViewState,
   buildDerivedMetricWarning,
   buildStarCounts,
+  getBackendBrowseDerivedMetricUnsupportedReason,
   getDisplayItemCount,
   getDisplayTotalCount,
   getDerivedMetricRankDisabledReason,
@@ -264,6 +265,33 @@ describe('appShellSelectors', () => {
         partialLoadWarning: true,
       }),
     )).toBe('Derived score ranks only the 25 loaded items out of 100.')
+  })
+
+  it('blocks derived metric filters and sorts in normal backend browse', () => {
+    const filters = {
+      and: [{ metricRange: { key: '@derived/rubric_1', min: 0, max: 10 } }],
+    }
+
+    expect(getBackendBrowseDerivedMetricUnsupportedReason(
+      { kind: 'builtin', key: 'added', dir: 'desc' },
+      filters,
+      false,
+    )).toBe('Derived score filters are unavailable in backend browse.')
+    expect(getBackendBrowseDerivedMetricUnsupportedReason(
+      { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      { and: [] },
+      false,
+    )).toBe('Derived score sorting is unavailable in backend browse.')
+    expect(getBackendBrowseDerivedMetricUnsupportedReason(
+      { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      filters,
+      false,
+    )).toBe('Derived score filters and sorting are unavailable in backend browse.')
+    expect(getBackendBrowseDerivedMetricUnsupportedReason(
+      { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      filters,
+      true,
+    )).toBeNull()
   })
 
   it('reports mode-level disabled reasons for derived ranking', () => {

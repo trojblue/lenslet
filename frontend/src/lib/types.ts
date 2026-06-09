@@ -38,6 +38,33 @@ export type BrowseFolderPayload = {
   limit?: number | null
 }
 
+export type BrowseQueryRequest = {
+  path: string
+  recursive: boolean
+  offset: number
+  limit: number
+  filters: FilterAST
+  sort: SortSpec
+  text_query?: string | null
+  random_seed?: string | number | null
+}
+
+export type BrowseQueryResponse = {
+  version: 1
+  path: string
+  generated_at: string
+  generation_token: string
+  request_token: string
+  scope_total: number
+  filtered_total: number
+  offset: number
+  limit: number
+  items: BrowseItemPayload[]
+  folders: BrowseFolderEntryPayload[]
+  metric_keys: string[]
+  categorical_keys: string[]
+}
+
 export type MetricHistogramFacet = {
   bins: number[]
   min: number

@@ -1,0 +1,35 @@
+# Ralph Progress Log
+Started: 2026-06-09T14:16:23Z
+Mode: plan
+Tool: codex
+Repo: /fsx/yada/dev/lenslet
+Plan: /fsx/yada/dev/lenslet/docs/20260609_backend_browse_query_plan.md
+---
+
+## Iteration 1 - 2026-06-09T14:16:23Z
+Completed task IDs: S1-T1, S1-T2, S1-T3.
+
+Files changed:
+- src/lenslet/browse/__init__.py
+- src/lenslet/browse/query.py
+- src/lenslet/storage/base.py
+- src/lenslet/web/browse.py
+- src/lenslet/web/models.py
+- src/lenslet/web/routes/folders.py
+- tests/browse/test_query_evaluator.py
+- tests/web/routes/test_browse_query.py
+- docs/20260609_backend_browse_query_plan.md
+
+Validations run:
+- pytest -q tests/browse/test_query_evaluator.py tests/web/routes/test_browse_query.py: passed (13 passed)
+- pytest -q tests/web/routes/test_direct_route_helpers.py tests/web/routes/test_folder_recursive.py tests/api/test_import_contract.py: passed (40 passed)
+- pytest -q tests/storage/table/test_parquet_ingestion.py: passed (22 passed)
+- python scripts/lint_repo.py: passed; existing warn-only file-size notices remain for AppShell.tsx, styles.css, large_tree/smoke.py, and table/storage.py
+
+Cleanup and review:
+- code-simplifier subagent completed; no required edits, small local cleanup applied afterward.
+- code-review subagent completed; fixed bounded fallback, explicit fallback over-limit behavior, sidecar source/url text search, and blank categorical key validation.
+
+Blockers: none for Sprint 1. Large table scopes still require planned Sprint 2 native TableStorage row-query execution; Sprint 1 generic fallback now fails closed above the bounded fallback limit.
+
+Next step: start Sprint 2 with S2-T1, implementing `query_browse_scope` in `TableStorage` over row ids until final window materialization.

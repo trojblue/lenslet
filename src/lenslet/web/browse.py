@@ -9,6 +9,14 @@ from typing import Any, Callable, Iterable, cast
 
 from fastapi import HTTPException, Request
 
+from ..browse.query import (
+    BrowseQueryFolderEntry,
+    BrowseQueryRecord,
+    BrowseQueryResult,
+    BrowseQuerySpec,
+    browse_query_request_token,
+    evaluate_browse_records,
+)
 from ..metrics import normalize_metric_mapping
 from ..media_errors import MediaDecodeError, MediaError, MediaReadError
 from .cache.browse import (
@@ -28,6 +36,7 @@ from .models import (
     BrowseFolderEntryPayload,
     BrowseFolderPayload,
     BrowseItemPayload,
+    BrowseQueryResponse,
     BrowseSearchResultsPayload,
     BrowseFacetsPayload,
     CategoricalFacetPayload,
@@ -43,6 +52,7 @@ from .sidecars import sidecar_from_state
 from ..storage.base import (
     BrowseAppStorage,
     BrowseItem,
+    BrowseQueryStorage,
     BrowseStorage,
     BrowseWindowStorage,
     RecursiveLimitStorage,
@@ -50,6 +60,7 @@ from ..storage.base import (
     SidecarState,
     SidecarStorage,
 )
+from ..storage.search_text import build_search_haystack, sidecar_source_fields
 
 
 BrowseItemRecord = BrowseItem | RecursiveCachedItemSnapshot
@@ -372,12 +383,20 @@ RECURSIVE_SORT_MODE_SCAN = "scan"
 RECURSIVE_CACHE_BUILD_MAX_RETRIES = 2
 RECURSIVE_ITEMS_HARD_LIMIT = 10_000
 RECURSIVE_WINDOW_MAX_LIMIT = 10_000
+BROWSE_QUERY_FALLBACK_MAX_ITEMS = 10_000
 
 
 def _raise_recursive_items_limit() -> None:
     raise HTTPException(
         413,
         "recursive folder listing exceeds server safety limit; refine the path or use count_only",
+    )
+
+
+def _raise_browse_query_fallback_limit() -> None:
+    raise HTTPException(
+        413,
+        "browse query fallback exceeds server safety limit; backend row-query support is required for larger scopes",
     )
 
 
@@ -780,6 +799,181 @@ def build_folder_index(
         _load_folder_index(storage, canonical, recursive=False),
         to_item,
         count_only=count_only,
+    )
+
+
+def _query_result_payload(
+    storage: BrowseStorage,
+    result: BrowseQueryResult[Any],
+    to_item: ToItemFn,
+) -> BrowseQueryResponse:
+    return BrowseQueryResponse(
+        path=result.path,
+        generated_at=result.generated_at,
+        generation_token=result.generation_token,
+        request_token=result.request_token,
+        scope_total=result.scope_total,
+        filtered_total=result.filtered_total,
+        offset=result.offset,
+        limit=result.limit,
+        items=[item if isinstance(item, BrowseItemPayload) else to_item(storage, item) for item in result.items],
+        folders=[
+            BrowseFolderEntryPayload(name=folder.name, kind=folder.kind)
+            for folder in result.folders
+        ],
+        metric_keys=list(result.metric_keys),
+        categorical_keys=list(result.categorical_keys),
+    )
+
+
+def _sidecar_state_for_query(storage: BrowseStorage, path: str) -> SidecarState:
+    getter = getattr(storage, "get_sidecar_readonly", None)
+    if not callable(getter):
+        return {}
+    return cast(SidecarState, getter(path))
+
+
+def _query_record_from_payload(
+    payload: BrowseItemPayload,
+    sidecar_state: SidecarState,
+) -> BrowseQueryRecord[BrowseItemPayload]:
+    tags = sidecar_state.get("tags", [])
+    if not isinstance(tags, list):
+        tags = []
+    sidecar_source, sidecar_url = sidecar_source_fields(sidecar_state)
+    source = " ".join(
+        value for value in (payload.source, sidecar_source)
+        if value
+    ) or None
+    url = " ".join(
+        value for value in (payload.url, sidecar_url)
+        if value
+    ) or None
+    search_text = build_search_haystack(
+        logical_path=payload.path,
+        name=payload.name,
+        tags=tags,
+        notes=sidecar_state.get("notes", ""),
+        source=source,
+        url=url,
+        include_source_fields=bool(source or url),
+    )
+    return BrowseQueryRecord(
+        payload=payload,
+        stable_identity=payload.path,
+        path=payload.path,
+        name=payload.name,
+        added_at=payload.added_at,
+        width=payload.width,
+        height=payload.height,
+        source=payload.source,
+        url=payload.url,
+        metrics=payload.metrics or {},
+        categoricals=payload.categoricals or {},
+        star=payload.star,
+        notes=payload.notes,
+        search_text=search_text,
+    )
+
+
+def _records_from_items(
+    storage: BrowseStorage,
+    raw_items: Iterable[Any],
+    to_item: ToItemFn,
+) -> tuple[BrowseQueryRecord[BrowseItemPayload], ...]:
+    records: list[BrowseQueryRecord[BrowseItemPayload]] = []
+    for raw_item in raw_items:
+        payload = to_item(storage, raw_item)
+        records.append(_query_record_from_payload(
+            payload,
+            _sidecar_state_for_query(storage, payload.path),
+        ))
+    return tuple(records)
+
+
+def _raw_items_for_query_fallback(
+    storage: BrowseStorage,
+    canonical: str,
+    index: Any,
+    *,
+    recursive: bool,
+) -> tuple[list[Any], int]:
+    if not recursive:
+        raw_items = list(getattr(index, "items", []) or [])
+        return raw_items, _direct_folder_total_items(index)
+
+    max_items = _recursive_items_hard_limit(storage)
+    if max_items is None or max_items > BROWSE_QUERY_FALLBACK_MAX_ITEMS:
+        max_items = BROWSE_QUERY_FALLBACK_MAX_ITEMS
+    scope_total = _count_recursive_items(storage, canonical)
+    if max_items is not None and scope_total > max_items:
+        _raise_browse_query_fallback_limit()
+    return list(storage.items_in_scope(canonical)), scope_total
+
+
+def _fallback_browse_query_result(
+    storage: BrowseStorage,
+    spec: BrowseQuerySpec,
+    index: Any,
+    to_item: ToItemFn,
+) -> BrowseQueryResult[BrowseItemPayload]:
+    raw_items, scope_total = _raw_items_for_query_fallback(
+        storage,
+        spec.path,
+        index,
+        recursive=spec.recursive,
+    )
+    records = _records_from_items(storage, raw_items, to_item)
+    evaluation = evaluate_browse_records(records, spec)
+    return BrowseQueryResult(
+        path=spec.path,
+        generated_at=index.generated_at,
+        generation_token=build_browse_generation_token(storage),
+        request_token=browse_query_request_token(spec),
+        scope_total=scope_total,
+        filtered_total=evaluation.filtered_total,
+        offset=spec.offset,
+        limit=spec.limit,
+        items=tuple(record.payload for record in evaluation.window),
+        folders=tuple(
+            BrowseQueryFolderEntry(name=folder.name, kind=folder.kind)
+            for folder in _folder_entries(index)
+        ),
+        metric_keys=tuple(_metric_keys_for_folder(
+            storage,
+            spec.path,
+            index,
+            recursive=spec.recursive,
+        )),
+        categorical_keys=tuple(_categorical_keys_for_folder(
+            storage,
+            spec.path,
+            index,
+            recursive=spec.recursive,
+        )),
+    )
+
+
+def build_folder_query(
+    storage: BrowseStorage,
+    spec: BrowseQuerySpec,
+    to_item: ToItemFn,
+) -> BrowseQueryResponse:
+    index = _load_folder_index(storage, spec.path, recursive=spec.recursive)
+    query_provider = getattr(storage, "query_browse_scope", None)
+    if callable(query_provider):
+        try:
+            result = cast(BrowseQueryStorage, storage).query_browse_scope(spec)
+        except ValueError as exc:
+            raise HTTPException(400, "invalid path") from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "folder not found") from exc
+        return _query_result_payload(storage, result, to_item)
+
+    return _query_result_payload(
+        storage,
+        _fallback_browse_query_result(storage, spec, index, to_item),
+        to_item,
     )
 
 

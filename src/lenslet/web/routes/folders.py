@@ -4,9 +4,57 @@ from collections import deque
 
 from fastapi import FastAPI, Query, Request
 
-from ..browse import RECURSIVE_WINDOW_MAX_LIMIT, ToItemFn, build_folder_facets, build_folder_index, storage_from_request
+from ...browse.query import (
+    BrowseFilterAst,
+    BrowseFilterClause,
+    BrowseQuerySpec,
+    BuiltinSortSpec,
+    CategoricalInFilter,
+    DateRangeFilter,
+    HeightCompareFilter,
+    MetricRangeFilter,
+    MetricSortSpec,
+    NameContainsFilter,
+    NameNotContainsFilter,
+    NotesContainsFilter,
+    NotesNotContainsFilter,
+    StarsInFilter,
+    StarsNotInFilter,
+    UrlContainsFilter,
+    UrlNotContainsFilter,
+    WidthCompareFilter,
+)
+from ..browse import (
+    RECURSIVE_WINDOW_MAX_LIMIT,
+    ToItemFn,
+    build_folder_facets,
+    build_folder_index,
+    build_folder_query,
+    storage_from_request,
+)
 from ..context import get_request_context
-from ..models import BrowseFacetsPayload, BrowseFolderPathsPayload, BrowseFolderPayload
+from ..models import (
+    BrowseFacetsPayload,
+    BrowseFolderPathsPayload,
+    BrowseFolderPayload,
+    BrowseQueryCategoricalInClausePayload,
+    BrowseQueryDateRangeClausePayload,
+    BrowseQueryFilterClausePayload,
+    BrowseQueryHeightCompareClausePayload,
+    BrowseQueryMetricRangeClausePayload,
+    BrowseQueryMetricSortPayload,
+    BrowseQueryNameContainsClausePayload,
+    BrowseQueryNameNotContainsClausePayload,
+    BrowseQueryNotesContainsClausePayload,
+    BrowseQueryNotesNotContainsClausePayload,
+    BrowseQueryRequest,
+    BrowseQueryResponse,
+    BrowseQueryStarsInClausePayload,
+    BrowseQueryStarsNotInClausePayload,
+    BrowseQueryUrlContainsClausePayload,
+    BrowseQueryUrlNotContainsClausePayload,
+    BrowseQueryWidthCompareClausePayload,
+)
 from ..paths import canonical_path
 from ...storage.base import BrowseStorage
 
@@ -32,10 +80,79 @@ def _collect_folder_paths(storage: BrowseStorage) -> list[str]:
     return sorted(seen, key=lambda value: (value != "/", value))
 
 
+def _query_filter_clause(clause: BrowseQueryFilterClausePayload) -> BrowseFilterClause:
+    if isinstance(clause, BrowseQueryStarsInClausePayload):
+        return StarsInFilter(values=tuple(clause.starsIn.values))
+    if isinstance(clause, BrowseQueryStarsNotInClausePayload):
+        return StarsNotInFilter(values=tuple(clause.starsNotIn.values))
+    if isinstance(clause, BrowseQueryNameContainsClausePayload):
+        return NameContainsFilter(value=clause.nameContains.value)
+    if isinstance(clause, BrowseQueryNameNotContainsClausePayload):
+        return NameNotContainsFilter(value=clause.nameNotContains.value)
+    if isinstance(clause, BrowseQueryNotesContainsClausePayload):
+        return NotesContainsFilter(value=clause.notesContains.value)
+    if isinstance(clause, BrowseQueryNotesNotContainsClausePayload):
+        return NotesNotContainsFilter(value=clause.notesNotContains.value)
+    if isinstance(clause, BrowseQueryUrlContainsClausePayload):
+        return UrlContainsFilter(value=clause.urlContains.value)
+    if isinstance(clause, BrowseQueryUrlNotContainsClausePayload):
+        return UrlNotContainsFilter(value=clause.urlNotContains.value)
+    if isinstance(clause, BrowseQueryDateRangeClausePayload):
+        return DateRangeFilter(from_value=clause.dateRange.from_, to_value=clause.dateRange.to)
+    if isinstance(clause, BrowseQueryWidthCompareClausePayload):
+        return WidthCompareFilter(op=clause.widthCompare.op, value=clause.widthCompare.value)
+    if isinstance(clause, BrowseQueryHeightCompareClausePayload):
+        return HeightCompareFilter(op=clause.heightCompare.op, value=clause.heightCompare.value)
+    if isinstance(clause, BrowseQueryMetricRangeClausePayload):
+        return MetricRangeFilter(
+            key=clause.metricRange.key,
+            min_value=clause.metricRange.min,
+            max_value=clause.metricRange.max,
+        )
+    if isinstance(clause, BrowseQueryCategoricalInClausePayload):
+        return CategoricalInFilter(
+            key=clause.categoricalIn.key,
+            values=tuple(clause.categoricalIn.values),
+        )
+    raise TypeError(f"unsupported browse query filter clause: {clause!r}")
+
+
+def _query_spec_from_payload(body: BrowseQueryRequest) -> BrowseQuerySpec:
+    sort = (
+        MetricSortSpec(key=body.sort.key, direction=body.sort.dir)
+        if isinstance(body.sort, BrowseQueryMetricSortPayload)
+        else BuiltinSortSpec(key=body.sort.key, direction=body.sort.dir)
+    )
+    return BrowseQuerySpec(
+        path=canonical_path(body.path),
+        recursive=body.recursive,
+        offset=body.offset,
+        limit=body.limit,
+        filters=BrowseFilterAst(
+            and_clauses=tuple(_query_filter_clause(clause) for clause in body.filters.and_)
+        ),
+        sort=sort,
+        text_query=body.text_query,
+        random_seed=None if body.random_seed is None else str(body.random_seed),
+    )
+
+
 def register_folder_routes(
     app: FastAPI,
     to_item: ToItemFn,
 ) -> None:
+    @app.post("/folders/query", response_model=BrowseQueryResponse)
+    def post_folder_query(
+        body: BrowseQueryRequest,
+        request: Request,
+    ) -> BrowseQueryResponse:
+        storage = storage_from_request(request)
+        return build_folder_query(
+            storage,
+            _query_spec_from_payload(body),
+            to_item,
+        )
+
     @app.get("/folders", response_model=BrowseFolderPayload)
     def get_folder(
         request: Request,

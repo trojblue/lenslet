@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+import math
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ..browse.query import parse_query_date_bound
 from ..storage.image_media import ImageMime
 
 JsonObject = dict[str, Any]
 ExportComparisonOutputFormat = Literal["png", "gif"]
 StarRating = Annotated[int, Field(ge=0, le=5, strict=True)]
+BrowseQuerySortDirection = Literal["asc", "desc"]
+BrowseQueryCompareOp = Literal["<", "<=", ">", ">="]
+BROWSE_QUERY_DEFAULT_LIMIT = 1000
+BROWSE_QUERY_MAX_LIMIT = 10_000
+
+
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 class BrowseItemPayload(BaseModel):
@@ -47,6 +57,199 @@ class BrowseFolderPayload(BaseModel):
     total_items: int | None = None
     offset: int | None = None
     limit: int | None = None
+
+
+class BrowseQueryStarsValuesPayload(StrictModel):
+    values: list[StarRating] = Field(default_factory=list)
+
+
+class BrowseQueryTextPayload(StrictModel):
+    value: str
+
+
+class BrowseQueryDateRangePayload(StrictModel):
+    from_: str | None = Field(default=None, alias="from")
+    to: str | None = None
+
+    @field_validator("from_", "to")
+    @classmethod
+    def validate_parseable_date_bound(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return value
+        try:
+            parse_query_date_bound(value, as_end=False)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("date range bounds must be parseable dates") from exc
+        return value
+
+
+class BrowseQueryNumberComparePayload(StrictModel):
+    op: BrowseQueryCompareOp
+    value: float
+
+    @field_validator("value")
+    @classmethod
+    def validate_finite_value(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("value must be finite")
+        return value
+
+
+class BrowseQueryMetricRangePayload(StrictModel):
+    key: str
+    min: float
+    max: float
+
+    @field_validator("min", "max")
+    @classmethod
+    def validate_finite_bound(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("metric range bounds must be finite")
+        return value
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "BrowseQueryMetricRangePayload":
+        if self.min > self.max:
+            raise ValueError("metric range min must be less than or equal to max")
+        if not self.key.strip():
+            raise ValueError("metric range key must be non-empty")
+        return self
+
+
+class BrowseQueryCategoricalInPayload(StrictModel):
+    key: str
+    values: list[str] = Field(default_factory=list)
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("categorical filter key must be non-empty")
+        return value
+
+
+class BrowseQueryStarsInClausePayload(StrictModel):
+    starsIn: BrowseQueryStarsValuesPayload
+
+
+class BrowseQueryStarsNotInClausePayload(StrictModel):
+    starsNotIn: BrowseQueryStarsValuesPayload
+
+
+class BrowseQueryNameContainsClausePayload(StrictModel):
+    nameContains: BrowseQueryTextPayload
+
+
+class BrowseQueryNameNotContainsClausePayload(StrictModel):
+    nameNotContains: BrowseQueryTextPayload
+
+
+class BrowseQueryNotesContainsClausePayload(StrictModel):
+    notesContains: BrowseQueryTextPayload
+
+
+class BrowseQueryNotesNotContainsClausePayload(StrictModel):
+    notesNotContains: BrowseQueryTextPayload
+
+
+class BrowseQueryUrlContainsClausePayload(StrictModel):
+    urlContains: BrowseQueryTextPayload
+
+
+class BrowseQueryUrlNotContainsClausePayload(StrictModel):
+    urlNotContains: BrowseQueryTextPayload
+
+
+class BrowseQueryDateRangeClausePayload(StrictModel):
+    dateRange: BrowseQueryDateRangePayload
+
+
+class BrowseQueryWidthCompareClausePayload(StrictModel):
+    widthCompare: BrowseQueryNumberComparePayload
+
+
+class BrowseQueryHeightCompareClausePayload(StrictModel):
+    heightCompare: BrowseQueryNumberComparePayload
+
+
+class BrowseQueryMetricRangeClausePayload(StrictModel):
+    metricRange: BrowseQueryMetricRangePayload
+
+
+class BrowseQueryCategoricalInClausePayload(StrictModel):
+    categoricalIn: BrowseQueryCategoricalInPayload
+
+
+BrowseQueryFilterClausePayload = (
+    BrowseQueryStarsInClausePayload
+    | BrowseQueryStarsNotInClausePayload
+    | BrowseQueryNameContainsClausePayload
+    | BrowseQueryNameNotContainsClausePayload
+    | BrowseQueryNotesContainsClausePayload
+    | BrowseQueryNotesNotContainsClausePayload
+    | BrowseQueryUrlContainsClausePayload
+    | BrowseQueryUrlNotContainsClausePayload
+    | BrowseQueryDateRangeClausePayload
+    | BrowseQueryWidthCompareClausePayload
+    | BrowseQueryHeightCompareClausePayload
+    | BrowseQueryMetricRangeClausePayload
+    | BrowseQueryCategoricalInClausePayload
+)
+
+
+class BrowseQueryFilterAstPayload(StrictModel):
+    and_: list[BrowseQueryFilterClausePayload] = Field(default_factory=list, alias="and")
+
+
+class BrowseQueryBuiltinSortPayload(StrictModel):
+    kind: Literal["builtin"]
+    key: Literal["added", "name", "random"]
+    dir: BrowseQuerySortDirection = "desc"
+
+
+class BrowseQueryMetricSortPayload(StrictModel):
+    kind: Literal["metric"]
+    key: str
+    dir: BrowseQuerySortDirection = "asc"
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("metric sort key must be non-empty")
+        return value
+
+
+BrowseQuerySortPayload = BrowseQueryBuiltinSortPayload | BrowseQueryMetricSortPayload
+
+
+class BrowseQueryRequest(StrictModel):
+    path: str = "/"
+    recursive: bool = False
+    offset: int = Field(0, ge=0)
+    limit: int = Field(BROWSE_QUERY_DEFAULT_LIMIT, gt=0, le=BROWSE_QUERY_MAX_LIMIT)
+    filters: BrowseQueryFilterAstPayload = Field(default_factory=BrowseQueryFilterAstPayload)
+    sort: BrowseQuerySortPayload = Field(
+        default_factory=lambda: BrowseQueryBuiltinSortPayload(kind="builtin", key="added", dir="desc")
+    )
+    text_query: str | None = None
+    random_seed: str | int | None = None
+
+
+class BrowseQueryResponse(BaseModel):
+    version: int = 1
+    path: str
+    generated_at: str
+    generation_token: str
+    request_token: str
+    scope_total: int
+    filtered_total: int
+    offset: int
+    limit: int
+    items: list[BrowseItemPayload] = Field(default_factory=list)
+    folders: list[BrowseFolderEntryPayload] = Field(default_factory=list)
+    metric_keys: list[str] = Field(default_factory=list)
+    categorical_keys: list[str] = Field(default_factory=list)
 
 
 class MetricHistogramFacetPayload(BaseModel):

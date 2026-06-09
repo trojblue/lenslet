@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any, Protocol, TypedDict
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict
 
 from .image_media import ImageMime
+
+if TYPE_CHECKING:
+    from ..browse.query import BrowseQueryResult, BrowseQuerySpec
 
 
 class SidecarState(TypedDict, total=False):
@@ -128,6 +131,14 @@ class BrowseWindowStorage(Protocol):
 
     def items_in_scope_window(self, path: str, offset: int, limit: int) -> list[BrowseItem]:
         """Return a bounded item window beneath a logical scope."""
+        ...
+
+
+class BrowseQueryStorage(Protocol):
+    """Optional authoritative browse-query window capability."""
+
+    def query_browse_scope(self, spec: BrowseQuerySpec) -> BrowseQueryResult[BrowseItem]:
+        """Return a filtered and sorted browse window for a logical scope."""
         ...
 
 

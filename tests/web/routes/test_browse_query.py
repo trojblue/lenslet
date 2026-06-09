@@ -12,6 +12,7 @@ import lenslet.web.browse as browse
 from lenslet.browse.query import BrowseQuerySpec
 from lenslet.server import TableAppOptions, create_app_from_storage, create_app_from_table
 from lenslet.storage.memory import MemoryStorage
+from lenslet.storage.table import TableStorage, TableStorageOptions
 from lenslet.web.models import BrowseItemPayload
 
 
@@ -170,6 +171,59 @@ def test_browse_query_text_search_includes_sidecar_source_fields(tmp_path: Path)
 
     assert response.status_code == 200
     assert [item["path"] for item in response.json()["items"]] == ["/cat.jpg"]
+
+
+def test_table_query_totals_and_facets_are_separate_backend_truth() -> None:
+    rows = [
+        {
+            "source": f"https://example.test/gallery/img{index}.jpg",
+            "path": f"gallery/img{index}.jpg",
+            "width": 8,
+            "height": 6,
+            "source_column": "target" if index in {4, 5} else "other",
+            "score": float(index),
+        }
+        for index in range(6)
+    ]
+    storage = TableStorage(
+        rows,
+        options=TableStorageOptions(
+            source_column="source",
+            path_column="path",
+            skip_dimension_probe=True,
+            allow_local=False,
+        ),
+    )
+    row_store = storage._row_store
+    assert row_store is not None
+    client = TestClient(create_app_from_storage(storage))
+
+    query_payload = client.post(
+        "/folders/query",
+        json={
+            "path": "/gallery",
+            "recursive": True,
+            "offset": 0,
+            "limit": 2,
+            "sort": {"kind": "builtin", "key": "name", "dir": "asc"},
+        },
+    ).json()
+    facets_payload = client.get(
+        "/folders/facets",
+        params={"path": "/gallery", "recursive": "1"},
+    ).json()
+
+    assert [item["name"] for item in query_payload["items"]] == ["img0.jpg", "img1.jpg"]
+    assert query_payload["scope_total"] == 6
+    assert query_payload["filtered_total"] == 6
+    assert row_store.materialized_item_count == 2
+
+    values = facets_payload["categoricals"]["source_column"]["values"]
+    assert values == [
+        {"value": "other", "population_count": 4},
+        {"value": "target", "population_count": 2},
+    ]
+    assert facets_payload["total_items"] == 6
 
 
 def test_browse_query_fallback_refuses_unbounded_recursive_materialization() -> None:

@@ -19,9 +19,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+from ...browse.query import (
+    BrowseQueryFolderEntry,
+    BrowseQueryRecord,
+    BrowseQueryResult,
+    BrowseQuerySpec,
+    browse_query_request_token,
+    evaluate_browse_records,
+)
 from ...media_errors import MediaDecodeError, MediaReadError
 from ...metrics import coerce_finite_metric_value
-from ..base import join_storage_path
+from ..base import SidecarState, join_storage_path
 from ..progress import ProgressBar
 from ..sidecar_state import default_sidecar_state
 from ..source.backed import SourceBackedConfig, SourceBackedServices, SourceBackedStorageBase
@@ -93,7 +101,7 @@ from .row_store import (
     TableRowViewItem,
     build_table_row_store,
 )
-from ..search_text import normalize_search_path
+from ..search_text import build_search_haystack, normalize_search_path, sidecar_source_fields
 
 
 TABLE_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
@@ -227,6 +235,22 @@ def _normalize_categorical_value(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _canonical_query_path(path: str) -> str:
+    normalized = normalize_item_path(path)
+    return f"/{normalized}" if normalized else "/"
+
+
+def _added_at_from_mtime(mtime: float) -> str | None:
+    if mtime <= 0:
+        return None
+    return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+
+
+def _table_query_generation_token(signature: str, generation: int) -> str:
+    parts = [part for part in (str(signature).strip(), str(generation).strip()) if part]
+    return "|".join(parts) if parts else "default"
 
 
 def _sample_source_kind(values: list[Any], *, sample_size: int = 1024) -> str | None:
@@ -1174,6 +1198,135 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         if isinstance(notes, str):
             parts.append(notes)
         return " ".join(part for part in parts if part).lower()
+
+    def _query_sidecar_for_row(self, row_store: TableRowStore, row_idx: int) -> SidecarState:
+        path = row_store.path_for_row_index(row_idx)
+        if path is None:
+            return {}
+        return self.get_sidecar_readonly(path)
+
+    def _query_categoricals_for_row(self, row_idx: int) -> dict[str, str]:
+        if self._categorical_row_provider is not None:
+            return self._extract_categoricals_from_row(
+                self._categorical_row_provider(row_idx)
+            )
+        return self._categoricals_for_row(row_idx)
+
+    def _query_search_text(
+        self,
+        *,
+        path: str,
+        name: str,
+        source: str | None,
+        url: str | None,
+        sidecar_state: SidecarState,
+    ) -> str:
+        tags = sidecar_state.get("tags", [])
+        if not isinstance(tags, list):
+            tags = []
+        sidecar_source, sidecar_url = sidecar_source_fields(sidecar_state)
+        row_source = source if self._include_source_in_search else None
+        row_url = url if self._include_source_in_search else None
+        search_source = " ".join(value for value in (row_source, sidecar_source) if value) or None
+        search_url = " ".join(value for value in (row_url, sidecar_url) if value) or None
+        return build_search_haystack(
+            logical_path=path,
+            name=name,
+            tags=tags,
+            notes=sidecar_state.get("notes", ""),
+            source=search_source,
+            url=search_url,
+            include_source_fields=self._include_source_in_search or bool(search_source or search_url),
+        )
+
+    def _query_record_for_row(
+        self,
+        row_store: TableRowStore,
+        row_idx: int,
+    ) -> BrowseQueryRecord[int]:
+        (
+            path,
+            name,
+            _mime,
+            width,
+            height,
+            _size,
+            mtime,
+            url,
+            source,
+        ) = row_store.item_fields_for_row(row_idx)
+        canonical = _canonical_query_path(path)
+        sidecar_state = self._query_sidecar_for_row(row_store, row_idx)
+        return BrowseQueryRecord(
+            payload=row_idx,
+            stable_identity=canonical,
+            path=canonical,
+            name=name,
+            added_at=_added_at_from_mtime(mtime),
+            width=width,
+            height=height,
+            source=source,
+            url=url,
+            metrics=self._metrics_for_row(row_idx),
+            categoricals=self._query_categoricals_for_row(row_idx),
+            star=sidecar_state.get("star"),
+            notes=sidecar_state.get("notes", ""),
+            search_text=self._query_search_text(
+                path=canonical,
+                name=name,
+                source=source,
+                url=url,
+                sidecar_state=sidecar_state,
+            ),
+        )
+
+    def _query_rows_for_scope(
+        self,
+        row_store: TableRowStore,
+        path: str,
+        *,
+        recursive: bool,
+    ) -> tuple[int, ...]:
+        return row_store.rows_in_scope(path) if recursive else row_store.direct_rows(path)
+
+    def _query_folder_entries(
+        self,
+        row_store: TableRowStore,
+        path: str,
+    ) -> tuple[BrowseQueryFolderEntry, ...]:
+        return tuple(
+            BrowseQueryFolderEntry(name=name, kind="branch")
+            for name in sorted(row_store.folder_dirs(path))
+        )
+
+    def query_browse_scope(self, spec: BrowseQuerySpec) -> BrowseQueryResult[TableRowViewItem]:
+        norm = normalize_path(spec.path)
+        row_store = self._require_row_store()
+        rows = self._query_rows_for_scope(row_store, norm, recursive=spec.recursive)
+        folders = self._query_folder_entries(row_store, norm)
+        if not rows and not folders and norm:
+            raise FileNotFoundError(spec.path)
+
+        records = [self._query_record_for_row(row_store, row_idx) for row_idx in rows]
+        evaluation = evaluate_browse_records(records, spec)
+        window_rows = tuple(record.payload for record in evaluation.window)
+        return BrowseQueryResult(
+            path=_canonical_query_path(norm),
+            generated_at=self._generated_at,
+            generation_token=_table_query_generation_token(
+                self.browse_cache_signature(),
+                self.browse_generation(),
+            ),
+            request_token=browse_query_request_token(spec),
+            scope_total=len(rows),
+            filtered_total=evaluation.filtered_total,
+            offset=spec.offset,
+            limit=spec.limit,
+            items=tuple(self._materialize_row_item(row_idx) for row_idx in window_rows),
+            folders=folders,
+            metric_keys=tuple(self.metric_keys()),
+            categorical_keys=tuple(self.categorical_keys()),
+        )
 
     def _source_search_covered_by_path(self) -> bool:
         return self._source_kind == "http" and (

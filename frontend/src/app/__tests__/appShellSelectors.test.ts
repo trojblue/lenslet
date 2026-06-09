@@ -74,7 +74,7 @@ function makeDerivedMetricSpec(overrides: Partial<DerivedMetricSpec> = {}): Deri
     id: 'rubric_1',
     name: 'Rubric score',
     intercept: 0,
-    numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid' }],
+    numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: false }],
     categoricalTerms: [],
     ...overrides,
   }

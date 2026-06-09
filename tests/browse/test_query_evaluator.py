@@ -269,6 +269,40 @@ def test_derived_metric_sort_and_filter_run_before_windowing() -> None:
     assert result.window[0].metrics and result.window[0].metrics[key] == 7.0
 
 
+def test_derived_metric_z_normalize_uses_scope_population() -> None:
+    spec = DerivedMetricSpec(
+        id="rubric_1",
+        name="Rubric score",
+        intercept=0.0,
+        numeric_terms=(DerivedMetricNumericTerm("q1", 1.0, "invalid", z_normalize=True),),
+    )
+    key = derived_metric_key(spec)
+    records = (
+        _record("low.jpg", metrics={"q1": 0.0}),
+        _record("mid.jpg", metrics={"q1": 10.0}),
+        _record("high.jpg", metrics={"q1": 20.0}),
+    )
+
+    result = evaluate_browse_records(
+        records,
+        BrowseQuerySpec(
+            path="/gallery",
+            recursive=True,
+            offset=0,
+            limit=2,
+            filters=BrowseFilterAst(and_clauses=(MetricRangeFilter(key, 1.0, 2.0),)),
+            sort=MetricSortSpec(key, "desc"),
+            derived_metric=spec,
+        ),
+        metric_keys=("q1",),
+    )
+
+    assert result.filtered_total == 1
+    assert [record.name for record in result.window] == ["high.jpg"]
+    assert result.window[0].metrics
+    assert math.isclose(result.window[0].metrics[key], math.sqrt(3 / 2))
+
+
 def test_derived_metric_is_not_applied_when_inputs_are_unavailable() -> None:
     spec = DerivedMetricSpec(
         id="rubric_1",

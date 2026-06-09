@@ -58,6 +58,8 @@ export type DerivedMetricInputKeys = {
   categoricalKeys: string[]
 }
 
+type ZStatsByKey = Map<string, { mean: number; std: number }>
+
 export function isDerivedMetricKey(key: string | null | undefined): boolean {
   return typeof key === 'string'
     && key.startsWith(DERIVED_METRIC_PREFIX)
@@ -210,8 +212,9 @@ export function evaluateDerivedMetric({
   let changed = false
   let validCount = 0
   let invalidCount = 0
+  const zStats = buildZStats(items, normalizedSpec.numericTerms)
   const augmentedItems = items.map((item) => {
-    const score = evaluateItemScore(item, normalizedSpec)
+    const score = evaluateItemScore(item, normalizedSpec, zStats)
     if (score == null) {
       invalidCount += 1
       const stripped = withoutReservedDerivedMetricKeys(item.metrics)
@@ -309,13 +312,13 @@ function normalizeNumericTerms(value: unknown): DerivedMetricNumericTerm[] | nul
   const terms: DerivedMetricNumericTerm[] = []
   for (const rawTerm of value) {
     if (!rawTerm || typeof rawTerm !== 'object') return null
-    const term = rawTerm as { key?: unknown; weight?: unknown; missing?: unknown }
+    const term = rawTerm as { key?: unknown; weight?: unknown; missing?: unknown; zNormalize?: unknown }
     const key = normalizeMetricKey(term.key)
     const weight = toFiniteNumber(term.weight)
     if (!key || isDerivedMetricKey(key) || weight == null || !isMissingPolicy(term.missing)) {
       return null
     }
-    terms.push({ key, weight, missing: term.missing })
+    terms.push({ key, weight, missing: term.missing, zNormalize: term.zNormalize === true })
   }
   return terms
 }
@@ -380,13 +383,51 @@ function appendMetricKey(metricKeys: readonly string[], key: string): string[] {
   return [...metricKeys, key]
 }
 
-function evaluateItemScore(item: BrowseItemPayload, spec: DerivedMetricSpec): number | null {
+function buildZStats(items: readonly BrowseItemPayload[], terms: readonly DerivedMetricNumericTerm[]): ZStatsByKey {
+  const zKeys = new Set(terms.filter((term) => term.zNormalize).map((term) => term.key))
+  if (!zKeys.size) return new Map()
+  const sums = new Map<string, number>()
+  const sumsSq = new Map<string, number>()
+  const counts = new Map<string, number>()
+  for (const key of zKeys) {
+    sums.set(key, 0)
+    sumsSq.set(key, 0)
+    counts.set(key, 0)
+  }
+  for (const item of items) {
+    const metrics = item.metrics
+    if (!metrics) continue
+    for (const key of zKeys) {
+      const value = finiteMetricValue(metrics[key])
+      if (value == null) continue
+      sums.set(key, (sums.get(key) ?? 0) + value)
+      sumsSq.set(key, (sumsSq.get(key) ?? 0) + value * value)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+  }
+
+  const stats: ZStatsByKey = new Map()
+  for (const key of zKeys) {
+    const count = counts.get(key) ?? 0
+    if (count <= 0) continue
+    const mean = (sums.get(key) ?? 0) / count
+    const variance = Math.max(0, ((sumsSq.get(key) ?? 0) / count) - (mean * mean))
+    stats.set(key, { mean, std: Math.sqrt(variance) })
+  }
+  return stats
+}
+
+function evaluateItemScore(item: BrowseItemPayload, spec: DerivedMetricSpec, zStats: ZStatsByKey): number | null {
   let score = spec.intercept
   for (const term of spec.numericTerms) {
-    const value = finiteMetricValue(item.metrics?.[term.key])
+    let value = finiteMetricValue(item.metrics?.[term.key])
     if (value == null) {
       if (term.missing === 'invalid') return null
       continue
+    }
+    if (term.zNormalize) {
+      const stats = zStats.get(term.key)
+      value = !stats || stats.std <= 0 ? 0 : (value - stats.mean) / stats.std
     }
     score += value * term.weight
   }

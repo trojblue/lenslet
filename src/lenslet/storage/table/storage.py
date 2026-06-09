@@ -25,7 +25,9 @@ from ...browse.query import (
     BrowseQueryResult,
     BrowseQuerySpec,
     browse_query_request_token,
+    derived_metric_key,
     evaluate_browse_records,
+    normalize_derived_metric_spec,
 )
 from ...media_errors import MediaDecodeError, MediaReadError
 from ...metrics import coerce_finite_metric_value
@@ -1314,7 +1316,12 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             metric_keys=self.metric_keys(),
             categorical_keys=self.categorical_keys(),
         )
-        window_rows = tuple(record.payload for record in evaluation.window)
+        normalized_derived_metric = normalize_derived_metric_spec(spec.derived_metric)
+        metric_keys = list(self.metric_keys())
+        if normalized_derived_metric is not None:
+            key = derived_metric_key(normalized_derived_metric)
+            if key not in metric_keys:
+                metric_keys.append(key)
         return BrowseQueryResult(
             path=_canonical_query_path(norm),
             generated_at=self._generated_at,
@@ -1327,9 +1334,9 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             filtered_total=evaluation.filtered_total,
             offset=spec.offset,
             limit=spec.limit,
-            items=tuple(self._materialize_row_item(row_idx) for row_idx in window_rows),
+            items=tuple(self._materialize_query_record_item(record) for record in evaluation.window),
             folders=folders,
-            metric_keys=tuple(self.metric_keys()),
+            metric_keys=tuple(metric_keys),
             categorical_keys=tuple(self.categorical_keys()),
         )
 
@@ -1354,6 +1361,18 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             row_idx,
             metrics_provider=self._metrics_for_row,
         )
+
+    def _materialize_query_record_item(self, record: BrowseQueryRecord[int]) -> TableRowViewItem:
+        item = self._materialize_row_item(record.payload)
+        if record.metrics is not None:
+            item.metrics = {
+                key: value
+                for key, raw_value in record.metrics.items()
+                if isinstance(key, str)
+                for value in (coerce_finite_metric_value(raw_value),)
+                if value is not None
+            }
+        return item
 
     def _lookup_item(self, norm: str) -> TableRowViewItem | None:
         row_idx = self._require_row_store().row_index_for_path(norm)

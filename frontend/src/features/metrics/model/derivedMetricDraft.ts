@@ -18,6 +18,7 @@ export type DerivedMetricNumericDraftTerm = {
   key: string
   weight: string
   missing: DerivedMetricNumericMissingPolicy
+  zNormalize: boolean
 }
 
 export type DerivedMetricCategoricalDraftTerm = {
@@ -61,6 +62,7 @@ export function createDerivedMetricDraft(
         key: term.key,
         weight: formatDraftNumber(term.weight),
         missing: term.missing,
+        zNormalize: term.zNormalize,
       })),
       categoricalTerms: spec.categoricalTerms.map((term) => ({
         key: term.key,
@@ -75,7 +77,7 @@ export function createDerivedMetricDraft(
     name: DEFAULT_DERIVED_METRIC_NAME,
     intercept: '0',
     numericTerms: metricKeys[0]
-      ? [{ key: metricKeys[0], weight: DEFAULT_WEIGHT, missing: 'invalid' }]
+      ? [{ key: metricKeys[0], weight: DEFAULT_WEIGHT, missing: 'invalid', zNormalize: false }]
       : [],
     categoricalTerms: [],
   }
@@ -86,6 +88,7 @@ export function createNumericDraftTerm(metricKeys: readonly string[]): DerivedMe
     key: metricKeys[0] ?? '',
     weight: DEFAULT_WEIGHT,
     missing: 'invalid',
+    zNormalize: false,
   }
 }
 
@@ -121,7 +124,7 @@ export function buildDerivedMetricSpecFromDraft(draft: DerivedMetricDraft): Deri
       errors.push(`Numeric term ${index + 1} has an invalid missing policy.`)
     }
     if (key && !isDerivedMetricKey(key) && weight != null && (term.missing === 'zero' || term.missing === 'invalid')) {
-      numericTerms.push({ key, weight, missing: term.missing })
+      numericTerms.push({ key, weight, missing: term.missing, zNormalize: term.zNormalize })
     }
   })
 
@@ -166,7 +169,10 @@ export function buildDerivedMetricFormulaPreview(
   for (const term of draft.numericTerms) {
     const key = term.key.trim() || '?'
     const weight = term.weight.trim() || '?'
-    parts.push(`${weight}*${getMetricDisplayName(key, metricDisplayNames)}`)
+    const value = term.zNormalize
+      ? `znorm(${getMetricDisplayName(key, metricDisplayNames)})`
+      : getMetricDisplayName(key, metricDisplayNames)
+    parts.push(`${weight}*${value}`)
   }
   for (const term of draft.categoricalTerms) {
     const key = term.key.trim() || '?'

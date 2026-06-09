@@ -150,7 +150,7 @@ describe('folder api query helpers', () => {
         id: 'rubric_1',
         name: 'Rubric score',
         intercept: 0,
-        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid' }],
+        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: false }],
         categoricalTerms: [{ key: 'dataset_from', value: 'gt', weight: 3 }],
       },
     })
@@ -160,7 +160,7 @@ describe('folder api query helpers', () => {
       id: 'rubric_1',
       name: 'Rubric score',
       intercept: 0,
-      numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid' }],
+      numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: false }],
       categoricalTerms: [{ key: 'dataset_from', value: 'gt', weight: 3 }],
     })
   })
@@ -190,7 +190,7 @@ describe('folder api query helpers', () => {
         id: 'rubric_1',
         name: 'Rubric score',
         intercept: 0,
-        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid' }],
+        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: false }],
         categoricalTerms: [],
       },
     })).not.toBe(key())

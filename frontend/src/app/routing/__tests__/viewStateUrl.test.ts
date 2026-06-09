@@ -16,7 +16,7 @@ function makeDerivedMetric(): DerivedMetricSpec {
     id: 'score_v1',
     name: 'Score v1',
     intercept: 0,
-    numericTerms: [{ key: 'raw_score', weight: 1, missing: 'invalid' }],
+    numericTerms: [{ key: 'raw_score', weight: 1, missing: 'invalid', zNormalize: false }],
     categoricalTerms: [],
   }
 }

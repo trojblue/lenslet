@@ -1,6 +1,7 @@
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Sigma, Trash2 } from 'lucide-react'
 import React, { useEffect, useMemo, useState } from 'react'
 import type {
+  BrowseFacetsPayload,
   BrowseItemPayload,
   DerivedMetricSpec,
   MetricDisplayNames,
@@ -22,12 +23,20 @@ import {
   type DerivedMetricDraft,
   type DerivedMetricNumericDraftTerm,
 } from '../model/derivedMetricDraft'
+import { computeHistogramFromValues, type Histogram } from '../model/histogram'
+import {
+  collectMetricValuesByKey,
+  getMetricValues,
+  metricHistogramFromFacet,
+} from '../model/metricValues'
+import DerivedMetricMiniHistogram from './DerivedMetricMiniHistogram'
 
 interface DerivedScoreCardProps {
   items: BrowseItemPayload[]
   metricKeys: string[]
   categoricalKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
+  facets?: BrowseFacetsPayload | null
   categoricalValuesByKey?: Map<string, string[]>
   derivedMetric: DerivedMetricEvaluation
   rankDisabledReason?: string | null
@@ -40,6 +49,7 @@ export default function DerivedScoreCard({
   metricKeys,
   categoricalKeys,
   metricDisplayNames,
+  facets = null,
   categoricalValuesByKey: categoricalValuesByKeyOverride,
   derivedMetric,
   rankDisabledReason = null,
@@ -72,6 +82,18 @@ export default function DerivedScoreCard({
   const formulaPreview = useMemo(
     () => buildDerivedMetricFormulaPreview(draft, metricDisplayNames),
     [draft, metricDisplayNames],
+  )
+  const numericTermKeys = useMemo(
+    () => uniqueNumericTermKeys(draft.numericTerms),
+    [draft.numericTerms],
+  )
+  const histogramsByMetric = useMemo(
+    () => buildNumericTermHistograms({
+      facets,
+      items,
+      metricKeys: numericTermKeys,
+    }),
+    [facets, items, numericTermKeys],
   )
   const applyDisabledReason = draftBuild.errors[0] ?? null
   const rankReason = draftRankState.disabledReason
@@ -140,8 +162,10 @@ export default function DerivedScoreCard({
           <input
             id="derived-score-intercept"
             data-derived-score-intercept
-            type="number"
-            step="any"
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
             className="ui-input ui-number w-full"
             value={draft.intercept}
             onChange={(event) => setDraft((prev) => ({ ...prev, intercept: event.currentTarget.value }))}
@@ -195,8 +219,10 @@ export default function DerivedScoreCard({
                         value={term.weight}
                         aria-label={`Numeric weight ${index + 1}`}
                         data-derived-numeric-weight={index}
-                        type="number"
-                        step="any"
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        spellCheck={false}
                         onChange={(event) => updateNumericTerm(index, { weight: event.currentTarget.value })}
                       />
                     </label>
@@ -215,19 +241,41 @@ export default function DerivedScoreCard({
                         <option value="zero">Missing = 0</option>
                       </select>
                     </label>
-                    <button
-                      type="button"
-                      className="btn btn-xs btn-ghost h-8 w-8 px-0"
-                      aria-label={`Remove numeric term ${index + 1}`}
-                      title="Remove numeric term"
-                      onClick={() => setDraft((prev) => ({
-                        ...prev,
-                        numericTerms: prev.numericTerms.filter((_term, idx) => idx !== index),
-                      }))}
-                    >
-                      <Trash2 size={12} aria-hidden="true" />
-                    </button>
+                    <div className="ml-auto flex items-center gap-1 self-end">
+                      <button
+                        type="button"
+                        className={`btn btn-xs h-8 px-2 ${term.zNormalize ? 'btn-active' : 'btn-ghost'}`}
+                        aria-label={`Z-normalize numeric term ${index + 1}`}
+                        aria-pressed={term.zNormalize}
+                        title="Z-normalize this metric"
+                        data-derived-numeric-znormalize={index}
+                        onClick={() => updateNumericTerm(index, { zNormalize: !term.zNormalize })}
+                      >
+                        <Sigma size={12} aria-hidden="true" />
+                        <span>Z</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-ghost h-8 w-8 px-0"
+                        aria-label={`Remove numeric term ${index + 1}`}
+                        title="Remove numeric term"
+                        onClick={() => setDraft((prev) => ({
+                          ...prev,
+                          numericTerms: prev.numericTerms.filter((_term, idx) => idx !== index),
+                        }))}
+                      >
+                        <Trash2 size={12} aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
+                  {term.key.trim() && (
+                    <div className="mt-2">
+                      <DerivedMetricMiniHistogram
+                        metricKey={term.key.trim()}
+                        histogram={histogramsByMetric.get(term.key.trim()) ?? null}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -318,8 +366,10 @@ export default function DerivedScoreCard({
                           value={term.weight}
                           aria-label={`Categorical weight ${index + 1}`}
                           data-derived-categorical-weight={index}
-                          type="number"
-                          step="any"
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          spellCheck={false}
                           onChange={(event) => updateCategoricalTerm(index, { weight: event.currentTarget.value })}
                         />
                       </label>
@@ -390,4 +440,43 @@ export default function DerivedScoreCard({
       </div>
     </div>
   )
+}
+
+function uniqueNumericTermKeys(terms: readonly DerivedMetricNumericDraftTerm[]): string[] {
+  const keys = new Set<string>()
+  for (const term of terms) {
+    const key = term.key.trim()
+    if (key) keys.add(key)
+  }
+  return Array.from(keys).sort()
+}
+
+function buildNumericTermHistograms({
+  facets,
+  items,
+  metricKeys,
+}: {
+  facets: BrowseFacetsPayload | null
+  items: BrowseItemPayload[]
+  metricKeys: readonly string[]
+}): Map<string, Histogram | null> {
+  const histograms = new Map<string, Histogram | null>()
+  if (!metricKeys.length) return histograms
+
+  const missingKeys: string[] = []
+  for (const key of metricKeys) {
+    const histogram = metricHistogramFromFacet(facets?.metrics[key]?.histogram)
+    if (histogram) {
+      histograms.set(key, histogram)
+    } else {
+      missingKeys.push(key)
+    }
+  }
+  if (!missingKeys.length) return histograms
+
+  const valuesByKey = collectMetricValuesByKey(items, missingKeys)
+  for (const key of missingKeys) {
+    histograms.set(key, computeHistogramFromValues(getMetricValues(valuesByKey, key), 32))
+  }
+  return histograms
 }

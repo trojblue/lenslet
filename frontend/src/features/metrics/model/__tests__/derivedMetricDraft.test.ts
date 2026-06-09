@@ -33,7 +33,7 @@ describe('derived metric drafts', () => {
     draft.name = 'new_score'
     draft.intercept = '2'
     draft.numericTerms = [
-      { key: 'q1', weight: '0.5', missing: 'zero' },
+      { key: 'q1', weight: '0.5', missing: 'zero', zNormalize: true },
     ]
     draft.categoricalTerms = [
       { key: 'dataset_from', value: 'gt', weight: '3' },
@@ -47,18 +47,18 @@ describe('derived metric drafts', () => {
       id: 'score_v1',
       name: 'new_score',
       intercept: 2,
-      numericTerms: [{ key: 'q1', weight: 0.5, missing: 'zero' }],
+      numericTerms: [{ key: 'q1', weight: 0.5, missing: 'zero', zNormalize: true }],
       categoricalTerms: [{ key: 'dataset_from', value: 'gt', weight: 3 }],
     })
     expect(buildDerivedMetricFormulaPreview(draft, { q1: 'Question 1' })).toBe(
-      'new_score = 2 + 0.5*Question 1 + 3 if dataset_from = gt',
+      'new_score = 2 + 0.5*znorm(Question 1) + 3 if dataset_from = gt',
     )
   })
 
   it('reports missing fields before apply', () => {
     const draft = createDerivedMetricDraft(null, [])
     draft.intercept = ''
-    draft.numericTerms = [{ key: '', weight: '', missing: 'invalid' }]
+    draft.numericTerms = [{ key: '', weight: '', missing: 'invalid', zNormalize: false }]
 
     const build = buildDerivedMetricSpecFromDraft(draft)
 
@@ -70,7 +70,7 @@ describe('derived metric drafts', () => {
 
   it('computes valid and invalid draft counts for rank gating', () => {
     const draft = createDerivedMetricDraft(null, ['q1'])
-    draft.numericTerms = [{ key: 'q1', weight: '1', missing: 'invalid' }]
+    draft.numericTerms = [{ key: 'q1', weight: '1', missing: 'invalid', zNormalize: false }]
     const items = [
       makeItem('/a.jpg', { metrics: { q1: 2 } }),
       makeItem('/b.jpg', { metrics: { q1: null } }),

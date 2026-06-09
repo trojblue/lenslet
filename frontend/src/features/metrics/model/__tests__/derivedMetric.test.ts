@@ -14,8 +14,8 @@ function makeSpec(overrides: Partial<DerivedMetricSpec> = {}): DerivedMetricSpec
     name: 'Rubric score',
     intercept: 1,
     numericTerms: [
-      { key: 'q1', weight: 0.5, missing: 'zero' },
-      { key: 'q2', weight: 2, missing: 'invalid' },
+      { key: 'q1', weight: 0.5, missing: 'zero', zNormalize: false },
+      { key: 'q2', weight: 2, missing: 'invalid', zNormalize: false },
     ],
     categoricalTerms: [
       { key: 'dataset_from', value: 'gt', weight: 5 },
@@ -64,7 +64,7 @@ describe('derived metric normalization', () => {
   it('rejects unsupported numeric missing policies', () => {
     const raw = makeSpec({
       numericTerms: [
-        { key: 'q1', weight: 1, missing: 'zero' },
+        { key: 'q1', weight: 1, missing: 'zero', zNormalize: false },
       ],
     }) as unknown as { numericTerms: Array<Record<string, unknown>> }
     raw.numericTerms[0].missing = 'omit'
@@ -75,7 +75,7 @@ describe('derived metric normalization', () => {
   it('rejects non-finite weights and intercepts', () => {
     expect(normalizeDerivedMetricSpec(makeSpec({ intercept: Number.NaN }))).toBeNull()
     expect(normalizeDerivedMetricSpec(makeSpec({
-      numericTerms: [{ key: 'q1', weight: Number.POSITIVE_INFINITY, missing: 'zero' }],
+      numericTerms: [{ key: 'q1', weight: Number.POSITIVE_INFINITY, missing: 'zero', zNormalize: false }],
     }))).toBeNull()
     expect(normalizeDerivedMetricSpec(makeSpec({
       categoricalTerms: [{ key: 'dataset_from', value: 'gt', weight: Number.NEGATIVE_INFINITY }],
@@ -84,7 +84,7 @@ describe('derived metric normalization', () => {
 
   it('rejects derived metric keys as numeric or categorical inputs', () => {
     expect(normalizeDerivedMetricSpec(makeSpec({
-      numericTerms: [{ key: '@derived/other', weight: 1, missing: 'zero' }],
+      numericTerms: [{ key: '@derived/other', weight: 1, missing: 'zero', zNormalize: false }],
     }))).toBeNull()
     expect(normalizeDerivedMetricSpec(makeSpec({
       categoricalTerms: [{ key: '@derived/other', value: 'gt', weight: 1 }],
@@ -181,7 +181,7 @@ describe('derived metric evaluation', () => {
       metricKeys: ['q1'],
       categoricalKeys: [],
       spec: makeSpec({
-        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid' }],
+        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: false }],
         categoricalTerms: [],
       }),
     })
@@ -191,6 +191,29 @@ describe('derived metric evaluation', () => {
     expect(result.validCount).toBe(0)
     expect(result.invalidCount).toBe(2)
     expect(result.items).toBe(items)
+  })
+
+  it('z-normalizes numeric terms from the evaluated item population', () => {
+    const items = [
+      makeItem('/low.jpg', { metrics: { q1: 0 } }),
+      makeItem('/mid.jpg', { metrics: { q1: 10 } }),
+      makeItem('/high.jpg', { metrics: { q1: 20 } }),
+    ]
+    const result = evaluateDerivedMetric({
+      items,
+      metricKeys: ['q1'],
+      categoricalKeys: [],
+      spec: makeSpec({
+        intercept: 0,
+        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: true }],
+        categoricalTerms: [],
+      }),
+    })
+
+    expect(result.status).toBe('valid')
+    expect(result.items[0].metrics?.['@derived/rubric_1']).toBeCloseTo(-Math.sqrt(3 / 2))
+    expect(result.items[1].metrics?.['@derived/rubric_1']).toBeCloseTo(0)
+    expect(result.items[2].metrics?.['@derived/rubric_1']).toBeCloseTo(Math.sqrt(3 / 2))
   })
 
   it('surfaces missing metric inputs and loaded-window warning metadata', () => {

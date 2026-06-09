@@ -133,6 +133,7 @@ def _query_derived_metric_spec(payload: BrowseQueryDerivedMetricPayload | None) 
                 key=term.key,
                 weight=term.weight,
                 missing=term.missing,
+                z_normalize=term.z_normalize,
             )
             for term in payload.numeric_terms
         ),

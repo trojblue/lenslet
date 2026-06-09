@@ -229,6 +229,7 @@ class BrowseQueryDerivedMetricNumericTermPayload(StrictModel):
     key: str
     weight: float
     missing: DerivedMetricNumericMissingPolicy
+    z_normalize: bool = Field(default=False, alias="zNormalize")
 
     @field_validator("key")
     @classmethod

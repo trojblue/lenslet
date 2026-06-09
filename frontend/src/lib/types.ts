@@ -289,6 +289,7 @@ export type DerivedMetricNumericTerm = {
   key: string
   weight: number
   missing: DerivedMetricNumericMissingPolicy
+  zNormalize: boolean
 }
 
 export type DerivedMetricCategoricalTerm = {

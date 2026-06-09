@@ -37,6 +37,7 @@ export default function DerivedScorePanel({
         metricKeys={metricKeys}
         categoricalKeys={categoricalKeys}
         metricDisplayNames={metricDisplayNames}
+        facets={facets}
         categoricalValuesByKey={categoricalValuesFromFacets(facets, categoricalKeys)}
         derivedMetric={derivedMetric}
         rankDisabledReason={derivedRankDisabledReason}

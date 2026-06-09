@@ -934,7 +934,7 @@ def _fallback_browse_query_result(
         filtered_total=evaluation.filtered_total,
         offset=spec.offset,
         limit=spec.limit,
-        items=tuple(record.payload for record in evaluation.window),
+        items=tuple(_query_payload_with_record_metrics(record) for record in evaluation.window),
         folders=tuple(
             BrowseQueryFolderEntry(name=folder.name, kind=folder.kind)
             for folder in _folder_entries(index)
@@ -952,6 +952,15 @@ def _fallback_browse_query_result(
             recursive=spec.recursive,
         )),
     )
+
+
+def _query_payload_with_record_metrics(
+    record: BrowseQueryRecord[BrowseItemPayload],
+) -> BrowseItemPayload:
+    metrics = normalize_metric_mapping(record.metrics)
+    if metrics == record.payload.metrics:
+        return record.payload
+    return record.payload.model_copy(update={"metrics": metrics})
 
 
 def build_folder_query(

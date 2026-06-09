@@ -96,6 +96,7 @@ class DerivedMetricNumericTerm:
     key: str
     weight: float
     missing: DerivedMetricNumericMissingPolicy
+    z_normalize: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,9 +288,10 @@ def apply_derived_metric_to_records(
         return stripped
 
     key = derived_metric_key(spec)
+    z_stats = _derived_metric_z_stats(stripped, spec)
     out: list[BrowseQueryRecord[T]] = []
     for record in stripped:
-        score = _derived_metric_score(record, spec)
+        score = _derived_metric_score(record, spec, z_stats)
         if score is None:
             out.append(record)
             continue
@@ -340,7 +342,12 @@ def normalize_derived_metric_spec(spec: DerivedMetricSpec | None) -> DerivedMetr
             return None
         if not math.isfinite(term.weight) or term.missing not in {"zero", "invalid"}:
             return None
-        numeric_terms.append(DerivedMetricNumericTerm(key=key, weight=term.weight, missing=term.missing))
+        numeric_terms.append(DerivedMetricNumericTerm(
+            key=key,
+            weight=term.weight,
+            missing=term.missing,
+            z_normalize=term.z_normalize,
+        ))
     categorical_terms: list[DerivedMetricCategoricalTerm] = []
     for term in spec.categorical_terms:
         key = _normalize_text(term.key)
@@ -445,7 +452,42 @@ def _available_categorical_keys(records: list[BrowseQueryRecord[T]]) -> set[str]
     return keys
 
 
-def _derived_metric_score(record: BrowseQueryRecord[object], spec: DerivedMetricSpec) -> float | None:
+def _derived_metric_z_stats(
+    records: list[BrowseQueryRecord[T]],
+    spec: DerivedMetricSpec,
+) -> dict[str, tuple[float, float]]:
+    z_keys = {term.key for term in spec.numeric_terms if term.z_normalize}
+    if not z_keys:
+        return {}
+    sums = {key: 0.0 for key in z_keys}
+    sums_sq = {key: 0.0 for key in z_keys}
+    counts = {key: 0 for key in z_keys}
+    for record in records:
+        metrics = record.metrics or {}
+        for key in z_keys:
+            value = _finite_number(metrics.get(key))
+            if value is None:
+                continue
+            sums[key] += value
+            sums_sq[key] += value * value
+            counts[key] += 1
+
+    stats: dict[str, tuple[float, float]] = {}
+    for key in z_keys:
+        count = counts[key]
+        if count <= 0:
+            continue
+        mean = sums[key] / count
+        variance = max(0.0, (sums_sq[key] / count) - (mean * mean))
+        stats[key] = (mean, math.sqrt(variance))
+    return stats
+
+
+def _derived_metric_score(
+    record: BrowseQueryRecord[object],
+    spec: DerivedMetricSpec,
+    z_stats: Mapping[str, tuple[float, float]],
+) -> float | None:
     score = spec.intercept
     metrics = record.metrics or {}
     for term in spec.numeric_terms:
@@ -454,6 +496,9 @@ def _derived_metric_score(record: BrowseQueryRecord[object], spec: DerivedMetric
             if term.missing == "invalid":
                 return None
             continue
+        if term.z_normalize:
+            mean, std = z_stats.get(term.key, (value, 0.0))
+            value = 0.0 if std <= 0 else (value - mean) / std
         score += value * term.weight
     categoricals = record.categoricals or {}
     for term in spec.categorical_terms:
@@ -809,7 +854,12 @@ def _derived_metric_token(spec: DerivedMetricSpec | None) -> dict[str, object] |
         "name": normalized.name,
         "intercept": normalized.intercept,
         "numericTerms": [
-            {"key": term.key, "weight": term.weight, "missing": term.missing}
+            {
+                "key": term.key,
+                "weight": term.weight,
+                "missing": term.missing,
+                "zNormalize": term.z_normalize,
+            }
             for term in normalized.numeric_terms
         ],
         "categoricalTerms": [

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -131,7 +132,7 @@ def test_browse_query_accepts_derived_metric_for_backend_sort_and_filter(tmp_pat
             "id": "rubric_1",
             "name": "Rubric score",
             "intercept": 0.0,
-            "numericTerms": [{"key": "score", "weight": 1.0, "missing": "invalid"}],
+            "numericTerms": [{"key": "score", "weight": 1.0, "missing": "invalid", "zNormalize": True}],
             "categoricalTerms": [{"key": "source_column", "value": "target", "weight": 10.0}],
         },
     }
@@ -142,6 +143,7 @@ def test_browse_query_accepts_derived_metric_for_backend_sort_and_filter(tmp_pat
     payload = response.json()
     assert payload["filtered_total"] == 2
     assert [item["name"] for item in payload["items"]] == ["img5.jpg"]
+    assert math.isclose(payload["items"][0]["metrics"]["@derived/rubric_1"], 10.0 + (5.0 - 2.5) / math.sqrt(35 / 12))
 
 
 def test_browse_query_rejects_malformed_filter_ast(tmp_path: Path) -> None:

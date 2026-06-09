@@ -1,0 +1,203 @@
+{
+  "base_url": "http://127.0.0.1:56889",
+  "dataset_dir": "/tmp/lenslet-gui-smoke-k9qeeu6h",
+  "server_log": "/tmp/lenslet-gui-smoke-server-zb3qazdv.log",
+  "initial_health": {
+    "ok": true,
+    "mode": "table",
+    "can_write": false,
+    "workspace_id": "c77a4eb028d7de242496ddac",
+    "storage_origin": "preindex",
+    "root": "/tmp/lenslet-gui-smoke-k9qeeu6h",
+    "refresh": {
+      "enabled": false,
+      "note": "preindex refresh disabled (no-write workspace)"
+    },
+    "browse_cache": {
+      "enabled": true,
+      "persisted": true,
+      "path": "/tmp/lenslet-gui-smoke-k9qeeu6h/.lenslet/browse-cache",
+      "max_bytes": 209715200,
+      "pending_warms": 0
+    },
+    "compare_export": {
+      "supported_versions": [
+        2
+      ],
+      "max_paths_v2": 12,
+      "max_paths_v2_gif": 24
+    },
+    "labels": {
+      "enabled": false
+    },
+    "indexing": {
+      "state": "ready",
+      "scope": "/",
+      "done": 2890,
+      "total": 2890,
+      "generation": "1733b21e3a1c72b7ad37ccec5ed5fa23d57ecc7e87092be80eff590d58a7a199|0",
+      "started_at": "2026-06-09T15:27:21.816477+00:00",
+      "finished_at": "2026-06-09T15:27:21.816888+00:00"
+    },
+    "presence": {
+      "view_ttl_seconds": 75.0,
+      "edit_ttl_seconds": 60.0,
+      "prune_interval_seconds": 5.0,
+      "active_clients": 0,
+      "active_scopes": 0,
+      "stale_pruned_total": 0,
+      "invalid_lease_total": 0,
+      "replay_miss_total": 0,
+      "replay_buffer_size": 0,
+      "replay_buffer_capacity": 500,
+      "connected_sse_clients": 0
+    },
+    "hotpath": {
+      "counters": {
+        "s3_client_create_total": 0
+      },
+      "timers_ms": {}
+    }
+  },
+  "final_health": {
+    "ok": true,
+    "mode": "table",
+    "can_write": false,
+    "workspace_id": "c77a4eb028d7de242496ddac",
+    "storage_origin": "preindex",
+    "root": "/tmp/lenslet-gui-smoke-k9qeeu6h",
+    "refresh": {
+      "enabled": false,
+      "note": "preindex refresh disabled (no-write workspace)"
+    },
+    "browse_cache": {
+      "enabled": true,
+      "persisted": true,
+      "path": "/tmp/lenslet-gui-smoke-k9qeeu6h/.lenslet/browse-cache",
+      "max_bytes": 209715200,
+      "pending_warms": 0
+    },
+    "compare_export": {
+      "supported_versions": [
+        2
+      ],
+      "max_paths_v2": 12,
+      "max_paths_v2_gif": 24
+    },
+    "labels": {
+      "enabled": false
+    },
+    "indexing": {
+      "state": "ready",
+      "scope": "/",
+      "done": 2890,
+      "total": 2890,
+      "generation": "1733b21e3a1c72b7ad37ccec5ed5fa23d57ecc7e87092be80eff590d58a7a199|0",
+      "started_at": "2026-06-09T15:27:21.816477+00:00",
+      "finished_at": "2026-06-09T15:27:21.816888+00:00"
+    },
+    "presence": {
+      "view_ttl_seconds": 75.0,
+      "edit_ttl_seconds": 60.0,
+      "prune_interval_seconds": 5.0,
+      "active_clients": 1,
+      "active_scopes": 1,
+      "stale_pruned_total": 0,
+      "invalid_lease_total": 0,
+      "replay_miss_total": 0,
+      "replay_buffer_size": 14,
+      "replay_buffer_capacity": 500,
+      "replay_oldest_event_id": 1,
+      "replay_newest_event_id": 14,
+      "connected_sse_clients": 0
+    },
+    "hotpath": {
+      "counters": {
+        "folders_recursive_requests_total": 8,
+        "folders_recursive_items_total": 18850,
+        "file_prefetch_compare_total": 2,
+        "file_response_local_stream_total": 2,
+        "s3_client_create_total": 0
+      },
+      "timers_ms": {
+        "folders_recursive_traversal_ms": {
+          "count": 8,
+          "total_ms": 0.094,
+          "avg_ms": 0.012
+        }
+      }
+    }
+  },
+  "checks": {
+    "indexing_banner_seen": false,
+    "indexing_lifecycle_proof": true,
+    "sidebar_resize_delta_px": 0.0,
+    "left_collapsed_width_px": 48.0,
+    "left_hotkey_reopen_width_px": 240.0,
+    "right_resized_width_px": 720.0,
+    "center_width_after_right_resize_px": 520.0,
+    "anchor_before": "/alpha/alpha_1593.jpg",
+    "anchor_restored": "/alpha/alpha_1595.jpg",
+    "anchor_settled": "/alpha/alpha_1595.jpg",
+    "anchor_reentry_exact": false,
+    "search_visible_matches": [
+      "alpha_1593.jpg"
+    ],
+    "inspector_default_order": [
+      "metadata",
+      "basics",
+      "notes"
+    ],
+    "inspector_reordered_order": [
+      "basics",
+      "metadata",
+      "notes"
+    ],
+    "inspector_reloaded_order": [
+      "basics",
+      "metadata",
+      "notes"
+    ],
+    "inspector_reorder_persisted": true,
+    "inspector_compare_over_cap_message": "+1 not shown.",
+    "backend_browse_filter": {
+      "scope_total": 1006,
+      "filtered_total": 2,
+      "initial_visible_paths": [
+        "/backend-query/other_0000.jpg",
+        "/backend-query/other_0001.jpg",
+        "/backend-query/other_0002.jpg",
+        "/backend-query/other_0003.jpg",
+        "/backend-query/other_0004.jpg",
+        "/backend-query/other_0005.jpg",
+        "/backend-query/other_0006.jpg",
+        "/backend-query/other_0007.jpg"
+      ],
+      "filtered_visible_paths": [
+        "/backend-query/target_1004.jpg",
+        "/backend-query/target_1005.jpg"
+      ],
+      "toolbar_count_label": "2 / 1,006 items",
+      "server_log": "/tmp/lenslet-backend-filter-smoke-server-c5yywahx.log"
+    },
+    "derived_metric_ranking": {
+      "metric_inputs": [
+        "Metric",
+        "q1",
+        "q2",
+        "q3",
+        "q4",
+        "q5",
+        "q6"
+      ],
+      "unavailable_warning": "Derived score. Derived score sorting is unavailable in backend browse.",
+      "restored_sort_key": "@derived/score_v1",
+      "visible_paths_after_rank": [],
+      "server_log": "/tmp/lenslet-derived-metric-smoke-server-c381yydr.log"
+    }
+  },
+  "warnings": [
+    "Folder re-entry anchor did not restore to the exact pre-switch path in this run."
+  ],
+  "status": "passed"
+}

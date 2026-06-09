@@ -47,11 +47,18 @@ class SmokeResult:
 @dataclass(frozen=True)
 class DerivedMetricSmokeResult:
     metric_inputs: list[str]
-    top_path_after_rank: str
-    top_path_after_reload: str
-    top_path_after_smart_folder_restore: str
-    partial_warning: str
+    unavailable_warning: str
     restored_sort_key: str
+    visible_paths_after_rank: list[str]
+
+
+@dataclass(frozen=True)
+class BackendBrowseFilterSmokeResult:
+    scope_total: int
+    filtered_total: int
+    initial_visible_paths: list[str]
+    filtered_visible_paths: list[str]
+    toolbar_count_label: str
 
 
 @dataclass(frozen=True)
@@ -153,6 +160,20 @@ def wait_for_visible_grid_cell_ids(page: Page, minimum_count: int, timeout_ms: f
         page.wait_for_timeout(120)
     raise SmokeFailure(
         f"Timed out waiting for {minimum_count} visible gallery grid cells. Last visible ids: {latest_ids!r}"
+    )
+
+
+def wait_for_visible_grid_paths(
+    page: Page,
+    minimum_count: int,
+    timeout_ms: float,
+) -> list[str]:
+    wait_for_visible_grid_cell_ids(page, minimum_count=minimum_count, timeout_ms=timeout_ms)
+    paths = visible_grid_paths(page)
+    if len(paths) >= minimum_count:
+        return paths
+    raise SmokeFailure(
+        f"Visible grid ids were available but only {len(paths)} paths decoded: {paths!r}"
     )
 
 
@@ -494,6 +515,128 @@ def metric_input_labels(page: Page) -> list[str]:
     return [value for value in raw if isinstance(value, str)]
 
 
+def wait_for_expected_visible_paths(
+    page: Page,
+    expected_paths: set[str],
+    timeout_ms: float,
+) -> list[str]:
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    latest_paths: list[str] = []
+    while time.monotonic() < deadline:
+        latest_paths = visible_grid_paths(page)
+        if expected_paths.issubset(set(latest_paths)):
+            return latest_paths
+        page.wait_for_timeout(120)
+    raise SmokeFailure(
+        f"Timed out waiting for visible filtered paths {sorted(expected_paths)!r}. "
+        f"Last visible paths={latest_paths!r}."
+    )
+
+
+def wait_for_no_visible_grid_paths(page: Page, timeout_ms: float) -> list[str]:
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    latest_paths: list[str] = []
+    while time.monotonic() < deadline:
+        latest_paths = visible_grid_paths(page)
+        if not latest_paths:
+            return []
+        page.wait_for_timeout(120)
+    raise SmokeFailure(
+        "Derived metric backend-browse fallback left grid cells visible after unsupported sort. "
+        f"Last visible paths={latest_paths!r}."
+    )
+
+
+def wait_for_toolbar_count_label(page: Page, expected_label: str, timeout_ms: float) -> str:
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    latest_label = ""
+    locator = page.locator(".toolbar-count").first
+    while time.monotonic() < deadline:
+        try:
+            latest_label = " ".join(locator.inner_text(timeout=1_000).split())
+            if latest_label == expected_label:
+                return latest_label
+        except PlaywrightTimeoutError:
+            latest_label = ""
+        page.wait_for_timeout(120)
+    raise SmokeFailure(
+        f"Timed out waiting for toolbar count label {expected_label!r}. Last label={latest_label!r}."
+    )
+
+
+def select_option_when_available(page: Page, option_value: str) -> bool:
+    selects = page.locator("select")
+    for idx in range(selects.count()):
+        select = selects.nth(idx)
+        values_raw = select.locator("option").evaluate_all(
+            "nodes => nodes.map((node) => node.getAttribute('value') || '')"
+        )
+        values = [value for value in values_raw if isinstance(value, str)]
+        if option_value in values:
+            select.select_option(option_value)
+            return True
+    return False
+
+
+def run_backend_browse_filter_workflow(
+    page: Page,
+    timeout_ms: float,
+    *,
+    categorical_key: str,
+    categorical_value: str,
+    expected_paths: list[str],
+) -> BackendBrowseFilterSmokeResult:
+    expected_path_set = set(expected_paths)
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    initial_visible_paths = wait_for_visible_grid_paths(page, minimum_count=4, timeout_ms=timeout_ms)
+    leaked_targets = expected_path_set.intersection(initial_visible_paths)
+    if leaked_targets:
+        raise SmokeFailure(
+            "Backend filter fixture target rows were already visible before filtering: "
+            f"{sorted(leaked_targets)!r}."
+        )
+
+    page.get_by_role("button", name="Metrics and Filters").click()
+    select_option_when_available(page, categorical_key)
+    target_button = page.locator(f"button[title='{categorical_value}']").first
+    target_button.wait_for(state="visible", timeout=timeout_ms)
+
+    with page.expect_response(
+        lambda response: response.request.method == "POST" and response.url.endswith("/folders/query"),
+        timeout=timeout_ms,
+    ) as response_info:
+        target_button.click()
+    response = response_info.value
+    if response.status != 200:
+        raise SmokeFailure(f"Filtered browse query returned unexpected status: {response.status}.")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise SmokeFailure("Filtered browse query returned a non-object payload.")
+    scope_total = payload.get("scope_total")
+    filtered_total = payload.get("filtered_total")
+    if not isinstance(scope_total, int) or not isinstance(filtered_total, int):
+        raise SmokeFailure(f"Filtered browse query totals are missing or invalid: {payload!r}.")
+    if filtered_total != len(expected_paths):
+        raise SmokeFailure(
+            f"Filtered browse query returned filtered_total={filtered_total}, "
+            f"expected {len(expected_paths)}."
+        )
+
+    filtered_visible_paths = wait_for_expected_visible_paths(page, expected_path_set, timeout_ms)
+    toolbar_count_label = wait_for_toolbar_count_label(
+        page,
+        f"{filtered_total:,} / {scope_total:,} items",
+        timeout_ms,
+    )
+    return BackendBrowseFilterSmokeResult(
+        scope_total=scope_total,
+        filtered_total=filtered_total,
+        initial_visible_paths=initial_visible_paths[:8],
+        filtered_visible_paths=filtered_visible_paths[:8],
+        toolbar_count_label=toolbar_count_label,
+    )
+
+
 def wait_for_view_state_sort(page: Page, expected_kind: str, expected_key: str | None, timeout_ms: float) -> str:
     payload = page.wait_for_function(
         """([expectedKind, expectedKey]) => {
@@ -519,7 +662,6 @@ def wait_for_view_state_sort(page: Page, expected_kind: str, expected_key: str |
 
 
 def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricSmokeResult:
-    expected_top_path = "/ranked/item_0001.jpg"
     page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
     wait_for_visible_grid_cell_ids(page, minimum_count=8, timeout_ms=timeout_ms)
     switch_to_most_recent_if_available(page, timeout_ms)
@@ -562,40 +704,36 @@ def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricS
         switch_to_most_recent_if_available(page, timeout_ms)
     if rank_button.is_disabled():
         raise SmokeFailure(f"Rank by score is unexpectedly disabled: {rank_button.get_attribute('title')!r}.")
-    rank_button.click()
+    folder_query_requests: list[str] = []
 
-    restored_sort_key = wait_for_view_state_sort(page, "metric", "@derived/score_v1", timeout_ms)
-    top_path_after_rank = wait_for_top_path(page, expected_top_path, timeout_ms)
-    partial_warning_locator = page.get_by_text(re.compile(r"Derived score ranks only the 5000 loaded items out of 5006\.")).first
-    partial_warning_locator.wait_for(state="visible", timeout=timeout_ms)
-    partial_warning = " ".join(partial_warning_locator.inner_text().split())
+    def record_folder_query_request(request: Any) -> None:
+        if request.method == "POST" and request.url.endswith("/folders/query"):
+            folder_query_requests.append(request.url)
 
-    page.get_by_role("button", name="Folders").click()
-    page.once("dialog", lambda dialog: dialog.accept("Derived ranking"))
-    page.locator(".app-left-panel button[title='Save current view as Smart Folder']").dispatch_event("click")
-    page.get_by_role("button", name="Derived ranking").first.wait_for(state="visible", timeout=timeout_ms)
+    page.on("request", record_folder_query_request)
+    try:
+        rank_button.click()
 
-    page.get_by_role("button", name="Metrics and Filters").click()
-    card.locator("[data-derived-score-clear]").click()
-    wait_for_view_state_sort(page, "builtin", "added", timeout_ms)
+        restored_sort_key = wait_for_view_state_sort(page, "metric", "@derived/score_v1", timeout_ms)
+        warning_locator = page.get_by_text("Derived score sorting is unavailable in backend browse.").first
+        warning_locator.wait_for(state="visible", timeout=timeout_ms)
+        unavailable_warning = " ".join(warning_locator.inner_text().split())
+        visible_paths_after_rank = wait_for_no_visible_grid_paths(page, timeout_ms)
+        page.wait_for_timeout(750)
+    finally:
+        page.remove_listener("request", record_folder_query_request)
 
-    page.get_by_role("button", name="Folders").click()
-    page.get_by_role("button", name="Derived ranking").first.click()
-    wait_for_view_state_sort(page, "metric", "@derived/score_v1", timeout_ms)
-    top_path_after_smart_folder_restore = wait_for_top_path(page, expected_top_path, timeout_ms)
-
-    page.reload(wait_until="domcontentloaded")
-    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
-    wait_for_view_state_sort(page, "metric", "@derived/score_v1", timeout_ms)
-    top_path_after_reload = wait_for_top_path(page, expected_top_path, timeout_ms)
+    if folder_query_requests:
+        raise SmokeFailure(
+            "Derived metric backend-browse sort sent a folder-query request instead of failing closed: "
+            f"{folder_query_requests!r}."
+        )
 
     return DerivedMetricSmokeResult(
         metric_inputs=metric_inputs,
-        top_path_after_rank=top_path_after_rank,
-        top_path_after_reload=top_path_after_reload,
-        top_path_after_smart_folder_restore=top_path_after_smart_folder_restore,
-        partial_warning=partial_warning,
+        unavailable_warning=unavailable_warning,
         restored_sort_key=restored_sort_key,
+        visible_paths_after_rank=visible_paths_after_rank,
     )
 
 
@@ -733,6 +871,33 @@ def run_derived_metric_checks(base_url: str, timeout_ms: float) -> DerivedMetric
             page.set_default_timeout(timeout_ms)
             page.goto(base_url, wait_until="domcontentloaded")
             return run_derived_metric_workflow(page, timeout_ms)
+        finally:
+            context.close()
+            browser.close()
+
+
+def run_backend_browse_filter_checks(
+    base_url: str,
+    timeout_ms: float,
+    *,
+    categorical_key: str,
+    categorical_value: str,
+    expected_paths: list[str],
+) -> BackendBrowseFilterSmokeResult:
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        context = browser.new_context(viewport={"width": 1440, "height": 980})
+        try:
+            page = context.new_page()
+            page.set_default_timeout(timeout_ms)
+            page.goto(base_url, wait_until="domcontentloaded")
+            return run_backend_browse_filter_workflow(
+                page,
+                timeout_ms,
+                categorical_key=categorical_key,
+                categorical_value=categorical_value,
+                expected_paths=expected_paths,
+            )
         finally:
             context.close()
             browser.close()

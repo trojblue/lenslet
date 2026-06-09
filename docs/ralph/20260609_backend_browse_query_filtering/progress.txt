@@ -98,3 +98,36 @@ Cleanup and review:
 Blockers: none for Sprint 3. Browser smoke, the real parquet scenario, packaged frontend asset copy, and final acceptance gates remain for Sprint 4.
 
 Next step: start Sprint 4 with S4-T1, adding or updating browser smoke coverage for backend-owned filtered browse before running the real parquet scenario and packaging frontend assets.
+
+## Iteration 4 - 2026-06-09T15:08:27Z
+Completed task IDs: S4-T1, S4-T2, S4-T3.
+
+Files changed:
+- scripts/browser/gui_smoke/acceptance.py
+- scripts/browser/gui_smoke/fixtures.py
+- scripts/browser/gui_smoke/scenarios.py
+- src/lenslet/frontend/index.html
+- src/lenslet/frontend/assets/*
+- docs/20260609_backend_browse_query_plan.md
+- docs/ralph/20260609_backend_browse_query_filtering/iteration4_gui_smoke_acceptance.json
+- docs/ralph/20260609_backend_browse_query_filtering/iteration4_real_parquet_validation.json
+- docs/ralph/20260609_backend_browse_query_filtering/progress.txt
+
+Validations run:
+- python -m py_compile scripts/browser/gui_smoke/acceptance.py scripts/browser/gui_smoke/fixtures.py scripts/browser/gui_smoke/scenarios.py: passed
+- npm test -- --run (from frontend/): passed (469 passed)
+- npm run build (from frontend/): passed
+- rsync -a --delete frontend/dist/ src/lenslet/frontend/: passed; packaged assets regenerated
+- python -m playwright install --with-deps chromium: passed; fixed missing libnspr4.so after the first browser launch failed
+- python -m scripts.browser.gui_smoke.acceptance --output-json docs/ralph/20260609_backend_browse_query_filtering/iteration4_gui_smoke_acceptance.json: passed; backend filter smoke returned filtered_total=2 from scope_total=1006 and visible target paths
+- reported parquet browser validation: passed; source_column=v0603_ema14k_image_url returned filtered_total=3264 from scope_total=16320, toolbar label "3,264 / 16,320 items", and nonzero visible filtered grid paths without scrolling
+- python scripts/lint_repo.py: passed; existing warn-only file-size notices remain for AppShell.tsx, styles.css, large_tree/smoke.py, and table/storage.py
+- git diff --check: passed
+
+Cleanup and review:
+- code-simplifier subagent completed; no edits were made.
+- code-review subagent completed; fixes applied after review: appended this Iteration 4 progress entry, redacted raw real-data paths/URLs from committed evidence, and strengthened the derived-metric fail-closed smoke to listen for delayed folder-query requests.
+
+Blockers: none. Browser acceptance and the real parquet acceptance scenario passed after installing local Playwright Chromium dependencies.
+
+Next step: all planned sprints and acceptance gates are complete.

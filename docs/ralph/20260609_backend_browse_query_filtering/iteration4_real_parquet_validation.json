@@ -1,0 +1,28 @@
+{
+  "status": "passed",
+  "scenario": "reported parquet categorical filter",
+  "parquet": "<reported parquet path redacted; see active plan for command>",
+  "filter": {
+    "key": "source_column",
+    "value": "v0603_ema14k_image_url"
+  },
+  "scope_total": 16320,
+  "filtered_total": 3264,
+  "toolbar_count_label": "3,264 / 16,320 items",
+  "initial_visible_path_count": 10,
+  "filtered_visible_path_count": 10,
+  "visible_path_samples": "<redacted real source URLs>",
+  "health_summary": {
+    "mode": "table",
+    "storage_origin": "parquet",
+    "total_images": 16320,
+    "indexing_state": "ready"
+  },
+  "validation_notes": [
+    "Launched the reported parquet through the Lenslet server with the packaged frontend.",
+    "Opened Metrics and Filters, selected categorical key source_column, and clicked value v0603_ema14k_image_url.",
+    "Observed a successful POST /folders/query response with positive filtered_total.",
+    "Verified the toolbar count and nonzero visible filtered grid paths without scrolling.",
+    "Raw local paths, server logs, cache paths, and source URL samples were redacted from committed evidence."
+  ]
+}

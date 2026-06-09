@@ -9,6 +9,7 @@ interface CategoricalCardProps {
   filters: FilterAST
   onChangeValues: (key: string, values: string[] | null) => void
   showTitle?: boolean
+  showFilteredCounts?: boolean
 }
 
 export default function CategoricalCard({
@@ -17,6 +18,7 @@ export default function CategoricalCard({
   filters,
   onChangeValues,
   showTitle = false,
+  showFilteredCounts = true,
 }: CategoricalCardProps) {
   const activeValues = getCategoricalInFilter(filters, categoricalKey)
   const activeSet = new Set(activeValues)
@@ -49,7 +51,7 @@ export default function CategoricalCard({
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted mb-2 tabular-nums">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span>Population: {populationCount}</span>
-          <span>Filtered: {filteredCount}</span>
+          {showFilteredCounts && <span>Filtered: {filteredCount}</span>}
           {selectedCount > 0 && <span className="text-text">Selected: {selectedCount}</span>}
         </div>
         <span>{buckets.length} value{buckets.length === 1 ? '' : 's'}</span>
@@ -79,7 +81,7 @@ export default function CategoricalCard({
               <span className="flex items-center justify-between gap-2 min-w-0">
                 <span className="truncate">{bucket.value}</span>
                 <span className="shrink-0 text-[11px] text-muted tabular-nums">
-                  {bucket.filteredCount}/{bucket.populationCount}
+                  {showFilteredCounts ? `${bucket.filteredCount}/` : ''}{bucket.populationCount}
                 </span>
               </span>
               {bucket.selectedCount > 0 && (

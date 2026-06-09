@@ -4,9 +4,9 @@ from collections import deque
 
 from fastapi import FastAPI, Query, Request
 
-from ..browse import RECURSIVE_WINDOW_MAX_LIMIT, ToItemFn, build_folder_index, storage_from_request
+from ..browse import RECURSIVE_WINDOW_MAX_LIMIT, ToItemFn, build_folder_facets, build_folder_index, storage_from_request
 from ..context import get_request_context
-from ..models import BrowseFolderPathsPayload, BrowseFolderPayload
+from ..models import BrowseFacetsPayload, BrowseFolderPathsPayload, BrowseFolderPayload
 from ..paths import canonical_path
 from ...storage.base import BrowseStorage
 
@@ -63,3 +63,16 @@ def register_folder_routes(
     def get_folder_paths(request: Request) -> BrowseFolderPathsPayload:
         storage = storage_from_request(request)
         return BrowseFolderPathsPayload(paths=_collect_folder_paths(storage))
+
+    @app.get("/folders/facets", response_model=BrowseFacetsPayload)
+    def get_folder_facets(
+        request: Request,
+        path: str = "/",
+        recursive: bool = True,
+    ) -> BrowseFacetsPayload:
+        storage = storage_from_request(request)
+        return build_folder_facets(
+            storage,
+            canonical_path(path),
+            recursive=recursive,
+        )

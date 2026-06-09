@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import gc
 import hashlib
+import logging
 import os
 import time
 from datetime import datetime, timezone
@@ -14,6 +16,8 @@ from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     import pyarrow as pa
+
+logger = logging.getLogger(__name__)
 
 from ...media_errors import MediaDecodeError, MediaReadError
 from ...metrics import coerce_finite_metric_value
@@ -81,7 +85,7 @@ from .source_detection import (
     score_source_column_values,
     source_column_name_priority,
 )
-from .pyarrow_runtime import require_pyarrow_parquet
+from .pyarrow_runtime import pyarrow_exception_types, require_pyarrow_parquet
 from .row_store import (
     TableRowRemoteDimensionTask,
     TableRowStore,
@@ -95,6 +99,36 @@ from ..search_text import normalize_search_path
 TABLE_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 GC_DISABLE_ROW_THRESHOLD = 100_000
 SOURCE_COLUMN_SAMPLE_SIZE = 100
+
+
+def _histogram_summary(values: list[float], bins: int) -> dict[str, Any] | None:
+    if not values:
+        return None
+    safe_bins = max(1, bins)
+    min_value = min(values)
+    max_value = max(values)
+    if min_value == max_value:
+        max_value = min_value + 1
+    counts = [0] * safe_bins
+    scale = safe_bins / (max_value - min_value)
+    for value in values:
+        idx = max(0, min(safe_bins - 1, int((value - min_value) * scale)))
+        counts[idx] += 1
+    return {
+        "bins": counts,
+        "min": min_value,
+        "max": max_value,
+        "count": len(values),
+    }
+
+
+def _table_field_provider_errors() -> tuple[type[BaseException], ...]:
+    return pyarrow_exception_types() + (
+        IndexError,
+        KeyError,
+        OSError,
+        ValueError,
+    )
 
 
 @contextmanager
@@ -340,6 +374,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         self.loadable_threshold = options.loadable_threshold
         self._skip_dimension_probe = options.skip_dimension_probe
         self._row_field_provider = options.row_field_provider
+        self._row_field_provider_error_logged = False
         self._table_field_columns = tuple(options.table_field_columns)
         self._categorical_columns = tuple(options.categorical_columns)
         self._categorical_row_provider = options.categorical_row_provider
@@ -1402,6 +1437,67 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
     def count_in_scope(self, path: str) -> int:
         return self._require_row_store().count_in_scope(path)
 
+    def facet_summary_for_scope(
+        self,
+        path: str,
+        *,
+        recursive: bool = True,
+        bins: int = 40,
+    ) -> dict[str, Any]:
+        row_store = self._require_row_store()
+        rows = row_store.rows_in_scope(path) if recursive else row_store.direct_rows(path)
+
+        metric_values: dict[str, list[float]] = {key: [] for key in self._metric_keys}
+        categorical_counts: dict[str, Counter[str]] = {
+            key: Counter()
+            for key in self._categorical_columns
+        }
+
+        for row_idx in rows:
+            for key, value in self._metrics_for_row(row_idx).items():
+                metric_values.setdefault(key, []).append(value)
+
+            if self._categorical_row_provider is not None:
+                categoricals = self._extract_categoricals_from_row(
+                    self._categorical_row_provider(row_idx)
+                )
+            else:
+                categoricals = self._categoricals_for_row(row_idx)
+            for key, value in categoricals.items():
+                categorical_counts.setdefault(key, Counter())[value] += 1
+
+        metric_keys = sorted(metric_values)
+        categorical_keys = sorted(categorical_counts)
+        return {
+            "version": 1,
+            "path": "/" + normalize_path(path),
+            "generated_at": self._generated_at,
+            "total_items": len(rows),
+            "metric_keys": metric_keys,
+            "categorical_keys": categorical_keys,
+            "metrics": {
+                key: {
+                    "histogram": _histogram_summary(values, bins),
+                    "categories": [],
+                }
+                for key, values in metric_values.items()
+                if values
+            },
+            "categoricals": {
+                key: {
+                    "values": [
+                        {"value": value, "population_count": count}
+                        for value, count in sorted(
+                            counts.items(),
+                            key=lambda item: (-item[1], item[0]),
+                        )
+                    ]
+                }
+                for key, counts in categorical_counts.items()
+                if counts
+            },
+        }
+
     def categorical_keys(self) -> list[str]:
         return list(self._categorical_columns)
 
@@ -1456,9 +1552,18 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         if self._row_field_provider is None:
             table_fields = extract_row_display_fields(self._index_context, row_idx)
         else:
-            table_fields = self._extract_table_fields_from_row(
-                self._row_field_provider(row_idx)
-            )
+            try:
+                row_values = self._row_field_provider(row_idx)
+            except _table_field_provider_errors() as exc:
+                if not self._row_field_provider_error_logged:
+                    self._row_field_provider_error_logged = True
+                    logger.warning(
+                        "table field enrichment skipped after row provider failure for %s: %s",
+                        path,
+                        exc,
+                    )
+                return {}
+            table_fields = self._extract_table_fields_from_row(row_values)
         if not table_fields:
             return {}
         return {"table_fields": table_fields}

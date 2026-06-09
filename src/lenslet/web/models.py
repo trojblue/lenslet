@@ -49,6 +49,44 @@ class BrowseFolderPayload(BaseModel):
     limit: int | None = None
 
 
+class MetricHistogramFacetPayload(BaseModel):
+    bins: list[int] = Field(default_factory=list)
+    min: float
+    max: float
+    count: int
+
+
+class MetricCategoryFacetPayload(BaseModel):
+    code: float
+    label: str
+    population_count: int
+
+
+class MetricFacetPayload(BaseModel):
+    histogram: MetricHistogramFacetPayload | None = None
+    categories: list[MetricCategoryFacetPayload] = Field(default_factory=list)
+
+
+class CategoricalValueFacetPayload(BaseModel):
+    value: str
+    population_count: int
+
+
+class CategoricalFacetPayload(BaseModel):
+    values: list[CategoricalValueFacetPayload] = Field(default_factory=list)
+
+
+class BrowseFacetsPayload(BaseModel):
+    version: int = 1
+    path: str
+    generated_at: str
+    total_items: int
+    metric_keys: list[str] = Field(default_factory=list)
+    categorical_keys: list[str] = Field(default_factory=list)
+    metrics: dict[str, MetricFacetPayload] = Field(default_factory=dict)
+    categoricals: dict[str, CategoricalFacetPayload] = Field(default_factory=dict)
+
+
 class BrowseFolderPathsPayload(BaseModel):
     paths: list[str] = Field(default_factory=list)
 

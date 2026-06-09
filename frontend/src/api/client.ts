@@ -9,6 +9,7 @@ import {
 } from './requestBudget'
 import type {
   BrowseFolderPayload,
+  BrowseFacetsPayload,
   BrowseFolderPathsPayload,
   Sidecar,
   SidecarPatch,
@@ -475,6 +476,13 @@ export const api = {
         apiUrl(`/folders?${buildFolderQuery(path, { recursive: true, countOnly: true })}`),
       ),
     ).promise.then(folderPayloadCount)
+  },
+
+  getFolderFacets: (path: string, options?: Pick<GetFolderOptions, 'recursive'>): Promise<BrowseFacetsPayload> => {
+    const facetOptions = { recursive: options?.recursive ?? true }
+    return runWithRequestBudget('folders', () =>
+      fetchJSON<BrowseFacetsPayload>(apiUrl(`/folders/facets?${buildFolderQuery(path, facetOptions)}`)),
+    ).promise
   },
 
   getFolderPaths: (): Promise<BrowseFolderPathsPayload> => {

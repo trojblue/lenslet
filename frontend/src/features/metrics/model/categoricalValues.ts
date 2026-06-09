@@ -1,4 +1,4 @@
-import type { BrowseItemPayload } from '../../../lib/types'
+import type { BrowseFacetsPayload, BrowseItemPayload } from '../../../lib/types'
 
 export type CategoricalBucket = {
   value: string
@@ -23,6 +23,39 @@ export function collectCategoricalBucketsByKey(
     addCategoricalCounts(byValue, key, populationItems, 'populationCount')
     if (!byValue.size) continue
     addCategoricalCounts(byValue, key, filteredItems, 'filteredCount')
+    if (selectedItems?.length) {
+      addCategoricalCounts(byValue, key, selectedItems, 'selectedCount')
+    }
+    bucketsByKey.set(key, Array.from(byValue.values()).sort(compareBuckets))
+  }
+  return bucketsByKey
+}
+
+export function collectCategoricalBucketsFromFacets(
+  facets: BrowseFacetsPayload,
+  filteredItems: BrowseItemPayload[],
+  selectedItems: BrowseItemPayload[] | undefined,
+  categoricalKeys: readonly string[],
+  includeFilteredCounts: boolean,
+): CategoricalBucketsByKey {
+  const bucketsByKey: CategoricalBucketsByKey = new Map()
+  for (const key of categoricalKeys) {
+    const facet = facets.categoricals[key]
+    if (!facet?.values.length) continue
+    const byValue = new Map<string, CategoricalBucket>()
+    for (const valueFacet of facet.values) {
+      const value = valueFacet.value.trim()
+      if (!value) continue
+      byValue.set(value, {
+        value,
+        populationCount: valueFacet.population_count,
+        filteredCount: 0,
+        selectedCount: 0,
+      })
+    }
+    if (includeFilteredCounts) {
+      addCategoricalCounts(byValue, key, filteredItems, 'filteredCount')
+    }
     if (selectedItems?.length) {
       addCategoricalCounts(byValue, key, selectedItems, 'selectedCount')
     }

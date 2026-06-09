@@ -11,6 +11,7 @@ interface MetricCategoryCardProps {
   filters: FilterAST
   onChangeRange: (key: string, range: Range | null) => void
   showTitle?: boolean
+  showFilteredCounts?: boolean
 }
 
 export default function MetricCategoryCard({
@@ -20,6 +21,7 @@ export default function MetricCategoryCard({
   filters,
   onChangeRange,
   showTitle = false,
+  showFilteredCounts = true,
 }: MetricCategoryCardProps) {
   const activeRange = getMetricRangeFilter(filters, metricKey)
   const activeCategories = activeRange
@@ -46,7 +48,7 @@ export default function MetricCategoryCard({
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted mb-2 tabular-nums">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span>Population: {populationCount}</span>
-          <span>Filtered: {filteredCount}</span>
+          {showFilteredCounts && <span>Filtered: {filteredCount}</span>}
           {selectedCount > 0 && <span className="text-text">Selected: {selectedCount}</span>}
         </div>
         <span>{categories.length} class{categories.length === 1 ? '' : 'es'}</span>
@@ -77,7 +79,7 @@ export default function MetricCategoryCard({
               <span className="flex items-center justify-between gap-2 min-w-0">
                 <span className="truncate">{category.label}</span>
                 <span className="shrink-0 text-[11px] text-muted tabular-nums">
-                  {category.filteredCount}/{category.populationCount}
+                  {showFilteredCounts ? `${category.filteredCount}/` : ''}{category.populationCount}
                 </span>
               </span>
               {category.selectedCount > 0 && (

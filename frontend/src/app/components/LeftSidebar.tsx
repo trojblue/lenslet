@@ -5,6 +5,7 @@ import type {
   CompareOrderMode,
   DerivedMetricSpec,
   FilterAST,
+  BrowseFacetsPayload,
   BrowseFolderPayload,
   BrowseItemPayload,
   MetricDisplayNames,
@@ -38,6 +39,8 @@ type LeftSidebarProps = {
   metricKeys: string[]
   categoricalKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
+  metricsFacets?: BrowseFacetsPayload | null
+  metricsItemPopulationComplete?: boolean
   derivedMetric: DerivedMetricEvaluation
   derivedRankDisabledReason?: string | null
   selectedItems?: BrowseItemPayload[]
@@ -93,6 +96,8 @@ export default function LeftSidebar({
   metricKeys,
   categoricalKeys,
   metricDisplayNames,
+  metricsFacets,
+  metricsItemPopulationComplete,
   derivedMetric,
   derivedRankDisabledReason,
   selectedItems,
@@ -247,6 +252,8 @@ export default function LeftSidebar({
                 metricKeys={metricKeys}
                 categoricalKeys={categoricalKeys}
                 metricDisplayNames={metricDisplayNames}
+                facets={metricsFacets}
+                itemPopulationComplete={metricsItemPopulationComplete}
                 derivedMetric={derivedMetric}
                 derivedRankDisabledReason={derivedRankDisabledReason}
                 selectedItems={selectedItems}

@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pyarrow as pa
@@ -14,7 +15,7 @@ from lenslet.server import (
     create_app_from_table,
 )
 from lenslet.storage.table import TableStorage, TableStorageOptions
-from lenslet.storage.table.launch import TableLaunchRequest, prepare_table_launch
+from lenslet.storage.table.launch import ParquetRowFieldProvider, TableLaunchRequest, prepare_table_launch
 from lenslet.storage.table.launch_sources import detect_source_column
 from lenslet.web.context import get_app_context
 
@@ -152,6 +153,62 @@ def test_parquet_string_q_columns_remain_visible_table_fields(tmp_path: Path):
     assert item_payload["table_fields"] == {"q1": "0.75"}
 
 
+def test_item_route_skips_optional_table_fields_when_row_provider_fails(tmp_path: Path, caplog):
+    root = tmp_path
+    img = root / "a.jpg"
+    _make_image(img)
+
+    def row_provider(_row_idx: int) -> dict:
+        raise OSError("Unexpected end of stream")
+
+    storage = TableStorage(
+        [
+            {
+                "source": str(img),
+                "path": "a.jpg",
+            }
+        ],
+        options=TableStorageOptions(
+            skip_dimension_probe=True,
+            row_field_provider=row_provider,
+            table_field_columns=("label",),
+        ),
+    )
+    client = TestClient(create_app_from_storage(storage))
+
+    with caplog.at_level(logging.WARNING, logger="lenslet.storage.table.storage"):
+        response = client.get("/item", params={"path": "/a.jpg"})
+
+    assert response.status_code == 200
+    assert response.json()["table_fields"] is None
+    assert "table field enrichment skipped after row provider failure" in caplog.text
+
+
+def test_parquet_row_field_provider_memoizes_failed_optional_row_group(tmp_path: Path, caplog):
+    parquet_path = tmp_path / "items.parquet"
+    _write_parquet(parquet_path, {"path": ["a.jpg"], "label": ["kept"]})
+    provider = ParquetRowFieldProvider(parquet_path, ("label",))
+
+    class _FailingParquetFile:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def read_row_group(self, _row_group: int, *, columns: list[str]):
+            _ = columns
+            self.calls += 1
+            raise OSError("Unexpected end of stream")
+
+    failing = _FailingParquetFile()
+    provider._parquet_file = failing
+
+    with caplog.at_level(logging.WARNING, logger="lenslet.storage.table.launch"):
+        assert provider(0) == {}
+        assert provider(0) == {}
+
+    assert failing.calls == 1
+    assert "table field enrichment skipped for parquet row group 0" in caplog.text
+
+
 def test_parquet_metric_keys_include_schema_backed_q_columns_for_null_only_folder(tmp_path: Path):
     root = tmp_path
     null_img = root / "nulls" / "a.jpg"
@@ -232,6 +289,31 @@ def test_parquet_folder_payload_exposes_low_cardinality_string_categoricals(tmp_
 
     item_payload = client.get("/item", params={"path": "/a.jpg"}).json()
     assert item_payload["table_fields"] == {"l0p_style_family": "anime"}
+
+
+def test_parquet_facets_include_categorical_values_outside_first_page(tmp_path: Path):
+    root = tmp_path
+    for name in ("a.jpg", "b.jpg", "c.jpg", "d.jpg"):
+        _make_image(root / name)
+
+    _write_parquet(root / "items.parquet", {
+        "path": ["a.jpg", "b.jpg", "c.jpg", "d.jpg"],
+        "original_source": ["ptv03", "gt", "synthetic", "rapidata"],
+        "quality_score": [0.1, 0.2, 0.7, 0.9],
+    })
+
+    client = TestClient(create_app(str(root)))
+
+    page = client.get(
+        "/folders",
+        params={"path": "/", "recursive": "1", "offset": "0", "limit": "2"},
+    ).json()
+    assert [item["categoricals"]["original_source"] for item in page["items"]] == ["ptv03", "gt"]
+
+    facets = client.get("/folders/facets", params={"path": "/", "recursive": "1"}).json()
+    values = facets["categoricals"]["original_source"]["values"]
+    assert {entry["value"] for entry in values} == {"ptv03", "gt", "synthetic", "rapidata"}
+    assert facets["metrics"]["quality_score"]["histogram"]["count"] == 4
 
 
 def test_table_app_payload_infers_low_cardinality_string_categoricals():

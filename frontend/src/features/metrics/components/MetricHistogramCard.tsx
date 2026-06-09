@@ -21,10 +21,12 @@ export interface MetricHistogramCardProps {
   metricLabel?: string
   populationValues: number[]
   filteredValues: number[]
+  populationHistogram?: ReturnType<typeof computeHistogramFromValues>
   selectedValues?: number[]
   filters: FilterAST
   onChangeRange: (key: string, range: Range | null) => void
   showTitle?: boolean
+  showFilteredCounts?: boolean
 }
 
 const BIN_COUNT = 40
@@ -34,17 +36,19 @@ export default function MetricHistogramCard({
   metricLabel,
   populationValues,
   filteredValues,
+  populationHistogram,
   selectedValues = [],
   filters,
   onChangeRange,
   showTitle = false,
+  showFilteredCounts = true,
 }: MetricHistogramCardProps) {
   const population = useMemo(() => (
-    computeHistogramFromValues(populationValues, BIN_COUNT)
-  ), [populationValues])
+    populationHistogram ?? computeHistogramFromValues(populationValues, BIN_COUNT)
+  ), [populationHistogram, populationValues])
   const filtered = useMemo(() => (
-    population ? computeHistogramFromValues(filteredValues, BIN_COUNT, population) : null
-  ), [filteredValues, population])
+    showFilteredCounts && population ? computeHistogramFromValues(filteredValues, BIN_COUNT, population) : null
+  ), [filteredValues, population, showFilteredCounts])
 
   const activeRange = getMetricRangeFilter(filters, metricKey)
   const domain = population ? { min: population.min, max: population.max } : null
@@ -137,7 +141,7 @@ export default function MetricHistogramCard({
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted mb-2 tabular-nums">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span>Population: {population.count}</span>
-          <span>Filtered: {filtered?.count ?? 0}</span>
+          {showFilteredCounts && <span>Filtered: {filtered?.count ?? 0}</span>}
           {selectedCount > 1 && <span className="text-text">Selected: {selectedCount}</span>}
         </div>
         {selectedValue != null && (
@@ -155,7 +159,7 @@ export default function MetricHistogramCard({
         onPointerLeave={onPointerLeave}
       >
         {renderBars(population.bins, '#2e3a4b')}
-        {filtered && renderBars(filtered.bins, '#3a8fff')}
+        {showFilteredCounts && filtered && renderBars(filtered.bins, '#3a8fff')}
         {selectedHistogram && renderBars(selectedHistogram.bins, '#f59e0b', { opacity: 0.55 })}
         {displayRange && renderRange(displayRange, domain)}
         {selectedValue != null && renderValueMarker(selectedValue, domain, {

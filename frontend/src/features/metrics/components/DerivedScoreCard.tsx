@@ -28,6 +28,7 @@ interface DerivedScoreCardProps {
   metricKeys: string[]
   categoricalKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
+  categoricalValuesByKey?: Map<string, string[]>
   derivedMetric: DerivedMetricEvaluation
   rankDisabledReason?: string | null
   onApplyDerivedMetric: (spec: DerivedMetricSpec | null) => void
@@ -39,6 +40,7 @@ export default function DerivedScoreCard({
   metricKeys,
   categoricalKeys,
   metricDisplayNames,
+  categoricalValuesByKey: categoricalValuesByKeyOverride,
   derivedMetric,
   rankDisabledReason = null,
   onApplyDerivedMetric,
@@ -49,8 +51,8 @@ export default function DerivedScoreCard({
     [metricKeys],
   )
   const categoricalValuesByKey = useMemo(
-    () => collectCategoricalValuesByKey(items, categoricalKeys),
-    [items, categoricalKeys],
+    () => categoricalValuesByKeyOverride ?? collectCategoricalValuesByKey(items, categoricalKeys),
+    [categoricalKeys, categoricalValuesByKeyOverride, items],
   )
   const [draft, setDraft] = useState<DerivedMetricDraft>(() => (
     createDerivedMetricDraft(derivedMetric.spec, sourceMetricKeys)

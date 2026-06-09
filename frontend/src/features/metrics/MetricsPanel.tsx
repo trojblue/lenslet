@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-import type { FilterAST, BrowseItemPayload, DerivedMetricSpec, MetricDisplayNames } from '../../lib/types'
+import type { FilterAST, BrowseFacetsPayload, BrowseItemPayload, DerivedMetricSpec, MetricDisplayNames } from '../../lib/types'
 import AttributesPanel from './components/AttributesPanel'
 import CategoricalPanel from './components/CategoricalPanel'
 import DerivedScoreCard from './components/DerivedScoreCard'
@@ -18,6 +18,8 @@ interface MetricsPanelProps {
   metricKeys: string[]
   categoricalKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
+  facets?: BrowseFacetsPayload | null
+  itemPopulationComplete?: boolean
   derivedMetric: DerivedMetricEvaluation
   derivedRankDisabledReason?: string | null
   selectedItems?: BrowseItemPayload[]
@@ -47,6 +49,8 @@ export default function MetricsPanel({
   metricKeys,
   categoricalKeys,
   metricDisplayNames,
+  facets = null,
+  itemPopulationComplete = true,
   derivedMetric,
   derivedRankDisabledReason,
   selectedItems,
@@ -79,11 +83,17 @@ export default function MetricsPanel({
       onChangeFilters={onChangeFilters}
     />
   )
+  const categoricalValuesByKey = useMemo(
+    () => categoricalValuesFromFacets(facets, categoricalKeys),
+    [categoricalKeys, facets],
+  )
   const categoricalPanel = (
     <CategoricalPanel
       items={items}
       filteredItems={filteredItems}
       categoricalKeys={categoricalKeys}
+      facets={facets}
+      itemPopulationComplete={itemPopulationComplete}
       selectedItems={selectedItems}
       filters={filters}
       onChangeValues={onChangeCategoricalValues}
@@ -99,6 +109,7 @@ export default function MetricsPanel({
           metricKeys={metricKeys}
           categoricalKeys={categoricalKeys}
           metricDisplayNames={metricDisplayNames}
+          categoricalValuesByKey={categoricalValuesByKey}
           derivedMetric={derivedMetric}
           rankDisabledReason={derivedRankDisabledReason}
           onApplyDerivedMetric={onApplyDerivedMetric}
@@ -120,6 +131,7 @@ export default function MetricsPanel({
         metricKeys={metricKeys}
         categoricalKeys={categoricalKeys}
         metricDisplayNames={metricDisplayNames}
+        categoricalValuesByKey={categoricalValuesByKey}
         derivedMetric={derivedMetric}
         rankDisabledReason={derivedRankDisabledReason}
         onApplyDerivedMetric={onApplyDerivedMetric}
@@ -131,6 +143,8 @@ export default function MetricsPanel({
           filteredItems={filteredItems}
           metricKeys={metricKeys}
           metricDisplayNames={metricDisplayNames}
+          facets={facets}
+          itemPopulationComplete={itemPopulationComplete}
           selectedItems={selectedItems}
           selectedValuesByKey={selectedValuesByKey}
           selectedMetric={selectedMetric}
@@ -143,6 +157,17 @@ export default function MetricsPanel({
       {attributesPanel}
     </div>
   )
+}
+
+function categoricalValuesFromFacets(
+  facets: BrowseFacetsPayload | null,
+  categoricalKeys: readonly string[],
+): Map<string, string[]> | undefined {
+  if (!facets) return undefined
+  return new Map(categoricalKeys.map((key) => [
+    key,
+    (facets.categoricals[key]?.values ?? []).map((entry) => entry.value),
+  ]))
 }
 
 function SelectedMetricsPanel({

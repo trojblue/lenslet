@@ -38,6 +38,44 @@ export type BrowseFolderPayload = {
   limit?: number | null
 }
 
+export type MetricHistogramFacet = {
+  bins: number[]
+  min: number
+  max: number
+  count: number
+}
+
+export type MetricCategoryFacet = {
+  code: number
+  label: string
+  population_count: number
+}
+
+export type MetricFacet = {
+  histogram?: MetricHistogramFacet | null
+  categories: MetricCategoryFacet[]
+}
+
+export type CategoricalValueFacet = {
+  value: string
+  population_count: number
+}
+
+export type CategoricalFacet = {
+  values: CategoricalValueFacet[]
+}
+
+export type BrowseFacetsPayload = {
+  version: 1
+  path: string
+  generated_at: string
+  total_items: number
+  metric_keys: string[]
+  categorical_keys: string[]
+  metrics: Record<string, MetricFacet>
+  categoricals: Record<string, CategoricalFacet>
+}
+
 export type BrowseFolderPathsPayload = {
   paths: string[]
 }

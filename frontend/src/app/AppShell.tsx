@@ -16,6 +16,7 @@ import SimilarityModal from '../features/embeddings/SimilarityModal'
 import Viewer from '../features/viewer/Viewer'
 import { api } from '../api/client'
 import type { FullFilePrefetchContext } from '../api/client'
+import { useFolderFacets } from '../api/folders'
 import { useOldestInflightAgeMs, useSyncStatus } from '../api/items'
 import { usePollingEnabled } from '../api/polling'
 import { writeHash } from './routing/hash'
@@ -492,6 +493,19 @@ export default function AppShell({
   })
   const metricsBaseItems = selectionPool
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
+  const metricsFacetsQuery = useFolderFacets(current, {
+    recursive: true,
+    enabled: leftOpen && leftTool === 'metrics' && !similarityState && !searching,
+  })
+  const metricsFacets = metricsFacetsQuery.data?.path === (data?.path ?? current)
+    ? metricsFacetsQuery.data
+    : null
+  const metricsItemPopulationComplete = (
+    similarityState !== null
+    || searching
+    || typeof data?.total_items !== 'number'
+    || metricsBaseItems.length >= data.total_items
+  )
   const hasMetricScrollbar = useMemo(
     () => hasMetricSortValues(items, metricSortKey),
     [items, metricSortKey],
@@ -658,7 +672,6 @@ export default function AppShell({
     itemCount: items.length,
     isLoading,
   })
-
   const updateFilters = useCallback((updater: (filters: FilterAST) => FilterAST) => {
     setViewState((prev) => ({
       ...prev,
@@ -1057,6 +1070,8 @@ export default function AppShell({
             metricKeys={metricKeys}
             categoricalKeys={categoricalKeys}
             metricDisplayNames={metricDisplayNames}
+            metricsFacets={metricsFacets}
+            metricsItemPopulationComplete={metricsItemPopulationComplete}
             derivedMetric={derivedMetric}
             derivedRankDisabledReason={derivedRankDisabledReason}
             selectedItems={selectedItems}

@@ -59,8 +59,50 @@ describe('folder api query helpers', () => {
     expect(url.searchParams.get('count_only')).toBe('1')
   })
 
+  it('fetches folder facets from the dedicated endpoint', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          version: 1,
+          path: '/shots',
+          generated_at: 'test',
+          total_items: 2,
+          metric_keys: [],
+          categorical_keys: ['original_source'],
+          metrics: {},
+          categoricals: {
+            original_source: {
+              values: [{ value: 'gt', population_count: 2 }],
+            },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    await expect(api.getFolderFacets('/shots')).resolves.toMatchObject({
+      path: '/shots',
+      categoricals: {
+        original_source: {
+          values: [{ value: 'gt', population_count: 2 }],
+        },
+      },
+    })
+    const url = new URL(String(fetchSpy.mock.calls[0][0]), 'http://localhost')
+    expect(url.pathname).toBe('/folders/facets')
+    expect(url.searchParams.get('path')).toBe('/shots')
+    expect(url.searchParams.get('recursive')).toBe('1')
+  })
+
   it('separates recursive cache keys from non-recursive', () => {
-    expect(folderQueryKey('/shots', { recursive: true })).toEqual(['folder', '/shots', 'recursive'])
+    expect(folderQueryKey('/shots', { recursive: true })).toEqual([
+      'folder',
+      '/shots',
+      'recursive',
+      0,
+      null,
+      'items',
+    ])
     expect(folderQueryKey('/shots', { recursive: false })).toEqual(['folder', '/shots'])
   })
 
@@ -70,7 +112,14 @@ describe('folder api query helpers', () => {
       enabled: false,
     } satisfies UseFolderOptions
 
-    expect(folderQueryKey('/shots', options)).toEqual(['folder', '/shots', 'recursive'])
+    expect(folderQueryKey('/shots', options)).toEqual([
+      'folder',
+      '/shots',
+      'recursive',
+      0,
+      null,
+      'items',
+    ])
   })
 
   it('retains only current/root recursive queries', () => {

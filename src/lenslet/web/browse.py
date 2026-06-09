@@ -29,7 +29,13 @@ from .models import (
     BrowseFolderPayload,
     BrowseItemPayload,
     BrowseSearchResultsPayload,
+    BrowseFacetsPayload,
+    CategoricalFacetPayload,
+    CategoricalValueFacetPayload,
     ImageMetadataResponse,
+    MetricFacetPayload,
+    MetricHistogramFacetPayload,
+    MetricCategoryFacetPayload,
     Sidecar,
 )
 from .paths import canonical_path
@@ -241,6 +247,125 @@ def _categorical_keys_for_folder(
             return _categorical_keys_from_cached_items(snapshots)
         return _categorical_keys_from_cached_items(storage.items_in_scope(canonical_path))
     return _categorical_keys_from_cached_items(getattr(index, "items", []) or [])
+
+
+FACET_HISTOGRAM_BINS = 40
+
+
+def _histogram_payload(values: list[float], bins: int = FACET_HISTOGRAM_BINS) -> MetricHistogramFacetPayload | None:
+    if not values:
+        return None
+    safe_bins = max(1, bins)
+    min_value = min(values)
+    max_value = max(values)
+    if min_value == max_value:
+        max_value = min_value + 1
+    counts = [0] * safe_bins
+    scale = safe_bins / (max_value - min_value)
+    for value in values:
+        idx = max(0, min(safe_bins - 1, int((value - min_value) * scale)))
+        counts[idx] += 1
+    return MetricHistogramFacetPayload(
+        bins=counts,
+        min=min_value,
+        max=max_value,
+        count=len(values),
+    )
+
+
+def _facets_from_items(
+    storage: BrowseStorage,
+    canonical: str,
+    index: Any,
+    *,
+    recursive: bool,
+) -> BrowseFacetsPayload:
+    raw_items = (
+        storage.items_in_scope(canonical)
+        if recursive
+        else list(getattr(index, "items", []) or [])
+    )
+    metric_values: dict[str, list[float]] = {}
+    metric_categories: dict[str, dict[tuple[float, str], int]] = {}
+    categorical_counts: dict[str, dict[str, int]] = {}
+
+    for item in raw_items:
+        metrics = normalize_metric_mapping(getattr(item, "metrics", None))
+        metric_labels = getattr(item, "metric_labels", None)
+        if isinstance(metrics, dict):
+            for key, value in metrics.items():
+                metric_values.setdefault(key, []).append(value)
+                label = metric_labels.get(key) if isinstance(metric_labels, dict) else None
+                if label:
+                    category_key = (value, str(label))
+                    categories = metric_categories.setdefault(key, {})
+                    categories[category_key] = categories.get(category_key, 0) + 1
+        categoricals = categoricals_for_cached_item(storage, item)
+        if isinstance(categoricals, dict):
+            for key, raw_value in categoricals.items():
+                value = str(raw_value).strip()
+                if not value:
+                    continue
+                counts = categorical_counts.setdefault(key, {})
+                counts[value] = counts.get(value, 0) + 1
+
+    metric_keys = sorted(set(_metric_keys_for_folder(storage, canonical, index, recursive=recursive)) | set(metric_values))
+    categorical_keys = sorted(
+        set(_categorical_keys_for_folder(storage, canonical, index, recursive=recursive))
+        | set(categorical_counts)
+    )
+    return BrowseFacetsPayload(
+        path=canonical,
+        generated_at=index.generated_at,
+        total_items=len(raw_items),
+        metric_keys=metric_keys,
+        categorical_keys=categorical_keys,
+        metrics={
+            key: MetricFacetPayload(
+                histogram=_histogram_payload(values),
+                categories=[
+                    MetricCategoryFacetPayload(
+                        code=code,
+                        label=label,
+                        population_count=count,
+                    )
+                    for (code, label), count in sorted(
+                        metric_categories.get(key, {}).items(),
+                        key=lambda item: (item[0][0], item[0][1]),
+                    )
+                ],
+            )
+            for key, values in metric_values.items()
+        },
+        categoricals={
+            key: CategoricalFacetPayload(
+                values=[
+                    CategoricalValueFacetPayload(value=value, population_count=count)
+                    for value, count in sorted(
+                        counts.items(),
+                        key=lambda item: (-item[1], item[0]),
+                    )
+                ]
+            )
+            for key, counts in categorical_counts.items()
+        },
+    )
+
+
+def build_folder_facets(
+    storage: BrowseStorage,
+    path: str,
+    *,
+    recursive: bool = True,
+) -> BrowseFacetsPayload:
+    canonical = canonical_path(path)
+    index = _load_folder_index(storage, canonical, recursive=recursive)
+    facet_provider = getattr(storage, "facet_summary_for_scope", None)
+    if callable(facet_provider):
+        return BrowseFacetsPayload.model_validate(
+            facet_provider(canonical, recursive=recursive, bins=FACET_HISTOGRAM_BINS)
+        )
+    return _facets_from_items(storage, canonical, index, recursive=recursive)
 
 
 RECURSIVE_SORT_MODE_SCAN = "scan"

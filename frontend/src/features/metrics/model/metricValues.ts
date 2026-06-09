@@ -1,4 +1,5 @@
-import type { BrowseItemPayload } from '../../../lib/types'
+import type { BrowseFacetsPayload, BrowseItemPayload, MetricHistogramFacet } from '../../../lib/types'
+import type { Histogram } from './histogram'
 import { finiteMetricValue } from '../../../lib/metrics'
 
 export type MetricValuesByKey = Map<string, number[]>
@@ -78,6 +79,50 @@ export function collectMetricCategoriesByKey(
     categoriesByKey.set(key, Array.from(byCode.values()).sort((a, b) => a.code - b.code))
   }
   return categoriesByKey
+}
+
+export function collectMetricCategoriesFromFacets(
+  facets: BrowseFacetsPayload,
+  filteredItems: BrowseItemPayload[],
+  selectedItems: BrowseItemPayload[] | undefined,
+  metricKeys: readonly string[],
+  includeFilteredCounts: boolean,
+): MetricCategoriesByKey {
+  const categoriesByKey: MetricCategoriesByKey = new Map()
+  for (const key of metricKeys) {
+    const facet = facets.metrics[key]
+    if (!facet?.categories.length) continue
+    const byCode = new Map<number, MetricCategoryBucket>()
+    for (const category of facet.categories) {
+      byCode.set(category.code, {
+        code: category.code,
+        label: category.label,
+        populationCount: category.population_count,
+        filteredCount: 0,
+        selectedCount: 0,
+      })
+    }
+    if (includeFilteredCounts) {
+      addCategoryCounts(byCode, key, filteredItems, 'filteredCount')
+    }
+    if (selectedItems?.length) {
+      addCategoryCounts(byCode, key, selectedItems, 'selectedCount')
+    }
+    categoriesByKey.set(key, Array.from(byCode.values()).sort((a, b) => a.code - b.code))
+  }
+  return categoriesByKey
+}
+
+export function metricHistogramFromFacet(
+  facet: MetricHistogramFacet | null | undefined,
+): Histogram | null {
+  if (!facet || !facet.bins.length || facet.count <= 0) return null
+  return {
+    bins: [...facet.bins],
+    min: facet.min,
+    max: facet.max,
+    count: facet.count,
+  }
 }
 
 export function getMetricCategories(categoriesByKey: MetricCategoriesByKey, key: string): MetricCategoryBucket[] {

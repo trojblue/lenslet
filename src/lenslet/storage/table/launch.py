@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from bisect import bisect_right
 from dataclasses import dataclass, field
@@ -33,6 +34,8 @@ else:
 
 PyArrowTable: TypeAlias = Any
 
+logger = logging.getLogger(__name__)
+
 _DIMENSION_VALUE_ERRORS = (OverflowError, TypeError, ValueError)
 _LOGICAL_PATH_COLUMNS = (
     "path",
@@ -56,6 +59,15 @@ def _table_schema_errors() -> tuple[type[BaseException], ...]:
         KeyError,
         OSError,
         TypeError,
+        ValueError,
+    )
+
+
+def _parquet_row_field_read_errors() -> tuple[type[BaseException], ...]:
+    return pyarrow_exception_types() + (
+        IndexError,
+        KeyError,
+        OSError,
         ValueError,
     )
 
@@ -810,11 +822,13 @@ def write_missing_dimensions(
 class ParquetRowFieldProvider:
     def __init__(self, parquet_path: Path, columns: tuple[str, ...]) -> None:
         _pyarrow, parquet = require_pyarrow()
+        self._parquet_path = parquet_path
         self._parquet_file = parquet.ParquetFile(str(parquet_path))
         self._columns = list(columns)
         self._row_group_starts = self._build_row_group_starts()
         self._cached_row_group: int | None = None
         self._cached_columns: dict[str, list[Any]] = {}
+        self._failed_row_groups: set[int] = set()
 
     def _build_row_group_starts(self) -> list[int]:
         starts: list[int] = []
@@ -830,9 +844,24 @@ class ParquetRowFieldProvider:
     def __call__(self, row_idx: int) -> dict[str, Any]:
         row_group = max(0, bisect_right(self._row_group_starts, row_idx) - 1)
         local_idx = row_idx - self._row_group_starts[row_group]
+        if row_group in self._failed_row_groups:
+            return {}
         if self._cached_row_group != row_group:
-            table = self._parquet_file.read_row_group(row_group, columns=self._columns)
-            self._cached_columns = table.to_pydict()
+            try:
+                table = self._parquet_file.read_row_group(row_group, columns=self._columns)
+                cached_columns = table.to_pydict()
+            except _parquet_row_field_read_errors() as exc:
+                self._failed_row_groups.add(row_group)
+                self._cached_row_group = None
+                self._cached_columns = {}
+                logger.warning(
+                    "table field enrichment skipped for parquet row group %s in %s: %s",
+                    row_group,
+                    self._parquet_path,
+                    exc,
+                )
+                return {}
+            self._cached_columns = cached_columns
             self._cached_row_group = row_group
         return {
             column: values[local_idx]

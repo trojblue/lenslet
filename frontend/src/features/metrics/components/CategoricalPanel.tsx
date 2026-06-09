@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react'
-import type { FilterAST, BrowseItemPayload } from '../../../lib/types'
+import type { FilterAST, BrowseFacetsPayload, BrowseItemPayload } from '../../../lib/types'
 import {
   collectCategoricalBucketsByKey,
+  collectCategoricalBucketsFromFacets,
   getCategoricalBuckets,
 } from '../model/categoricalValues'
 import CategoricalCard from './CategoricalCard'
@@ -10,6 +11,8 @@ interface CategoricalPanelProps {
   items: BrowseItemPayload[]
   filteredItems: BrowseItemPayload[]
   categoricalKeys: string[]
+  facets?: BrowseFacetsPayload | null
+  itemPopulationComplete?: boolean
   selectedItems?: BrowseItemPayload[]
   filters: FilterAST
   onChangeValues: (key: string, values: string[] | null) => void
@@ -19,6 +22,8 @@ export default function CategoricalPanel({
   items,
   filteredItems,
   categoricalKeys,
+  facets = null,
+  itemPopulationComplete = true,
   selectedItems,
   filters,
   onChangeValues,
@@ -32,8 +37,16 @@ export default function CategoricalPanel({
     showAll ? categoricalKeys : activeCategorical ? [activeCategorical] : []
   ), [showAll, categoricalKeys, activeCategorical])
   const bucketsByKey = useMemo(
-    () => collectCategoricalBucketsByKey(items, filteredItems, selectedItems, scopedCategoricalKeys),
-    [items, filteredItems, selectedItems, scopedCategoricalKeys]
+    () => facets
+      ? collectCategoricalBucketsFromFacets(
+        facets,
+        filteredItems,
+        selectedItems,
+        scopedCategoricalKeys,
+        itemPopulationComplete,
+      )
+      : collectCategoricalBucketsByKey(items, filteredItems, selectedItems, scopedCategoricalKeys),
+    [facets, filteredItems, itemPopulationComplete, items, selectedItems, scopedCategoricalKeys]
   )
 
   if (!categoricalKeys.length) return null
@@ -46,6 +59,7 @@ export default function CategoricalPanel({
       filters={filters}
       onChangeValues={onChangeValues}
       showTitle={showTitle}
+      showFilteredCounts={!facets || itemPopulationComplete}
     />
   )
 

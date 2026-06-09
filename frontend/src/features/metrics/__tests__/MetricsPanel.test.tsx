@@ -100,6 +100,56 @@ describe('MetricsPanel', () => {
     expect(html).toContain('Filtered: 1')
   })
 
+  it('renders categorical domains from facets instead of the loaded item page', () => {
+    const items = [
+      { ...makeItem('/a.jpg'), categoricals: { original_source: 'ptv03' } },
+      { ...makeItem('/b.jpg'), categoricals: { original_source: 'gt' } },
+    ]
+
+    const html = renderToStaticMarkup(
+      <MetricsPanel
+        items={items}
+        filteredItems={items}
+        metricKeys={[]}
+        categoricalKeys={['original_source']}
+        facets={{
+          version: 1,
+          path: '/',
+          generated_at: 'test',
+          total_items: 4,
+          metric_keys: [],
+          categorical_keys: ['original_source'],
+          metrics: {},
+          categoricals: {
+            original_source: {
+              values: [
+                { value: 'ptv03', population_count: 1 },
+                { value: 'gt', population_count: 1 },
+                { value: 'synthetic', population_count: 1 },
+                { value: 'rapidata', population_count: 1 },
+              ],
+            },
+          },
+        }}
+        itemPopulationComplete={false}
+        derivedMetric={makeDerivedMetricEvaluation()}
+        onSelectMetric={() => {}}
+        onApplyDerivedMetric={() => {}}
+        onRankByDerivedMetric={() => {}}
+        filters={{ and: [] }}
+        onChangeRange={() => {}}
+        onChangeCategoricalValues={() => {}}
+        onChangeFilters={() => {}}
+      />,
+    )
+
+    expect(html).toContain('ptv03')
+    expect(html).toContain('gt')
+    expect(html).toContain('synthetic')
+    expect(html).toContain('rapidata')
+    expect(html).not.toContain('Filtered:')
+  })
+
   it('renders the derived score card even when no source inputs exist', () => {
     const html = renderToStaticMarkup(
       <MetricsPanel

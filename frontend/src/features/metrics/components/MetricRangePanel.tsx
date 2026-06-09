@@ -1,12 +1,14 @@
 import React, { useMemo, useState } from 'react'
-import type { FilterAST, BrowseItemPayload, MetricDisplayNames } from '../../../lib/types'
+import type { FilterAST, BrowseFacetsPayload, BrowseItemPayload, MetricDisplayNames } from '../../../lib/types'
 import { getMetricDisplayName } from '../../../lib/metricDisplay'
 import type { Range } from '../model/histogram'
 import {
   collectMetricCategoriesByKey,
+  collectMetricCategoriesFromFacets,
   collectMetricValuesByKey,
   getMetricCategories,
   getMetricValues,
+  metricHistogramFromFacet,
   type MetricValuesByKey,
 } from '../model/metricValues'
 import MetricCategoryCard from './MetricCategoryCard'
@@ -17,6 +19,8 @@ interface MetricRangePanelProps {
   filteredItems: BrowseItemPayload[]
   metricKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
+  facets?: BrowseFacetsPayload | null
+  itemPopulationComplete?: boolean
   selectedItems?: BrowseItemPayload[]
   selectedValuesByKey?: MetricValuesByKey | null
   selectedMetric?: string
@@ -32,6 +36,8 @@ export default function MetricRangePanel({
   filteredItems,
   metricKeys,
   metricDisplayNames,
+  facets = null,
+  itemPopulationComplete = true,
   selectedItems,
   selectedValuesByKey,
   selectedMetric,
@@ -53,13 +59,24 @@ export default function MetricRangePanel({
     [filteredItems, scopedMetricKeys]
   )
   const categoriesByKey = useMemo(
-    () => collectMetricCategoriesByKey(items, filteredItems, selectedItems, scopedMetricKeys),
-    [items, filteredItems, selectedItems, scopedMetricKeys]
+    () => facets
+      ? collectMetricCategoriesFromFacets(
+        facets,
+        filteredItems,
+        selectedItems,
+        scopedMetricKeys,
+        itemPopulationComplete,
+      )
+      : collectMetricCategoriesByKey(items, filteredItems, selectedItems, scopedMetricKeys),
+    [facets, filteredItems, itemPopulationComplete, items, selectedItems, scopedMetricKeys]
   )
   const selectedValues = selectedValuesByKey ?? EMPTY_VALUES_BY_KEY
 
   const renderMetricCard = (key: string, showTitle = false) => {
     const categories = getMetricCategories(categoriesByKey, key)
+    const metricFacet = facets?.metrics[key] ?? null
+    const facetHistogram = metricHistogramFromFacet(metricFacet?.histogram)
+    const showFilteredCounts = !facets || itemPopulationComplete
     if (categories.length) {
       return (
         <MetricCategoryCard
@@ -70,6 +87,7 @@ export default function MetricRangePanel({
           filters={filters}
           onChangeRange={onChangeRange}
           showTitle={showTitle}
+          showFilteredCounts={showFilteredCounts}
         />
       )
     }
@@ -78,12 +96,14 @@ export default function MetricRangePanel({
         key={key}
         metricKey={key}
         metricLabel={getMetricDisplayName(key, metricDisplayNames)}
-        populationValues={getMetricValues(populationValuesByKey, key)}
-        filteredValues={getMetricValues(filteredValuesByKey, key)}
+        populationValues={facets ? [] : getMetricValues(populationValuesByKey, key)}
+        filteredValues={showFilteredCounts ? getMetricValues(filteredValuesByKey, key) : []}
+        populationHistogram={facetHistogram}
         selectedValues={getMetricValues(selectedValues, key)}
         filters={filters}
         onChangeRange={onChangeRange}
         showTitle={showTitle}
+        showFilteredCounts={showFilteredCounts}
       />
     )
   }

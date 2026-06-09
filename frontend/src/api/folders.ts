@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { usePollingEnabled } from './polling'
-import type { BrowseFolderPayload } from '../lib/types'
+import type { BrowseFacetsPayload, BrowseFolderPayload } from '../lib/types'
 import type { GetFolderOptions } from './client'
 
 export const DEFAULT_FOLDER_GC_TIME_MS = 5 * 60_000
@@ -29,6 +29,10 @@ export const folderQueryKey = (
       options.countOnly ? 'count' : 'items',
     ] as const
     : ['folder', path] as const
+)
+
+export const folderFacetsQueryKey = (path: string, recursive = true) => (
+  ['folder-facets', path, recursive ? 'recursive' : 'direct'] as const
 )
 
 function parseRecursiveFolderQueryKey(queryKey: readonly unknown[]): RecursiveFolderQueryKey | null {
@@ -90,6 +94,23 @@ export function useFolder(path: string, options?: UseFolderOptions) {
     enabled: options?.enabled ?? true,
     staleTime: 10_000,
     gcTime: recursiveQuery ? RECURSIVE_FOLDER_GC_TIME_MS : DEFAULT_FOLDER_GC_TIME_MS,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 5000),
+    refetchOnWindowFocus: false,
+    refetchInterval: pollingEnabled ? FALLBACK_REFETCH_INTERVAL : false,
+    refetchIntervalInBackground: pollingEnabled,
+  })
+}
+
+export function useFolderFacets(path: string, options?: { recursive?: boolean; enabled?: boolean }) {
+  const pollingEnabled = usePollingEnabled()
+  const recursive = options?.recursive ?? true
+  return useQuery<BrowseFacetsPayload>({
+    queryKey: folderFacetsQueryKey(path, recursive),
+    queryFn: () => api.getFolderFacets(path, { recursive }),
+    enabled: options?.enabled ?? true,
+    staleTime: 10_000,
+    gcTime: RECURSIVE_FOLDER_GC_TIME_MS,
     retry: 2,
     retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 5000),
     refetchOnWindowFocus: false,

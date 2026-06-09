@@ -168,54 +168,66 @@ export default function DerivedScoreCard({
           {draft.numericTerms.length ? (
             <div className="space-y-2">
               {draft.numericTerms.map((term, index) => (
-                <div key={`numeric-${index}`} className="grid grid-cols-[minmax(0,1fr)_4.5rem_5.5rem_1.75rem] gap-1.5 items-center">
-                  <select
-                    className="ui-select min-w-0"
-                    value={term.key}
-                    aria-label={`Numeric metric ${index + 1}`}
-                    data-derived-numeric-key={index}
-                    onChange={(event) => updateNumericTerm(index, { key: event.currentTarget.value })}
-                  >
-                    <option value="">Metric</option>
-                    {sourceMetricKeys.map((key) => (
-                      <option key={key} value={key}>
-                        {getMetricDisplayName(key, metricDisplayNames)}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className="ui-input ui-number w-full"
-                    value={term.weight}
-                    aria-label={`Numeric weight ${index + 1}`}
-                    data-derived-numeric-weight={index}
-                    type="number"
-                    step="any"
-                    onChange={(event) => updateNumericTerm(index, { weight: event.currentTarget.value })}
-                  />
-                  <select
-                    className="ui-select ui-select-compact w-full"
-                    value={term.missing}
-                    aria-label={`Numeric missing ${index + 1}`}
-                    data-derived-numeric-missing={index}
-                    onChange={(event) => updateNumericTerm(index, {
-                      missing: event.currentTarget.value === 'zero' ? 'zero' : 'invalid',
-                    })}
-                  >
-                    <option value="invalid">Invalid</option>
-                    <option value="zero">Zero</option>
-                  </select>
-                  <button
-                    type="button"
-                    className="btn btn-xs btn-ghost w-7 px-0"
-                    aria-label={`Remove numeric term ${index + 1}`}
-                    title="Remove numeric term"
-                    onClick={() => setDraft((prev) => ({
-                      ...prev,
-                      numericTerms: prev.numericTerms.filter((_term, idx) => idx !== index),
-                    }))}
-                  >
-                    <Trash2 size={12} aria-hidden="true" />
-                  </button>
+                <div key={`numeric-${index}`} className="rounded-md border border-border/60 bg-surface-inset p-2">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="flex min-w-[14rem] flex-[1_1_16rem] flex-col gap-1">
+                      <span className="ui-label mb-0 text-[10px]">Metric</span>
+                      <select
+                        className="ui-select w-full min-w-0"
+                        value={term.key}
+                        aria-label={`Numeric metric ${index + 1}`}
+                        data-derived-numeric-key={index}
+                        title={term.key ? getMetricDisplayName(term.key, metricDisplayNames) : 'Metric'}
+                        onChange={(event) => updateNumericTerm(index, { key: event.currentTarget.value })}
+                      >
+                        <option value="">Metric</option>
+                        {sourceMetricKeys.map((key) => (
+                          <option key={key} value={key}>
+                            {getMetricDisplayName(key, metricDisplayNames)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex w-24 flex-col gap-1">
+                      <span className="ui-label mb-0 text-[10px]">Weight</span>
+                      <input
+                        className="ui-input ui-number w-full"
+                        value={term.weight}
+                        aria-label={`Numeric weight ${index + 1}`}
+                        data-derived-numeric-weight={index}
+                        type="number"
+                        step="any"
+                        onChange={(event) => updateNumericTerm(index, { weight: event.currentTarget.value })}
+                      />
+                    </label>
+                    <label className="flex min-w-[10rem] flex-[0_0_10.5rem] flex-col gap-1">
+                      <span className="ui-label mb-0 text-[10px]">Missing</span>
+                      <select
+                        className="ui-select ui-select-compact w-full"
+                        value={term.missing}
+                        aria-label={`Numeric missing ${index + 1}`}
+                        data-derived-numeric-missing={index}
+                        onChange={(event) => updateNumericTerm(index, {
+                          missing: event.currentTarget.value === 'zero' ? 'zero' : 'invalid',
+                        })}
+                      >
+                        <option value="invalid">Require value</option>
+                        <option value="zero">Missing = 0</option>
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-ghost h-8 w-8 px-0"
+                      aria-label={`Remove numeric term ${index + 1}`}
+                      title="Remove numeric term"
+                      onClick={() => setDraft((prev) => ({
+                        ...prev,
+                        numericTerms: prev.numericTerms.filter((_term, idx) => idx !== index),
+                      }))}
+                    >
+                      <Trash2 size={12} aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -249,68 +261,81 @@ export default function DerivedScoreCard({
               {draft.categoricalTerms.map((term, index) => {
                 const values = categoricalValuesByKey.get(term.key) ?? []
                 return (
-                  <div key={`categorical-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_4.5rem_1.75rem] gap-1.5 items-center">
-                    <select
-                      className="ui-select min-w-0"
-                      value={term.key}
-                      aria-label={`Categorical field ${index + 1}`}
-                      data-derived-categorical-key={index}
-                      onChange={(event) => {
-                        const nextKey = event.currentTarget.value
-                        updateCategoricalTerm(index, {
-                          key: nextKey,
-                          value: categoricalValuesByKey.get(nextKey)?.[0] ?? '',
-                        })
-                      }}
-                    >
-                      <option value="">Field</option>
-                      {categoricalKeys.map((key) => (
-                        <option key={key} value={key}>{key}</option>
-                      ))}
-                    </select>
-                    {values.length ? (
-                      <select
-                        className="ui-select min-w-0"
-                        value={term.value}
-                        aria-label={`Categorical value ${index + 1}`}
-                        data-derived-categorical-value={index}
-                        onChange={(event) => updateCategoricalTerm(index, { value: event.currentTarget.value })}
+                  <div key={`categorical-${index}`} className="rounded-md border border-border/60 bg-surface-inset p-2">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="flex min-w-[12rem] flex-[1_1_14rem] flex-col gap-1">
+                        <span className="ui-label mb-0 text-[10px]">Field</span>
+                        <select
+                          className="ui-select w-full min-w-0"
+                          value={term.key}
+                          aria-label={`Categorical field ${index + 1}`}
+                          data-derived-categorical-key={index}
+                          title={term.key || 'Field'}
+                          onChange={(event) => {
+                            const nextKey = event.currentTarget.value
+                            updateCategoricalTerm(index, {
+                              key: nextKey,
+                              value: categoricalValuesByKey.get(nextKey)?.[0] ?? '',
+                            })
+                          }}
+                        >
+                          <option value="">Field</option>
+                          {categoricalKeys.map((key) => (
+                            <option key={key} value={key}>{key}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex min-w-[12rem] flex-[1_1_14rem] flex-col gap-1">
+                        <span className="ui-label mb-0 text-[10px]">Value</span>
+                        {values.length ? (
+                          <select
+                            className="ui-select w-full min-w-0"
+                            value={term.value}
+                            aria-label={`Categorical value ${index + 1}`}
+                            data-derived-categorical-value={index}
+                            title={term.value || 'Value'}
+                            onChange={(event) => updateCategoricalTerm(index, { value: event.currentTarget.value })}
+                          >
+                            <option value="">Value</option>
+                            {values.map((value) => (
+                              <option key={value} value={value}>{value}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            className="ui-input w-full min-w-0"
+                            value={term.value}
+                            aria-label={`Categorical value ${index + 1}`}
+                            data-derived-categorical-value={index}
+                            onChange={(event) => updateCategoricalTerm(index, { value: event.currentTarget.value })}
+                          />
+                        )}
+                      </label>
+                      <label className="flex w-24 flex-col gap-1">
+                        <span className="ui-label mb-0 text-[10px]">Bonus</span>
+                        <input
+                          className="ui-input ui-number w-full"
+                          value={term.weight}
+                          aria-label={`Categorical weight ${index + 1}`}
+                          data-derived-categorical-weight={index}
+                          type="number"
+                          step="any"
+                          onChange={(event) => updateCategoricalTerm(index, { weight: event.currentTarget.value })}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-ghost h-8 w-8 px-0"
+                        aria-label={`Remove categorical bonus ${index + 1}`}
+                        title="Remove categorical bonus"
+                        onClick={() => setDraft((prev) => ({
+                          ...prev,
+                          categoricalTerms: prev.categoricalTerms.filter((_term, idx) => idx !== index),
+                        }))}
                       >
-                        <option value="">Value</option>
-                        {values.map((value) => (
-                          <option key={value} value={value}>{value}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        className="ui-input min-w-0"
-                        value={term.value}
-                        aria-label={`Categorical value ${index + 1}`}
-                        data-derived-categorical-value={index}
-                        onChange={(event) => updateCategoricalTerm(index, { value: event.currentTarget.value })}
-                      />
-                    )}
-                    <input
-                      className="ui-input ui-number w-full"
-                      value={term.weight}
-                      aria-label={`Categorical weight ${index + 1}`}
-                      data-derived-categorical-weight={index}
-                      type="number"
-                      step="any"
-                      onChange={(event) => updateCategoricalTerm(index, { weight: event.currentTarget.value })}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-xs btn-ghost w-7 px-0"
-                      aria-label={`Remove categorical bonus ${index + 1}`}
-                      title="Remove categorical bonus"
-                      onClick={() => setDraft((prev) => ({
-                        ...prev,
-                        categoricalTerms: prev.categoricalTerms.filter((_term, idx) => idx !== index),
-                      }))}
-                    >
-                      <Trash2 size={12} aria-hidden="true" />
-                    </button>
+                        <Trash2 size={12} aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
                 )
               })}

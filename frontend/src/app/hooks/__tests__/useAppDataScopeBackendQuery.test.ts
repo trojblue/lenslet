@@ -27,6 +27,8 @@ describe('useAppDataScope backend browse-query boundary', () => {
   })
 
   it('does not request raw folder facets while backend text search is active', () => {
-    expect(APP_SHELL_SOURCE).toContain("enabled: leftOpen && leftTool === 'metrics' && !similarityState && !searching")
+    expect(APP_SHELL_SOURCE).toContain(
+      "enabled: leftOpen && (leftTool === 'metrics' || leftTool === 'derived') && !similarityState && !searching",
+    )
   })
 })

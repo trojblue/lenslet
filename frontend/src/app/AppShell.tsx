@@ -42,6 +42,7 @@ import { useSidebars } from './layout/useSidebars'
 import {
   resolveLeftToolToggle,
   toggleLeftPanelContent,
+  type LeftTool,
 } from './layout/sidebarLayout'
 import {
   buildResponsiveLayoutModel,
@@ -258,7 +259,7 @@ export default function AppShell({
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
   const { viewportWidth, viewportHeight } = useViewportSize()
-  const [leftTool, setLeftTool] = useState<'folders' | 'metrics'>('folders')
+  const [leftTool, setLeftTool] = useState<LeftTool>('folders')
   const [themePreset, setThemePreset] = useState<ThemePresetId>(() => (
     loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode)
   ))
@@ -375,6 +376,7 @@ export default function AppShell({
     similarityItems,
     metricKeys,
     categoricalKeys,
+    browseCapabilityKeysReady,
     metricDisplayNames,
     derivedMetric,
     items,
@@ -514,7 +516,7 @@ export default function AppShell({
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
   const metricsFacetsQuery = useFolderFacets(current, {
     recursive: true,
-    enabled: leftOpen && leftTool === 'metrics' && !similarityState && !searching,
+    enabled: leftOpen && (leftTool === 'metrics' || leftTool === 'derived') && !similarityState && !searching,
   })
   const metricsFacets = metricsFacetsQuery.data?.path === (data?.path ?? current)
     ? metricsFacetsQuery.data
@@ -634,6 +636,7 @@ export default function AppShell({
   }, [derivedMetric.key, metricKeys, similarityActive])
 
   useEffect(() => {
+    if (!browseCapabilityKeysReady) return
     if (!shouldResetUnavailableMetricSort(
       viewState.sort,
       metricKeys,
@@ -645,7 +648,14 @@ export default function AppShell({
       ...prev,
       sort: { kind: 'builtin', key: 'added', dir: prev.sort.dir },
     }))
-  }, [derivedMetric.key, derivedMetric.status, metricKeys, viewState.sort, similarityActive])
+  }, [
+    browseCapabilityKeysReady,
+    derivedMetric.key,
+    derivedMetric.status,
+    metricKeys,
+    viewState.sort,
+    similarityActive,
+  ])
 
   const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
   const showFilteredCounts = similarityActive || searching || activeFilterCount > 0
@@ -800,7 +810,7 @@ export default function AppShell({
     setRightOpen(false)
   }, [])
 
-  const handleLeftToolChange = useCallback((nextTool: 'folders' | 'metrics') => {
+  const handleLeftToolChange = useCallback((nextTool: LeftTool) => {
     const nextState = resolveLeftToolToggle({
       activeTool: leftToolRef.current,
       contentOpen: leftOpenRef.current,

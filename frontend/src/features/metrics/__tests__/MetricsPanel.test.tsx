@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import DerivedScorePanel from '../DerivedScorePanel'
 import MetricsPanel from '../MetricsPanel'
 import type { BrowseItemPayload } from '../../../lib/types'
 import type { DerivedMetricEvaluation } from '../model/derivedMetric'
@@ -55,11 +56,8 @@ describe('MetricsPanel', () => {
         filteredItems={items}
         metricKeys={['quality_score']}
         categoricalKeys={[]}
-        derivedMetric={makeDerivedMetricEvaluation()}
         selectedMetric="quality_score"
         onSelectMetric={() => {}}
-        onApplyDerivedMetric={() => {}}
-        onRankByDerivedMetric={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}
@@ -83,10 +81,7 @@ describe('MetricsPanel', () => {
         filteredItems={items.slice(0, 1)}
         metricKeys={[]}
         categoricalKeys={['l0r_viewpoint_family']}
-        derivedMetric={makeDerivedMetricEvaluation()}
         onSelectMetric={() => {}}
-        onApplyDerivedMetric={() => {}}
-        onRankByDerivedMetric={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}
@@ -132,10 +127,7 @@ describe('MetricsPanel', () => {
           },
         }}
         itemPopulationComplete={false}
-        derivedMetric={makeDerivedMetricEvaluation()}
         onSelectMetric={() => {}}
-        onApplyDerivedMetric={() => {}}
-        onRankByDerivedMetric={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}
@@ -163,10 +155,7 @@ describe('MetricsPanel', () => {
         metricKeys={[]}
         categoricalKeys={['original_source']}
         itemPopulationComplete={false}
-        derivedMetric={makeDerivedMetricEvaluation()}
         onSelectMetric={() => {}}
-        onApplyDerivedMetric={() => {}}
-        onRankByDerivedMetric={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}
@@ -184,19 +173,13 @@ describe('MetricsPanel', () => {
 
   it('renders the derived score card even when no source inputs exist', () => {
     const html = renderToStaticMarkup(
-      <MetricsPanel
+      <DerivedScorePanel
         items={[]}
-        filteredItems={[]}
         metricKeys={[]}
         categoricalKeys={[]}
         derivedMetric={makeDerivedMetricEvaluation()}
-        onSelectMetric={() => {}}
         onApplyDerivedMetric={() => {}}
         onRankByDerivedMetric={() => {}}
-        filters={{ and: [] }}
-        onChangeRange={() => {}}
-        onChangeCategoricalValues={() => {}}
-        onChangeFilters={() => {}}
       />,
     )
 
@@ -217,17 +200,8 @@ describe('MetricsPanel', () => {
         metricKeys={['@derived/rubric_1']}
         categoricalKeys={[]}
         metricDisplayNames={{ '@derived/rubric_1': 'Rubric score' }}
-        derivedMetric={makeDerivedMetricEvaluation({
-          key: '@derived/rubric_1',
-          name: 'Rubric score',
-          status: 'valid',
-          metricKeys: ['@derived/rubric_1'],
-          metricDisplayNames: { '@derived/rubric_1': 'Rubric score' },
-        })}
         selectedMetric="@derived/rubric_1"
         onSelectMetric={() => {}}
-        onApplyDerivedMetric={() => {}}
-        onRankByDerivedMetric={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}

@@ -4,14 +4,15 @@ import {
   clampSidebarDragWidth,
   resolveSidebarDragConstraint,
 } from './responsiveLayoutPolicy'
+import type { LeftTool } from './sidebarLayout'
 
 export const SIDEBAR_STORAGE_KEYS = {
   leftFolders: 'leftW.folders',
   leftMetrics: 'leftW.metrics',
+  leftDerived: 'leftW.derived',
   right: 'rightW',
 } as const
 
-type LeftTool = 'folders' | 'metrics'
 type SidebarStorageKey = (typeof SIDEBAR_STORAGE_KEYS)[keyof typeof SIDEBAR_STORAGE_KEYS]
 
 function isPositiveFiniteNumber(value: number): boolean {
@@ -24,18 +25,22 @@ function parseStoredWidth(value: string | null): number | null {
 }
 
 export function getLeftSidebarStorageKey(leftTool: LeftTool): SidebarStorageKey {
-  return leftTool === 'metrics' ? SIDEBAR_STORAGE_KEYS.leftMetrics : SIDEBAR_STORAGE_KEYS.leftFolders
+  if (leftTool === 'metrics') return SIDEBAR_STORAGE_KEYS.leftMetrics
+  if (leftTool === 'derived') return SIDEBAR_STORAGE_KEYS.leftDerived
+  return SIDEBAR_STORAGE_KEYS.leftFolders
 }
 
 export function readPersistedSidebarWidths(storage: Pick<Storage, 'getItem'>): {
   leftFoldersW: number | null
   leftMetricsW: number | null
+  leftDerivedW: number | null
   rightW: number | null
 } {
   const leftFoldersW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.leftFolders))
   const leftMetricsW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.leftMetrics))
+  const leftDerivedW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.leftDerived))
   const rightW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.right))
-  return { leftFoldersW, leftMetricsW, rightW }
+  return { leftFoldersW, leftMetricsW, leftDerivedW, rightW }
 }
 
 export function persistSidebarWidth(
@@ -133,8 +138,13 @@ export function useSidebars(
 ) {
   const [leftFoldersW, setLeftFoldersW] = useState<number>(240)
   const [leftMetricsW, setLeftMetricsW] = useState<number>(320)
+  const [leftDerivedW, setLeftDerivedW] = useState<number>(520)
   const [rightW, setRightW] = useState<number>(240)
-  const leftW = leftTool === 'metrics' ? leftMetricsW : leftFoldersW
+  const leftW = leftTool === 'metrics'
+    ? leftMetricsW
+    : leftTool === 'derived'
+      ? leftDerivedW
+      : leftFoldersW
   const leftWRef = useRef(leftW)
   const rightWRef = useRef(rightW)
   const userLeftOpenRef = useRef(options.userLeftOpen)
@@ -148,6 +158,7 @@ export function useSidebars(
       const persisted = readPersistedSidebarWidths(window.localStorage)
       if (persisted.leftFoldersW !== null) setLeftFoldersW(persisted.leftFoldersW)
       if (persisted.leftMetricsW !== null) setLeftMetricsW(persisted.leftMetricsW)
+      if (persisted.leftDerivedW !== null) setLeftDerivedW(persisted.leftDerivedW)
       if (persisted.rightW !== null) setRightW(persisted.rightW)
     } catch {}
   }, [])
@@ -208,6 +219,8 @@ export function useSidebars(
         latestWidth = nw
         if (leftTool === 'metrics') {
           setLeftMetricsW(nw)
+        } else if (leftTool === 'derived') {
+          setLeftDerivedW(nw)
         } else {
           setLeftFoldersW(nw)
         }

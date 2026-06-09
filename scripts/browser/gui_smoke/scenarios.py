@@ -652,14 +652,14 @@ def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricS
     wait_for_visible_grid_cell_ids(page, minimum_count=8, timeout_ms=timeout_ms)
     switch_to_most_recent_if_available(page, timeout_ms)
 
-    page.get_by_role("button", name="Metrics and Filters").click()
+    page.get_by_role("button", name="Derived Score").click()
     card = page.locator("[data-derived-score-card]").first
     card.wait_for(state="visible", timeout=timeout_ms)
 
     metric_inputs = metric_input_labels(page)
     missing_inputs = [key for key in ("q1", "q2", "q3") if key not in metric_inputs]
     if missing_inputs:
-        raise SmokeFailure(f"Derived score metric inputs missing from Metrics panel: {missing_inputs!r}.")
+        raise SmokeFailure(f"Derived score metric inputs missing from Derived Score panel: {missing_inputs!r}.")
 
     card.locator("[data-derived-score-name]").fill("new_score")
     card.locator("[data-derived-score-intercept]").fill("0")

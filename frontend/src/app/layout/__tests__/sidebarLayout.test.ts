@@ -63,6 +63,15 @@ describe('sidebarLayout helpers', () => {
       nextTool: 'metrics',
       contentOpen: true,
     })
+
+    expect(resolveLeftToolToggle({
+      activeTool: 'metrics',
+      contentOpen: true,
+      clickedTool: 'derived',
+    })).toEqual({
+      nextTool: 'derived',
+      contentOpen: true,
+    })
   })
 
   it('keeps the rail width constant aligned with the responsive policy', () => {

@@ -1,15 +1,13 @@
 import React, { useMemo } from 'react'
-import type { FilterAST, BrowseFacetsPayload, BrowseItemPayload, DerivedMetricSpec, MetricDisplayNames } from '../../lib/types'
+import type { FilterAST, BrowseFacetsPayload, BrowseItemPayload, MetricDisplayNames } from '../../lib/types'
 import AttributesPanel from './components/AttributesPanel'
 import CategoricalPanel from './components/CategoricalPanel'
-import DerivedScoreCard from './components/DerivedScoreCard'
 import MetricRangePanel from './components/MetricRangePanel'
 import { formatNumber, type Range } from './model/histogram'
 import {
   collectMetricValuesByKey,
   type MetricValuesByKey,
 } from './model/metricValues'
-import type { DerivedMetricEvaluation } from './model/derivedMetric'
 import { getMetricDisplayName } from '../../lib/metricDisplay'
 
 interface MetricsPanelProps {
@@ -20,13 +18,9 @@ interface MetricsPanelProps {
   metricDisplayNames?: MetricDisplayNames | null
   facets?: BrowseFacetsPayload | null
   itemPopulationComplete?: boolean
-  derivedMetric: DerivedMetricEvaluation
-  derivedRankDisabledReason?: string | null
   selectedItems?: BrowseItemPayload[]
   selectedMetric?: string
   onSelectMetric: (key: string) => void
-  onApplyDerivedMetric: (spec: DerivedMetricSpec | null) => void
-  onRankByDerivedMetric: (spec: DerivedMetricSpec) => void
   filters: FilterAST
   onChangeRange: (key: string, range: Range | null) => void
   onChangeCategoricalValues: (key: string, values: string[] | null) => void
@@ -51,13 +45,9 @@ export default function MetricsPanel({
   metricDisplayNames,
   facets = null,
   itemPopulationComplete = true,
-  derivedMetric,
-  derivedRankDisabledReason,
   selectedItems,
   selectedMetric,
   onSelectMetric,
-  onApplyDerivedMetric,
-  onRankByDerivedMetric,
   filters,
   onChangeRange,
   onChangeCategoricalValues,
@@ -83,10 +73,6 @@ export default function MetricsPanel({
       onChangeFilters={onChangeFilters}
     />
   )
-  const categoricalValuesByKey = useMemo(
-    () => categoricalValuesFromFacets(facets, categoricalKeys),
-    [categoricalKeys, facets],
-  )
   const categoricalPanel = (
     <CategoricalPanel
       items={items}
@@ -104,17 +90,6 @@ export default function MetricsPanel({
     return (
       <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
         {metricsSummary}
-        <DerivedScoreCard
-          items={items}
-          metricKeys={metricKeys}
-          categoricalKeys={categoricalKeys}
-          metricDisplayNames={metricDisplayNames}
-          categoricalValuesByKey={categoricalValuesByKey}
-          derivedMetric={derivedMetric}
-          rankDisabledReason={derivedRankDisabledReason}
-          onApplyDerivedMetric={onApplyDerivedMetric}
-          onRankByDerivedMetric={onRankByDerivedMetric}
-        />
         {attributesPanel}
         <div className="p-4 text-sm text-muted">
           No metrics or categoricals found in this dataset.
@@ -126,17 +101,6 @@ export default function MetricsPanel({
   return (
     <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
       {metricsSummary}
-      <DerivedScoreCard
-        items={items}
-        metricKeys={metricKeys}
-        categoricalKeys={categoricalKeys}
-        metricDisplayNames={metricDisplayNames}
-        categoricalValuesByKey={categoricalValuesByKey}
-        derivedMetric={derivedMetric}
-        rankDisabledReason={derivedRankDisabledReason}
-        onApplyDerivedMetric={onApplyDerivedMetric}
-        onRankByDerivedMetric={onRankByDerivedMetric}
-      />
       {metricKeys.length > 0 && (
         <MetricRangePanel
           items={items}
@@ -157,17 +121,6 @@ export default function MetricsPanel({
       {attributesPanel}
     </div>
   )
-}
-
-function categoricalValuesFromFacets(
-  facets: BrowseFacetsPayload | null,
-  categoricalKeys: readonly string[],
-): Map<string, string[]> | undefined {
-  if (!facets) return undefined
-  return new Map(categoricalKeys.map((key) => [
-    key,
-    (facets.categoricals[key]?.values ?? []).map((entry) => entry.value),
-  ]))
 }
 
 function SelectedMetricsPanel({

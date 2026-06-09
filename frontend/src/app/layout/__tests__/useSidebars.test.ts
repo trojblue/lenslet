@@ -32,12 +32,14 @@ describe('useSidebars resize and persistence helpers', () => {
     const storage = new MemoryStorage({
       [SIDEBAR_STORAGE_KEYS.leftFolders]: '286',
       [SIDEBAR_STORAGE_KEYS.leftMetrics]: '341',
+      [SIDEBAR_STORAGE_KEYS.leftDerived]: '520',
       [SIDEBAR_STORAGE_KEYS.right]: '299',
     })
 
     expect(readPersistedSidebarWidths(storage)).toEqual({
       leftFoldersW: 286,
       leftMetricsW: 341,
+      leftDerivedW: 520,
       rightW: 299,
     })
   })
@@ -46,12 +48,14 @@ describe('useSidebars resize and persistence helpers', () => {
     const storage = new MemoryStorage({
       [SIDEBAR_STORAGE_KEYS.leftFolders]: '-5',
       [SIDEBAR_STORAGE_KEYS.leftMetrics]: '0',
+      [SIDEBAR_STORAGE_KEYS.leftDerived]: 'NaN',
       [SIDEBAR_STORAGE_KEYS.right]: 'not-a-number',
     })
 
     expect(readPersistedSidebarWidths(storage)).toEqual({
       leftFoldersW: null,
       leftMetricsW: null,
+      leftDerivedW: null,
       rightW: null,
     })
   })
@@ -60,10 +64,12 @@ describe('useSidebars resize and persistence helpers', () => {
     const storage = new MemoryStorage()
     persistSidebarWidth(storage, getLeftSidebarStorageKey('folders'), 278.5)
     persistSidebarWidth(storage, getLeftSidebarStorageKey('metrics'), 332)
+    persistSidebarWidth(storage, getLeftSidebarStorageKey('derived'), 540)
     persistSidebarWidth(storage, SIDEBAR_STORAGE_KEYS.right, 304)
 
     expect(storage.getItem(SIDEBAR_STORAGE_KEYS.leftFolders)).toBe('278.5')
     expect(storage.getItem(SIDEBAR_STORAGE_KEYS.leftMetrics)).toBe('332')
+    expect(storage.getItem(SIDEBAR_STORAGE_KEYS.leftDerived)).toBe('540')
     expect(storage.getItem(SIDEBAR_STORAGE_KEYS.right)).toBe('304')
   })
 

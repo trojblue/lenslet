@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   BACKEND_BROWSE_PAGE_SIZE,
@@ -6,7 +6,7 @@ import {
   useBrowseQuery,
   useFolderCount,
 } from '../../api/folders'
-import { buildCanonicalSearchRequest } from '../../api/search'
+import { buildCanonicalSearchRequest, normalizeSearchScopePath } from '../../api/search'
 import { useEmbeddings } from '../../api/embeddings'
 import { cancelBrowseRequests } from '../../api/client'
 import { useDebounced } from '../../shared/hooks/useDebounced'
@@ -76,6 +76,7 @@ type UseAppDataScopeResult = {
   similarityItems: BrowseItemPayload[]
   metricKeys: string[]
   categoricalKeys: string[]
+  browseCapabilityKeysReady: boolean
   metricDisplayNames: DerivedMetricEvaluation['metricDisplayNames']
   derivedMetric: DerivedMetricEvaluation
   items: BrowseItemPayload[]
@@ -87,6 +88,13 @@ type UseAppDataScopeResult = {
   isLoadingMoreFolderItems: boolean
   loadMoreFolderItems: () => void
   browseQueryUnavailableReason: string | null
+}
+
+export type BrowseCapabilityKeys = {
+  path: string
+  metricKeys: string[]
+  categoricalKeys: string[]
+  ready: boolean
 }
 
 function getEmbeddingsError(isError: boolean, error: unknown): string | null {
@@ -115,6 +123,45 @@ function buildFolderPayloadFromBrowseQuery(
   }
 }
 
+function emptyBrowseCapabilityKeys(path: string): BrowseCapabilityKeys {
+  return {
+    path,
+    metricKeys: [],
+    categoricalKeys: [],
+    ready: false,
+  }
+}
+
+export function resolveBrowseCapabilityKeys(
+  currentPath: string,
+  firstPage: Pick<BrowseQueryResponse, 'path' | 'metric_keys' | 'categorical_keys'> | undefined,
+  previous: BrowseCapabilityKeys,
+): BrowseCapabilityKeys {
+  const scopePath = normalizeSearchScopePath(currentPath)
+  if (firstPage?.path === scopePath) {
+    return {
+      path: scopePath,
+      metricKeys: [...firstPage.metric_keys],
+      categoricalKeys: [...firstPage.categorical_keys],
+      ready: true,
+    }
+  }
+  if (previous.path === scopePath) return previous
+  return emptyBrowseCapabilityKeys(scopePath)
+}
+
+function sameBrowseCapabilityKeys(a: BrowseCapabilityKeys, b: BrowseCapabilityKeys): boolean {
+  return a.path === b.path
+    && a.ready === b.ready
+    && sameStringArray(a.metricKeys, b.metricKeys)
+    && sameStringArray(a.categoricalKeys, b.categoricalKeys)
+}
+
+function sameStringArray(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((value, index) => value === b[index])
+}
+
 export function useAppDataScope({
   current,
   query,
@@ -127,6 +174,10 @@ export function useAppDataScope({
 }: UseAppDataScopeParams): UseAppDataScopeResult {
   const queryClient = useQueryClient()
   const loadTokenRef = useRef(0)
+  const currentScopePath = useMemo(() => normalizeSearchScopePath(current), [current])
+  const [browseCapabilityKeys, setBrowseCapabilityKeys] = useState<BrowseCapabilityKeys>(() => (
+    emptyBrowseCapabilityKeys(currentScopePath)
+  ))
   const similarityActive = similarityState !== null
   const debouncedQ = useDebounced(query, 250)
   const searchRequest = useMemo(() => (
@@ -215,6 +266,19 @@ export function useAppDataScope({
     browseQuery.data?.pages.flatMap((page) => page.items) ?? []
   ), [browseQuery.data])
 
+  useEffect(() => {
+    setBrowseCapabilityKeys((previous) => {
+      const next = resolveBrowseCapabilityKeys(currentScopePath, firstBrowsePage, previous)
+      return sameBrowseCapabilityKeys(previous, next) ? previous : next
+    })
+  }, [currentScopePath, firstBrowsePage])
+
+  const effectiveBrowseCapabilityKeys = useMemo(() => (
+    browseCapabilityKeys.path === currentScopePath
+      ? browseCapabilityKeys
+      : emptyBrowseCapabilityKeys(currentScopePath)
+  ), [browseCapabilityKeys, currentScopePath])
+
   const rawPoolItems = useMemo((): BrowseItemPayload[] => {
     return browseItems.map((it) => ({
       ...it,
@@ -248,20 +312,30 @@ export function useAppDataScope({
   ), [viewState.derivedMetric])
   const sourceMetricKeys = useMemo(() => (
     resolveMetricKeys(
-      data?.metric_keys,
+      effectiveBrowseCapabilityKeys.metricKeys,
       similarityActive,
       rawSimilarityItems,
       derivedMetricInputKeys.metricKeys,
     )
-  ), [data?.metric_keys, derivedMetricInputKeys.metricKeys, similarityActive, rawSimilarityItems])
+  ), [
+    effectiveBrowseCapabilityKeys.metricKeys,
+    derivedMetricInputKeys.metricKeys,
+    similarityActive,
+    rawSimilarityItems,
+  ])
   const sourceCategoricalKeys = useMemo(() => (
     resolveCategoricalKeys(
-      data?.categorical_keys,
+      effectiveBrowseCapabilityKeys.categoricalKeys,
       similarityActive,
       rawSimilarityItems,
       derivedMetricInputKeys.categoricalKeys,
     )
-  ), [data?.categorical_keys, derivedMetricInputKeys.categoricalKeys, similarityActive, rawSimilarityItems])
+  ), [
+    effectiveBrowseCapabilityKeys.categoricalKeys,
+    derivedMetricInputKeys.categoricalKeys,
+    similarityActive,
+    rawSimilarityItems,
+  ])
   const derivedMetric = useMemo(() => {
     const sourceItems = similarityActive ? rawSimilarityItems : rawPoolItems
     return evaluateDerivedMetric({
@@ -325,6 +399,7 @@ export function useAppDataScope({
     similarityItems,
     metricKeys,
     categoricalKeys,
+    browseCapabilityKeysReady: effectiveBrowseCapabilityKeys.ready,
     metricDisplayNames: derivedMetric.metricDisplayNames,
     derivedMetric,
     items,

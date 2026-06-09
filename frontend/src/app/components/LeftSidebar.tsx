@@ -1,5 +1,7 @@
 import type { MouseEvent, PointerEvent } from 'react'
+import { Calculator } from 'lucide-react'
 import FolderTree from '../../features/folders/FolderTree'
+import DerivedScorePanel from '../../features/metrics/DerivedScorePanel'
 import MetricsPanel from '../../features/metrics/MetricsPanel'
 import type {
   CompareOrderMode,
@@ -15,11 +17,12 @@ import type {
 import type { DerivedMetricEvaluation } from '../../features/metrics/model/derivedMetric'
 import type { ThemePresetId } from '../../theme/runtime'
 import ThemeSettingsMenu from '../../shared/ui/ThemeSettingsMenu'
+import type { LeftTool } from '../layout/sidebarLayout'
 
 type LeftSidebarProps = {
-  leftTool: 'folders' | 'metrics'
+  leftTool: LeftTool
   contentOpen: boolean
-  onToolChange: (tool: 'folders' | 'metrics') => void
+  onToolChange: (tool: LeftTool) => void
   compareEnabled: boolean
   compareActive: boolean
   onOpenCompare: () => void
@@ -126,6 +129,7 @@ export default function LeftSidebar({
 }: LeftSidebarProps): JSX.Element {
   const folderButtonClass = getSidebarIconButtonClass(leftTool === 'folders')
   const metricsButtonClass = getSidebarIconButtonClass(leftTool === 'metrics')
+  const derivedButtonClass = getSidebarIconButtonClass(leftTool === 'derived')
   const compareButtonClass = getSidebarIconButtonClass(compareActive)
   const githubButtonClass = `${getSidebarIconButtonClass(false)} cursor-pointer`
 
@@ -159,6 +163,15 @@ export default function LeftSidebar({
             <path d="M16 19v-7" />
             <path d="M3 19h18" />
           </svg>
+        </button>
+        <button
+          className={derivedButtonClass}
+          title="Derived Score"
+          aria-label="Derived Score"
+          aria-pressed={leftTool === 'derived'}
+          onClick={() => onToolChange('derived')}
+        >
+          <Calculator size={15} strokeWidth={1.8} aria-hidden="true" />
         </button>
         <div className="w-6 h-px bg-border/70 my-1" />
         <button
@@ -251,7 +264,7 @@ export default function LeftSidebar({
                   showResizeHandle={false}
                 />
               </div>
-            ) : (
+            ) : leftTool === 'metrics' ? (
               <MetricsPanel
                 items={items}
                 filteredItems={filteredItems}
@@ -260,17 +273,25 @@ export default function LeftSidebar({
                 metricDisplayNames={metricDisplayNames}
                 facets={metricsFacets}
                 itemPopulationComplete={metricsItemPopulationComplete}
-                derivedMetric={derivedMetric}
-                derivedRankDisabledReason={derivedRankDisabledReason}
                 selectedItems={selectedItems}
                 selectedMetric={selectedMetric}
                 onSelectMetric={onSelectMetric}
-                onApplyDerivedMetric={onApplyDerivedMetric}
-                onRankByDerivedMetric={onRankByDerivedMetric}
                 filters={filters}
                 onChangeRange={onChangeRange}
                 onChangeCategoricalValues={onChangeCategoricalValues}
                 onChangeFilters={onChangeFilters}
+              />
+            ) : (
+              <DerivedScorePanel
+                items={items}
+                metricKeys={metricKeys}
+                categoricalKeys={categoricalKeys}
+                metricDisplayNames={metricDisplayNames}
+                facets={metricsFacets}
+                derivedMetric={derivedMetric}
+                derivedRankDisabledReason={derivedRankDisabledReason}
+                onApplyDerivedMetric={onApplyDerivedMetric}
+                onRankByDerivedMetric={onRankByDerivedMetric}
               />
             )}
           </div>

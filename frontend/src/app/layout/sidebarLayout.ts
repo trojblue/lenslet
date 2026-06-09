@@ -2,7 +2,7 @@ import { RESPONSIVE_LAYOUT_CONSTANTS } from './responsiveLayoutPolicy'
 
 export const LEFT_SIDEBAR_RAIL_WIDTH_PX = RESPONSIVE_LAYOUT_CONSTANTS.leftRailWidth
 
-type LeftTool = 'folders' | 'metrics'
+export type LeftTool = 'folders' | 'metrics' | 'derived'
 
 export function toggleLeftPanelContent(open: boolean): boolean {
   return !open

@@ -113,6 +113,14 @@ export function resolveAdjacentImagePath(
   return nextPath
 }
 
+export function resolveViewerGridRestorePath(
+  selectedPaths: readonly string[],
+  viewerPath: string | null | undefined,
+  rememberedPath: string | null | undefined,
+): string | null {
+  return selectedPaths[0] ?? viewerPath ?? rememberedPath ?? null
+}
+
 export function useAppSelectionViewerCompare({
   current,
   itemPaths,
@@ -162,6 +170,13 @@ export function useAppSelectionViewerCompare({
     setRestoreGridToSelectionToken((token) => token + 1)
   }, [])
 
+  const restoreGridToPath = useCallback((path: string | null | undefined) => {
+    if (!path) return
+    lastFocusedPathRef.current = path
+    setRestoreGridToSelectionToken((token) => token + 1)
+    focusGridCell(path)
+  }, [focusGridCell])
+
   const rememberFocusedPath = useCallback((path: string) => {
     lastFocusedPathRef.current = path
   }, [])
@@ -179,8 +194,11 @@ export function useAppSelectionViewerCompare({
       setSelectedPaths([imageTarget])
       return
     }
+    if (viewer) {
+      restoreGridToPath(resolveViewerGridRestorePath(selectedPaths, viewer, lastFocusedPathRef.current))
+    }
     resetViewerState()
-  }, [itemPaths, resetViewerState])
+  }, [itemPaths, resetViewerState, restoreGridToPath, selectedPaths, viewer])
 
   const clearViewerForSearch = useCallback((scopePath: string) => {
     if (!viewer) return
@@ -198,6 +216,7 @@ export function useAppSelectionViewerCompare({
   }, [itemPaths])
 
   const closeViewer = useCallback(() => {
+    const restorePath = resolveViewerGridRestorePath(selectedPaths, viewer, lastFocusedPathRef.current)
     setViewer(null)
     setViewerNavPaths([])
     if (viewerHistoryPushedRef.current) {
@@ -206,8 +225,8 @@ export function useAppSelectionViewerCompare({
     } else {
       replaceHash(current)
     }
-    focusGridCell(lastFocusedPathRef.current)
-  }, [current, focusGridCell])
+    restoreGridToPath(restorePath)
+  }, [current, restoreGridToPath, selectedPaths, viewer])
 
   const openCompare = useCallback(() => {
     if (compareOpen || !compareEnabled) return
@@ -255,6 +274,7 @@ export function useAppSelectionViewerCompare({
       setViewer(nextPath)
       replaceImageHash(nextPath)
     }
+    lastFocusedPathRef.current = nextPath
     setSelectedPaths([nextPath])
   }, [activeViewerNavPaths, selectedPaths, viewer])
 
@@ -273,6 +293,7 @@ export function useAppSelectionViewerCompare({
     const onPop = () => {
       const next = resolveOverlayPopstateResult(viewer, compareOpen)
       if (next.resetViewer) {
+        restoreGridToPath(resolveViewerGridRestorePath(selectedPaths, viewer, lastFocusedPathRef.current))
         viewerHistoryPushedRef.current = false
         setViewer(null)
         setViewerNavPaths([])
@@ -284,7 +305,7 @@ export function useAppSelectionViewerCompare({
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
-  }, [viewer, compareOpen])
+  }, [compareOpen, restoreGridToPath, selectedPaths, viewer])
 
   return {
     selectedPaths,

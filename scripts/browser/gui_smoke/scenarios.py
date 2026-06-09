@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 from scripts.smoke_harness import SmokeFailure
 from scripts.browser.waits import wait_for_grid_selection_count, wait_for_ui_settled
@@ -38,6 +38,9 @@ class SmokeResult:
     anchor_settled: str
     anchor_reentry_exact: bool
     search_visible_matches: list[str]
+    viewer_restore_open_path: str
+    viewer_restore_navigated_path: str
+    viewer_restore_focused_path: str
     inspector_default_order: list[str]
     inspector_reordered_order: list[str]
     inspector_reloaded_order: list[str]
@@ -81,6 +84,13 @@ class AnchorSearchScenarioResult:
     anchor_settled: str
     anchor_reentry_exact: bool
     search_visible_matches: list[str]
+
+
+@dataclass(frozen=True)
+class ViewerRestoreScenarioResult:
+    open_path: str
+    navigated_path: str
+    focused_path: str
 
 
 @dataclass(frozen=True)
@@ -446,6 +456,63 @@ def select_first_visible_grid_cell(page: Page, timeout_ms: float) -> str:
     return first_cell_id
 
 
+def grid_cell_id_for_path(path: str) -> str:
+    return f"cell-{quote(path, safe='')}"
+
+
+def wait_for_grid_cell_restored_to_path(page: Page, path: str, timeout_ms: float) -> str:
+    payload = page.wait_for_function(
+        """(path) => {
+          const id = `cell-${encodeURIComponent(path)}`
+          const el = document.getElementById(id)
+          if (!(el instanceof HTMLElement)) return false
+          const rect = el.getBoundingClientRect()
+          const visible = rect.bottom > 0
+            && rect.right > 0
+            && rect.top < window.innerHeight
+            && rect.left < window.innerWidth
+          if (!visible) return false
+          if (document.activeElement !== el) return false
+          if (el.getAttribute('aria-selected') !== 'true') return false
+          return { path, id: el.id }
+        }""",
+        arg=path,
+        timeout=timeout_ms,
+    ).json_value()
+    if not isinstance(payload, dict) or payload.get("path") != path:
+        raise SmokeFailure(f"Grid cell for viewer path {path!r} was not restored.")
+    focused_path = payload.get("path")
+    if not isinstance(focused_path, str):
+        raise SmokeFailure(f"Invalid restored grid-cell payload: {payload!r}.")
+    return focused_path
+
+
+def run_viewer_restore_scenario(page: Page, timeout_ms: float) -> ViewerRestoreScenarioResult:
+    visible_paths = wait_for_visible_grid_paths(page, minimum_count=4, timeout_ms=timeout_ms)
+    open_path = visible_paths[1]
+    navigated_path = visible_paths[2]
+    page.locator(f"[id='{grid_cell_id_for_path(open_path)}']").first.dblclick()
+    viewer = page.get_by_role("dialog", name="Image viewer")
+    viewer.wait_for(state="visible", timeout=timeout_ms)
+    page.get_by_role("button", name="Next image").click()
+    page.wait_for_function(
+        """(path) => {
+          const viewer = document.querySelector('[role="dialog"][aria-label="Image viewer"]')
+          return viewer instanceof HTMLElement && viewer.getAttribute('data-current-path') === path
+        }""",
+        arg=navigated_path,
+        timeout=timeout_ms,
+    )
+    viewer.get_by_role("button", name="Close").click()
+    viewer.wait_for(state="hidden", timeout=timeout_ms)
+    focused_path = wait_for_grid_cell_restored_to_path(page, navigated_path, timeout_ms)
+    return ViewerRestoreScenarioResult(
+        open_path=open_path,
+        navigated_path=navigated_path,
+        focused_path=focused_path,
+    )
+
+
 def prepare_reorder_scenario(page: Page, timeout_ms: float) -> None:
     # Work around current production-bundle instability when selecting while inspector is mounted.
     set_right_panel_open(page, open_state=False, timeout_ms=10_000)
@@ -809,6 +876,7 @@ def run_browser_checks(base_url: str, timeout_ms: float, strict_reentry_anchor: 
             left_panel = run_left_panel_scenario(page)
             right_panel = run_right_panel_resize_scenario(page)
             anchor_search = run_anchor_and_search_scenario(page, timeout_ms, strict_reentry_anchor)
+            viewer_restore = run_viewer_restore_scenario(page, timeout_ms)
             inspector_reorder = run_inspector_reorder_scenario(page, timeout_ms)
             run_compare_export_scenario(page, timeout_ms)
             inspector_compare_over_cap_message = run_metadata_compare_cap_scenario(page, timeout_ms)
@@ -825,6 +893,9 @@ def run_browser_checks(base_url: str, timeout_ms: float, strict_reentry_anchor: 
                 anchor_settled=anchor_search.anchor_settled,
                 anchor_reentry_exact=anchor_search.anchor_reentry_exact,
                 search_visible_matches=anchor_search.search_visible_matches,
+                viewer_restore_open_path=viewer_restore.open_path,
+                viewer_restore_navigated_path=viewer_restore.navigated_path,
+                viewer_restore_focused_path=viewer_restore.focused_path,
                 inspector_default_order=inspector_reorder.inspector_default_order,
                 inspector_reordered_order=inspector_reorder.inspector_reordered_order,
                 inspector_reloaded_order=inspector_reorder.inspector_reloaded_order,

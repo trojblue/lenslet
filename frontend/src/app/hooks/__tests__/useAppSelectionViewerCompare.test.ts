@@ -5,6 +5,7 @@ import {
   resolveGalleryOrderedItems,
   resolveSelectionOrderedItems,
   resolveOverlayPopstateResult,
+  resolveViewerGridRestorePath,
   shouldCloseCompareForSelectionChange,
 } from '../useAppSelectionViewerCompare'
 import type { BrowseItemPayload } from '../../../lib/types'
@@ -77,6 +78,16 @@ describe('useAppSelectionViewerCompare guards', () => {
     expect(resolveAdjacentImagePath(metricSortedPaths, '/images/mid.png', -1)).toBe('/images/high.png')
     expect(resolveAdjacentImagePath(metricSortedPaths, '/images/low.png', 1)).toBeNull()
     expect(resolveAdjacentImagePath(metricSortedPaths, '/images/missing.png', 1)).toBeNull()
+  })
+
+  it('restores the grid to the navigated fullscreen image before the originally focused image', () => {
+    expect(resolveViewerGridRestorePath(
+      ['/images/next.png'],
+      '/images/next.png',
+      '/images/original.png',
+    )).toBe('/images/next.png')
+    expect(resolveViewerGridRestorePath([], '/images/current.png', '/images/original.png')).toBe('/images/current.png')
+    expect(resolveViewerGridRestorePath([], null, '/images/original.png')).toBe('/images/original.png')
   })
 
   it('auto-closes compare only when compare is open and selection drops below compare support', () => {

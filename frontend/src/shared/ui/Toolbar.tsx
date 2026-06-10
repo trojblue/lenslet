@@ -209,6 +209,7 @@ export default function Toolbar({
     ? metricKeys.map((key) => ({
       value: `metric:${key}`,
       label: getMetricDisplayName(key, metricDisplayNames),
+      keywords: [key],
       disabled: sortDisabled,
     }))
     : []
@@ -309,6 +310,9 @@ export default function Toolbar({
                 aria-label="Sort and layout"
                 triggerClassName="toolbar-sort-trigger min-w-[110px]"
                 disabled={sortControlsDisabled || !sortSlotsVisible}
+                searchable="auto"
+                searchPlaceholder="Search sort options..."
+                emptyMessage="No matching sort options"
               />
               <button
                 className="toolbar-sort-dir btn btn-icon"

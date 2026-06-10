@@ -65,7 +65,8 @@ describe('MetricsPanel', () => {
       />,
     )
 
-    expect(html).toContain('<option value="quality_score" selected="">quality_score</option>')
+    expect(html).toContain('data-metric-selector')
+    expect(html).toContain('quality_score')
     expect(html).not.toContain('__index_level_0__')
   })
 
@@ -89,7 +90,8 @@ describe('MetricsPanel', () => {
       />,
     )
 
-    expect(html).toContain('<option value="l0r_viewpoint_family" selected="">l0r_viewpoint_family</option>')
+    expect(html).toContain('data-categorical-selector')
+    expect(html).toContain('l0r_viewpoint_family')
     expect(html).toContain('frontal')
     expect(html).toContain('profile')
     expect(html).toContain('Filtered: 1')
@@ -209,7 +211,7 @@ describe('MetricsPanel', () => {
       />,
     )
 
-    expect(html).toContain('>Rubric score</option>')
-    expect(html).not.toContain('>@derived/rubric_1</option>')
+    expect(html).toContain('Rubric score')
+    expect(html).not.toContain('>@derived/rubric_1<')
   })
 })

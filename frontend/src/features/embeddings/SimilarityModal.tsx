@@ -155,6 +155,7 @@ export default function SimilarityModal({
   const embeddingOptions = embeddings.map((e) => ({
     value: e.name,
     label: e.name,
+    keywords: [e.name],
   }))
 
   const showRejected = rejected.length > 0
@@ -199,6 +200,9 @@ export default function SimilarityModal({
                 placeholder={embeddingsLoading ? 'Loading embeddings...' : 'Select embedding'}
                 disabled={!embeddings.length}
                 triggerClassName="min-w-[180px]"
+                searchable="auto"
+                searchPlaceholder="Search embeddings..."
+                emptyMessage="No matching embeddings"
               />
               {selectedEmbedding && (
                 <span className="text-xs text-muted">

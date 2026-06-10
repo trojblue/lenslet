@@ -11,6 +11,7 @@ import {
   metricHistogramFromFacet,
   type MetricValuesByKey,
 } from '../model/metricValues'
+import Dropdown from '../../../shared/ui/Dropdown'
 import MetricCategoryCard from './MetricCategoryCard'
 import MetricHistogramCard from './MetricHistogramCard'
 
@@ -75,6 +76,13 @@ export default function MetricRangePanel({
     [facets, filteredItems, itemPopulationComplete, items, selectedItems, scopedMetricKeys]
   )
   const selectedValues = selectedValuesByKey ?? EMPTY_VALUES_BY_KEY
+  const metricOptions = useMemo(() => (
+    metricKeys.map((key) => ({
+      value: key,
+      label: getMetricDisplayName(key, metricDisplayNames),
+      keywords: [key],
+    }))
+  ), [metricDisplayNames, metricKeys])
 
   const renderMetricCard = (key: string, showTitle = false) => {
     const categories = getMetricCategories(categoriesByKey, key)
@@ -130,15 +138,20 @@ export default function MetricRangePanel({
             All metrics
           </div>
         ) : (
-          <select
-            className="ui-select w-full"
-            value={activeMetric}
-            onChange={(e) => onSelectMetric(e.target.value)}
-          >
-            {metricKeys.map((key) => (
-              <option key={key} value={key}>{getMetricDisplayName(key, metricDisplayNames)}</option>
-            ))}
-          </select>
+          <div data-metric-selector>
+            <Dropdown
+              value={activeMetric ?? ''}
+              onChange={onSelectMetric}
+              options={metricOptions}
+              aria-label="Metric"
+              title={activeMetric ? getMetricDisplayName(activeMetric, metricDisplayNames) : 'Metric'}
+              triggerClassName="w-full justify-between"
+              width="trigger"
+              searchable="auto"
+              searchPlaceholder="Search metrics..."
+              emptyMessage="No matching metrics"
+            />
+          </div>
         )}
       </div>
 

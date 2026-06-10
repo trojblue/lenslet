@@ -575,9 +575,14 @@ def run_inspector_reorder_scenario(page: Page, timeout_ms: float) -> InspectorRe
 
 
 def metric_input_labels(page: Page) -> list[str]:
-    raw = page.locator("[data-derived-numeric-key='0'] option").evaluate_all(
+    trigger = page.locator("[data-derived-numeric-key='0'] button[aria-haspopup='listbox']").first
+    trigger.click()
+    panel = page.locator('[role="listbox"][aria-label="Numeric metric 1"]').first
+    panel.wait_for(state="visible", timeout=5_000)
+    raw = panel.locator("button.dropdown-item").evaluate_all(
         "nodes => nodes.map((node) => (node.textContent || '').trim()).filter(Boolean)"
     )
+    page.keyboard.press("Escape")
     return [value for value in raw if isinstance(value, str)]
 
 
@@ -616,24 +621,28 @@ def wait_for_toolbar_count_label(page: Page, expected_label: str, timeout_ms: fl
     )
 
 
-def select_option_when_available(page: Page, option_value: str) -> bool:
-    selects = page.locator("select")
-    for idx in range(selects.count()):
-        select = selects.nth(idx)
-        values_raw = select.locator("option").evaluate_all(
-            "nodes => nodes.map((node) => node.getAttribute('value') || '')"
-        )
-        values = [value for value in values_raw if isinstance(value, str)]
-        if option_value in values:
-            select.select_option(option_value)
-            return True
-    return False
+def select_categorical_filter_field(page: Page, field_name: str, timeout_ms: float) -> None:
+    trigger = page.locator("[data-categorical-selector] button[aria-haspopup='listbox']").first
+    trigger.click()
+    panel = page.locator('[role="listbox"][aria-label="Categorical"]').first
+    panel.wait_for(state="visible", timeout=timeout_ms)
+    search = panel.get_by_role("searchbox").first
+    if search.count() > 0:
+        search.fill(field_name)
+    option = panel.get_by_role("option", name=field_name, exact=True).first
+    option.wait_for(state="visible", timeout=timeout_ms)
+    option.click()
 
 
 def select_toolbar_sort(page: Page, option_label: str, timeout_ms: float) -> None:
     trigger = page.get_by_label("Sort and layout")
     trigger.click()
-    option = page.get_by_role("option", name=option_label).first
+    panel = page.locator('[role="listbox"][aria-label="Sort and layout"]').first
+    panel.wait_for(state="visible", timeout=timeout_ms)
+    search = panel.get_by_role("searchbox").first
+    if search.count() > 0:
+        search.fill(option_label)
+    option = panel.get_by_role("option", name=option_label, exact=True).first
     option.wait_for(state="visible", timeout=timeout_ms)
     option.click()
 
@@ -739,7 +748,7 @@ def run_backend_browse_filter_workflow(
         raise SmokeFailure(f"Metric sort browse query returned unexpected status: {sort_response.status}.")
 
     page.get_by_role("button", name="Metrics and Filters").click()
-    select_option_when_available(page, categorical_key)
+    select_categorical_filter_field(page, categorical_key, timeout_ms)
     target_button = page.locator(f"button[title='{categorical_value}']").first
     target_button.wait_for(state="visible", timeout=timeout_ms)
 
@@ -865,26 +874,13 @@ def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricS
     if missing_inputs:
         raise SmokeFailure(f"Derived score metric inputs missing from Derived Score panel: {missing_inputs!r}.")
 
-    card.locator("[data-derived-score-name]").fill("new_score")
-    card.locator("[data-derived-score-intercept]").fill("0")
-    card.locator("[data-derived-numeric-key='0']").select_option("q1")
-    card.locator("[data-derived-numeric-weight='0']").fill("1")
-    card.locator("[data-derived-numeric-missing='0']").select_option("invalid")
-
-    add_numeric = card.locator("button[title='Add numeric term']")
-    add_numeric.click()
-    card.locator("[data-derived-numeric-key='1']").select_option("q2")
-    card.locator("[data-derived-numeric-weight='1']").fill("1")
-    card.locator("[data-derived-numeric-missing='1']").select_option("invalid")
-    add_numeric.click()
-    card.locator("[data-derived-numeric-key='2']").select_option("q3")
-    card.locator("[data-derived-numeric-weight='2']").fill("1")
-    card.locator("[data-derived-numeric-missing='2']").select_option("invalid")
-
-    card.locator("button[title='Add categorical bonus']").click()
-    card.locator("[data-derived-categorical-key='0']").select_option("dataset_from")
-    card.locator("[data-derived-categorical-value='0']").select_option("gt")
-    card.locator("[data-derived-categorical-weight='0']").fill("100")
+    card.locator("[data-derived-formula-code]").fill(
+        "new_score = 0 + 1*q1 + 1*q2 + 1*q3 + 100 if dataset_from = gt"
+    )
+    card.locator("[data-derived-formula-apply]").click()
+    formula_diagnostics = " ".join(card.locator("[data-derived-formula-diagnostics]").inner_text().split())
+    if formula_diagnostics != "Formula applied.":
+        raise SmokeFailure(f"Unexpected derived score formula diagnostics: {formula_diagnostics!r}.")
     formula_preview = " ".join(card.locator("[data-derived-formula-preview]").inner_text().split())
     if "new_score" not in formula_preview or "dataset_from = gt" not in formula_preview:
         raise SmokeFailure(f"Unexpected derived score formula preview: {formula_preview!r}.")

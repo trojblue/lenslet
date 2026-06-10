@@ -155,6 +155,9 @@ export default function ToolbarMobileDrawer({
             triggerClassName="mobile-pill mobile-pill-dropdown"
             panelClassName="mobile-drawer-panel"
             disabled={sortDisabled}
+            searchable="auto"
+            searchPlaceholder="Search sort options..."
+            emptyMessage="No matching sort options"
           />
         </div>
         <button

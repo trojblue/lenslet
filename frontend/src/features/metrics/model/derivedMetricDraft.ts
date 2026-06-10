@@ -45,9 +45,23 @@ export type DerivedMetricDraftRankState = {
   evaluation: DerivedMetricEvaluation | null
 }
 
+export type DerivedMetricFormulaDiagnostics = {
+  errors: string[]
+  missingMetricKeys: string[]
+  missingCategoricalKeys: string[]
+  skippedTerms: string[]
+}
+
+export type DerivedMetricFormulaApplyResult = {
+  draft: DerivedMetricDraft
+  diagnostics: DerivedMetricFormulaDiagnostics
+  applied: boolean
+}
+
 const DEFAULT_DERIVED_METRIC_ID = 'score_v1'
 const DEFAULT_DERIVED_METRIC_NAME = 'new_score'
 const DEFAULT_WEIGHT = '1'
+const SIMPLE_FORMULA_TOKEN_RE = /^[A-Za-z0-9_./:]+$/
 
 export function createDerivedMetricDraft(
   spec: DerivedMetricSpec | null,
@@ -183,6 +197,132 @@ export function buildDerivedMetricFormulaPreview(
   return `${name} = ${parts.join(' + ')}`
 }
 
+export function buildDerivedMetricFormulaCode(draft: DerivedMetricDraft): string {
+  const name = draft.name.trim() || DEFAULT_DERIVED_METRIC_NAME
+  const parts = [draft.intercept.trim() || '0']
+  for (const term of draft.numericTerms) {
+    const key = term.key.trim() || '?'
+    const weight = term.weight.trim() || '?'
+    const value = term.zNormalize
+      ? `znorm(${formatFormulaToken(key)})`
+      : formatFormulaToken(key)
+    parts.push(`${weight}*${value}`)
+  }
+  for (const term of draft.categoricalTerms) {
+    const key = term.key.trim() || '?'
+    const value = term.value.trim() || '?'
+    const weight = term.weight.trim() || '?'
+    parts.push(`${weight} if ${formatFormulaToken(key)} = ${formatFormulaToken(value)}`)
+  }
+  return `${name} = ${parts.join(' + ')}`
+}
+
+export function applyDerivedMetricFormulaCode(
+  formula: string,
+  currentDraft: DerivedMetricDraft,
+  options: {
+    metricKeys: readonly string[]
+    categoricalKeys: readonly string[]
+  },
+): DerivedMetricFormulaApplyResult {
+  const diagnostics: DerivedMetricFormulaDiagnostics = {
+    errors: [],
+    missingMetricKeys: [],
+    missingCategoricalKeys: [],
+    skippedTerms: [],
+  }
+  const availableMetrics = new Set(options.metricKeys)
+  const availableCategoricals = new Set(options.categoricalKeys)
+  const source = formula.trim()
+  if (!source) {
+    return {
+      draft: currentDraft,
+      diagnostics: { ...diagnostics, errors: ['Formula is empty.'] },
+      applied: false,
+    }
+  }
+
+  const split = splitFormulaAssignment(source)
+  const terms = splitFormulaTerms(split.rhs)
+  if (!terms.length) {
+    return {
+      draft: currentDraft,
+      diagnostics: { ...diagnostics, errors: ['Formula has no terms.'] },
+      applied: false,
+    }
+  }
+
+  let intercept = 0
+  let sawIntercept = false
+  const numericTerms: DerivedMetricNumericDraftTerm[] = []
+  const categoricalTerms: DerivedMetricCategoricalDraftTerm[] = []
+  const missingMetricKeys = new Set<string>()
+  const missingCategoricalKeys = new Set<string>()
+
+  for (const rawTerm of terms) {
+    const parsed = parseFormulaTerm(rawTerm)
+    if (parsed.kind === 'invalid') {
+      diagnostics.errors.push(parsed.error)
+      diagnostics.skippedTerms.push(rawTerm.trim())
+      continue
+    }
+    if (parsed.kind === 'intercept') {
+      intercept += parsed.value
+      sawIntercept = true
+      continue
+    }
+    if (parsed.kind === 'numeric') {
+      if (!availableMetrics.has(parsed.key)) {
+        missingMetricKeys.add(parsed.key)
+        diagnostics.skippedTerms.push(rawTerm.trim())
+        continue
+      }
+      numericTerms.push({
+        key: parsed.key,
+        weight: formatDraftNumber(parsed.weight),
+        missing: existingMissingPolicy(currentDraft, parsed.key),
+        zNormalize: parsed.zNormalize,
+      })
+      continue
+    }
+    if (!availableCategoricals.has(parsed.key)) {
+      missingCategoricalKeys.add(parsed.key)
+      diagnostics.skippedTerms.push(rawTerm.trim())
+      continue
+    }
+    categoricalTerms.push({
+      key: parsed.key,
+      value: parsed.value,
+      weight: formatDraftNumber(parsed.weight),
+    })
+  }
+
+  diagnostics.missingMetricKeys = Array.from(missingMetricKeys).sort()
+  diagnostics.missingCategoricalKeys = Array.from(missingCategoricalKeys).sort()
+  if (!numericTerms.length && !categoricalTerms.length && !sawIntercept) {
+    return {
+      draft: currentDraft,
+      diagnostics: {
+        ...diagnostics,
+        errors: diagnostics.errors.length ? diagnostics.errors : ['Formula has no usable terms.'],
+      },
+      applied: false,
+    }
+  }
+
+  return {
+    draft: {
+      ...currentDraft,
+      name: split.name ?? currentDraft.name,
+      intercept: formatDraftNumber(intercept),
+      numericTerms,
+      categoricalTerms,
+    },
+    diagnostics,
+    applied: true,
+  }
+}
+
 export function evaluateDerivedMetricDraft(
   draft: DerivedMetricDraft,
   params: {
@@ -230,6 +370,175 @@ export function collectCategoricalValuesByKey(
   return new Map(
     Array.from(byKey.entries()).map(([key, values]) => [key, Array.from(values).sort()]),
   )
+}
+
+type ParsedFormulaTerm =
+  | { kind: 'intercept'; value: number }
+  | { kind: 'numeric'; key: string; weight: number; zNormalize: boolean }
+  | { kind: 'categorical'; key: string; value: string; weight: number }
+  | { kind: 'invalid'; error: string }
+
+function splitFormulaAssignment(source: string): { name: string | null; rhs: string } {
+  const index = findTopLevelEquals(source)
+  if (index < 0) return { name: null, rhs: source }
+  const head = source.slice(0, index).trim()
+  if (!head || head.includes('+') || head.includes('*') || findTopLevelIf(head) >= 0) {
+    return { name: null, rhs: source }
+  }
+  return { name: head, rhs: source.slice(index + 1).trim() }
+}
+
+function splitFormulaTerms(source: string): string[] {
+  const terms: string[] = []
+  let start = 0
+  let bracketDepth = 0
+  let parenDepth = 0
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    const previous = source[index - 1]
+    if (char === '[' && parenDepth >= 0) bracketDepth += 1
+    else if (char === ']' && bracketDepth > 0) bracketDepth -= 1
+    else if (char === '(' && bracketDepth === 0) parenDepth += 1
+    else if (char === ')' && bracketDepth === 0 && parenDepth > 0) parenDepth -= 1
+    else if (
+      bracketDepth === 0
+      && parenDepth === 0
+      && (char === '+' || char === '-')
+      && index > start
+      && previous !== 'e'
+      && previous !== 'E'
+    ) {
+      const term = source.slice(start, index).trim()
+      if (term) terms.push(term)
+      start = index
+    }
+  }
+  const tail = source.slice(start).trim()
+  if (tail) terms.push(tail)
+  return terms
+}
+
+function parseFormulaTerm(rawTerm: string): ParsedFormulaTerm {
+  const term = rawTerm.trim()
+  const ifIndex = findTopLevelIf(term)
+  if (ifIndex >= 0) return parseCategoricalFormulaTerm(term, ifIndex)
+
+  const starIndex = findTopLevelChar(term, '*')
+  if (starIndex < 0) {
+    const intercept = parseFormulaNumber(term)
+    if (intercept != null) return { kind: 'intercept', value: intercept }
+    const key = parseFormulaToken(term)
+    if (!key) return { kind: 'invalid', error: `Invalid metric term: ${term}.` }
+    return { kind: 'numeric', key, weight: 1, zNormalize: false }
+  }
+
+  const weight = parseFormulaNumber(term.slice(0, starIndex))
+  if (weight == null) return { kind: 'invalid', error: `Invalid weight in term: ${term}.` }
+  const value = parseNumericFormulaValue(term.slice(starIndex + 1))
+  if (!value) return { kind: 'invalid', error: `Invalid metric in term: ${term}.` }
+  return { kind: 'numeric', key: value.key, weight, zNormalize: value.zNormalize }
+}
+
+function parseCategoricalFormulaTerm(term: string, ifIndex: number): ParsedFormulaTerm {
+  const rawWeight = term.slice(0, ifIndex).trim()
+  const weight = rawWeight ? parseFormulaNumber(rawWeight) : 1
+  if (weight == null) return { kind: 'invalid', error: `Invalid categorical weight in term: ${term}.` }
+
+  const condition = term.slice(ifIndex).trim().replace(/^if\s+/i, '')
+  const equalsIndex = findTopLevelEquals(condition)
+  if (equalsIndex < 0) return { kind: 'invalid', error: `Invalid categorical condition: ${term}.` }
+  const key = parseFormulaToken(condition.slice(0, equalsIndex))
+  const valueStart = condition[equalsIndex + 1] === '=' ? equalsIndex + 2 : equalsIndex + 1
+  const value = parseFormulaToken(condition.slice(valueStart))
+  if (!key || !value) return { kind: 'invalid', error: `Invalid categorical condition: ${term}.` }
+  return { kind: 'categorical', key, value, weight }
+}
+
+function parseNumericFormulaValue(rawValue: string): { key: string; zNormalize: boolean } | null {
+  const value = rawValue.trim()
+  const lower = value.toLowerCase()
+  if (lower.startsWith('znorm(') && value.endsWith(')')) {
+    const key = parseFormulaToken(value.slice(6, -1))
+    return key ? { key, zNormalize: true } : null
+  }
+  const key = parseFormulaToken(value)
+  return key ? { key, zNormalize: false } : null
+}
+
+function findTopLevelIf(source: string): number {
+  let bracketDepth = 0
+  let parenDepth = 0
+  const lower = source.toLowerCase()
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '[') bracketDepth += 1
+    else if (char === ']' && bracketDepth > 0) bracketDepth -= 1
+    else if (char === '(' && bracketDepth === 0) parenDepth += 1
+    else if (char === ')' && bracketDepth === 0 && parenDepth > 0) parenDepth -= 1
+    if (bracketDepth !== 0 || parenDepth !== 0) continue
+    if (
+      lower.slice(index, index + 2) === 'if'
+      && (index === 0 || /\s/.test(source[index - 1]))
+      && (index + 2 >= source.length || /\s/.test(source[index + 2]))
+    ) {
+      return index
+    }
+  }
+  return -1
+}
+
+function findTopLevelEquals(source: string): number {
+  return findTopLevelChar(source, '=')
+}
+
+function findTopLevelChar(source: string, target: string): number {
+  let bracketDepth = 0
+  let parenDepth = 0
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '[') bracketDepth += 1
+    else if (char === ']' && bracketDepth > 0) bracketDepth -= 1
+    else if (char === '(' && bracketDepth === 0) parenDepth += 1
+    else if (char === ')' && bracketDepth === 0 && parenDepth > 0) parenDepth -= 1
+    else if (char === target && bracketDepth === 0 && parenDepth === 0) return index
+  }
+  return -1
+}
+
+function parseFormulaToken(rawValue: string): string | null {
+  const value = rawValue.trim()
+  if (!value) return null
+  if (!value.startsWith('[')) return value
+  if (!value.endsWith(']')) return null
+  let out = ''
+  for (let index = 1; index < value.length - 1; index += 1) {
+    const char = value[index]
+    if (char === '\\' && index + 1 < value.length - 1) {
+      out += value[index + 1]
+      index += 1
+    } else {
+      out += char
+    }
+  }
+  const token = out.trim()
+  return token || null
+}
+
+function parseFormulaNumber(value: string): number | null {
+  return parseFiniteDraftNumber(value.trim().replace(/^([+-])\s+/, '$1'))
+}
+
+function formatFormulaToken(value: string): string {
+  const token = value.trim()
+  if (SIMPLE_FORMULA_TOKEN_RE.test(token)) return token
+  return `[${token.replace(/\\/g, '\\\\').replace(/]/g, '\\]')}]`
+}
+
+function existingMissingPolicy(
+  draft: DerivedMetricDraft,
+  key: string,
+): DerivedMetricNumericMissingPolicy {
+  return draft.numericTerms.find((term) => term.key.trim() === key)?.missing ?? 'invalid'
 }
 
 function normalizeDerivedId(value: string): string | null {

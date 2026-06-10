@@ -70,16 +70,16 @@ def open_metrics_panel(page: Any, timeout_ms: float) -> None:
 
 
 def read_metric_panel_keys(page: Any) -> list[str]:
-    raw = page.evaluate(
-        """() => {
-          const metricSelect = document.querySelector('.app-left-panel select.ui-select');
-          if (!(metricSelect instanceof HTMLSelectElement)) return [];
-          return Array.from(metricSelect.options)
-            .map((option) => option.textContent || '')
-            .map((label) => label.trim())
-            .filter((label) => label.length > 0);
-        }"""
+    trigger = page.locator('.app-left-panel [data-metric-selector] button[aria-haspopup="listbox"]').first
+    if trigger.count() == 0:
+        return []
+    trigger.click()
+    panel = page.locator('[role="listbox"][aria-label="Metric"]').first
+    panel.wait_for(state="visible", timeout=5_000)
+    raw = panel.locator("button.dropdown-item").evaluate_all(
+        "nodes => nodes.map((node) => (node.textContent || '').trim()).filter(Boolean)"
     )
+    page.keyboard.press("Escape")
     if not isinstance(raw, list):
         raise SmokeFailure("Failed to read metric panel options.")
     return [candidate for candidate in raw if isinstance(candidate, str)]

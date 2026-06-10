@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { THEME_PRESETS, resolveThemePresetId, type ThemePresetId } from '../../theme/runtime'
 import type { CompareOrderMode, TableSourceColumnOption, TableSourceColumnsPayload } from '../../lib/types'
+import Dropdown from './Dropdown'
 import {
   clampMenuPosition,
   getVisibleViewportBounds,
@@ -157,6 +158,13 @@ export default function ThemeSettingsMenu({
   const sourceColumnState = resolveSourceColumnMenuState(sourceColumns)
   const supportsSourceColumnSetting = sourceColumnState.enabled && typeof onSourceColumnChange === 'function'
   const { selectedSourceColumn, selectedSourceStatus } = sourceColumnState
+  const sourceColumnOptions = useMemo(() => (
+    sourceColumns?.columns.map((column) => ({
+      value: column.name,
+      label: column.name,
+      keywords: [column.name],
+    })) ?? []
+  ), [sourceColumns])
   const updatePanelPosition = useCallback(() => {
     if (!open || typeof window === 'undefined') return
     const rootElement = rootRef.current
@@ -268,26 +276,28 @@ export default function ThemeSettingsMenu({
           <div className="theme-settings-menu-divider" />
           <div className="theme-settings-menu-header">Source</div>
           <div className="theme-settings-menu-options">
-            <label className="theme-settings-menu-field">
+            <div className="theme-settings-menu-field">
               <span className="theme-settings-menu-option-label">Image column</span>
-              <select
-                className="theme-settings-menu-select"
+              <Dropdown
                 value={selectedSourceColumn}
+                onChange={(nextColumn) => onSourceColumnChange?.(nextColumn)}
+                options={sourceColumnOptions}
+                aria-label="Image column"
+                title={selectedSourceColumn || 'Image column'}
                 disabled={sourceColumnSwitching}
-                onChange={(event) => onSourceColumnChange?.(event.currentTarget.value)}
-              >
-                {sourceColumns.columns.map((column) => (
-                  <option key={column.name} value={column.name}>
-                    {column.name}
-                  </option>
-                ))}
-              </select>
+                triggerClassName="theme-settings-menu-select theme-settings-menu-dropdown justify-between"
+                width="trigger"
+                searchable="auto"
+                searchPlaceholder="Search columns..."
+                emptyMessage="No matching columns"
+                portal={false}
+              />
               {selectedSourceStatus && (
                 <span className="theme-settings-menu-option-subtitle">
                   {selectedSourceStatus.sample_usable} / {selectedSourceStatus.sample_total} sampled rows look image-like
                 </span>
               )}
-            </label>
+            </div>
           </div>
         </>
       )}

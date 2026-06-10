@@ -905,9 +905,12 @@ def _open_metric_sort_option(
     sort_trigger.click()
     sort_menu = page.locator('[role="listbox"][aria-label="Sort and layout"]').first
     sort_menu.wait_for(state="visible")
-    if forbidden_metric_key and sort_menu.get_by_role("option", name=forbidden_metric_key).count() > 0:
+    if forbidden_metric_key and sort_menu.get_by_role("option", name=forbidden_metric_key, exact=True).count() > 0:
         raise SmokeFailure(f"forbidden metric key {forbidden_metric_key!r} leaked into sort controls")
-    metric_option = sort_menu.get_by_role("option", name=metric_key).first
+    search = sort_menu.get_by_role("searchbox").first
+    if search.count() > 0:
+        search.fill(metric_key)
+    metric_option = sort_menu.get_by_role("option", name=metric_key, exact=True).first
     metric_option.wait_for(state="visible")
     return metric_option
 
@@ -937,13 +940,21 @@ def _probe_metric_sort(
 
 def _open_metric_filter_select(page: Any, metric_key: str, forbidden_metric_key: str | None) -> Any:
     page.get_by_role("button", name="Metrics and Filters").first.click()
-    metric_select = page.locator(".app-left-panel select.ui-select").first
-    if metric_select.locator(f'option[value="{metric_key}"]').count() == 0:
+    metric_trigger = page.locator(".app-left-panel [data-metric-selector] button[aria-haspopup='listbox']").first
+    metric_trigger.click()
+    metric_menu = page.locator('[role="listbox"][aria-label="Metric"]').first
+    metric_menu.wait_for(state="visible")
+    if metric_menu.get_by_role("option", name=metric_key, exact=True).count() == 0:
         raise SmokeFailure(f"metric key {metric_key!r} is missing from the metrics panel selector")
-    if forbidden_metric_key and metric_select.locator(f'option[value="{forbidden_metric_key}"]').count() > 0:
+    if forbidden_metric_key and metric_menu.get_by_role("option", name=forbidden_metric_key, exact=True).count() > 0:
         raise SmokeFailure(f"forbidden metric key {forbidden_metric_key!r} leaked into the metrics panel")
-    metric_select.select_option(metric_key)
-    return metric_select
+    search = metric_menu.get_by_role("searchbox").first
+    if search.count() > 0:
+        search.fill(metric_key)
+    metric_option = metric_menu.get_by_role("option", name=metric_key, exact=True).first
+    metric_option.wait_for(state="visible")
+    metric_option.click()
+    return metric_trigger
 
 
 def _wait_for_metric_filter_narrowing(page: Any, *, before: int, browser_timeout_ms: float) -> int:

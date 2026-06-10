@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { BrowseItemPayload } from '../../../../lib/types'
 import {
+  applyDerivedMetricFormulaCode,
+  buildDerivedMetricFormulaCode,
   buildDerivedMetricFormulaPreview,
   buildDerivedMetricSpecFromDraft,
   collectCategoricalValuesByKey,
@@ -52,6 +54,86 @@ describe('derived metric drafts', () => {
     })
     expect(buildDerivedMetricFormulaPreview(draft, { q1: 'Question 1' })).toBe(
       'new_score = 2 + 0.5*znorm(Question 1) + 3 if dataset_from = gt',
+    )
+    expect(buildDerivedMetricFormulaCode(draft)).toBe(
+      'new_score = 2 + 0.5*znorm(q1) + 3 if dataset_from = gt',
+    )
+  })
+
+  it('imports formula code into ordered available terms and preserves known missing policies', () => {
+    const draft = createDerivedMetricDraft(null, ['q1', 'q2'])
+    draft.numericTerms = [{ key: 'q1', weight: '1', missing: 'zero', zNormalize: false }]
+
+    const result = applyDerivedMetricFormulaCode(
+      'combo = 1 + 0.7*q1 - 0.2*znorm(q2) + 3 if source_column = gt',
+      draft,
+      {
+        metricKeys: ['q1', 'q2'],
+        categoricalKeys: ['source_column'],
+      },
+    )
+
+    expect(result.applied).toBe(true)
+    expect(result.diagnostics).toEqual({
+      errors: [],
+      missingMetricKeys: [],
+      missingCategoricalKeys: [],
+      skippedTerms: [],
+    })
+    expect(result.draft).toMatchObject({
+      name: 'combo',
+      intercept: '1',
+      numericTerms: [
+        { key: 'q1', weight: '0.7', missing: 'zero', zNormalize: false },
+        { key: 'q2', weight: '-0.2', missing: 'invalid', zNormalize: true },
+      ],
+      categoricalTerms: [
+        { key: 'source_column', value: 'gt', weight: '3' },
+      ],
+    })
+  })
+
+  it('applies available formula terms and reports missing inputs', () => {
+    const draft = createDerivedMetricDraft(null, ['q1'])
+
+    const result = applyDerivedMetricFormulaCode(
+      'score = 0 + 1*q1 + 2*missing_metric + 5 if missing_field = gt + 4 if source = train',
+      draft,
+      {
+        metricKeys: ['q1'],
+        categoricalKeys: ['source'],
+      },
+    )
+
+    expect(result.applied).toBe(true)
+    expect(result.diagnostics.missingMetricKeys).toEqual(['missing_metric'])
+    expect(result.diagnostics.missingCategoricalKeys).toEqual(['missing_field'])
+    expect(result.diagnostics.skippedTerms).toEqual(['+ 2*missing_metric', '+ 5 if missing_field = gt'])
+    expect(result.draft.numericTerms.map((term) => term.key)).toEqual(['q1'])
+    expect(result.draft.categoricalTerms).toEqual([{ key: 'source', value: 'train', weight: '4' }])
+  })
+
+  it('supports bracket-quoted formula tokens', () => {
+    const draft = createDerivedMetricDraft(null, [])
+
+    const result = applyDerivedMetricFormulaCode(
+      'score = 0 + 0.5*[manual-score] + 2 if [source column] = [ptv-03]',
+      draft,
+      {
+        metricKeys: ['manual-score'],
+        categoricalKeys: ['source column'],
+      },
+    )
+
+    expect(result.applied).toBe(true)
+    expect(result.draft.numericTerms).toEqual([
+      { key: 'manual-score', weight: '0.5', missing: 'invalid', zNormalize: false },
+    ])
+    expect(result.draft.categoricalTerms).toEqual([
+      { key: 'source column', value: 'ptv-03', weight: '2' },
+    ])
+    expect(buildDerivedMetricFormulaCode(result.draft)).toBe(
+      'score = 0 + 0.5*[manual-score] + 2 if [source column] = [ptv-03]',
     )
   })
 

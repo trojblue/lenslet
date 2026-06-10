@@ -42,7 +42,8 @@ describe('MetricRangePanel', () => {
       />,
     )
 
-    expect(html).toContain('<option value="quality_score" selected="">quality_score</option>')
+    expect(html).toContain('data-metric-selector')
+    expect(html).toContain('quality_score')
     expect(html).toContain('Population: 2')
   })
 

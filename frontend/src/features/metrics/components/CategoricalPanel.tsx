@@ -5,6 +5,7 @@ import {
   collectCategoricalBucketsFromFacets,
   getCategoricalBuckets,
 } from '../model/categoricalValues'
+import Dropdown from '../../../shared/ui/Dropdown'
 import CategoricalCard from './CategoricalCard'
 
 interface CategoricalPanelProps {
@@ -52,6 +53,13 @@ export default function CategoricalPanel({
     },
     [facets, filteredItems, itemPopulationComplete, items, selectedItems, scopedCategoricalKeys]
   )
+  const categoricalOptions = useMemo(() => (
+    categoricalKeys.map((key) => ({
+      value: key,
+      label: key,
+      keywords: [key],
+    }))
+  ), [categoricalKeys])
 
   if (!categoricalKeys.length) return null
 
@@ -85,15 +93,20 @@ export default function CategoricalPanel({
             All categoricals
           </div>
         ) : (
-          <select
-            className="ui-select w-full"
-            value={activeCategorical}
-            onChange={(e) => setSelectedCategorical(e.target.value)}
-          >
-            {categoricalKeys.map((key) => (
-              <option key={key} value={key}>{key}</option>
-            ))}
-          </select>
+          <div data-categorical-selector>
+            <Dropdown
+              value={activeCategorical ?? ''}
+              onChange={setSelectedCategorical}
+              options={categoricalOptions}
+              aria-label="Categorical"
+              title={activeCategorical ?? 'Categorical'}
+              triggerClassName="w-full justify-between"
+              width="trigger"
+              searchable="auto"
+              searchPlaceholder="Search fields..."
+              emptyMessage="No matching fields"
+            />
+          </div>
         )}
       </div>
 

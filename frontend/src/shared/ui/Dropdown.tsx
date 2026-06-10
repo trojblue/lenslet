@@ -1,14 +1,23 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   getDropdownPanelPosition,
   getVisibleViewportBounds,
   subscribeVisibleViewportChanges,
 } from '../../lib/menuPosition'
+import {
+  filterDropdownOptions,
+  findEnabledOption,
+  findFirstEnabledOption,
+  findNextEnabledOption,
+  flattenDropdownOptions,
+  isDropdownGrouped,
+} from './dropdownSearch'
 
 export interface DropdownOption {
   value: string
   label: string
+  keywords?: string[]
   icon?: React.ReactNode
   disabled?: boolean
 }
@@ -31,11 +40,12 @@ export interface DropdownProps {
   showChevron?: boolean
   title?: string
   disabled?: boolean
+  searchable?: boolean | 'auto'
+  searchThreshold?: number
+  searchPlaceholder?: string
+  emptyMessage?: string
+  portal?: boolean
   'aria-label'?: string
-}
-
-function isGrouped(options: DropdownOption[] | DropdownGroup[]): options is DropdownGroup[] {
-  return options.length > 0 && 'options' in options[0]
 }
 
 interface FloatingPanelPosition {
@@ -45,6 +55,8 @@ interface FloatingPanelPosition {
 }
 
 const NOOP_ON_OPEN_CHANGE = (_open: boolean) => {}
+const DEFAULT_SEARCH_THRESHOLD = 12
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 function getInitialPosition(): FloatingPanelPosition {
   return { x: 0, y: 0, ready: false }
@@ -63,33 +75,38 @@ export default function Dropdown({
   showChevron = true,
   title,
   disabled = false,
+  searchable = false,
+  searchThreshold = DEFAULT_SEARCH_THRESHOLD,
+  searchPlaceholder = 'Search options...',
+  emptyMessage = 'No matching options',
+  portal = true,
   'aria-label': ariaLabel,
 }: DropdownProps) {
+  const listboxId = useId()
   const [open, setOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [highlightedValue, setHighlightedValue] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const itemRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
   const [panelPosition, setPanelPosition] = useState<FloatingPanelPosition>(getInitialPosition)
 
-  const findLabel = useCallback((): string => {
-    const search = (opts: DropdownOption[]): string | null => {
-      const found = opts.find((o) => o.value === value)
-      return found ? found.label : null
-    }
-
-    if (isGrouped(options)) {
-      for (const group of options) {
-        const label = search(group.options)
-        if (label) return label
-      }
-    } else {
-      const label = search(options)
-      if (label) return label
-    }
-    return placeholder
-  }, [value, options, placeholder])
-
-  const selectedLabel = findLabel()
+  const flatOptions = useMemo(() => flattenDropdownOptions(options), [options])
+  const selectedLabel = flatOptions.find((option) => option.value === value)?.label ?? placeholder
+  const effectiveSearchable = searchable === true || (
+    searchable === 'auto' && flatOptions.length >= searchThreshold
+  )
+  const filteredOptions = useMemo(() => (
+    effectiveSearchable
+      ? filterDropdownOptions(options, searchQuery)
+      : { options, totalCount: flatOptions.length, matchCount: flatOptions.length }
+  ), [effectiveSearchable, flatOptions.length, options, searchQuery])
+  const visibleFlatOptions = useMemo(
+    () => flattenDropdownOptions(filteredOptions.options),
+    [filteredOptions.options],
+  )
 
   const triggerWidth = containerRef.current?.getBoundingClientRect().width
     ?? triggerRef.current?.offsetWidth
@@ -124,13 +141,26 @@ export default function Dropdown({
     ))
   }, [align, forcedPanelWidth, open])
 
-  useLayoutEffect(() => {
+  const closeDropdown = useCallback((focusTrigger = false) => {
+    setOpen(false)
+    if (focusTrigger) {
+      window.requestAnimationFrame(() => triggerRef.current?.focus())
+    }
+  }, [])
+
+  const openDropdown = useCallback((seedQuery?: string) => {
+    if (disabled) return
+    if (seedQuery !== undefined) setSearchQuery(seedQuery)
+    setOpen(true)
+  }, [disabled])
+
+  useIsomorphicLayoutEffect(() => {
     if (!open) {
       setPanelPosition(getInitialPosition())
       return
     }
     updatePanelPosition()
-  }, [open, updatePanelPosition, options, value])
+  }, [filteredOptions.options, open, updatePanelPosition, value])
 
   useEffect(() => {
     if (!open) return
@@ -144,8 +174,7 @@ export default function Dropdown({
 
     const onEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setOpen(false)
-        triggerRef.current?.focus()
+        closeDropdown(true)
       }
     }
 
@@ -160,22 +189,111 @@ export default function Dropdown({
       window.removeEventListener('keydown', onEscape)
       unsubscribeViewport()
     }
-  }, [open, updatePanelPosition])
+  }, [closeDropdown, open, updatePanelPosition])
 
-  const handleSelect = (optValue: string) => {
+  useEffect(() => {
+    if (open) return
+    itemRefs.current.clear()
+    setSearchQuery('')
+    setHighlightedValue(null)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    setHighlightedValue((current) => {
+      if (findEnabledOption(filteredOptions.options, current)) return current
+      return (
+        findEnabledOption(filteredOptions.options, value)
+        ?? findFirstEnabledOption(filteredOptions.options)
+      )?.value ?? null
+    })
+  }, [filteredOptions.options, open, value])
+
+  useEffect(() => {
+    if (!open || !effectiveSearchable) return
+    const handle = window.requestAnimationFrame(() => searchInputRef.current?.focus())
+    return () => window.cancelAnimationFrame(handle)
+  }, [effectiveSearchable, open])
+
+  useEffect(() => {
+    if (!open || !highlightedValue) return
+    itemRefs.current.get(highlightedValue)?.scrollIntoView({ block: 'nearest' })
+  }, [highlightedValue, open])
+
+  const handleSelect = useCallback((optValue: string) => {
     onChange(optValue)
-    setOpen(false)
-    triggerRef.current?.focus()
+    closeDropdown(true)
+  }, [closeDropdown, onChange])
+
+  const moveHighlight = useCallback((direction: 1 | -1) => {
+    setHighlightedValue((current) => (
+      findNextEnabledOption(filteredOptions.options, current, direction)?.value ?? current
+    ))
+  }, [filteredOptions.options])
+
+  const selectHighlighted = useCallback(() => {
+    const highlighted = findEnabledOption(filteredOptions.options, highlightedValue)
+    if (!highlighted) return
+    handleSelect(highlighted.value)
+  }, [filteredOptions.options, handleSelect, highlightedValue])
+
+  const handlePanelKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      moveHighlight(1)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      moveHighlight(-1)
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      setHighlightedValue(findFirstEnabledOption(filteredOptions.options)?.value ?? null)
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      setHighlightedValue(findNextEnabledOption(filteredOptions.options, null, -1)?.value ?? null)
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      selectHighlighted()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      closeDropdown(true)
+    }
+  }
+
+  const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (disabled) return
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      openDropdown()
+      moveHighlight(1)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      openDropdown()
+      moveHighlight(-1)
+    } else if (effectiveSearchable && isPrintableKey(event)) {
+      event.preventDefault()
+      openDropdown(event.key)
+    }
+  }
+
+  const setItemRef = (optValue: string, node: HTMLButtonElement | null) => {
+    if (node) {
+      itemRefs.current.set(optValue, node)
+    } else {
+      itemRefs.current.delete(optValue)
+    }
   }
 
   const renderOptions = (opts: DropdownOption[]) => {
     return opts.map((opt) => (
       <button
         key={opt.value}
+        ref={(node) => setItemRef(opt.value, node)}
         className="dropdown-item"
         data-active={opt.value === value}
+        data-highlighted={opt.value === highlightedValue}
         disabled={opt.disabled}
         onClick={() => !opt.disabled && handleSelect(opt.value)}
+        onMouseEnter={() => !opt.disabled && setHighlightedValue(opt.value)}
         role="option"
         aria-selected={opt.value === value}
       >
@@ -201,21 +319,47 @@ export default function Dropdown({
   const panelNode = open ? (
     <div
       ref={panelRef}
-      className={`dropdown-panel ${panelClassName}`}
+      className={`dropdown-panel ${effectiveSearchable ? 'dropdown-panel-searchable' : ''} ${panelClassName}`}
       style={panelStyle}
       role="listbox"
       aria-label={ariaLabel}
+      id={listboxId}
+      onKeyDown={handlePanelKeyDown}
     >
-      {isGrouped(options) ? (
-        options.map((group, idx) => (
-          <div key={group.label || idx}>
-            {group.label && <div className="dropdown-label">{group.label}</div>}
-            {renderOptions(group.options)}
-            {idx < options.length - 1 && <div className="dropdown-divider" />}
-          </div>
-        ))
+      {effectiveSearchable && (
+        <div className="dropdown-search-wrap">
+          <input
+            ref={searchInputRef}
+            className="dropdown-search-input"
+            value={searchQuery}
+            role="searchbox"
+            aria-label={`Search ${ariaLabel ?? 'options'}`}
+            placeholder={searchPlaceholder}
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => setSearchQuery(event.currentTarget.value)}
+          />
+        </div>
+      )}
+      {visibleFlatOptions.length ? (
+        isDropdownGrouped(filteredOptions.options) ? (
+          filteredOptions.options.map((group, idx) => (
+            <div key={group.label || idx}>
+              {group.label && <div className="dropdown-label">{group.label}</div>}
+              {renderOptions(group.options)}
+              {idx < filteredOptions.options.length - 1 && <div className="dropdown-divider" />}
+            </div>
+          ))
+        ) : (
+          renderOptions(filteredOptions.options)
+        )
       ) : (
-        renderOptions(options)
+        <div className="dropdown-empty">{emptyMessage}</div>
+      )}
+      {effectiveSearchable && searchQuery.trim() && filteredOptions.matchCount > 0 && filteredOptions.matchCount < filteredOptions.totalCount && (
+        <div className="dropdown-results-note">
+          {filteredOptions.matchCount} / {filteredOptions.totalCount}
+        </div>
       )}
     </div>
   ) : null
@@ -230,11 +374,13 @@ export default function Dropdown({
           type="button"
           className={`dropdown-trigger ${triggerClassName}`}
           onClick={() => setOpen((o) => !o)}
+          onKeyDown={handleTriggerKeyDown}
           disabled={disabled}
           title={title}
           aria-label={ariaLabel}
           aria-haspopup="listbox"
           aria-expanded={open}
+          aria-controls={open ? listboxId : undefined}
         >
           <span className="truncate">{selectedLabel}</span>
           {showChevron && (
@@ -255,11 +401,15 @@ export default function Dropdown({
         </button>
       )}
 
-      {panelNode && typeof document !== 'undefined'
+      {panelNode && typeof document !== 'undefined' && portal
         ? createPortal(panelNode, document.body)
         : panelNode}
     </div>
   )
+}
+
+function isPrintableKey(event: React.KeyboardEvent): boolean {
+  return event.key.length === 1 && !event.altKey && !event.ctrlKey && !event.metaKey
 }
 
 export interface DropdownMenuProps {
@@ -314,7 +464,7 @@ export function DropdownMenu({
     ))
   }, [align, open, width])
 
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!open) {
       setPanelPosition(getInitialPosition())
       return

@@ -18,6 +18,21 @@ export type BrowseItemPayload = {
   metrics?: Record<string, number | null>
   metric_labels?: Record<string, string> | null
   categoricals?: Record<string, string> | null
+  original_media?: OriginalMediaPolicy | null
+}
+
+export type OriginalMediaPolicy = {
+  mode:
+    | 'local_streaming'
+    | 'backend_proxy_required'
+    | 'browser_direct_allowed'
+    | 'browser_direct_preferred_with_proxy_fallback'
+    | 'unsupported'
+  source_kind: 'local' | 'http' | 's3' | 'unknown'
+  proxy_available: boolean
+  direct_allowed_reason?: string | null
+  redacted_origin?: string | null
+  warnings?: string[]
 }
 
 export type BrowseFolderEntryPayload = {
@@ -124,6 +139,35 @@ export type TableSourceColumnsPayload = {
   warning?: string | null
 }
 
+export type TableLaunchStatusPayload = {
+  source_column?: string | null
+  path_column?: string | null
+  path_mode: string
+  root_policy: string
+  base_dir?: string | null
+  workspace_mode?: string | null
+  source_table_rows: number
+  gallery_rows: number
+  skipped_rows: {
+    total: number
+    local_disabled?: number
+    local_outside_root?: number
+    local_resolved_outside_root?: number
+    local_missing?: number
+    other?: number
+  }
+  media_source_kind: string
+  dimension_coverage: {
+    known: number
+    missing: number
+    total: number
+  }
+  dimension_cache_policy: string
+  dimension_write_policy: string
+  original_media_policy: OriginalMediaPolicy
+  warnings: string[]
+}
+
 export type Sidecar = {
   v: 1
   tags: string[]
@@ -208,6 +252,7 @@ export type HealthResponse = {
     invalid_lease_total?: number
     replay_miss_total?: number
   }
+  table_launch_status?: TableLaunchStatusPayload | null
 }
 
 export type BrowseSearchResultsPayload = { items: BrowseItemPayload[] }

@@ -38,6 +38,7 @@ export default function CompareViewer({
   const [readyB, setReadyB] = useState(false)
   const [loadedAPath, setLoadedAPath] = useState<string | null>(null)
   const [loadedBPath, setLoadedBPath] = useState<string | null>(null)
+  const [directFailures, setDirectFailures] = useState<Set<string>>(() => new Set())
   const aUrlPathRef = useRef<string | null>(null)
   const bUrlPathRef = useRef<string | null>(null)
   const fittedPairKeyRef = useRef<string | null>(null)
@@ -102,8 +103,8 @@ export default function CompareViewer({
     return () => window.removeEventListener('keydown', onKey)
   }, [onNavigate, canPrev, canNext])
 
-  const aDirectUrl = directOriginalImageUrl(aItem, proxyHttpOriginals)
-  const bDirectUrl = directOriginalImageUrl(bItem, proxyHttpOriginals)
+  const aDirectUrl = directOriginalImageUrl(aItem, proxyHttpOriginals, directFailures)
+  const bDirectUrl = directOriginalImageUrl(bItem, proxyHttpOriginals, directFailures)
   const aBlobUrl = useBlobUrl(aPath && !aDirectUrl ? () => api.getFile(aPath) : null, [aPath, aDirectUrl])
   const bBlobUrl = useBlobUrl(bPath && !bDirectUrl ? () => api.getFile(bPath) : null, [bPath, bDirectUrl])
   const aUrl = aDirectUrl ?? aBlobUrl
@@ -136,6 +137,15 @@ export default function CompareViewer({
       setReadyB(true)
     }
   }, [bPath, bUrl, imgBRef])
+  const markDirectImageFailed = useCallback((path: string | null, directUrl: string | null) => {
+    if (!path || !directUrl) return
+    setDirectFailures((prev) => {
+      if (prev.has(path)) return prev
+      const next = new Set(prev)
+      next.add(path)
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     if (!shouldAutoFitComparePair({
@@ -294,6 +304,7 @@ export default function CompareViewer({
                     draggable={false}
                     onDragStart={(e)=> e.preventDefault()}
                     onLoad={markImageAReady}
+                    onError={() => markDirectImageFailed(aPath, aDirectUrl)}
                     style={{ transform: `translate(${txA}px, ${tyA}px) scale(${baseA * scale})`, transformOrigin: '0 0', opacity: readyA ? 0.99 : 0 }}
                   />
                 )}
@@ -321,6 +332,7 @@ export default function CompareViewer({
                     draggable={false}
                     onDragStart={(e)=> e.preventDefault()}
                     onLoad={markImageBReady}
+                    onError={() => markDirectImageFailed(bPath, bDirectUrl)}
                     style={{ transform: `translate(${txB}px, ${tyB}px) scale(${baseB * scale})`, transformOrigin: '0 0', opacity: readyB ? 0.99 : 0 }}
                   />
                 )}

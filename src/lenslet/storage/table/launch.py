@@ -250,6 +250,13 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
             categorical_row_provider=categorical_row_provider,
             browse_signature_seed=parquet_browse_signature_seed(parquet_path),
             dimension_overrides=dimension_overrides,
+            dimension_cache_policy=_dimension_cache_policy(request),
+            dimension_write_policy=_dimension_write_policy(request),
+            launch_warnings=tuple(notice.message for notice in (
+                *column_selection.notices,
+                *dimension_probe_policy.notices,
+                *root_resolution.notices,
+            )),
         ),
     )
 
@@ -279,6 +286,22 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
         embedding_detection=column_selection.detection,
         notices=tuple(notices),
     )
+
+
+def _dimension_cache_policy(request: TableLaunchRequest) -> str:
+    if request.cache_dimensions:
+        return "source"
+    if request.dimension_cache_dir is not None:
+        return "workspace"
+    return "none"
+
+
+def _dimension_write_policy(request: TableLaunchRequest) -> str:
+    if request.cache_dimensions:
+        return "source"
+    if request.dimension_cache_dir is not None:
+        return "workspace"
+    return "none"
 
 
 def select_embedding_columns(

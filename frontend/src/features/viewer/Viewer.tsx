@@ -72,7 +72,8 @@ export default function Viewer({
     handlePointerCancel,
     shouldSuppressSurfaceClick,
   } = useZoomPan()
-  const directUrl = directOriginalImageUrl(item, proxyHttpOriginals)
+  const [directFailures, setDirectFailures] = useState<Set<string>>(() => new Set())
+  const directUrl = directOriginalImageUrl(item, proxyHttpOriginals, directFailures)
   const blobUrl = useBlobUrl(directUrl ? null : () => api.getFile(path), [path, directUrl])
   const url = directUrl ?? blobUrl
   const resourceIdentity = directUrl ? `${path}\n${directUrl}` : url
@@ -103,6 +104,15 @@ export default function Viewer({
     event.stopPropagation()
     closeViewer()
   }, [closeViewer, shouldSuppressSurfaceClick])
+  const markDirectImageFailed = useCallback(() => {
+    if (!directUrl) return
+    setDirectFailures((prev) => {
+      if (prev.has(path)) return prev
+      const next = new Set(prev)
+      next.add(path)
+      return next
+    })
+  }, [directUrl, path])
   const markImageReady = useCallback(() => {
     const resource = activeResource
     const image = imgRef.current
@@ -245,6 +255,7 @@ export default function Viewer({
           draggable={false}
           onDragStart={(e)=>{ e.preventDefault() }}
           onLoad={markImageReady}
+          onError={markDirectImageFailed}
           onClick={(e)=> e.stopPropagation()}
           style={{ transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`, transformOrigin: `0 0`, opacity: imageReady ? 1 : 0, WebkitUserDrag: 'none' } as React.CSSProperties}
         />

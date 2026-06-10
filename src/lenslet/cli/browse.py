@@ -166,6 +166,56 @@ def _emit_table_launch_notices(result: TableLaunchResult, *, quiet: bool = False
         print(notice.message)
 
 
+def _workspace_mode_label(workspace: Workspace | None) -> str | None:
+    if workspace is None:
+        return None
+    if not workspace.can_write:
+        return "read-only"
+    if workspace.is_temp_workspace():
+        return "temp"
+    if workspace.views_override is not None:
+        return "parquet-sidecar"
+    if workspace.root is not None:
+        return "workspace"
+    return "memory"
+
+
+def _emit_table_launch_summary(
+    result: TableLaunchResult,
+    *,
+    workspace: Workspace | None,
+    quiet: bool = False,
+) -> None:
+    if quiet:
+        return
+    status_fn = getattr(result.storage, "table_launch_status", None)
+    if not callable(status_fn):
+        return
+    status = status_fn(workspace_mode=_workspace_mode_label(workspace))
+    policy = status.original_media_policy
+    skipped = status.skipped_rows
+    dimensions = status.dimension_coverage
+    print(
+        "[lenslet] Table source: "
+        f"source={status.source_column or '(none)'}, "
+        f"path={status.path_column or status.path_mode}, "
+        f"rows={status.gallery_rows}/{status.source_table_rows}, "
+        f"skipped={skipped.total}."
+    )
+    print(
+        "[lenslet] Media policy: "
+        f"{policy.mode}, source={status.media_source_kind}, "
+        f"proxy={'yes' if policy.proxy_available else 'no'}, "
+        f"origin={policy.redacted_origin or '(none)'}."
+    )
+    print(
+        "[lenslet] Dimensions: "
+        f"{dimensions.known}/{dimensions.total} known, "
+        f"cache={status.dimension_cache_policy}, write={status.dimension_write_policy}, "
+        f"workspace={status.workspace_mode or '(none)'}."
+    )
+
+
 def _local_browse_target_or_exit(target_info: BrowseTarget) -> Path:
     if target_info.target is None:
         raise BrowseCliError("browse target must resolve to a local path")
@@ -428,6 +478,7 @@ def _create_table_file_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> obje
         )
     )
     _emit_table_launch_notices(launch_result)
+    _emit_table_launch_summary(launch_result, workspace=workspace)
     return server_api.create_app_from_storage(
         launch_result.storage,
         options=server_api.StorageAppOptions(
@@ -465,6 +516,7 @@ def _create_directory_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> objec
             )
         )
         _emit_table_launch_notices(launch_result)
+        _emit_table_launch_summary(launch_result, workspace=plan.dataset_workspace)
         table_launch = launch_result
     options = server_api.LocalAppOptions(
         browse=plan.browse_options,

@@ -12,6 +12,7 @@ import type {
   BrowseItemPayload,
   MetricDisplayNames,
   SavedView,
+  TableLaunchStatusPayload,
   TableSourceColumnsPayload,
 } from '../../lib/types'
 import type { DerivedMetricEvaluation } from '../../features/metrics/model/derivedMetric'
@@ -65,6 +66,7 @@ type LeftSidebarProps = {
   compareOrderMode: CompareOrderMode
   onCompareOrderModeChange: (mode: CompareOrderMode) => void
   tableSourceColumns?: TableSourceColumnsPayload | null
+  tableLaunchStatus?: TableLaunchStatusPayload | null
   tableSourceSwitching?: boolean
   onTableSourceColumnChange?: (sourceColumn: string) => void
 }
@@ -124,6 +126,7 @@ export default function LeftSidebar({
   compareOrderMode,
   onCompareOrderModeChange,
   tableSourceColumns,
+  tableLaunchStatus,
   tableSourceSwitching,
   onTableSourceColumnChange,
 }: LeftSidebarProps): JSX.Element {
@@ -212,6 +215,7 @@ export default function LeftSidebar({
           compareOrderMode={compareOrderMode}
           onCompareOrderModeChange={onCompareOrderModeChange}
           sourceColumns={tableSourceColumns}
+          tableLaunchStatus={tableLaunchStatus}
           sourceColumnSwitching={tableSourceSwitching}
           onSourceColumnChange={onTableSourceColumnChange}
         />

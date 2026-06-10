@@ -19,6 +19,7 @@ from ..browse.query import (
 )
 from ..metrics import normalize_metric_mapping
 from ..media_errors import MediaDecodeError, MediaError, MediaReadError
+from ..media_policy import build_original_media_policy
 from .cache.browse import (
     CACHE_PERSIST_QUEUED,
     CACHE_PERSIST_SKIPPED,
@@ -141,6 +142,15 @@ def build_item_payload(
     metric_labels = getattr(cached, "metric_labels", None)
     if categoricals is None:
         categoricals = getattr(cached, "categoricals", None)
+    url = getattr(cached, "url", None)
+    policy_source = url or source
+    original_media = build_original_media_policy(
+        policy_source,
+        proxy_available=policy_source is not None,
+        direct_browser_allowed=bool(url),
+        direct_browser_preferred=bool(url),
+        local_streaming_available=policy_source is not None and not url,
+    )
     added_at = None
     mtime = float(getattr(cached, "mtime", 0) or 0)
     if mtime > 0:
@@ -157,11 +167,12 @@ def build_item_payload(
         added_at=added_at,
         star=sidecar_state.get("star"),
         notes=sidecar_state.get("notes", ""),
-        url=getattr(cached, "url", None),
+        url=url,
         source=source,
         metrics=metrics,
         metric_labels=metric_labels or None,
         categoricals=categoricals or None,
+        original_media=original_media.to_payload(),
     )
 
 

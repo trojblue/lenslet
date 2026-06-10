@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 import socket
 from threading import Lock
@@ -40,6 +41,8 @@ _S3_PERMISSION_CODES = frozenset(
     },
 )
 _HTTPX_MODULE: Any | None = None
+HTTP_STREAM_MAX_BYTES = 512 * 1024 * 1024
+HTTP_STREAM_CHUNK_SIZE = 64 * 1024
 
 
 def _require_httpx() -> Any:
@@ -69,6 +72,51 @@ def _remote_error_code(exc: BaseException) -> str | None:
 def _remote_timeout_reason(exc: BaseException) -> bool:
     reason = getattr(exc, "reason", None)
     return isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout))
+
+
+def _safe_range_header(value: str | None) -> str | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    if not raw.lower().startswith("bytes="):
+        return None
+    if "\r" in raw or "\n" in raw:
+        return None
+    return raw
+
+
+@dataclass(slots=True)
+class RemoteMediaStream:
+    path: str
+    source: str
+    response: Any
+    max_bytes: int = HTTP_STREAM_MAX_BYTES
+
+    @property
+    def status_code(self) -> int:
+        return int(getattr(self.response, "status_code", 200) or 200)
+
+    @property
+    def headers(self) -> Any:
+        return getattr(self.response, "headers", {})
+
+    def close(self) -> None:
+        close = getattr(self.response, "close", None)
+        if callable(close):
+            close()
+
+    def iter_bytes(self) -> Iterator[bytes]:
+        read = 0
+        try:
+            for chunk in self.response.iter_bytes(chunk_size=HTTP_STREAM_CHUNK_SIZE):
+                if not chunk:
+                    continue
+                read += len(chunk)
+                if read > self.max_bytes:
+                    raise RemoteMediaReadError(self.path, self.source, "too_large", "remote original exceeds byte limit")
+                yield chunk
+        finally:
+            self.close()
 
 
 @dataclass(slots=True)
@@ -158,6 +206,15 @@ class MediaReadService:
 
     def _http_get(self, url: str) -> Any:
         return self._ensure_http_client().get(url)
+
+    def _http_stream(self, url: str, *, range_header: str | None = None) -> Any:
+        headers = {}
+        safe_range = _safe_range_header(range_header)
+        if safe_range is not None:
+            headers["Range"] = safe_range
+        client = self._ensure_http_client()
+        request = client.build_request("GET", require_http_url(url), headers=headers)
+        return client.send(request, stream=True)
 
     def get_presigned_url(self, s3_uri: str, expires_in: int = 3600) -> str:
         if not _S3_CLIENT_EXCEPTIONS:
@@ -292,3 +349,35 @@ class MediaReadService:
             raise FileNotFoundError(path) from exc
         with open(resolved, "rb") as handle:
             return handle.read()
+
+    def open_remote_stream(
+        self,
+        path: str,
+        source: str,
+        *,
+        range_header: str | None = None,
+    ) -> RemoteMediaStream | None:
+        if self.is_s3_uri(source):
+            try:
+                url = self.get_presigned_url(source)
+            except (ImportError, RuntimeError, ValueError, OSError, urllib.error.URLError) as exc:
+                self._raise_remote_read_error(path, source, exc, default_category="s3")
+        elif self.is_http_url(source):
+            url = source
+        else:
+            return None
+
+        httpx = _require_httpx()
+        try:
+            response = self._http_stream(url, range_header=range_header)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            response = getattr(exc, "response", None)
+            if response is not None:
+                response.close()
+            self._raise_http_status_read_error(path, source, exc.response.status_code, cause=exc)
+        except httpx.TimeoutException as exc:
+            raise RemoteMediaReadError(path, source, "timeout", _exception_detail(exc)) from exc
+        except (httpx.HTTPError, ValueError, OSError) as exc:
+            self._raise_remote_read_error(path, source, exc, default_category="network")
+        return RemoteMediaStream(path=path, source=source, response=response)

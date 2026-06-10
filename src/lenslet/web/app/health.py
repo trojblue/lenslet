@@ -26,6 +26,9 @@ from ..models import (
     LabelsHealthPayload,
     PresenceHealthPayload,
     RefreshStatusPayload,
+    TableDimensionCoveragePayload,
+    TableLaunchStatusPayload,
+    TableSkippedRowsPayload,
 )
 from ..presence_runtime import presence_runtime_payload
 from ..runtime import AppRuntime
@@ -90,6 +93,7 @@ def _base_health_payload(
         labels=_labels_health_payload(workspace, writes_enabled=writes_enabled),
         presence=_presence_health_payload(runtime),
         hotpath=runtime.hotpath_metrics.snapshot(storage),
+        table_launch_status=_table_launch_status_payload(storage, workspace),
     )
 
 
@@ -127,6 +131,64 @@ def _workspace_id_for_browse_storage(storage: BrowseStorage, workspace: Workspac
     if workspace.views_path is not None:
         return _opaque_workspace_id(f"storage-views-path:{workspace.views_path.resolve()}")
     return _opaque_workspace_id(f"storage-signature:{signature}")
+
+
+def _workspace_mode(workspace: Workspace) -> str:
+    if not workspace.can_write:
+        return "read-only"
+    if workspace.is_temp_workspace():
+        return "temp"
+    if workspace.views_override is not None:
+        return "parquet-sidecar"
+    if workspace.root is not None:
+        return "workspace"
+    return "memory"
+
+
+def _redacted_table_base_dir(base_dir: str | None) -> str | None:
+    if not base_dir:
+        return None
+    return "[local path]"
+
+
+def _table_launch_status_payload(
+    storage: BrowseStorage,
+    workspace: Workspace,
+) -> TableLaunchStatusPayload | None:
+    status_fn = getattr(storage, "table_launch_status", None)
+    if not callable(status_fn):
+        return None
+    status = status_fn(workspace_mode=_workspace_mode(workspace))
+    skipped = status.skipped_rows
+    coverage = status.dimension_coverage
+    return TableLaunchStatusPayload(
+        source_column=status.source_column,
+        path_column=status.path_column,
+        path_mode=status.path_mode,
+        root_policy=status.root_policy,
+        base_dir=_redacted_table_base_dir(status.base_dir),
+        workspace_mode=status.workspace_mode,
+        source_table_rows=status.source_table_rows,
+        gallery_rows=status.gallery_rows,
+        skipped_rows=TableSkippedRowsPayload(
+            total=skipped.total,
+            local_disabled=skipped.local_disabled,
+            local_outside_root=skipped.local_outside_root,
+            local_resolved_outside_root=skipped.local_resolved_outside_root,
+            local_missing=skipped.local_missing,
+            other=skipped.other,
+        ),
+        media_source_kind=status.media_source_kind,
+        dimension_coverage=TableDimensionCoveragePayload(
+            known=coverage.known,
+            missing=coverage.missing,
+            total=coverage.total,
+        ),
+        dimension_cache_policy=status.dimension_cache_policy,
+        dimension_write_policy=status.dimension_write_policy,
+        original_media_policy=status.original_media_policy.to_payload(),
+        warnings=list(status.warnings),
+    )
 
 
 def _refresh_health_payload(

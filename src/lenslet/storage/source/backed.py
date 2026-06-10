@@ -189,6 +189,12 @@ class SourceBackedStorageBase(SidecarStateMixin, StorageProgressMixin, Generic[I
             raise FileNotFoundError(path)
         return self._media_reads.read_bytes(path, source)
 
+    def open_remote_media_stream(self, path: str, *, range_header: str | None = None):
+        source = self._lookup_source_path(path)
+        if source is None:
+            raise FileNotFoundError(path)
+        return self._media_reads.open_remote_stream(path, source, range_header=range_header)
+
     def exists(self, path: str) -> bool:
         norm = self._normalize_source_item_path(path)
         return norm in self._items

@@ -30,6 +30,7 @@ from ...browse.query import (
     normalize_derived_metric_spec,
 )
 from ...media_errors import MediaDecodeError, MediaReadError
+from ...media_policy import OriginalMediaPolicy, build_original_media_policy
 from ...metrics import coerce_finite_metric_value
 from ..base import SidecarState, join_storage_path
 from ..progress import ProgressBar
@@ -196,6 +197,9 @@ class TableStorageOptions:
     categorical_row_provider: Callable[[int], dict[str, Any]] | None = None
     browse_signature_seed: str = ""
     dimension_overrides: dict[int, TableCachedRowDimensions] | None = None
+    dimension_cache_policy: str = "none"
+    dimension_write_policy: str = "none"
+    launch_warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +224,51 @@ class TableSourceColumnState:
     current: str | None
     columns: tuple[TableSourceColumnStatus, ...]
     warning: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TableSkippedRowCounts:
+    local_disabled: int = 0
+    local_outside_root: int = 0
+    local_resolved_outside_root: int = 0
+    local_missing: int = 0
+    other: int = 0
+
+    @property
+    def total(self) -> int:
+        return (
+            self.local_disabled
+            + self.local_outside_root
+            + self.local_resolved_outside_root
+            + self.local_missing
+            + self.other
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TableDimensionCoverage:
+    known: int
+    missing: int
+    total: int
+
+
+@dataclass(frozen=True, slots=True)
+class TableLaunchStatus:
+    source_column: str | None
+    path_column: str | None
+    path_mode: str
+    root_policy: str
+    base_dir: str | None
+    workspace_mode: str | None
+    source_table_rows: int
+    gallery_rows: int
+    skipped_rows: TableSkippedRowCounts
+    media_source_kind: str
+    dimension_coverage: TableDimensionCoverage
+    dimension_cache_policy: str
+    dimension_write_policy: str
+    original_media_policy: OriginalMediaPolicy
+    warnings: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -408,6 +457,10 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         self._categorical_row_provider = options.categorical_row_provider
         self._browse_signature_seed = options.browse_signature_seed
         self._dimension_overrides = options.dimension_overrides
+        self._dimension_cache_policy = options.dimension_cache_policy
+        self._dimension_write_policy = options.dimension_write_policy
+        self._launch_warnings = tuple(options.launch_warnings)
+        self._last_skipped_rows = TableSkippedRowCounts()
         self._progress_bar = ProgressBar()
 
         self._indexes: dict[str, TableBrowseIndex] = {}
@@ -860,6 +913,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
     def _apply_row_store_result(self, result: TableRowStoreBuildResult) -> None:
         self._indexes = {}
         self._row_store = result.store
+        self._last_skipped_rows = self._skipped_rows_from_build_result(result)
         self._bind_source_state(
             SourceBackedIndexState(
                 items={},
@@ -875,6 +929,22 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             )
         )
         self._report_row_store_skips(result)
+
+    def _skipped_rows_from_build_result(self, result: TableRowStoreBuildResult) -> TableSkippedRowCounts:
+        local_total = (
+            result.skipped_local_disabled
+            + result.skipped_local_outside_root
+            + result.skipped_local_resolved_outside_root
+            + result.skipped_local_missing
+        )
+        other = max(0, self._row_count - result.store.total_rows() - local_total)
+        return TableSkippedRowCounts(
+            local_disabled=result.skipped_local_disabled,
+            local_outside_root=result.skipped_local_outside_root,
+            local_resolved_outside_root=result.skipped_local_resolved_outside_root,
+            local_missing=result.skipped_local_missing,
+            other=other,
+        )
 
     def _report_row_store_skips(self, result: TableRowStoreBuildResult) -> None:
         if result.skipped_local_disabled:
@@ -1473,6 +1543,10 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         source = self.get_source_path(path)
         return self._media_reads.read_bytes(path, source)
 
+    def open_remote_media_stream(self, path: str, *, range_header: str | None = None) -> Any:
+        source = self.get_source_path(path)
+        return self._media_reads.open_remote_stream(path, source, range_header=range_header)
+
     def get_or_build_thumbnail(self, path: str) -> bytes:
         norm = normalize_item_path(path)
         if norm in self._thumbnails:
@@ -1744,6 +1818,69 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
                 )
             )
         return rows
+
+    def table_launch_status(self, *, workspace_mode: str | None = None) -> TableLaunchStatus:
+        row_store = self._require_row_store()
+        gallery_rows = row_store.total_rows()
+        known_dimensions = sum(
+            1
+            for dims in row_store.row_dimensions
+            if dims is not None and dims[0] > 0 and dims[1] > 0
+        )
+        sample_source = next((source for source in row_store.sources if source), None)
+        media_source_kind = self._source_kind or "unknown"
+        policy_warnings: list[str] = []
+        if media_source_kind == "mixed":
+            policy_warnings.append("table contains mixed media source kinds; policy is based on a representative row")
+        original_policy = build_original_media_policy(
+            sample_source,
+            proxy_available=sample_source is not None and media_source_kind in {"local", "http", "s3", "mixed"},
+            direct_browser_allowed=media_source_kind == "http",
+            direct_browser_preferred=media_source_kind == "http",
+            local_streaming_available=media_source_kind == "local",
+            warnings=tuple(policy_warnings),
+        )
+        path_mode = "source-derived"
+        if self._configured_path_column:
+            path_mode = "explicit"
+        elif self._path_column:
+            path_mode = "detected"
+        elif self._source_kind == "http":
+            path_mode = "http-derived"
+        elif self._source_kind == "s3":
+            path_mode = "s3-derived"
+        root_policy = "none"
+        if self.root:
+            root_policy = "base-dir"
+        if self._skip_local_realpath_validation:
+            root_policy = f"{root_policy}:lexical"
+        warnings = [
+            *self._launch_warnings,
+            *policy_warnings,
+        ]
+        if self._source_column_warning:
+            warnings.append(self._source_column_warning)
+        return TableLaunchStatus(
+            source_column=self._source_column,
+            path_column=self._path_column,
+            path_mode=path_mode,
+            root_policy=root_policy,
+            base_dir=self.root,
+            workspace_mode=workspace_mode,
+            source_table_rows=self._row_count,
+            gallery_rows=gallery_rows,
+            skipped_rows=self._last_skipped_rows,
+            media_source_kind=media_source_kind,
+            dimension_coverage=TableDimensionCoverage(
+                known=min(known_dimensions, gallery_rows),
+                missing=max(0, gallery_rows - known_dimensions),
+                total=gallery_rows,
+            ),
+            dimension_cache_policy=self._dimension_cache_policy,
+            dimension_write_policy=self._dimension_write_policy,
+            original_media_policy=original_policy,
+            warnings=tuple(dict.fromkeys(warnings)),
+        )
 
     def path_for_row_index(self, index: int) -> str | None:
         return self._require_row_store().path_for_row_index(index)

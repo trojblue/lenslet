@@ -1,7 +1,12 @@
 import React from 'react'
 import Dropdown, { type DropdownGroup } from '../Dropdown'
 import SortDirectionIcon from './SortDirectionIcon'
-import type { CompareOrderMode, TableSourceColumnsPayload, ViewMode } from '../../../lib/types'
+import type {
+  CompareOrderMode,
+  TableLaunchStatusPayload,
+  TableSourceColumnsPayload,
+  ViewMode,
+} from '../../../lib/types'
 import type { ThemePresetId } from '../../../theme/runtime'
 import ThemeSettingsMenu from '../ThemeSettingsMenu'
 import ToolbarFilterMenu from './ToolbarFilterMenu'
@@ -24,6 +29,7 @@ export interface ToolbarMobileDrawerProps {
   proxyHttpOriginals: boolean
   compareOrderMode: CompareOrderMode
   sourceColumns?: TableSourceColumnsPayload | null
+  tableLaunchStatus?: TableLaunchStatusPayload | null
   sourceColumnSwitching?: boolean
   filtersOpen: boolean
   filtersRef: React.RefObject<HTMLDivElement>
@@ -74,6 +80,7 @@ export default function ToolbarMobileDrawer({
   proxyHttpOriginals,
   compareOrderMode,
   sourceColumns,
+  tableLaunchStatus,
   sourceColumnSwitching,
   filtersOpen,
   filtersRef,
@@ -142,6 +149,7 @@ export default function ToolbarMobileDrawer({
             compareOrderMode={compareOrderMode}
             onCompareOrderModeChange={onCompareOrderModeChange}
             sourceColumns={sourceColumns}
+            tableLaunchStatus={tableLaunchStatus}
             sourceColumnSwitching={sourceColumnSwitching}
             onSourceColumnChange={onSourceColumnChange}
           />

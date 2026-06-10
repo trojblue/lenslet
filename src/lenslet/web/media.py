@@ -8,7 +8,7 @@ import stat
 from typing import TYPE_CHECKING, Literal
 
 from fastapi import HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from ..media_errors import MediaDecodeError, MediaError, MediaReadError, RemoteMediaReadError
 from ..storage.base import MediaStorage
@@ -30,6 +30,14 @@ def thumb_worker_count() -> int:
 
 _FAST_PATH_FALLBACK_ERRORS = (OSError, ValueError)
 _MEDIA_RESPONSE_ERRORS = (FileNotFoundError, MediaError)
+_SAFE_STREAM_HEADERS = (
+    "content-length",
+    "content-range",
+    "accept-ranges",
+    "cache-control",
+    "etag",
+    "last-modified",
+)
 
 
 def _get_cached_thumbnail(storage: MediaStorage, path: str) -> bytes | None:
@@ -111,6 +119,46 @@ def _resolve_local_file_path(
     return _existing_local_file(source)
 
 
+def _remote_stream_response(
+    storage: MediaStorage,
+    path: str,
+    request: Request | None,
+) -> Response | None:
+    opener = getattr(storage, "open_remote_media_stream", None)
+    if opener is None:
+        return None
+    try:
+        stream = opener(
+            path,
+            range_header=request.headers.get("range") if request is not None else None,
+        )
+    except _MEDIA_RESPONSE_ERRORS as exc:
+        raise media_failure_to_http_error(exc) from exc
+    except _FAST_PATH_FALLBACK_ERRORS as exc:
+        read_error = MediaReadError.from_exception(path, exc)
+        raise media_failure_to_http_error(read_error) from exc
+    if stream is None:
+        return None
+
+    upstream_headers = getattr(stream, "headers", {}) or {}
+    headers = {
+        key: value
+        for key in _SAFE_STREAM_HEADERS
+        for value in (upstream_headers.get(key),)
+        if value is not None
+    }
+    if "accept-ranges" not in headers:
+        headers["accept-ranges"] = "bytes"
+    media_type = upstream_headers.get("content-type") or storage.guess_mime(path)
+    status_code = 206 if getattr(stream, "status_code", 200) == 206 else 200
+    return StreamingResponse(
+        stream.iter_bytes(),
+        status_code=status_code,
+        media_type=media_type,
+        headers=headers,
+    )
+
+
 async def thumb_response_async(
     storage: MediaStorage,
     path: str,
@@ -183,6 +231,11 @@ def file_response(
         if hotpath_metrics is not None:
             hotpath_metrics.increment("file_response_local_stream_total")
         return FileResponse(path=local_path, media_type=media_type, stat_result=stat_result)
+    remote_stream = _remote_stream_response(storage, path, request)
+    if remote_stream is not None:
+        if hotpath_metrics is not None:
+            hotpath_metrics.increment("file_response_remote_stream_total")
+        return remote_stream
     if hotpath_metrics is not None:
         hotpath_metrics.increment("file_response_fallback_bytes_total")
     try:

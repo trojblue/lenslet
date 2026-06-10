@@ -108,9 +108,11 @@ export default function VirtualGrid({
 }: VirtualGridProps) {
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewDirectPath, setPreviewDirectPath] = useState<string | null>(null)
   const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number } | null>(null)
   const [previewSize, setPreviewSize] = useState<HoverPreviewSurfaceSize | null>(null)
   const [delayPassed, setDelayPassed] = useState<boolean>(false)
+  const [directPreviewFailures, setDirectPreviewFailures] = useState<Set<string>>(() => new Set())
   const [active, setActive] = useState<string | null>(null)
   const [focused, setFocused] = useState<string | null>(null)
   const previewTimerRef = useRef<number | null>(null)
@@ -144,6 +146,7 @@ export default function VirtualGrid({
         onReady: ({ path, url }) => {
           setPreviewFor(path)
           setPreviewUrl(url)
+          setPreviewDirectPath(null)
           setDelayPassed(true)
         },
       },
@@ -278,6 +281,7 @@ export default function VirtualGrid({
     setDelayPassed(false)
     setPreviewFor(null)
     setPreviewUrl(null)
+    setPreviewDirectPath(null)
     setPreviewPosition(null)
     setPreviewSize(null)
   }
@@ -288,7 +292,7 @@ export default function VirtualGrid({
     previewControllerRef.current?.clear()
     const itemIndex = pathToIndex.get(path)
     const item = itemIndex === undefined ? null : items[itemIndex]
-    const directUrl = directOriginalImageUrl(item, proxyHttpOriginals)
+    const directUrl = directOriginalImageUrl(item, proxyHttpOriginals, directPreviewFailures)
     const viewport = getVisibleViewportBounds()
     const surfaceSize = getHoverPreviewSurfaceSize(viewport)
     const position = getHoverPreviewPosition({
@@ -297,6 +301,7 @@ export default function VirtualGrid({
     })
     setPreviewFor(path)
     setPreviewUrl(null)
+    setPreviewDirectPath(null)
     setPreviewPosition(position)
     setPreviewSize(surfaceSize)
     setDelayPassed(false)
@@ -305,11 +310,28 @@ export default function VirtualGrid({
       if (directUrl) {
         setPreviewFor(path)
         setPreviewUrl(directUrl)
+        setPreviewDirectPath(path)
         setDelayPassed(true)
         return
       }
+      setPreviewDirectPath(null)
       previewControllerRef.current?.begin(path)
     }, PREVIEW_DELAY_MS)
+  }
+
+  const handlePreviewImageError = () => {
+    if (!previewDirectPath || previewDirectPath !== previewFor) return
+    const failedPath = previewDirectPath
+    setDirectPreviewFailures((prev) => {
+      if (prev.has(failedPath)) return prev
+      const next = new Set(prev)
+      next.add(failedPath)
+      return next
+    })
+    setPreviewDirectPath(null)
+    setPreviewUrl(null)
+    setDelayPassed(false)
+    previewControllerRef.current?.begin(failedPath)
   }
 
   useEffect(() => () => {
@@ -708,6 +730,7 @@ export default function VirtualGrid({
               src={previewUrl}
               alt="preview"
               className="block h-full w-full object-contain opacity-[0.98]"
+              onError={handlePreviewImageError}
             />
           </div>,
           document.body

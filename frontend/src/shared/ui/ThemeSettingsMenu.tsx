@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { THEME_PRESETS, resolveThemePresetId, type ThemePresetId } from '../../theme/runtime'
-import type { CompareOrderMode, TableSourceColumnOption, TableSourceColumnsPayload } from '../../lib/types'
+import type {
+  CompareOrderMode,
+  TableLaunchStatusPayload,
+  TableSourceColumnOption,
+  TableSourceColumnsPayload,
+} from '../../lib/types'
 import Dropdown from './Dropdown'
 import {
   clampMenuPosition,
@@ -24,6 +29,7 @@ type ThemeSettingsMenuProps = {
   proxyHttpOriginals?: boolean
   onProxyHttpOriginalsChange?: (enabled: boolean) => void
   sourceColumns?: TableSourceColumnsPayload | null
+  tableLaunchStatus?: TableLaunchStatusPayload | null
   sourceColumnSwitching?: boolean
   onSourceColumnChange?: (sourceColumn: string) => void
 }
@@ -125,6 +131,48 @@ export function reduceThemeSettingsMenuOpenState(open: boolean, intent: ThemeSet
   return false
 }
 
+function formatCount(value: number): string {
+  return value.toLocaleString()
+}
+
+function formatTableRows(status: TableLaunchStatusPayload): string {
+  if (status.gallery_rows === status.source_table_rows) {
+    return `${formatCount(status.gallery_rows)} rows`
+  }
+  return `${formatCount(status.gallery_rows)} / ${formatCount(status.source_table_rows)} rows`
+}
+
+function formatSkippedRows(status: TableLaunchStatusPayload): string | null {
+  if (status.skipped_rows.total <= 0) return null
+  return `${formatCount(status.skipped_rows.total)} skipped`
+}
+
+function formatLaunchSummary(status: TableLaunchStatusPayload): string {
+  const skipped = formatSkippedRows(status)
+  const source = status.source_column ? `, source: ${status.source_column}` : ''
+  return `${formatTableRows(status)}${skipped ? `, ${skipped}` : ''}${source}`
+}
+
+function formatDimensionCoverage(status: TableLaunchStatusPayload): string {
+  const coverage = status.dimension_coverage
+  return `${formatCount(coverage.known)} / ${formatCount(coverage.total)} dimensions`
+}
+
+function formatMediaPolicyMode(mode: TableLaunchStatusPayload['original_media_policy']['mode']): string {
+  switch (mode) {
+    case 'local_streaming':
+      return 'local streaming'
+    case 'backend_proxy_required':
+      return 'backend proxy'
+    case 'browser_direct_allowed':
+      return 'browser direct'
+    case 'browser_direct_preferred_with_proxy_fallback':
+      return 'browser direct + proxy fallback'
+    case 'unsupported':
+      return 'unsupported'
+  }
+}
+
 function getTriggerClassName(placement: ThemeSettingsMenuPlacement): string {
   if (placement === 'sidebar') {
     return 'theme-settings-menu-trigger-sidebar w-11 h-11 rounded-md border border-border flex items-center justify-center transition-colors bg-surface text-text hover:bg-surface-hover'
@@ -143,6 +191,7 @@ export default function ThemeSettingsMenu({
   proxyHttpOriginals = false,
   onProxyHttpOriginalsChange,
   sourceColumns = null,
+  tableLaunchStatus = null,
   sourceColumnSwitching = false,
   onSourceColumnChange,
 }: ThemeSettingsMenuProps): JSX.Element {
@@ -157,6 +206,7 @@ export default function ThemeSettingsMenu({
   const supportsMediaSetting = typeof onProxyHttpOriginalsChange === 'function'
   const sourceColumnState = resolveSourceColumnMenuState(sourceColumns)
   const supportsSourceColumnSetting = sourceColumnState.enabled && typeof onSourceColumnChange === 'function'
+  const showSourceSection = supportsSourceColumnSetting || tableLaunchStatus !== null
   const { selectedSourceColumn, selectedSourceStatus } = sourceColumnState
   const sourceColumnOptions = useMemo(() => (
     sourceColumns?.columns.map((column) => ({
@@ -271,33 +321,53 @@ export default function ThemeSettingsMenu({
           )
         })}
       </div>
-      {supportsSourceColumnSetting && (
+      {showSourceSection && (
         <>
           <div className="theme-settings-menu-divider" />
           <div className="theme-settings-menu-header">Source</div>
           <div className="theme-settings-menu-options">
-            <div className="theme-settings-menu-field">
-              <span className="theme-settings-menu-option-label">Image column</span>
-              <Dropdown
-                value={selectedSourceColumn}
-                onChange={(nextColumn) => onSourceColumnChange?.(nextColumn)}
-                options={sourceColumnOptions}
-                aria-label="Image column"
-                title={selectedSourceColumn || 'Image column'}
-                disabled={sourceColumnSwitching}
-                triggerClassName="theme-settings-menu-select theme-settings-menu-dropdown justify-between"
-                width="trigger"
-                searchable="auto"
-                searchPlaceholder="Search columns..."
-                emptyMessage="No matching columns"
-                portal={false}
-              />
-              {selectedSourceStatus && (
+            {supportsSourceColumnSetting && (
+              <div className="theme-settings-menu-field">
+                <span className="theme-settings-menu-option-label">Image column</span>
+                <Dropdown
+                  value={selectedSourceColumn}
+                  onChange={(nextColumn) => onSourceColumnChange?.(nextColumn)}
+                  options={sourceColumnOptions}
+                  aria-label="Image column"
+                  title={selectedSourceColumn || 'Image column'}
+                  disabled={sourceColumnSwitching}
+                  triggerClassName="theme-settings-menu-select theme-settings-menu-dropdown justify-between"
+                  width="trigger"
+                  searchable="auto"
+                  searchPlaceholder="Search columns..."
+                  emptyMessage="No matching columns"
+                  portal={false}
+                />
+                {selectedSourceStatus && (
+                  <span className="theme-settings-menu-option-subtitle">
+                    {selectedSourceStatus.sample_usable} / {selectedSourceStatus.sample_total} sampled rows look image-like
+                  </span>
+                )}
+              </div>
+            )}
+            {tableLaunchStatus && (
+              <div className="theme-settings-menu-field">
+                <span className="theme-settings-menu-option-label">Launch status</span>
                 <span className="theme-settings-menu-option-subtitle">
-                  {selectedSourceStatus.sample_usable} / {selectedSourceStatus.sample_total} sampled rows look image-like
+                  {formatLaunchSummary(tableLaunchStatus)}
                 </span>
-              )}
-            </div>
+                <span className="theme-settings-menu-option-subtitle">
+                  {formatDimensionCoverage(tableLaunchStatus)}, cache: {tableLaunchStatus.dimension_cache_policy}, write: {tableLaunchStatus.dimension_write_policy}
+                </span>
+                <span className="theme-settings-menu-option-subtitle">
+                  Media: {formatMediaPolicyMode(tableLaunchStatus.original_media_policy.mode)}
+                  {tableLaunchStatus.original_media_policy.redacted_origin ? `, ${tableLaunchStatus.original_media_policy.redacted_origin}` : ''}
+                </span>
+                {tableLaunchStatus.warnings.slice(0, 2).map((warning) => (
+                  <span key={warning} className="theme-settings-menu-option-subtitle">{warning}</span>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}

@@ -86,6 +86,58 @@ def test_table_source_column_route_switches_read_only_table_source(
     assert folder_payload["items"][1]["metrics"] == {"q1": 0.75}
 
 
+def test_health_exposes_redacted_table_launch_status(tmp_path: Path) -> None:
+    _make_image(tmp_path / "media" / "a.jpg")
+    client = TestClient(
+        create_app_from_table(
+            [
+                {
+                    "source": "media/a.jpg",
+                    "path": "media/a.jpg",
+                    "width": 8,
+                    "height": 6,
+                },
+                {
+                    "source": "missing.jpg",
+                    "path": "missing.jpg",
+                    "width": 0,
+                    "height": 0,
+                },
+            ],
+            options=TableAppOptions(
+                base_dir=str(tmp_path),
+                source_column="source",
+                path_column="path",
+                skip_dimension_probe=True,
+            ),
+        )
+    )
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    status = response.json()["table_launch_status"]
+    assert status["source_column"] == "source"
+    assert status["path_column"] == "path"
+    assert status["path_mode"] == "explicit"
+    assert status["root_policy"] == "base-dir"
+    assert status["base_dir"] == "[local path]"
+    assert status["source_table_rows"] == 2
+    assert status["gallery_rows"] == 1
+    assert status["skipped_rows"]["total"] == 1
+    assert status["skipped_rows"]["local_missing"] == 1
+    assert status["dimension_coverage"] == {"known": 1, "missing": 0, "total": 1}
+    assert status["original_media_policy"]["mode"] == "local_streaming"
+    assert status["original_media_policy"]["source_kind"] == "local"
+    assert status["original_media_policy"]["redacted_origin"] == "[local path]"
+
+    folder = client.get("/folders", params={"path": "/", "recursive": "1"})
+    assert folder.status_code == 200
+    [item] = folder.json()["items"]
+    assert item["original_media"]["mode"] == "local_streaming"
+    assert item["original_media"]["redacted_origin"] == "[local path]"
+
+
 def test_projected_parquet_source_column_switch_keeps_q_metric_keys(
     tmp_path: Path,
     monkeypatch,

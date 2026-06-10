@@ -557,6 +557,7 @@ export default function AppShell({
     refreshEnabled,
     refreshDisabledReason,
     indexing,
+    tableLaunchStatus,
     highlightedPaths,
     onVisiblePathsChange: handleVisiblePathsChange,
     offViewSummary,
@@ -1075,6 +1076,7 @@ export default function AppShell({
         compareOrderMode={compareOrderMode}
         onCompareOrderModeChange={setCompareOrderMode}
         sourceColumns={tableSourceColumns}
+        tableLaunchStatus={tableLaunchStatus}
         sourceColumnSwitching={tableSourceSwitching}
         onSourceColumnChange={handleTableSourceColumnChange}
         multiSelectMode={mobileSelectMode}
@@ -1147,6 +1149,7 @@ export default function AppShell({
             compareOrderMode={compareOrderMode}
             onCompareOrderModeChange={setCompareOrderMode}
             tableSourceColumns={tableSourceColumns}
+            tableLaunchStatus={tableLaunchStatus}
             tableSourceSwitching={tableSourceSwitching}
             onTableSourceColumnChange={handleTableSourceColumnChange}
           />

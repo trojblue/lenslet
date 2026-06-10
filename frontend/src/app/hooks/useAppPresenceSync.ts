@@ -2,7 +2,13 @@ import { useCallback, useMemo, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
 import type { ConnectionStatus } from '../../api/client'
-import type { HealthMode, BrowseItemPayload, PresenceEvent, StarRating } from '../../lib/types'
+import type {
+  HealthMode,
+  BrowseItemPayload,
+  PresenceEvent,
+  StarRating,
+  TableLaunchStatusPayload,
+} from '../../lib/types'
 import {
   buildRecentSummary,
   buildRecentTouchesDisplay,
@@ -40,6 +46,7 @@ type UseAppPresenceSyncResult = {
   refreshEnabled: boolean
   refreshDisabledReason: string | null
   indexing: HealthIndexing | null
+  tableLaunchStatus: TableLaunchStatusPayload | null
   highlightedPaths: Map<string, string>
   onVisiblePathsChange: (paths: Set<string>) => void
   offViewSummary: RecentSummary | null
@@ -80,6 +87,7 @@ export function useAppPresenceSync({
     refreshEnabled,
     refreshDisabledReason,
     indexing,
+    tableLaunchStatus,
   } = useAppHealthPolling()
 
   const applyPresenceCounts = useCallback((counts: PresenceEvent[]) => {
@@ -152,6 +160,7 @@ export function useAppPresenceSync({
     refreshEnabled,
     refreshDisabledReason,
     indexing,
+    tableLaunchStatus,
     highlightedPaths,
     onVisiblePathsChange,
     offViewSummary,

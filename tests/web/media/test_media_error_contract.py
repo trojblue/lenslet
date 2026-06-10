@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -202,6 +203,70 @@ def test_file_response_maps_remote_permission_failure_to_403() -> None:
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "remote source access denied"
+
+
+async def _collect_streaming_response(response: StreamingResponse) -> bytes:
+    body = b""
+    async for chunk in response.body_iterator:
+        body += chunk
+    return body
+
+
+def test_file_response_streams_remote_original_without_read_bytes() -> None:
+    class RemoteStream:
+        status_code = 206
+        headers = {
+            "content-type": "image/jpeg",
+            "content-range": "bytes 0-10/11",
+            "accept-ranges": "bytes",
+            "x-private": "do-not-forward",
+        }
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        def iter_bytes(self):
+            try:
+                yield b"remote"
+                yield b"-bytes"
+            finally:
+                self.closed = True
+
+    class Request:
+        headers = {"range": "bytes=0-10"}
+
+    class Storage:
+        def __init__(self) -> None:
+            self.stream = RemoteStream()
+            self.range_header: str | None = None
+
+        @staticmethod
+        def guess_mime(_path: str) -> str:
+            return "image/jpeg"
+
+        @staticmethod
+        def resolve_local_file_path(_path: str) -> None:
+            return None
+
+        def open_remote_media_stream(self, _path: str, *, range_header: str | None = None) -> RemoteStream:
+            self.range_header = range_header
+            return self.stream
+
+        @staticmethod
+        def read_bytes(_path: str) -> bytes:
+            raise AssertionError("remote stream path must not buffer read_bytes")
+
+    storage = Storage()
+    response = file_response(storage, "/remote/a.jpg", Request())
+
+    assert isinstance(response, StreamingResponse)
+    assert response.status_code == 206
+    assert response.headers["content-range"] == "bytes 0-10/11"
+    assert response.headers["accept-ranges"] == "bytes"
+    assert "x-private" not in response.headers
+    assert storage.range_header == "bytes=0-10"
+    assert asyncio.run(_collect_streaming_response(response)) == b"remote-bytes"
+    assert storage.stream.closed is True
 
 
 def test_metadata_response_maps_remote_permission_failure_to_403() -> None:

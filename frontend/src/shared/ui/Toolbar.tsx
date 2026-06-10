@@ -1,7 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react'
 import Dropdown from './Dropdown'
 import SyncIndicator, { type SyncIndicatorData } from './SyncIndicator'
-import type { CompareOrderMode, MetricDisplayNames, SortSpec, TableSourceColumnsPayload, ViewMode } from '../../lib/types'
+import type {
+  CompareOrderMode,
+  MetricDisplayNames,
+  SortSpec,
+  TableLaunchStatusPayload,
+  TableSourceColumnsPayload,
+  ViewMode,
+} from '../../lib/types'
 import { getMetricDisplayName } from '../../lib/metricDisplay'
 import { LAYOUT_MEDIA_QUERIES } from '../../lib/breakpoints'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -66,6 +73,7 @@ export interface ToolbarProps {
   compareOrderMode: CompareOrderMode
   onCompareOrderModeChange: (mode: CompareOrderMode) => void
   sourceColumns?: TableSourceColumnsPayload | null
+  tableLaunchStatus?: TableLaunchStatusPayload | null
   sourceColumnSwitching?: boolean
   onSourceColumnChange?: (sourceColumn: string) => void
   multiSelectMode?: boolean
@@ -130,6 +138,7 @@ export default function Toolbar({
   compareOrderMode,
   onCompareOrderModeChange,
   sourceColumns,
+  tableLaunchStatus,
   sourceColumnSwitching,
   onSourceColumnChange,
   multiSelectMode = false,
@@ -610,6 +619,7 @@ export default function Toolbar({
           proxyHttpOriginals={proxyHttpOriginals}
           compareOrderMode={compareOrderMode}
           sourceColumns={sourceColumns}
+          tableLaunchStatus={tableLaunchStatus}
           sourceColumnSwitching={sourceColumnSwitching}
           filtersOpen={filtersOpen}
           filtersRef={filtersRef}

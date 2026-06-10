@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { directOriginalImageUrl, isHttpOriginalUrl } from '../originalImageResource'
-import type { BrowseItemPayload } from '../../../lib/types'
+import { directOriginalImageUrl, isHttpOriginalUrl, originalMediaAllowsDirect } from '../originalImageResource'
+import type { BrowseItemPayload, OriginalMediaPolicy } from '../../../lib/types'
+
+const directPolicy: OriginalMediaPolicy = {
+  mode: 'browser_direct_preferred_with_proxy_fallback',
+  source_kind: 'http',
+  proxy_available: true,
+  direct_allowed_reason: 'test',
+  redacted_origin: 'https://cdn.example.test/[redacted]',
+  warnings: [],
+}
 
 function item(overrides: Partial<BrowseItemPayload>): BrowseItemPayload {
   return {
@@ -25,18 +34,39 @@ describe('original image resource policy', () => {
   })
 
   it('uses direct HTTP originals by default and falls back when proxying is enabled', () => {
-    const sourceItem = item({ source: 'https://cdn.example.test/a' })
+    const sourceItem = item({ source: 'https://cdn.example.test/a', original_media: directPolicy })
 
     expect(directOriginalImageUrl(sourceItem, false)).toBe('https://cdn.example.test/a')
     expect(directOriginalImageUrl(sourceItem, true)).toBeNull()
+  })
+
+  it('requires backend policy before direct browser handoff', () => {
+    const sourceItem = item({ source: 'https://cdn.example.test/a' })
+
+    expect(directOriginalImageUrl(sourceItem, false)).toBeNull()
+    expect(originalMediaAllowsDirect({
+      ...directPolicy,
+      mode: 'backend_proxy_required',
+    })).toBe(false)
   })
 
   it('prefers explicit URL over source when both are present', () => {
     const sourceItem = item({
       url: 'https://cdn.example.test/display',
       source: 'https://origin.example.test/source',
+      original_media: directPolicy,
     })
 
     expect(directOriginalImageUrl(sourceItem, false)).toBe('https://cdn.example.test/display')
+  })
+
+  it('falls back after a per-item direct display failure', () => {
+    const sourceItem = item({
+      source: 'https://cdn.example.test/a',
+      original_media: directPolicy,
+    })
+
+    expect(directOriginalImageUrl(sourceItem, false, new Set(['/a.jpg']))).toBeNull()
+    expect(directOriginalImageUrl(sourceItem, false, (path) => path === '/a.jpg')).toBeNull()
   })
 })

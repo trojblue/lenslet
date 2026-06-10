@@ -6,6 +6,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..browse.query import parse_query_date_bound
+from ..media_policy import MediaSourceKind, OriginalMediaPolicyMode
 from ..storage.image_media import ImageMime
 
 JsonObject = dict[str, Any]
@@ -41,6 +42,16 @@ class BrowseItemPayload(BaseModel):
     metrics: dict[str, float] | None = None
     metric_labels: dict[str, str] | None = None
     categoricals: dict[str, str] | None = None
+    original_media: "OriginalMediaPolicyPayload | None" = None
+
+
+class OriginalMediaPolicyPayload(BaseModel):
+    mode: OriginalMediaPolicyMode
+    source_kind: MediaSourceKind
+    proxy_available: bool
+    direct_allowed_reason: str | None = None
+    redacted_origin: str | None = None
+    warnings: list[str] = Field(default_factory=list)
 
 
 class BrowseFolderEntryPayload(BaseModel):
@@ -561,6 +572,39 @@ class HotpathHealthPayload(BaseModel):
     timers_ms: dict[str, HotpathTimerPayload] = Field(default_factory=dict)
 
 
+class TableSkippedRowsPayload(BaseModel):
+    total: int
+    local_disabled: int = 0
+    local_outside_root: int = 0
+    local_resolved_outside_root: int = 0
+    local_missing: int = 0
+    other: int = 0
+
+
+class TableDimensionCoveragePayload(BaseModel):
+    known: int
+    missing: int
+    total: int
+
+
+class TableLaunchStatusPayload(BaseModel):
+    source_column: str | None = None
+    path_column: str | None = None
+    path_mode: str
+    root_policy: str
+    base_dir: str | None = None
+    workspace_mode: str | None = None
+    source_table_rows: int
+    gallery_rows: int
+    skipped_rows: TableSkippedRowsPayload
+    media_source_kind: str
+    dimension_coverage: TableDimensionCoveragePayload
+    dimension_cache_policy: str
+    dimension_write_policy: str
+    original_media_policy: OriginalMediaPolicyPayload
+    warnings: list[str] = Field(default_factory=list)
+
+
 class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -579,6 +623,7 @@ class HealthResponse(BaseModel):
     indexing: IndexingHealthPayload | None = None
     presence: PresenceHealthPayload | None = None
     hotpath: HotpathHealthPayload | None = None
+    table_launch_status: TableLaunchStatusPayload | None = None
 
 
 class RefreshResponse(BaseModel):

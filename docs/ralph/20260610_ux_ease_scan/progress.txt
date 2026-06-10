@@ -72,3 +72,48 @@ Validations:
 Blockers: none for S1-T1. Broader table validation still has formula-metric failures outside this slice in `tests/storage/table/test_table_formula_metrics.py` and `tests/storage/table/test_table_index_pipeline.py`.
 
 Next step: continue Sprint 1 with S1-T2 table/media launch status payload and CLI/UI summary.
+
+## Iteration 3/9 - 2026-06-10T17:59:42Z
+
+Completed task IDs: S1-T2, S1-T3.
+
+Files changed:
+- `docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan.md`
+- `docs/ralph/20260610_ux_ease_scan/progress.txt`
+- `frontend/src/app/AppShell.tsx`
+- `frontend/src/app/components/LeftSidebar.tsx`
+- `frontend/src/app/hooks/useAppHealthPolling.ts`
+- `frontend/src/app/hooks/useAppPresenceSync.ts`
+- `frontend/src/features/browse/components/VirtualGrid.tsx`
+- `frontend/src/features/compare/CompareViewer.tsx`
+- `frontend/src/features/media/__tests__/originalImageResource.test.ts`
+- `frontend/src/features/media/originalImageResource.ts`
+- `frontend/src/features/viewer/Viewer.tsx`
+- `frontend/src/lib/types.ts`
+- `frontend/src/shared/ui/ThemeSettingsMenu.tsx`
+- `frontend/src/shared/ui/Toolbar.tsx`
+- `frontend/src/shared/ui/toolbar/ToolbarMobileDrawer.tsx`
+- `src/lenslet/cli/browse.py`
+- `src/lenslet/storage/source/backed.py`
+- `src/lenslet/storage/source/media.py`
+- `src/lenslet/storage/table/launch.py`
+- `src/lenslet/storage/table/storage.py`
+- `src/lenslet/web/app/health.py`
+- `src/lenslet/web/browse.py`
+- `src/lenslet/web/media.py`
+- `src/lenslet/web/models.py`
+- `tests/web/media/test_media_error_contract.py`
+- `tests/web/routes/test_table_source_settings.py`
+
+Validations:
+- `python -m ruff check src/lenslet/cli/browse.py src/lenslet/storage/source/backed.py src/lenslet/storage/source/media.py src/lenslet/storage/table/launch.py src/lenslet/storage/table/storage.py src/lenslet/web/app/health.py src/lenslet/web/browse.py src/lenslet/web/media.py src/lenslet/web/models.py tests/web/media/test_media_error_contract.py tests/web/routes/test_table_source_settings.py` -> passed.
+- `pytest -q tests/web/media/test_media_error_contract.py tests/web/routes/test_table_source_settings.py::test_health_exposes_redacted_table_launch_status tests/cli/test_browse_table_launch.py tests/cli/test_direct_cli_helpers.py tests/phase1/test_sprint0_baseline_contracts.py` -> passed, 43 passed and 2 expected xfails.
+- `pytest -q tests/web/media/test_media_error_contract.py tests/web/routes/test_table_source_settings.py tests/cli/test_browse_table_launch.py tests/cli/test_direct_cli_helpers.py tests/phase1/test_sprint0_baseline_contracts.py` -> failed in `test_table_source_column_route_switches_read_only_table_source` because the current null-only `q2` metric-key classification is outside this S1-T2/S1-T3 slice.
+- `cd frontend && npm test -- src/features/media/__tests__/originalImageResource.test.ts src/shared/ui/__tests__/ThemeSettingsMenu.test.tsx src/shared/ui/toolbar/__tests__/ToolbarMobileDrawer.test.tsx` -> passed, 17 passed.
+- `cd frontend && npm run build` -> passed; `src/lenslet/frontend/` was not regenerated in this slice.
+- `python -m scripts.browser.gui_smoke.acceptance` -> passed; emitted the existing non-strict folder re-entry anchor warning.
+- `python scripts/lint_repo.py` -> passed with existing warn-only file-size guardrails for large files.
+
+Blockers: none for S1-T2/S1-T3. Remaining Sprint 1 tasks are S1-T4 media fetch failure states and S1-T5 app-level action feedback. Existing out-of-scope metric-key classification failures remain.
+
+Next step: continue Sprint 1 with S1-T4 explicit media resource states and visible fetch failures.

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import type { HealthMode, HealthResponse } from '../../lib/types'
+import type { HealthMode, HealthResponse, TableLaunchStatusPayload } from '../../lib/types'
 import {
   indexingEquals,
   nextIndexingPollDelayMs,
@@ -24,6 +24,7 @@ export type AppHealthPollingState = {
   refreshEnabled: boolean
   refreshDisabledReason: string | null
   indexing: HealthIndexing | null
+  tableLaunchStatus: TableLaunchStatusPayload | null
 }
 
 function normalizeHealthRefresh(health: HealthResponse | null | undefined): RefreshCapability {
@@ -52,6 +53,7 @@ export function useAppHealthPolling(): AppHealthPollingState {
   const [refreshEnabled, setRefreshEnabled] = useState(true)
   const [refreshDisabledReason, setRefreshDisabledReason] = useState<string | null>(null)
   const [indexing, setIndexing] = useState<HealthIndexing | null>(null)
+  const [tableLaunchStatus, setTableLaunchStatus] = useState<TableLaunchStatusPayload | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -80,6 +82,7 @@ export function useAppHealthPolling(): AppHealthPollingState {
         const refreshCapability = normalizeHealthRefresh(health)
         setRefreshEnabled(refreshCapability.enabled)
         setRefreshDisabledReason(refreshCapability.note)
+        setTableLaunchStatus(health?.table_launch_status ?? null)
         const nextIndexing = normalizeHealthIndexing(health?.indexing)
         setIndexing((prev) => (indexingEquals(prev, nextIndexing) ? prev : nextIndexing))
 
@@ -105,5 +108,6 @@ export function useAppHealthPolling(): AppHealthPollingState {
     refreshEnabled,
     refreshDisabledReason,
     indexing,
+    tableLaunchStatus,
   }
 }

@@ -112,6 +112,7 @@ import { useSimilaritySearchWorkflow } from './hooks/useSimilaritySearchWorkflow
 import { useSmartFolders } from './hooks/useSmartFolders'
 import { useViewportSize } from './hooks/useViewportSize'
 import { buildFilterChips } from './model/filterChips'
+import { buildActionErrorMessage, type ActionFeedback } from './model/actionFeedback'
 import {
   ItemQueryPathIndex,
   patchIndexedItemQueries,
@@ -271,6 +272,7 @@ export default function AppShell({
   const [tableSourceSwitching, setTableSourceSwitching] = useState(false)
   const [dismissedTableSourceWarning, setDismissedTableSourceWarning] = useState<string | null>(null)
   const [readOnlyWarningDismissed, setReadOnlyWarningDismissed] = useState(false)
+  const [actionFeedback, setActionFeedback] = useState<ActionFeedback | null>(null)
   
   // Local optimistic updates for star ratings
   const [localStarOverrides, setLocalStarOverrides] = useState<Record<string, StarRating>>({})
@@ -325,6 +327,15 @@ export default function AppShell({
   const pollingEnabled = usePollingEnabled()
   const oldestInflightAgeMs = useOldestInflightAgeMs()
   const [localTypingActive, setLocalTypingActive] = useState(false)
+  const clearActionFeedback = useCallback(() => {
+    setActionFeedback(null)
+  }, [])
+  const reportActionError = useCallback((action: string, error: unknown) => {
+    setActionFeedback({
+      kind: 'error',
+      message: buildActionErrorMessage(action, error),
+    })
+  }, [])
 
   const refreshTableSourceColumns = useCallback(async () => {
     try {
@@ -466,6 +477,7 @@ export default function AppShell({
 
   const handleTableSourceColumnChange = useCallback((sourceColumn: string) => {
     if (!sourceColumn || sourceColumn === tableSourceColumns?.current || tableSourceSwitching) return
+    clearActionFeedback()
     setTableSourceSwitching(true)
     api.switchTableSourceColumn(sourceColumn)
       .then((next) => {
@@ -481,9 +493,19 @@ export default function AppShell({
         writeHash('/')
         setScopeSessionResetToken((token) => token + 1)
       })
-      .catch(() => {})
+      .catch((error) => {
+        reportActionError('Image source switch failed', error)
+      })
       .finally(() => setTableSourceSwitching(false))
-  }, [queryClient, resetViewerState, setSelectedPaths, tableSourceColumns?.current, tableSourceSwitching])
+  }, [
+    clearActionFeedback,
+    queryClient,
+    reportActionError,
+    resetViewerState,
+    setSelectedPaths,
+    tableSourceColumns?.current,
+    tableSourceSwitching,
+  ])
 
   useEffect(() => {
     const shell = browseShellRef.current
@@ -617,6 +639,8 @@ export default function AppShell({
     refetch,
     invalidateFolderSessionSubtree,
     setScopeSessionResetToken,
+    onActionStart: clearActionFeedback,
+    onActionError: reportActionError,
   })
 
   const starCounts = useMemo(() => {
@@ -1176,7 +1200,8 @@ export default function AppShell({
                 ? () => setDismissedTableSourceWarning(tableSourceWarningKey)
                 : undefined,
             }}
-            actionError={null}
+            actionFeedback={actionFeedback}
+            onDismissActionFeedback={clearActionFeedback}
             similarity={similarityState ? {
               embedding: similarityState.embedding,
               topK: similarityState.topK,
@@ -1270,6 +1295,8 @@ export default function AppShell({
                 embeddingsLoading={embeddingsLoading}
                 autoloadImageMetadata={autoloadImageMetadata}
                 onLocalTypingChange={setLocalTypingActive}
+                onActionStart={clearActionFeedback}
+                onActionError={reportActionError}
               />
             </Suspense>
           </LazySurfaceBoundary>
@@ -1341,6 +1368,8 @@ export default function AppShell({
             setSelectedPaths([path])
             setSimilarityOpen(true)
           }}
+          onActionStart={clearActionFeedback}
+          onActionError={reportActionError}
         />
       )}
     </div>

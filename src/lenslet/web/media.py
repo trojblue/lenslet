@@ -10,7 +10,13 @@ from typing import TYPE_CHECKING, Literal
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 
-from ..media_errors import MediaDecodeError, MediaError, MediaReadError, RemoteMediaReadError
+from ..media_errors import (
+    MediaDecodeError,
+    MediaError,
+    MediaReadError,
+    RemoteMediaNotFoundError,
+    RemoteMediaReadError,
+)
 from ..storage.base import MediaStorage
 from .cache.thumbs import ThumbCache
 from .thumbs import ThumbnailScheduler
@@ -77,6 +83,8 @@ def _thumb_cache_key(storage: MediaStorage, path: str) -> str | None:
 
 
 def media_failure_to_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, RemoteMediaNotFoundError):
+        return HTTPException(404, "remote source not found")
     if isinstance(exc, FileNotFoundError):
         return HTTPException(404, "file not found")
     if isinstance(exc, MediaDecodeError):

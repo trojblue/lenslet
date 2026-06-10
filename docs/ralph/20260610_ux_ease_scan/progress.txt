@@ -117,3 +117,51 @@ Validations:
 Blockers: none for S1-T2/S1-T3. Remaining Sprint 1 tasks are S1-T4 media fetch failure states and S1-T5 app-level action feedback. Existing out-of-scope metric-key classification failures remain.
 
 Next step: continue Sprint 1 with S1-T4 explicit media resource states and visible fetch failures.
+
+## Iteration 4/9 - 2026-06-10T18:21:10Z
+
+Completed task IDs: S1-T4, S1-T5.
+
+Files changed:
+- `docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan.md`
+- `docs/ralph/20260610_ux_ease_scan/progress.txt`
+- `frontend/src/app/AppShell.tsx`
+- `frontend/src/app/components/GridTopStack.tsx`
+- `frontend/src/app/components/__tests__/GridTopStack.test.tsx`
+- `frontend/src/app/hooks/useFolderRefreshActions.ts`
+- `frontend/src/app/menu/AppContextMenuItems.tsx`
+- `frontend/src/app/menu/__tests__/AppContextMenuItems.test.tsx`
+- `frontend/src/app/model/actionFeedback.ts`
+- `frontend/src/features/browse/components/ThumbCard.tsx`
+- `frontend/src/features/browse/components/VirtualGrid.tsx`
+- `frontend/src/features/browse/model/hoverPreview.ts`
+- `frontend/src/features/browse/model/__tests__/hoverPreview.test.ts`
+- `frontend/src/features/compare/CompareViewer.tsx`
+- `frontend/src/features/inspector/Inspector.tsx`
+- `frontend/src/features/inspector/hooks/useInspectorCompareExport.ts`
+- `frontend/src/features/media/originalImageResource.ts`
+- `frontend/src/features/ranking/RankingApp.tsx`
+- `frontend/src/features/ranking/ranking.css`
+- `frontend/src/features/viewer/Viewer.tsx`
+- `frontend/src/lib/mediaResourceState.ts`
+- `frontend/src/lib/__tests__/mediaResourceState.test.ts`
+- `frontend/src/shared/hooks/useBlobUrl.ts`
+- `frontend/src/styles.css`
+- `src/lenslet/frontend/`
+- `src/lenslet/web/media.py`
+- `tests/web/media/test_media_error_contract.py`
+
+Validations:
+- `cd frontend && npm test -- src/lib/__tests__/mediaResourceState.test.ts src/features/browse/model/__tests__/hoverPreview.test.ts src/features/media/__tests__/originalImageResource.test.ts src/app/menu/__tests__/AppContextMenuItems.test.tsx src/app/components/__tests__/GridTopStack.test.tsx src/features/inspector/__tests__/exportComparison.test.tsx src/features/browse/components/__tests__/thumbUrlHook.test.ts` -> passed, 44 passed.
+- `pytest -q tests/web/media/test_media_error_contract.py` -> passed, 26 passed.
+- `python -m ruff check src/lenslet/web/media.py tests/web/media/test_media_error_contract.py` -> passed.
+- `cd frontend && npm run build && cd .. && rsync -a --delete frontend/dist/ src/lenslet/frontend/` -> passed; served frontend bundle regenerated.
+- `python -m scripts.browser.gui_smoke.acceptance` -> passed with the existing non-strict folder re-entry anchor warning.
+- `python scripts/lint_repo.py` -> passed with warn-only file-size guardrails for large files.
+- `cd frontend && npx tsc --noEmit` -> failed only on known out-of-scope derived-metric/metric-scrollbar type errors in `frontend/src/api/folders.ts`, `MetricScrollbar.tsx`, and `derivedMetric.test.ts`.
+- Cleanup gate: code-simplifier Tier 1 pass removed local duplication/dead fields and reran focused checks.
+- Review gate: code-review found stale action feedback, unreachable hover-preview retry, and compare divider z-index issues; all were fixed and focused validations reran.
+
+Blockers: none for Sprint 1. Existing out-of-scope frontend typecheck failures remain in derived metric/metric scrollbar code.
+
+Next step: start Sprint 2 with S2-T1 folder-scope selection boundary clearing.

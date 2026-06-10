@@ -416,6 +416,11 @@ export default function RankingApp() {
           </div>
 
           <div className="ranking-header-trailing">
+            {currentSession.saveError ? (
+              <div className="ranking-save-error" role="status">
+                Save failed: {currentSession.saveError}
+              </div>
+            ) : null}
             <label className="ranking-thumb-size-control ranking-unselectable ranking-thumb-size-control-header">
               <span>Thumbs</span>
               <input

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../../../api/client'
 import { markFirstThumbnailRendered } from '../../../lib/browseHotpath'
-import { useBlobUrl } from '../../../shared/hooks/useBlobUrl'
+import { useBlobResource } from '../../../shared/hooks/useBlobUrl'
+import { mediaErrorSummary } from '../../../lib/mediaResourceState'
 
 interface ThumbCardProps {
   path: string
@@ -39,10 +40,14 @@ export default function ThumbCard({
   const [loaded, setLoaded] = useState(false)
   const [requestedPath, setRequestedPath] = useState<string | null>(() => (priority ? path : null))
 
-  const url = useBlobUrl(
+  const resource = useBlobResource(
     requestedPath === path ? () => api.getThumb(path) : null,
     [path, requestedPath],
+    { source: 'thumbnail' },
   )
+  const url = resource.status === 'ready' ? resource.url : null
+  const error = resource.status === 'error' ? resource.error : null
+  const retry = resource.status === 'error' ? resource.retry : null
 
   useEffect(() => {
     const host = hostRef.current
@@ -108,6 +113,7 @@ export default function ThumbCard({
       data-highlight-key={highlightKey ?? undefined}
       className={cardClassName}
       onClick={onClick}
+      data-media-state={resource.status}
     >
       {selectionOrder !== null && (
         <div className="grid-selection-order-badge" aria-label={`Selection order ${selectionOrder}`}>
@@ -129,6 +135,25 @@ export default function ThumbCard({
           height={displayH ? Math.round(displayH) : undefined}
         />
       ) : null}
+      {error && (
+        <div className="media-error-overlay media-error-overlay-thumb" onClick={(event) => event.stopPropagation()}>
+          <div className="media-error-title">Thumbnail failed</div>
+          <div className="media-error-message">{mediaErrorSummary(error)}</div>
+          {error.retryable && retry && (
+            <button
+              type="button"
+              className="btn btn-xs"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                retry()
+              }}
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

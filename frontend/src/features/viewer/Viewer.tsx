@@ -1,13 +1,14 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
+import { useBlobResource } from '../../shared/hooks/useBlobUrl'
 import {
   getHorizontalNavigationDelta,
   isInputElement,
   shouldHandleViewerNavigationKey,
 } from '../../lib/keyboard'
 import { useZoomPan } from './hooks/useZoomPan'
-import { directOriginalImageUrl } from '../media/originalImageResource'
+import { directOriginalImageUrl, originalMediaUnsupportedReason } from '../media/originalImageResource'
+import { browserDecodeMediaError, mediaErrorSummary, type MediaResourceError } from '../../lib/mediaResourceState'
 import type { BrowseItemPayload } from '../../lib/types'
 
 const VIEWER_LOADER_DELAY_MS = 150
@@ -74,17 +75,27 @@ export default function Viewer({
   } = useZoomPan()
   const [directFailures, setDirectFailures] = useState<Set<string>>(() => new Set())
   const directUrl = directOriginalImageUrl(item, proxyHttpOriginals, directFailures)
-  const blobUrl = useBlobUrl(directUrl ? null : () => api.getFile(path), [path, directUrl])
+  const unsupportedReason = directUrl ? null : originalMediaUnsupportedReason(item)
+  const blobResource = useBlobResource(
+    directUrl || unsupportedReason ? null : () => api.getFile(path),
+    [path, directUrl, unsupportedReason],
+    { source: 'proxy', unsupportedReason },
+  )
+  const blobUrl = blobResource.status === 'ready' ? blobResource.url : null
   const url = directUrl ?? blobUrl
   const resourceIdentity = directUrl ? `${path}\n${directUrl}` : url
+  const [elementError, setElementError] = useState<MediaResourceError | null>(null)
   const [imageResource, setImageResource] = useState<ViewerImageResource | null>(null)
   const [readyPath, setReadyPath] = useState<string | null>(null)
   const [showDelayedLoader, setShowDelayedLoader] = useState(false)
   const readyPathRef = useRef<string | null>(null)
   const activeResource = imageResource?.path === path ? imageResource : null
-  const imageReady = ready && readyPath === path && activeResource !== null
+  const loadError = elementError ?? (blobResource.status === 'error' ? blobResource.error : null)
+  const retryLoad = blobResource.status === 'error' ? blobResource.retry : null
+  const unsupported = blobResource.status === 'unsupported' ? blobResource.reason : null
+  const imageReady = ready && readyPath === path && activeResource !== null && !loadError && !unsupported
   const imageLabel = getImageLabel(path)
-  const viewerLoadingState = imageReady ? 'ready' : showDelayedLoader ? 'loading' : 'pending'
+  const viewerLoadingState = unsupported ? 'unsupported' : loadError ? 'error' : imageReady ? 'ready' : showDelayedLoader ? 'loading' : 'pending'
   const closeViewer = useCallback(() => {
     onClose()
   }, [onClose])
@@ -113,6 +124,18 @@ export default function Viewer({
       return next
     })
   }, [directUrl, path])
+  const handleImageError = useCallback(() => {
+    if (directUrl) {
+      markDirectImageFailed()
+      return
+    }
+    setElementError(browserDecodeMediaError())
+    setShowDelayedLoader(false)
+  }, [directUrl, markDirectImageFailed])
+  const retryFailedLoad = useCallback(() => {
+    setElementError(null)
+    retryLoad?.()
+  }, [retryLoad])
   const markImageReady = useCallback(() => {
     const resource = activeResource
     const image = imgRef.current
@@ -152,6 +175,7 @@ export default function Viewer({
     setReady(false)
     setReadyPath(null)
     setImageResource(null)
+    setElementError(null)
     setShowDelayedLoader(false)
 
     let active = true
@@ -179,6 +203,7 @@ export default function Viewer({
     }
     setImageResource({ path, url })
     readyPathRef.current = null
+    setElementError(null)
     setReady(false)
     setReadyPath(null)
   // URL changes bind the blob URL to the current path; path-only renders with
@@ -235,7 +260,7 @@ export default function Viewer({
         </svg>
         Close
       </button>
-      {showDelayedLoader && !imageReady && (
+      {showDelayedLoader && !imageReady && !loadError && !unsupported && (
         <div
           data-viewer-loader="neutral"
           className="absolute inset-0 flex items-center justify-center pointer-events-none"
@@ -244,7 +269,18 @@ export default function Viewer({
           <div className="h-8 w-8 rounded-full border border-border border-t-accent animate-spin" />
         </div>
       )}
-      {activeResource && (
+      {(loadError || unsupported) && (
+        <div className="media-error-overlay media-error-overlay-viewer">
+          <div className="media-error-title">{unsupported ? 'Original unsupported' : 'Image failed'}</div>
+          <div className="media-error-message">{unsupported ?? (loadError ? mediaErrorSummary(loadError) : '')}</div>
+          {loadError?.retryable && retryLoad && (
+            <button type="button" className="btn btn-sm" onClick={retryFailedLoad}>
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+      {activeResource && !loadError && !unsupported && (
         <img
           ref={imgRef}
           src={activeResource.url}
@@ -255,7 +291,7 @@ export default function Viewer({
           draggable={false}
           onDragStart={(e)=>{ e.preventDefault() }}
           onLoad={markImageReady}
-          onError={markDirectImageFailed}
+          onError={handleImageError}
           onClick={(e)=> e.stopPropagation()}
           style={{ transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`, transformOrigin: `0 0`, opacity: imageReady ? 1 : 0, WebkitUserDrag: 'none' } as React.CSSProperties}
         />

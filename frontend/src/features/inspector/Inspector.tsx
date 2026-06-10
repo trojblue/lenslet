@@ -62,6 +62,8 @@ interface InspectorProps {
   embeddingsLoading?: boolean
   autoloadImageMetadata?: boolean
   onLocalTypingChange?: (active: boolean) => void
+  onActionStart?: () => void
+  onActionError?: (action: string, error: unknown) => void
 }
 
 const METRICS_PREVIEW_LIMIT = 12
@@ -91,6 +93,8 @@ export default function Inspector({
   embeddingsLoading = false,
   autoloadImageMetadata = true,
   onLocalTypingChange,
+  onActionStart,
+  onActionError,
 }: InspectorProps) {
   const enabled = !!path
   const { data } = useSidecar(path ?? '')
@@ -237,6 +241,8 @@ export default function Inspector({
     runComparisonExport,
   } = useInspectorCompareExport({
     selectedPaths: compareTargetPaths,
+    onActionStart,
+    onActionError,
   })
 
   const selectedItems = useMemo(() => {
@@ -415,13 +421,15 @@ export default function Inspector({
 
   const copyMetadata = useCallback(() => {
     if (!metaRawText) return
+    onActionStart?.()
     navigator.clipboard?.writeText(metaRawText).then(() => {
       markMetadataCopied()
     }).catch((err) => {
       const msg = err instanceof Error ? err.message : 'Copy failed'
       setMetaError(msg)
+      onActionError?.('Copy metadata failed', err)
     })
-  }, [markMetadataCopied, metaRawText, setMetaError])
+  }, [markMetadataCopied, metaRawText, onActionError, onActionStart, setMetaError])
 
   const metaDisplayNode = useMemo(() => {
     if (!metadataSectionOpen || !metaDisplayValue) return null
@@ -429,17 +437,23 @@ export default function Inspector({
   }, [metadataSectionOpen, metaDisplayValue])
 
   const copyMetadataValue = useCallback((pathLabel: string, copyText: string) => {
+    onActionStart?.()
     navigator.clipboard?.writeText(copyText).then(() => {
       markMetadataValueCopied(pathLabel)
-    }).catch(() => {})
-  }, [markMetadataValueCopied])
+    }).catch((err) => {
+      onActionError?.('Copy metadata value failed', err)
+    })
+  }, [markMetadataValueCopied, onActionError, onActionStart])
 
   const handleCopyQuickViewValue = useCallback((rowId: string, value: string) => {
     if (!value) return
+    onActionStart?.()
     navigator.clipboard?.writeText(value).then(() => {
       markQuickViewValueCopied(rowId)
-    }).catch(() => {})
-  }, [markQuickViewValueCopied])
+    }).catch((err) => {
+      onActionError?.('Copy quick view value failed', err)
+    })
+  }, [markQuickViewValueCopied, onActionError, onActionStart])
 
   const handleMetaPathCopy = useCallback((path: Array<string | number>) => {
     if (!metaDisplayValue) return
@@ -478,21 +492,29 @@ export default function Inspector({
 
   const copyInfo = useCallback((key: string, text: string) => {
     if (!text) return
+    onActionStart?.()
     navigator.clipboard?.writeText(text).then(() => {
       markInfoCopied(key)
-    }).catch(() => {})
-  }, [markInfoCopied])
+    }).catch((err) => {
+      onActionError?.('Copy item info failed', err)
+    })
+  }, [markInfoCopied, onActionError, onActionStart])
 
   const handleSelectStar = useCallback((value: StarRating) => {
+    onActionStart?.()
     if (multi) {
       onStarChanged?.(selectedPaths, value)
-      bulkUpdateSidecars(selectedPaths, { star: value })
+      void bulkUpdateSidecars(selectedPaths, { star: value }).catch((error) => {
+        onActionError?.('Bulk rating update failed', error)
+      })
       return
     }
     if (!path) return
     onStarChanged?.([path], value)
-    queueSidecarUpdate(path, { star: value })
-  }, [multi, onStarChanged, path, selectedPaths])
+    void queueSidecarUpdate(path, { star: value }).catch((error) => {
+      onActionError?.('Rating update failed', error)
+    })
+  }, [multi, onActionError, onActionStart, onStarChanged, path, selectedPaths])
 
   const handleToggleShowPilInfo = useCallback(() => {
     setShowPilInfo((prev) => !prev)

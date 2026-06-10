@@ -160,4 +160,46 @@ describe('HoverPreviewRequestController', () => {
     expect(revokeObjectURL).toHaveBeenNthCalledWith(1, 'blob:first')
     expect(revokeObjectURL).toHaveBeenNthCalledWith(2, 'blob:second')
   })
+
+  it('reports active backend preview failures with typed media errors', async () => {
+    const first = deferredBlob()
+    const onError = vi.fn()
+    const controller = new HoverPreviewRequestController(
+      vi.fn().mockReturnValueOnce(first),
+      { createObjectURL: vi.fn(), revokeObjectURL: vi.fn() },
+      { onReady: vi.fn(), onError },
+    )
+
+    controller.begin('/missing.jpg')
+    first.reject(new Error('remote source timed out'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError.mock.calls[0][0]).toMatchObject({
+      path: '/missing.jpg',
+      error: {
+        message: 'remote source timed out',
+        retryable: true,
+      },
+    })
+  })
+
+  it('does not report errors from cleared hover preview requests', async () => {
+    const first = deferredBlob()
+    const onError = vi.fn()
+    const controller = new HoverPreviewRequestController(
+      vi.fn().mockReturnValueOnce(first),
+      { createObjectURL: vi.fn(), revokeObjectURL: vi.fn() },
+      { onReady: vi.fn(), onError },
+    )
+
+    controller.begin('/old.jpg')
+    controller.clear()
+    first.reject(new Error('cancelled'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(onError).not.toHaveBeenCalled()
+  })
 })

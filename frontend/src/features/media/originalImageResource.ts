@@ -41,3 +41,12 @@ export function directOriginalImageUrl(
   if (isHttpOriginalUrl(item.source)) return item.source
   return null
 }
+
+export function originalMediaUnsupportedReason(
+  item: BrowseItemPayload | null | undefined,
+): string | null {
+  if (item?.original_media?.mode !== 'unsupported') return null
+  return item.original_media.warnings?.[0]
+    ?? item.original_media.direct_allowed_reason
+    ?? 'Original media is unsupported for this source.'
+}

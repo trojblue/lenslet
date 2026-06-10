@@ -11,6 +11,8 @@ type UseFolderRefreshActionsParams = {
   refetch: () => Promise<unknown>
   invalidateFolderSessionSubtree: (path: string) => void
   setScopeSessionResetToken: Dispatch<SetStateAction<number>>
+  onActionStart?: () => void
+  onActionError?: (action: string, error: unknown) => void
 }
 
 type UseFolderRefreshActionsResult = {
@@ -38,6 +40,8 @@ export function useFolderRefreshActions({
   refetch,
   invalidateFolderSessionSubtree,
   setScopeSessionResetToken,
+  onActionStart,
+  onActionError,
 }: UseFolderRefreshActionsParams): UseFolderRefreshActionsResult {
   const [folderCountsVersion, setFolderCountsVersion] = useState(0)
   const [headerRefreshBusy, setHeaderRefreshBusy] = useState(false)
@@ -91,24 +95,26 @@ export function useFolderRefreshActions({
 
   const handlePullRefreshFolders = useCallback(async () => {
     if (!refreshEnabled) return
+    onActionStart?.()
     try {
       await refreshFolderPath(current)
     } catch (err) {
-      console.error('Failed to refresh folder:', err)
+      onActionError?.('Refresh folder failed', err)
     }
-  }, [current, refreshEnabled, refreshFolderPath])
+  }, [current, onActionError, onActionStart, refreshEnabled, refreshFolderPath])
 
   const handleHeaderRefresh = useCallback(async () => {
     if (!refreshEnabled || headerRefreshBusy) return
     setHeaderRefreshBusy(true)
+    onActionStart?.()
     try {
       await refreshFolderPath('/')
     } catch (err) {
-      console.error('Failed to refresh root folder:', err)
+      onActionError?.('Refresh root folder failed', err)
     } finally {
       setHeaderRefreshBusy(false)
     }
-  }, [headerRefreshBusy, refreshEnabled, refreshFolderPath])
+  }, [headerRefreshBusy, onActionError, onActionStart, refreshEnabled, refreshFolderPath])
 
   return {
     folderCountsVersion,

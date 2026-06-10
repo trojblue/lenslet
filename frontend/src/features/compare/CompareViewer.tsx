@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
+import { useBlobResource, useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import { useModalFocusTrap } from '../../shared/hooks/useModalFocusTrap'
 import { getHorizontalNavigationDelta, shouldHandleDialogNavigationKey } from '../../lib/keyboard'
 import type { BrowseItemPayload } from '../../lib/types'
 import { buildComparePairKey, shouldAutoFitComparePair } from './compareAutoFit'
 import { useDividerDrag } from './hooks/useDividerDrag'
 import { useCompareZoomPan } from './hooks/useCompareZoomPan'
-import { directOriginalImageUrl } from '../media/originalImageResource'
+import { directOriginalImageUrl, originalMediaUnsupportedReason } from '../media/originalImageResource'
+import { browserDecodeMediaError, mediaErrorSummary, type MediaResourceError } from '../../lib/mediaResourceState'
 
 interface CompareViewerProps {
   aItem: BrowseItemPayload | null
@@ -38,6 +39,8 @@ export default function CompareViewer({
   const [readyB, setReadyB] = useState(false)
   const [loadedAPath, setLoadedAPath] = useState<string | null>(null)
   const [loadedBPath, setLoadedBPath] = useState<string | null>(null)
+  const [errorA, setErrorA] = useState<MediaResourceError | null>(null)
+  const [errorB, setErrorB] = useState<MediaResourceError | null>(null)
   const [directFailures, setDirectFailures] = useState<Set<string>>(() => new Set())
   const aUrlPathRef = useRef<string | null>(null)
   const bUrlPathRef = useRef<string | null>(null)
@@ -80,6 +83,8 @@ export default function CompareViewer({
     setReadyB(false)
     setLoadedAPath(null)
     setLoadedBPath(null)
+    setErrorA(null)
+    setErrorB(null)
     fittedPairKeyRef.current = null
     userInteractedPairKeyRef.current = null
   }, [aPath, bPath, resetView])
@@ -105,10 +110,28 @@ export default function CompareViewer({
 
   const aDirectUrl = directOriginalImageUrl(aItem, proxyHttpOriginals, directFailures)
   const bDirectUrl = directOriginalImageUrl(bItem, proxyHttpOriginals, directFailures)
-  const aBlobUrl = useBlobUrl(aPath && !aDirectUrl ? () => api.getFile(aPath) : null, [aPath, aDirectUrl])
-  const bBlobUrl = useBlobUrl(bPath && !bDirectUrl ? () => api.getFile(bPath) : null, [bPath, bDirectUrl])
+  const aUnsupportedReason = aDirectUrl ? null : originalMediaUnsupportedReason(aItem)
+  const bUnsupportedReason = bDirectUrl ? null : originalMediaUnsupportedReason(bItem)
+  const aBlobResource = useBlobResource(
+    aPath && !aDirectUrl && !aUnsupportedReason ? () => api.getFile(aPath) : null,
+    [aPath, aDirectUrl, aUnsupportedReason],
+    { source: 'proxy', unsupportedReason: aUnsupportedReason },
+  )
+  const bBlobResource = useBlobResource(
+    bPath && !bDirectUrl && !bUnsupportedReason ? () => api.getFile(bPath) : null,
+    [bPath, bDirectUrl, bUnsupportedReason],
+    { source: 'proxy', unsupportedReason: bUnsupportedReason },
+  )
+  const aBlobUrl = aBlobResource.status === 'ready' ? aBlobResource.url : null
+  const bBlobUrl = bBlobResource.status === 'ready' ? bBlobResource.url : null
   const aUrl = aDirectUrl ?? aBlobUrl
   const bUrl = bDirectUrl ?? bBlobUrl
+  const aLoadError = errorA ?? (aBlobResource.status === 'error' ? aBlobResource.error : null)
+  const bLoadError = errorB ?? (bBlobResource.status === 'error' ? bBlobResource.error : null)
+  const aRetryLoad = aBlobResource.status === 'error' ? aBlobResource.retry : null
+  const bRetryLoad = bBlobResource.status === 'error' ? bBlobResource.retry : null
+  const aUnsupported = aBlobResource.status === 'unsupported' ? aBlobResource.reason : null
+  const bUnsupported = bBlobResource.status === 'unsupported' ? bBlobResource.reason : null
   const aResourceIdentity = aDirectUrl ? `${aPath ?? ''}\n${aDirectUrl}` : aUrl
   const bResourceIdentity = bDirectUrl ? `${bPath ?? ''}\n${bDirectUrl}` : bUrl
   const aThumb = useBlobUrl(aPath ? () => api.getThumb(aPath) : null, [aPath])
@@ -146,6 +169,30 @@ export default function CompareViewer({
       return next
     })
   }, [])
+  const handleImageAError = useCallback(() => {
+    if (aDirectUrl) {
+      markDirectImageFailed(aPath, aDirectUrl)
+      return
+    }
+    setErrorA(browserDecodeMediaError())
+    setReadyA(false)
+  }, [aDirectUrl, aPath, markDirectImageFailed])
+  const handleImageBError = useCallback(() => {
+    if (bDirectUrl) {
+      markDirectImageFailed(bPath, bDirectUrl)
+      return
+    }
+    setErrorB(browserDecodeMediaError())
+    setReadyB(false)
+  }, [bDirectUrl, bPath, markDirectImageFailed])
+  const retryA = useCallback(() => {
+    setErrorA(null)
+    aRetryLoad?.()
+  }, [aRetryLoad])
+  const retryB = useCallback(() => {
+    setErrorB(null)
+    bRetryLoad?.()
+  }, [bRetryLoad])
 
   useEffect(() => {
     if (!shouldAutoFitComparePair({
@@ -169,6 +216,7 @@ export default function CompareViewer({
       return
     }
     aUrlPathRef.current = aPath
+    setErrorA(null)
     const image = imgARef.current
     if (image?.complete && image.naturalWidth > 0) {
       markImageAReady()
@@ -186,6 +234,7 @@ export default function CompareViewer({
       return
     }
     bUrlPathRef.current = bPath
+    setErrorB(null)
     const image = imgBRef.current
     if (image?.complete && image.naturalWidth > 0) {
       markImageBReady()
@@ -197,7 +246,11 @@ export default function CompareViewer({
 
   const handleStagePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement | null
-    if (target?.closest('.compare-label') || target?.closest('.compare-divider-hit')) return
+    if (
+      target?.closest('.compare-label')
+      || target?.closest('.compare-divider-hit')
+      || target?.closest('.media-error-overlay')
+    ) return
     handlePointerDown(e)
   }, [handlePointerDown])
 
@@ -293,7 +346,18 @@ export default function CompareViewer({
                     style={{ transform: `translate(${txA}px, ${tyA}px) scale(${baseA})`, transformOrigin: '0 0', opacity: readyA ? 0 : 0.5 }}
                   />
                 )}
-                {aUrl && (
+                {(aLoadError || aUnsupported) && (
+                  <div className="media-error-overlay media-error-overlay-compare">
+                    <div className="media-error-title">{aUnsupported ? 'Original unsupported' : 'Image A failed'}</div>
+                    <div className="media-error-message">{aUnsupported ?? (aLoadError ? mediaErrorSummary(aLoadError) : '')}</div>
+                    {aLoadError?.retryable && aRetryLoad && (
+                      <button type="button" className="btn btn-xs" onClick={retryA}>
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                )}
+                {aUrl && !aLoadError && !aUnsupported && (
                   <img
                     ref={imgARef}
                     src={aUrl}
@@ -304,7 +368,7 @@ export default function CompareViewer({
                     draggable={false}
                     onDragStart={(e)=> e.preventDefault()}
                     onLoad={markImageAReady}
-                    onError={() => markDirectImageFailed(aPath, aDirectUrl)}
+                    onError={handleImageAError}
                     style={{ transform: `translate(${txA}px, ${tyA}px) scale(${baseA * scale})`, transformOrigin: '0 0', opacity: readyA ? 0.99 : 0 }}
                   />
                 )}
@@ -321,7 +385,18 @@ export default function CompareViewer({
                     style={{ transform: `translate(${txB}px, ${tyB}px) scale(${baseB})`, transformOrigin: '0 0', opacity: readyB ? 0 : 0.5 }}
                   />
                 )}
-                {bUrl && (
+                {(bLoadError || bUnsupported) && (
+                  <div className="media-error-overlay media-error-overlay-compare">
+                    <div className="media-error-title">{bUnsupported ? 'Original unsupported' : 'Image B failed'}</div>
+                    <div className="media-error-message">{bUnsupported ?? (bLoadError ? mediaErrorSummary(bLoadError) : '')}</div>
+                    {bLoadError?.retryable && bRetryLoad && (
+                      <button type="button" className="btn btn-xs" onClick={retryB}>
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                )}
+                {bUrl && !bLoadError && !bUnsupported && (
                   <img
                     ref={imgBRef}
                     src={bUrl}
@@ -332,7 +407,7 @@ export default function CompareViewer({
                     draggable={false}
                     onDragStart={(e)=> e.preventDefault()}
                     onLoad={markImageBReady}
-                    onError={() => markDirectImageFailed(bPath, bDirectUrl)}
+                    onError={handleImageBError}
                     style={{ transform: `translate(${txB}px, ${tyB}px) scale(${baseB * scale})`, transformOrigin: '0 0', opacity: readyB ? 0.99 : 0 }}
                   />
                 )}

@@ -193,6 +193,27 @@
   transition: box-shadow 160ms ease, border-color 160ms ease;
 }
 
+.media-error-overlay, .media-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  background: color-mix(in oklab, var(--surface-overlay) 92%, transparent);
+  color: var(--text);
+  text-align: center;
+  z-index: 8;
+}
+
+.media-error-title { font-size: 12px; font-weight: 700; }
+.media-error-message { max-width: min(360px, 92%); font-size: 11px; line-height: 1.35; color: var(--muted); word-break: break-word; }
+
+.media-error-overlay-thumb { padding: 8px; }
+.media-error-overlay-thumb .media-error-title { font-size: 11px; }
+.media-error-overlay-thumb .media-error-message { max-width: 100%; font-size: 10px; }
+.media-error-overlay-viewer { margin: auto; inset: 0; }
+.media-error-overlay-compare { pointer-events: auto; }
+
 /* Offset elements that need to sit below the toolbar */
 .toolbar-offset {
   top: var(--toolbar-h);
@@ -401,7 +422,7 @@
   width: 24px;
   transform: translateX(-50%);
   cursor: col-resize;
-  z-index: 5;
+  z-index: 12;
 }
 
 .compare-divider-hit:hover .compare-divider-line {

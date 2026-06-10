@@ -19,6 +19,8 @@ const INSPECTOR_EXPORT_HIGH_QUALITY_GIF_KEY = 'lenslet.inspector.export.highQual
 
 type UseInspectorCompareExportParams = {
   selectedPaths: string[]
+  onActionStart?: () => void
+  onActionError?: (action: string, error: unknown) => void
 }
 
 type UseInspectorCompareExportResult = {
@@ -65,6 +67,8 @@ export function buildInspectorComparisonExportPayload({
 
 export function useInspectorCompareExport({
   selectedPaths,
+  onActionStart,
+  onActionError,
 }: UseInspectorCompareExportParams): UseInspectorCompareExportResult {
   const [compareExportLabelsText, setCompareExportLabelsText] = useState('')
   const [compareExportEmbedMetadata, setCompareExportEmbedMetadata] = useState(
@@ -121,6 +125,7 @@ export function useInspectorCompareExport({
   const runComparisonExport = useCallback(
     async (outputFormat: ExportComparisonOutputFormat) => {
       if (compareExportBusy) return
+      onActionStart?.()
 
       if (selectedPaths.length < 2) {
         setCompareExportError(EXPORT_COMPARISON_MIN_SELECTIONS_MESSAGE)
@@ -150,6 +155,7 @@ export function useInspectorCompareExport({
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to export comparison.'
         setCompareExportError(msg)
+        onActionError?.('Comparison export failed', err)
       } finally {
         setCompareExportMode(null)
       }
@@ -160,6 +166,8 @@ export function useInspectorCompareExport({
       compareExportHighQualityGif,
       compareExportLabelsText,
       compareExportReverseOrder,
+      onActionStart,
+      onActionError,
       selectedPaths,
     ],
   )

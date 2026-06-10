@@ -3,6 +3,7 @@ import {
   clampMenuPosition,
   type ViewportBounds,
 } from '../../../lib/menuPosition'
+import { isAbortMediaError, mediaErrorFromUnknown, type MediaResourceError } from '../../../lib/mediaResourceState'
 
 export const HOVER_PREVIEW_VIEWPORT_WIDTH_RATIO = 0.8
 export const HOVER_PREVIEW_VIEWPORT_HEIGHT_RATIO = 0.8
@@ -23,6 +24,7 @@ export interface HoverPreviewRuntime {
 
 export interface HoverPreviewCallbacks {
   onReady: (result: { path: string; url: string }) => void
+  onError?: (result: { path: string; error: MediaResourceError }) => void
 }
 
 export interface HoverPreviewSurfaceSize {
@@ -99,10 +101,11 @@ export class HoverPreviewRequestController {
         this.activeUrl = nextUrl
         this.callbacks.onReady({ path, url: nextUrl })
       })
-      .catch(() => {
-        if (token === this.requestToken) {
-          this.activeAbort = null
-        }
+      .catch((error) => {
+        if (token !== this.requestToken) return
+        this.activeAbort = null
+        if (isAbortMediaError(error)) return
+        this.callbacks.onError?.({ path, error: mediaErrorFromUnknown(error) })
       })
   }
 

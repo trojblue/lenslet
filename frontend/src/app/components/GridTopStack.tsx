@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react'
 import StatusBar, { hasStatusBarContent, type StatusBarProps } from './StatusBar'
+import type { ActionFeedback } from '../model/actionFeedback'
 
 export type GridTopFilterChip = {
   id: string
@@ -17,7 +18,8 @@ export type GridTopSimilarity = {
 
 type GridTopStackProps = {
   statusBarProps: StatusBarProps
-  actionError: string | null
+  actionFeedback: ActionFeedback | null
+  onDismissActionFeedback?: () => void
   similarity: GridTopSimilarity | null
   onExitSimilarity: () => void
   filterChips: GridTopFilterChip[]
@@ -57,13 +59,14 @@ function GridTopBand({
 
 export default function GridTopStack({
   statusBarProps,
-  actionError,
+  actionFeedback,
+  onDismissActionFeedback,
   similarity,
   onExitSimilarity,
   filterChips,
   onClearFilters,
 }: GridTopStackProps): JSX.Element {
-  const showStatusBand = hasStatusBarContent(statusBarProps) || Boolean(actionError)
+  const showStatusBand = hasStatusBarContent(statusBarProps) || Boolean(actionFeedback)
   const showSimilarityBand = similarity !== null
   const showFiltersBand = filterChips.length > 0
 
@@ -74,9 +77,24 @@ export default function GridTopStack({
         visible={showStatusBand}
       >
         <StatusBar {...statusBarProps} />
-        {actionError && (
+        {actionFeedback && (
           <div className="border-b border-border bg-panel px-3 py-2">
-            <div className="ui-banner ui-banner-danger text-xs">{actionError}</div>
+            <div
+              className={`ui-banner ${actionFeedback.kind === 'error' ? 'ui-banner-danger' : 'ui-banner-accent'} text-xs flex items-center justify-between gap-3`}
+              role="status"
+            >
+              <span>{actionFeedback.message}</span>
+              {onDismissActionFeedback && (
+                <button
+                  type="button"
+                  className="text-muted hover:text-text transition-colors text-base leading-none shrink-0"
+                  onClick={onDismissActionFeedback}
+                  aria-label="Dismiss action status"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
         )}
       </GridTopBand>

@@ -167,4 +167,36 @@ describe('buildSelectionExportHandler', () => {
     expect(exportedText).toContain('/gallery/a.jpg')
     expect(exportedText).not.toContain('/gallery/b.jpg')
   })
+
+  it('reports selection export failures through the app action channel', () => {
+    const states: Array<'csv' | 'json' | null> = []
+    const errors: Array<{ action: string; error: unknown }> = []
+    let startCalls = 0
+    let closeCalls = 0
+    const failure = new Error('download blocked')
+    const handler = buildSelectionExportHandler({
+      format: 'csv',
+      selectedPaths: ['/gallery/a.jpg'],
+      items: [browseItem('/gallery/a.jpg', 5)],
+      setExporting: (format) => states.push(format),
+      closeMenu: () => {
+        closeCalls += 1
+      },
+      download: () => {
+        throw failure
+      },
+      timestamp: () => '2026-05-31T00-00-00-000Z',
+      onActionStart: () => {
+        startCalls += 1
+      },
+      onActionError: (action, error) => errors.push({ action, error }),
+    })
+
+    handler()
+
+    expect(states).toEqual(['csv', null])
+    expect(startCalls).toBe(1)
+    expect(closeCalls).toBe(1)
+    expect(errors).toEqual([{ action: 'Export selection metadata failed', error: failure }])
+  })
 })

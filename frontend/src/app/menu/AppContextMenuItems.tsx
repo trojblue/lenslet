@@ -18,6 +18,8 @@ interface AppContextMenuItemsProps {
   canFindSimilar?: boolean
   findSimilarDisabledReason?: string | null
   onFindSimilar?: (path: string) => void
+  onActionStart?: () => void
+  onActionError?: (action: string, error: unknown) => void
 }
 
 type ExportFormat = 'csv' | 'json'
@@ -99,6 +101,8 @@ type SelectionExportHandlerParams = {
   closeMenu: () => void
   download: typeof downloadBlob
   timestamp: () => string
+  onActionStart?: () => void
+  onActionError?: (action: string, error: unknown) => void
 }
 
 export function buildSelectionExportHandler({
@@ -109,15 +113,20 @@ export function buildSelectionExportHandler({
   closeMenu,
   download,
   timestamp,
+  onActionStart,
+  onActionError,
 }: SelectionExportHandlerParams): () => void {
   return () => {
     setExporting(format)
+    onActionStart?.()
     try {
       const selectedSet = new Set(selectedPaths)
       const selectedItems = items.filter((item) => selectedSet.has(item.path))
       const content = buildRatingsExportContent(selectedItems, format)
       const mime = getExportMime(format)
       download(new Blob([content], { type: mime }), `metadata_selection_${timestamp()}.${format}`)
+    } catch (error) {
+      onActionError?.('Export selection metadata failed', error)
     } finally {
       setExporting(null)
       closeMenu()
@@ -141,6 +150,8 @@ export default function AppContextMenuItems({
   canFindSimilar = false,
   findSimilarDisabledReason = null,
   onFindSimilar,
+  onActionStart,
+  onActionError,
 }: AppContextMenuItemsProps): JSX.Element {
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState<ExportFormat | null>(null)
@@ -159,10 +170,11 @@ export default function AppContextMenuItems({
   const handleRefresh = async (): Promise<void> => {
     const target = ctx.kind === 'tree' ? ctx.payload.path : '/'
     setRefreshing(true)
+    onActionStart?.()
     try {
       await onRefreshFolder(target)
     } catch (error) {
-      console.error('Failed to refresh folder:', error)
+      onActionError?.('Refresh folder failed', error)
     } finally {
       setRefreshing(false)
       closeMenu()
@@ -171,6 +183,7 @@ export default function AppContextMenuItems({
 
   const handleFolderExport = (format: ExportFormat) => async (): Promise<void> => {
     setExporting(format)
+    onActionStart?.()
     const folderPath = ctx.kind === 'tree' ? ctx.payload.path : current
     try {
       const folderItems = await fetchRecursiveFolderItems(folderPath)
@@ -179,8 +192,7 @@ export default function AppContextMenuItems({
       const slug = folderPath === '/' ? 'root' : (folderPath.replace(/^\/+/, '') || 'root').replace(/\//g, '_')
       downloadBlob(new Blob([content], { type: mime }), `metadata_${slug}_${timestampLabel()}.${format}`)
     } catch (error) {
-      console.error('Failed to export folder:', error)
-      alert('Failed to export folder. See console for details.')
+      onActionError?.('Export folder metadata failed', error)
     } finally {
       setExporting(null)
       closeMenu()
@@ -195,20 +207,30 @@ export default function AppContextMenuItems({
     closeMenu,
     download: downloadBlob,
     timestamp: timestampLabel,
+    onActionStart,
+    onActionError,
   })
 
   const handleDownloadSelection = async (): Promise<void> => {
     if (!selectedPaths.length) return
 
     closeMenu()
+    onActionStart?.()
+    const failures: unknown[] = []
     for (const path of selectedPaths) {
       try {
         const blob = await api.getFile(path)
         const name = selectedItemsByPath.get(path)?.name || getPathName(path) || 'image'
         downloadBlob(blob, name)
       } catch (error) {
-        console.error(`Failed to download ${path}:`, error)
+        failures.push(error)
       }
+    }
+    if (failures.length) {
+      const action = failures.length === selectedPaths.length
+        ? 'Download failed'
+        : `${failures.length} download${failures.length === 1 ? '' : 's'} failed`
+      onActionError?.(action, failures[0])
     }
   }
 

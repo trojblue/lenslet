@@ -29,6 +29,7 @@ import {
 import { LongPressController } from '../../../lib/touch'
 import { shouldOpenOnTap, toggleSelectedPath } from '../../../lib/mobileSelection'
 import { directOriginalImageUrl } from '../../media/originalImageResource'
+import { mediaErrorSummary, type MediaResourceError } from '../../../lib/mediaResourceState'
 
 const GAP = 16
 const CAPTION_H = 56
@@ -109,6 +110,7 @@ export default function VirtualGrid({
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewDirectPath, setPreviewDirectPath] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState<MediaResourceError | null>(null)
   const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number } | null>(null)
   const [previewSize, setPreviewSize] = useState<HoverPreviewSurfaceSize | null>(null)
   const [delayPassed, setDelayPassed] = useState<boolean>(false)
@@ -147,6 +149,14 @@ export default function VirtualGrid({
           setPreviewFor(path)
           setPreviewUrl(url)
           setPreviewDirectPath(null)
+          setPreviewError(null)
+          setDelayPassed(true)
+        },
+        onError: ({ path, error }) => {
+          setPreviewFor(path)
+          setPreviewUrl(null)
+          setPreviewDirectPath(null)
+          setPreviewError(error)
           setDelayPassed(true)
         },
       },
@@ -237,7 +247,7 @@ export default function VirtualGrid({
     let timeoutId: number | null = null
     const onScroll = () => {
       longPressControllerRef.current?.cancelFromScroll()
-      clearPreview()
+      clearPreview(true)
       setIsScrolling(true)
       timeoutId = clearScrollIdleTimeout(timeoutId, (id) => window.clearTimeout(id))
       timeoutId = window.setTimeout(() => setIsScrolling(false), SCROLL_IDLE_MS)
@@ -275,13 +285,15 @@ export default function VirtualGrid({
     }
   }
 
-  function clearPreview(): void {
+  function clearPreview(force = false): void {
+    if (previewError && !force) return
     cancelPreviewTimer()
     previewControllerRef.current?.clear()
     setDelayPassed(false)
     setPreviewFor(null)
     setPreviewUrl(null)
     setPreviewDirectPath(null)
+    setPreviewError(null)
     setPreviewPosition(null)
     setPreviewSize(null)
   }
@@ -302,6 +314,7 @@ export default function VirtualGrid({
     setPreviewFor(path)
     setPreviewUrl(null)
     setPreviewDirectPath(null)
+    setPreviewError(null)
     setPreviewPosition(position)
     setPreviewSize(surfaceSize)
     setDelayPassed(false)
@@ -315,6 +328,8 @@ export default function VirtualGrid({
         return
       }
       setPreviewDirectPath(null)
+      setPreviewError(null)
+      setDelayPassed(true)
       previewControllerRef.current?.begin(path)
     }, PREVIEW_DELAY_MS)
   }
@@ -330,8 +345,18 @@ export default function VirtualGrid({
     })
     setPreviewDirectPath(null)
     setPreviewUrl(null)
-    setDelayPassed(false)
+    setPreviewError(null)
+    setDelayPassed(true)
     previewControllerRef.current?.begin(failedPath)
+  }
+
+  const retryHoverPreview = () => {
+    if (!previewFor) return
+    setPreviewUrl(null)
+    setPreviewDirectPath(null)
+    setPreviewError(null)
+    setDelayPassed(true)
+    previewControllerRef.current?.begin(previewFor)
   }
 
   useEffect(() => () => {
@@ -602,7 +627,7 @@ export default function VirtualGrid({
     }
     return order
   }, [selected])
-  const hasPreview = !!(previewFor && previewUrl && delayPassed)
+  const hasPreview = !!(previewFor && delayPassed && (previewUrl || previewError))
   const adjacentThumbPrefetchPaths = useMemo(
     () => getAdjacentThumbPrefetchPaths(virtualRows, layout, items),
     [items, layout, virtualRows],
@@ -714,11 +739,13 @@ export default function VirtualGrid({
           onSchedulePreview={schedulePreview}
           onItemClick={handleItemClick}
         />
-        {previewFor && previewUrl && delayPassed && previewPosition && previewSize && createPortal(
+        {previewFor && delayPassed && previewPosition && previewSize && createPortal(
           <div
-            className="grid-hover-preview fixed z-[999] pointer-events-none overflow-hidden rounded-lg border border-border bg-panel/95 shadow-lg"
+            className={`grid-hover-preview fixed z-[999] overflow-hidden rounded-lg border border-border bg-panel/95 shadow-lg ${previewError ? 'pointer-events-auto' : 'pointer-events-none'}`}
             data-preview-path={previewFor}
-            aria-hidden="true"
+            data-media-state={previewError ? 'error' : previewUrl ? 'ready' : 'loading'}
+            aria-hidden={previewError ? undefined : true}
+            onMouseLeave={previewError ? () => clearPreview(true) : undefined}
             style={{
               left: previewPosition.x,
               top: previewPosition.y,
@@ -726,12 +753,28 @@ export default function VirtualGrid({
               height: previewSize.height,
             }}
           >
-            <img
-              src={previewUrl}
-              alt="preview"
-              className="block h-full w-full object-contain opacity-[0.98]"
-              onError={handlePreviewImageError}
-            />
+            {previewUrl ? (
+              <img
+                src={previewUrl}
+                alt="preview"
+                className="block h-full w-full object-contain opacity-[0.98]"
+                onError={handlePreviewImageError}
+              />
+            ) : previewError ? (
+              <div className="media-error-overlay media-error-overlay-preview">
+                <div className="media-error-title">Preview failed</div>
+                <div className="media-error-message">{mediaErrorSummary(previewError)}</div>
+                {previewError.retryable && (
+                  <button type="button" className="btn btn-xs" onClick={retryHoverPreview}>
+                    Retry
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="media-loading-overlay">
+                <div className="h-7 w-7 rounded-full border border-border border-t-accent animate-spin" />
+              </div>
+            )}
           </div>,
           document.body
         )}

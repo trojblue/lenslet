@@ -10,7 +10,12 @@ from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from lenslet.media_errors import MediaDecodeError, MediaReadError, RemoteMediaReadError
+from lenslet.media_errors import (
+    MediaDecodeError,
+    MediaReadError,
+    RemoteMediaNotFoundError,
+    RemoteMediaReadError,
+)
 from lenslet.server import StorageAppOptions
 from lenslet.web.browse import build_image_metadata
 from lenslet.web.app.factory import create_app_from_storage
@@ -203,6 +208,27 @@ def test_file_response_maps_remote_permission_failure_to_403() -> None:
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "remote source access denied"
+
+
+def test_file_response_maps_remote_not_found_separately_from_local_missing() -> None:
+    class Storage:
+        @staticmethod
+        def guess_mime(_path: str) -> str:
+            return "image/jpeg"
+
+        @staticmethod
+        def resolve_local_file_path(_path: str) -> None:
+            return None
+
+        @staticmethod
+        def read_bytes(path: str) -> bytes:
+            raise RemoteMediaNotFoundError(path, "https://example.test/missing.jpg", "HTTP 404")
+
+    with pytest.raises(HTTPException) as exc_info:
+        file_response(Storage(), "/remote/missing.jpg")
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "remote source not found"
 
 
 async def _collect_streaming_response(response: StreamingResponse) -> bytes:

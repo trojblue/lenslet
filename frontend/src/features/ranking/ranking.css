@@ -115,6 +115,20 @@
   flex-wrap: nowrap;
 }
 
+.ranking-save-error {
+  max-width: min(320px, 32vw);
+  padding: 6px 9px;
+  border: 1px solid color-mix(in oklab, var(--danger) 40%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--danger) 12%, var(--surface));
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .ranking-nav-group {
   display: inline-flex;
   align-items: center;

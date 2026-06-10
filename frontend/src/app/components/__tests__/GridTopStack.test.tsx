@@ -18,7 +18,7 @@ function renderGridTopStack(overrides: Partial<Parameters<typeof GridTopStack>[0
   return renderToStaticMarkup(
     <GridTopStack
       statusBarProps={makeStatusBarProps()}
-      actionError={null}
+      actionFeedback={null}
       similarity={null}
       onExitSimilarity={() => {}}
       filterChips={[]}
@@ -58,7 +58,7 @@ describe('GridTopStack bands', () => {
 
   it('shows status band for action errors even without status banners', () => {
     const html = renderGridTopStack({
-      actionError: 'Upload failed',
+      actionFeedback: { kind: 'error', message: 'Upload failed' },
     })
     expect(html).toContain('Upload failed')
     expect(html).not.toContain('data-grid-top-band="status" aria-hidden="true"')

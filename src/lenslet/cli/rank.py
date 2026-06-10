@@ -12,6 +12,7 @@ from .common import _find_available_port
 from ..ranking import app as ranking_app
 from ..ranking.dataset import RankingDatasetError
 from ..ranking.persistence import RankingPersistenceError
+from ..terminal_banner import banner_row
 from ..web.auth import trusted_write_origins_for_host
 
 DEFAULT_RANK_PORT = 7070
@@ -72,14 +73,15 @@ def _main_rank(argv: list[str] | None = None) -> None:
     results_path = getattr(app.state, "ranking_results_path", None)
     dataset_label = str(dataset_path)
     display_results = str(results_path) if results_path is not None else "unknown"
+    server_url = f"http://{args.host}:{port}"
     banner_lines = [
         "┌─────────────────────────────────────────────────┐",
         "│                   🔍 Lenslet                    │",
         "│               Ranking Mode Server               │",
         "├─────────────────────────────────────────────────┤",
-        f"│  Dataset:   {dataset_label[:35]:<35} │",
-        f"│  Server:    http://{args.host}:{port:<24} │",
-        f"│  Results:   {display_results[:35]:<35} │",
+        banner_row("Dataset:", dataset_label),
+        banner_row("Server:", server_url),
+        banner_row("Results:", display_results),
         "└─────────────────────────────────────────────────┘",
         "",
     ]

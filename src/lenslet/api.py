@@ -8,6 +8,7 @@ import multiprocessing as mp
 
 from . import server as server_api
 from .storage.table.input import TableInput, is_table_input, table_input_length
+from .terminal_banner import banner_row
 from .web.auth import trusted_write_origins_for_host
 
 AppBuilder = Callable[[], object]
@@ -173,10 +174,11 @@ def _print_dataset_launch_banner(
     port: int,
     process_id: int | None = None,
 ) -> None:
-    dataset_list = ", ".join(datasets.keys())[:35]
+    dataset_list = ", ".join(datasets.keys())
     total_images = sum(len(paths) for paths in datasets.values())
     mode_label = "In-memory (programmatic API)" if process_id is None else "Subprocess (non-blocking)"
-    pid_row = f"│  PID:       {process_id:<35} │\n" if process_id is not None else ""
+    server_url = f"http://{host}:{port}"
+    pid_row = f"{banner_row('PID:', process_id)}\n" if process_id is not None else ""
     footer = f"\nGallery running at: http://{host}:{port}\n" if process_id is not None else ""
     print(
         f"""
@@ -184,10 +186,10 @@ def _print_dataset_launch_banner(
 │                   🔍 Lenslet                    │
 │         Lightweight Image Gallery Server        │
 ├─────────────────────────────────────────────────┤
-│  Datasets:  {dataset_list:<35} │
-│  Images:    {total_images:<35} │
-│  Server:    http://{host}:{port:<24} │
-│  Mode:      {mode_label:<35} │
+{banner_row('Datasets:', dataset_list)}
+{banner_row('Images:', total_images)}
+{banner_row('Server:', server_url)}
+{banner_row('Mode:', mode_label)}
 {pid_row}└─────────────────────────────────────────────────┘
 {footer}"""
     )
@@ -202,9 +204,10 @@ def _print_table_launch_banner(
     process_id: int | None = None,
 ) -> None:
     total_images = table_input_length(table)
-    source_label = (source_column or "auto")[:35]
+    source_label = source_column or "auto"
     mode_label = "Table (programmatic API)" if process_id is None else "Table (subprocess)"
-    pid_row = f"│  PID:       {process_id:<35} │\n" if process_id is not None else ""
+    server_url = f"http://{host}:{port}"
+    pid_row = f"{banner_row('PID:', process_id)}\n" if process_id is not None else ""
     footer = f"\nGallery running at: http://{host}:{port}\n" if process_id is not None else ""
     print(
         f"""
@@ -212,10 +215,10 @@ def _print_table_launch_banner(
 │                   🔍 Lenslet                    │
 │         Lightweight Image Gallery Server        │
 ├─────────────────────────────────────────────────┤
-│  Rows:      {total_images:<35} │
-│  Source:    {source_label:<35} │
-│  Server:    http://{host}:{port:<24} │
-│  Mode:      {mode_label:<35} │
+{banner_row('Rows:', total_images)}
+{banner_row('Source:', source_label)}
+{banner_row('Server:', server_url)}
+{banner_row('Mode:', mode_label)}
 {pid_row}└─────────────────────────────────────────────────┘
 {footer}"""
     )

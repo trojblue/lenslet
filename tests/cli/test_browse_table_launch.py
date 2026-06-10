@@ -9,7 +9,10 @@ from lenslet.cli.hf_table import RemoteTableLoadResult
 from lenslet.embeddings.config import EmbeddingConfig
 from lenslet.server import BrowseAppOptions, EmbeddingAppOptions
 from lenslet.storage.table.launch import TableLaunchNotice, TableLaunchRequest, TableLaunchResult
+from lenslet.terminal_banner import terminal_cell_width
 from lenslet.workspace import Workspace
+
+_BANNER_BORDER_WIDTH = terminal_cell_width("┌─────────────────────────────────────────────────┐")
 
 
 def _browse_args(**overrides: Any) -> cli_browse.BrowseCliArgs:
@@ -55,6 +58,27 @@ def test_share_banner_and_launch_are_read_only() -> None:
 
     assert cli_browse._workspace_label_for_banner(args, target) == "shared read-only"
     assert cli_browse._trusted_write_origins_for_browse_launch(args, 7070) == ()
+
+
+def test_share_banner_server_row_stays_aligned(tmp_path: Path, capsys) -> None:
+    root = tmp_path / "gallery"
+    root.mkdir()
+    args = _browse_args(directory=str(root), share=True)
+    target = cli_browse.BrowseTarget(
+        raw_target=str(root),
+        target=root,
+        is_table_file=False,
+        is_remote_table=False,
+    )
+
+    cli_browse._print_browse_banner(args, target, 7072)
+
+    output = capsys.readouterr().out
+    banner_lines = [
+        line for line in output.splitlines() if line.startswith(("┌", "│", "├", "└"))
+    ]
+    assert "│  Server:    http://127.0.0.1:7072               │" in banner_lines
+    assert {terminal_cell_width(line) for line in banner_lines} == {_BANNER_BORDER_WIDTH}
 
 
 def test_local_browse_launch_keeps_trusted_write_origins() -> None:

@@ -18,6 +18,7 @@ from ..embeddings.config import EmbeddingConfig, parse_embedding_columns, parse_
 from ..indexing_status import CliIndexingReporter
 from ..storage.table.input import TableInput
 from ..storage.table.launch import TableLaunchRequest, TableLaunchResult, detect_source_column, prepare_table_launch
+from ..terminal_banner import banner_row
 from ..web.auth import trusted_write_origins_for_host
 from ..workspace import Workspace
 
@@ -271,20 +272,21 @@ def _print_browse_banner(args: BrowseCliArgs, target_info: BrowseTarget, port: i
     display_target = _display_target_for_banner(target_info)
     storage_label = _storage_label_for_banner(target_info)
     workspace_label = _workspace_label_for_banner(args, target_info)
+    server_url = f"http://{args.host}:{port}"
     banner_lines = [
         "┌─────────────────────────────────────────────────┐",
         "│                   🔍 Lenslet                    │",
         "│         Lightweight Image Gallery Server        │",
         "├─────────────────────────────────────────────────┤",
-        f"│  Target:    {display_target[:35]:<35} │",
-        f"│  Server:    http://{args.host}:{port:<24} │",
+        banner_row("Target:", display_target),
+        banner_row("Server:", server_url),
     ]
     if args.share:
-        banner_lines.append("│  Share:     starting...                         │")
+        banner_lines.append(banner_row("Share:", "starting..."))
     banner_lines.extend(
         [
-            f"│  Storage:   {storage_label:<35} │",
-            f"│  Workspace: {workspace_label:<35} │",
+            banner_row("Storage:", storage_label),
+            banner_row("Workspace:", workspace_label),
             "└─────────────────────────────────────────────────┘",
             "",
         ]

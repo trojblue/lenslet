@@ -116,6 +116,7 @@ def resolve_local_storage_startup(
             table_launch = _prepare_items_table_launch(
                 root_path,
                 items_path,
+                workspace=workspace,
                 options=options,
                 browse_options=browse_options,
                 embedding_options=embedding_options,
@@ -166,6 +167,7 @@ def _prepare_items_table_launch(
     root_path: str,
     items_path: Path,
     *,
+    workspace: Workspace,
     options: LocalAppOptions,
     browse_options: BrowseAppOptions,
     embedding_options: EmbeddingAppOptions,
@@ -178,6 +180,7 @@ def _prepare_items_table_launch(
                 source_column=options.source_column,
                 path_column=options.path_column,
                 cache_dimensions=False,
+                dimension_cache_dir=workspace.dimension_cache_dir(),
                 skip_dimension_probe=options.skip_dimension_probe,
                 embedding_config=embedding_options.config or EmbeddingConfig(),
                 thumb_size=browse_options.thumb_size,

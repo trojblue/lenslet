@@ -92,8 +92,19 @@ def test_browse_parser_uses_dimension_probe_vocabulary() -> None:
 
     args = cli_browse_args.BrowseCliArgs.from_namespace(namespace)
 
+    assert args.dimension_cache == "none"
     assert args.cache_dimensions is False
     assert args.skip_dimension_probe is False
+
+
+def test_browse_parser_exposes_source_dimension_write_opt_in() -> None:
+    parser = cli_browse_args._build_browse_parser()
+    namespace = parser.parse_args(["/tmp/items.parquet", "--write-source-dimensions"])
+
+    args = cli_browse_args.BrowseCliArgs.from_namespace(namespace)
+
+    assert args.dimension_cache == "source"
+    assert args.cache_dimensions is True
 
 
 def test_browse_parser_only_exposes_state_changing_embedding_cache_flag() -> None:

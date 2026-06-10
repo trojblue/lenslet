@@ -293,6 +293,7 @@ def test_create_app_prepares_items_parquet_with_table_launch_helper(
     assert request.source_column == "source"
     assert request.path_column == "path"
     assert request.cache_dimensions is False
+    assert request.dimension_cache_dir == (tmp_path / ".lenslet" / "dimensions")
     assert request.skip_dimension_probe is True
 
 

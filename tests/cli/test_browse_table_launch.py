@@ -25,6 +25,7 @@ def _browse_args(**overrides: Any) -> cli_browse.BrowseCliArgs:
         "source_column": None,
         "path_column": None,
         "base_dir": None,
+        "dimension_cache": "workspace",
         "cache_dimensions": False,
         "skip_dimension_probe": True,
         "thumb_cache": True,
@@ -145,6 +146,7 @@ def test_directory_items_parquet_launch_result_passed_to_create_app(
     assert request.parquet_path == root.resolve() / "items.parquet"
     assert request.base_dir == str(root.resolve())
     assert request.cache_dimensions is False
+    assert request.dimension_cache_dir == plan.dataset_workspace.dimension_cache_dir()
     assert captured["table_launch"] is launch_result
     assert captured["root_path"] == str(root.resolve())
     assert capsys.readouterr().out.count("[lenslet] prepared once") == 1

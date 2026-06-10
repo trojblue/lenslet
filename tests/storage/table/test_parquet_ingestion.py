@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from pathlib import Path
 
@@ -38,6 +39,10 @@ def _make_image(path: Path) -> None:
 def _write_parquet(path: Path, data: dict) -> None:
     table = pa.table(data)
     pq.write_table(table, path)
+
+
+def _file_hash(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_parquet_items_and_metrics_inline(tmp_path: Path):
@@ -617,6 +622,113 @@ def test_create_app_uses_retained_cache_dimensions_launch_result(tmp_path: Path)
     assert context.storage_origin == "parquet"
     assert cached_table["width"].to_pylist() == [8]
     assert cached_table["height"].to_pylist() == [6]
+
+
+def test_prepare_table_launch_uses_workspace_dimension_cache_without_source_write(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    image_path = tmp_path / "images" / "a.jpg"
+    _make_image(image_path)
+    parquet_path = tmp_path / "items.parquet"
+    _write_parquet(
+        parquet_path,
+        {
+            "source": ["images/a.jpg"],
+            "path": ["gallery/a.jpg"],
+        },
+    )
+    source_hash = _file_hash(parquet_path)
+    dimension_cache_dir = tmp_path / "items.parquet.cache" / "dimensions"
+
+    launch_result = prepare_table_launch(
+        TableLaunchRequest(
+            parquet_path=parquet_path,
+            base_dir=str(tmp_path),
+            source_column="source",
+            path_column="path",
+            cache_dimensions=False,
+            dimension_cache_dir=dimension_cache_dir,
+            skip_dimension_probe=True,
+        )
+    )
+
+    assert _file_hash(parquet_path) == source_hash
+    assert "width" not in pq.read_table(parquet_path).schema.names
+    assert launch_result.storage.row_dimensions() == [(8, 6)]
+    assert {notice.kind for notice in launch_result.notices} >= {
+        "dimension_cache_requires_probe",
+        "workspace_dimensions_cached",
+    }
+    assert list(dimension_cache_dir.rglob("*.json"))
+
+    def _fail_dimension_probe(_path: str):
+        raise AssertionError("workspace dimension cache should avoid source probing")
+
+    monkeypatch.setattr(
+        "lenslet.storage.table.row_scan.read_dimensions_fast",
+        _fail_dimension_probe,
+    )
+
+    cached_launch = prepare_table_launch(
+        TableLaunchRequest(
+            parquet_path=parquet_path,
+            base_dir=str(tmp_path),
+            source_column="source",
+            path_column="path",
+            cache_dimensions=False,
+            dimension_cache_dir=dimension_cache_dir,
+            skip_dimension_probe=True,
+        )
+    )
+
+    assert cached_launch.storage.row_dimensions() == [(8, 6)]
+    assert _file_hash(parquet_path) == source_hash
+
+
+def test_workspace_dimension_cache_is_namespaced_by_source_column(tmp_path: Path) -> None:
+    image_a = tmp_path / "images" / "a.jpg"
+    image_b = tmp_path / "images" / "b.jpg"
+    image_a.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (8, 6), color=(20, 40, 60)).save(image_a, format="JPEG")
+    Image.new("RGB", (5, 4), color=(60, 40, 20)).save(image_b, format="JPEG")
+    parquet_path = tmp_path / "items.parquet"
+    _write_parquet(
+        parquet_path,
+        {
+            "source_a": ["images/a.jpg"],
+            "source_b": ["images/b.jpg"],
+            "path": ["gallery/item.jpg"],
+        },
+    )
+    dimension_cache_dir = tmp_path / "items.parquet.cache" / "dimensions"
+
+    first = prepare_table_launch(
+        TableLaunchRequest(
+            parquet_path=parquet_path,
+            base_dir=str(tmp_path),
+            source_column="source_a",
+            path_column="path",
+            cache_dimensions=False,
+            dimension_cache_dir=dimension_cache_dir,
+            skip_dimension_probe=True,
+        )
+    )
+    second = prepare_table_launch(
+        TableLaunchRequest(
+            parquet_path=parquet_path,
+            base_dir=str(tmp_path),
+            source_column="source_b",
+            path_column="path",
+            cache_dimensions=False,
+            dimension_cache_dir=dimension_cache_dir,
+            skip_dimension_probe=True,
+        )
+    )
+
+    assert first.storage.row_dimensions() == [(8, 6)]
+    assert second.storage.row_dimensions() == [(5, 4)]
+    assert len(list(dimension_cache_dir.rglob("*.json"))) == 2
 
 
 def test_prepare_table_launch_caches_extensionless_remote_dimensions(

@@ -88,7 +88,9 @@ Options:
   --source-column NAME         Column to load image paths from in table mode
   --path-column NAME           Column to use as Lenslet logical paths in table mode
   --base-dir PATH              Base directory for resolving relative paths in table mode
-  --no-cache-dimensions        Disable caching width/height dimensions back into parquet
+  --dimension-cache MODE       Cache dimensions in workspace, source, or none
+  --write-source-dimensions    Opt in to writing dimensions back into source Parquet
+  --no-cache-dimensions        Disable workspace and source dimension cache writes
   --probe-dimensions           Probe missing image dimensions during table load
   --no-thumb-cache             Disable thumbnail cache when a workspace is available
   --no-og-preview              Disable dataset-based social preview image

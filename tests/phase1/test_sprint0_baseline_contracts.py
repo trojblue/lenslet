@@ -56,11 +56,11 @@ def test_phase1_baseline_fixture_covers_source_media_and_metric_cases() -> None:
     assert fixture.large_metric_row_count > BROWSE_QUERY_DEFAULT_LIMIT
 
 
-@pytest.mark.xfail(strict=True, reason="S1-T1 moves default dimension writes to workspace cache")
 def test_source_parquet_dimension_cache_default_is_workspace_backed() -> None:
     args = _build_browse_parser().parse_args(["items.parquet"])
 
     assert args.cache_dimensions is False
+    assert args.dimension_cache == "workspace"
 
 
 @pytest.mark.xfail(

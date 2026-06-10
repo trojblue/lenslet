@@ -308,6 +308,9 @@ def _resolved_dimensions(
     height = coerce_int(columns.height_values[idx]) or 0
     if width > 0 and height > 0:
         return width, height, None
+    cached = _cached_dimensions_for_row(context.table, idx, identity.source, identity.logical_path)
+    if cached is not None:
+        return cached[0], cached[1], cached
     if not identity.is_local or context.policy.skip_dimension_probe or local_source.resolved_path is None:
         return width, height, None
 
@@ -315,6 +318,25 @@ def _resolved_dimensions(
     if dims is None:
         return width, height, None
     return dims[0], dims[1], dims
+
+
+def _cached_dimensions_for_row(
+    table: TableIndexData,
+    idx: int,
+    source: str,
+    logical_path: str,
+) -> tuple[int, int] | None:
+    overrides = table.dimension_overrides
+    if not overrides:
+        return None
+    cached = overrides.get(idx)
+    if cached is None or cached.width <= 0 or cached.height <= 0:
+        return None
+    if _fast_text(cached.source) != _fast_text(source):
+        return None
+    if normalize_item_path(cached.logical_path) != normalize_item_path(logical_path):
+        return None
+    return cached.width, cached.height
 
 
 def _resolve_row_media_fields(
@@ -328,4 +350,3 @@ def _resolve_row_media_fields(
     mtime = _resolved_file_mtime(columns.mtime_values[idx], local_source, is_local=identity.is_local)
     width, height, discovered_dims = _resolved_dimensions(context, columns, idx, identity, local_source)
     return size, mtime, width, height, discovered_dims
-

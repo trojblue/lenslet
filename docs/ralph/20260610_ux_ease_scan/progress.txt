@@ -37,3 +37,38 @@ Validations:
 Blockers: none.
 
 Next step: start Sprint 1 with S1-T1 source Parquet immutability and workspace-backed dimension caching.
+
+## Iteration 2/9 - 2026-06-10T17:47:56Z
+
+Completed task IDs: S1-T1.
+
+Files changed:
+- `README.md`
+- `docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan.md`
+- `docs/ralph/20260610_ux_ease_scan/progress.txt`
+- `src/lenslet/cli/browse.py`
+- `src/lenslet/cli/browse_args.py`
+- `src/lenslet/storage/table/dimension_cache.py`
+- `src/lenslet/storage/table/index_types.py`
+- `src/lenslet/storage/table/launch.py`
+- `src/lenslet/storage/table/row_scan.py`
+- `src/lenslet/storage/table/row_store.py`
+- `src/lenslet/storage/table/storage.py`
+- `src/lenslet/web/app/local.py`
+- `src/lenslet/workspace.py`
+- `tests/cli/test_browse_table_launch.py`
+- `tests/cli/test_direct_cli_helpers.py`
+- `tests/cli/test_ranking_cli.py`
+- `tests/phase1/test_sprint0_baseline_contracts.py`
+- `tests/storage/table/test_parquet_ingestion.py`
+- `tests/web/app/test_factory_error_contract.py`
+
+Validations:
+- `python -m ruff check src/lenslet/cli/browse.py src/lenslet/cli/browse_args.py src/lenslet/storage/table/dimension_cache.py src/lenslet/storage/table/index_types.py src/lenslet/storage/table/launch.py src/lenslet/storage/table/row_scan.py src/lenslet/storage/table/row_store.py src/lenslet/storage/table/storage.py src/lenslet/web/app/local.py src/lenslet/workspace.py tests/storage/table/test_parquet_ingestion.py tests/cli/test_direct_cli_helpers.py tests/cli/test_browse_table_launch.py tests/cli/test_ranking_cli.py tests/phase1/test_sprint0_baseline_contracts.py tests/web/app/test_factory_error_contract.py` -> passed.
+- `pytest -q tests/storage/table/test_parquet_ingestion.py tests/cli/test_direct_cli_helpers.py tests/cli/test_browse_table_launch.py tests/cli/test_ranking_cli.py tests/phase1/test_sprint0_baseline_contracts.py tests/web/app/test_factory_error_contract.py` -> passed, 61 passed and 2 expected xfails.
+- `pytest -q tests/storage/table tests/cli/test_direct_cli_helpers.py tests/cli/test_browse_table_launch.py tests/web/app/test_factory_error_contract.py` -> failed in three current formula-metric classification tests outside the S1-T1 dimension-cache slice.
+- `python scripts/lint_repo.py` -> passed with existing warn-only file-size guardrails for large files.
+
+Blockers: none for S1-T1. Broader table validation still has formula-metric failures outside this slice in `tests/storage/table/test_table_formula_metrics.py` and `tests/storage/table/test_table_index_pipeline.py`.
+
+Next step: continue Sprint 1 with S1-T2 table/media launch status payload and CLI/UI summary.

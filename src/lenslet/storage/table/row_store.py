@@ -24,6 +24,7 @@ from .row_scan import (
     LocalSkipCounts,
     LocalSourceResolution,
     _can_scan_uniform_http_rows,
+    _cached_dimensions_for_row,
     _fast_path_folder_and_name,
     _fast_text,
     _resolve_local_source,
@@ -701,6 +702,11 @@ def _build_uniform_http_row_store(
         mtime = (coerce_timestamp(mtime_values[row_idx]) or 0.0) if has_mtime_column else 0.0
         width = _int_or_zero(width_values[row_idx]) if has_width_column else 0
         height = _int_or_zero(height_values[row_idx]) if has_height_column else 0
+        cached_dims = None
+        if width <= 0 or height <= 0:
+            cached_dims = _cached_dimensions_for_row(context.table, row_idx, source, logical_path)
+            if cached_dims is not None:
+                width, height = cached_dims
 
         slot = len(row_indices)
         row_to_slot = _remember_row_slot(
@@ -722,7 +728,7 @@ def _build_uniform_http_row_store(
         urls.append(source)
         path_to_row[logical_path] = row_idx
         row_to_path[row_idx] = logical_path
-        row_dimensions[row_idx] = (width, height)
+        row_dimensions[row_idx] = cached_dims or (width, height)
         folder_rows.setdefault(folder_norm, []).append(row_idx)
         _record_folder_children(
             folder_norm,

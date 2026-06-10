@@ -103,7 +103,7 @@ Demo outcome: implementers have one shared source of truth for query identity, m
 
 Demo outcome: a user can launch a table and know Lenslet chose the right source/path contract, source Parquet files are not rewritten by default, media loading has a clear direct/proxy/streaming policy, and failures are visible instead of silent.
 
-- S1-T1: Make source Parquet immutable by default.
+- [x] S1-T1: Make source Parquet immutable by default.
   Replace default in-source Parquet dimension caching with workspace-backed dimension caching. The default must never rewrite the source Parquet. Keep source mutation only behind an explicit opt-in such as `--write-source-dimensions` or `--dimension-cache=source`, with separate tests. Key cached dimensions by table fingerprint, source identity, and row identity: include source parquet path, file size, mtime or affordable content hash, schema hash, row count, selected source column, selected path/root/base-dir mode, workspace id, stable row id when available, and otherwise row index plus normalized source/path value.
 
 - S1-T2: Add a backend table/media launch status payload and CLI/UI summary.
@@ -272,6 +272,7 @@ Rollback is sprint-local. Most changes are additive contracts or hard cutovers i
 - [x] 2026-06-10: Final consistency check after integration confirmed no stale `S3-T*` task IDs, no old derived-score full-scope wording, and all review/report artifacts present under `docs/20260610_ux_ease_scan/`.
 - [x] 2026-06-10: Sprint 0 completed. Added the Phase 1 ownership matrix, backend/frontend analysis query and window token helpers, original media policy/redaction contract, and baseline pending tests for source immutability, direct/proxy fallback, bounded metric sort, URL precedence, and folder-scope selection clearing.
 - [x] 2026-06-10: Sprint 0 validation passed: focused pytest reported 28 passed and 3 expected xfails; focused Vitest reported 27 passed and 2 todo; targeted Ruff and `python scripts/lint_repo.py` passed. Cleanup gate applied Tier 1 local simplifications; review gate found one malformed-URL redaction issue, which was fixed and covered by test.
+- [x] 2026-06-10: Sprint 1 partial, S1-T1 completed. Default table dimension caching now writes to a workspace cache, not source Parquet; source Parquet writes require explicit `--write-source-dimensions`/`--dimension-cache source`; `--no-write` falls back to temp workspace caching. Cache identity includes Parquet fingerprint, schema hash, row count, source/path/root/base-dir choices, workspace id, row index, normalized source, and logical path. Focused pytest, targeted Ruff, and `python scripts/lint_repo.py` passed. A broader `tests/storage/table` run still has three current formula-metric classification failures outside this S1-T1 slice.
 
 
 ## Artifacts and Handoff
@@ -311,3 +312,5 @@ Sprint 0 implementation artifacts:
 - Pending frontend contract markers: `frontend/src/app/routing/__tests__/viewStateUrl.test.ts`, `frontend/src/app/hooks/__tests__/useAppSelectionViewerCompare.test.ts`
 
 Sprint 0 handoff: contract lock is complete. The next sprint is Sprint 1, starting with source Parquet immutability by default and workspace-backed dimension caching. Keep the Sprint 0 expected xfails/todos in place until the relevant implementation sprint closes them.
+
+Sprint 1 partial handoff: S1-T1 is complete. Implementation artifacts include workspace dimension cache helpers, CLI dimension-cache policy flags, table-launch cache identity/load/write wiring, and focused source immutability tests. Remaining Sprint 1 tasks are S1-T2 through S1-T5. Validation note: `python scripts/lint_repo.py` and the S1-T1 focused suites pass. `pytest -q tests/storage/table` currently fails in formula-metric tests outside this slice (`pending_gpt_q4_value_view` and string `q10` classification).

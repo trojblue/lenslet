@@ -14,6 +14,12 @@ from .categoricals import (
 )
 from ...embeddings.config import EmbeddingConfig
 from .display import is_internal_metric_key
+from .dimension_cache import (
+    TableDimensionCacheRow,
+    load_dimension_cache,
+    table_dimension_cache_identity,
+    write_dimension_cache,
+)
 from .index import is_formula_metric_column_name
 from .launch_sources import (
     detect_source_column,
@@ -126,6 +132,7 @@ class TableLaunchRequest:
     cache_dimensions: bool
     skip_dimension_probe: bool
     path_column: str | None = None
+    dimension_cache_dir: Path | None = None
     embedding_config: EmbeddingConfig | None = None
     auto_detect_root: bool = False
     thumb_size: int = 256
@@ -181,9 +188,13 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
         readable_columns=column_selection.columns,
     )
     table = load_parquet_table(str(parquet_path), columns=browse_columns.columns)
-    dimensions = inspect_table_dimensions(table, count_missing=request.cache_dimensions)
+    workspace_dimension_cache_enabled = request.dimension_cache_dir is not None
+    dimensions = inspect_table_dimensions(
+        table,
+        count_missing=request.cache_dimensions or workspace_dimension_cache_enabled,
+    )
     dimension_probe_policy = resolve_dimension_probe_policy(
-        cache_dimensions=request.cache_dimensions,
+        cache_dimensions=request.cache_dimensions or workspace_dimension_cache_enabled,
         skip_dimension_probe=request.skip_dimension_probe,
         missing_dimensions=dimensions.missing_count,
     )
@@ -193,6 +204,24 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
         source_column=browse_columns.source_column or request.source_column,
         base_dir=request.base_dir,
         auto_detect_root=request.auto_detect_root,
+    )
+    dimension_cache_identity = (
+        table_dimension_cache_identity(
+            parquet_path=parquet_path,
+            schema=schema,
+            row_count=table.num_rows,
+            source_column=browse_columns.source_column or request.source_column,
+            path_column=browse_columns.path_column,
+            root=root_resolution.effective_root,
+            base_dir=request.base_dir,
+            workspace_cache_dir=request.dimension_cache_dir,
+        )
+        if request.dimension_cache_dir is not None
+        else None
+    )
+    dimension_overrides = load_dimension_cache(
+        request.dimension_cache_dir,
+        dimension_cache_identity,
     )
     row_field_provider = (
         ParquetRowFieldProvider(parquet_path, browse_columns.table_field_columns)
@@ -220,6 +249,7 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
             categorical_columns=browse_columns.categorical_columns,
             categorical_row_provider=categorical_row_provider,
             browse_signature_seed=parquet_browse_signature_seed(parquet_path),
+            dimension_overrides=dimension_overrides,
         ),
     )
 
@@ -234,6 +264,11 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
             table_is_projected=browse_columns.is_projected,
             dimensions=dimensions,
             row_dims=storage.row_dimensions(),
+        ),
+        *cache_workspace_dimensions(
+            dimension_cache_dir=request.dimension_cache_dir,
+            dimension_cache_identity=dimension_cache_identity,
+            rows=storage.dimension_cache_rows(),
         ),
     ]
 
@@ -676,6 +711,30 @@ def cache_missing_dimensions(
         TableLaunchNotice(
             kind="dimensions_cached",
             message=f"[lenslet] Cached width/height into {parquet_path}",
+        ),
+    )
+
+
+def cache_workspace_dimensions(
+    *,
+    dimension_cache_dir: Path | None,
+    dimension_cache_identity: dict[str, Any] | None,
+    rows: list[tuple[int, Any]],
+) -> tuple[TableLaunchNotice, ...]:
+    cached = write_dimension_cache(
+        dimension_cache_dir,
+        dimension_cache_identity,
+        (
+            TableDimensionCacheRow(row_idx=row_idx, dimensions=dimensions)
+            for row_idx, dimensions in rows
+        ),
+    )
+    if cached <= 0:
+        return ()
+    return (
+        TableLaunchNotice(
+            kind="workspace_dimensions_cached",
+            message=f"[lenslet] Cached width/height for {cached} row(s) in the workspace dimension cache.",
         ),
     )
 

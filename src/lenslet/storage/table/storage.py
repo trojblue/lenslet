@@ -47,6 +47,7 @@ from .index import (
     extract_row_display_fields,
 )
 from .index_types import (
+    TableCachedRowDimensions,
     TableIndexData,
     TableIndexInput,
     TableIndexPolicy,
@@ -194,6 +195,7 @@ class TableStorageOptions:
     categorical_columns: tuple[str, ...] = ()
     categorical_row_provider: Callable[[int], dict[str, Any]] | None = None
     browse_signature_seed: str = ""
+    dimension_overrides: dict[int, TableCachedRowDimensions] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -405,6 +407,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         self._categorical_columns = tuple(options.categorical_columns)
         self._categorical_row_provider = options.categorical_row_provider
         self._browse_signature_seed = options.browse_signature_seed
+        self._dimension_overrides = options.dimension_overrides
         self._progress_bar = ProgressBar()
 
         self._indexes: dict[str, TableBrowseIndex] = {}
@@ -838,6 +841,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
                 image_exts=self.IMAGE_EXTS,
                 source_kind=self._source_kind,
                 extensionless_source_all_trusted=self._extensionless_source_trust_scope == "*",
+                dimension_overrides=self._dimension_overrides,
             ),
             policy=TableIndexPolicy(
                 allow_local=self._allow_local,
@@ -1714,6 +1718,32 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
 
     def row_dimensions(self) -> list[tuple[int, int] | None]:
         return list(self._require_row_store().row_dimensions)
+
+    def dimension_cache_rows(self) -> list[tuple[int, TableCachedRowDimensions]]:
+        row_store = self._require_row_store()
+        rows: list[tuple[int, TableCachedRowDimensions]] = []
+        for row_idx, dims in enumerate(row_store.row_dimensions):
+            if dims is None or dims[0] <= 0 or dims[1] <= 0:
+                continue
+            path = row_store.path_for_row_index(row_idx)
+            if path is None:
+                continue
+            try:
+                source = row_store.source_for_row(row_idx)
+            except FileNotFoundError:
+                continue
+            rows.append(
+                (
+                    row_idx,
+                    TableCachedRowDimensions(
+                        source=source,
+                        logical_path=path,
+                        width=dims[0],
+                        height=dims[1],
+                    ),
+                )
+            )
+        return rows
 
     def path_for_row_index(self, index: int) -> str | None:
         return self._require_row_store().path_for_row_index(index)

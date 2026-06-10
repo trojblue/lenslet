@@ -407,6 +407,11 @@ def _create_remote_table_app_or_exit(plan: BrowseLaunchPlan) -> object:
 
 def _create_table_file_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> object:
     args = plan.args
+    workspace = (
+        Workspace.for_temp_dataset(str(target))
+        if args.no_write
+        else Workspace.for_parquet(target, can_write=True)
+    )
     launch_result = prepare_table_launch(
         TableLaunchRequest(
             parquet_path=target,
@@ -414,6 +419,7 @@ def _create_table_file_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> obje
             source_column=args.source_column,
             path_column=args.path_column,
             cache_dimensions=args.cache_dimensions,
+            dimension_cache_dir=_dimension_cache_dir_for_launch(args, workspace),
             skip_dimension_probe=args.skip_dimension_probe,
             embedding_config=plan.embedding_config,
             auto_detect_root=True,
@@ -422,11 +428,6 @@ def _create_table_file_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> obje
         )
     )
     _emit_table_launch_notices(launch_result)
-    workspace = (
-        Workspace.for_temp_dataset(str(target))
-        if args.no_write
-        else Workspace.for_parquet(target, can_write=True)
-    )
     return server_api.create_app_from_storage(
         launch_result.storage,
         options=server_api.StorageAppOptions(
@@ -456,6 +457,7 @@ def _create_directory_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> objec
                 source_column=args.source_column,
                 path_column=args.path_column,
                 cache_dimensions=args.cache_dimensions,
+                dimension_cache_dir=_dimension_cache_dir_for_launch(args, plan.dataset_workspace),
                 skip_dimension_probe=args.skip_dimension_probe,
                 embedding_config=plan.embedding_config,
                 thumb_size=args.thumb_size,
@@ -487,6 +489,12 @@ def _create_directory_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> objec
         options=options,
         table_launch=table_launch,
     )
+
+
+def _dimension_cache_dir_for_launch(args: BrowseCliArgs, workspace: Workspace | None) -> Path | None:
+    if args.dimension_cache != "workspace" or workspace is None:
+        return None
+    return workspace.dimension_cache_dir()
 
 
 def _create_browse_app_or_exit(plan: BrowseLaunchPlan) -> object:

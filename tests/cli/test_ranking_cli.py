@@ -46,7 +46,8 @@ def _browse_args(**overrides: Any) -> cli_browse.BrowseCliArgs:
         "source_column": None,
         "path_column": None,
         "base_dir": None,
-        "cache_dimensions": True,
+        "dimension_cache": "workspace",
+        "cache_dimensions": False,
         "skip_dimension_probe": True,
         "thumb_cache": True,
         "og_preview": True,
@@ -159,14 +160,15 @@ def test_cli_browse_invocation_still_routes_to_existing_factory(monkeypatch, tmp
 def test_normalize_browse_args_disables_cache_write_for_no_write(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    args = _browse_args(no_write=True, cache_dimensions=True)
+    args = _browse_args(no_write=True, dimension_cache="source", cache_dimensions=True)
 
     normalized = cli_browse._normalize_browse_args(args)
 
     assert normalized.cache_dimensions is False
+    assert normalized.dimension_cache == "workspace"
     assert args.cache_dimensions is True
     captured = capsys.readouterr()
-    assert "--no-write disables parquet dimension caching" in captured.out
+    assert "--no-write uses a temp workspace dimension cache" in captured.out
 
 
 def test_browse_args_parser_and_normalizer_are_directly_covered(
@@ -181,7 +183,8 @@ def test_browse_args_parser_and_normalizer_are_directly_covered(
     assert args.port == 7080
     assert args.no_write is True
     assert normalized.cache_dimensions is False
-    assert "--no-write disables parquet dimension caching" in capsys.readouterr().out
+    assert normalized.dimension_cache == "workspace"
+    assert capsys.readouterr().out == ""
 
 
 def test_cli_browse_reports_factory_init_failure(monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

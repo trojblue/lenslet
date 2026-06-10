@@ -194,6 +194,16 @@ class Workspace:
             return None
         return self.root / "embeddings_cache"
 
+    def dimension_cache_dir(self) -> Path | None:
+        if not self.can_write:
+            return None
+        override_dir = self._views_override_cache_dir("dimensions")
+        if override_dir is not None:
+            return override_dir
+        if self.root is None:
+            return None
+        return self.root / "dimensions"
+
     def og_cache_dir(self) -> Path | None:
         if not self.can_write:
             return None

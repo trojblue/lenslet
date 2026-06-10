@@ -1,12 +1,22 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, TypeAlias
 
 from ..image_media import ImageMime
 
 ProgressCallback: TypeAlias = Callable[[int, int, str], None]
+
+
+@dataclass(frozen=True, slots=True)
+class TableCachedRowDimensions:
+    """Workspace-cached dimensions validated against row source identity."""
+
+    source: str
+    logical_path: str
+    width: int
+    height: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +44,7 @@ class TableIndexData:
     image_exts: tuple[str, ...]
     source_kind: str | None = None
     extensionless_source_all_trusted: bool = False
+    dimension_overrides: Mapping[int, TableCachedRowDimensions] | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -17,6 +17,7 @@ class BrowseCliArgs:
     source_column: str | None
     path_column: str | None
     base_dir: str | None
+    dimension_cache: str
     cache_dimensions: bool
     skip_dimension_probe: bool
     thumb_cache: bool
@@ -46,7 +47,8 @@ class BrowseCliArgs:
             source_column=args.source_column,
             path_column=args.path_column,
             base_dir=args.base_dir,
-            cache_dimensions=bool(args.cache_dimensions),
+            dimension_cache=str(args.dimension_cache),
+            cache_dimensions=str(args.dimension_cache) == "source",
             skip_dimension_probe=bool(args.skip_dimension_probe),
             thumb_cache=bool(args.thumb_cache),
             og_preview=bool(args.og_preview),
@@ -72,6 +74,7 @@ def _build_browse_parser() -> argparse.ArgumentParser:
         description="Lenslet - Lightweight image gallery server",
         epilog="Example: lenslet ~/Pictures --port 7070",
     )
+    parser.set_defaults(cache_dimensions=False)
     parser.add_argument(
         "directory",
         type=str,
@@ -121,11 +124,24 @@ def _build_browse_parser() -> argparse.ArgumentParser:
         help="Base directory for resolving relative paths in table mode",
     )
     parser.add_argument(
+        "--dimension-cache",
+        choices=("workspace", "source", "none"),
+        default="workspace",
+        help="Where to cache probed width/height dimensions (default: workspace)",
+    )
+    parser.add_argument(
+        "--write-source-dimensions",
+        action="store_const",
+        const="source",
+        dest="dimension_cache",
+        help="Opt in to writing probed width/height dimensions back into the source Parquet",
+    )
+    parser.add_argument(
         "--no-cache-dimensions",
-        action="store_false",
-        dest="cache_dimensions",
-        default=True,
-        help="Disable caching width/height dimensions back into parquet",
+        action="store_const",
+        const="none",
+        dest="dimension_cache",
+        help="Disable workspace dimension cache writes and source dimension writes",
     )
     parser.add_argument(
         "--probe-dimensions",
@@ -247,7 +263,7 @@ def _parse_browse_args_or_exit(argv: list[str] | None) -> BrowseCliArgs:
 
 
 def _normalize_browse_args(args: BrowseCliArgs) -> BrowseCliArgs:
-    if args.no_write and args.cache_dimensions:
-        print("[lenslet] --no-write disables parquet dimension caching; use --no-cache-dimensions to silence.")
-        return replace(args, cache_dimensions=False)
+    if args.no_write and args.dimension_cache == "source":
+        print("[lenslet] --no-write uses a temp workspace dimension cache instead of writing source Parquet.")
+        return replace(args, dimension_cache="workspace", cache_dimensions=False)
     return args

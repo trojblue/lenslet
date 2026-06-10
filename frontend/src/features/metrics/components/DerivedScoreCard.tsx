@@ -129,8 +129,22 @@ export default function DerivedScoreCard({
   )
   const applyDisabledReason = draftBuild.errors[0] ?? null
   const rankReason = draftRankState.disabledReason
-  const validCount = draftRankState.evaluation?.validCount ?? 0
-  const invalidCount = draftRankState.evaluation?.invalidCount ?? items.length
+  const activeCounts = derivedMetric.status === 'none' ? draftRankState.evaluation : derivedMetric
+  const validCount = activeCounts?.validCount ?? 0
+  const invalidCount = activeCounts?.invalidCount ?? items.length
+  const activeStatusText = useMemo(
+    () => formatActiveDerivedMetricStatus(derivedMetric),
+    [derivedMetric],
+  )
+  const scorePreview = useMemo(() => {
+    const evaluation = draftRankState.evaluation
+    if (!evaluation?.key || evaluation.status !== 'valid') return null
+    const valuesByKey = collectMetricValuesByKey(evaluation.items, [evaluation.key])
+    return {
+      key: evaluation.key,
+      histogram: computeHistogramFromValues(getMetricValues(valuesByKey, evaluation.key), 32),
+    }
+  }, [draftRankState.evaluation])
   const unavailableInputs = draftRankState.evaluation?.status === 'unavailable'
     ? [
       ...draftRankState.evaluation.missingMetricKeys,
@@ -464,8 +478,16 @@ export default function DerivedScoreCard({
             ? 'No score inputs in this view.'
             : unavailableInputs.length
               ? `Unavailable inputs: ${unavailableInputs.join(', ')}.`
-              : applyDisabledReason ?? rankReason ?? 'Score ready.'}
+              : applyDisabledReason ?? rankReason ?? activeStatusText ?? 'Score ready.'}
         </div>
+        {scorePreview && (
+          <div data-derived-score-preview-histogram>
+            <DerivedMetricMiniHistogram
+              metricKey={scorePreview.key}
+              histogram={scorePreview.histogram}
+            />
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -483,10 +505,10 @@ export default function DerivedScoreCard({
             className="btn btn-sm btn-active"
             data-derived-score-rank
             disabled={!draftBuild.spec || !!rankReason}
-            title={rankReason ?? 'Rank by score'}
+            title={rankReason ?? 'Sort by this score'}
             onClick={rankDraft}
           >
-            Rank by score
+            Sort by score
           </button>
           <button
             type="button"
@@ -599,4 +621,23 @@ function formatFormulaDiagnostics(diagnostics: DerivedMetricFormulaDiagnostics |
     parts.push(`Skipped ${diagnostics.skippedTerms.length} term${diagnostics.skippedTerms.length === 1 ? '' : 's'}.`)
   }
   return parts.length ? parts.join(' ') : 'Formula applied.'
+}
+
+function formatActiveDerivedMetricStatus(derivedMetric: DerivedMetricEvaluation): string | null {
+  if (derivedMetric.status === 'none') return null
+  if (derivedMetric.status === 'invalid') {
+    return derivedMetric.invalidReasons[0] ?? 'Saved score definition is invalid.'
+  }
+  if (derivedMetric.status === 'unavailable') {
+    const missing = [
+      ...derivedMetric.missingMetricKeys,
+      ...derivedMetric.missingCategoricalKeys,
+    ].sort()
+    return `Unavailable inputs: ${missing.join(', ') || 'unknown inputs'}.`
+  }
+  const population = derivedMetric.scorePopulationCount ?? derivedMetric.totalItems
+  if (population != null && population !== derivedMetric.loadedCount) {
+    return `Score ready across ${population} query-filtered items.`
+  }
+  return 'Score ready.'
 }

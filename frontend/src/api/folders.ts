@@ -18,7 +18,6 @@ import type { GetFolderOptions } from './client'
 export const DEFAULT_FOLDER_GC_TIME_MS = 5 * 60_000
 export const RECURSIVE_FOLDER_GC_TIME_MS = 60_000
 export const BACKEND_BROWSE_PAGE_SIZE = 1000
-export const BACKEND_BROWSE_METRIC_SORT_LIMIT = 50_000
 type RecursiveFolderQueryKey = readonly ['folder', string, 'recursive', number, number | null, 'items' | 'count']
 
 type FolderQueryOptions = {
@@ -123,7 +122,7 @@ function analysisQueryKeyFromRequest(
     request.sort,
     request.text_query ?? '',
     activeRandomSeedForAnalysis(request),
-    request.derived_metric,
+    request.derived_metric ?? null,
     normalizeUnsupportedToken(unsupportedToken),
   ] as const
 }

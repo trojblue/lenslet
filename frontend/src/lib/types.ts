@@ -81,7 +81,27 @@ export type BrowseQueryResponse = {
   folders: BrowseFolderEntryPayload[]
   metric_keys: string[]
   categorical_keys: string[]
+  derived_metric_status?: DerivedMetricStatusPayload | null
   field_capabilities?: FieldCapabilitiesPayload | null
+}
+
+export type DerivedMetricZStatPayload = {
+  mean: number
+  std: number
+  count: number
+}
+
+export type DerivedMetricStatusPayload = {
+  key?: string | null
+  display_name?: string | null
+  status: 'none' | 'applied' | 'unavailable' | 'invalid'
+  score_scope: 'none' | 'query_filtered'
+  score_population_count: number
+  valid_count: number
+  invalid_count: number
+  missing_numeric_inputs: string[]
+  unavailable_categorical_inputs: string[]
+  z_stats: Record<string, DerivedMetricZStatPayload>
 }
 
 export type FieldCapability = {

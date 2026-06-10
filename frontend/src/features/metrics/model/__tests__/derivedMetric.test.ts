@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { BrowseItemPayload, DerivedMetricSpec } from '../../../../lib/types'
 import {
   derivedMetricKey,
+  evaluateBackendDerivedMetric,
   evaluateDerivedMetric,
   normalizeDerivedMetricSpec,
   normalizeViewState,
@@ -57,7 +58,7 @@ describe('derived metric normalization', () => {
     expect(normalized.derivedMetric?.name).toBe('New score')
     expect(normalized.sort).toEqual({ kind: 'metric', key: '@derived/rubric_1', dir: 'desc' })
     expect(normalized.selectedMetric).toBe('@derived/rubric_1')
-    expect(derivedMetricKey(normalized.derivedMetric!)).toBe('@derived/rubric_1')
+    expect(derivedMetricKey(normalizeDerivedMetricSpec(normalized.derivedMetric)!)).toBe('@derived/rubric_1')
     expect(derivedMetricKey(makeSpec({ name: 'Renamed score' }))).toBe('@derived/rubric_1')
   })
 
@@ -301,5 +302,73 @@ describe('derived metric evaluation', () => {
     expect(result.items).not.toBe(items)
     expect(result.items[0].metrics).toBeUndefined()
     expect(items[0].metrics).toEqual({ '@derived/raw': 10 })
+  })
+
+  it('uses backend-derived metric status and item scores for normal browse', () => {
+    const items = [
+      makeItem('/a.jpg', { metrics: { q1: 1, '@derived/other': 99, '@derived/rubric_1': 4 } }),
+      makeItem('/b.jpg', { metrics: { q1: 2, '@derived/rubric_1': 6 } }),
+    ]
+
+    const result = evaluateBackendDerivedMetric({
+      items,
+      metricKeys: ['q1', '@derived/raw'],
+      categoricalKeys: [],
+      spec: makeSpec({
+        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: true }],
+        categoricalTerms: [],
+      }),
+      backendStatus: {
+        key: '@derived/rubric_1',
+        display_name: 'Backend rubric',
+        status: 'applied',
+        score_scope: 'query_filtered',
+        score_population_count: 50,
+        valid_count: 47,
+        invalid_count: 3,
+        missing_numeric_inputs: [],
+        unavailable_categorical_inputs: [],
+        z_stats: { q1: { mean: 10, std: 2, count: 47 } },
+      },
+      loadedCount: 2,
+      totalItems: 50,
+    })
+
+    expect(result.status).toBe('valid')
+    expect(result.validCount).toBe(47)
+    expect(result.invalidCount).toBe(3)
+    expect(result.partialLoadWarning).toBe(false)
+    expect(result.scoreScope).toBe('query_filtered')
+    expect(result.scorePopulationCount).toBe(50)
+    expect(result.metricKeys).toEqual(['q1', '@derived/rubric_1'])
+    expect(result.metricDisplayNames).toEqual({ '@derived/rubric_1': 'Backend rubric' })
+    expect(result.items.map((item) => item.metrics?.['@derived/rubric_1'])).toEqual([4, 6])
+    expect(result.items[0].metrics?.['@derived/other']).toBeUndefined()
+  })
+
+  it('preserves a pending backend-derived key without synthesizing browse scores', () => {
+    const items = [
+      makeItem('/a.jpg', { metrics: { q1: 1 } }),
+    ]
+
+    const result = evaluateBackendDerivedMetric({
+      items,
+      metricKeys: ['q1'],
+      categoricalKeys: [],
+      spec: makeSpec({
+        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: false }],
+        categoricalTerms: [],
+      }),
+      backendStatus: null,
+      loadedCount: 1,
+      totalItems: 50,
+    })
+
+    expect(result.status).toBe('none')
+    expect(result.key).toBe('@derived/rubric_1')
+    expect(result.metricKeys).toEqual(['q1'])
+    expect(result.metricDisplayNames).toEqual({ '@derived/rubric_1': 'Rubric score' })
+    expect(result.scoreScope).toBe('none')
+    expect(result.items[0].metrics?.['@derived/rubric_1']).toBeUndefined()
   })
 })

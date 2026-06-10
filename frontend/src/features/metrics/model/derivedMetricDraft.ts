@@ -299,6 +299,16 @@ export function applyDerivedMetricFormulaCode(
 
   diagnostics.missingMetricKeys = Array.from(missingMetricKeys).sort()
   diagnostics.missingCategoricalKeys = Array.from(missingCategoricalKeys).sort()
+  if (diagnostics.missingMetricKeys.length || diagnostics.missingCategoricalKeys.length) {
+    return {
+      draft: currentDraft,
+      diagnostics: {
+        ...diagnostics,
+        errors: ['Formula references unavailable inputs.'],
+      },
+      applied: false,
+    }
+  }
   if (!numericTerms.length && !categoricalTerms.length && !sawIntercept) {
     return {
       draft: currentDraft,

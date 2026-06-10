@@ -100,13 +100,13 @@ export function shouldResetUnavailableMetricSort(
   metricKeys: readonly string[],
   similarityActive: boolean,
   derivedMetricKey: string | null = null,
-  derivedMetricStatus: DerivedMetricStatus = 'none',
+  _derivedMetricStatus: DerivedMetricStatus = 'none',
 ): boolean {
   if (similarityActive) return false
   if (sort.kind !== 'metric') return false
   if (metricKeys.includes(sort.key)) return false
   if (isDerivedMetricKey(sort.key)) {
-    return !(derivedMetricKey === sort.key && derivedMetricStatus !== 'none')
+    return derivedMetricKey !== sort.key
   }
   return true
 }

@@ -187,12 +187,19 @@ describe('appShellSelectors', () => {
     expect(resolveSelectedMetricKey('@derived/stale', ['score'], '@derived/rubric_1')).toBe('score')
   })
 
-  it('resets missing raw and stale derived metric sorts but keeps active unavailable derived sorts', () => {
+  it('resets missing raw and stale derived metric sorts but keeps active derived sorts', () => {
     expect(shouldResetUnavailableMetricSort(
       { kind: 'metric', key: 'missing_score', dir: 'desc' },
       ['score'],
       false,
     )).toBe(true)
+    expect(shouldResetUnavailableMetricSort(
+      { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
+      ['score'],
+      false,
+      '@derived/rubric_1',
+      'none',
+    )).toBe(false)
     expect(shouldResetUnavailableMetricSort(
       { kind: 'metric', key: '@derived/rubric_1', dir: 'desc' },
       ['score'],

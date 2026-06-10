@@ -16,7 +16,7 @@ BrowseQuerySortDirection = Literal["asc", "desc"]
 BrowseQueryCompareOp = Literal["<", "<=", ">", ">="]
 DerivedMetricNumericMissingPolicy = Literal["zero", "invalid"]
 BROWSE_QUERY_DEFAULT_LIMIT = 1000
-BROWSE_QUERY_MAX_LIMIT = 50_000
+BROWSE_QUERY_MAX_LIMIT = BROWSE_QUERY_DEFAULT_LIMIT
 DERIVED_METRIC_KEY_PREFIX = "@derived/"
 
 
@@ -338,6 +338,29 @@ class BrowseQueryRequest(StrictModel):
     unsupported_metric_intent: str | None = None
 
 
+DerivedMetricStatusKindPayload = Literal["none", "applied", "unavailable", "invalid"]
+DerivedMetricScoreScopePayload = Literal["none", "query_filtered"]
+
+
+class DerivedMetricZStatPayload(BaseModel):
+    mean: float
+    std: float
+    count: int
+
+
+class DerivedMetricStatusPayload(BaseModel):
+    key: str | None = None
+    display_name: str | None = None
+    status: DerivedMetricStatusKindPayload = "none"
+    score_scope: DerivedMetricScoreScopePayload = "none"
+    score_population_count: int = 0
+    valid_count: int = 0
+    invalid_count: int = 0
+    missing_numeric_inputs: list[str] = Field(default_factory=list)
+    unavailable_categorical_inputs: list[str] = Field(default_factory=list)
+    z_stats: dict[str, DerivedMetricZStatPayload] = Field(default_factory=dict)
+
+
 class BrowseQueryResponse(BaseModel):
     version: int = 1
     path: str
@@ -353,6 +376,9 @@ class BrowseQueryResponse(BaseModel):
     folders: list[BrowseFolderEntryPayload] = Field(default_factory=list)
     metric_keys: list[str] = Field(default_factory=list)
     categorical_keys: list[str] = Field(default_factory=list)
+    derived_metric_status: DerivedMetricStatusPayload = Field(
+        default_factory=DerivedMetricStatusPayload
+    )
     field_capabilities: "FieldCapabilitiesPayload" = Field(
         default_factory=lambda: FieldCapabilitiesPayload()
     )

@@ -93,7 +93,7 @@ describe('derived metric drafts', () => {
     })
   })
 
-  it('applies available formula terms and reports missing inputs', () => {
+  it('fails closed when formula code references missing inputs', () => {
     const draft = createDerivedMetricDraft(null, ['q1'])
 
     const result = applyDerivedMetricFormulaCode(
@@ -105,12 +105,12 @@ describe('derived metric drafts', () => {
       },
     )
 
-    expect(result.applied).toBe(true)
+    expect(result.applied).toBe(false)
+    expect(result.draft).toBe(draft)
+    expect(result.diagnostics.errors).toEqual(['Formula references unavailable inputs.'])
     expect(result.diagnostics.missingMetricKeys).toEqual(['missing_metric'])
     expect(result.diagnostics.missingCategoricalKeys).toEqual(['missing_field'])
     expect(result.diagnostics.skippedTerms).toEqual(['+ 2*missing_metric', '+ 5 if missing_field = gt'])
-    expect(result.draft.numericTerms.map((term) => term.key)).toEqual(['q1'])
-    expect(result.draft.categoricalTerms).toEqual([{ key: 'source', value: 'train', weight: '4' }])
   })
 
   it('supports bracket-quoted formula tokens', () => {

@@ -73,6 +73,8 @@ import { deriveIndicatorState } from './presenceUi'
 import { LONG_SYNC_THRESHOLD_MS } from '../lib/constants'
 import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../features/browse/model/prefetchPolicy'
 import { closestMetricPathForValue } from '../features/browse/model/metricRail'
+import { isDerivedMetricKey } from '../features/metrics/model/derivedMetric'
+import { metricHistogramFromFacet } from '../features/metrics/model/metricValues'
 import { directOriginalImageUrl } from '../features/media/originalImageResource'
 import { LAYOUT_BREAKPOINTS } from '../lib/breakpoints'
 import AppContextMenuItems from './menu/AppContextMenuItems'
@@ -572,6 +574,8 @@ export default function AppShell({
   })
   const metricsBaseItems = selectionPool
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
+  const metricsPanelActive = leftOpen && (leftTool === 'metrics' || leftTool === 'derived')
+  const needsBackendMetricRailSummary = metricSortKey !== null && isDerivedMetricKey(metricSortKey)
   const metricsFacetsQuery = useFolderFacets({
     path: current,
     recursive: true,
@@ -581,15 +585,20 @@ export default function AppShell({
     randomSeed,
     derivedMetric: viewState.derivedMetric ?? null,
     unsupportedToken: analysisUnsupportedMetricIntent,
-    enabled: leftOpen && (leftTool === 'metrics' || leftTool === 'derived') && !similarityState,
+    enabled: (metricsPanelActive || needsBackendMetricRailSummary) && !similarityState,
   })
   const metricsFacets = metricsFacetsQuery.data?.path === (data?.path ?? current)
     ? metricsFacetsQuery.data
     : null
   const metricsItemPopulationComplete = similarityState !== null || items.length >= filteredCount
+  const metricRailHistogram = metricSortKey
+    ? metricHistogramFromFacet(metricsFacets?.metrics[metricSortKey]?.histogram)
+    : null
   const hasMetricScrollbar = useMemo(
-    () => hasMetricSortValues(items, metricSortKey),
-    [items, metricSortKey],
+    () => metricRailHistogram !== null || (
+      metricsItemPopulationComplete && hasMetricSortValues(items, metricSortKey)
+    ),
+    [items, metricRailHistogram, metricSortKey, metricsItemPopulationComplete],
   )
   const findSimilarAvailability = useMemo(
     () => resolveFindSimilarAvailability({
@@ -1348,6 +1357,8 @@ export default function AppShell({
                     scrollRef={gridScrollRef}
                     sortDir={viewState.sort.dir}
                     currentPath={gridTopAnchorPath}
+                    histogramOverride={metricRailHistogram}
+                    populationComplete={metricsItemPopulationComplete}
                     onJumpToMetricValue={handleMetricRailJump}
                   />
                 )

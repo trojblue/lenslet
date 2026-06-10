@@ -25,9 +25,7 @@ from ...browse.query import (
     BrowseQueryResult,
     BrowseQuerySpec,
     browse_query_request_token,
-    derived_metric_key,
     evaluate_browse_records,
-    normalize_derived_metric_spec,
 )
 from ...media_errors import MediaDecodeError, MediaReadError
 from ...media_policy import OriginalMediaPolicy, build_original_media_policy
@@ -43,7 +41,7 @@ from .display import (
     normalize_display_value,
     normalize_metrics_display_value,
 )
-from .facets import build_table_query_facet_summary
+from .facets import build_table_query_facet_summary, metric_keys_for_query_spec
 from .index import (
     build_index_columns,
     extract_row_display_fields,
@@ -1385,18 +1383,15 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             raise FileNotFoundError(spec.path)
 
         records = [self._query_record_for_row(row_store, row_idx) for row_idx in rows]
+        metric_keys = tuple(self.metric_keys())
+        categorical_keys = tuple(self.categorical_keys())
         evaluation = evaluate_browse_records(
             records,
             spec,
-            metric_keys=self.metric_keys(),
-            categorical_keys=self.categorical_keys(),
+            metric_keys=metric_keys,
+            categorical_keys=categorical_keys,
         )
-        normalized_derived_metric = normalize_derived_metric_spec(spec.derived_metric)
-        metric_keys = list(self.metric_keys())
-        if normalized_derived_metric is not None:
-            key = derived_metric_key(normalized_derived_metric)
-            if key not in metric_keys:
-                metric_keys.append(key)
+        result_metric_keys = metric_keys_for_query_spec(spec, metric_keys)
         return BrowseQueryResult(
             path=_canonical_query_path(norm),
             generated_at=self._generated_at,
@@ -1411,8 +1406,9 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             limit=spec.limit,
             items=tuple(self._materialize_query_record_item(record) for record in evaluation.window),
             folders=folders,
-            metric_keys=tuple(metric_keys),
-            categorical_keys=tuple(self.categorical_keys()),
+            metric_keys=tuple(result_metric_keys),
+            categorical_keys=categorical_keys,
+            derived_metric_status=evaluation.derived_metric_status,
         )
 
     def _source_search_covered_by_path(self) -> bool:
@@ -1776,7 +1772,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             scope_total=len(rows),
             generated_at=self._generated_at,
             canonical_path=_canonical_query_path(norm),
-            metric_keys=self.metric_keys(),
+            metric_keys=metric_keys_for_query_spec(spec, self.metric_keys()),
             categorical_keys=self.categorical_keys(),
             bins=bins,
         )

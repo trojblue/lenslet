@@ -53,7 +53,7 @@ class DerivedMetricSmokeResult:
     backend_request_seen: bool
     restored_sort_key: str
     visible_paths_after_rank: list[str]
-    metric_rail_jump_path: str
+    metric_rail_summary_count: int
 
 
 @dataclass(frozen=True)
@@ -696,11 +696,7 @@ def browse_response_matches_shared_view(
 ) -> bool:
     if response.request.method != "POST" or not response.url.endswith("/folders/query"):
         return False
-    try:
-        raw_payload = response.request.post_data_json
-        payload = raw_payload() if callable(raw_payload) else raw_payload
-    except Exception:
-        return False
+    payload = response_request_json(response)
     if not isinstance(payload, dict):
         return False
     sort = payload.get("sort")
@@ -718,6 +714,29 @@ def browse_response_matches_shared_view(
         }
         for clause in clauses
     )
+
+
+def response_request_json(response: Any) -> dict[str, Any] | None:
+    try:
+        raw_payload = response.request.post_data_json
+        payload = raw_payload() if callable(raw_payload) else raw_payload
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def derived_metric_browse_response(response: Any) -> bool:
+    if response.request.method != "POST" or not response.url.endswith("/folders/query"):
+        return False
+    payload = response_request_json(response)
+    if payload is None:
+        return False
+    if payload.get("limit") != 1000:
+        return False
+    if payload.get("sort") != {"kind": "metric", "key": "@derived/score_v1", "dir": "desc"}:
+        return False
+    derived_metric = payload.get("derived_metric")
+    return isinstance(derived_metric, dict) and derived_metric.get("id") == "score_v1"
 
 
 def run_backend_browse_filter_workflow(
@@ -900,37 +919,57 @@ def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricS
 
     rank_button = card.locator("[data-derived-score-rank]")
     if rank_button.is_disabled():
-        raise SmokeFailure(f"Rank by score is unexpectedly disabled: {rank_button.get_attribute('title')!r}.")
-    with page.expect_response(
-        lambda response: response.request.method == "POST" and response.url.endswith("/folders/query"),
-        timeout=timeout_ms,
-    ) as response_info:
-        rank_button.click()
+        raise SmokeFailure(f"Sort by score is unexpectedly disabled: {rank_button.get_attribute('title')!r}.")
 
-    response = response_info.value
-    if response.status != 200:
-        raise SmokeFailure(f"Derived metric browse query returned unexpected status: {response.status}.")
-    payload = response.json()
+    with page.expect_response(derived_metric_browse_response, timeout=timeout_ms) as rank_response_info:
+        rank_button.click()
+    rank_response = rank_response_info.value
+    if rank_response.status != 200:
+        raise SmokeFailure(
+            f"Derived metric browse query returned unexpected status: {rank_response.status!r}."
+        )
+    payload = rank_response.json()
     if not isinstance(payload, dict):
         raise SmokeFailure("Derived metric browse query returned a non-object payload.")
-    hydrated_items = payload.get("items")
+    bounded_items = payload.get("items")
     if (
-        payload.get("limit") != 50_000
-        or not isinstance(hydrated_items, list)
-        or len(hydrated_items) <= 1000
+        payload.get("limit") != 1000
+        or not isinstance(bounded_items, list)
+        or len(bounded_items) != 1000
+        or int(payload.get("filtered_total") or 0) <= 1000
     ):
         raise SmokeFailure(
-            "Derived metric browse query did not hydrate the metric-sorted population: "
-            f"limit={payload.get('limit')!r}, item_count={len(hydrated_items) if isinstance(hydrated_items, list) else None!r}."
+            "Derived metric browse query did not stay on a bounded metric-sort page: "
+            f"limit={payload.get('limit')!r}, item_count={len(bounded_items) if isinstance(bounded_items, list) else None!r}, "
+            f"filtered_total={payload.get('filtered_total')!r}."
         )
+    first_backend_item = bounded_items[0] if bounded_items else None
+    if not isinstance(first_backend_item, dict) or first_backend_item.get("path") != "/ranked/item_0001.jpg":
+        raise SmokeFailure(
+            "Derived metric backend ranking did not return the expected top item. "
+            f"First item={first_backend_item!r}."
+        )
+    derived_status = payload.get("derived_metric_status")
+    if not isinstance(derived_status, dict):
+        raise SmokeFailure("Derived metric browse query did not return backend status.")
+    metric_rail_summary_count = int(derived_status.get("valid_count") or 0)
+    if (
+        derived_status.get("status") != "applied"
+        or derived_status.get("score_scope") != "query_filtered"
+        or metric_rail_summary_count <= 1000
+    ):
+        raise SmokeFailure(f"Derived metric backend status was not query-scoped: {derived_status!r}.")
+    request_payload = response_request_json(rank_response)
+    request_sort = request_payload.get("sort") if request_payload else None
+    if not isinstance(request_sort, dict) or request_sort.get("key") != "@derived/score_v1":
+        raise SmokeFailure(f"Derived metric backend request did not sort by the derived key: {request_sort!r}.")
 
     restored_sort_key = wait_for_view_state_sort(page, "metric", "@derived/score_v1", timeout_ms)
-    top_path = wait_for_top_path(page, "/ranked/item_0001.jpg", timeout_ms)
-    visible_paths_after_rank = visible_grid_paths(page)
-    if not visible_paths_after_rank or visible_paths_after_rank[0] != top_path:
+    visible_paths_after_rank = wait_for_visible_grid_paths(page, minimum_count=4, timeout_ms=timeout_ms)
+    if visible_paths_after_rank[0] != "/ranked/item_0001.jpg":
         raise SmokeFailure(
-            "Derived metric backend ranking did not keep the expected top item first. "
-            f"Top={top_path!r}, visible={visible_paths_after_rank!r}."
+            "Derived metric UI ranking did not show the expected top item after clicking Sort by score. "
+            f"Visible paths={visible_paths_after_rank!r}."
         )
 
     rail = page.locator("svg[aria-label*='metric distribution rail']").first
@@ -938,19 +977,16 @@ def run_derived_metric_workflow(page: Page, timeout_ms: float) -> DerivedMetricS
     rail_box = rail.bounding_box()
     if rail_box is None:
         raise SmokeFailure("Metric distribution rail has no visible bounding box.")
-    page.mouse.click(
-        float(rail_box["x"]) + float(rail_box["width"]) / 2.0,
-        float(rail_box["y"]) + float(rail_box["height"]) / 2.0,
-    )
-    metric_rail_jump_path = "/ranked/item_0002.jpg"
-    wait_for_grid_cell_restored_to_path(page, metric_rail_jump_path, timeout_ms)
+    rail_title = rail.locator("title").first.text_content(timeout=timeout_ms) or ""
+    if "backend summary" not in rail_title:
+        raise SmokeFailure(f"Metric rail did not advertise backend-summary mode: {rail_title!r}.")
 
     return DerivedMetricSmokeResult(
         metric_inputs=metric_inputs,
         backend_request_seen=True,
         restored_sort_key=restored_sort_key,
         visible_paths_after_rank=visible_paths_after_rank,
-        metric_rail_jump_path=metric_rail_jump_path,
+        metric_rail_summary_count=metric_rail_summary_count,
     )
 
 

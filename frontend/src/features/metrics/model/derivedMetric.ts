@@ -2,6 +2,7 @@ import { normalizeFilterAst } from '../../browse/model/filters'
 import { finiteMetricValue } from '../../../lib/metrics'
 import type {
   BrowseItemPayload,
+  DerivedMetricStatusPayload,
   DerivedMetricCategoricalTerm,
   DerivedMetricNumericMissingPolicy,
   DerivedMetricNumericTerm,
@@ -42,6 +43,9 @@ export type DerivedMetricEvaluation = {
   loadedCount: number
   totalItems: number | null
   partialLoadWarning: boolean
+  scoreScope?: 'none' | 'query_filtered' | 'loaded_window'
+  scorePopulationCount?: number | null
+  zStats?: DerivedMetricStatusPayload['z_stats']
 }
 
 export type EvaluateDerivedMetricParams = {
@@ -49,6 +53,16 @@ export type EvaluateDerivedMetricParams = {
   metricKeys: readonly string[] | undefined
   categoricalKeys: readonly string[] | undefined
   spec?: unknown
+  loadedCount?: number
+  totalItems?: number | null
+}
+
+export type EvaluateBackendDerivedMetricParams = {
+  items: BrowseItemPayload[]
+  metricKeys: readonly string[] | undefined
+  categoricalKeys: readonly string[] | undefined
+  spec?: unknown
+  backendStatus?: DerivedMetricStatusPayload | null
   loadedCount?: number
   totalItems?: number | null
 }
@@ -173,6 +187,9 @@ export function evaluateDerivedMetric({
       loadedCount,
       totalItems: normalizedTotalItems,
       partialLoadWarning: spec == null ? false : partialLoadWarning,
+      scoreScope: 'loaded_window',
+      scorePopulationCount: normalizedTotalItems,
+      zStats: {},
     }
   }
 
@@ -206,6 +223,9 @@ export function evaluateDerivedMetric({
       loadedCount,
       totalItems: normalizedTotalItems,
       partialLoadWarning,
+      scoreScope: 'loaded_window',
+      scorePopulationCount: normalizedTotalItems,
+      zStats: {},
     }
   }
 
@@ -251,6 +271,85 @@ export function evaluateDerivedMetric({
     loadedCount,
     totalItems: normalizedTotalItems,
     partialLoadWarning,
+    scoreScope: 'loaded_window',
+    scorePopulationCount: normalizedTotalItems,
+    zStats: {},
+  }
+}
+
+export function evaluateBackendDerivedMetric({
+  items,
+  metricKeys,
+  categoricalKeys,
+  spec = null,
+  backendStatus = null,
+  loadedCount = items.length,
+  totalItems = null,
+}: EvaluateBackendDerivedMetricParams): DerivedMetricEvaluation {
+  const status = backendStatus?.status ?? 'none'
+  const normalizedSpec = normalizeDerivedMetricSpec(spec)
+  if (status === 'none') {
+    const base = evaluateDerivedMetric({
+      items,
+      metricKeys,
+      categoricalKeys,
+      spec: null,
+      loadedCount,
+      totalItems,
+    })
+    if (!normalizedSpec) return base
+    const key = derivedMetricKey(normalizedSpec)
+    return {
+      ...base,
+      spec: normalizedSpec,
+      key,
+      name: normalizedSpec.name,
+      metricDisplayNames: { [key]: normalizedSpec.name },
+      scoreScope: 'none',
+      scorePopulationCount: null,
+      zStats: {},
+    }
+  }
+
+  const sourceMetricKeys = filterSourceMetricKeys(metricKeys)
+  const sourceCategoricalKeys = uniqueSortedStrings(categoricalKeys)
+  const normalizedTotalItems = normalizeTotalItems(totalItems)
+  const key = normalizeMetricKey(backendStatus?.key) ?? (
+    normalizedSpec ? derivedMetricKey(normalizedSpec) : null
+  )
+  const displayName = normalizeDisplayName(backendStatus?.display_name ?? normalizedSpec?.name)
+  const metricDisplayNames = key ? { [key]: displayName } : {}
+  const validCount = normalizeCount(backendStatus?.valid_count)
+  const invalidCount = normalizeCount(backendStatus?.invalid_count)
+  const scorePopulationCount = normalizeCount(backendStatus?.score_population_count)
+  const scoreScope = backendStatus?.score_scope ?? 'none'
+  const zStats = backendStatus?.z_stats ?? {}
+  const itemsFromBackend = key && status === 'applied'
+    ? stripOtherDerivedMetrics(items, key)
+    : stripReservedDerivedMetrics(items)
+
+  return {
+    items: itemsFromBackend,
+    metricKeys: key && status === 'applied'
+      ? appendMetricKey(sourceMetricKeys, key)
+      : sourceMetricKeys,
+    categoricalKeys: sourceCategoricalKeys,
+    metricDisplayNames,
+    spec: normalizedSpec,
+    key,
+    name: key ? displayName : null,
+    status: status === 'applied' ? 'valid' : status,
+    validCount,
+    invalidCount,
+    invalidReasons: status === 'invalid' ? ['Invalid derived metric definition.'] : [],
+    missingMetricKeys: uniqueSortedStrings(backendStatus?.missing_numeric_inputs),
+    missingCategoricalKeys: uniqueSortedStrings(backendStatus?.unavailable_categorical_inputs),
+    loadedCount,
+    totalItems: normalizedTotalItems,
+    partialLoadWarning: false,
+    scoreScope,
+    scorePopulationCount,
+    zStats,
   }
 }
 
@@ -354,6 +453,11 @@ function normalizeTotalItems(value: number | null | undefined): number | null {
   return value
 }
 
+function normalizeCount(value: number | null | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 0
+  return Math.trunc(value)
+}
+
 function uniqueSortedStrings(values: readonly string[] | undefined): string[] {
   if (!values?.length) return []
   const keys = new Set<string>()
@@ -446,6 +550,27 @@ function stripReservedDerivedMetrics(items: BrowseItemPayload[]): BrowseItemPayl
     if (!stripped.changed) return item
     changed = true
     return { ...item, metrics: stripped.metrics }
+  })
+  return changed ? nextItems : items
+}
+
+function stripOtherDerivedMetrics(items: BrowseItemPayload[], allowedKey: string): BrowseItemPayload[] {
+  let changed = false
+  const nextItems = items.map((item) => {
+    const metrics = item.metrics
+    if (!metrics) return item
+    const nextMetrics: Record<string, number | null> = {}
+    let itemChanged = false
+    for (const [key, value] of Object.entries(metrics)) {
+      if (isDerivedMetricKey(key) && key !== allowedKey) {
+        itemChanged = true
+        continue
+      }
+      nextMetrics[key] = value
+    }
+    if (!itemChanged) return item
+    changed = true
+    return { ...item, metrics: Object.keys(nextMetrics).length ? nextMetrics : undefined }
   })
   return changed ? nextItems : items
 }

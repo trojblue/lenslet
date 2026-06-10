@@ -8,9 +8,22 @@ from ...browse.query import (
     BrowseQueryRecord,
     BrowseQuerySpec,
     browse_analysis_query_key,
+    derived_metric_key,
     evaluate_browse_records,
+    normalize_derived_metric_spec,
 )
 from ...metrics import coerce_finite_metric_value
+
+
+def metric_keys_for_query_spec(
+    spec: BrowseQuerySpec,
+    metric_keys: Iterable[str],
+) -> list[str]:
+    result = list(metric_keys)
+    normalized = normalize_derived_metric_spec(spec.derived_metric)
+    if normalized is not None and (key := derived_metric_key(normalized)) not in result:
+        result.append(key)
+    return result
 
 
 def build_table_query_facet_summary(

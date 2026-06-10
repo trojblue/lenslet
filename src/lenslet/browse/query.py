@@ -18,6 +18,9 @@ _VALID_STAR_VALUES = frozenset({0, 1, 2, 3, 4, 5})
 DERIVED_METRIC_PREFIX = "@derived/"
 DERIVED_METRIC_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$")
 DerivedMetricNumericMissingPolicy = Literal["zero", "invalid"]
+DerivedMetricStatusKind = Literal["none", "applied", "unavailable", "invalid"]
+DerivedMetricScoreScope = Literal["none", "query_filtered"]
+T = TypeVar("T")
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +118,27 @@ class DerivedMetricSpec:
     categorical_terms: tuple[DerivedMetricCategoricalTerm, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class DerivedMetricZStat:
+    mean: float
+    std: float
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class DerivedMetricStatus:
+    key: str | None = None
+    display_name: str | None = None
+    status: DerivedMetricStatusKind = "none"
+    score_scope: DerivedMetricScoreScope = "none"
+    score_population_count: int = 0
+    valid_count: int = 0
+    invalid_count: int = 0
+    missing_numeric_inputs: tuple[str, ...] = ()
+    unavailable_categorical_inputs: tuple[str, ...] = ()
+    z_stats: Mapping[str, DerivedMetricZStat] = field(default_factory=dict)
+
+
 BrowseFilterClause = (
     StarsInFilter
     | StarsNotInFilter
@@ -172,9 +196,6 @@ class BrowseQueryFolderEntry:
     kind: Literal["branch", "leaf-real", "leaf-pointer"] = "branch"
 
 
-T = TypeVar("T")
-
-
 @dataclass(frozen=True, slots=True)
 class BrowseQueryRecord(Generic[T]):
     payload: T
@@ -194,9 +215,16 @@ class BrowseQueryRecord(Generic[T]):
 
 
 @dataclass(frozen=True, slots=True)
+class DerivedMetricApplyResult(Generic[T]):
+    records: list[BrowseQueryRecord[T]]
+    status: DerivedMetricStatus
+
+
+@dataclass(frozen=True, slots=True)
 class BrowseQueryEvaluation(Generic[T]):
     filtered_total: int
     window: tuple[BrowseQueryRecord[T], ...]
+    derived_metric_status: DerivedMetricStatus = field(default_factory=DerivedMetricStatus)
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +241,7 @@ class BrowseQueryResult(Generic[T]):
     folders: tuple[BrowseQueryFolderEntry, ...] = ()
     metric_keys: tuple[str, ...] = ()
     categorical_keys: tuple[str, ...] = ()
+    derived_metric_status: DerivedMetricStatus = field(default_factory=DerivedMetricStatus)
 
 
 def normalize_filter_ast(ast: BrowseFilterAst) -> BrowseFilterAst:
@@ -243,26 +272,116 @@ def evaluate_browse_records(
         derived_metric=normalize_derived_metric_spec(spec.derived_metric),
         unsupported_metric_intent=_normalize_text(spec.unsupported_metric_intent),
     )
-    query_records = (
-        apply_derived_metric_to_records(
-            records,
+    searched = [
+        record for record in records if _matches_text_query(record, normalized.text_query)
+    ]
+    base_filters, derived_filters = _split_derived_metric_filters(normalized.filters)
+    base_filtered = [
+        record for record in searched if _matches_filter_ast(record, base_filters)
+    ]
+    derived_metric_status = DerivedMetricStatus()
+    if normalized.derived_metric is not None or _query_references_derived_metric(normalized):
+        derived_result = evaluate_derived_metric_for_records(
+            base_filtered,
             normalized.derived_metric,
             metric_keys=metric_keys,
             categorical_keys=categorical_keys,
         )
-        if normalized.derived_metric is not None or _query_references_derived_metric(normalized)
-        else records
-    )
-    searched = [
-        record for record in query_records if _matches_text_query(record, normalized.text_query)
-    ]
-    filtered = [record for record in searched if _matches_filter_ast(record, normalized.filters)]
+        query_records = derived_result.records
+        derived_metric_status = derived_result.status
+    else:
+        query_records = base_filtered
+    filtered = [record for record in query_records if _matches_filter_ast(record, derived_filters)]
     ordered = sort_browse_records(filtered, normalized.sort, random_seed=normalized.random_seed)
     start = max(0, normalized.offset)
     end = start + max(0, normalized.limit)
     return BrowseQueryEvaluation(
         filtered_total=len(ordered),
         window=tuple(ordered[start:end]),
+        derived_metric_status=derived_metric_status,
+    )
+
+
+def evaluate_derived_metric_for_records(
+    records: tuple[BrowseQueryRecord[T], ...] | list[BrowseQueryRecord[T]],
+    spec: DerivedMetricSpec | None,
+    *,
+    metric_keys: Iterable[str] | None = None,
+    categorical_keys: Iterable[str] | None = None,
+) -> DerivedMetricApplyResult[T]:
+    stripped = [_record_without_derived_metrics(record) for record in records]
+    score_population_count = len(stripped)
+    raw_spec = spec
+    spec = normalize_derived_metric_spec(raw_spec)
+    if raw_spec is None:
+        return DerivedMetricApplyResult(records=stripped, status=DerivedMetricStatus())
+    if spec is None:
+        raw_id = _normalize_text(raw_spec.id)
+        raw_name = _normalize_text(raw_spec.name)
+        return DerivedMetricApplyResult(
+            records=stripped,
+            status=DerivedMetricStatus(
+                key=(
+                    derived_metric_key(raw_id)
+                    if raw_id and DERIVED_METRIC_ID_RE.fullmatch(raw_id)
+                    else None
+                ),
+                display_name=raw_name,
+                status="invalid",
+                score_population_count=score_population_count,
+                invalid_count=score_population_count,
+            ),
+        )
+
+    key = derived_metric_key(spec)
+    missing_numeric, missing_categorical = _missing_derived_metric_inputs(
+        stripped,
+        spec,
+        metric_keys=metric_keys,
+        categorical_keys=categorical_keys,
+    )
+    if missing_numeric or missing_categorical:
+        return DerivedMetricApplyResult(
+            records=stripped,
+            status=DerivedMetricStatus(
+                key=key,
+                display_name=spec.name,
+                status="unavailable",
+                score_scope="query_filtered",
+                score_population_count=score_population_count,
+                valid_count=0,
+                invalid_count=score_population_count,
+                missing_numeric_inputs=missing_numeric,
+                unavailable_categorical_inputs=missing_categorical,
+            ),
+        )
+
+    z_stats = _derived_metric_z_stats(stripped, spec)
+    out: list[BrowseQueryRecord[T]] = []
+    valid_count = 0
+    invalid_count = 0
+    for record in stripped:
+        score = _derived_metric_score(record, spec, z_stats)
+        if score is None:
+            invalid_count += 1
+            out.append(record)
+            continue
+        valid_count += 1
+        metrics = dict(record.metrics or {})
+        metrics[key] = score
+        out.append(_record_with_metrics(record, metrics))
+    return DerivedMetricApplyResult(
+        records=out,
+        status=DerivedMetricStatus(
+            key=key,
+            display_name=spec.name,
+            status="applied",
+            score_scope="query_filtered",
+            score_population_count=score_population_count,
+            valid_count=valid_count,
+            invalid_count=invalid_count,
+            z_stats=z_stats,
+        ),
     )
 
 
@@ -273,47 +392,12 @@ def apply_derived_metric_to_records(
     metric_keys: Iterable[str] | None = None,
     categorical_keys: Iterable[str] | None = None,
 ) -> list[BrowseQueryRecord[T]]:
-    stripped = [_record_without_derived_metrics(record) for record in records]
-    spec = normalize_derived_metric_spec(spec)
-    if spec is None:
-        return stripped
-    if not _derived_metric_inputs_available(
-        stripped,
+    return evaluate_derived_metric_for_records(
+        records,
         spec,
         metric_keys=metric_keys,
         categorical_keys=categorical_keys,
-    ):
-        return stripped
-
-    key = derived_metric_key(spec)
-    z_stats = _derived_metric_z_stats(stripped, spec)
-    out: list[BrowseQueryRecord[T]] = []
-    for record in stripped:
-        score = _derived_metric_score(record, spec, z_stats)
-        if score is None:
-            out.append(record)
-            continue
-        metrics = dict(record.metrics or {})
-        metrics[key] = score
-        out.append(
-            BrowseQueryRecord(
-                payload=record.payload,
-                stable_identity=record.stable_identity,
-                path=record.path,
-                name=record.name,
-                added_at=record.added_at,
-                width=record.width,
-                height=record.height,
-                source=record.source,
-                url=record.url,
-                metrics=metrics,
-                categoricals=record.categoricals,
-                star=record.star,
-                notes=record.notes,
-                search_text=record.search_text,
-            )
-        )
-    return out
+    ).records
 
 
 def derived_metric_key(spec: DerivedMetricSpec | str) -> str:
@@ -405,13 +489,13 @@ def _record_without_derived_metrics(record: BrowseQueryRecord[T]) -> BrowseQuery
     return _record_with_metrics(record, filtered or None)
 
 
-def _derived_metric_inputs_available(
+def _missing_derived_metric_inputs(
     records: list[BrowseQueryRecord[T]],
     spec: DerivedMetricSpec,
     *,
     metric_keys: Iterable[str] | None,
     categorical_keys: Iterable[str] | None,
-) -> bool:
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     available_metrics = (
         _available_metric_keys(records) if metric_keys is None else _normalized_key_set(metric_keys)
     )
@@ -420,13 +504,15 @@ def _derived_metric_inputs_available(
         if categorical_keys is None
         else _normalized_key_set(categorical_keys)
     )
+    missing_metrics: set[str] = set()
+    missing_categoricals: set[str] = set()
     for term in spec.numeric_terms:
         if term.key not in available_metrics:
-            return False
+            missing_metrics.add(term.key)
     for term in spec.categorical_terms:
         if term.key not in available_categoricals:
-            return False
-    return True
+            missing_categoricals.add(term.key)
+    return tuple(sorted(missing_metrics)), tuple(sorted(missing_categoricals))
 
 
 def _normalized_key_set(values: Iterable[str]) -> set[str]:
@@ -461,7 +547,7 @@ def _available_categorical_keys(records: list[BrowseQueryRecord[T]]) -> set[str]
 def _derived_metric_z_stats(
     records: list[BrowseQueryRecord[T]],
     spec: DerivedMetricSpec,
-) -> dict[str, tuple[float, float]]:
+) -> dict[str, DerivedMetricZStat]:
     z_keys = {term.key for term in spec.numeric_terms if term.z_normalize}
     if not z_keys:
         return {}
@@ -478,21 +564,21 @@ def _derived_metric_z_stats(
             sums_sq[key] += value * value
             counts[key] += 1
 
-    stats: dict[str, tuple[float, float]] = {}
+    stats: dict[str, DerivedMetricZStat] = {}
     for key in z_keys:
         count = counts[key]
         if count <= 0:
             continue
         mean = sums[key] / count
         variance = max(0.0, (sums_sq[key] / count) - (mean * mean))
-        stats[key] = (mean, math.sqrt(variance))
+        stats[key] = DerivedMetricZStat(mean=mean, std=math.sqrt(variance), count=count)
     return stats
 
 
 def _derived_metric_score(
     record: BrowseQueryRecord[object],
     spec: DerivedMetricSpec,
-    z_stats: Mapping[str, tuple[float, float]],
+    z_stats: Mapping[str, DerivedMetricZStat],
 ) -> float | None:
     score = spec.intercept
     metrics = record.metrics or {}
@@ -503,8 +589,8 @@ def _derived_metric_score(
                 return None
             continue
         if term.z_normalize:
-            mean, std = z_stats.get(term.key, (value, 0.0))
-            value = 0.0 if std <= 0 else (value - mean) / std
+            stats = z_stats.get(term.key)
+            value = 0.0 if stats is None or stats.std <= 0 else (value - stats.mean) / stats.std
         score += value * term.weight
     categoricals = record.categoricals or {}
     for term in spec.categorical_terms:
@@ -520,6 +606,19 @@ def _query_references_derived_metric(spec: BrowseQuerySpec) -> bool:
         if isinstance(clause, MetricRangeFilter) and is_derived_metric_key(clause.key):
             return True
     return False
+
+
+def _split_derived_metric_filters(
+    filters: BrowseFilterAst,
+) -> tuple[BrowseFilterAst, BrowseFilterAst]:
+    base: list[BrowseFilterClause] = []
+    derived: list[BrowseFilterClause] = []
+    for clause in filters.and_clauses:
+        if isinstance(clause, MetricRangeFilter) and is_derived_metric_key(clause.key):
+            derived.append(clause)
+        else:
+            base.append(clause)
+    return BrowseFilterAst(tuple(base)), BrowseFilterAst(tuple(derived))
 
 
 def sort_browse_records(

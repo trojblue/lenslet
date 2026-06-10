@@ -189,7 +189,7 @@ def build_summary(
                 "backend_request_seen": derived_metric_result.backend_request_seen,
                 "restored_sort_key": derived_metric_result.restored_sort_key,
                 "visible_paths_after_rank": derived_metric_result.visible_paths_after_rank,
-                "metric_rail_jump_path": derived_metric_result.metric_rail_jump_path,
+                "metric_rail_summary_count": derived_metric_result.metric_rail_summary_count,
                 "server_log": None if derived_metric_server_log is None else str(derived_metric_server_log),
             },
         },

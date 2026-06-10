@@ -341,9 +341,14 @@ def test_derived_metric_sort_and_filter_run_before_windowing() -> None:
     assert result.filtered_total == 2
     assert [record.name for record in result.window] == ["high.jpg", "mid.jpg"]
     assert result.window[0].metrics and result.window[0].metrics[key] == 7.0
+    assert result.derived_metric_status.status == "applied"
+    assert result.derived_metric_status.score_scope == "query_filtered"
+    assert result.derived_metric_status.score_population_count == 4
+    assert result.derived_metric_status.valid_count == 3
+    assert result.derived_metric_status.invalid_count == 1
 
 
-def test_derived_metric_z_normalize_uses_scope_population() -> None:
+def test_derived_metric_z_normalize_uses_query_filtered_population() -> None:
     spec = DerivedMetricSpec(
         id="rubric_1",
         name="Rubric score",
@@ -352,9 +357,9 @@ def test_derived_metric_z_normalize_uses_scope_population() -> None:
     )
     key = derived_metric_key(spec)
     records = (
-        _record("low.jpg", metrics={"q1": 0.0}),
-        _record("mid.jpg", metrics={"q1": 10.0}),
-        _record("high.jpg", metrics={"q1": 20.0}),
+        _record("low.jpg", metrics={"q1": 0.0}, categoricals={"source_column": "other"}),
+        _record("mid.jpg", metrics={"q1": 10.0}, categoricals={"source_column": "target"}),
+        _record("high.jpg", metrics={"q1": 20.0}, categoricals={"source_column": "target"}),
     )
 
     result = evaluate_browse_records(
@@ -364,17 +369,28 @@ def test_derived_metric_z_normalize_uses_scope_population() -> None:
             recursive=True,
             offset=0,
             limit=2,
-            filters=BrowseFilterAst(and_clauses=(MetricRangeFilter(key, 1.0, 2.0),)),
+            filters=BrowseFilterAst(
+                and_clauses=(
+                    CategoricalInFilter("source_column", ("target",)),
+                    MetricRangeFilter(key, 0.5, 2.0),
+                )
+            ),
             sort=MetricSortSpec(key, "desc"),
             derived_metric=spec,
         ),
         metric_keys=("q1",),
+        categorical_keys=("source_column",),
     )
 
     assert result.filtered_total == 1
     assert [record.name for record in result.window] == ["high.jpg"]
     assert result.window[0].metrics
-    assert math.isclose(result.window[0].metrics[key], math.sqrt(3 / 2))
+    assert math.isclose(result.window[0].metrics[key], 1.0)
+    assert result.derived_metric_status.score_population_count == 2
+    assert result.derived_metric_status.valid_count == 2
+    assert result.derived_metric_status.z_stats["q1"].mean == 15.0
+    assert result.derived_metric_status.z_stats["q1"].std == 5.0
+    assert result.derived_metric_status.z_stats["q1"].count == 2
 
 
 def test_derived_metric_is_not_applied_when_inputs_are_unavailable() -> None:
@@ -399,3 +415,5 @@ def test_derived_metric_is_not_applied_when_inputs_are_unavailable() -> None:
     )
 
     assert result.window[0].metrics == {"q1": 0.9}
+    assert result.derived_metric_status.status == "unavailable"
+    assert result.derived_metric_status.missing_numeric_inputs == ("missing_q",)

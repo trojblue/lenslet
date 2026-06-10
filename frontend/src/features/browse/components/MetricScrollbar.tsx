@@ -4,6 +4,7 @@ import { finiteMetricValue } from '../../../lib/metrics'
 import {
   clamp01,
   computeMetricRailHistogram,
+  type MetricRailHistogram,
   metricRailProgressFromValue,
   metricValueAtProgress,
   metricValueFromRailProgress,
@@ -19,6 +20,8 @@ interface MetricScrollbarProps {
   scrollRef: React.RefObject<HTMLDivElement>
   sortDir: 'asc' | 'desc'
   currentPath?: string | null
+  histogramOverride?: MetricRailHistogram | null
+  populationComplete?: boolean
   onJumpToMetricValue: (value: number) => void
 }
 
@@ -29,6 +32,8 @@ export default function MetricScrollbar({
   scrollRef,
   sortDir,
   currentPath = null,
+  histogramOverride = null,
+  populationComplete = true,
   onJumpToMetricValue,
 }: MetricScrollbarProps) {
   const { orderedValues, numericValues } = useMemo(() => {
@@ -41,8 +46,14 @@ export default function MetricScrollbar({
     }
     return { orderedValues: ordered, numericValues: numeric }
   }, [items, metricKey])
-  const histogram = useMemo(() => computeMetricRailHistogram(numericValues, BIN_COUNT), [numericValues])
-  const quantiles = useMemo(() => computeQuantiles(numericValues, QUANTILES), [numericValues])
+  const loadedHistogram = useMemo(() => (
+    computeMetricRailHistogram(numericValues, BIN_COUNT)
+  ), [numericValues])
+  const histogram = histogramOverride ?? loadedHistogram
+  const quantiles = useMemo(
+    () => populationComplete ? computeQuantiles(numericValues, QUANTILES) : [],
+    [numericValues, populationComplete],
+  )
 
   const [scrollProgress, setScrollProgress] = useState(0)
   const [hoverProgress, setHoverProgress] = useState<number | null>(null)
@@ -90,13 +101,18 @@ export default function MetricScrollbar({
   }, [domain?.max, domain?.min, hoverProgress, sortDir])
 
   if (!histogram || !domain) return null
+  const railDomain = domain
 
   const label = metricLabel ?? metricKey
   const hoverY = hoverProgress != null ? progressToY(hoverProgress) : null
   const isDesc = sortDir === 'desc'
+  const jumpEnabled = populationComplete
+  const railClassName = `w-full h-full rounded bg-surface-inset border border-border/60 ${
+    jumpEnabled ? 'cursor-crosshair' : 'cursor-default opacity-70'
+  }`
   const scrollY = scrollValue == null
     ? progressToY(scrollProgress)
-    : progressToY(metricRailProgressFromValue(scrollValue, domain, sortDir))
+    : progressToY(metricRailProgressFromValue(scrollValue, railDomain, sortDir))
 
   function updateHover(progress: number) {
     setHoverProgress(clamp01(progress))
@@ -107,7 +123,8 @@ export default function MetricScrollbar({
   }
 
   function jumpToProgress(progress: number) {
-    onJumpToMetricValue(metricValueFromRailProgress(progress, domain, sortDir))
+    if (!jumpEnabled) return
+    onJumpToMetricValue(metricValueFromRailProgress(progress, railDomain, sortDir))
   }
 
   function getProgressFromEvent(e: React.PointerEvent<SVGSVGElement>): number | null {
@@ -122,7 +139,7 @@ export default function MetricScrollbar({
         ref={svgRef}
         viewBox="0 0 10 100"
         preserveAspectRatio="none"
-        className="w-full h-full rounded bg-surface-inset border border-border/60 cursor-crosshair"
+        className={railClassName}
         aria-label={`${label} metric distribution rail`}
         onPointerDown={(e) => {
           e.preventDefault()
@@ -150,9 +167,9 @@ export default function MetricScrollbar({
           if (!scrubbing) clearHover()
         }}
       >
-        <title>{label}</title>
+        <title>{jumpEnabled ? label : `${label} backend summary`}</title>
         {renderScrollbarBars(histogram.bins, 'var(--border-strong)', { flip: isDesc })}
-        {renderQuantileTicks(quantiles, domain, { sortDir, color: 'var(--muted)' })}
+        {renderQuantileTicks(quantiles, railDomain, { sortDir, color: 'var(--muted)' })}
         {renderLine(scrollY, { color: 'var(--highlight)', strokeWidth: 0.8 })}
         {hoverY != null && renderLine(hoverY, { color: 'var(--text-secondary)', strokeWidth: 0.6, dashed: true })}
       </svg>

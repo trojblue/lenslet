@@ -102,7 +102,7 @@ def test_browse_query_contract_filters_before_windowing(tmp_path: Path) -> None:
     assert changed_payload["request_token"] != payload["request_token"]
 
 
-def test_browse_query_accepts_large_metric_sort_hydration_window(tmp_path: Path) -> None:
+def test_browse_query_rejects_large_metric_sort_hydration_window(tmp_path: Path) -> None:
     client = _client_for_six_row_table(tmp_path)
 
     response = client.post(
@@ -116,17 +116,30 @@ def test_browse_query_accepts_large_metric_sort_hydration_window(tmp_path: Path)
         },
     )
 
+    assert response.status_code == 422
+
+
+def test_browse_query_metric_sort_page_stays_bounded(tmp_path: Path) -> None:
+    client = _client_for_six_row_table(tmp_path)
+
+    response = client.post(
+        "/folders/query",
+        json={
+            "path": "/gallery",
+            "recursive": True,
+            "offset": 0,
+            "limit": 2,
+            "sort": {"kind": "metric", "key": "score", "dir": "desc"},
+        },
+    )
+
     assert response.status_code == 200
     payload = response.json()
-    assert payload["limit"] == 50_000
+    assert payload["limit"] == 2
     assert payload["filtered_total"] == 6
     assert [item["name"] for item in payload["items"]] == [
         "img5.jpg",
         "img4.jpg",
-        "img3.jpg",
-        "img2.jpg",
-        "img1.jpg",
-        "img0.jpg",
     ]
 
 
@@ -166,6 +179,53 @@ def test_browse_query_accepts_derived_metric_for_backend_sort_and_filter(tmp_pat
         payload["items"][0]["metrics"]["@derived/rubric_1"],
         expected_score,
     )
+    assert payload["derived_metric_status"] == {
+        "key": "@derived/rubric_1",
+        "display_name": "Rubric score",
+        "status": "applied",
+        "score_scope": "query_filtered",
+        "score_population_count": 6,
+        "valid_count": 6,
+        "invalid_count": 0,
+        "missing_numeric_inputs": [],
+        "unavailable_categorical_inputs": [],
+        "z_stats": {
+            "score": {
+                "mean": 2.5,
+                "std": math.sqrt(35 / 12),
+                "count": 6,
+            },
+        },
+    }
+
+
+def test_browse_facets_include_derived_metric_histogram(tmp_path: Path) -> None:
+    client = _client_for_six_row_table(tmp_path)
+    body = {
+        "path": "/gallery",
+        "recursive": True,
+        "offset": 0,
+        "limit": 1,
+        "sort": {"kind": "metric", "key": "@derived/rubric_1", "dir": "desc"},
+        "derived_metric": {
+            "version": 1,
+            "id": "rubric_1",
+            "name": "Rubric score",
+            "intercept": 0.0,
+            "numericTerms": [
+                {"key": "score", "weight": 1.0, "missing": "invalid", "zNormalize": True}
+            ],
+            "categoricalTerms": [{"key": "source_column", "value": "target", "weight": 10.0}],
+        },
+    }
+
+    response = client.post("/folders/facets", json=body)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "@derived/rubric_1" in payload["metric_keys"]
+    assert payload["metrics"]["@derived/rubric_1"]["histogram"]["count"] == 6
+    assert payload["field_capabilities"]["metrics"]["@derived/rubric_1"]["source"] == "derived"
 
 
 def test_browse_query_rejects_malformed_filter_ast(tmp_path: Path) -> None:

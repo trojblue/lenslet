@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  BACKEND_BROWSE_METRIC_SORT_LIMIT,
   BACKEND_BROWSE_PAGE_SIZE,
   shouldRemoveRecursiveFolderQuery,
   useBrowseQuery,
@@ -19,6 +18,7 @@ import {
   resolveMetricKeys,
 } from '../model/appShellSelectors'
 import {
+  evaluateBackendDerivedMetric,
   evaluateDerivedMetric,
   getDerivedMetricInputKeys,
   type DerivedMetricEvaluation,
@@ -223,9 +223,6 @@ export function useAppDataScope({
   ), [similarityActive, viewState.filters, viewState.sort])
   const analysisUnsupportedMetricIntent = browseQueryUnavailableReason
     ?? urlUnsupportedMetricIntent
-  const browseLimit = viewState.sort.kind === 'metric'
-    ? BACKEND_BROWSE_METRIC_SORT_LIMIT
-    : BACKEND_BROWSE_PAGE_SIZE
   const browseQuery = useBrowseQuery({
     path: current,
     recursive: true,
@@ -234,7 +231,7 @@ export function useAppDataScope({
     textQuery: normalizedQ,
     randomSeed,
     derivedMetric: viewState.derivedMetric ?? null,
-    limit: browseLimit,
+    limit: BACKEND_BROWSE_PAGE_SIZE,
     unsupportedToken: analysisUnsupportedMetricIntent,
     enabled: !similarityActive && browseQueryUnavailableReason === null,
   })
@@ -366,7 +363,18 @@ export function useAppDataScope({
     rawSimilarityItems,
   ])
   const derivedMetric = useMemo(() => {
-    const sourceItems = similarityActive ? rawSimilarityItems : rawPoolItems
+    if (!similarityActive) {
+      return evaluateBackendDerivedMetric({
+        items: rawPoolItems,
+        metricKeys: sourceMetricKeys,
+        categoricalKeys: sourceCategoricalKeys,
+        spec: viewState.derivedMetric ?? null,
+        backendStatus: firstBrowsePage?.derived_metric_status ?? null,
+        loadedCount: rawPoolItems.length,
+        totalItems: firstBrowsePage?.filtered_total ?? rawPoolItems.length,
+      })
+    }
+    const sourceItems = rawSimilarityItems
     return evaluateDerivedMetric({
       items: sourceItems,
       metricKeys: sourceMetricKeys,
@@ -376,6 +384,8 @@ export function useAppDataScope({
       totalItems: sourceItems.length,
     })
   }, [
+    firstBrowsePage?.derived_metric_status,
+    firstBrowsePage?.filtered_total,
     rawPoolItems,
     rawSimilarityItems,
     similarityActive,

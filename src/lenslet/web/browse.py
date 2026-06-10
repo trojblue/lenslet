@@ -15,6 +15,7 @@ from ..browse.query import (
     BrowseQueryRecord,
     BrowseQueryResult,
     BrowseQuerySpec,
+    DerivedMetricStatus,
     browse_analysis_query_key,
     browse_query_request_token,
     evaluate_browse_records,
@@ -46,6 +47,8 @@ from .models import (
     BrowseFacetsPayload,
     CategoricalFacetPayload,
     CategoricalValueFacetPayload,
+    DerivedMetricStatusPayload,
+    DerivedMetricZStatPayload,
     FieldCapabilitiesPayload,
     FieldCapabilityPayload,
     ImageMetadataResponse,
@@ -970,11 +973,34 @@ def _query_result_payload(
         ],
         metric_keys=list(result.metric_keys),
         categorical_keys=list(result.categorical_keys),
+        derived_metric_status=_derived_metric_status_payload(result.derived_metric_status),
         field_capabilities=_field_capabilities_payload(
             result.metric_keys,
             result.categorical_keys,
             items=items,
         ),
+    )
+
+
+def _derived_metric_status_payload(status: DerivedMetricStatus) -> DerivedMetricStatusPayload:
+    return DerivedMetricStatusPayload(
+        key=status.key,
+        display_name=status.display_name,
+        status=status.status,
+        score_scope=status.score_scope,
+        score_population_count=status.score_population_count,
+        valid_count=status.valid_count,
+        invalid_count=status.invalid_count,
+        missing_numeric_inputs=list(status.missing_numeric_inputs),
+        unavailable_categorical_inputs=list(status.unavailable_categorical_inputs),
+        z_stats={
+            key: DerivedMetricZStatPayload(
+                mean=stat.mean,
+                std=stat.std,
+                count=stat.count,
+            )
+            for key, stat in status.z_stats.items()
+        },
     )
 
 
@@ -1103,6 +1129,7 @@ def _fallback_browse_query_result(
             index,
             recursive=spec.recursive,
         )),
+        derived_metric_status=evaluation.derived_metric_status,
     )
 
 

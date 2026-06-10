@@ -81,8 +81,5 @@ def test_direct_browser_failure_can_fall_back_to_backend_proxy() -> None:
     assert current_media_state_after_direct_error == "proxy"
 
 
-@pytest.mark.xfail(
-    strict=True, reason="S3B-T3 replaces 50k metric-sort hydration with bounded pages"
-)
 def test_large_metric_sort_first_payload_stays_near_normal_page_size() -> None:
     assert BROWSE_QUERY_MAX_LIMIT <= BROWSE_QUERY_DEFAULT_LIMIT

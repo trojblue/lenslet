@@ -292,3 +292,37 @@ Validations:
 Blockers: none for Sprint 3B. Known out-of-scope full typecheck failure remains in `frontend/src/app/routing/__tests__/viewStateUrl.test.ts`.
 
 Next step: start the Phase 1 Validation Sprint with V1-T1 large Parquet workflow evidence.
+
+## Iteration 8/9 - 2026-06-10T20:51:41Z
+
+Completed task IDs: V1-T1, V1-T2, V1-T3, V1-T4.
+
+Files changed:
+- `docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan.md`
+- `docs/ralph/20260610_ux_ease_scan/progress.txt`
+- `frontend/src/app/routing/__tests__/viewStateUrl.test.ts`
+- `src/lenslet/storage/table/index.py`
+- `tests/browser/test_playwright_large_tree_smoke.py`
+- `tests/scripts/test_direct_script_helpers.py`
+- `tests/storage/helpers/test_direct_storage_helpers.py`
+- `tests/storage/local/test_preindex_fastpath.py`
+- `tests/web/hotpath/test_hotpath_sprint_s4.py`
+
+Validations:
+- Live large-Parquet probe -> passed. Generated ignored 50,006-row fixture and evidence at `data/fixtures/phase1_large_parquet_validation.json`; source Parquet hash/mtime unchanged, `source_column=image_path`, `source_table_rows=50006`, `gallery_rows=50005`, `skipped_rows.local_missing=1`, workspace dimension cache/write policy, local-streaming media policy, backend filter `52` matches with `25` returned, metric sort `100` returned over `50005`, oversized `limit=50000` rejected with 422, missing media returned `404 file not found`, and healthy thumb returned 200.
+- `python -m scripts.browser.gui_smoke.acceptance --output-json data/fixtures/gui_smoke_phase1_validation.json` -> passed with existing non-strict folder re-entry anchor warning; backend filter URL replay and derived metric ranking smoke passed.
+- `python -m scripts.browser.large_tree.smoke --dataset-dir data/fixtures/large_tree_40k --output-json data/fixtures/large_tree_40k_smoke_result.json` -> passed; first grid 3.71s, first-grid hotpath 3068ms, first thumbnail 3578ms, max frame gap 433.2ms, request peaks `folders=2`, `thumb=6`, `file=0`, 0 page errors, 4 console missing-resource warnings.
+- `pytest -q tests/browse/test_query_evaluator.py tests/web/routes/test_browse_query.py tests/storage/table/test_table_browse_query_storage.py tests/storage/table/test_parquet_ingestion.py tests/phase1/test_sprint0_baseline_contracts.py tests/web/media/test_media_error_contract.py tests/web/routes/test_table_source_settings.py tests/browser/test_playwright_large_tree_smoke.py` -> passed, 91 passed and 1 expected xfail after validation-sprint fixes.
+- `cd frontend && npm test -- src/api/__tests__/folders.test.ts src/app/routing/__tests__/viewStateUrl.test.ts src/app/hooks/__tests__/useAppDataScopeBackendQuery.test.ts src/app/__tests__/settingsPersistence.test.ts src/features/metrics/model/__tests__/derivedMetric.test.ts src/features/metrics/model/__tests__/derivedMetricDraft.test.ts src/features/browse/model/__tests__/metricRail.test.ts src/features/metrics/__tests__/MetricsPanel.test.tsx src/app/__tests__/appShellSelectors.test.ts` -> passed, 82 passed.
+- `pytest -q` -> passed, 677 passed and 1 expected xfail.
+- `cd frontend && npm test -- --run` -> passed, 95 files and 511 tests.
+- `cd frontend && npx tsc --noEmit` -> passed; the previously recorded `viewStateUrl.test.ts:123` typecheck failure is closed.
+- `cd frontend && npm run build` -> passed with existing Vite large-chunk warning; `rsync -a --delete frontend/dist/ src/lenslet/frontend/` reran successfully.
+- `python -m build` -> passed; built `lenslet-0.3.1.tar.gz` and `lenslet-0.3.1-py3-none-any.whl`.
+- `python scripts/lint_repo.py` -> passed with warn-only file-size guardrails for `frontend/src/app/AppShell.tsx`, `frontend/src/styles.css`, `scripts/browser/large_tree/smoke.py`, and `src/lenslet/storage/table/storage.py`.
+- Cleanup gate: code-simplifier Tier 1 pass reused the existing `repo_root` local in `tests/browser/test_playwright_large_tree_smoke.py`; local `pytest -q tests/browser/test_playwright_large_tree_smoke.py` passed, 6 passed.
+- Review gate: code-review found generic numeric-string metric detection was too broad; fixed by keeping generic metric detection strict and scoping numeric-string/all-missing promotion to q-style columns. Review confirmation reported no remaining findings.
+
+Blockers: none. Residual non-blocking warnings are the GUI smoke non-strict folder re-entry anchor warning, large-tree console missing-resource warnings, Vite chunk-size warning, and lint warn-only file-size notices.
+
+Next step: all planned Phase 1 sprints and validation tasks are complete.

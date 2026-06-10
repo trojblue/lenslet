@@ -45,6 +45,7 @@ FORMULA_METRIC_EXACT_EXCLUSIONS = frozenset(
         "mtime",
         "name",
         "path",
+        "pending_gpt_q4_value_view",
         "rel_path",
         "relative_path",
         "row_id",
@@ -165,7 +166,10 @@ def _metric_candidate_columns(context: TableIndexInput) -> list[str]:
             continue
         if not is_formula_metric_column_name(column):
             continue
-        if not _column_values_are_numeric_metric(table.column_values.get(column)):
+        values = table.column_values.get(column)
+        if not _column_values_are_numeric_metric(
+            values
+        ) and not _q_style_metric_values_are_numeric_or_missing(column, values):
             continue
         candidates.append(column)
     return candidates
@@ -193,6 +197,11 @@ def is_formula_metric_column_name(column: str) -> bool:
     if leaf.endswith(FORMULA_METRIC_BOOKKEEPING_SUFFIXES):
         return False
     return True
+
+
+def _is_q_style_metric_column_name(column: str) -> bool:
+    leaf = _metric_column_leaf(column)
+    return len(leaf) > 1 and leaf.startswith("q") and leaf[1].isdigit()
 
 
 def _coerce_scalar(value: object) -> object:
@@ -237,6 +246,31 @@ def _column_values_are_numeric_metric(values: Any, *, sample_size: int = 256) ->
         if checked >= sample_size:
             break
     return saw_numeric
+
+
+def _q_style_metric_values_are_numeric_or_missing(
+    column: str,
+    values: Any,
+    *,
+    sample_size: int = 256,
+) -> bool:
+    if values is None or not _is_q_style_metric_column_name(column):
+        return False
+    saw_value = False
+    checked = 0
+    try:
+        iterator = iter(values)
+    except TypeError:
+        return False
+    for raw_value in iterator:
+        saw_value = True
+        value = _coerce_scalar(raw_value)
+        if value is not None and coerce_finite_metric_value(value) is None:
+            return False
+        checked += 1
+        if checked >= sample_size:
+            break
+    return saw_value
 
 
 def _typed_values_are_numeric_metric(values: Any) -> bool | None:

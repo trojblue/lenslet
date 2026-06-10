@@ -120,7 +120,7 @@ describe('shared view-state URL params', () => {
       sort: { kind: 'metric', key: 'saved_score', dir: 'desc' },
       filters: { and: [{ starsIn: { values: [5] } }] },
       selectedMetric: 'saved_score',
-      derivedMetric: makeDerivedMetric({ id: 'saved_score' }),
+      derivedMetric: { ...makeDerivedMetric(), id: 'saved_score' },
     }
 
     const restored = readSharedViewStateFromSearch(

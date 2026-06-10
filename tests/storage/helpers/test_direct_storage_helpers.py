@@ -69,7 +69,7 @@ def _table_index_context() -> table_index.TableIndexInput:
                     "__index_level_0__": 2,
                 }
             ],
-            "metric_score": ["0.5"],
+            "metric_score": [0.5],
             "quality_score": [math.inf],
             "loss_metric": [math.nan],
             "label": ["cat"],

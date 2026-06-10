@@ -10,7 +10,10 @@ import pytest
 
 
 def _load_smoke_module() -> ModuleType:
-    module_path = Path(__file__).resolve().parents[2] / "scripts" / "browser" / "large_tree" / "smoke.py"
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    module_path = repo_root / "scripts" / "browser" / "large_tree" / "smoke.py"
     spec = importlib.util.spec_from_file_location("scripts.browser.large_tree.smoke", module_path)
     if spec is None or spec.loader is None:
         raise RuntimeError("failed to load large-tree browser smoke module")

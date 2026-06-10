@@ -158,6 +158,11 @@ def test_table_file_route_falls_back_to_read_bytes_for_remote_sources(
         return b"table-remote"
 
     monkeypatch.setattr(storage, "read_bytes", _read_bytes)
+    monkeypatch.setattr(
+        storage,
+        "open_remote_media_stream",
+        lambda _path, *, range_header=None: None,
+    )
 
     with TestClient(app) as client:
         response = client.get("/file", params={"path": "/gallery/a.jpg"})
@@ -195,6 +200,11 @@ def test_table_remote_url_path_column_serves_file_through_backend(
         return b"table-remote"
 
     monkeypatch.setattr(storage, "read_bytes", _read_bytes)
+    monkeypatch.setattr(
+        storage,
+        "open_remote_media_stream",
+        lambda _path, *, range_header=None: None,
+    )
 
     with TestClient(app) as client:
         folder = client.get("/folders", params={"path": "/img.metanomaly.co/r2"})

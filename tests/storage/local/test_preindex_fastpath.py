@@ -67,6 +67,9 @@ def test_create_app_folder_items_parquet_uses_strict_local_validation(
         def row_dimensions(self):
             return {}
 
+        def dimension_cache_rows(self):
+            return []
+
         def load_index(self, path: str):
             _ = path
             return None

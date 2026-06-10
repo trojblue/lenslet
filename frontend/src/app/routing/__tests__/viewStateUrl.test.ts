@@ -89,4 +89,6 @@ describe('shared view-state URL params', () => {
       hasSharedViewState: false,
     })
   })
+
+  it.todo('keeps explicit URL analysis state ahead of conflicting localStorage preferences')
 })

@@ -252,13 +252,9 @@ def evaluate_browse_records(
         else records
     )
     searched = [
-        record for record in query_records
-        if _matches_text_query(record, normalized.text_query)
+        record for record in query_records if _matches_text_query(record, normalized.text_query)
     ]
-    filtered = [
-        record for record in searched
-        if _matches_filter_ast(record, normalized.filters)
-    ]
+    filtered = [record for record in searched if _matches_filter_ast(record, normalized.filters)]
     ordered = sort_browse_records(filtered, normalized.sort, random_seed=normalized.random_seed)
     start = max(0, normalized.offset)
     end = start + max(0, normalized.limit)
@@ -324,7 +320,11 @@ def derived_metric_key(spec: DerivedMetricSpec | str) -> str:
 
 
 def is_derived_metric_key(key: str | None) -> bool:
-    return isinstance(key, str) and key.startswith(DERIVED_METRIC_PREFIX) and len(key) > len(DERIVED_METRIC_PREFIX)
+    return (
+        isinstance(key, str)
+        and key.startswith(DERIVED_METRIC_PREFIX)
+        and len(key) > len(DERIVED_METRIC_PREFIX)
+    )
 
 
 def normalize_derived_metric_spec(spec: DerivedMetricSpec | None) -> DerivedMetricSpec | None:
@@ -342,12 +342,14 @@ def normalize_derived_metric_spec(spec: DerivedMetricSpec | None) -> DerivedMetr
             return None
         if not math.isfinite(term.weight) or term.missing not in {"zero", "invalid"}:
             return None
-        numeric_terms.append(DerivedMetricNumericTerm(
-            key=key,
-            weight=term.weight,
-            missing=term.missing,
-            z_normalize=term.z_normalize,
-        ))
+        numeric_terms.append(
+            DerivedMetricNumericTerm(
+                key=key,
+                weight=term.weight,
+                missing=term.missing,
+                z_normalize=term.z_normalize,
+            )
+        )
     categorical_terms: list[DerivedMetricCategoricalTerm] = []
     for term in spec.categorical_terms:
         key = _normalize_text(term.key)
@@ -356,7 +358,9 @@ def normalize_derived_metric_spec(spec: DerivedMetricSpec | None) -> DerivedMetr
             return None
         if not math.isfinite(term.weight):
             return None
-        categorical_terms.append(DerivedMetricCategoricalTerm(key=key, value=value, weight=term.weight))
+        categorical_terms.append(
+            DerivedMetricCategoricalTerm(key=key, value=value, weight=term.weight)
+        )
     name = spec.name.strip() or "Derived score"
     return DerivedMetricSpec(
         id=metric_id,
@@ -395,11 +399,7 @@ def _record_without_derived_metrics(record: BrowseQueryRecord[T]) -> BrowseQuery
         return record
     if not any(is_derived_metric_key(key) for key in metrics):
         return record
-    filtered = {
-        key: value
-        for key, value in metrics.items()
-        if not is_derived_metric_key(key)
-    }
+    filtered = {key: value for key, value in metrics.items() if not is_derived_metric_key(key)}
     return _record_with_metrics(record, filtered or None)
 
 
@@ -410,9 +410,13 @@ def _derived_metric_inputs_available(
     metric_keys: Iterable[str] | None,
     categorical_keys: Iterable[str] | None,
 ) -> bool:
-    available_metrics = _available_metric_keys(records) if metric_keys is None else _normalized_key_set(metric_keys)
+    available_metrics = (
+        _available_metric_keys(records) if metric_keys is None else _normalized_key_set(metric_keys)
+    )
     available_categoricals = (
-        _available_categorical_keys(records) if categorical_keys is None else _normalized_key_set(categorical_keys)
+        _available_categorical_keys(records)
+        if categorical_keys is None
+        else _normalized_key_set(categorical_keys)
     )
     for term in spec.numeric_terms:
         if term.key not in available_metrics:
@@ -526,27 +530,82 @@ def sort_browse_records(
         return sorted(records, key=lambda record: _metric_sort_key(record, sort))
     if sort.key == "random":
         seed = str(random_seed if random_seed is not None else "")
-        return sorted(records, key=lambda record: (_random_key(seed, record.stable_identity), record.stable_identity))
+        return sorted(
+            records,
+            key=lambda record: (_random_key(seed, record.stable_identity), record.stable_identity),
+        )
     if sort.key == "name":
         return sorted(records, key=lambda record: _name_sort_key(record, sort.direction))
     return sorted(records, key=lambda record: _added_sort_key(record, sort.direction))
 
 
+def browse_analysis_query_key(
+    spec: BrowseQuerySpec,
+    *,
+    unsupported_metric_intent: str | None = None,
+) -> str:
+    return _query_payload_token(
+        "aq",
+        _analysis_query_payload(spec, unsupported_metric_intent=unsupported_metric_intent),
+    )
+
+
+def browse_window_request_token(
+    spec: BrowseQuerySpec,
+    *,
+    generation_token: str | None = None,
+    unsupported_metric_intent: str | None = None,
+) -> str:
+    payload: dict[str, object] = {
+        "analysis_query_key": browse_analysis_query_key(
+            spec,
+            unsupported_metric_intent=unsupported_metric_intent,
+        ),
+        "offset": spec.offset,
+        "limit": spec.limit,
+    }
+    if generation_token is not None:
+        payload["generation_token"] = generation_token
+    return _query_payload_token("bq", payload)
+
+
 def browse_query_request_token(spec: BrowseQuerySpec) -> str:
+    return browse_window_request_token(spec)
+
+
+def _query_payload_token(prefix: str, payload: Mapping[str, object]) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+    return f"{prefix}_{digest}"
+
+
+def _analysis_query_payload(
+    spec: BrowseQuerySpec,
+    *,
+    unsupported_metric_intent: str | None = None,
+) -> dict[str, object]:
+    unsupported_intent = _normalize_text(unsupported_metric_intent)
     payload = {
         "path": spec.path,
         "recursive": spec.recursive,
-        "offset": spec.offset,
-        "limit": spec.limit,
-        "filters": [_clause_token(clause) for clause in normalize_filter_ast(spec.filters).and_clauses],
+        "filters": [
+            _clause_token(clause) for clause in normalize_filter_ast(spec.filters).and_clauses
+        ],
         "sort": _sort_token(spec.sort),
         "text_query": _normalize_text(spec.text_query),
-        "random_seed": spec.random_seed,
+        "random_seed": _active_random_seed_token(spec),
         "derived_metric": _derived_metric_token(spec.derived_metric),
+        "unsupported_metric_intent": unsupported_intent,
     }
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
-    return f"bq_{digest}"
+    return payload
+
+
+def _active_random_seed_token(spec: BrowseQuerySpec) -> str | None:
+    if not isinstance(spec.sort, BuiltinSortSpec) or spec.sort.key != "random":
+        return None
+    if spec.random_seed is None:
+        return None
+    return str(spec.random_seed)
 
 
 def parse_query_date_bound(value: str | None, *, as_end: bool) -> float | None:
@@ -600,7 +659,11 @@ def _normalize_clause(clause: BrowseFilterClause) -> BrowseFilterClause | None:
         return clause
     if isinstance(clause, MetricRangeFilter):
         key = _normalize_text(clause.key)
-        if key is None or not math.isfinite(clause.min_value) or not math.isfinite(clause.max_value):
+        if (
+            key is None
+            or not math.isfinite(clause.min_value)
+            or not math.isfinite(clause.max_value)
+        ):
             return None
         if clause.min_value > clause.max_value:
             return None
@@ -715,7 +778,9 @@ def _matches_date_range(value: str | None, clause: DateRangeFilter) -> bool:
     return True
 
 
-def _matches_dimension_compare(value: int | float | None, clause: WidthCompareFilter | HeightCompareFilter) -> bool:
+def _matches_dimension_compare(
+    value: int | float | None, clause: WidthCompareFilter | HeightCompareFilter
+) -> bool:
     number = _finite_number(value)
     if number is None or number <= 0:
         return False
@@ -730,10 +795,16 @@ def _matches_dimension_compare(value: int | float | None, clause: WidthCompareFi
     return True
 
 
-def _added_sort_key(record: BrowseQueryRecord[object], direction: SortDirection) -> tuple[float, str, str]:
+def _added_sort_key(
+    record: BrowseQueryRecord[object], direction: SortDirection
+) -> tuple[float, str, str]:
     added_ms = _added_ms(record.added_at)
     if direction == "desc":
-        return (-added_ms, _reverse_text_key(record.name), _reverse_text_key(record.stable_identity))
+        return (
+            -added_ms,
+            _reverse_text_key(record.name),
+            _reverse_text_key(record.stable_identity),
+        )
     return (added_ms, record.name, record.stable_identity)
 
 
@@ -743,7 +814,9 @@ def _name_sort_key(record: BrowseQueryRecord[object], direction: SortDirection) 
     return (record.name, record.stable_identity)
 
 
-def _metric_sort_key(record: BrowseQueryRecord[object], sort: MetricSortSpec) -> tuple[int, float, str, str]:
+def _metric_sort_key(
+    record: BrowseQueryRecord[object], sort: MetricSortSpec
+) -> tuple[int, float, str, str]:
     value = _finite_number((record.metrics or {}).get(sort.key))
     if value is None:
         return (1, 0.0, record.name, record.stable_identity)
@@ -832,7 +905,9 @@ def _clause_token(clause: BrowseFilterClause) -> dict[str, object]:
     if isinstance(clause, HeightCompareFilter):
         return {"heightCompare": {"op": clause.op, "value": clause.value}}
     if isinstance(clause, MetricRangeFilter):
-        return {"metricRange": {"key": clause.key, "min": clause.min_value, "max": clause.max_value}}
+        return {
+            "metricRange": {"key": clause.key, "min": clause.min_value, "max": clause.max_value}
+        }
     if isinstance(clause, CategoricalInFilter):
         return {"categoricalIn": {"key": clause.key, "values": list(clause.values)}}
     raise TypeError(f"unsupported filter clause: {clause!r}")

@@ -40,6 +40,26 @@ export type BrowseQueryOptions = {
   unsupportedToken?: string | null
 }
 
+export type AnalysisQueryKey = readonly [
+  'analysis-query',
+  string,
+  'recursive' | 'direct',
+  FilterAST,
+  SortSpec,
+  string,
+  string | number | null,
+  DerivedMetricViewSpec | null,
+  string | null,
+]
+
+export type WindowRequestToken = readonly [
+  'folder-query',
+  AnalysisQueryKey,
+  number,
+  number,
+  string | null,
+]
+
 export const folderQueryKey = (
   path: string,
   options?: FolderQueryOptions,
@@ -84,21 +104,51 @@ export function buildBrowseQueryRequest(
   }
 }
 
-export const browseQueryKey = (options: BrowseQueryOptions) => {
-  const request = buildBrowseQueryRequest(options, 0)
+function activeRandomSeedForAnalysis(request: BrowseQueryRequest): string | number | null {
+  if (request.sort.kind !== 'builtin' || request.sort.key !== 'random') return null
+  return request.random_seed ?? null
+}
+
+function analysisQueryKeyFromRequest(
+  request: BrowseQueryRequest,
+  unsupportedToken: string | null | undefined,
+): AnalysisQueryKey {
   return [
-    'folder-query',
+    'analysis-query',
     request.path,
     request.recursive ? 'recursive' : 'direct',
-    request.limit,
     request.filters,
     request.sort,
     request.text_query ?? '',
-    request.random_seed ?? null,
+    activeRandomSeedForAnalysis(request),
     request.derived_metric,
-    options.unsupportedToken ?? null,
+    unsupportedToken ?? null,
   ] as const
 }
+
+export const analysisQueryKey = (options: BrowseQueryOptions): AnalysisQueryKey => (
+  analysisQueryKeyFromRequest(
+    buildBrowseQueryRequest(options, 0),
+    options.unsupportedToken,
+  )
+)
+
+export const windowRequestToken = (
+  options: BrowseQueryOptions,
+  offset = 0,
+  generationToken: string | null = null,
+): WindowRequestToken => {
+  const request = buildBrowseQueryRequest(options, offset)
+  return [
+    'folder-query',
+    analysisQueryKeyFromRequest(request, options.unsupportedToken),
+    request.offset,
+    request.limit,
+    generationToken,
+  ] as const
+}
+
+export const browseQueryKey = (options: BrowseQueryOptions) => windowRequestToken(options, 0)
 
 function parseRecursiveFolderQueryKey(queryKey: readonly unknown[]): RecursiveFolderQueryKey | null {
   if (queryKey[0] !== 'folder' || queryKey[2] !== 'recursive') return null

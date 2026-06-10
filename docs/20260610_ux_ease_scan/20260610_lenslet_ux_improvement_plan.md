@@ -26,7 +26,7 @@ The current architecture is strong enough to improve without a rewrite. Browse q
 
 The weak spots are mostly ownership boundaries and feedback surfaces. Large files like `frontend/src/app/AppShell.tsx`, `frontend/src/features/browse/components/VirtualGrid.tsx`, `frontend/src/styles.css`, and `src/lenslet/storage/table/storage.py` coordinate many concerns. Phase 1 avoids piling more ad hoc logic into those files where a small backend contract or shared utility would make behavior simpler.
 
-The 12 agent reports live under `docs/20260610_ux_ease_scan/agent_reports/`. They cover six paired aspects: browse/grid, metrics/filters, backend/table/media, navigation/state, performance/scalability, and accessibility/resilience. The plan review in `docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan_review.md` recommended revising the original broad roadmap before use. This revision applies that feedback by making backend trust fixes explicit, defining a Phase 1 boundary, and moving broad accessibility and speculative URL/performance work into backlog.
+The 12 agent reports live under `docs/20260610_ux_ease_scan/agent_reports/`. They cover six paired aspects: browse/grid, metrics/filters, backend/table/media, navigation/state, performance/scalability, and accessibility/resilience. The plan review in `docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan_review.md` recommended revising the original broad roadmap before use. A later reviewer pass in `docs/20260610_ux_ease_scan/20260610_reviewer_feedback.md` approved the direction but found that several contracts needed to be locked before implementation to avoid parallel truths across query identity, media policy, source/path identity, selection state, URL state, and derived metrics. This revision applies both reviews by making backend trust fixes explicit, defining a Phase 1 boundary, adding a contract-lock sprint, splitting the query/metrics sprint, and moving broad accessibility and speculative URL/performance work into backlog.
 
 The strongest repeated findings retained for Phase 1 are:
 
@@ -47,18 +47,21 @@ For every non-trivial code ticket, the implementing agent must use the `better-c
 
 ### Phase 1 Scope Budget and Guardrails
 
-Phase 1 is three implementation sprints plus validation. Later roadmap candidates are recorded below but are not immediate work. This keeps the work executable and prevents polished UI tasks from outrunning the trust fixes.
+Phase 1 is a contract-lock sprint, four implementation sprints, and validation. Later roadmap candidates are recorded below but are not immediate work. This keeps the work executable and prevents polished UI tasks from outrunning the trust fixes.
 
 The core invariants are:
 
 - Source datasets and source Parquet tables are not mutated by default.
 - Normal browse membership, order, totals, facet truth, and derived metric truth are backend-owned.
 - Frontend windows, loaded rows, and visible cards never masquerade as full-population truth.
+- The canonical analysis query identity excludes offset, limit, request generation, and transport-only fields; window request tokens may include them.
 - Sort/filter/search/view-mode transitions preserve selected or top-anchor context when the path still exists.
 - Folder scope changes clear or revalidate selection and inspector state.
-- Media surfaces never fail as blank silent space.
+- Backend owns original-media policy; frontend rendering can choose the display path but must not infer policy from `http` string checks alone.
+- Dimension caches are namespaced by table fingerprint, source identity, and row identity so switching source columns cannot reuse wrong dimensions.
+- Media surfaces never fail as blank silent space, and aborted/cancelled thumbnail requests during scrolling are not user-visible errors.
 - Large-folder/table paths stay bounded by windowed payloads and measured request budgets.
-- URL state owns shareable analysis context; localStorage owns personal workspace preferences; backend owns durable data.
+- Explicit URL state owns shareable analysis context and always wins over localStorage. localStorage owns personal workspace preferences; backend owns durable data.
 
 Debloat targets are loaded-window metric truth, 50k first-page metric sort hydration, recursive no-limit UI paths, console-only or `alert()` action errors, global unscoped shell settings, source/row/dimension decisions that exist only in terminal logs, and frontend-only heuristics for backend-owned facts.
 
@@ -80,21 +83,37 @@ After each complete sprint, spawn a subagent using the `code-simplifier` skill t
 
 After cleanup, spawn a fresh subagent using the `code-review` skill with `reasoning_effort` set to `medium`. The review should be constructively adversarial: look for correctness gaps, hidden local truth, unbounded payloads, stale state, media policy regressions, performance regressions, and unnecessary complexity. Fix real findings, rerun focused validation, and record unresolved risks in this document.
 
+### Sprint 0: Contract Lock And Fixture Baseline
+
+Demo outcome: implementers have one shared source of truth for query identity, media policy, source/dimension identity, selection boundaries, and URL ownership before behavior changes begin.
+
+- [x] S0-T1: Write an ownership matrix for the Phase 1 contracts.
+  Cover source data, workspace cache, browse query, facets, media originals, URL state, localStorage preferences, selection, inspector/sidecar targets, compare state, and derived metrics. The matrix must say which layer owns each fact and which layers may only display or cache it.
+
+- [x] S0-T2: Define canonical analysis query identity separately from window request tokens.
+  `analysisQueryKey` includes folder/scope, `q`, filters, sort intent, random seed when active, derived metric spec intent, and unsupported metric intent. It must not include offset, limit, request generation, or transport-only fields. `windowRequestToken` may include `analysisQueryKey`, offset, limit, and request generation.
+
+- [x] S0-T3: Define backend-owned media policy and redaction contracts.
+  Lock the media original policy enum before frontend fallback work. The contract should support local streaming, backend-proxy-required, browser-direct-allowed, browser-direct-preferred-with-proxy-fallback, and unsupported modes, plus source kind, proxy availability, direct-allowed reason, redacted origin, and warnings.
+
+- [x] S0-T4: Create baseline fixtures and tests before feature edits.
+  Cover Parquet with missing dimensions, multiple source/path columns, local and HTTP media, direct-browser media failure with backend fallback, large-table metric sorting, URL-vs-localStorage precedence, and folder-scope selection clearing.
+
 ### Sprint 1: Backend Trust, Source Immutability, And Media Policy
 
 Demo outcome: a user can launch a table and know Lenslet chose the right source/path contract, source Parquet files are not rewritten by default, media loading has a clear direct/proxy/streaming policy, and failures are visible instead of silent.
 
 - S1-T1: Make source Parquet immutable by default.
-  Move discovered dimension persistence out of source Parquet writes and into a workspace/cache-backed store keyed by table signature and stable row identity. Keep any in-place Parquet dimension write as an explicit opt-in flag with separate tests.
+  Replace default in-source Parquet dimension caching with workspace-backed dimension caching. The default must never rewrite the source Parquet. Keep source mutation only behind an explicit opt-in such as `--write-source-dimensions` or `--dimension-cache=source`, with separate tests. Key cached dimensions by table fingerprint, source identity, and row identity: include source parquet path, file size, mtime or affordable content hash, schema hash, row count, selected source column, selected path/root/base-dir mode, workspace id, stable row id when available, and otherwise row index plus normalized source/path value.
 
 - S1-T2: Add a backend table/media launch status payload and CLI/UI summary.
-  Include source column, path mode, root/base-dir policy, workspace mode, total table rows, gallery rows, skipped-row counters, media source kind, dimension coverage, cache/write policy, and warnings. Redact sensitive local paths for shared clients.
+  Include source column, path mode, root/base-dir policy, workspace mode, total table rows, gallery rows, skipped-row counters, media source kind, dimension coverage, dimension cache/write policy, original-media policy, proxy availability, redacted origin, and warnings. Redact sensitive local paths and signed URL details for shared clients.
 
 - S1-T3: Define and implement a narrow HTTP original media policy.
-  Direct browser URL handoff is allowed only when safe and selected. Backend proxy mode should stream rather than fully buffer large originals. Direct image failure should have an automatic or one-click proxy fallback when backend fetch can succeed.
+  Direct browser URL handoff is allowed only when policy says it is safe and selected. Backend proxy mode must stream rather than fully buffer large originals, preserve safe content headers, handle or pass through ranges where supported, cancel upstream reads on client disconnect, and enforce timeouts/max-byte policies. Direct image failure is tracked per item/session and should have an automatic or one-click proxy fallback when backend fetch can succeed; it must not globally change source policy by itself.
 
 - S1-T4: Make media fetch failures visible in thumbnails, hover preview, viewer, and compare.
-  Extend the frontend media resource hook to return `loading`, `url`, `error`, and retry state. Preserve backend media error categories such as local not found, remote not found, permission, timeout, decode, and upstream failure.
+  Replace `string | null` media resource results with an explicit state: idle, loading with request id, ready with URL and source, error with retry, or unsupported with reason. Preserve backend media error categories such as local not found, remote not found, permission, timeout, decode, and upstream failure. Do not surface aborted/cancelled thumbnail requests from normal fast scrolling as user-visible errors.
 
 - S1-T5: Add an app-level action feedback channel for user-triggered failures.
   Replace swallowed errors and `alert()` paths for table source switching, refresh, export/download, clipboard, ranking save, and inspector bulk updates with one concise status/error surface. This is interaction resilience, not accessibility compliance.
@@ -104,13 +123,13 @@ Demo outcome: a user can launch a table and know Lenslet chose the right source/
 Demo outcome: users can scroll, select, search, sort, filter, resize cards, enter viewer, navigate next/prev, change folders, and return without stale inspector targets, context jumps, or blank image swaps.
 
 - S2-T1: Treat folder scope changes as a selection boundary.
-  Clear or revalidate `selectedPaths`, inspector target, compare eligibility, and sidecar edit target when opening a new folder unless the transition is from a viewer hash that explicitly selects a path.
+  Clear or revalidate `selectedPaths`, inspector target, compare set and compare eligibility, sidecar edit target, hover preview target, context menu target, viewer path unless opened from an explicit viewer hash, similarity/ranking target where path-scoped, pending media prefetches for old scope, metric rail jump target, top-anchor restore token, and stale query/facet/metric request tokens.
 
 - S2-T2: Generalize selection/top-anchor restore for sort, filter, search clear, view mode, thumbnail size, folder re-entry, and viewer close.
   Capture selected path first, top anchor second, and restore only after the new backend window contains the target. Avoid client-side page walking.
 
 - S2-T3: Make viewer next/prev non-blank.
-  Keep the previous ready image visually retained and clearly non-current until the next image decodes, then crossfade or swap without exposing the stale image as the current resource.
+  Use two-layer viewer state: `targetPath` updates immediately, `displayedResource` keeps the last decoded image, and `pendingResource` loads the new target. Metadata, title, URL, and next/prev state must reflect the new target immediately. The old image may remain visible only as clearly transitioning/non-current until the new image decodes; if the new image fails, show an error for the new item rather than silently showing the old image as current.
 
 - S2-T4: Improve thumbnail demand loading during scroll.
   Split visible demand loading from adjacent prefetch. Visible rows should load through budgets even while scrolling; offscreen prefetch stays deferred and bounded.
@@ -118,26 +137,36 @@ Demo outcome: users can scroll, select, search, sort, filter, resize cards, ente
 - S2-T5: Add stable grid states for updating, empty, loading more, unsupported, and failed query.
   Add a bottom sentinel with loaded/filtered counts and retry. Mark old grid results as updating during slow committed backend query transitions without replacing useful content with a full-screen spinner.
 
-### Sprint 3: Canonical Query Identity, Metrics Truth, And Bounded Ranking
+### Sprint 3A: Canonical Query Identity, Facets, And Capabilities
 
-Demo outcome: metrics and derived score workflows are clear, searchable, backend-truthful, URL-shareable for the core view, and bounded on large tables; the metric rail no longer implies full-population authority from a loaded subset.
+Demo outcome: browse, facets, capabilities, and URL round-tripping share one canonical analysis identity, and explicit URL state cannot be overwritten by localStorage.
 
-- S3-T1: Define one canonical browse query identity.
-  Use the same normalized identity for `/folders/query`, query-shaped facets, derived metric status, metric summaries, URL round-trips, and request tokens. Phase 1 URL ownership includes folder/hash, `q`, filters, sort, random seed when random is active, derived metric spec when present, and unsupported metric intent.
+- S3A-T1: Implement one canonical analysis query identity.
+  Use `analysisQueryKey` for `/folders/query`, query-shaped facets, field capabilities, derived metric status, metric summaries, URL round-trips, and cache/provenance checks. Use a separate `windowRequestToken` for offset/limit/generation-bound requests. Phase 1 URL ownership includes folder/hash, `q`, filters, sort, random seed when random is active, derived metric spec when present, and unsupported metric intent.
 
-- S3-T2: Add query-shaped facets or query-aware facet summaries.
+- S3A-T2: Add query-shaped facets or query-aware facet summaries.
   Facet requests must share canonical query identity with browse queries. Return explicit count provenance: scope population, query-filtered count when backend-computed, and loaded-window count only when labeled as such or omitted.
 
-- S3-T3: Move normal-browse derived metric display/status to backend response truth.
-  Return derived metric key, display name, applied/unavailable status, valid/invalid counts, missing inputs, and item score values from backend query evaluation. Keep frontend derived evaluation for drafts and similarity mode only.
-
-- S3-T4: Split field capabilities.
+- S3A-T3: Split field capabilities.
   Replace broad metric heuristics with backend-provided capability metadata: display metrics, sortable/filterable metrics, numeric formula inputs, categorical inputs, labels, raw keys, type/source, and availability.
 
-- S3-T5: Replace the 50k metric-sort hydration path.
+- S3A-T4: Tighten URL/localStorage precedence.
+  Explicit URL state always wins over localStorage for `q`, filters, sort, random seed, derived metric spec, and unsupported metric intent. localStorage may fill only absent personal preferences such as pane state or display preferences. Tests must prove copied URLs reproduce the analysis view in a fresh browser profile and in a profile with conflicting saved preferences.
+
+### Sprint 3B: Backend Derived Metrics And Bounded Metric Navigation
+
+Demo outcome: derived score workflows are clear, searchable, backend-truthful, and bounded on large tables; the metric rail no longer implies full-population authority from a loaded subset.
+
+- S3B-T1: Move normal-browse derived metric display/status to backend response truth.
+  Return derived metric key, display name, applied/unavailable/invalid status, score scope, valid/invalid counts, missing inputs, unavailable categoricals, z-normalization mean/std when applicable, and item score values from backend query evaluation. Keep frontend derived evaluation for drafts and similarity mode only.
+
+- S3B-T2: Define derived metric score scope.
+  Normal browse derived scores use the query-filtered population before offset/limit, only rows with valid inputs for normalization/statistics, and report valid, invalid, and missing counts. If a future score intentionally uses folder-wide normalization, it must be labeled as folder scope instead of silently appearing query-shaped.
+
+- S3B-T3: Replace the 50k metric-sort hydration path.
   Keep item pages near normal page size. Feed the metric rail from backend metric summaries and add a narrow seek/window-by-metric-value contract if click-to-jump remains.
 
-- S3-T6: Polish derived score authoring without adding an expression engine.
+- S3B-T4: Polish derived score authoring without adding an expression engine.
   Fail closed on formula import when referenced terms are missing, add clearer diagnostics, output-score preview histogram from existing evaluation, direct "sort by this score" action, and searchable categorical value lists for high-cardinality cards.
 
 ### Phase 1 Validation Sprint
@@ -162,6 +191,20 @@ These came from the scan but should not start until Phase 1 passes.
 - Ranking semantic accessibility and broad ranking visual/token pass.
 
 
+## Interfaces and Dependencies
+
+
+Phase 1 changes a few internal contracts. Keep these small and explicit; do not add a general query language, a new frontend state manager, or broad compatibility wrappers.
+
+Canonical query identity has two names. `analysisQueryKey` is the semantic identity for browse analysis: folder/scope, `q`, filters, sort intent, random seed when active, derived metric spec intent, and unsupported metric intent. It excludes offset, limit, request generation, and transport-only fields. `windowRequestToken` is a request/window identity: `analysisQueryKey` plus offset, limit, and generation. Facets, field capabilities, derived metric status, metric summaries, URL round-trips, and provenance checks use `analysisQueryKey`; paginated item fetches use `windowRequestToken`.
+
+Backend original-media policy owns direct/proxy behavior. The enum should cover local file streaming, backend proxy required, browser direct allowed, browser direct preferred with proxy fallback, and unsupported. The payload should include source kind, proxy availability, direct-allowed status or reason, redacted origin, and warnings. Frontend media rendering may choose direct/proxy display from this contract, but must not independently decide policy from source strings.
+
+Frontend media resource state should distinguish idle, loading, ready, error, and unsupported states. Ready state includes URL and whether it came from direct, blob, or proxy. Error state includes a typed media error and retry path. Aborted thumbnail requests caused by fast scrolling are normal cancellation, not a visible item error.
+
+Derived metric status is backend-owned for normal browse. The response must include key, display name, applied/unavailable/invalid status, score scope, valid and invalid counts, missing numeric inputs, unavailable categorical inputs, z-normalization mean/std when applicable, and item score values for the returned page. Normal browse score scope is query-filtered population before offset/limit unless explicitly labeled otherwise.
+
+
 ## Validation and Acceptance
 
 
@@ -169,14 +212,15 @@ Primary acceptance must be scenario-driven, not only unit tests. Each Phase 1 sp
 
 Primary Phase 1 gates:
 
-- Source immutability: launch a Parquet with missing dimensions and assert the source file hash/mtime is unchanged while browse, metadata, thumbnails, and dimension filters can use workspace/cache-backed dimensions.
-- Launch/status truth: CLI and UI show selected source column, path mode, workspace mode, row totals, skipped counts, dimension policy, and media source kind without leaking sensitive paths to shared clients.
-- Media policy: fake large HTTP original proves proxy mode streams rather than buffering all bytes; browser test proves direct image display can fail and recover through backend fallback.
-- Selection boundary: select an item in folder A, open folder B, and assert inspector path, selected paths, compare eligibility, and sidecar edit target are cleared.
-- Browse continuity: deep scroll context survives sort/filter/view-size changes when the target path remains in the new backend window; viewer next/prev has no all-background blank interval under delayed file responses.
-- Metrics truth: query-shaped facets and derived metric status match backend query truth over unloaded rows; z-normalized derived scores display backend full-scope values; formula import with missing fields fails closed.
+- Contract lock: ownership matrix exists, `analysisQueryKey` and `windowRequestToken` tests prove offset/limit separation, media policy enum/redaction contract is covered, and baseline fixtures cover missing dimensions, multiple source/path columns, local/HTTP media, direct-browser failure, large metric sort, URL precedence, and folder-scope selection clearing.
+- Source immutability: launch a Parquet with missing dimensions and assert the source file hash/mtime is unchanged while browse, metadata, thumbnails, and dimension filters can use workspace/cache-backed dimensions. Switching source columns must namespace or invalidate cached dimensions so dimensions from one column cannot apply to another.
+- Launch/status truth: CLI and UI show selected source column, path mode, workspace mode, row totals, skipped counts, dimension policy, media source kind, original-media policy, proxy availability, and redacted origin without leaking sensitive paths or signed URLs to shared clients.
+- Media policy: fake large HTTP original proves proxy mode streams rather than buffering all bytes, preserves safe content headers, handles disconnect cancellation, enforces timeout/max-byte policy, and keeps local `FileResponse` fast path unchanged. Browser test proves direct image display can fail and recover through backend fallback without globally changing source policy.
+- Selection boundary: select an item in folder A, open folder B, and assert selected paths, inspector path, compare set/eligibility, sidecar edit target, hover target, context menu target, old viewer path, path-scoped ranking/similarity target, media prefetches, metric rail jump target, restore token, and stale request tokens are cleared or revalidated.
+- Browse continuity: deep scroll context survives sort/filter/view-size changes when the target path remains in the new backend window; viewer next/prev has no all-background blank interval under delayed file responses and never exposes an old image as the current item after metadata has moved to the new target.
+- Metrics truth: query-shaped facets and derived metric status match backend query truth over unloaded rows; z-normalized derived scores use the query-filtered population before offset/limit and report score scope, valid counts, invalid counts, missing inputs, and z mean/std; formula import with missing fields fails closed.
 - Metric bounds: metric sort first payload remains near normal page size, and metric rail data comes from backend summaries or is visibly unavailable/incomplete.
-- URL core state: `q`, filters, sort, random seed, derived score spec, and unsupported metric intent round-trip without localStorage overriding explicit URL state.
+- URL core state: `q`, filters, sort, random seed, derived score spec, and unsupported metric intent round-trip in a fresh browser profile and in a profile with conflicting saved preferences. Explicit URL state always wins over localStorage.
 
 Commands expected during Phase 1 validation:
 
@@ -187,7 +231,7 @@ Commands expected during Phase 1 validation:
     rsync -a --delete frontend/dist/ src/lenslet/frontend/
     python scripts/lint_repo.py
 
-Add focused tests near affected code. Examples include table launch/dimension cache pytest, media streaming tests, browse query/facet backend tests, frontend URL round-trip tests, `useAppSelectionViewerCompare` scope-boundary tests, and Playwright delayed media/filter/sort scenarios.
+Add focused tests near affected code. Examples include table launch/dimension cache pytest, media streaming tests, browse query/facet backend tests, frontend URL round-trip tests, media resource-state tests, `useAppSelectionViewerCompare` scope-boundary tests, and Playwright delayed media/filter/sort scenarios.
 
 
 ## Risks and Recovery
@@ -195,15 +239,19 @@ Add focused tests near affected code. Examples include table launch/dimension ca
 
 The main risk is adding polish while preserving misleading ownership. Recovery is to block any frontend-only truth fallback for normal browse and require backend contracts for membership, order, totals, facets, derived values, and source/media status.
 
-The second risk is treating status as a substitute for root fixes. Recovery is to require source immutability, media streaming/fallback policy, and stale selection clearing as code behavior, not just UI disclosure.
+The second risk is letting Sprint 0 become documentation without enforcement. Recovery is to require baseline fixtures and at least one failing-or-pending test per contract before Sprint 1 starts, then close those tests during the relevant implementation sprint.
 
-The third risk is overbuilding shared primitives. Recovery is to defer broad accessibility/menu/dialog primitive work until Phase 1 passes, and keep any immediate interaction fixes tied to current user workflows.
+The third risk is treating status as a substitute for root fixes. Recovery is to require source immutability, media streaming/fallback policy, and stale selection clearing as code behavior, not just UI disclosure.
 
-The fourth risk is performance regression from nicer UI. Recovery is to measure payload bytes, first grid, first thumbnail, frame gaps, query p95, request queue peaks, and RSS where relevant before accepting changes.
+The fourth risk is overbuilding shared primitives. Recovery is to defer broad accessibility/menu/dialog primitive work until Phase 1 passes, and keep any immediate interaction fixes tied to current user workflows.
 
-The fifth risk is URL bloat or parallel query identities. Recovery is to implement one canonical browse query identity first, URL-own only reproducible Phase 1 analysis state, avoid vectors/transforms/large selections, and keep durable named/saved views backend-owned.
+The fifth risk is performance regression from nicer UI. Recovery is to measure payload bytes, first grid, first thumbnail, frame gaps, query p95, request queue peaks, and RSS where relevant before accepting changes.
 
-The sixth risk is source/media diagnostics leaking sensitive local paths or signed URLs. Recovery is to redact diagnostics based on trusted-local context and keep share clients on safe summaries.
+The sixth risk is URL bloat or parallel query identities. Recovery is to implement `analysisQueryKey` first, keep `windowRequestToken` separate, URL-own only reproducible Phase 1 analysis state, avoid vectors/transforms/large selections, and keep durable named/saved views backend-owned.
+
+The seventh risk is source/media diagnostics leaking sensitive local paths or signed URLs. Recovery is to redact diagnostics based on trusted-local context and keep share clients on safe summaries.
+
+The eighth risk is fixing viewer blanking by showing stale media as if it were current. Recovery is to enforce two-layer viewer state in tests: metadata moves to the target immediately, old decoded media is visually marked transitional, and failed target media shows a target-specific error.
 
 Rollback is sprint-local. Most changes are additive contracts or hard cutovers in alpha; if a sprint misses primary acceptance, revert that sprint's behavior path and keep the plan open rather than shipping proxy-only improvements.
 
@@ -219,7 +267,11 @@ Rollback is sprint-local. Most changes are additive contracts or hard cutovers i
 - [x] 2026-06-10: Read the full report set and consolidated repeated findings into the initial plan.
 - [x] 2026-06-10: External plan review completed in `docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan_review.md`; recommendation was revise before use.
 - [x] 2026-06-10: Revised plan to add a Phase 1 boundary, make source immutability/media policy/selection boundaries/canonical query identity explicit, and defer broad accessibility/compliance work based on user clarification.
-- [x] 2026-06-10: Final markdown verification confirmed the revised plan, review file, and all 12 agent reports are present under `docs/20260610_ux_ease_scan/`.
+- [x] 2026-06-10: First markdown verification confirmed the revised plan, review file, and all 12 agent reports are present under `docs/20260610_ux_ease_scan/`.
+- [x] 2026-06-10: Integrated supplemental reviewer feedback from `docs/20260610_ux_ease_scan/20260610_reviewer_feedback.md`: added Sprint 0, split Sprint 3 into 3A/3B, tightened source dimension cache keys, backend media policy, streaming acceptance, selection boundaries, viewer state, derived score scope, and URL/localStorage precedence.
+- [x] 2026-06-10: Final consistency check after integration confirmed no stale `S3-T*` task IDs, no old derived-score full-scope wording, and all review/report artifacts present under `docs/20260610_ux_ease_scan/`.
+- [x] 2026-06-10: Sprint 0 completed. Added the Phase 1 ownership matrix, backend/frontend analysis query and window token helpers, original media policy/redaction contract, and baseline pending tests for source immutability, direct/proxy fallback, bounded metric sort, URL precedence, and folder-scope selection clearing.
+- [x] 2026-06-10: Sprint 0 validation passed: focused pytest reported 28 passed and 3 expected xfails; focused Vitest reported 27 passed and 2 todo; targeted Ruff and `python scripts/lint_repo.py` passed. Cleanup gate applied Tier 1 local simplifications; review gate found one malformed-URL redaction issue, which was fixed and covered by test.
 
 
 ## Artifacts and Handoff
@@ -240,12 +292,22 @@ Agent report artifacts:
 - `docs/20260610_ux_ease_scan/agent_reports/11_accessibility_resilience_codepaths.md`
 - `docs/20260610_ux_ease_scan/agent_reports/12_accessibility_resilience_product_feel.md`
 
-Review artifact:
+Review artifacts:
 
 - `docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan_review.md`
+- `docs/20260610_ux_ease_scan/20260610_reviewer_feedback.md`
 
 Plan artifact:
 
 - `docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan.md`
+- `docs/20260610_ux_ease_scan/phase1_contracts.md`
 
-Recommended first implementation sprint is Sprint 1. It closes the largest trust gaps with source immutability, visible launch/media status, a clear HTTP-original policy, and user-visible failures. Do not start by restyling the interface or doing broad accessibility compliance work. Start by making existing behavior truthful, explicit, and measurable.
+Sprint 0 implementation artifacts:
+
+- Query identity: `src/lenslet/browse/query.py`, `frontend/src/api/folders.ts`
+- Media policy: `src/lenslet/media_policy.py`
+- Baseline contract tests: `tests/phase1/test_sprint0_baseline_contracts.py`
+- Focused query/media tests: `tests/browse/test_query_evaluator.py`, `tests/web/routes/test_browse_query.py`, `tests/web/media/test_media_policy_contract.py`, `frontend/src/api/__tests__/folders.test.ts`
+- Pending frontend contract markers: `frontend/src/app/routing/__tests__/viewStateUrl.test.ts`, `frontend/src/app/hooks/__tests__/useAppSelectionViewerCompare.test.ts`
+
+Sprint 0 handoff: contract lock is complete. The next sprint is Sprint 1, starting with source Parquet immutability by default and workspace-backed dimension caching. Keep the Sprint 0 expected xfails/todos in place until the relevant implementation sprint closes them.

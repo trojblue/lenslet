@@ -24,6 +24,9 @@ from lenslet.browse.query import (
     StarsNotInFilter,
     UrlContainsFilter,
     WidthCompareFilter,
+    browse_analysis_query_key,
+    browse_query_request_token,
+    browse_window_request_token,
     derived_metric_key,
     evaluate_browse_records,
 )
@@ -78,7 +81,9 @@ def _matches(clause, record: BrowseQueryRecord[str]) -> bool:
 def test_backend_filter_evaluator_matches_frontend_edge_cases() -> None:
     assert not _matches(CategoricalInFilter("kind", ("cat",)), _record("a.jpg"))
     assert not _matches(MetricRangeFilter("score", 0.1, 0.9), _record("a.jpg"))
-    assert not _matches(MetricRangeFilter("score", 0.1, 0.9), _record("a.jpg", metrics={"score": math.inf}))
+    assert not _matches(
+        MetricRangeFilter("score", 0.1, 0.9), _record("a.jpg", metrics={"score": math.inf})
+    )
 
     missing_star = _record("a.jpg", star=None)
     assert _matches(StarsInFilter((0,)), missing_star)
@@ -156,8 +161,18 @@ def test_metric_sort_keeps_invalid_values_after_valid_values_in_both_directions(
         ),
     )
 
-    assert [record.name for record in asc.window] == ["b.jpg", "a.jpg", "invalid-a.jpg", "missing.jpg"]
-    assert [record.name for record in desc.window] == ["a.jpg", "b.jpg", "invalid-a.jpg", "missing.jpg"]
+    assert [record.name for record in asc.window] == [
+        "b.jpg",
+        "a.jpg",
+        "invalid-a.jpg",
+        "missing.jpg",
+    ]
+    assert [record.name for record in desc.window] == [
+        "a.jpg",
+        "b.jpg",
+        "invalid-a.jpg",
+        "missing.jpg",
+    ]
 
 
 def test_sort_ties_have_stable_path_tiebreakers() -> None:
@@ -178,7 +193,11 @@ def test_sort_ties_have_stable_path_tiebreakers() -> None:
         ),
     )
 
-    assert [record.path for record in result.window] == ["/gallery/a.jpg", "/gallery/b.jpg", "/gallery/c.jpg"]
+    assert [record.path for record in result.window] == [
+        "/gallery/a.jpg",
+        "/gallery/b.jpg",
+        "/gallery/c.jpg",
+    ]
 
 
 def test_seeded_random_sort_is_stable_across_offset_windows() -> None:
@@ -202,6 +221,53 @@ def test_seeded_random_sort_is_stable_across_offset_windows() -> None:
     assert [record.path for record in full.window] == [
         record.path for record in evaluate_browse_records(records, base).window
     ]
+
+
+def test_analysis_query_key_excludes_window_fields() -> None:
+    base = BrowseQuerySpec(
+        path="/gallery",
+        recursive=True,
+        offset=0,
+        limit=10,
+        filters=BrowseFilterAst(and_clauses=(CategoricalInFilter("source_column", ("target",)),)),
+        sort=BuiltinSortSpec("name", "asc"),
+        text_query="cat",
+        random_seed="inactive-seed",
+    )
+
+    assert browse_analysis_query_key(base) == browse_analysis_query_key(
+        replace(base, offset=20, limit=50, random_seed="ignored-seed")
+    )
+    assert browse_analysis_query_key(base) != browse_analysis_query_key(
+        replace(base, text_query="dog")
+    )
+    assert browse_analysis_query_key(
+        replace(base, sort=BuiltinSortSpec("random", "asc"), random_seed="seed-a")
+    ) != browse_analysis_query_key(
+        replace(base, sort=BuiltinSortSpec("random", "asc"), random_seed="seed-b")
+    )
+
+
+def test_window_request_token_includes_window_fields_and_generation() -> None:
+    base = BrowseQuerySpec(
+        path="/gallery",
+        recursive=True,
+        offset=0,
+        limit=10,
+        sort=BuiltinSortSpec("name", "asc"),
+    )
+
+    assert browse_window_request_token(base) == browse_query_request_token(base)
+    assert browse_window_request_token(base) != browse_window_request_token(
+        replace(base, offset=10)
+    )
+    assert browse_window_request_token(base) != browse_window_request_token(replace(base, limit=20))
+    assert browse_window_request_token(
+        base, generation_token="gen-a"
+    ) != browse_window_request_token(
+        base,
+        generation_token="gen-b",
+    )
 
 
 def test_filtered_window_is_sliced_after_full_scope_filtering() -> None:

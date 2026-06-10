@@ -115,4 +115,6 @@ describe('useAppSelectionViewerCompare guards', () => {
       resetCompare: true,
     })
   })
+
+  it.todo('clears or revalidates selection, viewer, compare, and inspector targets on folder scope changes')
 })

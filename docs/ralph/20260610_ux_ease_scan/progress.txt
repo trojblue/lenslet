@@ -1,0 +1,39 @@
+# Ralph Progress Log
+Started: 2026-06-10T17:28:23Z
+Mode: plan
+Tool: codex
+Repo: /fsx/yada/dev/lenslet
+Plan: /fsx/yada/dev/lenslet/docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan.md
+---
+
+## Iteration 1/9 - 2026-06-10T17:28:23Z
+
+Completed task IDs: S0-T1, S0-T2, S0-T3, S0-T4.
+
+Files changed:
+- `docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan.md`
+- `docs/20260610_ux_ease_scan/20260610_reviewer_feedback.md`
+- `docs/20260610_ux_ease_scan/phase1_contracts.md`
+- `docs/ralph/20260610_ux_ease_scan/progress.txt`
+- `frontend/src/api/folders.ts`
+- `frontend/src/api/__tests__/folders.test.ts`
+- `frontend/src/app/routing/__tests__/viewStateUrl.test.ts`
+- `frontend/src/app/hooks/__tests__/useAppSelectionViewerCompare.test.ts`
+- `src/lenslet/browse/query.py`
+- `src/lenslet/media_policy.py`
+- `tests/browse/test_query_evaluator.py`
+- `tests/web/routes/test_browse_query.py`
+- `tests/web/media/test_media_policy_contract.py`
+- `tests/phase1/test_sprint0_baseline_contracts.py`
+
+Validations:
+- `pytest -q tests/browse/test_query_evaluator.py tests/web/routes/test_browse_query.py tests/web/media/test_media_policy_contract.py tests/phase1/test_sprint0_baseline_contracts.py` -> passed, 28 passed and 3 expected xfails.
+- `cd frontend && npm test -- src/api/__tests__/folders.test.ts src/app/routing/__tests__/viewStateUrl.test.ts src/app/hooks/__tests__/useAppSelectionViewerCompare.test.ts` -> passed, 27 passed and 2 todo.
+- `python -m ruff check src/lenslet/browse/query.py src/lenslet/media_policy.py tests/browse/test_query_evaluator.py tests/web/routes/test_browse_query.py tests/web/media/test_media_policy_contract.py tests/phase1/test_sprint0_baseline_contracts.py` -> passed.
+- `python scripts/lint_repo.py` -> passed with existing warn-only file-size guardrails for large files.
+- Cleanup gate: code-simplifier Tier 1 pass applied local simplifications and ran focused checks.
+- Review gate: code-review found malformed remote-origin redaction could raise; fixed in `src/lenslet/media_policy.py` and covered in `tests/web/media/test_media_policy_contract.py`.
+
+Blockers: none.
+
+Next step: start Sprint 1 with S1-T1 source Parquet immutability and workspace-backed dimension caching.

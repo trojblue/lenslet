@@ -27,11 +27,13 @@ def _client_for_six_row_table(tmp_path: Path) -> TestClient:
     for index in range(6):
         rel_path = f"gallery/img{index}.jpg"
         _make_image(tmp_path / rel_path)
-        rows.append({
-            "path": rel_path,
-            "source_column": "target" if index in {4, 5} else "other",
-            "score": float(index),
-        })
+        rows.append(
+            {
+                "path": rel_path,
+                "source_column": "target" if index in {4, 5} else "other",
+                "score": float(index),
+            }
+        )
     app = create_app_from_table(
         rows,
         options=TableAppOptions(
@@ -81,7 +83,16 @@ def test_browse_query_contract_filters_before_windowing(tmp_path: Path) -> None:
     next_payload = client.post("/folders/query", json=next_body).json()
     assert [item["name"] for item in next_payload["items"]] == ["img5.jpg"]
 
-    changed_token_body = {**body, "random_seed": "seed-b"}
+    inactive_seed_payload = client.post(
+        "/folders/query", json={**body, "random_seed": "seed-b"}
+    ).json()
+    assert inactive_seed_payload["request_token"] == payload["request_token"]
+
+    changed_token_body = {
+        **body,
+        "sort": {"kind": "builtin", "key": "random", "dir": "asc"},
+        "random_seed": "seed-b",
+    }
     changed_payload = client.post("/folders/query", json=changed_token_body).json()
     assert changed_payload["request_token"] != payload["request_token"]
 
@@ -132,7 +143,9 @@ def test_browse_query_accepts_derived_metric_for_backend_sort_and_filter(tmp_pat
             "id": "rubric_1",
             "name": "Rubric score",
             "intercept": 0.0,
-            "numericTerms": [{"key": "score", "weight": 1.0, "missing": "invalid", "zNormalize": True}],
+            "numericTerms": [
+                {"key": "score", "weight": 1.0, "missing": "invalid", "zNormalize": True}
+            ],
             "categoricalTerms": [{"key": "source_column", "value": "target", "weight": 10.0}],
         },
     }
@@ -143,7 +156,11 @@ def test_browse_query_accepts_derived_metric_for_backend_sort_and_filter(tmp_pat
     payload = response.json()
     assert payload["filtered_total"] == 2
     assert [item["name"] for item in payload["items"]] == ["img5.jpg"]
-    assert math.isclose(payload["items"][0]["metrics"]["@derived/rubric_1"], 10.0 + (5.0 - 2.5) / math.sqrt(35 / 12))
+    expected_score = 10.0 + (5.0 - 2.5) / math.sqrt(35 / 12)
+    assert math.isclose(
+        payload["items"][0]["metrics"]["@derived/rubric_1"],
+        expected_score,
+    )
 
 
 def test_browse_query_rejects_malformed_filter_ast(tmp_path: Path) -> None:
@@ -305,7 +322,9 @@ def test_browse_query_fallback_refuses_unbounded_recursive_materialization() -> 
             return None
 
         def items_in_scope(self, path: str):
-            raise AssertionError(f"fallback should not materialize unbounded query scope for {path}")
+            raise AssertionError(
+                f"fallback should not materialize unbounded query scope for {path}"
+            )
 
     with pytest.raises(HTTPException) as exc_info:
         browse.build_folder_query(

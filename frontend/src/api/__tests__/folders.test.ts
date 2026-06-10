@@ -7,11 +7,13 @@ import {
 } from '../requestBudget'
 import {
   BACKEND_BROWSE_PAGE_SIZE,
+  analysisQueryKey,
   browseQueryKey,
   buildBrowseQueryRequest,
   folderQueryKey,
   shouldRemoveRecursiveFolderQuery,
   shouldRetainRecursiveFolderQuery,
+  windowRequestToken,
   type BrowseQueryOptions,
   type UseFolderOptions,
 } from '../folders'
@@ -165,7 +167,7 @@ describe('folder api query helpers', () => {
     })
   })
 
-  it('keys browse queries by every authoritative request variable', () => {
+  it('keys analysis queries by semantic request variables only', () => {
     const base: BrowseQueryOptions = {
       path: '/shots',
       recursive: true,
@@ -176,14 +178,17 @@ describe('folder api query helpers', () => {
     }
 
     const key = (overrides: Partial<BrowseQueryOptions> = {}) => (
-      JSON.stringify(browseQueryKey({ ...base, ...overrides }))
+      JSON.stringify(analysisQueryKey({ ...base, ...overrides }))
     )
 
     expect(key({ path: '/other' })).not.toBe(key())
     expect(key({ filters: { and: [{ categoricalIn: { key: 'source', values: ['target'] } }] } })).not.toBe(key())
     expect(key({ sort: { kind: 'builtin', key: 'name', dir: 'asc' } })).not.toBe(key())
     expect(key({ textQuery: 'cat' })).not.toBe(key())
-    expect(key({ randomSeed: 2 })).not.toBe(key())
+    expect(key({ randomSeed: 2 })).toBe(key())
+    expect(key({ sort: { kind: 'builtin', key: 'random', dir: 'asc' }, randomSeed: 2 })).not.toBe(
+      key({ sort: { kind: 'builtin', key: 'random', dir: 'asc' } }),
+    )
     expect(key({
       derivedMetric: {
         version: 1,
@@ -196,6 +201,24 @@ describe('folder api query helpers', () => {
     })).not.toBe(key())
     expect(key({ unsupportedToken: 'derived-filter' })).not.toBe(key())
     expect(key({ filters: { and: [{ starsIn: { values: [] } }] } })).toBe(key())
+  })
+
+  it('keeps window request tokens separate from analysis query identity', () => {
+    const base: BrowseQueryOptions = {
+      path: '/shots',
+      recursive: true,
+      filters: { and: [] },
+      sort: { kind: 'builtin', key: 'added', dir: 'desc' },
+      textQuery: 'cat',
+      randomSeed: 1,
+    }
+
+    const analysis = JSON.stringify(analysisQueryKey(base))
+    expect(JSON.stringify(analysisQueryKey({ ...base, limit: 20 }))).toBe(analysis)
+    expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken(base, 20)))
+    expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken({ ...base, limit: 20 }, 0)))
+    expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken(base, 0, 'gen-2')))
+    expect(JSON.stringify(browseQueryKey(base))).toBe(JSON.stringify(windowRequestToken(base, 0)))
   })
 
   it('posts browse-query requests with abortable folder request budget coverage', async () => {

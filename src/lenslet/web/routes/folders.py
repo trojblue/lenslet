@@ -166,6 +166,7 @@ def _query_spec_from_payload(body: BrowseQueryRequest) -> BrowseQuerySpec:
         text_query=body.text_query,
         random_seed=None if body.random_seed is None else str(body.random_seed),
         derived_metric=_query_derived_metric_spec(body.derived_metric),
+        unsupported_metric_intent=body.unsupported_metric_intent,
     )
 
 
@@ -213,6 +214,18 @@ def register_folder_routes(
         storage = storage_from_request(request)
         return BrowseFolderPathsPayload(paths=_collect_folder_paths(storage))
 
+    @app.post("/folders/facets", response_model=BrowseFacetsPayload)
+    def post_folder_facets(
+        body: BrowseQueryRequest,
+        request: Request,
+    ) -> BrowseFacetsPayload:
+        storage = storage_from_request(request)
+        return build_folder_facets(
+            storage,
+            _query_spec_from_payload(body),
+            to_item,
+        )
+
     @app.get("/folders/facets", response_model=BrowseFacetsPayload)
     def get_folder_facets(
         request: Request,
@@ -222,6 +235,11 @@ def register_folder_routes(
         storage = storage_from_request(request)
         return build_folder_facets(
             storage,
-            canonical_path(path),
-            recursive=recursive,
+            BrowseQuerySpec(
+                path=canonical_path(path),
+                recursive=recursive,
+                offset=0,
+                limit=1,
+            ),
+            to_item,
         )

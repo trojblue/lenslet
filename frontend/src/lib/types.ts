@@ -63,6 +63,7 @@ export type BrowseQueryRequest = {
   text_query?: string | null
   random_seed?: string | number | null
   derived_metric?: DerivedMetricSpec | null
+  unsupported_metric_intent?: string | null
 }
 
 export type BrowseQueryResponse = {
@@ -71,6 +72,7 @@ export type BrowseQueryResponse = {
   generated_at: string
   generation_token: string
   request_token: string
+  analysis_query_key?: string | null
   scope_total: number
   filtered_total: number
   offset: number
@@ -79,6 +81,32 @@ export type BrowseQueryResponse = {
   folders: BrowseFolderEntryPayload[]
   metric_keys: string[]
   categorical_keys: string[]
+  field_capabilities?: FieldCapabilitiesPayload | null
+}
+
+export type FieldCapability = {
+  key: string
+  raw_key: string
+  kind: 'metric' | 'categorical'
+  source: 'backend' | 'derived'
+  availability: 'available' | 'partial' | 'unavailable'
+  label?: string | null
+  display: boolean
+  sortable: boolean
+  filterable: boolean
+  numeric_formula_input: boolean
+  categorical_input: boolean
+}
+
+export type FieldCapabilitiesPayload = {
+  version: 1
+  metrics: Record<string, FieldCapability>
+  categoricals: Record<string, FieldCapability>
+  display_metrics: string[]
+  sortable_metrics: string[]
+  filterable_metrics: string[]
+  numeric_formula_inputs: string[]
+  categorical_inputs: string[]
 }
 
 export type MetricHistogramFacet = {
@@ -112,11 +140,19 @@ export type BrowseFacetsPayload = {
   version: 1
   path: string
   generated_at: string
+  analysis_query_key?: string | null
   total_items: number
+  count_provenance?: {
+    scope_total: number
+    query_filtered_total: number
+    loaded_window_total?: number | null
+    source: 'backend_query' | 'scope_population' | 'loaded_window'
+  } | null
   metric_keys: string[]
   categorical_keys: string[]
   metrics: Record<string, MetricFacet>
   categoricals: Record<string, CategoricalFacet>
+  field_capabilities?: FieldCapabilitiesPayload | null
 }
 
 export type BrowseFolderPathsPayload = {

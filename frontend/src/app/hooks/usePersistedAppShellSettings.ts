@@ -6,13 +6,11 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react'
-import { normalizeViewState } from '../../features/metrics/model/derivedMetric'
 import type {
   CompareOrderMode,
   ViewMode,
   ViewState,
 } from '../../lib/types'
-import { safeJsonParse } from '../../lib/util'
 import {
   createDeferredWriteScheduler,
   type PersistedAppShellSettings,
@@ -73,7 +71,7 @@ export function writePersistedSettingsToStorage(
   storage: Storage,
   settings: PersistedAppShellSettings,
 ): void {
-  storage.setItem(STORAGE_KEYS.viewState, JSON.stringify(settings.viewState))
+  storage.removeItem(STORAGE_KEYS.viewState)
   for (const key of LEGACY_VIEW_STORAGE_KEYS) {
     storage.removeItem(key)
   }
@@ -91,10 +89,6 @@ export function writePersistedSettingsToStorage(
 
 export function readPersistedSettingsFromStorage(storage: Storage): RestoredAppShellSettings {
   const restored: RestoredAppShellSettings = {}
-  const storedViewState = storage.getItem(STORAGE_KEYS.viewState)
-  if (storedViewState !== null) {
-    restored.viewState = normalizeViewState(safeJsonParse<unknown>(storedViewState))
-  }
 
   const storedViewMode = storage.getItem(STORAGE_KEYS.viewMode)
   if (storedViewMode === 'grid' || storedViewMode === 'adaptive') {

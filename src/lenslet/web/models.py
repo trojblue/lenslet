@@ -335,6 +335,7 @@ class BrowseQueryRequest(StrictModel):
     text_query: str | None = None
     random_seed: str | int | None = None
     derived_metric: BrowseQueryDerivedMetricPayload | None = None
+    unsupported_metric_intent: str | None = None
 
 
 class BrowseQueryResponse(BaseModel):
@@ -343,6 +344,7 @@ class BrowseQueryResponse(BaseModel):
     generated_at: str
     generation_token: str
     request_token: str
+    analysis_query_key: str | None = None
     scope_total: int
     filtered_total: int
     offset: int
@@ -351,6 +353,39 @@ class BrowseQueryResponse(BaseModel):
     folders: list[BrowseFolderEntryPayload] = Field(default_factory=list)
     metric_keys: list[str] = Field(default_factory=list)
     categorical_keys: list[str] = Field(default_factory=list)
+    field_capabilities: "FieldCapabilitiesPayload" = Field(
+        default_factory=lambda: FieldCapabilitiesPayload()
+    )
+
+
+FieldCapabilityKind = Literal["metric", "categorical"]
+FieldCapabilitySource = Literal["backend", "derived"]
+FieldCapabilityAvailability = Literal["available", "partial", "unavailable"]
+
+
+class FieldCapabilityPayload(BaseModel):
+    key: str
+    raw_key: str
+    kind: FieldCapabilityKind
+    source: FieldCapabilitySource = "backend"
+    availability: FieldCapabilityAvailability = "available"
+    label: str | None = None
+    display: bool = True
+    sortable: bool = False
+    filterable: bool = False
+    numeric_formula_input: bool = False
+    categorical_input: bool = False
+
+
+class FieldCapabilitiesPayload(BaseModel):
+    version: int = 1
+    metrics: dict[str, FieldCapabilityPayload] = Field(default_factory=dict)
+    categoricals: dict[str, FieldCapabilityPayload] = Field(default_factory=dict)
+    display_metrics: list[str] = Field(default_factory=list)
+    sortable_metrics: list[str] = Field(default_factory=list)
+    filterable_metrics: list[str] = Field(default_factory=list)
+    numeric_formula_inputs: list[str] = Field(default_factory=list)
+    categorical_inputs: list[str] = Field(default_factory=list)
 
 
 class MetricHistogramFacetPayload(BaseModel):
@@ -380,15 +415,25 @@ class CategoricalFacetPayload(BaseModel):
     values: list[CategoricalValueFacetPayload] = Field(default_factory=list)
 
 
+class BrowseFacetCountProvenancePayload(BaseModel):
+    scope_total: int
+    query_filtered_total: int
+    loaded_window_total: int | None = None
+    source: Literal["backend_query", "scope_population", "loaded_window"] = "backend_query"
+
+
 class BrowseFacetsPayload(BaseModel):
     version: int = 1
     path: str
     generated_at: str
+    analysis_query_key: str | None = None
     total_items: int
+    count_provenance: BrowseFacetCountProvenancePayload | None = None
     metric_keys: list[str] = Field(default_factory=list)
     categorical_keys: list[str] = Field(default_factory=list)
     metrics: dict[str, MetricFacetPayload] = Field(default_factory=dict)
     categoricals: dict[str, CategoricalFacetPayload] = Field(default_factory=dict)
+    field_capabilities: FieldCapabilitiesPayload = Field(default_factory=FieldCapabilitiesPayload)
 
 
 class BrowseFolderPathsPayload(BaseModel):

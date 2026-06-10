@@ -235,7 +235,8 @@ export default function AppShell({
   themeWorkspaceId,
 }: AppShellProps) {
   const [current, setCurrent] = useState<string>('/')
-  const [query, setQuery] = useState('')
+  const [initialSharedViewState] = useState(() => readSharedViewStateFromCurrentUrl())
+  const [query, setQuery] = useState(() => initialSharedViewState.query)
   const [similarityOpen, setSimilarityOpen] = useState(false)
   const [similarityState, setSimilarityState] = useState<SimilarityState | null>(null)
   
@@ -251,9 +252,8 @@ export default function AppShell({
     dismissBrowserZoomWarning,
   } = useBrowserZoomWarning()
   
-  const [initialSharedViewState] = useState(() => readSharedViewStateFromCurrentUrl())
   const [viewState, setViewState] = useState<ViewState>(() => initialSharedViewState.viewState)
-  const [randomSeed, setRandomSeed] = useState<number>(() => Date.now())
+  const [randomSeed, setRandomSeed] = useState<number>(() => initialSharedViewState.randomSeed ?? Date.now())
   const [viewMode, setViewMode] = useState<ViewMode>('adaptive')
   const [gridItemSize, setGridItemSize] = useState<number>(220)
   const [mobileSelectMode, setMobileSelectMode] = useState(false)
@@ -271,6 +271,9 @@ export default function AppShell({
   const [compareOrderMode, setCompareOrderMode] = useState<CompareOrderMode>('gallery')
   const [tableSourceColumns, setTableSourceColumns] = useState<TableSourceColumnsPayload | null>(null)
   const [tableSourceSwitching, setTableSourceSwitching] = useState(false)
+  const [urlUnsupportedMetricIntent, setUrlUnsupportedMetricIntent] = useState(
+    () => initialSharedViewState.unsupportedMetricIntent,
+  )
   const [dismissedTableSourceWarning, setDismissedTableSourceWarning] = useState<string | null>(null)
   const [readOnlyWarningDismissed, setReadOnlyWarningDismissed] = useState(false)
   const [actionFeedback, setActionFeedback] = useState<ActionFeedback | null>(null)
@@ -285,6 +288,11 @@ export default function AppShell({
   const toolbarRef = useRef<HTMLDivElement>(null)
   const itemQueryIndexRef = useRef(new ItemQueryPathIndex())
   const previousScopeRef = useRef(current)
+  const initialUrlAnalysisRef = useRef({
+    query: initialSharedViewState.query,
+    randomSeed: initialSharedViewState.randomSeed,
+    viewState: initialSharedViewState.viewState,
+  })
 
   const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool, {
     userLeftOpen: leftOpen,
@@ -317,12 +325,8 @@ export default function AppShell({
     setAutoloadImageMetadata,
     setCompareOrderMode,
     setProxyHttpOriginals,
-    restoreViewState: !initialSharedViewState.hasSharedViewState,
+    restoreViewState: false,
   })
-
-  useEffect(() => {
-    replaceSharedViewStateInCurrentUrl(viewState)
-  }, [viewState])
 
   const queryClient = useQueryClient()
   const syncStatus = useSyncStatus()
@@ -408,15 +412,38 @@ export default function AppShell({
     isLoadingMoreFolderItems,
     loadMoreFolderItems,
     browseQueryUnavailableReason,
+    analysisUnsupportedMetricIntent,
   } = useAppDataScope({
     current,
     query,
     similarityState,
     viewState,
     randomSeed,
+    urlUnsupportedMetricIntent,
     localStarOverrides,
     sessionResetToken: scopeSessionResetToken,
   })
+  useEffect(() => {
+    if (!urlUnsupportedMetricIntent) return
+    const initial = initialUrlAnalysisRef.current
+    if (
+      query !== initial.query
+      || viewState !== initial.viewState
+      || (
+        initial.randomSeed !== null
+        && randomSeed !== initial.randomSeed
+      )
+    ) {
+      setUrlUnsupportedMetricIntent(null)
+    }
+  }, [query, randomSeed, urlUnsupportedMetricIntent, viewState])
+  useEffect(() => {
+    replaceSharedViewStateInCurrentUrl(viewState, {
+      query,
+      randomSeed,
+      unsupportedMetricIntent: analysisUnsupportedMetricIntent,
+    })
+  }, [analysisUnsupportedMetricIntent, query, randomSeed, viewState])
   const currentGalleryId = useMemo(() => sanitizePath(current || '/'), [current])
   const starsInFilter = useMemo(() => getStarsInFilter(viewState.filters), [viewState.filters])
 
@@ -545,9 +572,16 @@ export default function AppShell({
   })
   const metricsBaseItems = selectionPool
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
-  const metricsFacetsQuery = useFolderFacets(current, {
+  const metricsFacetsQuery = useFolderFacets({
+    path: current,
     recursive: true,
-    enabled: leftOpen && (leftTool === 'metrics' || leftTool === 'derived') && !similarityState && !searching,
+    filters: viewState.filters,
+    sort: viewState.sort,
+    textQuery: normalizedQ,
+    randomSeed,
+    derivedMetric: viewState.derivedMetric ?? null,
+    unsupportedToken: analysisUnsupportedMetricIntent,
+    enabled: leftOpen && (leftTool === 'metrics' || leftTool === 'derived') && !similarityState,
   })
   const metricsFacets = metricsFacetsQuery.data?.path === (data?.path ?? current)
     ? metricsFacetsQuery.data

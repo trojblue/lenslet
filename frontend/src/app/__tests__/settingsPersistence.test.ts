@@ -120,8 +120,12 @@ describe('settings persistence scheduling', () => {
 })
 
 describe('settings persistence view-state contract', () => {
-  it('stores filters, sort, selected metric, and derived metric under one viewState key', () => {
+  it('persists personal display settings and clears stored analysis state', () => {
     const storage = new MemoryStorage()
+    storage.setItem('viewState', JSON.stringify({
+      sort: { kind: 'metric', key: 'saved_score', dir: 'desc' },
+      filters: { and: [{ starsIn: { values: [5] } }] },
+    }))
     storage.setItem('sortSpec', JSON.stringify({ kind: 'builtin', key: 'name', dir: 'asc' }))
     storage.setItem('filterAst', JSON.stringify({ and: [{ starsIn: { values: [5] } }] }))
     storage.setItem('selectedMetric', 'score')
@@ -144,13 +148,12 @@ describe('settings persistence view-state contract', () => {
       proxyHttpOriginals: true,
     }))
 
-    expect(JSON.parse(storage.getItem('viewState') ?? '{}')).toEqual(viewState)
+    expect(storage.getItem('viewState')).toBeNull()
     expect(storage.getItem('sortSpec')).toBeNull()
     expect(storage.getItem('filterAst')).toBeNull()
     expect(storage.getItem('selectedMetric')).toBeNull()
 
     expect(readPersistedSettingsFromStorage(storage)).toEqual({
-      viewState,
       viewMode: 'grid',
       gridItemSize: 260,
       leftOpen: false,

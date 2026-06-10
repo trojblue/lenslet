@@ -27,9 +27,18 @@ describe('useAppDataScope backend browse-query boundary', () => {
     expect(SOURCE).not.toContain('scanStableMode')
   })
 
-  it('does not request raw folder facets while backend text search is active', () => {
+  it('requests query-shaped facets during backend text search', () => {
     expect(APP_SHELL_SOURCE).toContain(
-      "enabled: leftOpen && (leftTool === 'metrics' || leftTool === 'derived') && !similarityState && !searching",
+      'textQuery: normalizedQ,',
     )
+    expect(APP_SHELL_SOURCE).not.toContain('&& !similarityState && !searching')
+  })
+
+  it('threads shared URL unsupported metric intent into backend analysis identity', () => {
+    expect(APP_SHELL_SOURCE).toContain('urlUnsupportedMetricIntent')
+    expect(APP_SHELL_SOURCE).toContain('unsupportedMetricIntent: analysisUnsupportedMetricIntent')
+    expect(APP_SHELL_SOURCE).toContain('unsupportedToken: analysisUnsupportedMetricIntent')
+    expect(SOURCE).toContain('analysisUnsupportedMetricIntent = browseQueryUnavailableReason')
+    expect(SOURCE).toContain('unsupportedToken: analysisUnsupportedMetricIntent')
   })
 })

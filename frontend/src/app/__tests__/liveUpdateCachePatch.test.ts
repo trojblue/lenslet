@@ -94,11 +94,27 @@ describe('live update cache patching', () => {
     expect(nextSearchB?.items[0].notes).toBe('fresh note')
   })
 
-  it('does not patch paged backend browse-query results locally', () => {
+  it('patches paged backend browse-query results that contain the item path', () => {
     const queryClient = new QueryClient()
     const itemA = makeItem('/shots/a.jpg', { star: 1 })
     const itemB = makeItem('/shots/b.jpg', { star: 2 })
-    const queryKey = ['folder-query', '/shots', 'recursive', 1000, { and: [] }]
+    const queryKey = [
+      'folder-query',
+      [
+        'analysis-query',
+        '/shots',
+        'recursive',
+        { and: [] },
+        { kind: 'builtin', key: 'added', dir: 'desc' },
+        '',
+        null,
+        null,
+        null,
+      ],
+      0,
+      1000,
+      null,
+    ]
     const browseQuery = makeBrowseQueryPages([itemA, itemB])
 
     queryClient.setQueryData(queryKey, browseQuery)
@@ -113,9 +129,9 @@ describe('live update cache patching', () => {
     })
 
     const nextBrowseQuery = queryClient.getQueryData<typeof browseQuery>(queryKey)
-    expect(nextBrowseQuery).toBe(browseQuery)
-    expect(nextBrowseQuery?.pages[0].items[1].star).toBe(2)
-    expect(nextBrowseQuery?.pages[0].items[1].notes).toBeUndefined()
+    expect(nextBrowseQuery).not.toBe(browseQuery)
+    expect(nextBrowseQuery?.pages[0].items[1].star).toBe(5)
+    expect(nextBrowseQuery?.pages[0].items[1].notes).toBe('backend note')
   })
 
   it('drops stale memberships after a query result set changes', () => {

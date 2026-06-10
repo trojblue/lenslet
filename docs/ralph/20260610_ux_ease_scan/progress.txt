@@ -201,3 +201,48 @@ Validations:
 Blockers: none for Sprint 2. Existing out-of-scope frontend typecheck failures in derived metric/metric scrollbar code remain from prior iterations.
 
 Next step: start Sprint 3A with S3A-T1 canonical analysis query identity across browse/facets/capabilities/URL state.
+
+## Iteration 6/9 - 2026-06-10T19:44:35Z
+
+Completed task IDs: S3A-T1, S3A-T2, S3A-T3, S3A-T4.
+
+Files changed:
+- `docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan.md`
+- `docs/ralph/20260610_ux_ease_scan/progress.txt`
+- `frontend/src/api/__tests__/folders.test.ts`
+- `frontend/src/api/client.ts`
+- `frontend/src/api/folders.ts`
+- `frontend/src/app/AppShell.tsx`
+- `frontend/src/app/__tests__/liveUpdateCachePatch.test.ts`
+- `frontend/src/app/__tests__/settingsPersistence.test.ts`
+- `frontend/src/app/hooks/__tests__/useAppDataScopeBackendQuery.test.ts`
+- `frontend/src/app/hooks/useAppDataScope.ts`
+- `frontend/src/app/hooks/usePersistedAppShellSettings.ts`
+- `frontend/src/app/model/appShellStateSync.ts`
+- `frontend/src/app/routing/__tests__/viewStateUrl.test.ts`
+- `frontend/src/app/routing/viewStateUrl.ts`
+- `frontend/src/lib/types.ts`
+- `scripts/browser/gui_smoke/scenarios.py`
+- `src/lenslet/browse/query.py`
+- `src/lenslet/frontend/`
+- `src/lenslet/storage/table/facets.py`
+- `src/lenslet/storage/table/storage.py`
+- `src/lenslet/web/browse.py`
+- `src/lenslet/web/models.py`
+- `src/lenslet/web/routes/folders.py`
+- `tests/browse/test_query_evaluator.py`
+- `tests/web/routes/test_browse_query.py`
+
+Validations:
+- `pytest -q tests/browse/test_query_evaluator.py tests/web/routes/test_browse_query.py tests/storage/table/test_table_browse_query_storage.py tests/storage/table/test_parquet_ingestion.py` -> passed, 50 passed.
+- `cd frontend && npm test -- src/api/__tests__/folders.test.ts src/app/routing/__tests__/viewStateUrl.test.ts src/app/hooks/__tests__/useAppDataScopeBackendQuery.test.ts src/app/__tests__/settingsPersistence.test.ts src/app/__tests__/liveUpdateCachePatch.test.ts src/app/hooks/__tests__/useAppDataScope.test.ts` -> passed, 36 passed.
+- `python -m ruff check src/lenslet/browse/query.py src/lenslet/web/models.py src/lenslet/web/routes/folders.py src/lenslet/web/browse.py src/lenslet/storage/table/facets.py src/lenslet/storage/table/storage.py tests/browse/test_query_evaluator.py tests/web/routes/test_browse_query.py scripts/browser/gui_smoke/scenarios.py` -> passed.
+- `cd frontend && npm run build && cd .. && rsync -a --delete frontend/dist/ src/lenslet/frontend/` -> passed; served frontend bundle regenerated.
+- `python -m scripts.browser.gui_smoke.acceptance` -> passed with the existing non-strict folder re-entry exact-anchor warning.
+- `python scripts/lint_repo.py` -> passed with warn-only file-size guardrails for large files; `src/lenslet/storage/table/storage.py` remains below the hard limit at 1997 lines.
+- Cleanup gate: code-simplifier Tier 1 pass removed a dead persistence no-op and reran focused checks.
+- Review gate: code-review found unsupported-intent identity drift across URL, browse, and facets; fixes were applied, focused checks reran, and final review confirmation reported no remaining blocker.
+
+Blockers: none for Sprint 3A.
+
+Next step: start Sprint 3B with S3B-T1 backend-derived metric display/status truth for normal browse.

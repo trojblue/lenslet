@@ -10,6 +10,7 @@ import {
   analysisQueryKey,
   browseQueryKey,
   buildBrowseQueryRequest,
+  folderFacetsQueryKey,
   folderQueryKey,
   shouldRemoveRecursiveFolderQuery,
   shouldRetainRecursiveFolderQuery,
@@ -72,7 +73,7 @@ describe('folder api query helpers', () => {
     expect(url.searchParams.get('count_only')).toBe('1')
   })
 
-  it('fetches folder facets from the dedicated endpoint', async () => {
+  it('posts query-shaped folder facets to the dedicated endpoint', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -93,7 +94,15 @@ describe('folder api query helpers', () => {
       ),
     )
 
-    await expect(api.getFolderFacets('/shots')).resolves.toMatchObject({
+    const body = buildBrowseQueryRequest({
+      path: '/shots',
+      recursive: true,
+      filters: { and: [{ categoricalIn: { key: 'source', values: ['gt'] } }] },
+      sort: { kind: 'builtin', key: 'added', dir: 'desc' },
+      textQuery: 'cat',
+      randomSeed: 7,
+    })
+    await expect(api.queryFolderFacets(body)).resolves.toMatchObject({
       path: '/shots',
       categoricals: {
         original_source: {
@@ -101,10 +110,11 @@ describe('folder api query helpers', () => {
         },
       },
     })
-    const url = new URL(String(fetchSpy.mock.calls[0][0]), 'http://localhost')
+    const [requestUrl, init] = fetchSpy.mock.calls[0]
+    const url = new URL(String(requestUrl), 'http://localhost')
     expect(url.pathname).toBe('/folders/facets')
-    expect(url.searchParams.get('path')).toBe('/shots')
-    expect(url.searchParams.get('recursive')).toBe('1')
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(String(init?.body))).toEqual(body)
   })
 
   it('builds canonical browse-query request bodies', () => {
@@ -138,6 +148,7 @@ describe('folder api query helpers', () => {
       text_query: 'tabby cat',
       random_seed: 123,
       derived_metric: null,
+      unsupported_metric_intent: null,
     })
   })
 
@@ -200,7 +211,20 @@ describe('folder api query helpers', () => {
       },
     })).not.toBe(key())
     expect(key({ unsupportedToken: 'derived-filter' })).not.toBe(key())
+    expect(key({ unsupportedToken: ' derived-filter ' })).toBe(key({ unsupportedToken: 'derived-filter' }))
     expect(key({ filters: { and: [{ starsIn: { values: [] } }] } })).toBe(key())
+  })
+
+  it('normalizes unsupported metric intent in browse-query request bodies', () => {
+    const request = buildBrowseQueryRequest({
+      path: '/shots',
+      recursive: true,
+      filters: { and: [] },
+      sort: { kind: 'builtin', key: 'added', dir: 'desc' },
+      unsupportedToken: ' derived   filter ',
+    })
+
+    expect(request.unsupported_metric_intent).toBe('derived filter')
   })
 
   it('keeps window request tokens separate from analysis query identity', () => {
@@ -219,6 +243,10 @@ describe('folder api query helpers', () => {
     expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken({ ...base, limit: 20 }, 0)))
     expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken(base, 0, 'gen-2')))
     expect(JSON.stringify(browseQueryKey(base))).toBe(JSON.stringify(windowRequestToken(base, 0)))
+    expect(JSON.stringify(folderFacetsQueryKey(base))).toBe(JSON.stringify([
+      'folder-facets',
+      analysisQueryKey(base),
+    ]))
   })
 
   it('posts browse-query requests with abortable folder request budget coverage', async () => {

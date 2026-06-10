@@ -14,6 +14,9 @@ import type {
 const SORT_PARAM = 'sort'
 const FILTERS_PARAM = 'filters'
 const DERIVED_METRIC_PARAM = 'derived_metric'
+const QUERY_PARAM = 'q'
+const RANDOM_SEED_PARAM = 'random_seed'
+const UNSUPPORTED_METRIC_INTENT_PARAM = 'unsupported_metric_intent'
 
 const DEFAULT_VIEW_STATE: ViewState = {
   filters: { and: [] },
@@ -22,14 +25,24 @@ const DEFAULT_VIEW_STATE: ViewState = {
 
 export type SharedViewStateSnapshot = {
   viewState: ViewState
+  query: string
+  randomSeed: number | null
+  unsupportedMetricIntent: string | null
+  hasSharedAnalysisState: boolean
   hasSharedViewState: boolean
+}
+
+export type SharedViewStateUrlOptions = {
+  query?: string | null
+  randomSeed?: number | string | null
+  unsupportedMetricIntent?: string | null
 }
 
 export function readSharedViewStateFromCurrentUrl(
   fallback: ViewState = DEFAULT_VIEW_STATE,
 ): SharedViewStateSnapshot {
   if (typeof window === 'undefined') {
-    return { viewState: normalizeViewState(fallback), hasSharedViewState: false }
+    return emptySharedViewStateSnapshot(fallback)
   }
   return readSharedViewStateFromSearch(window.location.search, fallback)
 }
@@ -42,9 +55,13 @@ export function readSharedViewStateFromSearch(
   const hasSharedViewState = params.has(SORT_PARAM)
     || params.has(FILTERS_PARAM)
     || params.has(DERIVED_METRIC_PARAM)
+  const hasSharedAnalysisState = hasSharedViewState
+    || params.has(QUERY_PARAM)
+    || params.has(RANDOM_SEED_PARAM)
+    || params.has(UNSUPPORTED_METRIC_INTENT_PARAM)
 
-  if (!hasSharedViewState) {
-    return { viewState: normalizeViewState(fallback), hasSharedViewState: false }
+  if (!hasSharedAnalysisState) {
+    return emptySharedViewStateSnapshot(fallback)
   }
 
   const raw: Partial<ViewState> = {}
@@ -62,22 +79,39 @@ export function readSharedViewStateFromSearch(
   }
 
   return {
-    viewState: normalizeViewState(raw, fallback),
+    viewState: normalizeViewState(raw, DEFAULT_VIEW_STATE),
+    query: normalizeQueryParam(params.get(QUERY_PARAM)),
+    randomSeed: parseRandomSeedParam(params.get(RANDOM_SEED_PARAM)),
+    unsupportedMetricIntent: normalizeNullableParam(params.get(UNSUPPORTED_METRIC_INTENT_PARAM)),
+    hasSharedAnalysisState: true,
     hasSharedViewState: true,
   }
 }
 
-export function replaceSharedViewStateInCurrentUrl(viewState: ViewState): void {
+export function replaceSharedViewStateInCurrentUrl(
+  viewState: ViewState,
+  options: SharedViewStateUrlOptions = {},
+): void {
   if (typeof window === 'undefined') return
-  const nextSearch = buildSharedViewStateSearch(window.location.search, viewState)
+  const nextSearch = buildSharedViewStateSearch(window.location.search, viewState, options)
   if (window.location.search === nextSearch) return
   const nextUrl = `${window.location.pathname}${nextSearch}${window.location.hash}`
   window.history.replaceState(window.history.state, '', nextUrl)
 }
 
-export function buildSharedViewStateSearch(search: string, viewState: ViewState): string {
+export function buildSharedViewStateSearch(
+  search: string,
+  viewState: ViewState,
+  options: SharedViewStateUrlOptions = {},
+): string {
   const params = parseSearchParams(search)
   const normalized = normalizeViewState(viewState)
+  const query = normalizeQueryParam(options.query ?? null)
+  if (query) {
+    params.set(QUERY_PARAM, query)
+  } else {
+    params.delete(QUERY_PARAM)
+  }
 
   if (isDefaultSort(normalized.sort)) {
     params.delete(SORT_PARAM)
@@ -99,6 +133,20 @@ export function buildSharedViewStateSearch(search: string, viewState: ViewState)
     params.delete(DERIVED_METRIC_PARAM)
   }
 
+  const randomSeed = activeRandomSeedParam(normalized.sort, options.randomSeed)
+  if (randomSeed) {
+    params.set(RANDOM_SEED_PARAM, randomSeed)
+  } else {
+    params.delete(RANDOM_SEED_PARAM)
+  }
+
+  const unsupportedMetricIntent = normalizeNullableParam(options.unsupportedMetricIntent ?? null)
+  if (unsupportedMetricIntent) {
+    params.set(UNSUPPORTED_METRIC_INTENT_PARAM, unsupportedMetricIntent)
+  } else {
+    params.delete(UNSUPPORTED_METRIC_INTENT_PARAM)
+  }
+
   const next = params.toString()
   return next ? `?${next}` : ''
 }
@@ -106,6 +154,43 @@ export function buildSharedViewStateSearch(search: string, viewState: ViewState)
 function parseSearchParams(search: string): URLSearchParams {
   const raw = search.startsWith('?') ? search.slice(1) : search
   return new URLSearchParams(raw)
+}
+
+function emptySharedViewStateSnapshot(fallback: ViewState): SharedViewStateSnapshot {
+  return {
+    viewState: normalizeViewState(fallback),
+    query: '',
+    randomSeed: null,
+    unsupportedMetricIntent: null,
+    hasSharedAnalysisState: false,
+    hasSharedViewState: false,
+  }
+}
+
+function normalizeNullableParam(raw: string | null): string | null {
+  const value = raw?.trim().replace(/\s+/g, ' ') ?? ''
+  return value || null
+}
+
+function normalizeQueryParam(raw: string | null): string {
+  return normalizeNullableParam(raw) ?? ''
+}
+
+function parseRandomSeedParam(raw: string | null): number | null {
+  const value = normalizeNullableParam(raw)
+  if (value === null) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function activeRandomSeedParam(
+  sort: SortSpec,
+  randomSeed: number | string | null | undefined,
+): string | null {
+  if (sort.kind !== 'builtin' || sort.key !== 'random') return null
+  if (randomSeed === null || randomSeed === undefined || randomSeed === '') return null
+  const value = String(randomSeed).trim()
+  return value || null
 }
 
 function serializeSortParam(sort: SortSpec): string {
@@ -163,5 +248,10 @@ function viewStateUsesDerivedMetric(sort: SortSpec, filters: FilterAST, derivedI
 
 export function hasSharedViewStateSearchParams(search: string): boolean {
   const params = parseSearchParams(search)
-  return params.has(SORT_PARAM) || params.has(FILTERS_PARAM) || params.has(DERIVED_METRIC_PARAM)
+  return params.has(SORT_PARAM)
+    || params.has(FILTERS_PARAM)
+    || params.has(DERIVED_METRIC_PARAM)
+    || params.has(QUERY_PARAM)
+    || params.has(RANDOM_SEED_PARAM)
+    || params.has(UNSUPPORTED_METRIC_INTENT_PARAM)
 }

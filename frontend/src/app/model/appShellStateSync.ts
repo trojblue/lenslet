@@ -45,7 +45,8 @@ type TimeoutHandle = ReturnType<typeof globalThis.setTimeout>
 type IdleCommitHandle = number | TimeoutHandle
 
 function isIndexedQueryKey(queryKey: QueryKey): boolean {
-  return Array.isArray(queryKey) && (queryKey[0] === 'folder' || queryKey[0] === 'search')
+  return Array.isArray(queryKey)
+    && (queryKey[0] === 'folder' || queryKey[0] === 'folder-query' || queryKey[0] === 'search')
 }
 
 function collectItemPaths(items: unknown, paths: Set<string>): void {
@@ -62,6 +63,12 @@ function extractIndexedPaths(data: unknown): string[] {
   if (!data || typeof data !== 'object') return []
   const paths = new Set<string>()
   collectItemPaths((data as { items?: unknown }).items, paths)
+  const pages = (data as { pages?: unknown }).pages
+  if (Array.isArray(pages)) {
+    for (const page of pages) {
+      collectItemPaths((page as { items?: unknown } | null | undefined)?.items, paths)
+    }
+  }
   return Array.from(paths)
 }
 
@@ -203,11 +210,36 @@ export function patchIndexedItemQueries(
 
   for (const queryKey of index.getQueryKeys(payload.path)) {
     if (!queryClient.getQueryState(queryKey)) continue
-    queryClient.setQueryData<BrowseFolderPayload | BrowseSearchResultsPayload | undefined>(
+    queryClient.setQueryData<
+      BrowseFolderPayload
+      | BrowseSearchResultsPayload
+      | { pages: BrowseFolderPayload[] }
+      | undefined
+    >(
       queryKey,
-      (oldData) => patchItemCollection(oldData, payload),
+      (oldData) => patchIndexedQueryData(oldData, payload),
     )
   }
+}
+
+function patchIndexedQueryData<
+  T extends BrowseFolderPayload | BrowseSearchResultsPayload | { pages: BrowseFolderPayload[] },
+>(
+  oldData: T | undefined,
+  payload: ItemCacheUpdatePayload,
+): T | undefined {
+  if (!oldData) return oldData
+  const pages = (oldData as { pages?: unknown }).pages
+  if (!Array.isArray(pages)) {
+    return patchItemCollection(oldData as BrowseFolderPayload | BrowseSearchResultsPayload, payload) as T | undefined
+  }
+  let changed = false
+  const nextPages = pages.map((page) => {
+    const next = patchItemCollection(page as BrowseFolderPayload, payload)
+    if (next !== page) changed = true
+    return next
+  })
+  return changed ? { ...oldData, pages: nextPages } : oldData
 }
 
 function scheduleIdleCommit(callback: () => void): IdleCommitHandle {

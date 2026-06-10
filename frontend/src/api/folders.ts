@@ -76,12 +76,13 @@ export const folderQueryKey = (
     : ['folder', path] as const
 )
 
-export const folderFacetsQueryKey = (path: string, recursive = true) => (
-  ['folder-facets', path, recursive ? 'recursive' : 'direct'] as const
-)
-
 export function normalizeBrowseQueryFilters(filters: FilterAST | null | undefined): FilterAST {
   return normalizeFilterAst(filters) ?? { and: [] }
+}
+
+function normalizeUnsupportedToken(value: string | null | undefined): string | null {
+  const token = value?.trim().replace(/\s+/g, ' ') ?? ''
+  return token || null
 }
 
 export function buildBrowseQueryRequest(
@@ -101,6 +102,7 @@ export function buildBrowseQueryRequest(
     text_query: textQuery || null,
     random_seed: options.randomSeed ?? null,
     derived_metric: derivedMetric,
+    unsupported_metric_intent: normalizeUnsupportedToken(options.unsupportedToken),
   }
 }
 
@@ -122,7 +124,7 @@ function analysisQueryKeyFromRequest(
     request.text_query ?? '',
     activeRandomSeedForAnalysis(request),
     request.derived_metric,
-    unsupportedToken ?? null,
+    normalizeUnsupportedToken(unsupportedToken),
   ] as const
 }
 
@@ -131,6 +133,10 @@ export const analysisQueryKey = (options: BrowseQueryOptions): AnalysisQueryKey 
     buildBrowseQueryRequest(options, 0),
     options.unsupportedToken,
   )
+)
+
+export const folderFacetsQueryKey = (options: BrowseQueryOptions) => (
+  ['folder-facets', analysisQueryKey(options)] as const
 )
 
 export const windowRequestToken = (
@@ -245,13 +251,16 @@ export function useFolder(path: string, options?: UseFolderOptions) {
   })
 }
 
-export function useFolderFacets(path: string, options?: { recursive?: boolean; enabled?: boolean }) {
+export function useFolderFacets(options: BrowseQueryOptions & { enabled?: boolean }) {
   const pollingEnabled = usePollingEnabled()
-  const recursive = options?.recursive ?? true
+  const { enabled = true, ...queryOptions } = options
   return useQuery<BrowseFacetsPayload>({
-    queryKey: folderFacetsQueryKey(path, recursive),
-    queryFn: () => api.getFolderFacets(path, { recursive }),
-    enabled: options?.enabled ?? true,
+    queryKey: folderFacetsQueryKey(queryOptions),
+    queryFn: ({ signal }) => api.queryFolderFacets(
+      buildBrowseQueryRequest(queryOptions, 0),
+      { signal },
+    ),
+    enabled,
     staleTime: 10_000,
     gcTime: RECURSIVE_FOLDER_GC_TIME_MS,
     retry: 2,

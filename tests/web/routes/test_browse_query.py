@@ -72,16 +72,21 @@ def test_browse_query_contract_filters_before_windowing(tmp_path: Path) -> None:
     assert payload["offset"] == 0
     assert payload["limit"] == 2
     assert payload["request_token"].startswith("bq_")
+    assert payload["analysis_query_key"].startswith("aq_")
     assert payload["generation_token"]
     assert "total_items" not in payload
     assert [item["name"] for item in payload["items"]] == ["img4.jpg", "img5.jpg"]
     assert payload["folders"] == []
     assert payload["metric_keys"] == ["score"]
     assert "source_column" in payload["categorical_keys"]
+    assert payload["field_capabilities"]["display_metrics"] == ["score"]
+    assert payload["field_capabilities"]["metrics"]["score"]["sortable"] is True
+    assert payload["field_capabilities"]["categoricals"]["source_column"]["categorical_input"] is True
 
     next_body = {**body, "offset": 1, "limit": 1}
     next_payload = client.post("/folders/query", json=next_body).json()
     assert [item["name"] for item in next_payload["items"]] == ["img5.jpg"]
+    assert next_payload["analysis_query_key"] == payload["analysis_query_key"]
 
     inactive_seed_payload = client.post(
         "/folders/query", json={**body, "random_seed": "seed-b"}
@@ -286,9 +291,20 @@ def test_table_query_totals_and_facets_are_separate_backend_truth() -> None:
             "sort": {"kind": "builtin", "key": "name", "dir": "asc"},
         },
     ).json()
-    facets_payload = client.get(
+    facets_payload = client.post(
         "/folders/facets",
-        params={"path": "/gallery", "recursive": "1"},
+        json={
+            "path": "/gallery",
+            "recursive": True,
+            "offset": 1,
+            "limit": 1,
+            "filters": {
+                "and": [
+                    {"categoricalIn": {"key": "source_column", "values": ["target"]}},
+                ],
+            },
+            "sort": {"kind": "builtin", "key": "name", "dir": "asc"},
+        },
     ).json()
 
     assert [item["name"] for item in query_payload["items"]] == ["img0.jpg", "img1.jpg"]
@@ -298,10 +314,16 @@ def test_table_query_totals_and_facets_are_separate_backend_truth() -> None:
 
     values = facets_payload["categoricals"]["source_column"]["values"]
     assert values == [
-        {"value": "other", "population_count": 4},
         {"value": "target", "population_count": 2},
     ]
-    assert facets_payload["total_items"] == 6
+    assert facets_payload["total_items"] == 2
+    assert facets_payload["count_provenance"] == {
+        "scope_total": 6,
+        "query_filtered_total": 2,
+        "loaded_window_total": None,
+        "source": "backend_query",
+    }
+    assert facets_payload["field_capabilities"]["categorical_inputs"]
 
 
 def test_browse_query_fallback_refuses_unbounded_recursive_materialization() -> None:

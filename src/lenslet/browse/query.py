@@ -163,6 +163,7 @@ class BrowseQuerySpec:
     text_query: str | None = None
     random_seed: str | None = None
     derived_metric: DerivedMetricSpec | None = None
+    unsupported_metric_intent: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +241,7 @@ def evaluate_browse_records(
         text_query=_normalize_text(spec.text_query),
         random_seed=spec.random_seed,
         derived_metric=normalize_derived_metric_spec(spec.derived_metric),
+        unsupported_metric_intent=_normalize_text(spec.unsupported_metric_intent),
     )
     query_records = (
         apply_derived_metric_to_records(
@@ -584,7 +586,11 @@ def _analysis_query_payload(
     *,
     unsupported_metric_intent: str | None = None,
 ) -> dict[str, object]:
-    unsupported_intent = _normalize_text(unsupported_metric_intent)
+    unsupported_intent = _normalize_text(
+        unsupported_metric_intent
+        if unsupported_metric_intent is not None
+        else spec.unsupported_metric_intent
+    )
     payload = {
         "path": spec.path,
         "recursive": spec.recursive,

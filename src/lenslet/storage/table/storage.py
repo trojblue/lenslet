@@ -43,6 +43,7 @@ from .display import (
     normalize_display_value,
     normalize_metrics_display_value,
 )
+from .facets import build_table_query_facet_summary
 from .index import (
     build_index_columns,
     extract_row_display_fields,
@@ -1754,6 +1755,31 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
                 if counts
             },
         }
+
+    def facet_summary_for_query(
+        self,
+        spec: BrowseQuerySpec,
+        *,
+        bins: int = 40,
+    ) -> dict[str, Any]:
+        norm = normalize_path(spec.path)
+        row_store = self._require_row_store()
+        rows = self._query_rows_for_scope(row_store, norm, recursive=spec.recursive)
+        folders = self._query_folder_entries(row_store, norm)
+        if not rows and not folders and norm:
+            raise FileNotFoundError(spec.path)
+
+        records = [self._query_record_for_row(row_store, row_idx) for row_idx in rows]
+        return build_table_query_facet_summary(
+            spec=spec,
+            records=records,
+            scope_total=len(rows),
+            generated_at=self._generated_at,
+            canonical_path=_canonical_query_path(norm),
+            metric_keys=self.metric_keys(),
+            categorical_keys=self.categorical_keys(),
+            bins=bins,
+        )
 
     def categorical_keys(self) -> list[str]:
         return list(self._categorical_columns)

@@ -839,6 +839,19 @@ def run_backend_browse_filter_workflow(
 def wait_for_view_state_sort(page: Page, expected_kind: str, expected_key: str | None, timeout_ms: float) -> str:
     payload = page.wait_for_function(
         """([expectedKind, expectedKey]) => {
+          const sortParam = new URLSearchParams(window.location.search).get('sort')
+          if (sortParam) {
+            const parts = sortParam.split(':')
+            let sort = null
+            if (parts[0] === 'metric' && parts.length >= 3) {
+              sort = { kind: 'metric', dir: parts[1], key: parts.slice(2).join(':') }
+            } else if (parts[0] === 'builtin' && parts.length === 3) {
+              sort = { kind: 'builtin', key: parts[1], dir: parts[2] }
+            }
+            if (sort && sort.kind === expectedKind && (expectedKey === null || sort.key === expectedKey)) {
+              return { sortKey: sort.key }
+            }
+          }
           const raw = window.localStorage.getItem('viewState')
           if (!raw) return false
           try {

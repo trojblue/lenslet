@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import time
 from datetime import datetime, timezone
+from dataclasses import replace
 from typing import Any, Callable, Iterable, cast
 
 from fastapi import HTTPException, Request
@@ -14,8 +15,10 @@ from ..browse.query import (
     BrowseQueryRecord,
     BrowseQueryResult,
     BrowseQuerySpec,
+    browse_analysis_query_key,
     browse_query_request_token,
     evaluate_browse_records,
+    is_derived_metric_key,
 )
 from ..metrics import normalize_metric_mapping
 from ..media_errors import MediaDecodeError, MediaError, MediaReadError
@@ -39,9 +42,12 @@ from .models import (
     BrowseItemPayload,
     BrowseQueryResponse,
     BrowseSearchResultsPayload,
+    BrowseFacetCountProvenancePayload,
     BrowseFacetsPayload,
     CategoricalFacetPayload,
     CategoricalValueFacetPayload,
+    FieldCapabilitiesPayload,
+    FieldCapabilityPayload,
     ImageMetadataResponse,
     MetricFacetPayload,
     MetricHistogramFacetPayload,
@@ -295,53 +301,124 @@ def _histogram_payload(values: list[float], bins: int = FACET_HISTOGRAM_BINS) ->
     )
 
 
-def _facets_from_items(
-    storage: BrowseStorage,
-    canonical: str,
-    index: Any,
+def _metric_labels_from_items(items: Iterable[BrowseItemPayload]) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for item in items:
+        for key, label in (item.metric_labels or {}).items():
+            if key and label:
+                labels.setdefault(key, label)
+    return labels
+
+
+def _field_capabilities_payload(
+    metric_keys: Iterable[str],
+    categorical_keys: Iterable[str],
     *,
-    recursive: bool,
-) -> BrowseFacetsPayload:
-    raw_items = (
-        storage.items_in_scope(canonical)
-        if recursive
-        else list(getattr(index, "items", []) or [])
+    items: Iterable[BrowseItemPayload] = (),
+) -> FieldCapabilitiesPayload:
+    metric_key_list = sorted(dict.fromkeys(metric_keys))
+    categorical_key_list = sorted(dict.fromkeys(categorical_keys))
+    labels = _metric_labels_from_items(items)
+    metrics: dict[str, FieldCapabilityPayload] = {}
+    for key in metric_key_list:
+        derived = is_derived_metric_key(key)
+        metrics[key] = FieldCapabilityPayload(
+            key=key,
+            raw_key=key,
+            label=labels.get(key),
+            kind="metric",
+            source="derived" if derived else "backend",
+            display=True,
+            sortable=True,
+            filterable=True,
+            numeric_formula_input=not derived,
+        )
+    categoricals = {
+        key: FieldCapabilityPayload(
+            key=key,
+            raw_key=key,
+            kind="categorical",
+            source="backend",
+            display=True,
+            filterable=True,
+            categorical_input=True,
+        )
+        for key in categorical_key_list
+    }
+    return FieldCapabilitiesPayload(
+        metrics=metrics,
+        categoricals=categoricals,
+        display_metrics=metric_key_list,
+        sortable_metrics=metric_key_list,
+        filterable_metrics=metric_key_list,
+        numeric_formula_inputs=[
+            key for key in metric_key_list
+            if not is_derived_metric_key(key)
+        ],
+        categorical_inputs=categorical_key_list,
     )
+
+
+def _facet_query_spec(spec: BrowseQuerySpec, scope_total: int) -> BrowseQuerySpec:
+    return replace(spec, offset=0, limit=max(1, scope_total))
+
+
+def _facets_from_records(
+    canonical: str,
+    generated_at: str,
+    records: tuple[BrowseQueryRecord[BrowseItemPayload], ...],
+    *,
+    spec: BrowseQuerySpec,
+    scope_total: int,
+    metric_keys: Iterable[str],
+    categorical_keys: Iterable[str],
+) -> BrowseFacetsPayload:
+    facet_spec = _facet_query_spec(spec, scope_total)
+    evaluation = evaluate_browse_records(
+        records,
+        facet_spec,
+        metric_keys=metric_keys,
+        categorical_keys=categorical_keys,
+    )
+    filtered_records = evaluation.window
     metric_values: dict[str, list[float]] = {}
     metric_categories: dict[str, dict[tuple[float, str], int]] = {}
     categorical_counts: dict[str, dict[str, int]] = {}
 
-    for item in raw_items:
-        metrics = normalize_metric_mapping(getattr(item, "metrics", None))
-        metric_labels = getattr(item, "metric_labels", None)
+    for record in filtered_records:
+        item = record.payload
+        metrics = normalize_metric_mapping(record.metrics)
         if isinstance(metrics, dict):
             for key, value in metrics.items():
                 metric_values.setdefault(key, []).append(value)
-                label = metric_labels.get(key) if isinstance(metric_labels, dict) else None
+                label = (item.metric_labels or {}).get(key)
                 if label:
                     category_key = (value, str(label))
                     categories = metric_categories.setdefault(key, {})
                     categories[category_key] = categories.get(category_key, 0) + 1
-        categoricals = categoricals_for_cached_item(storage, item)
-        if isinstance(categoricals, dict):
-            for key, raw_value in categoricals.items():
-                value = str(raw_value).strip()
-                if not value:
-                    continue
-                counts = categorical_counts.setdefault(key, {})
-                counts[value] = counts.get(value, 0) + 1
+        for key, raw_value in (record.categoricals or {}).items():
+            value = str(raw_value).strip()
+            if not value:
+                continue
+            counts = categorical_counts.setdefault(key, {})
+            counts[value] = counts.get(value, 0) + 1
 
-    metric_keys = sorted(set(_metric_keys_for_folder(storage, canonical, index, recursive=recursive)) | set(metric_values))
-    categorical_keys = sorted(
-        set(_categorical_keys_for_folder(storage, canonical, index, recursive=recursive))
-        | set(categorical_counts)
-    )
+    metric_key_list = sorted(set(metric_keys) | set(metric_values))
+    categorical_key_list = sorted(set(categorical_keys) | set(categorical_counts))
+    item_payloads = [record.payload for record in filtered_records]
     return BrowseFacetsPayload(
         path=canonical,
-        generated_at=index.generated_at,
-        total_items=len(raw_items),
-        metric_keys=metric_keys,
-        categorical_keys=categorical_keys,
+        generated_at=generated_at,
+        analysis_query_key=browse_analysis_query_key(spec),
+        total_items=evaluation.filtered_total,
+        count_provenance=BrowseFacetCountProvenancePayload(
+            scope_total=scope_total,
+            query_filtered_total=evaluation.filtered_total,
+            loaded_window_total=None,
+            source="backend_query",
+        ),
+        metric_keys=metric_key_list,
+        categorical_keys=categorical_key_list,
         metrics={
             key: MetricFacetPayload(
                 histogram=_histogram_payload(values),
@@ -371,23 +448,76 @@ def _facets_from_items(
             )
             for key, counts in categorical_counts.items()
         },
+        field_capabilities=_field_capabilities_payload(
+            metric_key_list,
+            categorical_key_list,
+            items=item_payloads,
+        ),
+    )
+
+
+def _facets_from_items(
+    storage: BrowseStorage,
+    canonical: str,
+    index: Any,
+    *,
+    spec: BrowseQuerySpec,
+    recursive: bool,
+    to_item: ToItemFn,
+) -> BrowseFacetsPayload:
+    raw_items = (
+        storage.items_in_scope(canonical)
+        if recursive
+        else list(getattr(index, "items", []) or [])
+    )
+    records = _records_from_items(storage, raw_items, to_item)
+    return _facets_from_records(
+        canonical,
+        index.generated_at,
+        records,
+        spec=spec,
+        scope_total=len(raw_items),
+        metric_keys=_metric_keys_for_folder(storage, canonical, index, recursive=recursive),
+        categorical_keys=_categorical_keys_for_folder(
+            storage,
+            canonical,
+            index,
+            recursive=recursive,
+        ),
     )
 
 
 def build_folder_facets(
     storage: BrowseStorage,
-    path: str,
-    *,
-    recursive: bool = True,
+    spec: BrowseQuerySpec,
+    to_item: ToItemFn,
 ) -> BrowseFacetsPayload:
-    canonical = canonical_path(path)
-    index = _load_folder_index(storage, canonical, recursive=recursive)
-    facet_provider = getattr(storage, "facet_summary_for_scope", None)
+    canonical = canonical_path(spec.path)
+    index = _load_folder_index(storage, canonical, recursive=spec.recursive)
+    facet_provider = getattr(storage, "facet_summary_for_query", None)
     if callable(facet_provider):
-        return BrowseFacetsPayload.model_validate(
-            facet_provider(canonical, recursive=recursive, bins=FACET_HISTOGRAM_BINS)
-        )
-    return _facets_from_items(storage, canonical, index, recursive=recursive)
+        try:
+            raw_payload = facet_provider(spec, bins=FACET_HISTOGRAM_BINS)
+        except ValueError as exc:
+            raise HTTPException(400, "invalid path") from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "folder not found") from exc
+        payload = BrowseFacetsPayload.model_validate(raw_payload)
+        return payload.model_copy(update={
+            "analysis_query_key": payload.analysis_query_key or browse_analysis_query_key(spec),
+            "field_capabilities": _field_capabilities_payload(
+                payload.metric_keys,
+                payload.categorical_keys,
+            ),
+        })
+    return _facets_from_items(
+        storage,
+        canonical,
+        index,
+        spec=spec,
+        recursive=spec.recursive,
+        to_item=to_item,
+    )
 
 
 RECURSIVE_SORT_MODE_SCAN = "scan"
@@ -817,23 +947,34 @@ def _query_result_payload(
     storage: BrowseStorage,
     result: BrowseQueryResult[Any],
     to_item: ToItemFn,
+    spec: BrowseQuerySpec,
 ) -> BrowseQueryResponse:
+    items = [
+        item if isinstance(item, BrowseItemPayload) else to_item(storage, item)
+        for item in result.items
+    ]
     return BrowseQueryResponse(
         path=result.path,
         generated_at=result.generated_at,
         generation_token=result.generation_token,
         request_token=result.request_token,
+        analysis_query_key=browse_analysis_query_key(spec),
         scope_total=result.scope_total,
         filtered_total=result.filtered_total,
         offset=result.offset,
         limit=result.limit,
-        items=[item if isinstance(item, BrowseItemPayload) else to_item(storage, item) for item in result.items],
+        items=items,
         folders=[
             BrowseFolderEntryPayload(name=folder.name, kind=folder.kind)
             for folder in result.folders
         ],
         metric_keys=list(result.metric_keys),
         categorical_keys=list(result.categorical_keys),
+        field_capabilities=_field_capabilities_payload(
+            result.metric_keys,
+            result.categorical_keys,
+            items=items,
+        ),
     )
 
 
@@ -988,12 +1129,13 @@ def build_folder_query(
             raise HTTPException(400, "invalid path") from exc
         except FileNotFoundError as exc:
             raise HTTPException(404, "folder not found") from exc
-        return _query_result_payload(storage, result, to_item)
+        return _query_result_payload(storage, result, to_item, spec)
 
     return _query_result_payload(
         storage,
         _fallback_browse_query_result(storage, spec, index, to_item),
         to_item,
+        spec,
     )
 
 

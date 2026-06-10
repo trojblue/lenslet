@@ -241,6 +241,14 @@ def test_analysis_query_key_excludes_window_fields() -> None:
     assert browse_analysis_query_key(base) != browse_analysis_query_key(
         replace(base, text_query="dog")
     )
+    assert browse_analysis_query_key(base) != browse_analysis_query_key(
+        replace(base, unsupported_metric_intent="derived-filter")
+    )
+    assert browse_analysis_query_key(
+        replace(base, unsupported_metric_intent=" derived-filter ")
+    ) == browse_analysis_query_key(
+        replace(base, unsupported_metric_intent="derived-filter")
+    )
     assert browse_analysis_query_key(
         replace(base, sort=BuiltinSortSpec("random", "asc"), random_seed="seed-a")
     ) != browse_analysis_query_key(

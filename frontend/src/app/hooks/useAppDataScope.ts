@@ -55,6 +55,7 @@ type UseAppDataScopeParams = {
   similarityState: SimilarityState | null
   viewState: ViewState
   randomSeed: number
+  urlUnsupportedMetricIntent?: string | null
   localStarOverrides: Record<string, StarRating>
   sessionResetToken?: number
 }
@@ -89,6 +90,7 @@ type UseAppDataScopeResult = {
   isLoadingMoreFolderItems: boolean
   loadMoreFolderItems: () => void
   browseQueryUnavailableReason: string | null
+  analysisUnsupportedMetricIntent: string | null
 }
 
 export type BrowseCapabilityKeys = {
@@ -135,15 +137,18 @@ function emptyBrowseCapabilityKeys(path: string): BrowseCapabilityKeys {
 
 export function resolveBrowseCapabilityKeys(
   currentPath: string,
-  firstPage: Pick<BrowseQueryResponse, 'path' | 'metric_keys' | 'categorical_keys'> | undefined,
+  firstPage: Pick<
+    BrowseQueryResponse,
+    'path' | 'metric_keys' | 'categorical_keys' | 'field_capabilities'
+  > | undefined,
   previous: BrowseCapabilityKeys,
 ): BrowseCapabilityKeys {
   const scopePath = normalizeSearchScopePath(currentPath)
   if (firstPage?.path === scopePath) {
     return {
       path: scopePath,
-      metricKeys: [...firstPage.metric_keys],
-      categoricalKeys: [...firstPage.categorical_keys],
+      metricKeys: fieldCapabilityMetricKeys(firstPage),
+      categoricalKeys: fieldCapabilityCategoricalKeys(firstPage),
       ready: true,
     }
   }
@@ -163,12 +168,36 @@ function sameStringArray(a: readonly string[], b: readonly string[]): boolean {
   return a.every((value, index) => value === b[index])
 }
 
+function fieldCapabilityMetricKeys(
+  page: Pick<BrowseQueryResponse, 'metric_keys' | 'field_capabilities'>,
+): string[] {
+  const capabilities = page.field_capabilities
+  if (capabilities) return [...capabilities.display_metrics]
+  return [...page.metric_keys]
+}
+
+function fieldCapabilityCategoricalKeys(
+  page: Pick<BrowseQueryResponse, 'categorical_keys' | 'field_capabilities'>,
+): string[] {
+  const capabilities = page.field_capabilities
+  if (capabilities) return [...capabilities.categorical_inputs]
+  return [...page.categorical_keys]
+}
+
+function folderQueryKeyPath(queryKey: readonly unknown[]): string {
+  if (queryKey[0] !== 'folder-query') return ''
+  const analysisKey = queryKey[1]
+  if (!Array.isArray(analysisKey)) return ''
+  return typeof analysisKey[1] === 'string' ? analysisKey[1] : ''
+}
+
 export function useAppDataScope({
   current,
   query,
   similarityState,
   viewState,
   randomSeed,
+  urlUnsupportedMetricIntent = null,
   localStarOverrides,
   sessionResetToken = 0,
 }: UseAppDataScopeParams): UseAppDataScopeResult {
@@ -192,6 +221,8 @@ export function useAppDataScope({
       similarityActive,
     )
   ), [similarityActive, viewState.filters, viewState.sort])
+  const analysisUnsupportedMetricIntent = browseQueryUnavailableReason
+    ?? urlUnsupportedMetricIntent
   const browseLimit = viewState.sort.kind === 'metric'
     ? BACKEND_BROWSE_METRIC_SORT_LIMIT
     : BACKEND_BROWSE_PAGE_SIZE
@@ -204,7 +235,7 @@ export function useAppDataScope({
     randomSeed,
     derivedMetric: viewState.derivedMetric ?? null,
     limit: browseLimit,
-    unsupportedToken: browseQueryUnavailableReason,
+    unsupportedToken: analysisUnsupportedMetricIntent,
     enabled: !similarityActive && browseQueryUnavailableReason === null,
   })
   const { data: rootCount } = useFolderCount('/', { enabled: current !== '/' })
@@ -214,7 +245,7 @@ export function useAppDataScope({
     queryClient.removeQueries({
       predicate: ({ queryKey }) => {
         if (Array.isArray(queryKey) && queryKey[0] === 'folder-query') {
-          const keyPath = typeof queryKey[1] === 'string' ? queryKey[1] : ''
+          const keyPath = folderQueryKeyPath(queryKey)
           return keyPath !== current
         }
         return shouldRemoveRecursiveFolderQuery(queryKey, current, false)
@@ -233,6 +264,7 @@ export function useAppDataScope({
     sessionResetToken,
     viewState.filters,
     viewState.sort,
+    analysisUnsupportedMetricIntent,
   ])
 
   useEffect(() => {
@@ -409,5 +441,6 @@ export function useAppDataScope({
     isLoadingMoreFolderItems: browseQuery.isFetchingNextPage,
     loadMoreFolderItems,
     browseQueryUnavailableReason,
+    analysisUnsupportedMetricIntent,
   }
 }

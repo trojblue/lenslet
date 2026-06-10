@@ -491,6 +491,28 @@ export const api = {
     ).promise
   },
 
+  queryFolderFacets: (body: BrowseQueryRequest, options?: ApiRequestOptions): Promise<BrowseFacetsPayload> => {
+    const task = runWithRequestBudget('folders', () =>
+      fetchJSON<BrowseFacetsPayload>(apiUrl('/folders/facets'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: options?.signal,
+      }),
+    )
+    const signal = options?.signal
+    if (!signal) return task.promise
+    const abortTask = () => task.abort?.()
+    if (signal.aborted) {
+      abortTask()
+      return task.promise
+    }
+    signal.addEventListener('abort', abortTask, { once: true })
+    return task.promise.finally(() => {
+      signal.removeEventListener('abort', abortTask)
+    })
+  },
+
   queryFolder: (body: BrowseQueryRequest, options?: ApiRequestOptions): Promise<BrowseQueryResponse> => {
     const task = runWithRequestBudget('folders', () =>
       fetchJSON<BrowseQueryResponse>(apiUrl('/folders/query'), {

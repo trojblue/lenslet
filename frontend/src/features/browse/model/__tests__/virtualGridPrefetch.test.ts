@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getAdjacentThumbPrefetchPaths } from '../virtualGridPrefetch'
+import { getAdjacentThumbPrefetchPaths, getDemandThumbPaths } from '../virtualGridPrefetch'
 
 describe('virtual grid thumb prefetch paths', () => {
   it('collects adjacent grid row item paths', () => {
@@ -50,5 +50,32 @@ describe('virtual grid thumb prefetch paths', () => {
     const layout = { mode: 'grid' as const, columns: 2 }
 
     expect(getAdjacentThumbPrefetchPaths(virtualRows, layout, items)).toEqual([])
+  })
+
+  it('collects viewport-intersecting rows as visible thumbnail demand', () => {
+    const items = [
+      { path: '/a.jpg' },
+      { path: '/b.jpg' },
+      { path: '/c.jpg' },
+      { path: '/d.jpg' },
+      { path: '/e.jpg' },
+      { path: '/f.jpg' },
+    ]
+    const virtualRows = [
+      { index: 0, start: 0, end: 100 },
+      { index: 1, start: 100, end: 200 },
+      { index: 2, start: 200, end: 300 },
+    ]
+    const layout = { mode: 'grid' as const, columns: 2 }
+
+    expect(getDemandThumbPaths(virtualRows, layout, items, 125, 60)).toEqual(['/c.jpg', '/d.jpg'])
+  })
+
+  it('treats rows without geometry as demand so visible loads are not starved', () => {
+    const items = [{ path: '/a.jpg' }, { path: '/b.jpg' }]
+    const virtualRows = [{ index: 0 }]
+    const layout = { mode: 'grid' as const, columns: 2 }
+
+    expect(getDemandThumbPaths(virtualRows, layout, items, 0, 100)).toEqual(['/a.jpg', '/b.jpg'])
   })
 })

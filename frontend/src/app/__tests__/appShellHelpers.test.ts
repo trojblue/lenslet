@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   getBrowserZoomWarningBucket,
+  resolveExplicitViewerForScope,
   resolveScopeFromHashTarget,
   resolveVisibleBrowserZoomPercent,
 } from '../utils/appShellHelpers'
@@ -24,6 +25,14 @@ describe('resolveScopeFromHashTarget', () => {
 
   it('uses folder target for non-image hashes', () => {
     expect(resolveScopeFromHashTarget('/parent', '/parent/child', null, false)).toBe('/parent/child')
+  })
+})
+
+describe('resolveExplicitViewerForScope', () => {
+  it('preserves explicit viewer hashes only inside the active scope', () => {
+    expect(resolveExplicitViewerForScope('/parent', '/parent', '/parent/a.jpg')).toBe('/parent/a.jpg')
+    expect(resolveExplicitViewerForScope('/other', '/parent', '/parent/a.jpg')).toBeNull()
+    expect(resolveExplicitViewerForScope('/parent', '/parent', null)).toBeNull()
   })
 })
 

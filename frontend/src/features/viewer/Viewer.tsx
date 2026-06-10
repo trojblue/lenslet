@@ -28,6 +28,27 @@ function getImageLabel(path: string): string {
   return label || path
 }
 
+export function getViewerImagePresentation(
+  resourcePath: string | null | undefined,
+  currentPath: string,
+  imageReady: boolean,
+): { isCurrent: boolean; isTransitioning: boolean; opacity: number } {
+  const isCurrent = resourcePath === currentPath
+  const isTransitioning = Boolean(resourcePath && !isCurrent)
+  return {
+    isCurrent,
+    isTransitioning,
+    opacity: imageReady ? 1 : (isTransitioning ? 0.42 : 0),
+  }
+}
+
+export function shouldRenderViewerImageResource(
+  resourcePath: string | null | undefined,
+  hasBlockingTargetState: boolean,
+): boolean {
+  return Boolean(resourcePath) && !hasBlockingTargetState
+}
+
 interface ViewerProps {
   path: string
   item?: BrowseItemPayload | null
@@ -94,6 +115,11 @@ export default function Viewer({
   const retryLoad = blobResource.status === 'error' ? blobResource.retry : null
   const unsupported = blobResource.status === 'unsupported' ? blobResource.reason : null
   const imageReady = ready && readyPath === path && activeResource !== null && !loadError && !unsupported
+  const imagePresentation = getViewerImagePresentation(imageResource?.path, path, imageReady)
+  const showDisplayedResource = shouldRenderViewerImageResource(
+    imageResource?.path,
+    Boolean(loadError || unsupported),
+  )
   const imageLabel = getImageLabel(path)
   const viewerLoadingState = unsupported ? 'unsupported' : loadError ? 'error' : imageReady ? 'ready' : showDelayedLoader ? 'loading' : 'pending'
   const closeViewer = useCallback(() => {
@@ -125,13 +151,16 @@ export default function Viewer({
     })
   }, [directUrl, path])
   const handleImageError = useCallback(() => {
+    const resource = activeResource
+    const image = imgRef.current
+    if (!resource || !image || (image.currentSrc || image.src) !== resource.url) return
     if (directUrl) {
       markDirectImageFailed()
       return
     }
     setElementError(browserDecodeMediaError())
     setShowDelayedLoader(false)
-  }, [directUrl, markDirectImageFailed])
+  }, [activeResource, directUrl, imgRef, markDirectImageFailed])
   const retryFailedLoad = useCallback(() => {
     setElementError(null)
     retryLoad?.()
@@ -174,7 +203,6 @@ export default function Viewer({
     readyPathRef.current = null
     setReady(false)
     setReadyPath(null)
-    setImageResource(null)
     setElementError(null)
     setShowDelayedLoader(false)
 
@@ -195,7 +223,6 @@ export default function Viewer({
   // flight. Only a URL change may bind a blob URL to the current viewer path.
   useEffect(() => {
     if (!url) {
-      setImageResource(null)
       readyPathRef.current = null
       setReady(false)
       setReadyPath(null)
@@ -280,20 +307,28 @@ export default function Viewer({
           )}
         </div>
       )}
-      {activeResource && !loadError && !unsupported && (
+      {showDisplayedResource && imageResource && (
         <img
           ref={imgRef}
-          src={activeResource.url}
+          src={imageResource.url}
           alt={`Image viewer: ${imageLabel}`}
           data-viewer-image="full"
-          data-current-path={activeResource.path}
+          data-current-path={imageResource.path}
+          data-viewer-image-current={imagePresentation.isCurrent ? 'true' : 'false'}
           className="max-w-none max-h-none object-contain will-change-transform select-none"
           draggable={false}
           onDragStart={(e)=>{ e.preventDefault() }}
           onLoad={markImageReady}
           onError={handleImageError}
           onClick={(e)=> e.stopPropagation()}
-          style={{ transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`, transformOrigin: `0 0`, opacity: imageReady ? 1 : 0, WebkitUserDrag: 'none' } as React.CSSProperties}
+          style={{
+            transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`,
+            transformOrigin: `0 0`,
+            opacity: imagePresentation.opacity,
+            filter: imagePresentation.isTransitioning ? 'saturate(0.72)' : undefined,
+            transition: 'opacity 120ms ease',
+            WebkitUserDrag: 'none',
+          } as React.CSSProperties}
         />
       )}
       {onNavigate && (

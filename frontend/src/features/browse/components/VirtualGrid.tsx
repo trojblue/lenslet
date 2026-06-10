@@ -15,7 +15,7 @@ import {
   getHoverPreviewSurfaceSize,
   type HoverPreviewSurfaceSize,
 } from '../model/hoverPreview'
-import { getAdjacentThumbPrefetchPaths } from '../model/virtualGridPrefetch'
+import { getAdjacentThumbPrefetchPaths, getDemandThumbPaths } from '../model/virtualGridPrefetch'
 import {
   collectVisiblePaths,
   getRestoreScrollTopForPath,
@@ -36,6 +36,13 @@ const CAPTION_H = 56
 const DEFAULT_ASPECT = { w: 4, h: 3 }
 const PREVIEW_DELAY_MS = 350
 const SCROLL_IDLE_MS = 120
+
+type VirtualGridStatus = {
+  kind: 'ready' | 'loading' | 'updating' | 'empty' | 'failed' | 'unsupported'
+  title: string
+  message: string
+  showCentered: boolean
+}
 
 function arePathSetsEqual(a: Set<string>, b: Set<string>): boolean {
   if (a === b) return true
@@ -75,7 +82,10 @@ interface VirtualGridProps {
   viewMode?: ViewMode
   targetCellSize?: number
   scrollRef?: React.RefObject<HTMLDivElement>
-  isLoading?: boolean
+  gridStatus?: VirtualGridStatus
+  loadedCount?: number
+  filteredCount?: number
+  onRetry?: () => void
   hasMore?: boolean
   isLoadingMore?: boolean
   onLoadMore?: () => void
@@ -101,7 +111,10 @@ export default function VirtualGrid({
   viewMode = 'grid',
   targetCellSize = 220,
   scrollRef,
-  isLoading = false,
+  gridStatus = { kind: 'ready', title: 'Ready', message: '', showCentered: false },
+  loadedCount = items.length,
+  filteredCount = items.length,
+  onRetry,
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
@@ -632,6 +645,16 @@ export default function VirtualGrid({
     () => getAdjacentThumbPrefetchPaths(virtualRows, layout, items),
     [items, layout, virtualRows],
   )
+  const demandThumbPaths = useMemo(
+    () => new Set(getDemandThumbPaths(
+      virtualRows,
+      layout,
+      items,
+      parentRef.current?.scrollTop ?? 0,
+      parentRef.current?.clientHeight ?? 0,
+    )),
+    [items, layout, parentRef, virtualRows],
+  )
 
   useEffect(() => {
     if (isScrolling || adjacentThumbPrefetchPaths.length === 0) return
@@ -676,6 +699,19 @@ export default function VirtualGrid({
   }, [onTopAnchorPathChange, topAnchorPath])
 
   const activeDescendantId = focused ? `cell-${encodeURIComponent(focused)}` : undefined
+  const gridBusy = gridStatus.kind === 'loading' || gridStatus.kind === 'updating' || isLoadingMore
+  const countSummary = filteredCount > loadedCount
+    ? `Loaded ${loadedCount} of ${filteredCount}`
+    : `${loadedCount} loaded`
+  const sentinelLabel = (() => {
+    if (gridStatus.kind === 'failed') return loadedCount > 0 ? `${countSummary}. Query failed.` : 'Query failed.'
+    if (gridStatus.kind === 'unsupported') return loadedCount > 0 ? `${countSummary}. Query unavailable.` : 'Query unavailable.'
+    if (gridStatus.kind === 'updating') return `${countSummary}. Updating results...`
+    if (isLoadingMore) return `${countSummary}. Loading more...`
+    if (hasMore) return `${countSummary}. Scroll for more.`
+    if (gridStatus.kind === 'empty') return gridStatus.title
+    return countSummary
+  })()
   useEffect(() => {
     if (!items.length) return
     if (getBrowseHotpathSnapshot().firstGridItemLatencyMs != null) return
@@ -707,7 +743,7 @@ export default function VirtualGrid({
       ref={parentRef} 
       tabIndex={0} 
       aria-activedescendant={activeDescendantId} 
-      aria-busy={(isLoading || isLoadingMore) || undefined}
+      aria-busy={gridBusy || undefined}
       onMouseDown={() => parentRef.current?.focus()} 
       style={cssVars({ '--gap': `${GAP}px` })}
     >
@@ -738,6 +774,7 @@ export default function VirtualGrid({
           onClearPreview={clearPreview}
           onSchedulePreview={schedulePreview}
           onItemClick={handleItemClick}
+          demandThumbPaths={demandThumbPaths}
         />
         {previewFor && delayPassed && previewPosition && previewSize && createPortal(
           <div
@@ -779,16 +816,33 @@ export default function VirtualGrid({
           document.body
         )}
       </div>
-      {isLoading && items.length === 0 && (
+      {gridStatus.showCentered && (
         <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center">
-          <div className="w-full max-w-[580px] rounded-lg border border-border bg-panel/95 px-4 py-3 shadow-lg">
+          <div className="pointer-events-auto w-full max-w-[580px] rounded-lg border border-border bg-panel/95 px-4 py-3 shadow-lg">
             <div className="flex items-center justify-between gap-3 text-xs text-text">
-              <span className="font-semibold">Loading gallery…</span>
+              <span className="font-semibold">{gridStatus.title}</span>
+              {gridStatus.kind === 'failed' && onRetry && (
+                <button type="button" className="btn btn-xs" onClick={onRetry}>
+                  Retry
+                </button>
+              )}
             </div>
-            <div className="mt-2 text-[11px] text-muted">Preparing gallery…</div>
+            {gridStatus.message && <div className="mt-2 text-[11px] text-muted">{gridStatus.message}</div>}
           </div>
         </div>
       )}
+      <div
+        className="min-h-10 px-2.5 pt-2 pb-4 flex items-center justify-center gap-2 text-muted text-[11px] leading-[1.35] text-center"
+        data-grid-state={gridStatus.kind}
+        data-has-more={hasMore ? 'true' : 'false'}
+      >
+        <span>{sentinelLabel}</span>
+        {gridStatus.kind === 'failed' && onRetry && !gridStatus.showCentered && (
+          <button type="button" className="btn btn-xs" onClick={onRetry}>
+            Retry
+          </button>
+        )}
+      </div>
     </div>
   )
 }

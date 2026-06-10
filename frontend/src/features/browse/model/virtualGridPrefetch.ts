@@ -2,6 +2,9 @@ import type { BrowseItemPayload } from '../../../lib/types'
 
 type VirtualRowLike = {
   index: number
+  start?: number
+  end?: number
+  size?: number
 }
 
 type AdaptiveLayoutLike = {
@@ -15,6 +18,21 @@ type GridLayoutLike = {
 }
 
 type LayoutLike = AdaptiveLayoutLike | GridLayoutLike
+
+function collectRowPaths(
+  rowIndex: number,
+  layout: LayoutLike,
+  items: readonly Pick<BrowseItemPayload, 'path'>[],
+): string[] {
+  if (layout.mode === 'adaptive') {
+    const rowData = layout.rows[rowIndex]
+    return rowData ? rowData.items.map((rowItem) => rowItem.item.path) : []
+  }
+
+  const columns = Math.max(1, layout.columns)
+  const start = rowIndex * columns
+  return items.slice(start, start + columns).map((item) => item.path)
+}
 
 export function getAdjacentThumbPrefetchPaths(
   virtualRows: readonly VirtualRowLike[],
@@ -40,19 +58,36 @@ export function getAdjacentThumbPrefetchPaths(
 
   const paths: string[] = []
   for (const rowIndex of candidateRows) {
-    if (layout.mode === 'adaptive') {
-      const rowData = layout.rows[rowIndex]
-      if (!rowData) continue
-      for (const rowItem of rowData.items) {
-        paths.push(rowItem.item.path)
-      }
-      continue
-    }
-    const start = rowIndex * layout.columns
-    const slice = items.slice(start, start + layout.columns)
-    for (const item of slice) {
-      paths.push(item.path)
-    }
+    paths.push(...collectRowPaths(rowIndex, layout, items))
   }
+  return Array.from(new Set(paths))
+}
+
+function rowIntersectsViewport(
+  row: VirtualRowLike,
+  viewportTop: number,
+  viewportBottom: number,
+): boolean {
+  if (row.start == null) return true
+  const rowEnd = row.end ?? (row.start + (row.size ?? 0))
+  return rowEnd > viewportTop && row.start < viewportBottom
+}
+
+export function getDemandThumbPaths(
+  virtualRows: readonly VirtualRowLike[],
+  layout: LayoutLike,
+  items: readonly Pick<BrowseItemPayload, 'path'>[],
+  viewportTop: number,
+  viewportHeight: number,
+): string[] {
+  if (virtualRows.length === 0) return []
+  const viewportBottom = viewportTop + Math.max(0, viewportHeight)
+  const paths: string[] = []
+
+  for (const row of virtualRows) {
+    if (!rowIntersectsViewport(row, viewportTop, viewportBottom)) continue
+    paths.push(...collectRowPaths(row.index, layout, items))
+  }
+
   return Array.from(new Set(paths))
 }

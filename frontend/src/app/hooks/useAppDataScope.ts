@@ -63,6 +63,7 @@ type UseAppDataScopeResult = {
   data: BrowseFolderPayload | undefined
   refetch: () => Promise<unknown>
   isLoading: boolean
+  isFetching: boolean
   isError: boolean
   searching: boolean
   normalizedQ: string
@@ -382,6 +383,7 @@ export function useAppDataScope({
     data,
     refetch,
     isLoading: browseQuery.isLoading,
+    isFetching: browseQuery.isFetching && !browseQuery.isFetchingNextPage,
     isError: browseQuery.isError,
     searching,
     normalizedQ,

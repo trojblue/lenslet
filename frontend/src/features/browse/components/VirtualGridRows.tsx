@@ -42,6 +42,7 @@ type VirtualGridRowsProps = {
   onClearPreview: () => void
   onSchedulePreview: (path: string) => void
   onItemClick: (path: string, event: React.MouseEvent) => void
+  demandThumbPaths: ReadonlySet<string>
 }
 
 function renderHighlightedName(name: string, highlight?: string): ReactNode {
@@ -161,6 +162,7 @@ export default function VirtualGridRows({
   onClearPreview,
   onSchedulePreview,
   onItemClick,
+  demandThumbPaths,
 }: VirtualGridRowsProps): JSX.Element {
   return (
     <>
@@ -174,8 +176,6 @@ export default function VirtualGridRows({
           rowHeight: rowData.height,
           gap,
         })
-        const isTopmostVisibleRow = row.index === virtualRows[0]?.index
-
         return (
           <div
             key={row.key}
@@ -271,7 +271,7 @@ export default function VirtualGridRows({
                         fit={fit}
                         ioRoot={scrollRootRef.current}
                         isScrolling={isScrolling}
-                        priority={isTopmostVisibleRow}
+                        priority={demandThumbPaths.has(item.path)}
                         onClick={(event: React.MouseEvent) => onItemClick(item.path, event)}
                       />
                     </div>

@@ -59,6 +59,15 @@ export function resolveScopeFromHashTarget(
   return folderTarget
 }
 
+export function resolveExplicitViewerForScope(
+  currentScope: string,
+  folderTarget: string,
+  imageTarget: string | null,
+): string | null {
+  if (!imageTarget) return null
+  return folderTarget === currentScope ? imageTarget : null
+}
+
 export function getBrowserZoomWarningBucket(percent: number | null): number | null {
   if (typeof percent !== 'number' || !Number.isFinite(percent)) return null
   if (Math.abs(percent - 100) < 2) return null

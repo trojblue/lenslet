@@ -14,12 +14,12 @@ import VirtualGrid from '../features/browse/components/VirtualGrid'
 import MetricScrollbar from '../features/browse/components/MetricScrollbar'
 import SimilarityModal from '../features/embeddings/SimilarityModal'
 import Viewer from '../features/viewer/Viewer'
-import { api } from '../api/client'
+import { api, cancelBrowseRequests } from '../api/client'
 import type { FullFilePrefetchContext } from '../api/client'
 import { useFolderFacets } from '../api/folders'
 import { useOldestInflightAgeMs, useSyncStatus } from '../api/items'
 import { usePollingEnabled } from '../api/polling'
-import { writeHash } from './routing/hash'
+import { readHash, resolveHashTargets, writeHash } from './routing/hash'
 import {
   readSharedViewStateFromCurrentUrl,
   replaceSharedViewStateInCurrentUrl,
@@ -93,9 +93,10 @@ import {
   resolveSelectedMetricKey,
   shouldResetUnavailableMetricSort,
 } from './model/appShellSelectors'
-import { shouldShowGridLoading } from './model/loadingState'
+import { resolveGridStatus } from './model/loadingState'
 import {
   formatScopeLabel,
+  resolveExplicitViewerForScope,
 } from './utils/appShellHelpers'
 import { useAppDataScope, type SimilarityState } from './hooks/useAppDataScope'
 import { useAppSelectionViewerCompare } from './hooks/useAppSelectionViewerCompare'
@@ -283,6 +284,7 @@ export default function AppShell({
   const gridScrollRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const itemQueryIndexRef = useRef(new ItemQueryPathIndex())
+  const previousScopeRef = useRef(current)
 
   const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool, {
     userLeftOpen: leftOpen,
@@ -380,6 +382,7 @@ export default function AppShell({
     data,
     refetch,
     isLoading,
+    isFetching,
     isError,
     searching,
     normalizedQ,
@@ -464,6 +467,7 @@ export default function AppShell({
     handleCompareNavigate,
     handleNavigate,
     resetViewerState,
+    resetForScopeBoundary,
     clearViewerForSearch,
     syncHashImageSelection,
   } = useAppSelectionViewerCompare({
@@ -620,6 +624,10 @@ export default function AppShell({
     () => getTopAnchorPath(current),
     [current, getTopAnchorPath],
   )
+  const requestGridContextRestore = useCallback(() => {
+    bumpRestoreGridToSelectionToken()
+    setRestoreGridToTopAnchorToken((token) => token + 1)
+  }, [bumpRestoreGridToSelectionToken])
 
   useEffect(() => {
     setGridTopAnchorPath(null)
@@ -719,36 +727,47 @@ export default function AppShell({
     () => getSimilarityCountLabel(similarityState !== null, activeFilterCount, filteredCount, totalCount),
     [similarityState, activeFilterCount, filteredCount, totalCount],
   )
-  const showGridLoading = shouldShowGridLoading({
+  const gridStatus = resolveGridStatus({
     similarityActive,
     searching,
     itemCount: items.length,
     isLoading,
+    isFetching,
+    isError,
+    unavailableReason: browseQueryUnavailableReason,
+    filteredCount,
   })
+  const handleSearchChange = useCallback((nextQuery: string) => {
+    requestGridContextRestore()
+    setQuery(nextQuery)
+  }, [requestGridContextRestore])
   const updateFilters = useCallback((updater: (filters: FilterAST) => FilterAST) => {
+    requestGridContextRestore()
     setViewState((prev) => ({
       ...prev,
       filters: updater(prev.filters),
     }))
-  }, [])
+  }, [requestGridContextRestore])
 
   const handleFiltersChange = useCallback((filters: FilterAST) => {
+    requestGridContextRestore()
     setViewState((prev) => ({
       ...prev,
       filters,
     }))
-  }, [])
+  }, [requestGridContextRestore])
 
   const handleClearStarsIn = useCallback(() => {
     updateFilters((filters) => setStarsInFilter(filters, []))
   }, [updateFilters])
 
   const handleClearFilters = useCallback(() => {
+    requestGridContextRestore()
     setViewState((prev) => ({
       ...prev,
       filters: { and: [] },
     }))
-  }, [])
+  }, [requestGridContextRestore])
 
   const handleMetricRailJump = useCallback((value: number) => {
     if (!metricSortKey) return
@@ -776,7 +795,7 @@ export default function AppShell({
     setSimilarityState,
     selectedPaths,
     setSelectedPaths,
-    setQuery,
+    setQuery: handleSearchChange,
     setViewState,
     bumpRestoreGridToSelectionToken,
   })
@@ -836,11 +855,12 @@ export default function AppShell({
     } else {
       next.add(v)
     }
+    requestGridContextRestore()
     setViewState((prev) => ({
       ...prev,
       filters: setStarsInFilter(prev.filters, Array.from(next)),
     }))
-  }, [starsInFilter])
+  }, [requestGridContextRestore, starsInFilter])
 
   const openMetricsPanel = useCallback(() => {
     setLeftOpen(true)
@@ -861,19 +881,32 @@ export default function AppShell({
   }, [leftOpenRef, leftToolRef])
 
   const handleSortChange = useCallback((next: SortSpec) => {
+    requestGridContextRestore()
     setViewState((prev) => ({ ...prev, sort: next }))
     if (next.kind === 'builtin' && next.key === 'random') {
       setRandomSeed(Date.now())
     }
-  }, [])
+  }, [requestGridContextRestore])
+
+  const handleViewModeChange = useCallback((next: ViewMode) => {
+    requestGridContextRestore()
+    setViewMode(next)
+  }, [requestGridContextRestore])
+
+  const handleGridItemSizeChange = useCallback((nextSize: number) => {
+    requestGridContextRestore()
+    setGridItemSize(nextSize)
+  }, [requestGridContextRestore])
 
   const handleApplyDerivedMetric = useCallback((spec: Parameters<typeof applyDerivedMetricToViewState>[1]) => {
+    requestGridContextRestore()
     setViewState((prev) => applyDerivedMetricToViewState(prev, spec))
-  }, [])
+  }, [requestGridContextRestore])
 
   const handleRankByDerivedMetric = useCallback((spec: Parameters<typeof rankByDerivedMetricInViewState>[1]) => {
+    requestGridContextRestore()
     setViewState((prev) => rankByDerivedMetricInViewState(prev, spec))
-  }, [])
+  }, [requestGridContextRestore])
 
   const formatTitle = useCallback((path: string) => {
     if (path === '/' || path === '') return 'Lenslet | Root'
@@ -953,6 +986,25 @@ export default function AppShell({
     selectedPaths,
     setSelectedPaths,
   })
+
+  useEffect(() => {
+    const previousScope = previousScopeRef.current
+    if (previousScope === current) return
+    previousScopeRef.current = current
+
+    const { folderTarget, imageTarget } = resolveHashTargets(readHash())
+    const explicitViewerPath = resolveExplicitViewerForScope(current, folderTarget, imageTarget)
+
+    resetForScopeBoundary(explicitViewerPath)
+    setCtx(null)
+    setSimilarityOpen(false)
+    setSimilarityState(null)
+    setMobileSelectMode(false)
+    setGridTopAnchorPath(null)
+    setRestoreGridToTopAnchorToken((token) => token + 1)
+    setScopeSessionResetToken((token) => token + 1)
+    cancelBrowseRequests(explicitViewerPath ? ['thumb'] : ['thumb', 'file'])
+  }, [current, resetForScopeBoundary, setCtx])
 
   const {
     views,
@@ -1049,7 +1101,7 @@ export default function AppShell({
     >
       <Toolbar
         rootRef={toolbarRef}
-        onSearch={setQuery}
+        onSearch={handleSearchChange}
         viewerActive={!!viewer}
         onBack={closeViewer}
         zoomPercent={viewer ? currentZoom : undefined}
@@ -1070,9 +1122,9 @@ export default function AppShell({
         onClearFilters={handleClearFilters}
         starCounts={starCounts}
         viewMode={viewMode}
-        onViewMode={setViewMode}
+        onViewMode={handleViewModeChange}
         gridItemSize={gridItemSize}
-        onGridItemSize={setGridItemSize}
+        onGridItemSize={handleGridItemSizeChange}
         leftOpen={leftOpen}
         rightOpen={rightOpen}
         onToggleLeft={() => setLeftOpen((v) => toggleLeftPanelContent(v))}
@@ -1238,7 +1290,10 @@ export default function AppShell({
                 }}
                 onOpenItemActions={openGridActions}
                 scrollRef={gridScrollRef}
-                isLoading={showGridLoading}
+                gridStatus={gridStatus}
+                loadedCount={items.length}
+                filteredCount={filteredCount}
+                onRetry={() => { void refetch() }}
                 hasMore={hasMoreFolderItems}
                 isLoadingMore={isLoadingMoreFolderItems}
                 onLoadMore={loadMoreFolderItems}

@@ -8,7 +8,7 @@ type UseSimilaritySearchWorkflowParams = {
   setSimilarityState: Dispatch<SetStateAction<SimilarityState | null>>
   selectedPaths: string[]
   setSelectedPaths: Dispatch<SetStateAction<string[]>>
-  setQuery: Dispatch<SetStateAction<string>>
+  setQuery: (query: string) => void
   setViewState: Dispatch<SetStateAction<ViewState>>
   bumpRestoreGridToSelectionToken: () => void
 }

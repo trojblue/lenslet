@@ -39,6 +39,7 @@ type UseAppSelectionViewerCompareResult = {
   handleCompareNavigate: (delta: number) => void
   handleNavigate: (delta: number) => void
   resetViewerState: () => void
+  resetForScopeBoundary: (explicitViewerPath?: string | null) => void
   clearViewerForSearch: (scopePath: string) => void
   syncHashImageSelection: (imageTarget: string | null) => void
 }
@@ -121,6 +122,10 @@ export function resolveViewerGridRestorePath(
   return selectedPaths[0] ?? viewerPath ?? rememberedPath ?? null
 }
 
+export function resolveScopeBoundaryViewerPath(explicitViewerPath: string | null | undefined): string | null {
+  return explicitViewerPath || null
+}
+
 export function useAppSelectionViewerCompare({
   current,
   itemPaths,
@@ -186,6 +191,27 @@ export function useAppSelectionViewerCompare({
     setViewerNavPaths([])
     viewerHistoryPushedRef.current = false
   }, [])
+
+  const resetForScopeBoundary = useCallback((explicitViewerPath?: string | null) => {
+    const preservedViewer = resolveScopeBoundaryViewerPath(explicitViewerPath)
+    setCompareOpen(false)
+    setCompareIndex(0)
+    compareHistoryPushedRef.current = false
+    viewerHistoryPushedRef.current = false
+
+    if (preservedViewer) {
+      setViewer(preservedViewer)
+      setViewerNavPaths(itemPaths.includes(preservedViewer) ? itemPaths : [])
+      setSelectedPaths([preservedViewer])
+      lastFocusedPathRef.current = preservedViewer
+      return
+    }
+
+    setSelectedPaths([])
+    setViewer(null)
+    setViewerNavPaths([])
+    lastFocusedPathRef.current = null
+  }, [itemPaths])
 
   const syncHashImageSelection = useCallback((imageTarget: string | null) => {
     if (imageTarget) {
@@ -334,6 +360,7 @@ export function useAppSelectionViewerCompare({
     handleCompareNavigate,
     handleNavigate,
     resetViewerState,
+    resetForScopeBoundary,
     clearViewerForSearch,
     syncHashImageSelection,
   }

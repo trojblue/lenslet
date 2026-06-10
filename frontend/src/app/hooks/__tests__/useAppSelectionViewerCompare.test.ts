@@ -5,6 +5,7 @@ import {
   resolveGalleryOrderedItems,
   resolveSelectionOrderedItems,
   resolveOverlayPopstateResult,
+  resolveScopeBoundaryViewerPath,
   resolveViewerGridRestorePath,
   shouldCloseCompareForSelectionChange,
 } from '../useAppSelectionViewerCompare'
@@ -116,5 +117,9 @@ describe('useAppSelectionViewerCompare guards', () => {
     })
   })
 
-  it.todo('clears or revalidates selection, viewer, compare, and inspector targets on folder scope changes')
+  it('keeps only explicit viewer hash targets across folder scope changes', () => {
+    expect(resolveScopeBoundaryViewerPath('/images/a.png')).toBe('/images/a.png')
+    expect(resolveScopeBoundaryViewerPath(null)).toBeNull()
+    expect(resolveScopeBoundaryViewerPath(undefined)).toBeNull()
+  })
 })

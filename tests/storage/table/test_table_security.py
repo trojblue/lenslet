@@ -3,7 +3,7 @@ from pathlib import Path
 from lenslet.storage.table import TableStorage, TableStorageOptions
 
 
-def test_table_storage_disables_local_sources(tmp_path: Path) -> None:
+def test_table_storage_disables_local_sources(tmp_path: Path, capsys) -> None:
     local_path = tmp_path / "local.jpg"
     local_path.write_bytes(b"fake")
 
@@ -20,3 +20,7 @@ def test_table_storage_disables_local_sources(tmp_path: Path) -> None:
     assert storage.exists("example.com/remote-2.jpg")
     assert storage.get_source_path("/example.com/remote.jpg") == "https://example.com/remote.jpg"
     assert not storage.exists("local.jpg")
+    output = capsys.readouterr().out
+    assert "local filesystem access from this table is disabled" in output
+    assert "--trust-remote-paths" in output
+    assert "local sources are disabled" not in output

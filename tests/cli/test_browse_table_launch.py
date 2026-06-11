@@ -32,6 +32,7 @@ def _browse_args(**overrides: Any) -> cli_browse.BrowseCliArgs:
         "og_preview": False,
         "reload": False,
         "no_write": False,
+        "trust_remote_paths": False,
         "embedding_column": None,
         "embedding_metric": None,
         "embed": False,
@@ -196,6 +197,7 @@ def test_remote_table_launch_uses_detected_source_column(monkeypatch) -> None:
     assert captured["requested_source_column"] is None
     assert captured["table"] is rows
     assert captured["options"].source_column == "image_url"
+    assert captured["options"].allow_local is False
 
 
 def test_remote_table_launch_prefers_explicit_source_column(monkeypatch) -> None:
@@ -241,3 +243,49 @@ def test_remote_table_launch_prefers_explicit_source_column(monkeypatch) -> None
     cli_browse._create_remote_table_app_or_exit(plan)
 
     assert captured["options"].source_column == "explicit"
+
+
+def test_remote_table_launch_can_trust_remote_local_paths(monkeypatch, capsys) -> None:
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        cli_browse,
+        "_load_remote_table",
+        lambda uri, *, source_column=None: RemoteTableLoadResult(
+            table=[{"image_path": "/data/images/a.jpg"}],
+            source_column="image_path",
+        ),
+    )
+    monkeypatch.setattr(
+        cli_browse.server_api,
+        "create_app_from_table",
+        lambda table, *, options: captured.setdefault("options", options),
+    )
+
+    plan = cli_browse.BrowseLaunchPlan(
+        args=_browse_args(
+            directory="owner/repo",
+            trust_remote_paths=True,
+            skip_dimension_probe=True,
+        ),
+        target_info=cli_browse.BrowseTarget(
+            raw_target="owner/repo",
+            target=None,
+            is_table_file=False,
+            is_remote_table=True,
+            remote_kind="hf",
+            remote_uri="hf://owner/repo",
+        ),
+        port=7070,
+        dataset_workspace=None,
+        preindex_signature=None,
+        embedding_config=EmbeddingConfig(),
+        browse_options=BrowseAppOptions(),
+        embedding_options=EmbeddingAppOptions(),
+        trusted_write_origins=(),
+    )
+
+    cli_browse._create_remote_table_app_or_exit(plan)
+
+    assert captured["options"].allow_local is True
+    assert "--trust-remote-paths" in capsys.readouterr().out

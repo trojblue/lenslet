@@ -24,6 +24,7 @@ class BrowseCliArgs:
     og_preview: bool
     reload: bool
     no_write: bool
+    trust_remote_paths: bool
     embedding_column: list[str] | None
     embedding_metric: list[str] | None
     embed: bool
@@ -54,6 +55,7 @@ class BrowseCliArgs:
             og_preview=bool(args.og_preview),
             reload=bool(args.reload),
             no_write=bool(args.no_write),
+            trust_remote_paths=bool(args.trust_remote_paths),
             embedding_column=list(args.embedding_column) if args.embedding_column else None,
             embedding_metric=list(args.embedding_metric) if args.embedding_metric else None,
             embed=bool(args.embed),
@@ -173,6 +175,14 @@ def _build_browse_parser() -> argparse.ArgumentParser:
         "--no-write",
         action="store_true",
         help="Use a temp workspace under the system temp directory (keeps the source dataset read-only)",
+    )
+    parser.add_argument(
+        "--trust-remote-paths",
+        action="store_true",
+        help=(
+            "Allow remote parquet/HF tables to read local filesystem paths from their source column. "
+            "Security-sensitive; only use remote datasets you trust."
+        ),
     )
     parser.add_argument(
         "--embedding-column",

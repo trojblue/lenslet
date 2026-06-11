@@ -438,6 +438,11 @@ def _create_remote_table_app_or_exit(plan: BrowseLaunchPlan) -> object:
         raise BrowseCliError(f"failed to load remote table '{remote_label}': {exc}") from exc
     source_column = args.source_column or loaded_table.source_column
     workspace = Workspace.for_dataset(None, can_write=False)
+    if args.trust_remote_paths:
+        print(
+            "[lenslet] Trusting local filesystem paths from remote table rows "
+            "(--trust-remote-paths). Only use this with datasets you trust."
+        )
     return server_api.create_app_from_table(
         table=loaded_table.table,
         options=server_api.TableAppOptions(
@@ -447,7 +452,7 @@ def _create_remote_table_app_or_exit(plan: BrowseLaunchPlan) -> object:
             source_column=source_column,
             path_column=args.path_column,
             skip_dimension_probe=args.skip_dimension_probe,
-            allow_local=False,
+            allow_local=args.trust_remote_paths,
             og_preview=args.og_preview,
             workspace=workspace,
             trusted_write_origins=plan.trusted_write_origins,

@@ -53,6 +53,7 @@ def _browse_args(**overrides: Any) -> cli_browse.BrowseCliArgs:
         "og_preview": True,
         "reload": False,
         "no_write": False,
+        "trust_remote_paths": False,
         "embedding_column": None,
         "embedding_metric": None,
         "embed": False,

@@ -80,6 +80,15 @@ def test_browse_parser_populates_table_path_column() -> None:
     assert args.path_column == "display_path"
 
 
+def test_browse_parser_populates_trust_remote_paths() -> None:
+    parser = cli_browse_args._build_browse_parser()
+    namespace = parser.parse_args(["hf://owner/repo", "--trust-remote-paths"])
+
+    args = cli_browse_args.BrowseCliArgs.from_namespace(namespace)
+
+    assert args.trust_remote_paths is True
+
+
 def test_browse_parser_uses_dimension_probe_vocabulary() -> None:
     parser = cli_browse_args._build_browse_parser()
     namespace = parser.parse_args(

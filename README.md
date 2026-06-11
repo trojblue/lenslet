@@ -95,6 +95,7 @@ Options:
   --no-thumb-cache             Disable thumbnail cache when a workspace is available
   --no-og-preview              Disable dataset-based social preview image
   --no-write                   Use a temp workspace under /tmp/lenslet (keeps source read-only)
+  --trust-remote-paths         Allow remote parquet/HF tables to read local filesystem paths
   --embedding-column NAME      Embedding column name (repeatable, comma-separated allowed)
   --embedding-metric NAME:METRIC
                                Embedding metric override (repeatable)
@@ -141,6 +142,10 @@ lenslet incantor/dit03-twitter-niji7-5k-filtering-metrics --share
 # Start from a remote Parquet file
 # Requires: pip install "lenslet[remote]"
 lenslet s3://my-bucket/items.parquet --source-column image_path
+
+# Allow a trusted remote Parquet/HF table to reference local files on this machine
+# Security-sensitive: only use with datasets you trust; add --base-dir to bound local reads.
+lenslet incantor/my-dataset --source-column image_path --trust-remote-paths --base-dir /data/images
 
 # Add embeddings to a local Parquet file before launching
 # Requires: pip install "lenslet[embed]"

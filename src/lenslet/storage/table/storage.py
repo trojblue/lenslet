@@ -947,7 +947,13 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
 
     def _report_row_store_skips(self, result: TableRowStoreBuildResult) -> None:
         if result.skipped_local_disabled:
-            print(f"[lenslet] Skipped {result.skipped_local_disabled} local path(s): local sources are disabled.")
+            print(
+                f"[lenslet] Skipped {result.skipped_local_disabled} local path(s): local filesystem "
+                "access from this table is disabled. This protects you from remote parquet/HF datasets "
+                "that reference files on your machine. If you trust the remote table and truly want "
+                "Lenslet to read those local paths, rerun with --trust-remote-paths; use --base-dir "
+                "to constrain local reads when possible."
+            )
         if result.skipped_local_outside_root:
             boundary = self.root or "(unset)"
             print(

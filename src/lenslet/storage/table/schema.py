@@ -88,7 +88,9 @@ def resolve_source_column(
 
     if not allow_local:
         raise ValueError(
-            "No loadable column found. Local file sources are disabled; provide an S3/HTTP column."
+            "No loadable column found. Local file sources are disabled; provide an S3/HTTP column. "
+            "For trusted remote parquet/HF tables that intentionally reference local files, rerun "
+            "the CLI with --trust-remote-paths."
         )
     raise ValueError(
         "No loadable column found. Pass source_column explicitly or provide a base_dir for local paths."

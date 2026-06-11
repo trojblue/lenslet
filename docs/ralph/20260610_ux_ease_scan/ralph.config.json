@@ -1,0 +1,10 @@
+{
+  "mode": "plan",
+  "tool": "codex",
+  "maxIterations": 10,
+  "maxTasksPerIteration": 6,
+  "planFile": "/fsx/yada/dev/lenslet/docs/20260610_ux_ease_scan/20260610_lenslet_ux_improvement_plan.md",
+  "prdFile": "prd.json",
+  "progressFile": "progress.txt",
+  "sharedDir": "../shared"
+}

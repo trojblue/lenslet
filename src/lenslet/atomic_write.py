@@ -87,7 +87,8 @@ def atomic_write_gzip_json(
 
 
 def _fsync_file(path: Path) -> None:
-    fd = os.open(os.fspath(path), os.O_RDONLY)
+    flags = os.O_RDWR | getattr(os, "O_BINARY", 0)
+    fd = os.open(os.fspath(path), flags)
     try:
         os.fsync(fd)
     finally:

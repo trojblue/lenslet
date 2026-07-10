@@ -40,6 +40,7 @@ INDEX_WORKERS = 16
 INDEX_PARALLEL_MIN_IMAGES = 24
 _PREINDEX_META_READ_ERRORS = (OSError, json.JSONDecodeError, TypeError, ValueError)
 _IMAGE_PROBE_ERRORS = (Image.DecompressionBombError, OSError, SyntaxError, TypeError, ValueError)
+PREINDEX_SKIP_EXAMPLE_LIMIT = 5
 PreindexRow: TypeAlias = dict[str, int | float | str]
 PreindexMeta: TypeAlias = dict[str, Any]
 
@@ -63,6 +64,18 @@ class PreindexPaths:
 
 
 @dataclass(frozen=True)
+class PreindexSkippedImage:
+    path: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class PreindexBuildResult:
+    rows: list[PreindexRow]
+    skipped: tuple[PreindexSkippedImage, ...]
+
+
+@dataclass(frozen=True)
 class PreindexResult:
     workspace: Workspace
     paths: PreindexPaths
@@ -70,6 +83,8 @@ class PreindexResult:
     image_count: int
     format: str
     reused: bool
+    skipped_image_count: int = 0
+    skipped_image_examples: tuple[PreindexSkippedImage, ...] = ()
 
 
 def preindex_paths(workspace: Workspace) -> PreindexPaths | None:
@@ -105,6 +120,8 @@ def ensure_local_preindex(
     meta = load_preindex_meta(paths.meta_path)
     if meta and _meta_signature_matches(meta, signature):
         if _preindex_payload_exists(paths, meta):
+            skipped_image_count, skipped_image_examples = _preindex_skips_from_meta(meta)
+            _print_preindex_skip_summary(skipped_image_count, skipped_image_examples)
             return PreindexResult(
                 workspace=effective_workspace,
                 paths=paths,
@@ -112,25 +129,34 @@ def ensure_local_preindex(
                 image_count=int(meta.get("image_count", len(entries))),
                 format=str(meta.get("format", "parquet")),
                 reused=True,
+                skipped_image_count=skipped_image_count,
+                skipped_image_examples=skipped_image_examples,
             )
 
     progress = progress or ProgressBar()
-    rows = build_preindex_rows(entries, progress=progress)
-    fmt = write_preindex(rows, paths)
+    build = build_preindex_rows(entries, progress=progress)
+    _print_preindex_skip_summary(len(build.skipped), build.skipped)
+    if not build.rows:
+        return None
+
+    fmt = write_preindex(build.rows, paths)
     write_preindex_meta(
         paths.meta_path,
         signature=signature,
-        image_count=len(rows),
+        image_count=len(build.rows),
         fmt=fmt,
         root=root,
+        skipped_images=build.skipped,
     )
     return PreindexResult(
         workspace=effective_workspace,
         paths=paths,
         signature=signature,
-        image_count=len(rows),
+        image_count=len(build.rows),
         format=fmt,
         reused=False,
+        skipped_image_count=len(build.skipped),
+        skipped_image_examples=build.skipped[:PREINDEX_SKIP_EXAMPLE_LIMIT],
     )
 
 
@@ -184,13 +210,14 @@ def build_preindex_rows(
     entries: list[LocalImageEntry],
     *,
     progress: ProgressBar,
-) -> list[PreindexRow]:
+) -> PreindexBuildResult:
     total = len(entries)
     if total <= 0:
-        return []
+        return PreindexBuildResult(rows=[], skipped=())
 
     progress.update(0, total, "preindex")
     rows: list[PreindexRow | None] = [None] * total
+    skipped: list[PreindexSkippedImage | None] = [None] * total
     workers = _effective_workers(total)
 
     if workers > 1:
@@ -201,19 +228,24 @@ def build_preindex_rows(
             ]
             done = 0
             for future in as_completed(futures):
-                idx, row = future.result()
+                idx, row, skip = future.result()
                 rows[idx] = row
+                skipped[idx] = skip
                 done += 1
                 progress.update(done, total, "preindex")
     else:
         done = 0
         for idx, entry in enumerate(entries):
-            _, row = _entry_to_row(idx, entry)
+            _, row, skip = _entry_to_row(idx, entry)
             rows[idx] = row
+            skipped[idx] = skip
             done += 1
             progress.update(done, total, "preindex")
 
-    return [row for row in rows if row is not None]
+    return PreindexBuildResult(
+        rows=[row for row in rows if row is not None],
+        skipped=tuple(skip for skip in skipped if skip is not None),
+    )
 
 
 def write_preindex(rows: list[PreindexRow], paths: PreindexPaths) -> str:
@@ -234,6 +266,7 @@ def write_preindex_meta(
     image_count: int,
     fmt: str,
     root: Path,
+    skipped_images: tuple[PreindexSkippedImage, ...] = (),
 ) -> None:
     payload: PreindexMeta = {
         "version": PREINDEX_SCHEMA_VERSION,
@@ -243,6 +276,11 @@ def write_preindex_meta(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "root": str(root.resolve()),
         "columns": list(PREINDEX_COLUMNS),
+        "skipped_image_count": len(skipped_images),
+        "skipped_image_examples": [
+            {"path": skipped.path, "reason": skipped.reason}
+            for skipped in skipped_images[:PREINDEX_SKIP_EXAMPLE_LIMIT]
+        ],
     }
     atomic_write_json(meta_path, payload, indent=2, sort_keys=True)
 
@@ -292,8 +330,22 @@ def _load_json_rows(path: Path) -> list[PreindexRow]:
     return [dict(row) for row in data]
 
 
-def _entry_to_row(idx: int, entry: LocalImageEntry) -> tuple[int, PreindexRow]:
-    width, height = _probe_dimensions(entry.abs_path)
+def _entry_to_row(
+    idx: int,
+    entry: LocalImageEntry,
+) -> tuple[int, PreindexRow | None, PreindexSkippedImage | None]:
+    dimensions, reason = _probe_dimensions(entry.abs_path)
+    if dimensions is None:
+        return idx, None, PreindexSkippedImage(
+            path=entry.rel_path,
+            reason=reason or "could not read image dimensions",
+        )
+    width, height = dimensions
+    if width <= 0 or height <= 0:
+        return idx, None, PreindexSkippedImage(
+            path=entry.rel_path,
+            reason="could not read image dimensions",
+        )
     row = {
         PREINDEX_PATH_COLUMN: entry.rel_path,
         PREINDEX_SOURCE_COLUMN: entry.rel_path,
@@ -304,19 +356,31 @@ def _entry_to_row(idx: int, entry: LocalImageEntry) -> tuple[int, PreindexRow]:
         "size": int(entry.size),
         "mtime": float(entry.mtime),
     }
-    return idx, row
+    return idx, row, None
 
 
-def _probe_dimensions(path: Path) -> tuple[int, int]:
-    dims = read_dimensions_fast(str(path))
-    if dims:
-        return dims
+def _probe_dimensions(path: Path) -> tuple[tuple[int, int] | None, str | None]:
+    fast_error: str | None = None
+    try:
+        dims = read_dimensions_fast(str(path))
+    except _IMAGE_PROBE_ERRORS as exc:
+        fast_error = _format_probe_error(exc)
+    else:
+        if dims and dims[0] > 0 and dims[1] > 0:
+            return dims, None
     try:
         with Image.open(path) as im:
             w, h = im.size
-            return int(w), int(h)
-    except _IMAGE_PROBE_ERRORS:
-        return 0, 0
+            if w > 0 and h > 0:
+                return (int(w), int(h)), None
+    except _IMAGE_PROBE_ERRORS as exc:
+        return None, _format_probe_error(exc) or fast_error
+    return None, fast_error or "could not read image dimensions"
+
+
+def _format_probe_error(exc: BaseException) -> str:
+    detail = str(exc).strip()
+    return detail or exc.__class__.__name__
 
 
 def _meta_signature_matches(meta: PreindexMeta, signature: str) -> bool:
@@ -330,6 +394,41 @@ def _preindex_payload_exists(paths: PreindexPaths, meta: PreindexMeta) -> bool:
     if fmt == "parquet":
         return paths.parquet_path.is_file()
     return paths.parquet_path.is_file() or paths.json_path.is_file()
+
+
+def _preindex_skips_from_meta(meta: PreindexMeta) -> tuple[int, tuple[PreindexSkippedImage, ...]]:
+    try:
+        skipped_image_count = int(meta.get("skipped_image_count", 0))
+    except (TypeError, ValueError):
+        skipped_image_count = 0
+    examples: list[PreindexSkippedImage] = []
+    raw_examples = meta.get("skipped_image_examples", [])
+    if isinstance(raw_examples, list):
+        for raw in raw_examples[:PREINDEX_SKIP_EXAMPLE_LIMIT]:
+            if not isinstance(raw, dict):
+                continue
+            path = str(raw.get("path", "")).strip()
+            if not path:
+                continue
+            reason = str(raw.get("reason", "")).strip()
+            examples.append(PreindexSkippedImage(path=path, reason=reason))
+    return max(0, skipped_image_count), tuple(examples)
+
+
+def _print_preindex_skip_summary(
+    skipped_image_count: int,
+    skipped_image_examples: tuple[PreindexSkippedImage, ...],
+) -> None:
+    if skipped_image_count <= 0:
+        return
+    examples = skipped_image_examples[:PREINDEX_SKIP_EXAMPLE_LIMIT]
+    print(f"[lenslet] Preindex skipped {skipped_image_count} unreadable/corrupt image(s).")
+    for skipped in examples:
+        detail = f": {skipped.reason}" if skipped.reason else ""
+        print(f"[lenslet]   - {skipped.path}{detail}")
+    remaining = skipped_image_count - len(examples)
+    if remaining > 0:
+        print(f"[lenslet]   ... {remaining} more")
 
 
 def _resolve_preindex_workspace(root: Path, workspace: Workspace, signature: str) -> Workspace:

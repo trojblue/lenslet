@@ -85,6 +85,20 @@ def test_progress_bar_restarts_when_label_or_total_changes() -> None:
     assert bar.snapshot() == {"active": True, "done": 2, "total": 6, "label": "child"}
 
 
+class BadCloseTqdm(FakeTqdm):
+    def close(self) -> None:
+        raise OSError(9, "Bad file descriptor")
+
+
+def test_progress_bar_render_errors_do_not_escape(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(progress, "tqdm", BadCloseTqdm)
+    bar = progress.ProgressBar()
+
+    bar.update(done=1, total=1, label="root")
+
+    assert bar.snapshot() == {"active": False, "done": 1, "total": 1, "label": "root"}
+
+
 def test_leaf_batch_tracker_aggregates_leaf_folder_updates() -> None:
     existing_indexes = {"parent/a"}
     list_calls: list[str] = []

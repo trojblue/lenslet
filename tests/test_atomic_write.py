@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import json
 import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -76,6 +77,19 @@ def test_atomic_write_logs_directory_fsync_failure(
 ) -> None:
     path = tmp_path / "state.json"
     fsync_calls = 0
+    fake_dir_fd = 987654
+    real_open = os.open
+    real_close = os.close
+
+    def _open_directory_for_fsync(path_arg, flags, *args, **kwargs):
+        if Path(path_arg).is_dir():
+            return fake_dir_fd
+        return real_open(path_arg, flags, *args, **kwargs)
+
+    def _close_fake_directory(fd: int) -> None:
+        if fd == fake_dir_fd:
+            return
+        real_close(fd)
 
     def _fail_directory_fsync(_fd: int) -> None:
         nonlocal fsync_calls
@@ -83,6 +97,8 @@ def test_atomic_write_logs_directory_fsync_failure(
         if fsync_calls == 2:
             raise OSError("directory sync failed")
 
+    monkeypatch.setattr("lenslet.atomic_write.os.open", _open_directory_for_fsync)
+    monkeypatch.setattr("lenslet.atomic_write.os.close", _close_fake_directory)
     monkeypatch.setattr("lenslet.atomic_write.os.fsync", _fail_directory_fsync)
 
     with caplog.at_level(logging.WARNING, logger="lenslet.atomic_write"):

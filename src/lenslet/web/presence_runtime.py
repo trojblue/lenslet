@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Callable
-from typing import TypedDict
 
 from fastapi import FastAPI
+from typing_extensions import TypedDict
 
 from .lifecycle import register_lifecycle_handlers
 from .runtime import AppRuntime

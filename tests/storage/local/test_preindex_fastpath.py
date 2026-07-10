@@ -128,3 +128,51 @@ def test_preindex_reports_scan_phase(
     assert result is not None
     captured = capsys.readouterr()
     assert "[lenslet] Scanning files..." in captured.out
+
+
+def test_preindex_skips_corrupt_images_and_reports_examples(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    root = tmp_path / "gallery"
+    _make_image(root / "good.jpg")
+    bad_path = root / "bad.jpg"
+    bad_path.write_bytes(b"not an image")
+    workspace = Workspace.for_dataset(str(root), can_write=True)
+
+    class SilentProgress:
+        def update(self, done: int, total: int, label: str) -> None:
+            _ = (done, total, label)
+
+    result = ensure_local_preindex(root, workspace, progress=SilentProgress())
+    assert result is not None
+    assert result.image_count == 1
+    assert result.skipped_image_count == 1
+    assert result.skipped_image_examples[0].path == "bad.jpg"
+
+    captured = capsys.readouterr()
+    assert "[lenslet] Preindex skipped 1 unreadable/corrupt image(s)." in captured.out
+    assert "bad.jpg" in captured.out
+
+    storage = local_app.load_preindex_storage(
+        str(root),
+        result.workspace,
+        thumb_size=256,
+        thumb_quality=70,
+        skip_dimension_probe=False,
+        preindex_signature=result.signature,
+    )
+    assert storage is not None
+    assert storage.total_items() == 1
+    assert storage.path_for_row_index(0) == "good.jpg"
+
+    cached = ensure_local_preindex(root, result.workspace, progress=SilentProgress())
+    assert cached is not None
+    assert cached.reused is True
+    assert cached.skipped_image_count == 1
+    assert cached.skipped_image_examples[0].path == "bad.jpg"
+
+    cached_output = capsys.readouterr().out
+    assert "[lenslet] Preindex skipped 1 unreadable/corrupt image(s)." in cached_output
+    assert "bad.jpg" in cached_output
+

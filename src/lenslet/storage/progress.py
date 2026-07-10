@@ -48,40 +48,53 @@ class ProgressTicker:
 class ProgressBar:
     """Thread-safe wrapper for a single tqdm progress bar."""
 
+    _RENDER_ERRORS = (OSError, ValueError)
+
     def __init__(self) -> None:
         self._bar: tqdm | None = None
         self._last_done = 0
         self._last_label: str | None = None
         self._last_total: int | None = None
+        self._disabled = False
         self._lock = threading.Lock()
 
     def update(self, done: int, total: int, label: str) -> None:
         if total <= 0:
             return
-        with self._lock:
-            if (
-                self._bar is None
-                or self._last_label != label
-                or self._last_total != total
-            ):
-                if self._bar is not None:
+        try:
+            with self._lock:
+                if self._disabled:
+                    return
+                if (
+                    self._bar is None
+                    or self._last_label != label
+                    or self._last_total != total
+                ):
+                    if self._bar is not None:
+                        self._bar.close()
+                    desc = "[lenslet] Indexing"
+                    if label:
+                        desc = f"[lenslet] Indexing ({label})"
+                    self._bar = tqdm(total=total, desc=desc, unit="img", leave=True)
+                    self._last_done = 0
+                    self._last_label = label
+                    self._last_total = total
+
+                delta = done - self._last_done
+                if delta > 0 and self._bar is not None:
+                    self._bar.update(delta)
+                    self._last_done = done
+
+                if done >= total and self._bar is not None:
                     self._bar.close()
-                desc = "[lenslet] Indexing"
-                if label:
-                    desc = f"[lenslet] Indexing ({label})"
-                self._bar = tqdm(total=total, desc=desc, unit="img", leave=True)
-                self._last_done = 0
+                    self._bar = None
+        except self._RENDER_ERRORS:
+            with self._lock:
+                self._bar = None
+                self._disabled = True
+                self._last_done = max(self._last_done, min(done, total))
                 self._last_label = label
                 self._last_total = total
-
-            delta = done - self._last_done
-            if delta > 0 and self._bar is not None:
-                self._bar.update(delta)
-                self._last_done = done
-
-            if done >= total and self._bar is not None:
-                self._bar.close()
-                self._bar = None
 
     def snapshot(self) -> dict[str, int | str | bool | None]:
         with self._lock:

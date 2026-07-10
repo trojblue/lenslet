@@ -384,7 +384,7 @@ def _prepare_dataset_workspace_or_exit(
             raise BrowseCliError(f"preindex failed: {exc}") from exc
 
         if preindex_result is None:
-            print("[lenslet] Preindex skipped: no images found.")
+            print("[lenslet] Preindex skipped: no readable images found.")
         else:
             if preindex_result.workspace.root != dataset_workspace.root:
                 print(f"[lenslet] Preindex workspace: {preindex_result.workspace.root}")

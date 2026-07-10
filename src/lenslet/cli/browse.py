@@ -20,6 +20,14 @@ from ..storage.table.input import TableInput
 from ..storage.table.launch import TableLaunchRequest, TableLaunchResult, detect_source_column, prepare_table_launch
 from ..terminal_banner import banner_row
 from ..web.auth import trusted_write_origins_for_host
+from ..web.app.launch_session import (
+    LaunchSessionFlag,
+    build_launch_session_payload,
+    filesystem_detail_label,
+    table_detail_label,
+    table_input_row_count,
+)
+from ..web.models import LaunchSessionPayload
 from ..workspace import Workspace
 
 
@@ -178,6 +186,80 @@ def _workspace_mode_label(workspace: Workspace | None) -> str | None:
     if workspace.root is not None:
         return "workspace"
     return "memory"
+
+
+def _table_launch_row_count(result: TableLaunchResult, workspace: Workspace | None) -> int | None:
+    status_fn = getattr(result.storage, "table_launch_status", None)
+    if not callable(status_fn):
+        return None
+    status = status_fn(workspace_mode=_workspace_mode_label(workspace))
+    return status.gallery_rows
+
+
+def _launch_session_flags(
+    args: BrowseCliArgs,
+    *,
+    source_column: str | None = None,
+) -> tuple[LaunchSessionFlag, ...]:
+    return tuple(
+        flag
+        for flag in (
+            LaunchSessionFlag("--source-column", source_column or args.source_column),
+            LaunchSessionFlag("--path-column", args.path_column),
+            LaunchSessionFlag("--base-dir", args.base_dir),
+            LaunchSessionFlag("--trust-remote-paths", args.trust_remote_paths),
+        )
+        if flag.value not in (None, False)
+    )
+
+
+def _remote_launch_session(
+    args: BrowseCliArgs,
+    target_info: BrowseTarget,
+    *,
+    row_count: int | None,
+    source_column: str | None,
+) -> LaunchSessionPayload:
+    kind = "hf_dataset" if target_info.remote_kind == "hf" else "remote_parquet"
+    loaded_from_label = "Hugging Face dataset" if kind == "hf_dataset" else "Remote Parquet"
+    return build_launch_session_payload(
+        kind=kind,
+        raw_target=target_info.raw_target,
+        loaded_from_label=loaded_from_label,
+        detail_label=table_detail_label(
+            table_kind="Remote table",
+            workspace_mode="read-only",
+            row_count=row_count,
+        ),
+        command_flags=_launch_session_flags(args, source_column=source_column),
+    )
+
+
+def _local_table_launch_session(
+    *,
+    raw_target: str,
+    kind: str,
+    row_count: int | None,
+    workspace: Workspace | None,
+) -> LaunchSessionPayload:
+    return build_launch_session_payload(
+        kind=kind,
+        raw_target=raw_target,
+        loaded_from_label="Local Parquet",
+        detail_label=table_detail_label(
+            workspace_mode=_workspace_mode_label(workspace),
+            row_count=row_count,
+        ),
+    )
+
+
+def _local_folder_launch_session(target: Path, workspace: Workspace | None) -> LaunchSessionPayload:
+    return build_launch_session_payload(
+        kind="local_folder",
+        raw_target=str(target),
+        loaded_from_label="Local folder",
+        detail_label=filesystem_detail_label(workspace_mode=_workspace_mode_label(workspace)),
+    )
 
 
 def _emit_table_launch_summary(
@@ -455,6 +537,12 @@ def _create_remote_table_app_or_exit(plan: BrowseLaunchPlan) -> object:
             allow_local=args.trust_remote_paths,
             og_preview=args.og_preview,
             workspace=workspace,
+            launch_session=_remote_launch_session(
+                args,
+                target_info,
+                row_count=table_input_row_count(loaded_table.table),
+                source_column=source_column,
+            ),
             trusted_write_origins=plan.trusted_write_origins,
         ),
     )
@@ -493,6 +581,12 @@ def _create_table_file_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> obje
             workspace=workspace,
             og_preview=args.og_preview,
             embedding_table_path=str(target),
+            launch_session=_local_table_launch_session(
+                raw_target=str(target),
+                kind="local_parquet",
+                row_count=_table_launch_row_count(launch_result, workspace),
+                workspace=workspace,
+            ),
             storage_mode="table",
             storage_origin="parquet",
             refresh="static",
@@ -533,6 +627,16 @@ def _create_directory_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> objec
         og_preview=args.og_preview,
         workspace=plan.dataset_workspace,
         preindex_signature=plan.preindex_signature,
+        launch_session=(
+            _local_table_launch_session(
+                raw_target=str(items_path),
+                kind="local_items_parquet",
+                row_count=_table_launch_row_count(table_launch, plan.dataset_workspace),
+                workspace=plan.dataset_workspace,
+            )
+            if table_launch is not None
+            else _local_folder_launch_session(target, plan.dataset_workspace)
+        ),
         trusted_write_origins=plan.trusted_write_origins,
     )
     if table_launch is None:

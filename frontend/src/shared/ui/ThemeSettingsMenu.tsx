@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Copy } from 'lucide-react'
 import { THEME_PRESETS, resolveThemePresetId, type ThemePresetId } from '../../theme/runtime'
 import type {
   CompareOrderMode,
+  LaunchSessionPayload,
   TableLaunchStatusPayload,
   TableSourceColumnOption,
   TableSourceColumnsPayload,
@@ -30,6 +32,7 @@ type ThemeSettingsMenuProps = {
   onProxyHttpOriginalsChange?: (enabled: boolean) => void
   sourceColumns?: TableSourceColumnsPayload | null
   tableLaunchStatus?: TableLaunchStatusPayload | null
+  launchSession?: LaunchSessionPayload | null
   sourceColumnSwitching?: boolean
   onSourceColumnChange?: (sourceColumn: string) => void
 }
@@ -69,6 +72,10 @@ type ThemeMenuPanelPosition = {
   x: number
   y: number
   ready: boolean
+}
+
+type ClipboardWriter = {
+  writeText: (text: string) => Promise<void> | void
 }
 
 const THEME_OPTIONS: readonly ThemeMenuOption[] = (['default', 'teal', 'charcoal'] as const).map((id) => ({
@@ -129,6 +136,61 @@ export function resolveSourceColumnMenuState(
 export function reduceThemeSettingsMenuOpenState(open: boolean, intent: ThemeSettingsMenuCloseIntent): boolean {
   if (intent === 'toggle') return !open
   return false
+}
+
+export async function copyLaunchCommandToClipboard(
+  command: string,
+  clipboard: ClipboardWriter | null | undefined = typeof navigator !== 'undefined' ? navigator.clipboard : null,
+): Promise<boolean> {
+  if (!clipboard) return false
+  try {
+    await clipboard.writeText(command)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function LaunchSessionMenuSection({
+  launchSession,
+  onCopyCommand,
+}: {
+  launchSession: LaunchSessionPayload
+  onCopyCommand?: (command: string) => void
+}): JSX.Element {
+  const copyCommand = launchSession.copy_command?.trim() || null
+  return (
+    <>
+      <div className="theme-settings-menu-divider" />
+      <div className="theme-settings-menu-header">Session</div>
+      <div className="theme-settings-menu-options">
+        <div className="theme-settings-menu-field">
+          <span className="theme-settings-menu-option-label">Loaded from</span>
+          <span className="theme-settings-menu-option-subtitle">{launchSession.loaded_from_label}</span>
+          <span
+            className="theme-settings-menu-option-subtitle"
+            style={{ color: 'var(--text)', overflowWrap: 'anywhere' }}
+          >
+            {launchSession.target_label}
+          </span>
+          {launchSession.detail_label ? (
+            <span className="theme-settings-menu-option-subtitle">{launchSession.detail_label}</span>
+          ) : null}
+          {copyCommand ? (
+            <button
+              type="button"
+              className="theme-settings-menu-option"
+              style={{ marginTop: 1, paddingInline: 0 }}
+              onClick={() => onCopyCommand?.(copyCommand)}
+            >
+              <Copy size={13} strokeWidth={1.9} aria-hidden="true" />
+              <span className="theme-settings-menu-option-label">Copy command</span>
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </>
+  )
 }
 
 function formatCount(value: number): string {
@@ -192,6 +254,7 @@ export default function ThemeSettingsMenu({
   onProxyHttpOriginalsChange,
   sourceColumns = null,
   tableLaunchStatus = null,
+  launchSession = null,
   sourceColumnSwitching = false,
   onSourceColumnChange,
 }: ThemeSettingsMenuProps): JSX.Element {
@@ -215,6 +278,9 @@ export default function ThemeSettingsMenu({
       keywords: [column.name],
     })) ?? []
   ), [sourceColumns])
+  const handleCopyLaunchCommand = useCallback((command: string) => {
+    void copyLaunchCommandToClipboard(command)
+  }, [])
   const updatePanelPosition = useCallback(() => {
     if (!open || typeof window === 'undefined') return
     const rootElement = rootRef.current
@@ -273,7 +339,7 @@ export default function ThemeSettingsMenu({
     }
   }, [open, updatePanelPosition])
 
-  const triggerTitle = `Theme settings (${selectedTheme.label})`
+  const triggerTitle = `Settings (${selectedTheme.label})`
 
   const panelStyle = {
     position: 'fixed' as const,
@@ -287,7 +353,7 @@ export default function ThemeSettingsMenu({
       ref={panelRef}
       className="theme-settings-menu-panel"
       role="menu"
-      aria-label="Theme settings"
+      aria-label="Settings"
       style={panelStyle}
     >
       <div className="theme-settings-menu-header">Theme</div>
@@ -321,6 +387,12 @@ export default function ThemeSettingsMenu({
           )
         })}
       </div>
+      {launchSession ? (
+        <LaunchSessionMenuSection
+          launchSession={launchSession}
+          onCopyCommand={handleCopyLaunchCommand}
+        />
+      ) : null}
       {showSourceSection && (
         <>
           <div className="theme-settings-menu-divider" />
@@ -478,7 +550,7 @@ export default function ThemeSettingsMenu({
               style={{ backgroundColor: selectedTheme.tokens['--accent'] }}
               aria-hidden="true"
             />
-            <span>Theme</span>
+            <span>Settings</span>
           </>
         )}
       </button>

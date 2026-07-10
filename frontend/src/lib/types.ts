@@ -224,6 +224,15 @@ export type TableLaunchStatusPayload = {
   warnings: string[]
 }
 
+export type LaunchSessionPayload = {
+  kind: string
+  loaded_from_label: string
+  target_label: string
+  title_label: string
+  detail_label?: string | null
+  copy_command?: string | null
+}
+
 export type Sidecar = {
   v: 1
   tags: string[]
@@ -309,6 +318,7 @@ export type HealthResponse = {
     replay_miss_total?: number
   }
   table_launch_status?: TableLaunchStatusPayload | null
+  launch_session?: LaunchSessionPayload | null
 }
 
 export type BrowseSearchResultsPayload = { items: BrowseItemPayload[] }

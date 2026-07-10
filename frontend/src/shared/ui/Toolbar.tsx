@@ -3,6 +3,7 @@ import Dropdown from './Dropdown'
 import SyncIndicator, { type SyncIndicatorData } from './SyncIndicator'
 import type {
   CompareOrderMode,
+  LaunchSessionPayload,
   MetricDisplayNames,
   SortSpec,
   TableLaunchStatusPayload,
@@ -74,6 +75,7 @@ export interface ToolbarProps {
   onCompareOrderModeChange: (mode: CompareOrderMode) => void
   sourceColumns?: TableSourceColumnsPayload | null
   tableLaunchStatus?: TableLaunchStatusPayload | null
+  launchSession?: LaunchSessionPayload | null
   sourceColumnSwitching?: boolean
   onSourceColumnChange?: (sourceColumn: string) => void
   multiSelectMode?: boolean
@@ -139,6 +141,7 @@ export default function Toolbar({
   onCompareOrderModeChange,
   sourceColumns,
   tableLaunchStatus,
+  launchSession,
   sourceColumnSwitching,
   onSourceColumnChange,
   multiSelectMode = false,
@@ -620,6 +623,7 @@ export default function Toolbar({
           compareOrderMode={compareOrderMode}
           sourceColumns={sourceColumns}
           tableLaunchStatus={tableLaunchStatus}
+          launchSession={launchSession}
           sourceColumnSwitching={sourceColumnSwitching}
           filtersOpen={filtersOpen}
           filtersRef={filtersRef}

@@ -39,6 +39,7 @@ def create_table_app(
             og_preview=options.og_preview,
             workspace=options.workspace,
             embedding_table_path=options.embedding_table_path,
+            launch_session=options.launch_session,
             storage_mode="table",
             storage_origin="table",
             refresh="static",

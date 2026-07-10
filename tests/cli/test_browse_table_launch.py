@@ -150,7 +150,100 @@ def test_directory_items_parquet_launch_result_passed_to_create_app(
     assert request.dimension_cache_dir == plan.dataset_workspace.dimension_cache_dir()
     assert captured["table_launch"] is launch_result
     assert captured["root_path"] == str(root.resolve())
+    launch_session = captured["options"].launch_session
+    assert launch_session.kind == "local_items_parquet"
+    assert launch_session.loaded_from_label == "Local Parquet"
+    assert launch_session.target_label == ".../items.parquet"
+    assert launch_session.title_label == "items.parquet"
+    assert launch_session.copy_command is None
     assert capsys.readouterr().out.count("[lenslet] prepared once") == 1
+
+
+def test_directory_launch_supplies_local_folder_session(monkeypatch, tmp_path: Path) -> None:
+    root = tmp_path / "images"
+    root.mkdir()
+    captured: dict[str, Any] = {}
+    sentinel_app = object()
+
+    def _fake_create_app(root_path: str, *, options) -> object:
+        captured["root_path"] = root_path
+        captured["options"] = options
+        return sentinel_app
+
+    monkeypatch.setattr(cli_browse.server_api, "create_app", _fake_create_app)
+
+    plan = cli_browse.BrowseLaunchPlan(
+        args=_browse_args(directory=str(root)),
+        target_info=cli_browse.BrowseTarget(
+            raw_target=str(root),
+            target=root.resolve(),
+            is_table_file=False,
+            is_remote_table=False,
+        ),
+        port=7070,
+        dataset_workspace=Workspace.for_dataset(str(root), can_write=True),
+        preindex_signature=None,
+        embedding_config=EmbeddingConfig(),
+        browse_options=BrowseAppOptions(),
+        embedding_options=EmbeddingAppOptions(),
+        trusted_write_origins=(),
+    )
+
+    app = cli_browse._create_browse_app_or_exit(plan)
+
+    assert app is sentinel_app
+    launch_session = captured["options"].launch_session
+    assert launch_session.kind == "local_folder"
+    assert launch_session.loaded_from_label == "Local folder"
+    assert launch_session.target_label == ".../images"
+    assert launch_session.title_label == "images"
+    assert launch_session.copy_command is None
+
+
+def test_local_parquet_launch_supplies_session(monkeypatch, tmp_path: Path) -> None:
+    table_path = tmp_path / "items.parquet"
+    table_path.write_bytes(b"unused by fake launch")
+    captured: dict[str, Any] = {}
+    sentinel_app = object()
+    launch_result = TableLaunchResult(
+        storage=object(),
+        effective_root=str(tmp_path),
+        default_root=str(tmp_path),
+        notices=(),
+    )
+
+    def _fake_create_app_from_storage(storage, *, options):
+        captured["options"] = options
+        return sentinel_app
+
+    monkeypatch.setattr(cli_browse, "prepare_table_launch", lambda request: launch_result)
+    monkeypatch.setattr(cli_browse.server_api, "create_app_from_storage", _fake_create_app_from_storage)
+
+    plan = cli_browse.BrowseLaunchPlan(
+        args=_browse_args(directory=str(table_path)),
+        target_info=cli_browse.BrowseTarget(
+            raw_target=str(table_path),
+            target=table_path.resolve(),
+            is_table_file=True,
+            is_remote_table=False,
+        ),
+        port=7070,
+        dataset_workspace=None,
+        preindex_signature=None,
+        embedding_config=EmbeddingConfig(),
+        browse_options=BrowseAppOptions(),
+        embedding_options=EmbeddingAppOptions(),
+        trusted_write_origins=(),
+    )
+
+    app = cli_browse._create_browse_app_or_exit(plan)
+
+    assert app is sentinel_app
+    launch_session = captured["options"].launch_session
+    assert launch_session.kind == "local_parquet"
+    assert launch_session.loaded_from_label == "Local Parquet"
+    assert launch_session.target_label == ".../items.parquet"
+    assert launch_session.copy_command is None
 
 
 def test_remote_table_launch_uses_detected_source_column(monkeypatch) -> None:
@@ -198,6 +291,12 @@ def test_remote_table_launch_uses_detected_source_column(monkeypatch) -> None:
     assert captured["table"] is rows
     assert captured["options"].source_column == "image_url"
     assert captured["options"].allow_local is False
+    launch_session = captured["options"].launch_session
+    assert launch_session.kind == "hf_dataset"
+    assert launch_session.loaded_from_label == "Hugging Face dataset"
+    assert launch_session.target_label == "owner/repo"
+    assert launch_session.detail_label == "Remote table · read-only · 1 row"
+    assert launch_session.copy_command == "lenslet owner/repo --source-column image_url"
 
 
 def test_remote_table_launch_prefers_explicit_source_column(monkeypatch) -> None:
@@ -243,6 +342,7 @@ def test_remote_table_launch_prefers_explicit_source_column(monkeypatch) -> None
     cli_browse._create_remote_table_app_or_exit(plan)
 
     assert captured["options"].source_column == "explicit"
+    assert captured["options"].launch_session.copy_command == "lenslet owner/repo --source-column explicit"
 
 
 def test_remote_table_launch_can_trust_remote_local_paths(monkeypatch, capsys) -> None:
@@ -288,4 +388,54 @@ def test_remote_table_launch_can_trust_remote_local_paths(monkeypatch, capsys) -
     cli_browse._create_remote_table_app_or_exit(plan)
 
     assert captured["options"].allow_local is True
+    assert "--trust-remote-paths" in captured["options"].launch_session.copy_command
     assert "--trust-remote-paths" in capsys.readouterr().out
+
+
+def test_remote_table_launch_omits_copy_command_for_signed_uri(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        cli_browse,
+        "_load_remote_table",
+        lambda uri, *, source_column=None: RemoteTableLoadResult(
+            table=[{"image_url": "https://example.test/a.jpg"}],
+            source_column="image_url",
+        ),
+    )
+    monkeypatch.setattr(
+        cli_browse.server_api,
+        "create_app_from_table",
+        lambda table, *, options: captured.setdefault("options", options),
+    )
+
+    plan = cli_browse.BrowseLaunchPlan(
+        args=_browse_args(
+            directory="https://user:secret@example.test/items.parquet?sig=token",
+            skip_dimension_probe=True,
+        ),
+        target_info=cli_browse.BrowseTarget(
+            raw_target="https://user:secret@example.test/items.parquet?sig=token",
+            target=None,
+            is_table_file=False,
+            is_remote_table=True,
+            remote_kind="remote",
+            remote_uri="https://user:secret@example.test/items.parquet?sig=token",
+        ),
+        port=7070,
+        dataset_workspace=None,
+        preindex_signature=None,
+        embedding_config=EmbeddingConfig(),
+        browse_options=BrowseAppOptions(),
+        embedding_options=EmbeddingAppOptions(),
+        trusted_write_origins=(),
+    )
+
+    cli_browse._create_remote_table_app_or_exit(plan)
+
+    launch_session = captured["options"].launch_session
+    assert launch_session.kind == "remote_parquet"
+    assert launch_session.target_label == "https://example.test/items.parquet"
+    assert launch_session.copy_command is None
+    assert "secret" not in launch_session.model_dump_json()
+    assert "sig=token" not in launch_session.model_dump_json()

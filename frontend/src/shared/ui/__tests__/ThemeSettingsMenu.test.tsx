@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import ThemeSettingsMenu, {
+  LaunchSessionMenuSection,
+  copyLaunchCommandToClipboard,
   getThemeMenuPanelPosition,
   reduceThemeSettingsMenuOpenState,
   resolveSourceColumnMenuState,
@@ -106,7 +108,7 @@ describe('ThemeSettingsMenu mounts', () => {
     )
 
     expect(html).toContain('theme-settings-menu-trigger-sidebar')
-    expect(html).toContain('Theme settings (Original)')
+    expect(html).toContain('Settings (Original)')
   })
 
   it('renders mobile trigger variant', () => {
@@ -115,6 +117,61 @@ describe('ThemeSettingsMenu mounts', () => {
     )
 
     expect(html).toContain('theme-settings-menu-trigger-mobile')
-    expect(html).toContain('Theme settings (Charcoal)')
+    expect(html).toContain('Settings (Charcoal)')
+    expect(html).toContain('>Settings</span>')
+  })
+})
+
+describe('LaunchSessionMenuSection', () => {
+  it('renders remote HF launch provenance with copy command', () => {
+    const html = renderToStaticMarkup(
+      <LaunchSessionMenuSection
+        launchSession={{
+          kind: 'hf_dataset',
+          loaded_from_label: 'Hugging Face dataset',
+          target_label: 'incantor/aes-composite-x0.2-additional-images',
+          title_label: 'incantor/aes-composite-x0.2-additional-images',
+          detail_label: 'Remote table · read-only · 37,670 rows',
+          copy_command: 'lenslet incantor/aes-composite-x0.2-additional-images',
+        }}
+      />,
+    )
+
+    expect(html).toContain('Session')
+    expect(html).toContain('Loaded from')
+    expect(html).toContain('Hugging Face dataset')
+    expect(html).toContain('incantor/aes-composite-x0.2-additional-images')
+    expect(html).toContain('Remote table · read-only · 37,670 rows')
+    expect(html).toContain('Copy command')
+  })
+
+  it('omits copy command when backend marks the session unsafe to copy', () => {
+    const html = renderToStaticMarkup(
+      <LaunchSessionMenuSection
+        launchSession={{
+          kind: 'local_parquet',
+          loaded_from_label: 'Local Parquet',
+          target_label: '.../items.parquet',
+          title_label: 'items.parquet',
+          detail_label: 'Table · writable sidecar · 37,670 rows',
+          copy_command: null,
+        }}
+      />,
+    )
+
+    expect(html).toContain('Local Parquet')
+    expect(html).toContain('.../items.parquet')
+    expect(html).not.toContain('Copy command')
+  })
+
+  it('returns false instead of throwing when clipboard copy fails', async () => {
+    const clipboard = {
+      writeText: vi.fn(async () => {
+        throw new Error('denied')
+      }),
+    }
+
+    await expect(copyLaunchCommandToClipboard('lenslet owner/repo', clipboard)).resolves.toBe(false)
+    expect(clipboard.writeText).toHaveBeenCalledWith('lenslet owner/repo')
   })
 })

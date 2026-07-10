@@ -676,6 +676,15 @@ class TableLaunchStatusPayload(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class LaunchSessionPayload(BaseModel):
+    kind: str
+    loaded_from_label: str
+    target_label: str
+    title_label: str
+    detail_label: str | None = None
+    copy_command: str | None = None
+
+
 class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -695,6 +704,7 @@ class HealthResponse(BaseModel):
     presence: PresenceHealthPayload | None = None
     hotpath: HotpathHealthPayload | None = None
     table_launch_status: TableLaunchStatusPayload | None = None
+    launch_session: LaunchSessionPayload | None = None
 
 
 class RefreshResponse(BaseModel):

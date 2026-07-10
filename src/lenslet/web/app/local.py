@@ -537,6 +537,7 @@ def build_local_browse_adapters(
             workspace=context.workspace,
             runtime=context.runtime,
             recursive_browse_cache=context.recursive_browse_cache,
+            launch_session=options.launch_session,
         ).model_copy(
             update={
                 "root": root_path,

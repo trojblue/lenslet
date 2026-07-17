@@ -5,6 +5,7 @@ import type { ConnectionStatus } from '../../api/client'
 import type {
   HealthMode,
   BrowseItemPayload,
+  LaunchSessionPayload,
   PresenceEvent,
   StarRating,
   TableLaunchStatusPayload,
@@ -47,6 +48,7 @@ type UseAppPresenceSyncResult = {
   refreshDisabledReason: string | null
   indexing: HealthIndexing | null
   tableLaunchStatus: TableLaunchStatusPayload | null
+  launchSession: LaunchSessionPayload | null
   highlightedPaths: Map<string, string>
   onVisiblePathsChange: (paths: Set<string>) => void
   offViewSummary: RecentSummary | null
@@ -88,6 +90,7 @@ export function useAppPresenceSync({
     refreshDisabledReason,
     indexing,
     tableLaunchStatus,
+    launchSession,
   } = useAppHealthPolling()
 
   const applyPresenceCounts = useCallback((counts: PresenceEvent[]) => {
@@ -161,6 +164,7 @@ export function useAppPresenceSync({
     refreshDisabledReason,
     indexing,
     tableLaunchStatus,
+    launchSession,
     highlightedPaths,
     onVisiblePathsChange,
     offViewSummary,

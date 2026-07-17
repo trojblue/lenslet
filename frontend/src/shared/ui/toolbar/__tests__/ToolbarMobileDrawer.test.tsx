@@ -49,7 +49,25 @@ describe('ToolbarMobileDrawer theme mount', () => {
     )
 
     expect(html).toContain('theme-settings-menu-trigger-mobile')
-    expect(html).toContain('Theme settings (Teal)')
+    expect(html).toContain('Settings (Teal)')
+  })
+
+  it('keeps shared settings reachable when launch session metadata is present', () => {
+    const html = renderToStaticMarkup(
+      <ToolbarMobileDrawer
+        {...baseProps}
+        launchSession={{
+          kind: 'hf_dataset',
+          loaded_from_label: 'Hugging Face dataset',
+          target_label: 'owner/repo',
+          title_label: 'owner/repo',
+          copy_command: 'lenslet owner/repo',
+        }}
+      />,
+    )
+
+    expect(html).toContain('theme-settings-menu-trigger-mobile')
+    expect(html).toContain('Settings (Teal)')
   })
 
   it('removes unavailable select/upload commands from the drawer grid', () => {

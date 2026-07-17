@@ -6,6 +6,7 @@ from typing import Literal, TypeAlias
 from ...embeddings.config import EmbeddingConfig
 from ...indexing_status import IndexingListener
 from ...workspace import Workspace
+from ..models import LaunchSessionPayload
 
 StorageRefreshMode: TypeAlias = Literal["static", "subtree"]
 StorageMode: TypeAlias = Literal["memory", "table", "dataset", "storage"]
@@ -41,6 +42,7 @@ class LocalAppOptions:
     workspace: Workspace | None = None
     preindex_signature: str | None = None
     path_column: str | None = None
+    launch_session: LaunchSessionPayload | None = None
     trusted_write_origins: tuple[str, ...] = ()
 
 
@@ -48,6 +50,7 @@ class LocalAppOptions:
 class DatasetAppOptions:
     browse: BrowseAppOptions = field(default_factory=BrowseAppOptions)
     show_source: bool = True
+    launch_session: LaunchSessionPayload | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +66,7 @@ class TableAppOptions:
     og_preview: bool = False
     workspace: Workspace | None = None
     embedding_table_path: str | None = None
+    launch_session: LaunchSessionPayload | None = None
     trusted_write_origins: tuple[str, ...] = ()
 
 
@@ -77,4 +81,5 @@ class StorageAppOptions:
     storage_mode: StorageMode | None = None
     storage_origin: str | None = None
     refresh: StorageRefreshMode | None = None
+    launch_session: LaunchSessionPayload | None = None
     trusted_write_origins: tuple[str, ...] = ()

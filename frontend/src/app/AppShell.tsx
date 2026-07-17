@@ -116,6 +116,7 @@ import { useSmartFolders } from './hooks/useSmartFolders'
 import { useViewportSize } from './hooks/useViewportSize'
 import { buildFilterChips } from './model/filterChips'
 import { buildActionErrorMessage, type ActionFeedback } from './model/actionFeedback'
+import { resolveLensletDocumentTitle } from './model/launchSessionTitle'
 import {
   ItemQueryPathIndex,
   patchIndexedItemQueries,
@@ -627,6 +628,7 @@ export default function AppShell({
     refreshDisabledReason,
     indexing,
     tableLaunchStatus,
+    launchSession,
     highlightedPaths,
     onVisiblePathsChange: handleVisiblePathsChange,
     offViewSummary,
@@ -651,6 +653,11 @@ export default function AppShell({
   useEffect(() => {
     setThemePreset(loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode))
   }, [themeHealthMode, themeWorkspaceId])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    document.title = resolveLensletDocumentTitle(launchSession)
+  }, [launchSession])
 
   const handleThemePresetChange = useCallback((nextThemePreset: ThemePresetId) => {
     const appliedTheme = applyThemePreset(nextThemePreset)
@@ -951,21 +958,8 @@ export default function AppShell({
     setViewState((prev) => rankByDerivedMetricInViewState(prev, spec))
   }, [requestGridContextRestore])
 
-  const formatTitle = useCallback((path: string) => {
-    if (path === '/' || path === '') return 'Lenslet | Root'
-    const segments = path.split('/').filter(Boolean)
-    if (!segments.length) return 'Lenslet'
-    const tail = segments.slice(-2).join('/')
-    const display = segments.length > 2 ? `.../${tail}` : `/${tail}`
-    return `Lenslet | ${display}`
-  }, [])
-
   const scopeLabel = useMemo(() => formatScopeLabel(current), [current])
   const derivedRankDisabledReason = getDerivedMetricRankDisabledReason(similarityActive)
-
-  useEffect(() => {
-    document.title = formatTitle(current)
-  }, [current, formatTitle])
 
   useEffect(() => {
     if (searching) {
@@ -1196,6 +1190,7 @@ export default function AppShell({
         onCompareOrderModeChange={setCompareOrderMode}
         sourceColumns={tableSourceColumns}
         tableLaunchStatus={tableLaunchStatus}
+        launchSession={launchSession}
         sourceColumnSwitching={tableSourceSwitching}
         onSourceColumnChange={handleTableSourceColumnChange}
         multiSelectMode={mobileSelectMode}
@@ -1269,6 +1264,7 @@ export default function AppShell({
             onCompareOrderModeChange={setCompareOrderMode}
             tableSourceColumns={tableSourceColumns}
             tableLaunchStatus={tableLaunchStatus}
+            launchSession={launchSession}
             tableSourceSwitching={tableSourceSwitching}
             onTableSourceColumnChange={handleTableSourceColumnChange}
           />

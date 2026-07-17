@@ -13,7 +13,7 @@ from ...workspace import Workspace
 from ..auth import set_mutation_policy
 from ..browse import build_item_payload, categoricals_for_cached_item
 from ..context import get_app_context
-from ..models import HealthResponse
+from ..models import HealthResponse, LaunchSessionPayload
 from .base import create_api_app
 from .builder import BrowseAppAdapters, BrowseAppAssembly, BrowseAppContextInputs, finalize_browse_app
 from .health import (
@@ -67,6 +67,7 @@ def create_dataset_app(
         app,
         datasets=datasets,
         show_source=options.show_source,
+        launch_session=options.launch_session,
         record_update=build_record_update(app),
     )
 
@@ -93,6 +94,7 @@ def build_dataset_browse_adapters(
     *,
     datasets: dict[str, list[str]],
     show_source: bool,
+    launch_session: LaunchSessionPayload | None,
     record_update,
 ) -> BrowseAppAdapters:
     dataset_names = list(datasets.keys())
@@ -124,6 +126,7 @@ def build_dataset_browse_adapters(
             workspace=context.workspace,
             runtime=context.runtime,
             recursive_browse_cache=context.recursive_browse_cache,
+            launch_session=launch_session,
         ).model_copy(
             update={
                 "datasets": dataset_names,

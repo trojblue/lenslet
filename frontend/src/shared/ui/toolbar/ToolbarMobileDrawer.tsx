@@ -3,6 +3,7 @@ import Dropdown, { type DropdownGroup } from '../Dropdown'
 import SortDirectionIcon from './SortDirectionIcon'
 import type {
   CompareOrderMode,
+  LaunchSessionPayload,
   TableLaunchStatusPayload,
   TableSourceColumnsPayload,
   ViewMode,
@@ -30,6 +31,7 @@ export interface ToolbarMobileDrawerProps {
   compareOrderMode: CompareOrderMode
   sourceColumns?: TableSourceColumnsPayload | null
   tableLaunchStatus?: TableLaunchStatusPayload | null
+  launchSession?: LaunchSessionPayload | null
   sourceColumnSwitching?: boolean
   filtersOpen: boolean
   filtersRef: React.RefObject<HTMLDivElement>
@@ -81,6 +83,7 @@ export default function ToolbarMobileDrawer({
   compareOrderMode,
   sourceColumns,
   tableLaunchStatus,
+  launchSession,
   sourceColumnSwitching,
   filtersOpen,
   filtersRef,
@@ -150,6 +153,7 @@ export default function ToolbarMobileDrawer({
             onCompareOrderModeChange={onCompareOrderModeChange}
             sourceColumns={sourceColumns}
             tableLaunchStatus={tableLaunchStatus}
+            launchSession={launchSession}
             sourceColumnSwitching={sourceColumnSwitching}
             onSourceColumnChange={onSourceColumnChange}
           />

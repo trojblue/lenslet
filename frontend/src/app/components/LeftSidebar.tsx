@@ -10,6 +10,7 @@ import type {
   BrowseFacetsPayload,
   BrowseFolderPayload,
   BrowseItemPayload,
+  LaunchSessionPayload,
   MetricDisplayNames,
   SavedView,
   TableLaunchStatusPayload,
@@ -67,6 +68,7 @@ type LeftSidebarProps = {
   onCompareOrderModeChange: (mode: CompareOrderMode) => void
   tableSourceColumns?: TableSourceColumnsPayload | null
   tableLaunchStatus?: TableLaunchStatusPayload | null
+  launchSession?: LaunchSessionPayload | null
   tableSourceSwitching?: boolean
   onTableSourceColumnChange?: (sourceColumn: string) => void
 }
@@ -127,6 +129,7 @@ export default function LeftSidebar({
   onCompareOrderModeChange,
   tableSourceColumns,
   tableLaunchStatus,
+  launchSession,
   tableSourceSwitching,
   onTableSourceColumnChange,
 }: LeftSidebarProps): JSX.Element {
@@ -216,6 +219,7 @@ export default function LeftSidebar({
           onCompareOrderModeChange={onCompareOrderModeChange}
           sourceColumns={tableSourceColumns}
           tableLaunchStatus={tableLaunchStatus}
+          launchSession={launchSession}
           sourceColumnSwitching={tableSourceSwitching}
           onSourceColumnChange={onTableSourceColumnChange}
         />

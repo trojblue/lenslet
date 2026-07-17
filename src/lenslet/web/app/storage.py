@@ -16,7 +16,7 @@ from ...storage.table.storage import TableStorage
 from ...workspace import Workspace
 from ..browse import build_item_payload, categoricals_for_cached_item
 from ..context import get_app_context, get_request_context
-from ..models import ErrorResponse, HealthResponse, RefreshResponse
+from ..models import ErrorResponse, HealthResponse, LaunchSessionPayload, RefreshResponse
 from ..permissions import deny_if_mutation_forbidden
 from ..paths import canonical_path
 from .base import create_api_app
@@ -102,6 +102,7 @@ def create_storage_app(
     adapters = build_storage_browse_adapters(
         app,
         show_source=options.show_source,
+        launch_session=options.launch_session,
         record_update=build_record_update(app),
         register_refresh_routes=storage_refresh_registrar(identity),
         refresh_mode=identity.refresh,
@@ -211,6 +212,7 @@ def build_storage_browse_adapters(
     app: FastAPI,
     *,
     show_source: bool,
+    launch_session: LaunchSessionPayload | None,
     record_update: RecordUpdateFn,
     register_refresh_routes,
     refresh_mode: StorageRefreshMode | Literal["default"] = "default",
@@ -237,6 +239,7 @@ def build_storage_browse_adapters(
             workspace=context.workspace,
             runtime=context.runtime,
             recursive_browse_cache=context.recursive_browse_cache,
+            launch_session=launch_session,
             refresh_mode=refresh_mode,
             static_refresh_note=static_refresh_note,
         ).model_copy(

@@ -29,6 +29,7 @@ from ..models import (
     TableDimensionCoveragePayload,
     TableLaunchStatusPayload,
     TableSkippedRowsPayload,
+    LaunchSessionPayload,
 )
 from ..presence_runtime import presence_runtime_payload
 from ..runtime import AppRuntime
@@ -71,6 +72,7 @@ def _base_health_payload(
     workspace: Workspace,
     runtime: AppRuntime,
     recursive_browse_cache: RecursiveBrowseCache | None,
+    launch_session: LaunchSessionPayload | None = None,
     refresh_mode: StorageRefreshMode | Literal["default"] = "default",
     static_refresh_note: str | None = None,
 ) -> HealthResponse:
@@ -94,6 +96,7 @@ def _base_health_payload(
         presence=_presence_health_payload(runtime),
         hotpath=runtime.hotpath_metrics.snapshot(storage),
         table_launch_status=_table_launch_status_payload(storage, workspace),
+        launch_session=launch_session,
     )
 
 

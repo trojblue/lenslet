@@ -55,6 +55,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import type {
   CompareOrderMode,
+  BrowseFacetFields,
   FilterAST,
   HealthMode,
   BrowseItemPayload,
@@ -268,6 +269,14 @@ export default function AppShell({
   const [rightOpen, setRightOpen] = useState(true)
   const { viewportWidth, viewportHeight } = useViewportSize()
   const [leftTool, setLeftTool] = useState<LeftTool>('folders')
+  const [metricsFacetFields, setMetricsFacetFields] = useState<BrowseFacetFields>({
+    metric_keys: [],
+    categorical_keys: [],
+  })
+  const [derivedFacetFields, setDerivedFacetFields] = useState<BrowseFacetFields>({
+    metric_keys: [],
+    categorical_keys: [],
+  })
   const [themePreset, setThemePreset] = useState<ThemePresetId>(() => (
     loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode)
   ))
@@ -579,6 +588,23 @@ export default function AppShell({
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
   const metricsPanelActive = leftOpen && (leftTool === 'metrics' || leftTool === 'derived')
   const needsBackendMetricRailSummary = metricSortKey !== null && isDerivedMetricKey(metricSortKey)
+  const requestedFacetFields = useMemo(() => {
+    const panelFields = leftTool === 'metrics'
+      ? metricsFacetFields
+      : leftTool === 'derived'
+        ? derivedFacetFields
+        : { metric_keys: [], categorical_keys: [] }
+    return {
+      metric_keys: Array.from(new Set([
+        ...panelFields.metric_keys,
+        ...(needsBackendMetricRailSummary && metricSortKey ? [metricSortKey] : []),
+      ])).sort(),
+      categorical_keys: Array.from(new Set(panelFields.categorical_keys)).sort(),
+    }
+  }, [derivedFacetFields, leftTool, metricSortKey, metricsFacetFields, needsBackendMetricRailSummary])
+  const hasRequestedFacetFields = (
+    requestedFacetFields.metric_keys.length + requestedFacetFields.categorical_keys.length > 0
+  )
   const metricsFacetsQuery = useFolderFacets({
     path: current,
     recursive: true,
@@ -588,7 +614,12 @@ export default function AppShell({
     randomSeed,
     derivedMetric: viewState.derivedMetric ?? null,
     unsupportedToken: analysisUnsupportedMetricIntent,
-    enabled: (metricsPanelActive || needsBackendMetricRailSummary) && !similarityState,
+    facetFields: requestedFacetFields,
+    enabled: (
+      (metricsPanelActive || needsBackendMetricRailSummary)
+      && hasRequestedFacetFields
+      && !similarityState
+    ),
   })
   const metricsFacets = metricsFacetsQuery.data?.path === (data?.path ?? current)
     ? metricsFacetsQuery.data
@@ -1269,6 +1300,8 @@ export default function AppShell({
             onChangeRange={handleMetricRange}
             onChangeCategoricalValues={handleCategoricalValues}
             onChangeFilters={handleFiltersChange}
+            onMetricsFacetFieldsChange={setMetricsFacetFields}
+            onDerivedFacetFieldsChange={setDerivedFacetFields}
             onResize={onResizeLeft}
             themePreset={themePreset}
             onThemePresetChange={handleThemePresetChange}

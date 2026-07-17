@@ -2,6 +2,7 @@ import { Plus, Sigma, Trash2 } from 'lucide-react'
 import React, { useEffect, useMemo, useState } from 'react'
 import type {
   BrowseFacetsPayload,
+  BrowseFacetFields,
   BrowseItemPayload,
   DerivedMetricSpec,
   MetricDisplayNames,
@@ -47,6 +48,7 @@ interface DerivedScoreCardProps {
   rankDisabledReason?: string | null
   onApplyDerivedMetric: (spec: DerivedMetricSpec | null) => void
   onRankByDerivedMetric: (spec: DerivedMetricSpec) => void
+  onFacetFieldsChange?: (fields: BrowseFacetFields) => void
 }
 
 export default function DerivedScoreCard({
@@ -61,6 +63,7 @@ export default function DerivedScoreCard({
   rankDisabledReason = null,
   onApplyDerivedMetric,
   onRankByDerivedMetric,
+  onFacetFieldsChange,
 }: DerivedScoreCardProps): JSX.Element {
   const sourceMetricKeys = useMemo(
     () => metricKeys.filter((key) => !isDerivedMetricKey(key)),
@@ -118,9 +121,19 @@ export default function DerivedScoreCard({
     [formulaDiagnostics],
   )
   const numericTermKeys = useMemo(
-    () => uniqueNumericTermKeys(draft.numericTerms),
+    () => uniqueTermKeys(draft.numericTerms),
     [draft.numericTerms],
   )
+  const categoricalTermKeys = useMemo(
+    () => uniqueTermKeys(draft.categoricalTerms),
+    [draft.categoricalTerms],
+  )
+  useEffect(() => {
+    onFacetFieldsChange?.({
+      metric_keys: numericTermKeys,
+      categorical_keys: categoricalTermKeys,
+    })
+  }, [categoricalTermKeys, numericTermKeys, onFacetFieldsChange])
   const histogramsByMetric = useMemo(
     () => buildNumericTermHistograms({
       facets,
@@ -575,13 +588,10 @@ export default function DerivedScoreCard({
   )
 }
 
-function uniqueNumericTermKeys(terms: readonly DerivedMetricNumericDraftTerm[]): string[] {
-  const keys = new Set<string>()
-  for (const term of terms) {
-    const key = term.key.trim()
-    if (key) keys.add(key)
-  }
-  return Array.from(keys).sort()
+function uniqueTermKeys(terms: readonly { key: string }[]): string[] {
+  return Array.from(new Set(
+    terms.map((term) => term.key.trim()).filter(Boolean),
+  )).sort()
 }
 
 function buildNumericTermHistograms({

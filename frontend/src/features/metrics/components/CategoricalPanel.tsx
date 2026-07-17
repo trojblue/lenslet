@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FilterAST, BrowseFacetsPayload, BrowseItemPayload } from '../../../lib/types'
 import {
   collectCategoricalBucketsByKey,
@@ -7,6 +7,7 @@ import {
 } from '../model/categoricalValues'
 import Dropdown from '../../../shared/ui/Dropdown'
 import CategoricalCard from './CategoricalCard'
+import VirtualFieldList from './VirtualFieldList'
 
 interface CategoricalPanelProps {
   items: BrowseItemPayload[]
@@ -17,6 +18,7 @@ interface CategoricalPanelProps {
   selectedItems?: BrowseItemPayload[]
   filters: FilterAST
   onChangeValues: (key: string, values: string[] | null) => void
+  onFacetFieldsChange?: (keys: string[]) => void
 }
 
 export default function CategoricalPanel({
@@ -28,15 +30,17 @@ export default function CategoricalPanel({
   selectedItems,
   filters,
   onChangeValues,
+  onFacetFieldsChange,
 }: CategoricalPanelProps) {
   const [showAll, setShowAll] = useState(false)
+  const [visibleCategoricalKeys, setVisibleCategoricalKeys] = useState<string[]>([])
   const [selectedCategorical, setSelectedCategorical] = useState<string | null>(null)
   const activeCategorical = selectedCategorical && categoricalKeys.includes(selectedCategorical)
     ? selectedCategorical
     : categoricalKeys[0]
   const scopedCategoricalKeys = useMemo(() => (
-    showAll ? categoricalKeys : activeCategorical ? [activeCategorical] : []
-  ), [showAll, categoricalKeys, activeCategorical])
+    showAll ? visibleCategoricalKeys : activeCategorical ? [activeCategorical] : []
+  ), [showAll, visibleCategoricalKeys, activeCategorical])
   const bucketsByKey = useMemo(
     () => {
       if (facets) {
@@ -61,6 +65,15 @@ export default function CategoricalPanel({
     }))
   ), [categoricalKeys])
 
+  useEffect(() => {
+    if (!showAll) onFacetFieldsChange?.(activeCategorical ? [activeCategorical] : [])
+  }, [activeCategorical, onFacetFieldsChange, showAll])
+
+  const handleVisibleKeysChange = useCallback((keys: string[]) => {
+    setVisibleCategoricalKeys(keys)
+    onFacetFieldsChange?.(keys)
+  }, [onFacetFieldsChange])
+
   if (!categoricalKeys.length) return null
 
   const renderCategoricalCard = (key: string, showTitle = false) => (
@@ -84,6 +97,7 @@ export default function CategoricalPanel({
             className="btn btn-sm btn-ghost text-[11px]"
             onClick={() => setShowAll((v) => !v)}
             aria-pressed={showAll}
+            data-categorical-show-all
           >
             {showAll ? 'Show one' : 'Show all'}
           </button>
@@ -111,9 +125,13 @@ export default function CategoricalPanel({
       </div>
 
       {showAll ? (
-        <div className="space-y-3">
-          {categoricalKeys.map((key) => renderCategoricalCard(key, true))}
-        </div>
+        <VirtualFieldList
+          keys={categoricalKeys}
+          estimateSize={420}
+          kind="categorical"
+          onVisibleKeysChange={handleVisibleKeysChange}
+          renderCard={(key) => renderCategoricalCard(key, true)}
+        />
       ) : (
         activeCategorical ? (
           renderCategoricalCard(activeCategorical)

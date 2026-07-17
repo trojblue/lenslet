@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react'
-import type { FilterAST, BrowseFacetsPayload, BrowseItemPayload, MetricDisplayNames } from '../../lib/types'
+import React, { useEffect, useMemo, useState } from 'react'
+import type { BrowseFacetFields, FilterAST, BrowseFacetsPayload, BrowseItemPayload, MetricDisplayNames } from '../../lib/types'
 import AttributesPanel from './components/AttributesPanel'
 import CategoricalPanel from './components/CategoricalPanel'
 import MetricRangePanel from './components/MetricRangePanel'
@@ -25,6 +25,7 @@ interface MetricsPanelProps {
   onChangeRange: (key: string, range: Range | null) => void
   onChangeCategoricalValues: (key: string, values: string[] | null) => void
   onChangeFilters: (filters: FilterAST) => void
+  onFacetFieldsChange?: (fields: BrowseFacetFields) => void
 }
 
 interface SelectedMetricsPanelProps {
@@ -52,7 +53,16 @@ export default function MetricsPanel({
   onChangeRange,
   onChangeCategoricalValues,
   onChangeFilters,
+  onFacetFieldsChange,
 }: MetricsPanelProps) {
+  const [metricFacetKeys, setMetricFacetKeys] = useState<string[]>([])
+  const [categoricalFacetKeys, setCategoricalFacetKeys] = useState<string[]>([])
+  useEffect(() => {
+    onFacetFieldsChange?.({
+      metric_keys: metricFacetKeys,
+      categorical_keys: categoricalFacetKeys,
+    })
+  }, [categoricalFacetKeys, metricFacetKeys, onFacetFieldsChange])
   const selectedValuesByKey = useMemo(() => (
     selectedItems?.length ? collectMetricValuesByKey(selectedItems, metricKeys) : null
   ), [selectedItems, metricKeys])
@@ -83,6 +93,7 @@ export default function MetricsPanel({
       selectedItems={selectedItems}
       filters={filters}
       onChangeValues={onChangeCategoricalValues}
+      onFacetFieldsChange={setCategoricalFacetKeys}
     />
   )
 
@@ -115,6 +126,7 @@ export default function MetricsPanel({
           onSelectMetric={onSelectMetric}
           filters={filters}
           onChangeRange={onChangeRange}
+          onFacetFieldsChange={setMetricFacetKeys}
         />
       )}
       {categoricalPanel}

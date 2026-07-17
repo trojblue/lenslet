@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FilterAST } from '../../../lib/types'
 import {
   getDateRangeFilter,
@@ -34,6 +34,7 @@ interface AttributesPanelProps {
 
 const STAR_VALUES = [5, 4, 3, 2, 1]
 const COMPARE_OPS: CompareOp[] = ['<', '<=', '>', '>=']
+const TEXT_COMMIT_DELAY_MS = 250
 
 export default function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
   const starsIn = useMemo(() => getStarsInFilter(filters), [filters])
@@ -168,21 +169,19 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
           <div className="ui-subsection-title mb-2">Filename</div>
           <div className="grid grid-cols-1 gap-2">
             <div>
-              <label className="ui-label">Contains</label>
-              <input
-                className="ui-input w-full"
+              <CommittedTextInput
+                label="Filename contains"
                 value={nameContains}
                 placeholder="e.g. draft"
-                onChange={(e) => onChangeFilters(setNameContainsFilter(filters, e.target.value))}
+                onCommit={(value) => onChangeFilters(setNameContainsFilter(filters, value))}
               />
             </div>
             <div>
-              <label className="ui-label">Does not contain</label>
-              <input
-                className="ui-input w-full"
+              <CommittedTextInput
+                label="Filename does not contain"
                 value={nameNotContains}
                 placeholder="e.g. v1"
-                onChange={(e) => onChangeFilters(setNameNotContainsFilter(filters, e.target.value))}
+                onCommit={(value) => onChangeFilters(setNameNotContainsFilter(filters, value))}
               />
             </div>
           </div>
@@ -192,21 +191,19 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
           <div className="ui-subsection-title mb-2">Notes</div>
           <div className="grid grid-cols-1 gap-2">
             <div>
-              <label className="ui-label">Contains</label>
-              <input
-                className="ui-input w-full"
+              <CommittedTextInput
+                label="Notes contain"
                 value={notesContains}
                 placeholder="e.g. hero"
-                onChange={(e) => onChangeFilters(setNotesContainsFilter(filters, e.target.value))}
+                onCommit={(value) => onChangeFilters(setNotesContainsFilter(filters, value))}
               />
             </div>
             <div>
-              <label className="ui-label">Does not contain</label>
-              <input
-                className="ui-input w-full"
+              <CommittedTextInput
+                label="Notes do not contain"
                 value={notesNotContains}
                 placeholder="e.g. todo"
-                onChange={(e) => onChangeFilters(setNotesNotContainsFilter(filters, e.target.value))}
+                onCommit={(value) => onChangeFilters(setNotesNotContainsFilter(filters, value))}
               />
             </div>
           </div>
@@ -216,21 +213,19 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
           <div className="ui-subsection-title mb-2">URL</div>
           <div className="grid grid-cols-1 gap-2">
             <div>
-              <label className="ui-label">Contains</label>
-              <input
-                className="ui-input w-full"
+              <CommittedTextInput
+                label="URL contains"
                 value={urlContains}
                 placeholder="e.g. s3://bucket"
-                onChange={(e) => onChangeFilters(setUrlContainsFilter(filters, e.target.value))}
+                onCommit={(value) => onChangeFilters(setUrlContainsFilter(filters, value))}
               />
             </div>
             <div>
-              <label className="ui-label">Does not contain</label>
-              <input
-                className="ui-input w-full"
+              <CommittedTextInput
+                label="URL does not contain"
                 value={urlNotContains}
                 placeholder="e.g. http://"
-                onChange={(e) => onChangeFilters(setUrlNotContainsFilter(filters, e.target.value))}
+                onCommit={(value) => onChangeFilters(setUrlNotContainsFilter(filters, value))}
               />
             </div>
           </div>
@@ -348,4 +343,77 @@ function toDateInputValue(value?: string): string {
   if (!value) return ''
   if (value.length >= 10) return value.slice(0, 10)
   return value
+}
+
+interface CommittedTextInputProps {
+  label: string
+  value: string
+  placeholder: string
+  onCommit: (value: string) => void
+}
+
+function CommittedTextInput({
+  label,
+  value,
+  placeholder,
+  onCommit,
+}: CommittedTextInputProps): JSX.Element {
+  const [draft, setDraft] = useState(value)
+  const committedRef = useRef(value)
+  const onCommitRef = useRef(onCommit)
+  onCommitRef.current = onCommit
+
+  useEffect(() => {
+    committedRef.current = value
+    setDraft(value)
+  }, [value])
+
+  const commit = useCallback(() => {
+    if (draft === committedRef.current) return
+    committedRef.current = draft
+    onCommitRef.current(draft)
+  }, [draft])
+
+  useEffect(() => {
+    if (draft === committedRef.current) return
+    return scheduleCommittedText(commit, TEXT_COMMIT_DELAY_MS)
+  }, [commit, draft])
+
+  return (
+    <label className="block">
+      <span className="ui-label">{label.replace(/^(Filename|Notes|URL) /, '')}</span>
+      <div className="flex gap-1">
+        <input
+          className="ui-input min-w-0 flex-1"
+          aria-label={label}
+          value={draft}
+          placeholder={placeholder}
+          onChange={(event) => setDraft(event.currentTarget.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            commit()
+          }}
+        />
+        <button
+          type="button"
+          className="btn btn-sm btn-ghost px-2 text-[11px]"
+          disabled={draft === committedRef.current}
+          onClick={commit}
+          aria-label={`Apply ${label}`}
+        >
+          Apply
+        </button>
+      </div>
+    </label>
+  )
+}
+
+export function scheduleCommittedText(
+  commit: () => void,
+  delayMs = TEXT_COMMIT_DELAY_MS,
+): () => void {
+  const timer = globalThis.setTimeout(commit, Math.max(0, delayMs))
+  return () => globalThis.clearTimeout(timer)
 }

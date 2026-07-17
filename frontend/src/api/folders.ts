@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQueries, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { usePollingEnabled } from './polling'
 import { normalizeSearchQuery, normalizeSearchScopePath } from './search'
@@ -7,6 +7,7 @@ import { normalizeDerivedMetricSpec } from '../features/metrics/model/derivedMet
 import { browseEntityStore, type BrowseEntityRequest } from '../app/model/browseEntityStore'
 import type {
   BrowseFacetsPayload,
+  BrowseFacetFields,
   BrowseFieldCapabilitiesPayload,
   BrowseFolderPayload,
   BrowseQueryPage,
@@ -42,6 +43,7 @@ export type BrowseQueryOptions = {
   limit?: number
   unsupportedToken?: string | null
   projection?: BrowseWindowProjection
+  facetFields?: BrowseFacetFields
 }
 
 export type AnalysisQueryKey = readonly [
@@ -91,13 +93,23 @@ function normalizeUnsupportedToken(value: string | null | undefined): string | n
 }
 
 function normalizeProjection(projection: BrowseWindowProjection | undefined): BrowseWindowProjection {
-  const normalize = (values: readonly string[] | undefined) => Array.from(new Set(
+  return {
+    metric_keys: normalizeFieldKeys(projection?.metric_keys),
+    categorical_keys: normalizeFieldKeys(projection?.categorical_keys),
+  }
+}
+
+function normalizeFacetFields(fields: BrowseFacetFields): BrowseFacetFields {
+  return {
+    metric_keys: normalizeFieldKeys(fields.metric_keys),
+    categorical_keys: normalizeFieldKeys(fields.categorical_keys),
+  }
+}
+
+function normalizeFieldKeys(values: readonly string[] | undefined): string[] {
+  return Array.from(new Set(
     (values ?? []).map((value) => value.trim()).filter(Boolean),
   )).sort()
-  return {
-    metric_keys: normalize(projection?.metric_keys),
-    categorical_keys: normalize(projection?.categorical_keys),
-  }
 }
 
 export function buildBrowseQueryRequest(
@@ -107,6 +119,7 @@ export function buildBrowseQueryRequest(
   const limit = options.limit ?? BACKEND_BROWSE_PAGE_SIZE
   const textQuery = normalizeSearchQuery(options.textQuery ?? '')
   const derivedMetric = normalizeDerivedMetricSpec(options.derivedMetric ?? null)
+  const facetFields = options.facetFields ? normalizeFacetFields(options.facetFields) : null
   return {
     path: normalizeSearchScopePath(options.path),
     recursive: options.recursive ?? true,
@@ -119,6 +132,7 @@ export function buildBrowseQueryRequest(
     derived_metric: derivedMetric,
     unsupported_metric_intent: normalizeUnsupportedToken(options.unsupportedToken),
     projection: normalizeProjection(options.projection),
+    ...(facetFields ? { facet_fields: facetFields } : {}),
   }
 }
 
@@ -151,9 +165,12 @@ export const analysisQueryKey = (options: BrowseQueryOptions): AnalysisQueryKey 
   )
 )
 
-export const folderFacetsQueryKey = (options: BrowseQueryOptions) => (
-  ['folder-facets', analysisQueryKey(options)] as const
-)
+export const folderFacetsQueryKey = (options: BrowseQueryOptions) => {
+  const analysisKey = analysisQueryKey(options)
+  return options.facetFields
+    ? ['folder-facets', analysisKey, normalizeFacetFields(options.facetFields)] as const
+    : ['folder-facets', analysisKey] as const
+}
 
 export const windowRequestToken = (
   options: BrowseQueryOptions,
@@ -333,21 +350,116 @@ export function useFolderFacets(options: BrowseQueryOptions & { enabled?: boolea
   const pollingEnabled = usePollingEnabled()
   const { enabled = true, ...queryOptions } = options
   const queryRevision = semanticQueryRevision(analysisQueryKey(queryOptions))
-  return useQuery<BrowseFacetsPayload>({
-    queryKey: folderFacetsQueryKey(queryOptions),
-    queryFn: ({ signal }) => api.queryFolderFacets(
-      buildBrowseQueryRequest(queryOptions, 0),
-      { signal, queryRevision },
-    ),
-    enabled,
-    staleTime: 10_000,
-    gcTime: RECURSIVE_FOLDER_GC_TIME_MS,
-    retry: 2,
-    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 5000),
-    refetchOnWindowFocus: false,
-    refetchInterval: pollingEnabled ? FALLBACK_REFETCH_INTERVAL : false,
-    refetchIntervalInBackground: pollingEnabled,
+  const batches = facetFieldBatches(queryOptions.facetFields)
+  const results = useQueries({
+    queries: batches.map((facetFields) => {
+      const batchOptions = facetFields ? { ...queryOptions, facetFields } : queryOptions
+      return {
+        queryKey: folderFacetsQueryKey(batchOptions),
+        queryFn: ({ signal }: { signal: AbortSignal }) => api.queryFolderFacets(
+          buildBrowseQueryRequest(batchOptions, 0),
+          { signal, queryRevision },
+        ),
+        enabled,
+        staleTime: 10_000,
+        gcTime: RECURSIVE_FOLDER_GC_TIME_MS,
+        retry: 2,
+        retryDelay: (attempt: number) => Math.min(1000 * Math.pow(2, attempt), 5000),
+        refetchOnWindowFocus: false,
+        refetchInterval: pollingEnabled ? FALLBACK_REFETCH_INTERVAL : false,
+        refetchIntervalInBackground: pollingEnabled,
+      }
+    }),
   })
+  return {
+    data: mergeBrowseFacetPayloads(
+      results.flatMap((result) => result.data ? [result.data as BrowseFacetsPayload] : []),
+    ),
+    isLoading: results.some((result) => result.isLoading),
+    isFetching: results.some((result) => result.isFetching),
+    isError: results.some((result) => result.isError),
+    error: results.find((result) => result.error)?.error ?? null,
+    refetch: () => Promise.all(results.map((result) => result.refetch())),
+  }
+}
+
+export function facetFieldBatches(fields: BrowseFacetFields | undefined): Array<BrowseFacetFields | undefined> {
+  if (!fields) return [undefined]
+  const normalized = normalizeFacetFields(fields)
+  const entries = [
+    ...normalized.metric_keys.map((key) => ({ kind: 'metric' as const, key })),
+    ...normalized.categorical_keys.map((key) => ({ kind: 'categorical' as const, key })),
+  ]
+  const batches: BrowseFacetFields[] = []
+  for (let offset = 0; offset < entries.length; offset += 24) {
+    const batch = entries.slice(offset, offset + 24)
+    batches.push({
+      metric_keys: batch.filter((entry) => entry.kind === 'metric').map((entry) => entry.key),
+      categorical_keys: batch
+        .filter((entry) => entry.kind === 'categorical')
+        .map((entry) => entry.key),
+    })
+  }
+  return batches
+}
+
+export function mergeBrowseFacetPayloads(
+  payloads: readonly BrowseFacetsPayload[],
+): BrowseFacetsPayload | undefined {
+  const first = payloads[0]
+  if (!first) return undefined
+  const metricKeys = new Set<string>()
+  const categoricalKeys = new Set<string>()
+  const fields = new Set<string>()
+  const dependencyMetricKeys = new Set<string>()
+  const dependencyCategoricalKeys = new Set<string>()
+  for (const payload of payloads) {
+    payload.metric_keys.forEach((key) => metricKeys.add(key))
+    payload.categorical_keys.forEach((key) => categoricalKeys.add(key))
+    payload.dependency_manifest.fields.forEach((key) => fields.add(key))
+    payload.dependency_manifest.metric_keys.forEach((key) => dependencyMetricKeys.add(key))
+    payload.dependency_manifest.categorical_keys.forEach((key) => dependencyCategoricalKeys.add(key))
+  }
+  return {
+    ...first,
+    metric_keys: Array.from(metricKeys).sort(),
+    categorical_keys: Array.from(categoricalKeys).sort(),
+    metrics: Object.assign({}, ...payloads.map((payload) => payload.metrics)),
+    categoricals: Object.assign({}, ...payloads.map((payload) => payload.categoricals)),
+    field_capabilities: mergeFacetFieldCapabilities(payloads),
+    dependency_manifest: {
+      fields: Array.from(fields).sort(),
+      metric_keys: Array.from(dependencyMetricKeys).sort(),
+      categorical_keys: Array.from(dependencyCategoricalKeys).sort(),
+      unknown: payloads.some((payload) => payload.dependency_manifest.unknown),
+    },
+  }
+}
+
+function mergeFacetFieldCapabilities(
+  payloads: readonly BrowseFacetsPayload[],
+): BrowseFacetsPayload['field_capabilities'] {
+  const capabilities = payloads.flatMap((payload) => (
+    payload.field_capabilities ? [payload.field_capabilities] : []
+  ))
+  const first = capabilities[0]
+  if (!first) return null
+  const mergeKeys = (key: keyof typeof first) => Array.from(new Set(
+    capabilities.flatMap((entry) => {
+      const value = entry[key]
+      return Array.isArray(value) ? value as string[] : []
+    }),
+  )).sort()
+  return {
+    ...first,
+    metrics: Object.assign({}, ...capabilities.map((entry) => entry.metrics)),
+    categoricals: Object.assign({}, ...capabilities.map((entry) => entry.categoricals)),
+    display_metrics: mergeKeys('display_metrics'),
+    sortable_metrics: mergeKeys('sortable_metrics'),
+    filterable_metrics: mergeKeys('filterable_metrics'),
+    numeric_formula_inputs: mergeKeys('numeric_formula_inputs'),
+    categorical_inputs: mergeKeys('categorical_inputs'),
+  }
 }
 
 type UseFolderCountOptions = {

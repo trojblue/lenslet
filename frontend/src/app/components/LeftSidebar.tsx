@@ -8,6 +8,7 @@ import type {
   DerivedMetricSpec,
   FilterAST,
   BrowseFacetsPayload,
+  BrowseFacetFields,
   BrowseFolderPayload,
   BrowseItemPayload,
   LaunchSessionPayload,
@@ -58,6 +59,8 @@ type LeftSidebarProps = {
   onChangeRange: (key: string, range: { min: number; max: number } | null) => void
   onChangeCategoricalValues: (key: string, values: string[] | null) => void
   onChangeFilters: (filters: FilterAST) => void
+  onMetricsFacetFieldsChange?: (fields: BrowseFacetFields) => void
+  onDerivedFacetFieldsChange?: (fields: BrowseFacetFields) => void
   onResize: (event: PointerEvent<HTMLDivElement>) => void
   themePreset: ThemePresetId
   onThemePresetChange: (themeId: ThemePresetId) => void
@@ -120,6 +123,8 @@ export default function LeftSidebar({
   onChangeRange,
   onChangeCategoricalValues,
   onChangeFilters,
+  onMetricsFacetFieldsChange,
+  onDerivedFacetFieldsChange,
   onResize,
   themePreset,
   onThemePresetChange,
@@ -290,6 +295,7 @@ export default function LeftSidebar({
                 onChangeRange={onChangeRange}
                 onChangeCategoricalValues={onChangeCategoricalValues}
                 onChangeFilters={onChangeFilters}
+                onFacetFieldsChange={onMetricsFacetFieldsChange}
               />
             ) : (
               <DerivedScorePanel
@@ -303,6 +309,7 @@ export default function LeftSidebar({
                 derivedRankDisabledReason={derivedRankDisabledReason}
                 onApplyDerivedMetric={onApplyDerivedMetric}
                 onRankByDerivedMetric={onRankByDerivedMetric}
+                onFacetFieldsChange={onDerivedFacetFieldsChange}
               />
             )}
           </div>

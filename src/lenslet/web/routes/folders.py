@@ -7,6 +7,7 @@ from typing import TypeVar
 from fastapi import FastAPI, HTTPException, Query, Request
 
 from ...browse.query import (
+    BrowseFacetFields,
     BrowseFilterAst,
     BrowseFilterClause,
     BrowseQuerySpec,
@@ -30,6 +31,7 @@ from ...browse.query import (
     UrlNotContainsFilter,
     WidthCompareFilter,
     browse_analysis_query_key,
+    browse_facet_request_token,
     browse_query_request_token,
 )
 from ...diagnostics import mark_request_handler_started, request_phase
@@ -248,7 +250,7 @@ async def _coordinated_table_facets(
     analysis = await _acquire_table_filter(
         storage, spec, request, session, revision,
     )
-    facet_key = ("facets", analysis.key, id(analysis))
+    facet_key = (browse_facet_request_token(spec), id(analysis))
     try:
         with request_phase("facet"):
             lease = await coordinator.acquire(
@@ -403,6 +405,14 @@ def _query_spec_from_payload(body: BrowseQueryRequest) -> BrowseQuerySpec:
             metric_keys=tuple(body.projection.metric_keys),
             categorical_keys=tuple(body.projection.categorical_keys),
         ),
+        facet_fields=(
+            BrowseFacetFields(
+                metric_keys=tuple(body.facet_fields.metric_keys),
+                categorical_keys=tuple(body.facet_fields.categorical_keys),
+            )
+            if body.facet_fields is not None
+            else None
+        ),
     )
 
 
@@ -484,7 +494,7 @@ def register_folder_routes(
             )
         return await _coordinated_generic_request(
             kind="facets",
-            key=browse_analysis_query_key(spec),
+            key=browse_facet_request_token(spec),
             operation=lambda: build_folder_facets(storage, spec, to_item),
             request=request,
             session=session,

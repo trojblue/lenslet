@@ -167,6 +167,22 @@ def facets_from_analysis(
     bins: int,
 ) -> dict[str, object]:
     norm, rows, _folders = query_context(storage, spec)
+    available_metric_keys = metric_keys_for_query_spec(spec, analysis.metric_keys)
+    available_categorical_keys = storage.categorical_keys()
+    if spec.facet_fields is None:
+        metric_keys = available_metric_keys
+        categorical_keys = available_categorical_keys
+    else:
+        available_metrics = frozenset(available_metric_keys)
+        available_categoricals = frozenset(available_categorical_keys)
+        metric_keys = [
+            key for key in spec.facet_fields.metric_keys if key in available_metrics
+        ]
+        categorical_keys = [
+            key
+            for key in spec.facet_fields.categorical_keys
+            if key in available_categoricals
+        ]
     return build_table_query_facet_summary(
         spec=spec,
         engine=storage.query_engine,
@@ -174,8 +190,8 @@ def facets_from_analysis(
         scope_total=len(rows),
         generated_at=storage._generated_at,
         canonical_path=_canonical_path(norm),
-        metric_keys=metric_keys_for_query_spec(spec, analysis.metric_keys),
-        categorical_keys=storage.categorical_keys(),
+        metric_keys=metric_keys,
+        categorical_keys=categorical_keys,
         bins=bins,
     )
 

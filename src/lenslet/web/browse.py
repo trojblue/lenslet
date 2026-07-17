@@ -435,30 +435,38 @@ def _facets_from_records(
         categorical_keys=categorical_keys,
     )
     filtered_records = evaluation.window
-    metric_values: dict[str, list[float]] = {}
+    metric_key_list = sorted(dict.fromkeys(metric_keys))
+    categorical_key_list = sorted(dict.fromkeys(categorical_keys))
+    metric_values: dict[str, list[float]] = {key: [] for key in metric_key_list}
     metric_categories: dict[str, dict[tuple[float, str], int]] = {}
-    categorical_counts: dict[str, dict[str, int]] = {}
+    categorical_counts: dict[str, dict[str, int]] = {
+        key: {} for key in categorical_key_list
+    }
 
     for record in filtered_records:
         item = record.payload
         metrics = normalize_metric_mapping(record.metrics)
         if isinstance(metrics, dict):
-            for key, value in metrics.items():
-                metric_values.setdefault(key, []).append(value)
+            for key in metric_key_list:
+                value = metrics.get(key)
+                if value is None:
+                    continue
+                metric_values[key].append(value)
                 label = (item.metric_labels or {}).get(key)
                 if label:
                     category_key = (value, str(label))
                     categories = metric_categories.setdefault(key, {})
                     categories[category_key] = categories.get(category_key, 0) + 1
-        for key, raw_value in (record.categoricals or {}).items():
+        for key in categorical_key_list:
+            raw_value = (record.categoricals or {}).get(key)
+            if raw_value is None:
+                continue
             value = str(raw_value).strip()
             if not value:
                 continue
-            counts = categorical_counts.setdefault(key, {})
+            counts = categorical_counts[key]
             counts[value] = counts.get(value, 0) + 1
 
-    metric_key_list = sorted(set(metric_keys) | set(metric_values))
-    categorical_key_list = sorted(set(categorical_keys) | set(categorical_counts))
     item_payloads = [record.payload for record in filtered_records]
     return BrowseFacetsPayload(
         path=canonical,
@@ -530,19 +538,32 @@ def _facets_from_items(
         else list(getattr(index, "items", []) or [])
     )
     records = _records_from_items(storage, raw_items, to_item)
+    metric_keys = _metric_keys_for_folder(storage, canonical, index, recursive=recursive)
+    categorical_keys = _categorical_keys_for_folder(
+        storage,
+        canonical,
+        index,
+        recursive=recursive,
+    )
+    if spec.facet_fields is not None:
+        available_metrics = frozenset(metric_keys)
+        available_categoricals = frozenset(categorical_keys)
+        metric_keys = [
+            key for key in spec.facet_fields.metric_keys if key in available_metrics
+        ]
+        categorical_keys = [
+            key
+            for key in spec.facet_fields.categorical_keys
+            if key in available_categoricals
+        ]
     return _facets_from_records(
         canonical,
         index.generated_at,
         records,
         spec=spec,
         scope_total=len(raw_items),
-        metric_keys=_metric_keys_for_folder(storage, canonical, index, recursive=recursive),
-        categorical_keys=_categorical_keys_for_folder(
-            storage,
-            canonical,
-            index,
-            recursive=recursive,
-        ),
+        metric_keys=metric_keys,
+        categorical_keys=categorical_keys,
     )
 
 

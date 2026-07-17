@@ -33,6 +33,9 @@ class BrowserRequestEvidence:
                 "phase": self.phase,
                 "endpoint": endpoint,
                 "method": request.method,
+                "facet_field_count": _facet_field_count(request)
+                if endpoint == "/folders/facets"
+                else None,
             }
         )
 
@@ -89,6 +92,12 @@ class BrowserRequestEvidence:
         return {
             "query_requests": _endpoint_count(requests, "/folders/query"),
             "facet_requests": _endpoint_count(requests, "/folders/facets"),
+            "facet_field_counts": [
+                int(entry["facet_field_count"])
+                for entry in requests
+                if entry["endpoint"] == "/folders/facets"
+                and entry["facet_field_count"] is not None
+            ],
             "mutation_requests": _endpoint_count(
                 requests,
                 "/item",
@@ -299,3 +308,14 @@ def _endpoint_bytes(entries: list[dict[str, Any]], endpoint: str) -> int:
         for entry in entries
         if entry["endpoint"] == endpoint and entry["response_bytes"] is not None
     )
+
+
+def _facet_field_count(request: Any) -> int | None:
+    try:
+        body = json.loads(request.post_data or "{}")
+        fields = body.get("facet_fields")
+        if not isinstance(fields, dict):
+            return None
+        return len(fields.get("metric_keys", [])) + len(fields.get("categorical_keys", []))
+    except (TypeError, ValueError):
+        return None

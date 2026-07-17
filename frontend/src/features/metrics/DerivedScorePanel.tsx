@@ -1,6 +1,7 @@
 import DerivedScoreCard from './components/DerivedScoreCard'
 import type {
   BrowseFacetsPayload,
+  BrowseFacetFields,
   BrowseItemPayload,
   DerivedMetricSpec,
   MetricDisplayNames,
@@ -18,6 +19,7 @@ interface DerivedScorePanelProps {
   derivedRankDisabledReason?: string | null
   onApplyDerivedMetric: (spec: DerivedMetricSpec | null) => void
   onRankByDerivedMetric: (spec: DerivedMetricSpec) => void
+  onFacetFieldsChange?: (fields: BrowseFacetFields) => void
 }
 
 export default function DerivedScorePanel({
@@ -31,6 +33,7 @@ export default function DerivedScorePanel({
   derivedRankDisabledReason,
   onApplyDerivedMetric,
   onRankByDerivedMetric,
+  onFacetFieldsChange,
 }: DerivedScorePanelProps): JSX.Element {
   return (
     <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
@@ -46,6 +49,7 @@ export default function DerivedScorePanel({
         rankDisabledReason={derivedRankDisabledReason}
         onApplyDerivedMetric={onApplyDerivedMetric}
         onRankByDerivedMetric={onRankByDerivedMetric}
+        onFacetFieldsChange={onFacetFieldsChange}
       />
     </div>
   )

@@ -19,6 +19,7 @@ BROWSE_QUERY_DEFAULT_LIMIT = 1000
 BROWSE_QUERY_MAX_LIMIT = BROWSE_QUERY_DEFAULT_LIMIT
 BROWSE_PROJECTION_MAX_METRICS = 64
 BROWSE_PROJECTION_MAX_CATEGORICALS = 32
+BROWSE_FACET_MAX_FIELDS = 24
 DERIVED_METRIC_KEY_PREFIX = "@derived/"
 
 
@@ -344,6 +345,27 @@ class BrowseQueryProjectionPayload(StrictModel):
         return sorted(normalized)
 
 
+class BrowseFacetFieldsPayload(StrictModel):
+    metric_keys: list[str] = Field(default_factory=list)
+    categorical_keys: list[str] = Field(default_factory=list)
+
+    @field_validator("metric_keys", "categorical_keys")
+    @classmethod
+    def validate_keys(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values]
+        if any(not value for value in normalized):
+            raise ValueError("facet field keys must be non-empty")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("facet field keys must be unique")
+        return sorted(normalized)
+
+    @model_validator(mode="after")
+    def validate_field_count(self) -> "BrowseFacetFieldsPayload":
+        if len(self.metric_keys) + len(self.categorical_keys) > BROWSE_FACET_MAX_FIELDS:
+            raise ValueError(f"facet field batches may contain at most {BROWSE_FACET_MAX_FIELDS} fields")
+        return self
+
+
 class BrowseQueryRequest(StrictModel):
     path: str = "/"
     recursive: bool = False
@@ -358,6 +380,7 @@ class BrowseQueryRequest(StrictModel):
     derived_metric: BrowseQueryDerivedMetricPayload | None = None
     unsupported_metric_intent: str | None = None
     projection: BrowseQueryProjectionPayload = Field(default_factory=BrowseQueryProjectionPayload)
+    facet_fields: BrowseFacetFieldsPayload | None = None
 
 
 DerivedMetricStatusKindPayload = Literal["none", "applied", "unavailable", "invalid"]

@@ -11,8 +11,10 @@ import {
   analysisQueryKey,
   browseQueryKey,
   buildBrowseQueryRequest,
+  facetFieldBatches,
   folderFacetsQueryKey,
   folderQueryKey,
+  mergeBrowseFacetPayloads,
   pruneBrowseQueryVariants,
   resetSemanticQueryRevisionForTests,
   semanticQueryRevision,
@@ -219,7 +221,72 @@ describe('folder api query helpers', () => {
     expect(key({ unsupportedToken: 'derived-filter' })).not.toBe(key())
     expect(key({ unsupportedToken: ' derived-filter ' })).toBe(key({ unsupportedToken: 'derived-filter' }))
     expect(key({ projection: { metric_keys: ['score'], categorical_keys: [] } })).toBe(key())
+    expect(key({ facetFields: { metric_keys: ['score'], categorical_keys: [] } })).toBe(key())
     expect(key({ filters: { and: [{ starsIn: { values: [] } }] } })).toBe(key())
+  })
+
+  it('normalizes facet fields without changing analysis identity', () => {
+    const base: BrowseQueryOptions = {
+      path: '/shots',
+      filters: { and: [] },
+      sort: { kind: 'builtin', key: 'added', dir: 'desc' },
+    }
+    const request = buildBrowseQueryRequest({
+      ...base,
+      facetFields: {
+        metric_keys: [' q2 ', 'q1', 'q1'],
+        categorical_keys: ['split'],
+      },
+    })
+
+    expect(request.facet_fields).toEqual({
+      metric_keys: ['q1', 'q2'],
+      categorical_keys: ['split'],
+    })
+    const facetFields = request.facet_fields ?? undefined
+    expect(facetFields).toBeDefined()
+    expect(analysisQueryKey({ ...base, facetFields })).toEqual(
+      analysisQueryKey(base),
+    )
+    expect(folderFacetsQueryKey({ ...base, facetFields })).not.toEqual(
+      folderFacetsQueryKey(base),
+    )
+  })
+
+  it('splits and merges facet batches at the 24-field boundary', () => {
+    const batches = facetFieldBatches({
+      metric_keys: Array.from({ length: 30 }, (_, index) => `q${index}`),
+      categorical_keys: ['split'],
+    })
+    expect(batches).toHaveLength(2)
+    expect(batches.map((batch) => (
+      (batch?.metric_keys.length ?? 0) + (batch?.categorical_keys.length ?? 0)
+    ))).toEqual([24, 7])
+
+    const payload = (metricKey: string, categoricalKey?: string) => ({
+      version: 1 as const,
+      path: '/shots',
+      generated_at: 'test',
+      total_items: 2,
+      metric_keys: [metricKey],
+      categorical_keys: categoricalKey ? [categoricalKey] : [],
+      metrics: { [metricKey]: { categories: [] } },
+      categoricals: categoricalKey
+        ? { [categoricalKey]: { values: [{ value: 'train', population_count: 2 }] } }
+        : {},
+      dependency_manifest: {
+        fields: [],
+        metric_keys: [metricKey],
+        categorical_keys: categoricalKey ? [categoricalKey] : [],
+        unknown: false,
+      },
+    })
+    const merged = mergeBrowseFacetPayloads([payload('q1'), payload('q2', 'split')])
+
+    expect(merged?.metric_keys).toEqual(['q1', 'q2'])
+    expect(merged?.categorical_keys).toEqual(['split'])
+    expect(Object.keys(merged?.metrics ?? {})).toEqual(['q1', 'q2'])
+    expect(merged?.categoricals.split.values).toHaveLength(1)
   })
 
   it('normalizes unsupported metric intent in browse-query request bodies', () => {

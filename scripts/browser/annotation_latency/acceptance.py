@@ -27,7 +27,6 @@ from scripts.browser.annotation_latency.probe import (
     visible_paths,
 )
 from scripts.perf.table_query_fixture import (
-    DEFAULT_METRIC_COUNT,
     DEFAULT_RATED_COUNT,
     DEFAULT_ROW_COUNT,
     build_synthetic_table_fixture,
@@ -43,12 +42,15 @@ from scripts.smoke_harness import (
 )
 
 
+WIDE_METRIC_COUNT = 300
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7070)
     parser.add_argument("--rows", type=int, default=DEFAULT_ROW_COUNT)
-    parser.add_argument("--metrics", type=int, default=DEFAULT_METRIC_COUNT)
+    parser.add_argument("--metrics", type=int, default=WIDE_METRIC_COUNT)
     parser.add_argument("--rated", type=int, default=DEFAULT_RATED_COUNT)
     parser.add_argument("--server-timeout-seconds", type=float, default=60.0)
     parser.add_argument("--browser-timeout-ms", type=float, default=45_000)
@@ -127,6 +129,142 @@ def _wait_for_ready_gallery(page: Any) -> None:
 def _open_metrics_panel(page: Any) -> None:
     page.locator('button[title="Filters"][aria-haspopup="dialog"]').click()
     page.get_by_role("button", name="Open Metrics Panel").click()
+
+
+def _run_filter_and_wide_panel_acceptance(
+    page: Any,
+    evidence: BrowserRequestEvidence,
+    *,
+    timeout_ms: float,
+) -> dict[str, Any]:
+    input_box = page.get_by_role("textbox", name="Filename contains")
+    evidence.phase = "committed_filter"
+    input_box.click()
+    input_box.press_sequentially("shared.jpg", delay=10)
+    commit_started = time.monotonic()
+    page.wait_for_timeout(300)
+    filter_quiescence = wait_for_quiescence(
+        page, evidence, "committed_filter", timeout_ms=timeout_ms,
+    )
+    filter_wall_ms = round((time.monotonic() - commit_started) * 1_000.0, 3)
+    filter_requests = evidence.phase_summary("committed_filter")
+    if not filter_quiescence["completed"]:
+        raise SmokeFailure(f"committed text filter did not quiesce: {filter_quiescence}")
+    if filter_requests["query_requests"] != 1 or filter_requests["facet_requests"] != 1:
+        raise SmokeFailure(f"ten characters did not commit one query/facet pair: {filter_requests}")
+    if filter_wall_ms >= 1_000:
+        raise SmokeFailure(f"committed query/facet wall time missed one second: {filter_wall_ms}")
+
+    evidence.phase = "filter_reset"
+    input_box.fill("")
+    input_box.press("Enter")
+    reset_quiescence = wait_for_quiescence(
+        page, evidence, "filter_reset", timeout_ms=timeout_ms,
+    )
+    reset_requests = evidence.phase_summary("filter_reset")
+    if not reset_quiescence["completed"]:
+        raise SmokeFailure(f"filter reset did not quiesce: {reset_quiescence}")
+    if reset_requests["query_requests"] != 1 or reset_requests["facet_requests"] > 1:
+        raise SmokeFailure(f"Enter did not commit exactly once: {reset_requests}")
+
+    evidence.phase = "filter_blur"
+    input_box.fill("shared.jp")
+    input_box.press("Tab")
+    blur_quiescence = wait_for_quiescence(
+        page, evidence, "filter_blur", timeout_ms=timeout_ms,
+    )
+    blur_requests = evidence.phase_summary("filter_blur")
+    if not blur_quiescence["completed"]:
+        raise SmokeFailure(f"blur commit did not quiesce: {blur_quiescence}")
+    if blur_requests["query_requests"] != 1 or blur_requests["facet_requests"] != 1:
+        raise SmokeFailure(f"blur did not commit exactly once: {blur_requests}")
+
+    evidence.phase = "filter_apply"
+    input_box.fill("")
+    page.get_by_role("button", name="Apply Filename contains").evaluate(
+        "element => element.click()"
+    )
+    apply_quiescence = wait_for_quiescence(
+        page, evidence, "filter_apply", timeout_ms=timeout_ms,
+    )
+    apply_requests = evidence.phase_summary("filter_apply")
+    if not apply_quiescence["completed"]:
+        raise SmokeFailure(f"Apply commit did not quiesce: {apply_quiescence}")
+    if apply_requests["query_requests"] != 1 or apply_requests["facet_requests"] > 1:
+        raise SmokeFailure(f"Apply did not commit exactly once: {apply_requests}")
+    if input_box.input_value() != "" or not page.get_by_role(
+        "button", name="Apply Filename contains",
+    ).is_disabled():
+        raise SmokeFailure("committed Notes draft did not resynchronize after Apply")
+
+    evidence.phase = "wide_panel"
+    show_all = page.locator("button[data-metric-show-all]")
+    page_errors: list[str] = []
+    page.on(
+        "pageerror",
+        lambda error: page_errors.append(getattr(error, "stack", None) or str(error)),
+    )
+    render_started = time.monotonic()
+    show_all.click()
+    virtual_list = page.locator('[data-virtual-field-list="metric"]')
+    page.wait_for_timeout(250)
+    if virtual_list.count() == 0:
+        metric_button_count = show_all.count()
+        raise SmokeFailure(
+            "metric Show all did not mount its virtual list: "
+            f"pressed={show_all.get_attribute('aria-pressed') if metric_button_count else None} "
+            f"metric_buttons={metric_button_count} page_errors={page_errors}"
+        )
+    virtual_list.wait_for(state="visible")
+    page.wait_for_function(
+        """() => document.querySelectorAll(
+          '[data-virtual-field-card="metric"]'
+        ).length > 0"""
+    )
+    first_render_ms = round((time.monotonic() - render_started) * 1_000.0, 3)
+    initial_mounted = page.locator('[data-virtual-field-card="metric"]').count()
+    virtual_list.focus()
+    virtual_list.press("End")
+    page.wait_for_function(
+        """() => document.querySelector(
+          '[data-virtual-field-card="metric"][data-field-key="metric_299"]'
+        ) != null"""
+    )
+    wide_quiescence = wait_for_quiescence(
+        page, evidence, "wide_panel", timeout_ms=timeout_ms,
+    )
+    final_mounted = page.locator('[data-virtual-field-card="metric"]').count()
+    wide_requests = evidence.phase_summary("wide_panel")
+    if first_render_ms >= 500:
+        raise SmokeFailure(f"wide Metrics first render missed 500 ms: {first_render_ms}")
+    if max(initial_mounted, final_mounted) > 40:
+        raise SmokeFailure(
+            f"wide Metrics mounted more than 40 cards: {initial_mounted}, {final_mounted}"
+        )
+    if not wide_quiescence["completed"] or wide_requests["facet_requests"] < 2:
+        raise SmokeFailure(f"wide Metrics did not load viewport facet batches: {wide_requests}")
+    if any(count > 24 for count in wide_requests["facet_field_counts"]):
+        raise SmokeFailure(f"wide Metrics exceeded the 24-field facet cap: {wide_requests}")
+    return {
+        "committed_filter": {
+            "characters": 10,
+            "combined_wall_ms": filter_wall_ms,
+            "requests": filter_requests,
+            "quiescence": filter_quiescence,
+            "enter_requests": reset_requests,
+            "blur_requests": blur_requests,
+            "apply_requests": apply_requests,
+        },
+        "wide_panel": {
+            "field_count": WIDE_METRIC_COUNT,
+            "first_render_ms": first_render_ms,
+            "mounted_cards_initial": initial_mounted,
+            "mounted_cards_after_scroll": final_mounted,
+            "keyboard_end_reached_last_field": True,
+            "requests": wide_requests,
+            "quiescence": wide_quiescence,
+        },
+    }
 
 
 def _run_annotation_round(
@@ -252,6 +390,12 @@ def run_browser_scenario(base_url: str, browser_timeout_ms: float) -> dict[str, 
             if not all(result["completed"] for result in initial_quiescence.values()):
                 raise SmokeFailure(f"initial requests did not quiesce: {initial_quiescence}")
 
+            wide_table = _run_filter_and_wide_panel_acceptance(
+                page_a,
+                evidence_a,
+                timeout_ms=timeout_ms,
+            )
+
             initial_paths = sorted(set(visible_paths(page_a)) & set(visible_paths(page_b)))
             if len(initial_paths) < 2:
                 raise SmokeFailure("two sessions did not expose two common unrated items")
@@ -375,6 +519,7 @@ def run_browser_scenario(base_url: str, browser_timeout_ms: float) -> dict[str, 
             "mutation_2": {role: round_two[role]["quiescence"] for role in ("owner", "remote")},
         },
         "rounds": {"mutation_1": round_one, "mutation_2": round_two},
+        "wide_table": wide_table,
         "count_labels": count_labels,
         "multi_editor_converged": True,
         "query_requests": max(int(summary["query_requests"]) for summary in request_summaries),

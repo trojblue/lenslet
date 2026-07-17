@@ -185,6 +185,12 @@ class BrowseWindowProjection:
 
 
 @dataclass(frozen=True, slots=True)
+class BrowseFacetFields:
+    metric_keys: tuple[str, ...] = ()
+    categorical_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class BrowseQuerySpec:
     path: str
     recursive: bool
@@ -197,6 +203,7 @@ class BrowseQuerySpec:
     derived_metric: DerivedMetricSpec | None = None
     unsupported_metric_intent: str | None = None
     projection: BrowseWindowProjection = field(default_factory=BrowseWindowProjection)
+    facet_fields: BrowseFacetFields | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -780,6 +787,20 @@ def browse_window_request_token(
 
 def browse_query_request_token(spec: BrowseQuerySpec) -> str:
     return browse_window_request_token(spec)
+
+
+def browse_facet_request_token(spec: BrowseQuerySpec) -> str:
+    fields = spec.facet_fields
+    return _query_payload_token(
+        "bf",
+        {
+            "analysis_query_key": browse_analysis_query_key(spec),
+            "facet_fields": None if fields is None else {
+                "metric_keys": sorted(dict.fromkeys(fields.metric_keys)),
+                "categorical_keys": sorted(dict.fromkeys(fields.categorical_keys)),
+            },
+        },
+    )
 
 
 def _query_payload_token(prefix: str, payload: Mapping[str, object]) -> str:

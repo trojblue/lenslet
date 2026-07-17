@@ -221,6 +221,169 @@ def test_browse_query_rejects_invalid_projection(
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize(
+    "facet_fields",
+    [
+        {"metric_keys": [f"metric_{index}" for index in range(25)], "categorical_keys": []},
+        {"metric_keys": ["score", "score"], "categorical_keys": []},
+        {"metric_keys": [], "categorical_keys": [""]},
+    ],
+)
+def test_browse_facets_reject_invalid_field_batches(
+    tmp_path: Path,
+    facet_fields: dict[str, list[str]],
+) -> None:
+    client = _client_for_six_row_table(tmp_path)
+
+    response = client.post(
+        "/folders/facets",
+        json={
+            "path": "/gallery",
+            "recursive": True,
+            "filters": {"and": []},
+            "facet_fields": facet_fields,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_table_facets_read_only_requested_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    storage = TableStorage(
+        [
+            {
+                "source": f"https://example.test/gallery/img{index}.jpg",
+                "path": f"gallery/img{index}.jpg",
+                "score": float(index),
+                "unused": float(index + 10),
+                "split": "train" if index % 2 else "test",
+                "width": 8,
+                "height": 6,
+            }
+            for index in range(6)
+        ],
+        options=TableStorageOptions(
+            source_column="source",
+            path_column="path",
+            categorical_columns=("split",),
+            skip_dimension_probe=True,
+            allow_local=False,
+        ),
+    )
+    read_metrics: list[str] = []
+    original = storage.query_engine.iter_metric_values
+
+    def track_metric(analysis, key):
+        read_metrics.append(key)
+        return original(analysis, key)
+
+    monkeypatch.setattr(storage.query_engine, "iter_metric_values", track_metric)
+    client = TestClient(create_app_from_storage(storage), headers={
+        "X-Lenslet-Client-Session": "browse-query-tests",
+        "X-Lenslet-Query-Revision": "1",
+    })
+
+    response = client.post(
+        "/folders/facets",
+        json={
+            "path": "/gallery",
+            "recursive": True,
+            "filters": {"and": []},
+            "facet_fields": {
+                "metric_keys": ["score"],
+                "categorical_keys": ["split"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert read_metrics == ["score"]
+    assert payload["metric_keys"] == ["score"]
+    assert payload["categorical_keys"] == ["split"]
+    assert set(payload["metrics"]) == {"score"}
+    assert set(payload["categoricals"]) == {"split"}
+
+
+def test_concurrent_table_facet_batches_keep_distinct_results() -> None:
+    storage = TableStorage(
+        [
+            {
+                "source": f"https://example.test/gallery/img{index}.jpg",
+                "path": f"gallery/img{index}.jpg",
+                "score": float(index),
+                "unused": float(index + 10),
+                "split": "train" if index % 2 else "test",
+                "width": 8,
+                "height": 6,
+            }
+            for index in range(50)
+        ],
+        options=TableStorageOptions(
+            source_column="source",
+            path_column="path",
+            categorical_columns=("split",),
+            skip_dimension_probe=True,
+            allow_local=False,
+        ),
+    )
+    original = storage.facet_summary_for_query_from_analysis
+
+    def slow_facets(*args, **kwargs):
+        time.sleep(0.05)
+        return original(*args, **kwargs)
+
+    storage.facet_summary_for_query_from_analysis = slow_facets
+    app = create_app_from_storage(storage)
+    headers = {
+        "X-Lenslet-Client-Session": "facet-batch-tab",
+        "X-Lenslet-Query-Revision": "1",
+    }
+    body = {
+        "path": "/gallery",
+        "recursive": True,
+        "filters": {"and": []},
+    }
+
+    async def scenario() -> tuple[httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            responses = await asyncio.gather(
+                client.post(
+                    "/folders/facets",
+                    json={
+                        **body,
+                        "facet_fields": {
+                            "metric_keys": ["score"],
+                            "categorical_keys": [],
+                        },
+                    },
+                    headers=headers,
+                ),
+                client.post(
+                    "/folders/facets",
+                    json={
+                        **body,
+                        "facet_fields": {
+                            "metric_keys": ["unused"],
+                            "categorical_keys": ["split"],
+                        },
+                    },
+                    headers=headers,
+                ),
+            )
+        await app.state.lenslet_app_context.runtime.query_coordinator.close()
+        return responses
+
+    score_response, other_response = asyncio.run(scenario())
+
+    assert score_response.status_code == other_response.status_code == 200
+    assert score_response.json()["metric_keys"] == ["score"]
+    assert score_response.json()["categorical_keys"] == []
+    assert other_response.json()["metric_keys"] == ["unused"]
+    assert other_response.json()["categorical_keys"] == ["split"]
+
+
 def test_query_and_facets_share_one_table_filter_execution() -> None:
     storage = TableStorage(
         [

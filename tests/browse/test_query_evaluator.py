@@ -5,6 +5,7 @@ from dataclasses import replace
 
 from lenslet.browse.query import (
     BrowseFilterAst,
+    BrowseFacetFields,
     BrowseQueryRecord,
     BrowseQuerySpec,
     BrowseWindowProjection,
@@ -26,6 +27,7 @@ from lenslet.browse.query import (
     UrlContainsFilter,
     WidthCompareFilter,
     browse_analysis_query_key,
+    browse_facet_request_token,
     browse_query_request_token,
     browse_window_request_token,
     derived_metric_key,
@@ -282,6 +284,30 @@ def test_window_request_token_includes_window_fields_and_generation() -> None:
     ) != browse_window_request_token(
         base,
         generation_token="gen-b",
+    )
+
+
+def test_facet_request_token_separates_projection_from_analysis_identity() -> None:
+    base = BrowseQuerySpec(
+        path="/gallery",
+        recursive=True,
+        offset=0,
+        limit=10,
+        sort=BuiltinSortSpec("name", "asc"),
+    )
+    score = replace(
+        base,
+        facet_fields=BrowseFacetFields(metric_keys=("score",)),
+    )
+    category = replace(
+        base,
+        facet_fields=BrowseFacetFields(categorical_keys=("split",)),
+    )
+
+    assert browse_analysis_query_key(score) == browse_analysis_query_key(category)
+    assert browse_facet_request_token(score) != browse_facet_request_token(category)
+    assert browse_facet_request_token(score) == browse_facet_request_token(
+        replace(score, facet_fields=BrowseFacetFields(metric_keys=("score", "score")))
     )
 
 

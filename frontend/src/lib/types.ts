@@ -66,9 +66,15 @@ export type BrowseQueryRequest = {
   derived_metric?: DerivedMetricSpec | null
   unsupported_metric_intent?: string | null
   projection: BrowseWindowProjection
+  facet_fields?: BrowseFacetFields | null
 }
 
 export type BrowseWindowProjection = {
+  metric_keys: string[]
+  categorical_keys: string[]
+}
+
+export type BrowseFacetFields = {
   metric_keys: string[]
   categorical_keys: string[]
 }

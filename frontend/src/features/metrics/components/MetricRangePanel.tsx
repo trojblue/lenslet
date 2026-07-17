@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FilterAST, BrowseFacetsPayload, BrowseItemPayload, MetricDisplayNames } from '../../../lib/types'
 import { getMetricDisplayName } from '../../../lib/metricDisplay'
 import type { Range } from '../model/histogram'
@@ -14,6 +14,7 @@ import {
 import Dropdown from '../../../shared/ui/Dropdown'
 import MetricCategoryCard from './MetricCategoryCard'
 import MetricHistogramCard from './MetricHistogramCard'
+import VirtualFieldList from './VirtualFieldList'
 
 interface MetricRangePanelProps {
   items: BrowseItemPayload[]
@@ -28,6 +29,7 @@ interface MetricRangePanelProps {
   onSelectMetric: (key: string) => void
   filters: FilterAST
   onChangeRange: (key: string, range: Range | null) => void
+  onFacetFieldsChange?: (keys: string[]) => void
 }
 
 const EMPTY_VALUES_BY_KEY: MetricValuesByKey = new Map()
@@ -45,12 +47,14 @@ export default function MetricRangePanel({
   onSelectMetric,
   filters,
   onChangeRange,
+  onFacetFieldsChange,
 }: MetricRangePanelProps) {
   const [showAll, setShowAll] = useState(false)
+  const [visibleMetricKeys, setVisibleMetricKeys] = useState<string[]>([])
   const activeMetric = selectedMetric && metricKeys.includes(selectedMetric) ? selectedMetric : metricKeys[0]
   const scopedMetricKeys = useMemo(() => (
-    showAll ? metricKeys : activeMetric ? [activeMetric] : []
-  ), [showAll, metricKeys, activeMetric])
+    showAll ? visibleMetricKeys : activeMetric ? [activeMetric] : []
+  ), [showAll, visibleMetricKeys, activeMetric])
   const populationValuesByKey = useMemo(
     () => itemPopulationComplete ? collectMetricValuesByKey(items, scopedMetricKeys) : EMPTY_VALUES_BY_KEY,
     [itemPopulationComplete, items, scopedMetricKeys]
@@ -83,6 +87,15 @@ export default function MetricRangePanel({
       keywords: [key],
     }))
   ), [metricDisplayNames, metricKeys])
+
+  useEffect(() => {
+    if (!showAll) onFacetFieldsChange?.(activeMetric ? [activeMetric] : [])
+  }, [activeMetric, onFacetFieldsChange, showAll])
+
+  const handleVisibleKeysChange = useCallback((keys: string[]) => {
+    setVisibleMetricKeys(keys)
+    onFacetFieldsChange?.(keys)
+  }, [onFacetFieldsChange])
 
   const renderMetricCard = (key: string, showTitle = false) => {
     const categories = getMetricCategories(categoriesByKey, key)
@@ -129,6 +142,7 @@ export default function MetricRangePanel({
             className="btn btn-sm btn-ghost text-[11px]"
             onClick={() => setShowAll((v) => !v)}
             aria-pressed={showAll}
+            data-metric-show-all
           >
             {showAll ? 'Show one' : 'Show all'}
           </button>
@@ -156,9 +170,13 @@ export default function MetricRangePanel({
       </div>
 
       {showAll ? (
-        <div className="space-y-3">
-          {metricKeys.map((key) => renderMetricCard(key, true))}
-        </div>
+        <VirtualFieldList
+          keys={metricKeys}
+          estimateSize={340}
+          kind="metric"
+          onVisibleKeysChange={handleVisibleKeysChange}
+          renderCard={(key) => renderMetricCard(key, true)}
+        />
       ) : (
         activeMetric ? (
           renderMetricCard(activeMetric)

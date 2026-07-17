@@ -7,6 +7,7 @@ from ..context import get_request_context
 from ..media import file_response, thumb_response_async
 from ..paths import canonical_path
 from ...storage.base import MediaStorage
+from ...diagnostics import mark_request_handler_started, request_phase
 
 
 def _resolve_media_request(path: str, request: Request) -> tuple[MediaStorage, str]:
@@ -19,16 +20,18 @@ def _resolve_media_request(path: str, request: Request) -> tuple[MediaStorage, s
 def register_media_routes(app: FastAPI) -> None:
     @app.get("/thumb")
     async def get_thumb(path: str, request: Request) -> Response:
+        mark_request_handler_started()
         storage, path = _resolve_media_request(path, request)
         runtime = get_request_context(request).runtime
-        return await thumb_response_async(
-            storage,
-            path,
-            request,
-            runtime.thumb_queue,
-            runtime.thumb_cache,
-            hotpath_metrics=runtime.hotpath_metrics,
-        )
+        with request_phase("thumbnail"):
+            return await thumb_response_async(
+                storage,
+                path,
+                request,
+                runtime.thumb_queue,
+                runtime.thumb_cache,
+                hotpath_metrics=runtime.hotpath_metrics,
+            )
 
     @app.get("/file")
     def get_file(path: str, request: Request) -> Response:

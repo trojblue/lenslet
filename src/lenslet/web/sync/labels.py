@@ -103,14 +103,18 @@ class SnapshotWriter:
                 self._workspace.compact_labels_log(last_event_id, max_bytes=self._compact_threshold)
             else:
                 with self._locks.log:
-                    self._workspace.compact_labels_log(last_event_id, max_bytes=self._compact_threshold)
+                    self._workspace.compact_labels_log(
+                        last_event_id, max_bytes=self._compact_threshold
+                    )
         except (OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
             print(f"[lenslet] Warning: failed to compact labels log: {exc}")
             return False
         return True
 
 
-def _build_snapshot_payload(storage: SidecarInventoryStorage, last_event_id: int) -> LabelsSnapshotPayload:
+def _build_snapshot_payload(
+    storage: SidecarInventoryStorage, last_event_id: int
+) -> LabelsSnapshotPayload:
     items: dict[str, PersistedSidecarRecord] = {}
     for path, sidecar in list(storage.sidecar_items()):
         sidecar = ensure_sidecar_fields(sidecar)
@@ -151,7 +155,9 @@ def _persistable_sidecar(sidecar: SidecarState) -> PersistedSidecarRecord:
     return payload
 
 
-def _apply_persisted_record(storage: SidecarInventoryStorage, path: str, record: Mapping[str, object]) -> bool:
+def _apply_persisted_record(
+    storage: SidecarInventoryStorage, path: str, record: Mapping[str, object]
+) -> bool:
     sidecar = storage.ensure_sidecar(path)
     sidecar = ensure_sidecar_fields(sidecar)
     incoming_version = record.get("version", sidecar.get("version", 1))
@@ -176,7 +182,9 @@ def _apply_persisted_record(storage: SidecarInventoryStorage, path: str, record:
         sidecar["updated_at"] = updated_at if isinstance(updated_at, str) else ""
     if "updated_by" in record:
         updated_by = record.get("updated_by")
-        sidecar["updated_by"] = updated_by if isinstance(updated_by, str) and updated_by else "server"
+        sidecar["updated_by"] = (
+            updated_by if isinstance(updated_by, str) and updated_by else "server"
+        )
     storage.set_sidecar(path, sidecar)
     return True
 
@@ -210,8 +218,6 @@ def _coerce_metrics(value: object) -> dict[str, float] | None:
 
 
 def _load_label_state(storage: SidecarInventoryStorage, workspace: Workspace) -> int:
-    if not workspace.can_write:
-        return 0
     max_event_id = 0
     last_snapshot_id = 0
     snapshot_result = workspace.read_labels_snapshot_result()

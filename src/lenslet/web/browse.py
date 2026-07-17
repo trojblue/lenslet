@@ -21,6 +21,7 @@ from ..browse.query import (
     evaluate_browse_records,
     is_derived_metric_key,
 )
+from ..diagnostics import request_phase
 from ..metrics import normalize_metric_mapping
 from ..media_errors import MediaDecodeError, MediaError, MediaReadError
 from ..media_policy import build_original_media_policy
@@ -952,34 +953,35 @@ def _query_result_payload(
     to_item: ToItemFn,
     spec: BrowseQuerySpec,
 ) -> BrowseQueryResponse:
-    items = [
-        item if isinstance(item, BrowseItemPayload) else to_item(storage, item)
-        for item in result.items
-    ]
-    return BrowseQueryResponse(
-        path=result.path,
-        generated_at=result.generated_at,
-        generation_token=result.generation_token,
-        request_token=result.request_token,
-        analysis_query_key=browse_analysis_query_key(spec),
-        scope_total=result.scope_total,
-        filtered_total=result.filtered_total,
-        offset=result.offset,
-        limit=result.limit,
-        items=items,
-        folders=[
-            BrowseFolderEntryPayload(name=folder.name, kind=folder.kind)
-            for folder in result.folders
-        ],
-        metric_keys=list(result.metric_keys),
-        categorical_keys=list(result.categorical_keys),
-        derived_metric_status=_derived_metric_status_payload(result.derived_metric_status),
-        field_capabilities=_field_capabilities_payload(
-            result.metric_keys,
-            result.categorical_keys,
+    with request_phase("projection"):
+        items = [
+            item if isinstance(item, BrowseItemPayload) else to_item(storage, item)
+            for item in result.items
+        ]
+        return BrowseQueryResponse(
+            path=result.path,
+            generated_at=result.generated_at,
+            generation_token=result.generation_token,
+            request_token=result.request_token,
+            analysis_query_key=browse_analysis_query_key(spec),
+            scope_total=result.scope_total,
+            filtered_total=result.filtered_total,
+            offset=result.offset,
+            limit=result.limit,
             items=items,
-        ),
-    )
+            folders=[
+                BrowseFolderEntryPayload(name=folder.name, kind=folder.kind)
+                for folder in result.folders
+            ],
+            metric_keys=list(result.metric_keys),
+            categorical_keys=list(result.categorical_keys),
+            derived_metric_status=_derived_metric_status_payload(result.derived_metric_status),
+            field_capabilities=_field_capabilities_payload(
+                result.metric_keys,
+                result.categorical_keys,
+                items=items,
+            ),
+        )
 
 
 def _derived_metric_status_payload(status: DerivedMetricStatus) -> DerivedMetricStatusPayload:

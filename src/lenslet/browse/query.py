@@ -8,6 +8,8 @@ import math
 import re
 from typing import Generic, Iterable, Literal, Mapping, TypeVar
 
+from ..diagnostics import request_phase
+
 
 CompareOp = Literal["<", "<=", ">", ">="]
 SortDirection = Literal["asc", "desc"]
@@ -260,44 +262,48 @@ def evaluate_browse_records(
     metric_keys: Iterable[str] | None = None,
     categorical_keys: Iterable[str] | None = None,
 ) -> BrowseQueryEvaluation[T]:
-    normalized = BrowseQuerySpec(
-        path=spec.path,
-        recursive=spec.recursive,
-        offset=spec.offset,
-        limit=spec.limit,
-        filters=normalize_filter_ast(spec.filters),
-        sort=spec.sort,
-        text_query=_normalize_text(spec.text_query),
-        random_seed=spec.random_seed,
-        derived_metric=normalize_derived_metric_spec(spec.derived_metric),
-        unsupported_metric_intent=_normalize_text(spec.unsupported_metric_intent),
-    )
-    searched = [
-        record for record in records if _matches_text_query(record, normalized.text_query)
-    ]
-    base_filters, derived_filters = _split_derived_metric_filters(normalized.filters)
-    base_filtered = [
-        record for record in searched if _matches_filter_ast(record, base_filters)
-    ]
-    derived_metric_status = DerivedMetricStatus()
-    if normalized.derived_metric is not None or _query_references_derived_metric(normalized):
-        derived_result = evaluate_derived_metric_for_records(
-            base_filtered,
-            normalized.derived_metric,
-            metric_keys=metric_keys,
-            categorical_keys=categorical_keys,
+    with request_phase("analysis"):
+        normalized = BrowseQuerySpec(
+            path=spec.path,
+            recursive=spec.recursive,
+            offset=spec.offset,
+            limit=spec.limit,
+            filters=normalize_filter_ast(spec.filters),
+            sort=spec.sort,
+            text_query=_normalize_text(spec.text_query),
+            random_seed=spec.random_seed,
+            derived_metric=normalize_derived_metric_spec(spec.derived_metric),
+            unsupported_metric_intent=_normalize_text(spec.unsupported_metric_intent),
         )
-        query_records = derived_result.records
-        derived_metric_status = derived_result.status
-    else:
-        query_records = base_filtered
-    filtered = [record for record in query_records if _matches_filter_ast(record, derived_filters)]
-    ordered = sort_browse_records(filtered, normalized.sort, random_seed=normalized.random_seed)
-    start = max(0, normalized.offset)
-    end = start + max(0, normalized.limit)
+        searched = [
+            record for record in records if _matches_text_query(record, normalized.text_query)
+        ]
+        base_filters, derived_filters = _split_derived_metric_filters(normalized.filters)
+        base_filtered = [
+            record for record in searched if _matches_filter_ast(record, base_filters)
+        ]
+        derived_metric_status = DerivedMetricStatus()
+        if normalized.derived_metric is not None or _query_references_derived_metric(normalized):
+            derived_result = evaluate_derived_metric_for_records(
+                base_filtered,
+                normalized.derived_metric,
+                metric_keys=metric_keys,
+                categorical_keys=categorical_keys,
+            )
+            query_records = derived_result.records
+            derived_metric_status = derived_result.status
+        else:
+            query_records = base_filtered
+        filtered = [record for record in query_records if _matches_filter_ast(record, derived_filters)]
+    with request_phase("ordering"):
+        ordered = sort_browse_records(filtered, normalized.sort, random_seed=normalized.random_seed)
+    with request_phase("projection"):
+        start = max(0, normalized.offset)
+        end = start + max(0, normalized.limit)
+        window = tuple(ordered[start:end])
     return BrowseQueryEvaluation(
         filtered_total=len(ordered),
-        window=tuple(ordered[start:end]),
+        window=window,
         derived_metric_status=derived_metric_status,
     )
 

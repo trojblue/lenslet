@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from collections import deque
+from collections.abc import Callable
+from typing import TypeVar
 
 from fastapi import FastAPI, Query, Request
 
@@ -61,6 +64,25 @@ from ..models import (
 )
 from ..paths import canonical_path
 from ...storage.base import BrowseStorage
+from ...diagnostics import mark_request_handler_started
+from ..hotpath import HotpathTelemetry
+
+
+T = TypeVar("T")
+
+
+def _run_recorded_analysis(metrics: HotpathTelemetry, operation: Callable[[], T]) -> T:
+    metrics.record_analysis("started")
+    try:
+        result = operation()
+    except asyncio.CancelledError:
+        metrics.record_analysis("cancelled")
+        raise
+    except Exception:
+        metrics.increment("analysis_failed_total")
+        raise
+    metrics.record_analysis("completed")
+    return result
 
 
 def _collect_folder_paths(storage: BrowseStorage) -> list[str]:
@@ -179,11 +201,16 @@ def register_folder_routes(
         body: BrowseQueryRequest,
         request: Request,
     ) -> BrowseQueryResponse:
+        mark_request_handler_started()
         storage = storage_from_request(request)
-        return build_folder_query(
-            storage,
-            _query_spec_from_payload(body),
-            to_item,
+        runtime = get_request_context(request).runtime
+        return _run_recorded_analysis(
+            runtime.hotpath_metrics,
+            lambda: build_folder_query(
+                storage,
+                _query_spec_from_payload(body),
+                to_item,
+            ),
         )
 
     @app.get("/folders", response_model=BrowseFolderPayload)
@@ -219,11 +246,16 @@ def register_folder_routes(
         body: BrowseQueryRequest,
         request: Request,
     ) -> BrowseFacetsPayload:
+        mark_request_handler_started()
         storage = storage_from_request(request)
-        return build_folder_facets(
-            storage,
-            _query_spec_from_payload(body),
-            to_item,
+        runtime = get_request_context(request).runtime
+        return _run_recorded_analysis(
+            runtime.hotpath_metrics,
+            lambda: build_folder_facets(
+                storage,
+                _query_spec_from_payload(body),
+                to_item,
+            ),
         )
 
     @app.get("/folders/facets", response_model=BrowseFacetsPayload)
@@ -232,14 +264,19 @@ def register_folder_routes(
         path: str = "/",
         recursive: bool = True,
     ) -> BrowseFacetsPayload:
+        mark_request_handler_started()
         storage = storage_from_request(request)
-        return build_folder_facets(
-            storage,
-            BrowseQuerySpec(
-                path=canonical_path(path),
-                recursive=recursive,
-                offset=0,
-                limit=1,
+        runtime = get_request_context(request).runtime
+        return _run_recorded_analysis(
+            runtime.hotpath_metrics,
+            lambda: build_folder_facets(
+                storage,
+                BrowseQuerySpec(
+                    path=canonical_path(path),
+                    recursive=recursive,
+                    offset=0,
+                    limit=1,
+                ),
+                to_item,
             ),
-            to_item,
         )

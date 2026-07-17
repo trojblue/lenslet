@@ -1,0 +1,17 @@
+# Ralph Progress Log
+Started: 2026-07-17T15:12:57Z
+Mode: plan
+Tool: codex
+Repo: /fsx/yada/dev/lenslet
+Plan: /fsx/yada/dev/lenslet/docs/20260717_table_query_annotation_latency_execution_plan.md
+---
+
+## Iteration 1 — 2026-07-17 16:22 UTC
+
+- Sprint: Sprint 0 — Evidence and regression harness (closed).
+- Completed tasks: S0-T1, S0-T2, S0-T3.
+- Files changed: `src/lenslet/diagnostics.py`; browse/table/web timing integration under `src/lenslet/`; read-only label loading in `src/lenslet/workspace.py` and `src/lenslet/web/sync/labels.py`; `scripts/perf/`; `scripts/browser/annotation_latency/`; focused tests; execution plan and this progress log.
+- Validation: plain focused `pytest` passed (12); affected backend suite passed (197); frontend tests passed (517); frontend production build passed with no shipped-asset diff; repository lint passed; GUI smoke passed with its existing non-blocking folder-anchor warning; synthetic 2,000-row/30-metric/300-rated probe passed with 293.798 ms combined p95 and unchanged inputs; annotation browser baseline passed with one mutation query/facet pair, stable root, bounded quiescence, and intentional capture of the current page-clearing state; cleanup and final independent review found no remaining actionable issues.
+- Broader validation note: full repository `pytest` finished with 704 passed, one xfailed, and one out-of-scope export/preindex failure (`test_export_comparison_returns_422_for_undecodable_source_payload`, actual 404 after preindex excludes the corrupt file). Sprint 0 does not touch that behavior.
+- Blockers: none for Sprint 0. The overall plan remains incomplete.
+- Next step: begin Sprint 1 at S1-T1, carrying mutation identity through response and sync; do not begin later sprints in the same iteration.

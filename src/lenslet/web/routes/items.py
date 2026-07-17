@@ -28,6 +28,7 @@ from ..time import now_iso
 from ..sync.labels import LabelPersistenceError
 from ...storage.base import ItemRouteStorage, SidecarState
 from ...storage.sidecar_state import copy_sidecar_state, ensure_sidecar_fields
+from ...diagnostics import mark_request_handler_started, request_phase
 
 PatchError = tuple[int, IdempotencyPayload]
 
@@ -157,34 +158,37 @@ def register_item_routes(
 
     @app.put("/item", response_model=Sidecar, responses=mutation_error_responses)
     def put_item(path: str, body: Sidecar, request: Request) -> Sidecar | JSONResponse:
+        mark_request_handler_started()
         context = get_request_context(request)
         if denied := deny_if_mutation_forbidden(request, writes_enabled=context.workspace.can_write):
             return denied
         storage, path = _resolve_image_request(path, request)
         runtime = context.runtime
         updated_by = updated_by_from_request(request)
-        event_id: int | None = None
-        with runtime.sidecar_lock:
-            sidecar_snapshot = _put_item_sidecar_state(
-                storage.get_sidecar_readonly(path),
-                body,
-                updated_by,
-                ensure_sidecar_fields=ensure_sidecar_fields,
-                now_iso=now_iso,
-            )
-            try:
-                event_id = record_update(
-                    path,
-                    sidecar_snapshot,
-                    "item-updated",
-                    lambda: storage.set_sidecar(path, copy_sidecar_state(sidecar_snapshot)),
+        with request_phase("mutation"):
+            event_id: int | None = None
+            with runtime.sidecar_lock:
+                sidecar_snapshot = _put_item_sidecar_state(
+                    storage.get_sidecar_readonly(path),
+                    body,
+                    updated_by,
+                    ensure_sidecar_fields=ensure_sidecar_fields,
+                    now_iso=now_iso,
                 )
-            except LabelPersistenceError:
-                return _label_persistence_error_response()
-            sidecar = build_sidecar_from_state(storage, path, sidecar_snapshot)
-        if event_id is not None and context.workspace.can_write:
-            runtime.snapshotter.maybe_write(storage, event_id)
-        return sidecar
+                try:
+                    event_id = record_update(
+                        path,
+                        sidecar_snapshot,
+                        "item-updated",
+                        lambda: storage.set_sidecar(path, copy_sidecar_state(sidecar_snapshot)),
+                    )
+                except LabelPersistenceError:
+                    return _label_persistence_error_response()
+                sidecar = build_sidecar_from_state(storage, path, sidecar_snapshot)
+            if event_id is not None and context.workspace.can_write:
+                with request_phase("writer"):
+                    runtime.snapshotter.maybe_write(storage, event_id)
+            return sidecar
 
     @app.patch(
         "/item",
@@ -192,6 +196,7 @@ def register_item_routes(
         responses={**mutation_error_responses, 409: {"model": SidecarConflictResponse}},
     )
     def patch_item(path: str, body: SidecarPatch, request: Request) -> JSONResponse:
+        mark_request_handler_started()
         context = get_request_context(request)
         if denied := deny_if_mutation_forbidden(request, writes_enabled=context.workspace.can_write):
             return denied
@@ -218,18 +223,20 @@ def register_item_routes(
                 {"error": "missing_base_version", "message": "base_version or If-Match is required"},
             )
 
-        try:
-            with runtime.sidecar_lock:
-                result = _apply_sidecar_patch(
-                    storage,
-                    path,
-                    body,
-                    expected,
-                    updated_by_from_request(request),
-                    record_update,
-                )
-        except LabelPersistenceError:
-            return _label_persistence_error_response()
-        if result.event_id is not None and context.workspace.can_write:
-            runtime.snapshotter.maybe_write(storage, result.event_id)
-        return _cached_json_response(idempotency_cache, idem_key, result.status, result.payload)
+        with request_phase("mutation"):
+            try:
+                with runtime.sidecar_lock:
+                    result = _apply_sidecar_patch(
+                        storage,
+                        path,
+                        body,
+                        expected,
+                        updated_by_from_request(request),
+                        record_update,
+                    )
+            except LabelPersistenceError:
+                return _label_persistence_error_response()
+            if result.event_id is not None and context.workspace.can_write:
+                with request_phase("writer"):
+                    runtime.snapshotter.maybe_write(storage, result.event_id)
+            return _cached_json_response(idempotency_cache, idem_key, result.status, result.payload)

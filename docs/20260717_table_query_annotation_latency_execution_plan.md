@@ -22,7 +22,7 @@ There is no repository-wide `PLANS.md`. This plan follows `D:\dev\lenslet\AGENTS
 - [x] 2026-07-17: Drafted the sprint and ticket decomposition.
 - [x] 2026-07-17: Completed independent plan review and incorporated crash recovery, concrete bounds, ticket splits, and validation clarifications.
 - [x] 2026-07-17: Rechecked the plan after the latest remote changes and aligned client identity and table-refresh ownership with the new launch-session and health contracts.
-- [ ] Sprint 0: Establish repeatable latency and request-count evidence.
+- [x] Sprint 0: Establish repeatable latency and request-count evidence.
 - [ ] Sprint 1: Remove annotation page refreshes and duplicate per-session reconciliation.
 - [ ] Sprint 2: Introduce the columnar table query engine.
 - [ ] Sprint 3: Share, bound, deduplicate, and cancel backend analysis.
@@ -83,7 +83,11 @@ The latest launch-session work introduces two health concepts with different lif
 ## Outcomes & Retrospective
 
 
-Planning and independent review are complete. No implementation has begun. Update this section at every sprint boundary with the demo result, measured before/after evidence, remaining risks, and any deliberate deviation from the interfaces below. Do not mark a sprint complete when only unit tests pass but its runnable demo outcome has not been observed.
+Planning, independent plan review, and Sprint 0 are complete. The evidence slice is behavior-preserving: it extends the existing runtime-owned hot-path telemetry, and the backend and browser probes share one deterministic synthetic fixture. The full synthetic probe measured 293.798 ms combined p95 after warmup (203.699 ms query, 89.445 ms facets) with 1,524,101 decoded response bytes, 300 persisted ratings, and unchanged Parquet/snapshot/log inputs. Query serialization was the largest measured query phase at 84.954 ms p95; analysis was 70.932 ms p95.
+
+The full browser baseline observed one query, one facet, and one PATCH after annotation; stable gallery-root and scroll identity; a 48.9 ms first target disappearance; and the current page-clearing loading state with zero mounted cells. It therefore intentionally reports that the post-fix no-page-clear/projection target is not met. A deliberate superseded-filter sequence aborted one stale query/facet pair, completed one fresh pair, and reached zero in-flight requests after bounded quiescence. Runtime diagnostics recorded the abandoned stale work independently from completed analysis.
+
+Focused and affected backend validation passed, as did frontend tests/build, repository lint, GUI smoke, the performance probe, the dedicated browser probe, cleanup, and final independent review. Repository-wide `pytest` completed with 704 passed, one expected failure, and one unrelated existing export/preindex failure: the corrupt-image comparison test expects endpoint decode status 422, but preindex excludes the corrupt source first and the endpoint returns 404. Sprint 0 did not change export or preindex behavior; carry this as baseline validation debt rather than expanding the evidence sprint.
 
 At final completion, record the named-dataset and synthetic-fixture latency distributions, annotation projection latency, request and analysis counts for burst scenarios, persistence watermark behavior, event-loop responsiveness during thumbnail misses, and any conditional Sprint 8 or Sprint 9 tickets that were skipped because their trigger was not met.
 
@@ -307,6 +311,17 @@ The label writer keeps pending entries in memory until a successful durable batc
 Atomic table refresh builds a new snapshot separately and swaps one reference only after validation. A failed refresh leaves the old snapshot serving and records stale/error state. Sidecars remain keyed by canonical path, so rebuilding row IDs does not rewrite user annotations.
 
 
+## Progress Log
+
+
+- [x] 2026-07-17 15:12 UTC — Ralph iteration 1 selected Sprint 0 only (S0-T1 through S0-T3), within the six-task cap; the working tree contained only the untracked active Ralph workspace.
+- [x] 2026-07-17 15:47 UTC — S0-T1 implemented. The probe emits stable comparison fields plus detailed latency, decoded response-byte, phase, correctness, and sidecar sections; focused tests prove percentile interpolation and fail closed when the Parquet, label snapshot, or label log changes. Named Parquet probes load existing annotations without granting write access.
+- [x] 2026-07-17 15:47 UTC — S0-T2 implemented. Existing `HotpathTelemetry` remains the sole aggregate owner; request-local monotonic phases feed `Server-Timing` for queue, analysis, ordering, facets, projection, serialization, thumbnail, mutation, and writer work. Analysis outcomes use distinct counters.
+- [x] 2026-07-17 16:14 UTC — S0-T3 implemented and run at full scale. The live probe recorded stable gallery-root identity, one query, one facet, one PATCH, bounded network/DOM quiescence, and a deliberate stale query/facet abort. It captured the current page-clearing `loading` state with zero mounted cells and correctly did not count that disappearance as meeting the post-fix target.
+- [x] 2026-07-17 16:22 UTC — Sprint 0 review remediation and re-review complete. HTTP outcomes are terminal and mutually exclusive, browser evidence retains request-start phase attribution, read-only input integrity covers annotations, and plain `pytest` collection works. Cleanup and final independent review reported no remaining actionable findings.
+- [x] 2026-07-17 16:22 UTC — Sprint 0 validation complete: focused plain `pytest` 12 passed; affected backend suite 197 passed; frontend 517 passed; production build, repository lint, GUI smoke, synthetic latency probe, and annotation browser probe passed. Full repository `pytest` recorded 704 passed, one xfailed, and the unrelated export/preindex 404-versus-422 failure described above.
+
+
 ## Artifacts and Notes
 
 
@@ -332,12 +347,15 @@ The browser evidence should include the session boundary explicitly:
 
     {
       "session_id": "opaque-ensureClientId-value",
-      "semantic_revisions": 1,
+      "semantic_revisions": { "protocol_present": false },
       "query_requests": 1,
       "facet_requests": 1,
       "gallery_root_replaced": false,
-      "annotation_projection_p95_ms": 0
+      "annotation_projection_ms": 0,
+      "mutation_quiescence": { "completed": true, "inflight_requests": 0 }
     }
+
+Sprint 0 handoff: use `python scripts/perf/table_query_latency.py --synthetic --repetitions 20` for the stable server baseline and `python -m scripts.browser.annotation_latency.acceptance` for the current browser failure evidence. Sprint 1 starts at S1-T1 and must preserve these evidence keys while replacing the page-clearing result with immediate projection and per-session bounded reconciliation. No Sprint 1 code was included in this iteration.
 
 Keep performance assertions out of tiny unit tests when operating-system scheduling would make them flaky. Unit tests assert counts, identity, ordering, deadlines with fake clocks, and bounded operations. Controlled live probes enforce the 100-millisecond and one-second budgets and retain raw JSON evidence.
 

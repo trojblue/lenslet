@@ -42,6 +42,7 @@ from .display import (
     normalize_metrics_display_value,
 )
 from .facets import build_table_query_facet_summary, metric_keys_for_query_spec
+from ...diagnostics import request_phase
 from .index import (
     build_index_columns,
     extract_row_display_fields,
@@ -1381,7 +1382,8 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         if not rows and not folders and norm:
             raise FileNotFoundError(spec.path)
 
-        records = [self._query_record_for_row(row_store, row_idx) for row_idx in rows]
+        with request_phase("analysis"):
+            records = [self._query_record_for_row(row_store, row_idx) for row_idx in rows]
         metric_keys = tuple(self.metric_keys())
         categorical_keys = tuple(self.categorical_keys())
         evaluation = evaluate_browse_records(
@@ -1391,6 +1393,11 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             categorical_keys=categorical_keys,
         )
         result_metric_keys = metric_keys_for_query_spec(spec, metric_keys)
+        with request_phase("projection"):
+            items = tuple(
+                self._materialize_query_record_item(record)
+                for record in evaluation.window
+            )
         return BrowseQueryResult(
             path=_canonical_query_path(norm),
             generated_at=self._generated_at,
@@ -1403,7 +1410,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             filtered_total=evaluation.filtered_total,
             offset=spec.offset,
             limit=spec.limit,
-            items=tuple(self._materialize_query_record_item(record) for record in evaluation.window),
+            items=items,
             folders=folders,
             metric_keys=tuple(result_metric_keys),
             categorical_keys=categorical_keys,
@@ -1764,7 +1771,8 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         if not rows and not folders and norm:
             raise FileNotFoundError(spec.path)
 
-        records = [self._query_record_for_row(row_store, row_idx) for row_idx in rows]
+        with request_phase("analysis"):
+            records = [self._query_record_for_row(row_store, row_idx) for row_idx in rows]
         return build_table_query_facet_summary(
             spec=spec,
             records=records,

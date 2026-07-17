@@ -17,6 +17,7 @@ from ...embeddings.index import EmbeddingManager
 from ...storage.base import BrowseAppStorage, SidecarState
 from ...storage.table.storage import TableStorage, load_parquet_schema
 from ...workspace import Workspace
+from ...diagnostics import request_phase
 from ..auth import MutationPolicy, READ_ONLY_MUTATION_POLICY, trusted_local_mutation_policy
 from ..cache.thumbs import ThumbCache
 from ..context import get_app_context
@@ -116,8 +117,9 @@ def build_record_update(
             if workspace.can_write:
                 entry = {"id": event_id, "type": event_type, **payload}
                 try:
-                    with runtime.log_lock:
-                        workspace.append_labels_log(entry)
+                    with request_phase("writer"):
+                        with runtime.log_lock:
+                            workspace.append_labels_log(entry)
                 except _LABEL_LOG_ERRORS as exc:
                     report_degraded_feature(
                         "label log persistence",

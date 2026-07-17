@@ -215,8 +215,6 @@ class Workspace:
         return self.root / "og-cache"
 
     def labels_log_path(self) -> Path | None:
-        if not self.can_write:
-            return None
         if self.views_override is not None:
             base = self.views_override.stem
             return self.views_override.with_name(f"{base}.labels.log.jsonl")
@@ -225,8 +223,6 @@ class Workspace:
         return self.root / "labels.log.jsonl"
 
     def labels_snapshot_path(self) -> Path | None:
-        if not self.can_write:
-            return None
         if self.views_override is not None:
             base = self.views_override.stem
             return self.views_override.with_name(f"{base}.labels.snapshot.json")
@@ -394,6 +390,7 @@ class Workspace:
         location = str(path) if path is not None else "<memory>"
         detail = result.detail or result.status
         print(f"[lenslet] Warning: failed to read {label} at {location}: {detail}")
+
 
 def _decode_json_object(raw: str) -> dict[str, Any] | None:
     try:

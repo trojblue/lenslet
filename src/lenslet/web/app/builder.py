@@ -11,6 +11,7 @@ from ..browse import ToItemFn
 from ..cache.browse import RecursiveBrowseCache
 from ..context import AppContext, RequestContextMiddleware, get_app_runtime, set_app_context
 from ..frontend import mount_frontend
+from ..hotpath import install_hotpath_timing_middleware
 from ..record_update import RecordUpdateFn
 from ..runtime import AppRuntime
 from ...embeddings.index import EmbeddingManager
@@ -71,6 +72,7 @@ def finalize_browse_app(
         lambda: get_app_runtime(app),
     )
     _attach_request_context(app)
+    install_hotpath_timing_middleware(app, context.runtime.hotpath_metrics)
 
     @app.get("/health", response_model=HealthResponse, response_model_exclude_none=True)
     def health(request: Request) -> HealthResponse:

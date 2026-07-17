@@ -1,6 +1,7 @@
 from pathlib import Path
 import base64
 from dataclasses import replace
+from unittest.mock import Mock
 
 import pytest
 import pyarrow as pa
@@ -22,6 +23,7 @@ from lenslet.web.sync.labels import SnapshotWriter
 from lenslet.web.sync.presence import PresenceMetrics, PresenceTracker
 from lenslet.web.thumbs import ThumbnailScheduler
 from lenslet.storage.table import TableStorage, TableStorageOptions, load_parquet_table
+from lenslet.storage.table.query_coordinator import TableQueryCoordinator
 from lenslet.server import create_app
 from lenslet.workspace import Workspace
 
@@ -76,6 +78,7 @@ def _runtime_stub(workspace: Workspace) -> AppRuntime:
         thumb_queue=thumb_queue,
         thumb_cache=None,
         hotpath_metrics=type("Metrics", (), {"snapshot": lambda self, storage=None: {"counters": {}, "timers_ms": {}}})(),
+        query_coordinator=Mock(spec=TableQueryCoordinator),
     )
 
 

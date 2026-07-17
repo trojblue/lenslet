@@ -13,6 +13,8 @@ import type {
   BrowseQueryResponse,
   BrowseFacetsPayload,
   BrowseFolderPathsPayload,
+  BrowseFieldCapabilitiesPayload,
+  BrowseItemPayload,
   Sidecar,
   SidecarMutationResponse,
   SidecarPatch,
@@ -493,6 +495,13 @@ export const api = {
     ).promise.then(folderPayloadCount)
   },
 
+  getFolderFields: (path: string): Promise<BrowseFieldCapabilitiesPayload> => {
+    const params = buildFolderQuery(path, { recursive: true })
+    return runWithRequestBudget('folders', () =>
+      fetchJSON<BrowseFieldCapabilitiesPayload>(apiUrl(`/folders/fields?${params}`)),
+    ).promise
+  },
+
   getFolderFacets: (path: string, options?: Pick<GetFolderOptions, 'recursive'>): Promise<BrowseFacetsPayload> => {
     const facetOptions = { recursive: options?.recursive ?? true }
     return runWithRequestBudget('folders', () =>
@@ -584,6 +593,12 @@ export const api = {
 
   getSidecar: (path: string): Promise<Sidecar> => {
     return fetchJSON<Sidecar>(apiUrl(`/item?path=${encodeURIComponent(path)}`)).promise
+  },
+
+  getItemDetail: (path: string): Promise<BrowseItemPayload> => {
+    return fetchJSON<BrowseItemPayload>(
+      apiUrl(`/item/detail?path=${encodeURIComponent(path)}`),
+    ).promise
   },
 
   // Patch writes use If-Match plus idempotency keys so retries do not double-apply edits.

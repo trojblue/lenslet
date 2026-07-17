@@ -306,7 +306,7 @@ describe('derived metric evaluation', () => {
 
   it('uses backend-derived metric status and item scores for normal browse', () => {
     const items = [
-      makeItem('/a.jpg', { metrics: { q1: 1, '@derived/other': 99, '@derived/rubric_1': 4 } }),
+      makeItem('/a.jpg', { metrics: { q1: 1, '@derived/rubric_1': 4 } }),
       makeItem('/b.jpg', { metrics: { q1: 2, '@derived/rubric_1': 6 } }),
     ]
 
@@ -343,7 +343,7 @@ describe('derived metric evaluation', () => {
     expect(result.metricKeys).toEqual(['q1', '@derived/rubric_1'])
     expect(result.metricDisplayNames).toEqual({ '@derived/rubric_1': 'Backend rubric' })
     expect(result.items.map((item) => item.metrics?.['@derived/rubric_1'])).toEqual([4, 6])
-    expect(result.items[0].metrics?.['@derived/other']).toBeUndefined()
+    expect(result.items).toBe(items)
   })
 
   it('preserves a pending backend-derived key without synthesizing browse scores', () => {

@@ -43,6 +43,7 @@ interface DerivedScoreCardProps {
   facets?: BrowseFacetsPayload | null
   categoricalValuesByKey?: Map<string, string[]>
   derivedMetric: DerivedMetricEvaluation
+  backendAuthoritative?: boolean
   rankDisabledReason?: string | null
   onApplyDerivedMetric: (spec: DerivedMetricSpec | null) => void
   onRankByDerivedMetric: (spec: DerivedMetricSpec) => void
@@ -56,6 +57,7 @@ export default function DerivedScoreCard({
   facets = null,
   categoricalValuesByKey: categoricalValuesByKeyOverride,
   derivedMetric,
+  backendAuthoritative = false,
   rankDisabledReason = null,
   onApplyDerivedMetric,
   onRankByDerivedMetric,
@@ -128,7 +130,14 @@ export default function DerivedScoreCard({
     [facets, items, numericTermKeys],
   )
   const applyDisabledReason = draftBuild.errors[0] ?? null
-  const rankReason = draftRankState.disabledReason
+  const backendSchemaReason = !draftRankState.evaluation
+    || draftRankState.evaluation.status === 'unavailable'
+    || draftRankState.evaluation.status === 'invalid'
+    ? draftRankState.disabledReason
+    : null
+  const rankReason = backendAuthoritative
+    ? rankDisabledReason ?? backendSchemaReason
+    : draftRankState.disabledReason
   const activeCounts = derivedMetric.status === 'none' ? draftRankState.evaluation : derivedMetric
   const validCount = activeCounts?.validCount ?? 0
   const invalidCount = activeCounts?.invalidCount ?? items.length

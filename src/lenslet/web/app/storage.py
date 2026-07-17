@@ -13,8 +13,13 @@ from ...storage.base import BrowseAppStorage, SidecarStateStorage
 from ...storage.dataset.storage import DatasetStorage
 from ...storage.memory.storage import MemoryStorage
 from ...storage.table.storage import TableStorage
+from ...storage.table.row_store import TableRowViewItem
 from ...workspace import Workspace
-from ..browse import build_item_payload, categoricals_for_cached_item
+from ..browse import (
+    build_item_payload,
+    build_table_query_item_payload,
+    categoricals_for_cached_item,
+)
 from ..context import get_app_context, get_request_context
 from ..models import ErrorResponse, HealthResponse, LaunchSessionPayload, RefreshResponse
 from ..permissions import deny_if_mutation_forbidden
@@ -219,6 +224,12 @@ def build_storage_browse_adapters(
     static_refresh_note: str | None = None,
 ) -> BrowseAppAdapters:
     def _to_item(storage: SidecarStateStorage, cached: Any) -> Any:
+        if (
+            isinstance(storage, TableStorage)
+            and isinstance(cached, TableRowViewItem)
+            and cached.sidecar_snapshot is not None
+        ):
+            return build_table_query_item_payload(cached, show_source=show_source)
         sidecar_state = storage.get_sidecar_readonly(cached.path)
         source = getattr(cached, "source", None) if show_source else None
         return build_item_payload(

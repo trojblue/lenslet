@@ -124,6 +124,7 @@ import {
   type ItemCacheUpdatePayload,
   type ItemCacheUpdateOptions,
 } from './model/appShellStateSync'
+import { browseEntityStore, patchBrowseEntity } from './model/browseEntityStore'
 import { applyThemePreset, type ThemePresetId } from '../theme/runtime'
 import { loadWorkspaceThemePreset, writeStoredThemePreset } from '../theme/storage'
 
@@ -616,6 +617,16 @@ export default function AppShell({
     payload: ItemCacheUpdatePayload,
     options?: ItemCacheUpdateOptions,
   ) => {
+    browseEntityStore.patch(payload, {
+      replaceMutableMetrics: options?.replaceMutableMetrics,
+    })
+    queryClient.setQueryData<BrowseItemPayload>(['item-detail', payload.path], (current) => (
+      current
+        ? patchBrowseEntity(current, payload, {
+          replaceMutableMetrics: options?.replaceMutableMetrics,
+        })
+        : current
+    ))
     patchIndexedItemQueries(queryClient, itemQueryIndexRef.current, payload, options)
   }, [queryClient])
 
@@ -1247,6 +1258,7 @@ export default function AppShell({
             metricsFacets={metricsFacets}
             metricsItemPopulationComplete={metricsItemPopulationComplete}
             derivedMetric={derivedMetric}
+            derivedMetricBackendAuthoritative={!similarityActive}
             derivedRankDisabledReason={derivedRankDisabledReason}
             selectedItems={selectedItems}
             selectedMetric={viewState.selectedMetric}
@@ -1388,7 +1400,14 @@ export default function AppShell({
                 metricDisplayNames={metricDisplayNames}
                 onResize={onResizeRight}
                 onStarChanged={(paths, val)=>{
-                  setLocalStarOverrides(prev => { const next = { ...prev }; for (const p of paths) next[p] = val; return next })
+                  const missing = paths.filter((path) => !browseEntityStore.patch({ path, star: val }))
+                  if (missing.length) {
+                    setLocalStarOverrides((prev) => {
+                      const next = { ...prev }
+                      for (const path of missing) next[path] = val
+                      return next
+                    })
+                  }
                 }}
                 onFindSimilar={() => setSimilarityOpen(true)}
                 embeddingsAvailable={embeddingsAvailable}

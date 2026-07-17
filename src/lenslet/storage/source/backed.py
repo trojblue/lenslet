@@ -120,6 +120,12 @@ class SourceBackedStorageBase(SidecarStateMixin, StorageProgressMixin, Generic[I
     def _lookup_item(self, norm: str) -> ItemT | None:
         return self._source_catalog.lookup_item(norm)
 
+    def get_browse_item(self, path: str) -> ItemT:
+        item = self._lookup_item(path)
+        if item is None:
+            raise FileNotFoundError(path)
+        return item
+
     def _path_candidates(self, path: str) -> tuple[str, ...]:
         return self._source_catalog.path_candidates(path)
 

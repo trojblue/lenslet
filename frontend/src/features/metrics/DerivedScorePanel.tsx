@@ -14,6 +14,7 @@ interface DerivedScorePanelProps {
   metricDisplayNames?: MetricDisplayNames | null
   facets?: BrowseFacetsPayload | null
   derivedMetric: DerivedMetricEvaluation
+  backendAuthoritative?: boolean
   derivedRankDisabledReason?: string | null
   onApplyDerivedMetric: (spec: DerivedMetricSpec | null) => void
   onRankByDerivedMetric: (spec: DerivedMetricSpec) => void
@@ -26,6 +27,7 @@ export default function DerivedScorePanel({
   metricDisplayNames,
   facets = null,
   derivedMetric,
+  backendAuthoritative = false,
   derivedRankDisabledReason,
   onApplyDerivedMetric,
   onRankByDerivedMetric,
@@ -40,6 +42,7 @@ export default function DerivedScorePanel({
         facets={facets}
         categoricalValuesByKey={categoricalValuesFromFacets(facets, categoricalKeys)}
         derivedMetric={derivedMetric}
+        backendAuthoritative={backendAuthoritative}
         rankDisabledReason={derivedRankDisabledReason}
         onApplyDerivedMetric={onApplyDerivedMetric}
         onRankByDerivedMetric={onRankByDerivedMetric}

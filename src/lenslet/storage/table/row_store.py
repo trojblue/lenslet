@@ -59,6 +59,7 @@ class TableRowViewItem:
     _metrics_provider: MetricProvider | None
     _media_update: MediaUpdateCallback | None
     sidecar_snapshot: SidecarState | None
+    mutable_metric_keys: tuple[str, ...]
 
     def __init__(
         self,
@@ -79,6 +80,7 @@ class TableRowViewItem:
         metrics_provider: MetricProvider | None = None,
         media_update: MediaUpdateCallback | None = None,
         sidecar_snapshot: SidecarState | None = None,
+        mutable_metric_keys: tuple[str, ...] = (),
     ) -> None:
         self.path = path
         self.name = name
@@ -96,6 +98,7 @@ class TableRowViewItem:
         self._metrics_provider = metrics_provider
         self._media_update = media_update
         self.sidecar_snapshot = sidecar_snapshot
+        self.mutable_metric_keys = mutable_metric_keys
 
     def _write_media_update(self) -> None:
         if self._media_update is not None:
@@ -344,6 +347,7 @@ class TableRowStore:
         metrics_provider: MetricProvider | None = None,
         dimensions: tuple[int, int] | None = None,
         sidecar_snapshot: SidecarState | None = None,
+        mutable_metric_keys: tuple[str, ...] = (),
     ) -> TableRowViewItem:
         path, name, mime, width, height, size, mtime, url, source = self.item_fields_for_row(row_idx)
         if dimensions is not None:
@@ -362,6 +366,7 @@ class TableRowStore:
             row_idx=row_idx,
             metrics_provider=metrics_provider,
             sidecar_snapshot=sidecar_snapshot,
+            mutable_metric_keys=mutable_metric_keys,
             media_update=lambda new_width, new_height, new_size: self._update_materialized_media(
                 row_idx,
                 path,

@@ -17,6 +17,8 @@ BrowseQueryCompareOp = Literal["<", "<=", ">", ">="]
 DerivedMetricNumericMissingPolicy = Literal["zero", "invalid"]
 BROWSE_QUERY_DEFAULT_LIMIT = 1000
 BROWSE_QUERY_MAX_LIMIT = BROWSE_QUERY_DEFAULT_LIMIT
+BROWSE_PROJECTION_MAX_METRICS = 64
+BROWSE_PROJECTION_MAX_CATEGORICALS = 32
 DERIVED_METRIC_KEY_PREFIX = "@derived/"
 
 
@@ -40,6 +42,7 @@ class BrowseItemPayload(BaseModel):
     url: str | None = None
     source: str | None = None
     metrics: dict[str, float] | None = None
+    mutable_metric_keys: list[str] = Field(default_factory=list)
     metric_labels: dict[str, str] | None = None
     categoricals: dict[str, str] | None = None
     original_media: "OriginalMediaPolicyPayload | None" = None
@@ -323,6 +326,24 @@ class BrowseQueryDerivedMetricPayload(StrictModel):
         return value
 
 
+class BrowseQueryProjectionPayload(StrictModel):
+    metric_keys: list[str] = Field(default_factory=list, max_length=BROWSE_PROJECTION_MAX_METRICS)
+    categorical_keys: list[str] = Field(
+        default_factory=list,
+        max_length=BROWSE_PROJECTION_MAX_CATEGORICALS,
+    )
+
+    @field_validator("metric_keys", "categorical_keys")
+    @classmethod
+    def validate_keys(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values]
+        if any(not value for value in normalized):
+            raise ValueError("projection keys must be non-empty")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("projection keys must be unique")
+        return sorted(normalized)
+
+
 class BrowseQueryRequest(StrictModel):
     path: str = "/"
     recursive: bool = False
@@ -336,6 +357,7 @@ class BrowseQueryRequest(StrictModel):
     random_seed: str | int | None = None
     derived_metric: BrowseQueryDerivedMetricPayload | None = None
     unsupported_metric_intent: str | None = None
+    projection: BrowseQueryProjectionPayload = Field(default_factory=BrowseQueryProjectionPayload)
 
 
 DerivedMetricStatusKindPayload = Literal["none", "applied", "unavailable", "invalid"]
@@ -422,6 +444,15 @@ class FieldCapabilitiesPayload(BaseModel):
     filterable_metrics: list[str] = Field(default_factory=list)
     numeric_formula_inputs: list[str] = Field(default_factory=list)
     categorical_inputs: list[str] = Field(default_factory=list)
+
+
+class BrowseFieldCapabilitiesPayload(BaseModel):
+    version: int = 1
+    path: str
+    generated_at: str
+    metric_keys: list[str] = Field(default_factory=list)
+    categorical_keys: list[str] = Field(default_factory=list)
+    field_capabilities: FieldCapabilitiesPayload = Field(default_factory=FieldCapabilitiesPayload)
 
 
 class MetricHistogramFacetPayload(BaseModel):

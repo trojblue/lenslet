@@ -3,6 +3,7 @@ from __future__ import annotations
 from lenslet.browse.query import (
     BrowseFilterAst,
     BrowseQuerySpec,
+    BrowseWindowProjection,
     BuiltinSortSpec,
     CategoricalInFilter,
     DerivedMetricCategoricalTerm,
@@ -67,8 +68,8 @@ def test_table_query_filters_full_scope_and_materializes_only_window() -> None:
     assert result.filtered_total == 2
     assert [item.path for item in result.items] == ["gallery/img4.jpg"]
     assert row_store.materialized_item_count == 1
-    assert result.metric_keys == ("score",)
-    assert "source_column" in result.categorical_keys
+    assert result.metric_keys == ()
+    assert result.categorical_keys == ()
 
 
 def test_table_query_and_facets_use_columns_and_bound_window_materialization(
@@ -105,13 +106,14 @@ def test_table_query_and_facets_use_columns_and_bound_window_materialization(
         offset=100,
         limit=200,
         sort=BuiltinSortSpec("name", "asc"),
+        projection=BrowseWindowProjection(metric_keys=("q0", "q1", "q2")),
     )
 
     result = storage.query_browse_scope(spec)
 
     assert len(result.items) == 200
     assert row_store.materialized_item_count == 200
-    assert all(len(item.metrics) == metric_count for item in result.items)
+    assert all(set(item.metrics) == {"q0", "q1", "q2"} for item in result.items)
 
     row_store.materialized_item_count = 0
     monkeypatch.setattr(storage.query_engine, "order", fail_facet_sort)
@@ -128,6 +130,7 @@ def test_dynamic_sidecar_metrics_are_projected_and_faceted() -> None:
     sidecar = storage.ensure_sidecar(path)
     sidecar["metrics"] = {"review_score": 42.0}
     storage.set_sidecar(path, sidecar)
+    assert storage.metric_keys() == ["review_score", "score"]
     spec = BrowseQuerySpec(
         path="/gallery",
         recursive=True,
@@ -135,6 +138,7 @@ def test_dynamic_sidecar_metrics_are_projected_and_faceted() -> None:
         limit=10,
         filters=BrowseFilterAst((MetricRangeFilter("review_score", 40.0, 50.0),)),
         sort=MetricSortSpec("review_score", "desc"),
+        projection=BrowseWindowProjection(metric_keys=("review_score",)),
     )
 
     result = storage.query_browse_scope(spec)
@@ -142,6 +146,7 @@ def test_dynamic_sidecar_metrics_are_projected_and_faceted() -> None:
 
     assert [item.path for item in result.items] == ["gallery/img4.jpg"]
     assert result.items[0].metrics["review_score"] == 42.0
+    assert result.items[0].mutable_metric_keys == ("review_score",)
     assert "review_score" in result.metric_keys
     assert facets["metric_keys"] == ["review_score", "score"]
     assert facets["metrics"]["review_score"]["histogram"]["count"] == 1
@@ -295,6 +300,7 @@ def test_table_query_sorts_by_derived_metric_across_full_scope() -> None:
             filters=BrowseFilterAst(and_clauses=(MetricRangeFilter(key, 10.0, 20.0),)),
             sort=MetricSortSpec(key, "desc"),
             derived_metric=spec,
+            projection=BrowseWindowProjection(metric_keys=(key,)),
         )
     )
 

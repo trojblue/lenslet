@@ -48,6 +48,7 @@ type LeftSidebarProps = {
   metricsItemPopulationComplete?: boolean
   derivedMetric: DerivedMetricEvaluation
   derivedRankDisabledReason?: string | null
+  derivedMetricBackendAuthoritative?: boolean
   selectedItems?: BrowseItemPayload[]
   selectedMetric?: string
   onSelectMetric: (key: string) => void
@@ -109,6 +110,7 @@ export default function LeftSidebar({
   metricsItemPopulationComplete,
   derivedMetric,
   derivedRankDisabledReason,
+  derivedMetricBackendAuthoritative = false,
   selectedItems,
   selectedMetric,
   onSelectMetric,
@@ -297,6 +299,7 @@ export default function LeftSidebar({
                 metricDisplayNames={metricDisplayNames}
                 facets={metricsFacets}
                 derivedMetric={derivedMetric}
+                backendAuthoritative={derivedMetricBackendAuthoritative}
                 derivedRankDisabledReason={derivedRankDisabledReason}
                 onApplyDerivedMetric={onApplyDerivedMetric}
                 onRankByDerivedMetric={onRankByDerivedMetric}

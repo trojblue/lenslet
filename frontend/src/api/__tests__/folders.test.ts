@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient } from '@tanstack/react-query'
 import { api, buildFolderQuery } from '../client'
 import {
   cancelBrowseRequests,
@@ -12,6 +13,7 @@ import {
   buildBrowseQueryRequest,
   folderFacetsQueryKey,
   folderQueryKey,
+  pruneBrowseQueryVariants,
   resetSemanticQueryRevisionForTests,
   semanticQueryRevision,
   shouldRemoveRecursiveFolderQuery,
@@ -152,6 +154,7 @@ describe('folder api query helpers', () => {
       random_seed: 123,
       derived_metric: null,
       unsupported_metric_intent: null,
+      projection: { metric_keys: [], categorical_keys: [] },
     })
   })
 
@@ -215,6 +218,7 @@ describe('folder api query helpers', () => {
     })).not.toBe(key())
     expect(key({ unsupportedToken: 'derived-filter' })).not.toBe(key())
     expect(key({ unsupportedToken: ' derived-filter ' })).toBe(key({ unsupportedToken: 'derived-filter' }))
+    expect(key({ projection: { metric_keys: ['score'], categorical_keys: [] } })).toBe(key())
     expect(key({ filters: { and: [{ starsIn: { values: [] } }] } })).toBe(key())
   })
 
@@ -245,6 +249,10 @@ describe('folder api query helpers', () => {
     expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken(base, 20)))
     expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken({ ...base, limit: 20 }, 0)))
     expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken(base, 0, 'gen-2')))
+    expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken({
+      ...base,
+      projection: { metric_keys: ['score'], categorical_keys: [] },
+    }, 0)))
     expect(JSON.stringify(browseQueryKey(base))).toBe(JSON.stringify(windowRequestToken(base, 0)))
     expect(JSON.stringify(folderFacetsQueryKey(base))).toBe(JSON.stringify([
       'folder-facets',
@@ -266,6 +274,25 @@ describe('folder api query helpers', () => {
     expect(semanticQueryRevision(analysisQueryKey({ ...base, limit: 20 }))).toBe(first)
     expect(semanticQueryRevision(analysisQueryKey({ ...base, textQuery: 'cat' }))).toBe(first + 1)
     expect(semanticQueryRevision(firstKey)).toBe(first + 2)
+  })
+
+  it('retains only the active plus two recent query variants for one path', () => {
+    const queryClient = new QueryClient()
+    const keys = Array.from({ length: 50 }, (_, index) => [
+      'folder-query',
+      ['analysis-query', '/shots', 'recursive', { and: [] }, { index }],
+      0,
+      1000,
+      JSON.stringify({ metric_keys: [`metric_${index}`], categorical_keys: [] }),
+      null,
+    ] as const)
+    for (const key of keys) queryClient.setQueryData(key, { item_paths: [] })
+
+    pruneBrowseQueryVariants(queryClient, '/shots', keys[49])
+
+    const retained = queryClient.getQueryCache().findAll({ queryKey: ['folder-query'] })
+    expect(retained).toHaveLength(3)
+    expect(queryClient.getQueryData(keys[49])).toBeDefined()
   })
 
   it('starts a reloaded tab above its prior in-memory revision without another storage key', () => {

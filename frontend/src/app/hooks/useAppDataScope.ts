@@ -5,6 +5,7 @@ import {
   shouldRemoveRecursiveFolderQuery,
   useBrowseQuery,
   useFolderCount,
+  useFolderFields,
 } from '../../api/folders'
 import { buildCanonicalSearchRequest, normalizeSearchScopePath } from '../../api/search'
 import { useEmbeddings } from '../../api/embeddings'
@@ -18,17 +19,21 @@ import {
   resolveMetricKeys,
 } from '../model/appShellSelectors'
 import {
+  derivedMetricKey,
   evaluateBackendDerivedMetric,
   evaluateDerivedMetric,
   getDerivedMetricInputKeys,
+  normalizeDerivedMetricSpec,
   type DerivedMetricEvaluation,
 } from '../../features/metrics/model/derivedMetric'
+import { browseEntityStore } from '../model/browseEntityStore'
 import {
   completeBrowseLoad,
   startBrowseLoad,
 } from '../../lib/browseHotpath'
 import type {
-  BrowseQueryResponse,
+  BrowseQueryPage,
+  BrowseFieldCapabilitiesPayload,
   EmbeddingRejected,
   EmbeddingSearchItem,
   EmbeddingSpec,
@@ -36,6 +41,8 @@ import type {
   BrowseItemPayload,
   StarRating,
   ViewState,
+  BrowseWindowProjection,
+  FilterAST,
 } from '../../lib/types'
 import { buildFallbackItem } from '../utils/appShellHelpers'
 
@@ -100,6 +107,13 @@ export type BrowseCapabilityKeys = {
   ready: boolean
 }
 
+type BrowseCapabilityFieldSource = Pick<
+  BrowseFieldCapabilitiesPayload,
+  'path' | 'metric_keys' | 'categorical_keys'
+> & {
+  field_capabilities?: BrowseFieldCapabilitiesPayload['field_capabilities']
+}
+
 function getEmbeddingsError(isError: boolean, error: unknown): string | null {
   if (!isError) return null
   if (error instanceof FetchError) return error.message
@@ -108,7 +122,7 @@ function getEmbeddingsError(isError: boolean, error: unknown): string | null {
 }
 
 function buildFolderPayloadFromBrowseQuery(
-  firstPage: BrowseQueryResponse | undefined,
+  firstPage: BrowseQueryPage | undefined,
   items: BrowseItemPayload[],
 ): BrowseFolderPayload | undefined {
   if (!firstPage) return undefined
@@ -137,18 +151,15 @@ function emptyBrowseCapabilityKeys(path: string): BrowseCapabilityKeys {
 
 export function resolveBrowseCapabilityKeys(
   currentPath: string,
-  firstPage: Pick<
-    BrowseQueryResponse,
-    'path' | 'metric_keys' | 'categorical_keys' | 'field_capabilities'
-  > | undefined,
+  fields: BrowseCapabilityFieldSource | undefined,
   previous: BrowseCapabilityKeys,
 ): BrowseCapabilityKeys {
   const scopePath = normalizeSearchScopePath(currentPath)
-  if (firstPage?.path === scopePath) {
+  if (fields?.path === scopePath) {
     return {
       path: scopePath,
-      metricKeys: fieldCapabilityMetricKeys(firstPage),
-      categoricalKeys: fieldCapabilityCategoricalKeys(firstPage),
+      metricKeys: fieldCapabilityMetricKeys(fields),
+      categoricalKeys: fieldCapabilityCategoricalKeys(fields),
       ready: true,
     }
   }
@@ -169,7 +180,7 @@ function sameStringArray(a: readonly string[], b: readonly string[]): boolean {
 }
 
 function fieldCapabilityMetricKeys(
-  page: Pick<BrowseQueryResponse, 'metric_keys' | 'field_capabilities'>,
+  page: Pick<BrowseCapabilityFieldSource, 'metric_keys' | 'field_capabilities'>,
 ): string[] {
   const capabilities = page.field_capabilities
   if (capabilities) return [...capabilities.display_metrics]
@@ -177,7 +188,7 @@ function fieldCapabilityMetricKeys(
 }
 
 function fieldCapabilityCategoricalKeys(
-  page: Pick<BrowseQueryResponse, 'categorical_keys' | 'field_capabilities'>,
+  page: Pick<BrowseCapabilityFieldSource, 'categorical_keys' | 'field_capabilities'>,
 ): string[] {
   const capabilities = page.field_capabilities
   if (capabilities) return [...capabilities.categorical_inputs]
@@ -189,6 +200,109 @@ function folderQueryKeyPath(queryKey: readonly unknown[]): string {
   const analysisKey = queryKey[1]
   if (!Array.isArray(analysisKey)) return ''
   return typeof analysisKey[1] === 'string' ? analysisKey[1] : ''
+}
+
+export function browseProjectionForViewState(viewState: ViewState): BrowseWindowProjection {
+  const metricKeys: string[] = []
+  const categoricalKeys: string[] = []
+  const addMetric = (key: string | undefined) => {
+    const normalized = key?.trim()
+    if (normalized && !metricKeys.includes(normalized)) metricKeys.push(normalized)
+  }
+  const addCategorical = (key: string | undefined) => {
+    const normalized = key?.trim()
+    if (normalized && !categoricalKeys.includes(normalized)) categoricalKeys.push(normalized)
+  }
+  addMetric(viewState.selectedMetric)
+  if (viewState.sort.kind === 'metric') addMetric(viewState.sort.key)
+  const derived = normalizeDerivedMetricSpec(viewState.derivedMetric)
+  if (derived) addMetric(derivedMetricKey(derived))
+  for (const clause of viewState.filters.and) {
+    if ('metricRange' in clause) addMetric(clause.metricRange.key)
+    if ('categoricalIn' in clause) addCategorical(clause.categoricalIn.key)
+  }
+  return {
+    metric_keys: metricKeys.sort(),
+    categorical_keys: categoricalKeys.sort(),
+  }
+}
+
+export function browseProjectionUnavailableReason(
+  projection: BrowseWindowProjection,
+): string | null {
+  if (projection.metric_keys.length > 64) {
+    return 'This view needs more than 64 metric columns. Remove metric filters to continue.'
+  }
+  if (projection.categorical_keys.length > 32) {
+    return 'This view needs more than 32 categorical columns. Remove categorical filters to continue.'
+  }
+  return null
+}
+
+function resolveBrowseEntities(
+  paths: readonly string[],
+): BrowseItemPayload[] {
+  return paths.flatMap((path) => {
+    const item = browseEntityStore.get(path)
+    return item ? [item] : []
+  })
+}
+
+export function conclusiveClientFilters(filters: FilterAST): FilterAST {
+  return {
+    and: filters.and.filter((clause) => (
+      !('urlContains' in clause) && !('urlNotContains' in clause)
+    )),
+  }
+}
+
+function useBrowseEntities(paths: readonly string[], filters: FilterAST): BrowseItemPayload[] {
+  const ownerRef = useRef<object>({})
+  const pathKey = paths.join('\u0000')
+  const viewKey = `${pathKey}\u0000${JSON.stringify(filters)}`
+  const localFilters = useMemo(() => conclusiveClientFilters(filters), [filters])
+  const initialItems = useMemo(
+    () => resolveBrowseEntities(paths),
+    [viewKey], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const [state, setState] = useState(() => ({ key: viewKey, items: initialItems }))
+  useEffect(() => {
+    const owner = ownerRef.current
+    const uniquePaths = Array.from(new Set(paths))
+    const orderByPath = new Map(paths.map((path, index) => [path, index]))
+    browseEntityStore.setActivePaths(owner, uniquePaths)
+    const unsubscribers = uniquePaths.map((path) => browseEntityStore.subscribe(path, () => {
+      const entity = browseEntityStore.get(path)
+      const visible = entity ? applyFilters([entity], localFilters).length === 1 : false
+      setState((previous) => {
+        const items = previous.key === viewKey ? previous.items : initialItems
+        const currentIndex = items.findIndex((item) => item.path === path)
+        if (!visible) {
+          if (currentIndex < 0) return previous.key === viewKey ? previous : { key: viewKey, items }
+          return { key: viewKey, items: items.filter((_, index) => index !== currentIndex) }
+        }
+        if (currentIndex >= 0) {
+          if (items[currentIndex] === entity) return previous
+          const next = [...items]
+          next[currentIndex] = entity!
+          return { key: viewKey, items: next }
+        }
+        const targetOrder = orderByPath.get(path) ?? Number.MAX_SAFE_INTEGER
+        const insertAt = items.findIndex(
+          (item) => (orderByPath.get(item.path) ?? Number.MAX_SAFE_INTEGER) > targetOrder,
+        )
+        const next = [...items]
+        next.splice(insertAt < 0 ? next.length : insertAt, 0, entity!)
+        return { key: viewKey, items: next }
+      })
+    }))
+    setState({ key: viewKey, items: resolveBrowseEntities(paths) })
+    return () => {
+      for (const unsubscribe of unsubscribers) unsubscribe()
+      browseEntityStore.release(owner)
+    }
+  }, [viewKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  return state.key === viewKey ? state.items : initialItems
 }
 
 export function useAppDataScope({
@@ -214,13 +328,17 @@ export function useAppDataScope({
   ), [similarityActive, debouncedQ, current])
   const searching = searchRequest !== null
   const normalizedQ = searchRequest?.q ?? ''
+  const browseProjection = useMemo(
+    () => browseProjectionForViewState(viewState),
+    [viewState],
+  )
   const browseQueryUnavailableReason = useMemo(() => (
     getBackendBrowseDerivedMetricUnsupportedReason(
       viewState.sort,
       viewState.filters,
       similarityActive,
-    )
-  ), [similarityActive, viewState.filters, viewState.sort])
+    ) ?? browseProjectionUnavailableReason(browseProjection)
+  ), [browseProjection, similarityActive, viewState.filters, viewState.sort])
   const analysisUnsupportedMetricIntent = browseQueryUnavailableReason
     ?? urlUnsupportedMetricIntent
   const browseQuery = useBrowseQuery({
@@ -233,9 +351,11 @@ export function useAppDataScope({
     derivedMetric: viewState.derivedMetric ?? null,
     limit: BACKEND_BROWSE_PAGE_SIZE,
     unsupportedToken: analysisUnsupportedMetricIntent,
+    projection: browseProjection,
     enabled: !similarityActive && browseQueryUnavailableReason === null,
   })
   const { data: rootCount } = useFolderCount('/', { enabled: current !== '/' })
+  const folderFields = useFolderFields(current, { enabled: !similarityActive })
   const refetch = useCallback(() => browseQuery.refetch(), [browseQuery.refetch])
 
   useEffect(() => {
@@ -288,16 +408,17 @@ export function useAppDataScope({
   const embeddingsError = getEmbeddingsError(embeddingsQuery.isError, embeddingsQuery.error)
 
   const firstBrowsePage = browseQuery.data?.pages[0]
-  const browseItems = useMemo((): BrowseItemPayload[] => (
-    browseQuery.data?.pages.flatMap((page) => page.items) ?? []
+  const browsePaths = useMemo((): string[] => (
+    browseQuery.data?.pages.flatMap((page) => page.item_paths) ?? []
   ), [browseQuery.data])
+  const browseItems = useBrowseEntities(browsePaths, viewState.filters)
 
   useEffect(() => {
     setBrowseCapabilityKeys((previous) => {
-      const next = resolveBrowseCapabilityKeys(currentScopePath, firstBrowsePage, previous)
+      const next = resolveBrowseCapabilityKeys(currentScopePath, folderFields.data, previous)
       return sameBrowseCapabilityKeys(previous, next) ? previous : next
     })
-  }, [currentScopePath, firstBrowsePage])
+  }, [currentScopePath, folderFields.data])
 
   const effectiveBrowseCapabilityKeys = useMemo(() => (
     browseCapabilityKeys.path === currentScopePath
@@ -305,12 +426,7 @@ export function useAppDataScope({
       : emptyBrowseCapabilityKeys(currentScopePath)
   ), [browseCapabilityKeys, currentScopePath])
 
-  const rawPoolItems = useMemo((): BrowseItemPayload[] => {
-    return browseItems.map((it) => ({
-      ...it,
-      star: localStarOverrides[it.path] !== undefined ? localStarOverrides[it.path] : it.star,
-    }))
-  }, [browseItems, localStarOverrides])
+  const rawPoolItems = browseItems
 
   const data = useMemo(() => (
     buildFolderPayloadFromBrowseQuery(firstBrowsePage, rawPoolItems)

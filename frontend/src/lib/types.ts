@@ -16,6 +16,7 @@ export type BrowseItemPayload = {
   url?: string | null
   source?: string | null
   metrics?: Record<string, number | null>
+  mutable_metric_keys?: string[]
   metric_labels?: Record<string, string> | null
   categoricals?: Record<string, string> | null
   original_media?: OriginalMediaPolicy | null
@@ -64,6 +65,12 @@ export type BrowseQueryRequest = {
   random_seed?: string | number | null
   derived_metric?: DerivedMetricSpec | null
   unsupported_metric_intent?: string | null
+  projection: BrowseWindowProjection
+}
+
+export type BrowseWindowProjection = {
+  metric_keys: string[]
+  categorical_keys: string[]
 }
 
 export type QueryDependencyManifest = {
@@ -91,6 +98,10 @@ export type BrowseQueryResponse = {
   derived_metric_status?: DerivedMetricStatusPayload | null
   field_capabilities?: FieldCapabilitiesPayload | null
   dependency_manifest: QueryDependencyManifest
+}
+
+export type BrowseQueryPage = Omit<BrowseQueryResponse, 'items'> & {
+  item_paths: string[]
 }
 
 export type DerivedMetricZStatPayload = {
@@ -135,6 +146,15 @@ export type FieldCapabilitiesPayload = {
   filterable_metrics: string[]
   numeric_formula_inputs: string[]
   categorical_inputs: string[]
+}
+
+export type BrowseFieldCapabilitiesPayload = {
+  version: 1
+  path: string
+  generated_at: string
+  metric_keys: string[]
+  categorical_keys: string[]
+  field_capabilities: FieldCapabilitiesPayload
 }
 
 export type MetricHistogramFacet = {

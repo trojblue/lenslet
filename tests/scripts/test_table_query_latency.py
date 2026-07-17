@@ -46,7 +46,7 @@ def test_probe_emits_stable_schema_and_preserves_input(tmp_path: Path) -> None:
     assert result["input_unchanged"] is True
     assert result["warmups"] == 1
     assert result["repetitions"] == 2
-    assert result["analysis_started"] == 6
+    assert result["analysis_started"] == 2
     assert result["analysis_joined"] == 0
     assert result["analysis_superseded"] == 0
     assert result["analysis_cancelled"] == 0

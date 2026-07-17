@@ -1,14 +1,18 @@
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { usePollingEnabled } from './polling'
 import { normalizeSearchQuery, normalizeSearchScopePath } from './search'
 import { normalizeFilterAst } from '../features/browse/model/filters'
 import { normalizeDerivedMetricSpec } from '../features/metrics/model/derivedMetric'
+import { browseEntityStore, type BrowseEntityRequest } from '../app/model/browseEntityStore'
 import type {
   BrowseFacetsPayload,
+  BrowseFieldCapabilitiesPayload,
   BrowseFolderPayload,
+  BrowseQueryPage,
   BrowseQueryRequest,
   BrowseQueryResponse,
+  BrowseWindowProjection,
   DerivedMetricViewSpec,
   FilterAST,
   SortSpec,
@@ -37,6 +41,7 @@ export type BrowseQueryOptions = {
   derivedMetric?: DerivedMetricViewSpec | null
   limit?: number
   unsupportedToken?: string | null
+  projection?: BrowseWindowProjection
 }
 
 export type AnalysisQueryKey = readonly [
@@ -56,6 +61,7 @@ export type WindowRequestToken = readonly [
   AnalysisQueryKey,
   number,
   number,
+  string,
   string | null,
 ]
 
@@ -84,6 +90,16 @@ function normalizeUnsupportedToken(value: string | null | undefined): string | n
   return token || null
 }
 
+function normalizeProjection(projection: BrowseWindowProjection | undefined): BrowseWindowProjection {
+  const normalize = (values: readonly string[] | undefined) => Array.from(new Set(
+    (values ?? []).map((value) => value.trim()).filter(Boolean),
+  )).sort()
+  return {
+    metric_keys: normalize(projection?.metric_keys),
+    categorical_keys: normalize(projection?.categorical_keys),
+  }
+}
+
 export function buildBrowseQueryRequest(
   options: BrowseQueryOptions,
   offset = 0,
@@ -102,6 +118,7 @@ export function buildBrowseQueryRequest(
     random_seed: options.randomSeed ?? null,
     derived_metric: derivedMetric,
     unsupported_metric_intent: normalizeUnsupportedToken(options.unsupportedToken),
+    projection: normalizeProjection(options.projection),
   }
 }
 
@@ -149,6 +166,7 @@ export const windowRequestToken = (
     analysisQueryKeyFromRequest(request, options.unsupportedToken),
     request.offset,
     request.limit,
+    JSON.stringify(request.projection),
     generationToken,
   ] as const
 }
@@ -212,26 +230,69 @@ function fetchFolder(path: string, options?: GetFolderOptions): Promise<BrowseFo
   return api.getFolder(path, options)
 }
 
+export function normalizeBrowseQueryPage(
+  response: BrowseQueryResponse,
+  entityRequest?: BrowseEntityRequest,
+): BrowseQueryPage {
+  browseEntityStore.ingest(response.items, entityRequest)
+  const { items, ...page } = response
+  return { ...page, item_paths: items.map((item) => item.path) }
+}
+
+export function pruneBrowseQueryVariants(
+  queryClient: QueryClient,
+  path: string,
+  activeKey: readonly unknown[],
+  retain = 3,
+): void {
+  const activeHash = JSON.stringify(activeKey)
+  const candidates = queryClient.getQueryCache().findAll({ queryKey: ['folder-query'] })
+    .filter((query) => {
+      const key = query.queryKey
+      const analysis = Array.isArray(key) ? key[1] : null
+      return Array.isArray(analysis) && analysis[1] === path
+    })
+    .sort((a, b) => (
+      b.state.dataUpdatedAt - a.state.dataUpdatedAt
+      || a.queryHash.localeCompare(b.queryHash)
+    ))
+  const keep = new Set<string>([activeHash])
+  for (const query of candidates) {
+    if (keep.size >= retain) break
+    keep.add(JSON.stringify(query.queryKey))
+  }
+  for (const query of candidates) {
+    if (keep.has(JSON.stringify(query.queryKey))) continue
+    queryClient.removeQueries({ queryKey: query.queryKey, exact: true })
+  }
+}
+
 export function useBrowseQuery(options: BrowseQueryOptions & { enabled?: boolean }) {
   const pollingEnabled = usePollingEnabled()
+  const queryClient = useQueryClient()
   const queryKey = browseQueryKey(options)
   const queryRevision = semanticQueryRevision(analysisQueryKey(options))
-  return useInfiniteQuery<BrowseQueryResponse>({
+  return useInfiniteQuery<BrowseQueryPage>({
     queryKey,
-    queryFn: ({ pageParam, signal }) => {
+    queryFn: async ({ pageParam, signal }) => {
       const offset = typeof pageParam === 'number' ? pageParam : 0
-      return api.queryFolder(
-        buildBrowseQueryRequest(options, offset),
+      const request = buildBrowseQueryRequest(options, offset)
+      const entityRequest = browseEntityStore.beginRequest(request.projection)
+      const response = await api.queryFolder(
+        request,
         { signal, queryRevision },
       )
+      const page = normalizeBrowseQueryPage(response, entityRequest)
+      pruneBrowseQueryVariants(queryClient, response.path, queryKey)
+      return page
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
-      const loadedThrough = lastPage.offset + lastPage.items.length
+      const loadedThrough = lastPage.offset + lastPage.item_paths.length
       return loadedThrough < lastPage.filtered_total ? loadedThrough : undefined
     },
     enabled: options.enabled ?? true,
-    staleTime: 3_000,
+    staleTime: 0,
     gcTime: RECURSIVE_FOLDER_GC_TIME_MS,
     retry: 1,
     retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 5000),
@@ -306,6 +367,19 @@ export function useFolderCount(path: string, options?: UseFolderCountOptions) {
     refetchOnWindowFocus: false,
     refetchInterval: pollingEnabled ? FALLBACK_REFETCH_INTERVAL : false,
     refetchIntervalInBackground: pollingEnabled,
+  })
+}
+
+export function useFolderFields(path: string, options?: UseFolderCountOptions) {
+  return useQuery<BrowseFieldCapabilitiesPayload>({
+    queryKey: ['folder-fields', normalizeSearchScopePath(path)] as const,
+    queryFn: () => api.getFolderFields(path),
+    enabled: options?.enabled ?? true,
+    staleTime: 30_000,
+    gcTime: DEFAULT_FOLDER_GC_TIME_MS,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 5000),
+    refetchOnWindowFocus: false,
   })
 }
 

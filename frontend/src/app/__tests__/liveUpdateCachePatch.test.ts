@@ -48,7 +48,7 @@ function makeBrowseQueryPages(items: BrowseItemPayload[]) {
       filtered_total: items.length,
       offset: 0,
       limit: 1000,
-      items,
+      item_paths: items.map((item) => item.path),
       folders: [],
       metric_keys: [],
       categorical_keys: [],
@@ -100,7 +100,7 @@ describe('live update cache patching', () => {
     expect(nextSearchB?.items[0].notes).toBe('fresh note')
   })
 
-  it('patches paged backend browse-query results that contain the item path', () => {
+  it('does not rewrite normalized backend browse-query pages', () => {
     const queryClient = new QueryClient()
     const itemA = makeItem('/shots/a.jpg', { star: 1 })
     const itemB = makeItem('/shots/b.jpg', { star: 2 })
@@ -135,9 +135,7 @@ describe('live update cache patching', () => {
     })
 
     const nextBrowseQuery = queryClient.getQueryData<typeof browseQuery>(queryKey)
-    expect(nextBrowseQuery).not.toBe(browseQuery)
-    expect(nextBrowseQuery?.pages[0].items[1].star).toBe(5)
-    expect(nextBrowseQuery?.pages[0].items[1].notes).toBe('backend note')
+    expect(nextBrowseQuery).toBe(browseQuery)
   })
 
   it('drops stale memberships after a query result set changes', () => {
@@ -161,7 +159,7 @@ describe('live update cache patching', () => {
     expect(nextSearch?.items[0].star).toBeUndefined()
   })
 
-  it('removes a loaded item that conclusively fails the active star filter', () => {
+  it('does not rewrite normalized membership for conclusive filter mismatches', () => {
     const queryClient = new QueryClient()
     const queryKey = [
       'folder-query',
@@ -195,7 +193,7 @@ describe('live update cache patching', () => {
     )
 
     const next = queryClient.getQueryData<ReturnType<typeof makeBrowseQueryPages>>(queryKey)
-    expect(next?.pages[0].items.map((item) => item.path)).toEqual(['/shots/unrelated.jpg'])
-    expect(next?.pages[0].filtered_total).toBe(1)
+    expect(next?.pages[0].item_paths).toEqual(['/shots/unrated.jpg', '/shots/unrelated.jpg'])
+    expect(next?.pages[0].filtered_total).toBe(2)
   })
 })

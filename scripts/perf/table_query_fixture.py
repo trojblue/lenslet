@@ -93,6 +93,10 @@ def table_query_body(metric_keys: list[str], *, limit: int = 1_000) -> dict[str,
             ],
         },
         "sort": {"kind": "builtin", "key": "name", "dir": "asc"},
+        "projection": {
+            "metric_keys": metric_keys[:3],
+            "categorical_keys": [],
+        },
     }
 
 

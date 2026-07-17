@@ -376,6 +376,13 @@ class _MutableColumns:
                 dependency_stamp=stamp,
             )
 
+    def available_metric_keys(self) -> tuple[str, ...]:
+        with self._lock:
+            return tuple(sorted({
+                *self._store.metrics.keys(),
+                *self._dynamic_metric_counts.keys(),
+            }))
+
     def dependency_stamp(self, spec: BrowseQuerySpec) -> TableDependencyStamp:
         requirements = _dependency_requirements(spec)
         with self._lock:
@@ -519,6 +526,9 @@ class TableQueryEngine:
     def replace_sidecars(self, sidecars: Mapping[str, SidecarState]) -> None:
         self._mutable.replace(sidecars)
 
+    def available_metric_keys(self) -> tuple[str, ...]:
+        return self._mutable.available_metric_keys()
+
     def dependency_stamp(self, spec: BrowseQuerySpec) -> TableDependencyStamp:
         return self._mutable.dependency_stamp(spec)
 
@@ -581,6 +591,16 @@ class TableQueryEngine:
                 values[key] = value
         return values
 
+    def project_mutable_metric_keys(
+        self,
+        analysis: TableFilterAnalysis,
+        row_id: int,
+        metric_keys: Iterable[str],
+    ) -> tuple[str, ...]:
+        slot = self.columns.slot_for_row(row_id)
+        mutable_keys = {key for key, _value in analysis._mutable.dynamic_metrics[slot]}
+        return tuple(key for key in metric_keys if key in mutable_keys)
+
     def project_sidecar(
         self,
         analysis: TableFilterAnalysis,
@@ -591,6 +611,19 @@ class TableQueryEngine:
             "star": analysis._mutable.stars[slot],
             "notes": analysis._mutable.notes[slot],
         }
+
+    def project_categoricals(
+        self,
+        row_id: int,
+        categorical_keys: Iterable[str],
+    ) -> dict[str, str]:
+        slot = self.columns.slot_for_row(row_id)
+        values: dict[str, str] = {}
+        for key in categorical_keys:
+            value = self.columns.categorical_value(slot, key)
+            if value is not None:
+                values[key] = value
+        return values
 
     def project_dimensions(
         self,

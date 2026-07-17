@@ -29,12 +29,14 @@ export type ItemCacheUpdatePayload = {
 
 export type ItemCacheUpdateOptions = {
   removeConclusiveFilterMismatch?: boolean
+  replaceMutableMetrics?: boolean
 }
 
 export type AnnotationProjection = {
   mutationId: string
   changedFields: readonly string[]
   item: ItemCacheUpdatePayload
+  replaceMutableMetrics?: boolean
 }
 
 export type PersistedAppShellSettings = {
@@ -59,7 +61,7 @@ type IdleCommitHandle = number | TimeoutHandle
 
 function isIndexedQueryKey(queryKey: QueryKey): boolean {
   return Array.isArray(queryKey)
-    && (queryKey[0] === 'folder' || queryKey[0] === 'folder-query' || queryKey[0] === 'search')
+    && (queryKey[0] === 'folder' || queryKey[0] === 'search')
 }
 
 function collectItemPaths(items: unknown, paths: Set<string>): void {
@@ -355,7 +357,10 @@ export class AnnotationReconciler {
     this.seenMutationIds.set(projection.mutationId, now)
     this.pruneSeen(now)
 
-    this.project(projection.item, { removeConclusiveFilterMismatch: true })
+    this.project(projection.item, {
+      removeConclusiveFilterMismatch: true,
+      replaceMutableMetrics: projection.replaceMutableMetrics,
+    })
     if (!this.hasRelevantActiveQuery(projection.changedFields)) return true
     for (const field of projection.changedFields) {
       this.pendingChangedFields.add(field)

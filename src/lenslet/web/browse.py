@@ -51,6 +51,7 @@ from .models import (
     CategoricalValueFacetPayload,
     DerivedMetricStatusPayload,
     DerivedMetricZStatPayload,
+    BrowseFieldCapabilitiesPayload,
     FieldCapabilitiesPayload,
     FieldCapabilityPayload,
     ImageMetadataResponse,
@@ -74,6 +75,7 @@ from ..storage.base import (
     SidecarStorage,
 )
 from ..storage.search_text import build_search_haystack, sidecar_source_fields
+from ..storage.table.row_store import TableRowViewItem
 
 
 BrowseItemRecord = BrowseItem | RecursiveCachedItemSnapshot
@@ -185,8 +187,51 @@ def build_item_payload(
         url=url,
         source=source,
         metrics=metrics,
+        mutable_metric_keys=sorted((sidecar_state.get("metrics") or {}).keys()),
         metric_labels=metric_labels or None,
         categoricals=categoricals or None,
+        original_media=original_media.to_payload(),
+    )
+
+
+def build_table_query_item_payload(
+    cached: TableRowViewItem,
+    *,
+    show_source: bool,
+) -> BrowseItemPayload:
+    """Build one table window DTO from its already-projected row snapshot."""
+    sidecar_state = cast(SidecarState, cached.sidecar_snapshot)
+    source = cached.source if show_source else None
+    policy_source = cached.url or cached.source
+    original_media = build_original_media_policy(
+        policy_source,
+        proxy_available=policy_source is not None,
+        direct_browser_allowed=bool(cached.url),
+        direct_browser_preferred=bool(cached.url),
+        local_streaming_available=policy_source is not None and not cached.url,
+    )
+    mtime = float(cached.mtime or 0)
+    return BrowseItemPayload(
+        path=canonical_path(cached.path),
+        name=cached.name,
+        mime=cached.mime,
+        width=cached.width,
+        height=cached.height,
+        size=cached.size,
+        has_thumbnail=True,
+        has_metadata=True,
+        added_at=(
+            datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+            if mtime > 0 else None
+        ),
+        star=sidecar_state.get("star"),
+        notes=sidecar_state.get("notes", ""),
+        url=cached.url,
+        source=source,
+        metrics=cached.metrics or None,
+        mutable_metric_keys=list(cached.mutable_metric_keys),
+        metric_labels=cached.metric_labels or None,
+        categoricals=cached.categoricals or None,
         original_media=original_media.to_payload(),
     )
 
@@ -969,6 +1014,30 @@ def build_folder_index(
     )
 
 
+def build_folder_field_capabilities(
+    storage: BrowseStorage,
+    path: str,
+    *,
+    recursive: bool,
+) -> BrowseFieldCapabilitiesPayload:
+    canonical = canonical_path(path)
+    index = _load_folder_index(storage, canonical, recursive=recursive)
+    metric_keys = _metric_keys_for_folder(storage, canonical, index, recursive=recursive)
+    categorical_keys = _categorical_keys_for_folder(
+        storage,
+        canonical,
+        index,
+        recursive=recursive,
+    )
+    return BrowseFieldCapabilitiesPayload(
+        path=canonical,
+        generated_at=index.generated_at,
+        metric_keys=metric_keys,
+        categorical_keys=categorical_keys,
+        field_capabilities=_field_capabilities_payload(metric_keys, categorical_keys),
+    )
+
+
 def _query_result_payload(
     storage: BrowseStorage,
     result: BrowseQueryResult[Any],
@@ -1147,6 +1216,20 @@ def _fallback_browse_query_result(
     )
     records = _records_from_items(storage, raw_items, to_item)
     evaluation = evaluate_browse_records(records, spec)
+    available_metric_keys = set(_metric_keys_for_folder(
+        storage,
+        spec.path,
+        index,
+        recursive=spec.recursive,
+    ))
+    if evaluation.derived_metric_status.key:
+        available_metric_keys.add(evaluation.derived_metric_status.key)
+    available_categorical_keys = set(_categorical_keys_for_folder(
+        storage,
+        spec.path,
+        index,
+        recursive=spec.recursive,
+    ))
     return BrowseQueryResult(
         path=spec.path,
         generated_at=index.generated_at,
@@ -1156,34 +1239,54 @@ def _fallback_browse_query_result(
         filtered_total=evaluation.filtered_total,
         offset=spec.offset,
         limit=spec.limit,
-        items=tuple(_query_payload_with_record_metrics(record) for record in evaluation.window),
+        items=tuple(
+            _project_query_payload(record, spec)
+            for record in evaluation.window
+        ),
         folders=tuple(
             BrowseQueryFolderEntry(name=folder.name, kind=folder.kind)
             for folder in _folder_entries(index)
         ),
-        metric_keys=tuple(_metric_keys_for_folder(
-            storage,
-            spec.path,
-            index,
-            recursive=spec.recursive,
-        )),
-        categorical_keys=tuple(_categorical_keys_for_folder(
-            storage,
-            spec.path,
-            index,
-            recursive=spec.recursive,
-        )),
+        metric_keys=tuple(
+            key for key in spec.projection.metric_keys if key in available_metric_keys
+        ),
+        categorical_keys=tuple(
+            key for key in spec.projection.categorical_keys
+            if key in available_categorical_keys
+        ),
         derived_metric_status=evaluation.derived_metric_status,
     )
 
 
-def _query_payload_with_record_metrics(
+def _project_query_payload(
     record: BrowseQueryRecord[BrowseItemPayload],
+    spec: BrowseQuerySpec,
 ) -> BrowseItemPayload:
-    metrics = normalize_metric_mapping(record.metrics)
-    if metrics == record.payload.metrics:
-        return record.payload
-    return record.payload.model_copy(update={"metrics": metrics})
+    metrics = normalize_metric_mapping(record.metrics) or {}
+    projected_metrics = {
+        key: metrics[key]
+        for key in spec.projection.metric_keys
+        if key in metrics
+    }
+    categoricals = record.categoricals or {}
+    projected_categoricals = {
+        key: categoricals[key]
+        for key in spec.projection.categorical_keys
+        if key in categoricals
+    }
+    return record.payload.model_copy(update={
+        "metrics": projected_metrics or None,
+        "mutable_metric_keys": [
+            key for key in record.payload.mutable_metric_keys
+            if key in projected_metrics
+        ],
+        "metric_labels": {
+            key: label
+            for key, label in (record.payload.metric_labels or {}).items()
+            if key in projected_metrics
+        } or None,
+        "categoricals": projected_categoricals or None,
+    })
 
 
 def build_folder_query(

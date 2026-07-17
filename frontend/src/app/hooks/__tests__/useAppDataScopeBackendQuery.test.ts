@@ -25,6 +25,9 @@ describe('useAppDataScope backend browse-query boundary', () => {
     expect(SOURCE).toContain('sort: viewState.sort,')
     expect(SOURCE).not.toContain('backendBrowseSort')
     expect(SOURCE).not.toContain('scanStableMode')
+    expect(SOURCE).not.toContain('entityVersion')
+    expect(SOURCE).toContain('applyFilters([entity], localFilters)')
+    expect(SOURCE).toContain("!('urlContains' in clause) && !('urlNotContains' in clause)")
   })
 
   it('requests query-shaped facets during backend text search', () => {

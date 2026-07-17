@@ -22,7 +22,7 @@ def register_common_api_routes(
     record_update: RecordUpdateFn,
 ) -> None:
     register_folder_routes(app, to_item)
-    register_item_routes(app, record_update=record_update)
+    register_item_routes(app, record_update=record_update, to_item=to_item)
     register_export_routes(app)
     register_event_routes(app)
     register_media_routes(app)

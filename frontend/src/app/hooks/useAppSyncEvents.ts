@@ -22,6 +22,28 @@ import {
 } from '../model/appShellStateSync'
 import type { RecentActivityKind } from '../presenceActivity'
 
+const FIELD_SCHEMA_REFRESH_DEBOUNCE_MS = 250
+
+export function createFieldSchemaRefreshScheduler(
+  refresh: () => void,
+  delayMs = FIELD_SCHEMA_REFRESH_DEBOUNCE_MS,
+): { schedule: () => void; cancel: () => void } {
+  let timer: ReturnType<typeof globalThis.setTimeout> | null = null
+  return {
+    schedule: () => {
+      if (timer !== null) globalThis.clearTimeout(timer)
+      timer = globalThis.setTimeout(() => {
+        timer = null
+        refresh()
+      }, delayMs)
+    },
+    cancel: () => {
+      if (timer !== null) globalThis.clearTimeout(timer)
+      timer = null
+    },
+  }
+}
+
 type UseAppSyncEventsParams = {
   queryClient: QueryClient
   updateItemCaches: (payload: ItemCacheUpdatePayload, options?: ItemCacheUpdateOptions) => void
@@ -76,6 +98,12 @@ export function useAppSyncEvents({
   useEffect(() => {
     const reconciler = reconcilerRef.current?.reconciler
     if (!reconciler) return
+    const fieldSchemaRefresh = createFieldSchemaRefreshScheduler(() => {
+      void queryClient.invalidateQueries({
+        queryKey: ['folder-fields'],
+        refetchType: 'active',
+      })
+    })
 
     const mutationIdentity = (
       payload: { mutation_id?: string; path: string; version?: number; updated_at?: string },
@@ -108,6 +136,7 @@ export function useAppSyncEvents({
           metrics: payload.metrics,
           notes: payload.notes ?? '',
         },
+        replaceMutableMetrics: payload.metrics !== undefined,
       })
       if (!accepted) return
       const existing = queryClient.getQueryData<Sidecar>(sidecarQueryKey(payload.path))
@@ -165,8 +194,10 @@ export function useAppSyncEvents({
           mutationId: mutationIdentity(payload, 'metrics-updated', evt.id),
           changedFields: payload.changed_fields ?? ['unknown'],
           item: { path, metrics: payload.metrics },
+          replaceMutableMetrics: true,
         })
         if (!accepted) return
+        fieldSchemaRefresh.schedule()
         markRecentActivity(path, 'metrics-updated', evt.id)
         markRecentTouch(path, 'metrics-updated', payload.updated_at)
         updateLastEdited(payload.updated_at)
@@ -174,6 +205,7 @@ export function useAppSyncEvents({
     })
     const offStatus = subscribeEventStatus(setConnectionStatus)
     return () => {
+      fieldSchemaRefresh.cancel()
       offMutationResponses()
       offEvents()
       offStatus()

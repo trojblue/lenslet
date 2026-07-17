@@ -303,6 +303,13 @@ def test_source_backed_base_provides_common_item_lookup_methods() -> None:
             progress=lambda _done, _total, _label: None,
         ),
     )
+
+    item = _SourceItem(path="/cat.jpg", source="cat.jpg")
+    storage._source_catalog.bind(source_backed.SourceBackedIndexState(
+        items={"/cat.jpg": item},
+    ))
+    storage._bind_source_state(storage._source_catalog.state)
+    assert storage.get_browse_item("/cat.jpg") is item
     storage._bind_source_state(
         SourceBackedIndexState[_SourceItem](
             items={"/cat.jpg": _SourceItem(path="/cat.jpg", size=42, mtime=7.0)},

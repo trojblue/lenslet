@@ -10,6 +10,7 @@ from ...browse.query import (
     BrowseFilterAst,
     BrowseFilterClause,
     BrowseQuerySpec,
+    BrowseWindowProjection,
     BuiltinSortSpec,
     CategoricalInFilter,
     DateRangeFilter,
@@ -49,6 +50,7 @@ from ..browse import (
     ToItemFn,
     build_folder_facets,
     build_folder_facets_from_summary,
+    build_folder_field_capabilities,
     build_folder_index,
     build_folder_query,
     build_folder_query_from_result,
@@ -57,6 +59,7 @@ from ..browse import (
 from ..context import get_request_context
 from ..models import (
     BrowseFacetsPayload,
+    BrowseFieldCapabilitiesPayload,
     BrowseFolderPathsPayload,
     BrowseFolderPayload,
     BrowseQueryCategoricalInClausePayload,
@@ -209,6 +212,7 @@ async def _coordinated_table_query(
         ordered.key,
         spec.offset,
         spec.limit,
+        spec.projection,
         id(analysis),
     )
     try:
@@ -395,6 +399,10 @@ def _query_spec_from_payload(body: BrowseQueryRequest) -> BrowseQuerySpec:
         random_seed=None if body.random_seed is None else str(body.random_seed),
         derived_metric=_query_derived_metric_spec(body.derived_metric),
         unsupported_metric_intent=body.unsupported_metric_intent,
+        projection=BrowseWindowProjection(
+            metric_keys=tuple(body.projection.metric_keys),
+            categorical_keys=tuple(body.projection.categorical_keys),
+        ),
     )
 
 
@@ -402,6 +410,15 @@ def register_folder_routes(
     app: FastAPI,
     to_item: ToItemFn,
 ) -> None:
+    @app.get("/folders/fields", response_model=BrowseFieldCapabilitiesPayload)
+    def get_folder_fields(
+        request: Request,
+        path: str = "/",
+        recursive: bool = True,
+    ) -> BrowseFieldCapabilitiesPayload:
+        storage = storage_from_request(request)
+        return build_folder_field_capabilities(storage, path, recursive=recursive)
+
     @app.post("/folders/query", response_model=BrowseQueryResponse)
     async def post_folder_query(
         body: BrowseQueryRequest,

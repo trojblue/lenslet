@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from ..browse import (
+    ToItemFn,
     build_image_metadata,
     build_sidecar,
     build_sidecar_from_state,
@@ -22,6 +23,7 @@ from ..models import (
     SidecarConflictResponse,
     SidecarMutationResponse,
     SidecarPatch,
+    BrowseItemPayload,
 )
 from ..permissions import deny_if_mutation_forbidden
 from ..record_update import RecordUpdateFn
@@ -159,6 +161,7 @@ def register_item_routes(
     app: FastAPI,
     *,
     record_update: RecordUpdateFn,
+    to_item: ToItemFn,
 ) -> None:
     mutation_error_responses = {
         400: {"model": ErrorResponse},
@@ -170,6 +173,15 @@ def register_item_routes(
     def get_item(path: str, request: Request) -> Sidecar:
         storage, path = _resolve_image_request(path, request)
         return build_sidecar(storage, path)
+
+    @app.get("/item/detail", response_model=BrowseItemPayload)
+    def get_item_detail(path: str, request: Request) -> BrowseItemPayload:
+        storage, path = _resolve_image_request(path, request)
+        try:
+            item = storage.get_browse_item(path)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "file not found") from exc
+        return to_item(storage, item)
 
     @app.get("/metadata", response_model=ImageMetadataResponse)
     def get_metadata(path: str, request: Request) -> ImageMetadataResponse:

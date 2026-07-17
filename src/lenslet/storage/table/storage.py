@@ -1350,16 +1350,26 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         row_idx: int,
         analysis: TableFilterAnalysis,
         metric_keys: tuple[str, ...],
+        categorical_keys: tuple[str, ...],
     ) -> TableRowViewItem:
         item = self._require_row_store().materialize_item(
             row_idx,
             dimensions=self._table_query_engine.project_dimensions(analysis, row_idx),
             sidecar_snapshot=self._table_query_engine.project_sidecar(analysis, row_idx),
+            mutable_metric_keys=self._table_query_engine.project_mutable_metric_keys(
+                analysis,
+                row_idx,
+                metric_keys,
+            ),
         )
         item.metrics = self._table_query_engine.project_metrics(
             analysis,
             row_idx,
             metric_keys,
+        )
+        item.categoricals = self._table_query_engine.project_categoricals(
+            row_idx,
+            categorical_keys,
         )
         return item
 
@@ -1715,7 +1725,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         return list(self._categorical_columns)
 
     def metric_keys(self) -> list[str]:
-        return list(self._metric_keys)
+        return list(self._table_query_engine.available_metric_keys())
 
     def categoricals_for_path(self, path: str) -> dict[str, str]:
         row_idx = self.row_index_for_path(path)

@@ -102,19 +102,30 @@ def query_scope_from_analysis(
     norm, rows, folders = query_context(storage, spec)
     if ordered.key.filter_key != analysis.key:
         raise ValueError("order analysis does not match filter analysis")
-    categorical_keys = tuple(storage.categorical_keys())
-    result_metric_keys = tuple(metric_keys_for_query_spec(spec, analysis.metric_keys))
+    available_categorical_keys = frozenset(storage.categorical_keys())
+    available_metric_keys = frozenset(metric_keys_for_query_spec(spec, analysis.metric_keys))
+    projected_metric_keys = tuple(spec.projection.metric_keys)
+    projected_categorical_keys = tuple(spec.projection.categorical_keys)
+    result_metric_keys = tuple(key for key in projected_metric_keys if key in available_metric_keys)
+    categorical_keys = tuple(
+        key for key in projected_categorical_keys if key in available_categorical_keys
+    )
     storage.query_engine.window_key(
         ordered,
         spec,
-        metric_keys=result_metric_keys,
-        categorical_keys=categorical_keys,
+        metric_keys=projected_metric_keys,
+        categorical_keys=projected_categorical_keys,
     )
     with request_phase("projection"):
         start = max(0, spec.offset)
         end = start + max(0, spec.limit)
         items = tuple(
-            storage._materialize_query_item(row_id, analysis, result_metric_keys)
+            storage._materialize_query_item(
+                row_id,
+                analysis,
+                projected_metric_keys,
+                projected_categorical_keys,
+            )
             for row_id in ordered.ordered_row_ids[start:end]
         )
     return BrowseQueryResult(

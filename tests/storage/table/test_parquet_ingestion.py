@@ -362,7 +362,7 @@ def test_parquet_boolean_columns_are_filterable_categoricals(tmp_path: Path) -> 
         json={
             "path": "/",
             "recursive": True,
-            "filters": {
+                "filters": {
                 "and": [
                     {
                         "categoricalIn": {
@@ -370,9 +370,13 @@ def test_parquet_boolean_columns_are_filterable_categoricals(tmp_path: Path) -> 
                             "values": ["false"],
                         },
                     },
-                ],
+                    ],
+                },
+                "projection": {
+                    "metric_keys": [],
+                    "categorical_keys": ["prev_rated_1star"],
+                },
             },
-        },
     )
     assert filtered.status_code == 200
     filtered_payload = filtered.json()

@@ -186,6 +186,16 @@ class MemoryStorage(SidecarStateMixin, MemoryCacheInvalidationMixin, MemoryMedia
         except (FileNotFoundError, ValueError):
             return None
 
+    def get_browse_item(self, path: str) -> MemoryBrowseItem:
+        norm = self._normalize_path(path)
+        parent, _, name = norm.rpartition("/")
+        index = self.load_index(self._display_path(parent))
+        if index is not None:
+            for item in index.items:
+                if item.name == name:
+                    return item
+        raise FileNotFoundError(path)
+
     def validate_image_path(self, path: str) -> None:
         """Ensure path is a supported image and exists on disk."""
         if not path:

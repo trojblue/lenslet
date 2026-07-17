@@ -99,6 +99,10 @@ class BrowseIndex(Protocol):
 class BrowseStorage(Storage, Protocol):
     """Common browse-tree contract shared by all gallery backends."""
 
+    def get_browse_item(self, path: str) -> BrowseItem:
+        """Return the complete cached browse item for one logical image path."""
+        ...
+
     def load_index(self, path: str) -> BrowseIndex | None:
         """Load a folder index, building/cache-warming as needed.
 

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import lenslet.web.browse as browse
+import lenslet.web.app.storage as storage_app
 from lenslet.browse.query import BrowseQuerySpec
 from lenslet.server import TableAppOptions, create_app_from_storage, create_app_from_table
 from lenslet.storage.memory import MemoryStorage
@@ -82,18 +83,28 @@ def test_browse_query_contract_filters_before_windowing(tmp_path: Path) -> None:
     assert payload["generation_token"]
     assert "total_items" not in payload
     assert [item["name"] for item in payload["items"]] == ["img4.jpg", "img5.jpg"]
+    assert all(item["metrics"] is None for item in payload["items"])
+    assert all(item["categoricals"] is None for item in payload["items"])
     assert payload["folders"] == []
-    assert payload["metric_keys"] == ["score"]
-    assert "source_column" in payload["categorical_keys"]
-    assert payload["field_capabilities"]["display_metrics"] == ["score"]
-    assert payload["field_capabilities"]["metrics"]["score"]["sortable"] is True
-    assert payload["field_capabilities"]["categoricals"]["source_column"]["categorical_input"] is True
+    assert payload["metric_keys"] == []
+    assert payload["categorical_keys"] == []
+    assert payload["field_capabilities"]["display_metrics"] == []
     assert payload["dependency_manifest"] == {
         "fields": ["name", "notes", "path", "source", "tags", "url"],
         "metric_keys": [],
         "categorical_keys": ["source_column"],
         "unknown": False,
     }
+
+    fields = client.get(
+        "/folders/fields",
+        params={"path": "/gallery", "recursive": "1"},
+    ).json()
+    assert fields["path"] == "/gallery"
+    assert fields["metric_keys"] == ["score"]
+    assert fields["categorical_keys"] == ["source_column"]
+    assert fields["field_capabilities"]["metrics"]["score"]["sortable"] is True
+    assert fields["field_capabilities"]["categoricals"]["source_column"]["categorical_input"] is True
 
     next_body = {**body, "offset": 1, "limit": 1}
     next_payload = client.post("/folders/query", json=next_body).json()
@@ -112,6 +123,102 @@ def test_browse_query_contract_filters_before_windowing(tmp_path: Path) -> None:
     }
     changed_payload = client.post("/folders/query", json=changed_token_body).json()
     assert changed_payload["request_token"] != payload["request_token"]
+
+    projected_payload = client.post(
+        "/folders/query",
+        json={
+            **body,
+            "projection": {
+                "metric_keys": ["score"],
+                "categorical_keys": ["source_column"],
+            },
+        },
+    ).json()
+    assert projected_payload["analysis_query_key"] == payload["analysis_query_key"]
+    assert projected_payload["request_token"] != payload["request_token"]
+    assert projected_payload["items"][0]["metrics"] == {"score": 4.0}
+    assert projected_payload["items"][0]["categoricals"] == {"source_column": "target"}
+    assert projected_payload["metric_keys"] == ["score"]
+    assert projected_payload["categorical_keys"] == ["source_column"]
+    assert projected_payload["field_capabilities"]["display_metrics"] == ["score"]
+
+
+def test_table_query_builds_one_lean_payload_per_returned_row(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conversions = 0
+    original = storage_app.build_table_query_item_payload
+
+    def count_conversion(*args, **kwargs):
+        nonlocal conversions
+        conversions += 1
+        return original(*args, **kwargs)
+
+    def reject_generic_conversion(*_args, **_kwargs):
+        raise AssertionError("table query windows must bypass generic payload conversion")
+
+    monkeypatch.setattr(storage_app, "build_table_query_item_payload", count_conversion)
+    monkeypatch.setattr(storage_app, "build_item_payload", reject_generic_conversion)
+    client = _client_for_six_row_table(tmp_path)
+
+    response = client.post(
+        "/folders/query",
+        json={
+            "path": "/gallery",
+            "recursive": True,
+            "offset": 0,
+            "limit": 2,
+            "filters": {"and": []},
+            "sort": {"kind": "builtin", "key": "name", "dir": "asc"},
+            "projection": {"metric_keys": ["score"], "categorical_keys": []},
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 2
+    assert conversions == 2
+
+
+
+def test_item_detail_hydrates_complete_metrics_outside_query_window(tmp_path: Path) -> None:
+    client = _client_for_six_row_table(tmp_path)
+
+    detail = client.get("/item/detail", params={"path": "/gallery/img0.jpg"})
+
+    assert detail.status_code == 200
+    assert detail.json()["metrics"] == {"score": 0.0}
+
+
+@pytest.mark.parametrize(
+    "projection",
+    [
+        {"metric_keys": [f"metric_{index}" for index in range(65)], "categorical_keys": []},
+        {"metric_keys": [], "categorical_keys": [f"category_{index}" for index in range(33)]},
+        {"metric_keys": [""], "categorical_keys": []},
+        {"metric_keys": ["score", "score"], "categorical_keys": []},
+    ],
+)
+def test_browse_query_rejects_invalid_projection(
+    tmp_path: Path,
+    projection: dict[str, list[str]],
+) -> None:
+    client = _client_for_six_row_table(tmp_path)
+
+    response = client.post(
+        "/folders/query",
+        json={
+            "path": "/gallery",
+            "recursive": True,
+            "offset": 0,
+            "limit": 2,
+            "filters": {"and": []},
+            "sort": {"kind": "builtin", "key": "name", "dir": "asc"},
+            "projection": projection,
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_query_and_facets_share_one_table_filter_execution() -> None:
@@ -278,6 +385,7 @@ def test_browse_query_accepts_derived_metric_for_backend_sort_and_filter(tmp_pat
             ],
             "categoricalTerms": [{"key": "source_column", "value": "target", "weight": 10.0}],
         },
+        "projection": {"metric_keys": ["@derived/rubric_1"], "categorical_keys": []},
     }
 
     response = client.post("/folders/query", json=body)

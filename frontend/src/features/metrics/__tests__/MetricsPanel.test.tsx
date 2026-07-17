@@ -195,6 +195,52 @@ describe('MetricsPanel', () => {
     expect(html).toContain('No score inputs in this view.')
   })
 
+  it('allows backend ranking without loading every source metric into card entities', () => {
+    const html = renderToStaticMarkup(
+      <DerivedScorePanel
+        items={[makeItem('/a.jpg')]}
+        metricKeys={['q1']}
+        categoricalKeys={[]}
+        derivedMetric={makeDerivedMetricEvaluation()}
+        backendAuthoritative
+        onApplyDerivedMetric={() => {}}
+        onRankByDerivedMetric={() => {}}
+      />,
+    )
+
+    const rankButton = html.match(/<button[^>]*data-derived-score-rank[^>]*>/)?.[0]
+    expect(rankButton).toBeDefined()
+    expect(rankButton).not.toContain('disabled')
+  })
+
+  it('keeps backend ranking disabled when the folder schema proves an input is unavailable', () => {
+    const html = renderToStaticMarkup(
+      <DerivedScorePanel
+        items={[makeItem('/a.jpg')]}
+        metricKeys={['q1']}
+        categoricalKeys={[]}
+        derivedMetric={makeDerivedMetricEvaluation({
+          spec: {
+            version: 1,
+            id: 'stale_score',
+            name: 'Stale score',
+            intercept: 0,
+            numericTerms: [{ key: 'q_old', weight: 1, missing: 'zero', zNormalize: false }],
+            categoricalTerms: [],
+          },
+        })}
+        backendAuthoritative
+        onApplyDerivedMetric={() => {}}
+        onRankByDerivedMetric={() => {}}
+      />,
+    )
+
+    const rankButton = html.match(/<button[^>]*data-derived-score-rank[^>]*>/)?.[0]
+    expect(rankButton).toBeDefined()
+    expect(rankButton).toContain('disabled')
+    expect(html).toContain('Unavailable inputs: q_old.')
+  })
+
   it('uses derived metric display names in primary metric labels', () => {
     const items = [
       makeItem('/a.jpg', { '@derived/rubric_1': 0.2 }),

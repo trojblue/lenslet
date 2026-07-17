@@ -289,22 +289,24 @@ export function evaluateBackendDerivedMetric({
   const status = backendStatus?.status ?? 'none'
   const normalizedSpec = normalizeDerivedMetricSpec(spec)
   if (status === 'none') {
-    const base = evaluateDerivedMetric({
-      items,
-      metricKeys,
-      categoricalKeys,
-      spec: null,
-      loadedCount,
-      totalItems,
-    })
-    if (!normalizedSpec) return base
-    const key = derivedMetricKey(normalizedSpec)
+    const key = normalizedSpec ? derivedMetricKey(normalizedSpec) : null
     return {
-      ...base,
+      items,
+      metricKeys: filterSourceMetricKeys(metricKeys),
+      categoricalKeys: uniqueSortedStrings(categoricalKeys),
+      metricDisplayNames: key ? { [key]: normalizedSpec!.name } : {},
       spec: normalizedSpec,
       key,
-      name: normalizedSpec.name,
-      metricDisplayNames: { [key]: normalizedSpec.name },
+      name: normalizedSpec?.name ?? null,
+      status: 'none',
+      validCount: 0,
+      invalidCount: 0,
+      invalidReasons: [],
+      missingMetricKeys: [],
+      missingCategoricalKeys: [],
+      loadedCount,
+      totalItems: normalizeTotalItems(totalItems),
+      partialLoadWarning: false,
       scoreScope: 'none',
       scorePopulationCount: null,
       zStats: {},
@@ -324,12 +326,8 @@ export function evaluateBackendDerivedMetric({
   const scorePopulationCount = normalizeCount(backendStatus?.score_population_count)
   const scoreScope = backendStatus?.score_scope ?? 'none'
   const zStats = backendStatus?.z_stats ?? {}
-  const itemsFromBackend = key && status === 'applied'
-    ? stripOtherDerivedMetrics(items, key)
-    : stripReservedDerivedMetrics(items)
-
   return {
-    items: itemsFromBackend,
+    items,
     metricKeys: key && status === 'applied'
       ? appendMetricKey(sourceMetricKeys, key)
       : sourceMetricKeys,
@@ -550,27 +548,6 @@ function stripReservedDerivedMetrics(items: BrowseItemPayload[]): BrowseItemPayl
     if (!stripped.changed) return item
     changed = true
     return { ...item, metrics: stripped.metrics }
-  })
-  return changed ? nextItems : items
-}
-
-function stripOtherDerivedMetrics(items: BrowseItemPayload[], allowedKey: string): BrowseItemPayload[] {
-  let changed = false
-  const nextItems = items.map((item) => {
-    const metrics = item.metrics
-    if (!metrics) return item
-    const nextMetrics: Record<string, number | null> = {}
-    let itemChanged = false
-    for (const [key, value] of Object.entries(metrics)) {
-      if (isDerivedMetricKey(key) && key !== allowedKey) {
-        itemChanged = true
-        continue
-      }
-      nextMetrics[key] = value
-    }
-    if (!itemChanged) return item
-    changed = true
-    return { ...item, metrics: Object.keys(nextMetrics).length ? nextMetrics : undefined }
   })
   return changed ? nextItems : items
 }

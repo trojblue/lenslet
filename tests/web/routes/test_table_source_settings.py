@@ -109,6 +109,7 @@ def test_health_exposes_redacted_table_launch_status(tmp_path: Path) -> None:
                 source_column="source",
                 path_column="path",
                 skip_dimension_probe=True,
+                show_source=False,
             ),
         )
     )
@@ -136,6 +137,23 @@ def test_health_exposes_redacted_table_launch_status(tmp_path: Path) -> None:
     [item] = folder.json()["items"]
     assert item["original_media"]["mode"] == "local_streaming"
     assert item["original_media"]["redacted_origin"] == "[local path]"
+
+    query = client.post("/folders/query", headers={
+        "X-Lenslet-Client-Session": "source-policy-test",
+        "X-Lenslet-Query-Revision": "1",
+    }, json={
+        "path": "/",
+        "recursive": True,
+        "offset": 0,
+        "limit": 1,
+        "filters": {"and": []},
+        "sort": {"kind": "builtin", "key": "name", "dir": "asc"},
+        "projection": {"metric_keys": [], "categorical_keys": []},
+    })
+    assert query.status_code == 200
+    [query_item] = query.json()["items"]
+    assert query_item["source"] is None
+    assert query_item["original_media"]["mode"] == "local_streaming"
 
 
 def test_projected_parquet_source_column_switch_keeps_q_metric_keys(

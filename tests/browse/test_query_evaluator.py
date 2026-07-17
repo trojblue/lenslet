@@ -7,6 +7,7 @@ from lenslet.browse.query import (
     BrowseFilterAst,
     BrowseQueryRecord,
     BrowseQuerySpec,
+    BrowseWindowProjection,
     BuiltinSortSpec,
     CategoricalInFilter,
     DateRangeFilter,
@@ -238,6 +239,9 @@ def test_analysis_query_key_excludes_window_fields() -> None:
     assert browse_analysis_query_key(base) == browse_analysis_query_key(
         replace(base, offset=20, limit=50, random_seed="ignored-seed")
     )
+    assert browse_analysis_query_key(base) == browse_analysis_query_key(
+        replace(base, projection=BrowseWindowProjection(metric_keys=("score",)))
+    )
     assert browse_analysis_query_key(base) != browse_analysis_query_key(
         replace(base, text_query="dog")
     )
@@ -270,6 +274,9 @@ def test_window_request_token_includes_window_fields_and_generation() -> None:
         replace(base, offset=10)
     )
     assert browse_window_request_token(base) != browse_window_request_token(replace(base, limit=20))
+    assert browse_window_request_token(base) != browse_window_request_token(
+        replace(base, projection=BrowseWindowProjection(metric_keys=("score",)))
+    )
     assert browse_window_request_token(
         base, generation_token="gen-a"
     ) != browse_window_request_token(

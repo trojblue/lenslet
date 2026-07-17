@@ -2,7 +2,7 @@ import React, { Fragment, useEffect, useMemo, useCallback, useLayoutEffect, useR
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQueryClient } from '@tanstack/react-query'
-import { useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict } from '../../api/items'
+import { useItemDetail, useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict } from '../../api/items'
 import { api, makeIdempotencyKey } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import type { BrowseItemPayload, MetricDisplayNames, SortSpec, StarRating } from '../../lib/types'
@@ -98,6 +98,7 @@ export default function Inspector({
 }: InspectorProps) {
   const enabled = !!path
   const { data } = useSidecar(path ?? '')
+  const { data: itemDetail } = useItemDetail(path ?? '')
   const mut = useUpdateSidecar(path ?? '')
   const qc = useQueryClient()
 
@@ -295,8 +296,8 @@ export default function Inspector({
   }, [filename, items, path])
   
   const currentItem = useMemo(
-    () => items.find((i) => i.path === path),
-    [items, path]
+    () => itemDetail ?? items.find((i) => i.path === path),
+    [itemDetail, items, path]
   )
   const sourceValue = useMemo(() => {
     if (!path) return ''

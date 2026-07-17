@@ -374,6 +374,17 @@ export function useSidecar(path: string) {
   })
 }
 
+export function useItemDetail(path: string) {
+  return useQuery({
+    queryKey: ['item-detail', path] as const,
+    queryFn: () => api.getItemDetail(path),
+    enabled: !!path,
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+    retry: 2,
+  })
+}
+
 // Direct edits use patch semantics so optimistic cache updates can surface
 // version conflicts instead of overwriting a newer server value.
 export function useUpdateSidecar(path: string) {

@@ -179,6 +179,12 @@ BrowseSortSpec = BuiltinSortSpec | MetricSortSpec
 
 
 @dataclass(frozen=True, slots=True)
+class BrowseWindowProjection:
+    metric_keys: tuple[str, ...] = ()
+    categorical_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class BrowseQuerySpec:
     path: str
     recursive: bool
@@ -190,6 +196,7 @@ class BrowseQuerySpec:
     random_seed: str | None = None
     derived_metric: DerivedMetricSpec | None = None
     unsupported_metric_intent: str | None = None
+    projection: BrowseWindowProjection = field(default_factory=BrowseWindowProjection)
 
 
 @dataclass(frozen=True, slots=True)
@@ -761,6 +768,10 @@ def browse_window_request_token(
         ),
         "offset": spec.offset,
         "limit": spec.limit,
+        "projection": {
+            "metric_keys": sorted(dict.fromkeys(spec.projection.metric_keys)),
+            "categorical_keys": sorted(dict.fromkeys(spec.projection.categorical_keys)),
+        },
     }
     if generation_token is not None:
         payload["generation_token"] = generation_token

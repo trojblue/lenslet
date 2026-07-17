@@ -601,14 +601,19 @@ def select_categorical_columns(
         for column in table_field_columns
         if (
             column in readable
-            and not is_categorical_identifier_column(column)
             and column not in _duplicate_display_columns(
                 source_column=source_column,
                 path_column=path_column,
                 schema_names=list(schema.names),
             )
-            and is_string_browse_column(schema, column)
             and is_browse_scalar_column(schema, column)
+            and (
+                is_boolean_browse_column(schema, column)
+                or (
+                    not is_categorical_identifier_column(column)
+                    and is_string_browse_column(schema, column)
+                )
+            )
         )
     ]
     if not candidates:
@@ -624,7 +629,7 @@ def select_categorical_columns(
 
     selected: list[str] = []
     for column in candidates:
-        if arrow_array_has_low_cardinality(
+        if is_boolean_browse_column(schema, column) or arrow_array_has_low_cardinality(
             categorical_table[column],
             compute,
             max_unique_values=max_unique_values,

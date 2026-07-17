@@ -96,9 +96,10 @@ def _fsync_file(path: Path) -> None:
 
 
 def _fsync_dir(path: Path) -> None:
-    flags = getattr(os, "O_DIRECTORY", 0)
+    if not hasattr(os, "O_DIRECTORY"):
+        return
     try:
-        fd = os.open(os.fspath(path), os.O_RDONLY | flags)
+        fd = os.open(os.fspath(path), os.O_RDONLY | os.O_DIRECTORY)
     except OSError as exc:
         _LOGGER.warning("Could not open atomic write directory %s for fsync: %s", path, exc)
         return

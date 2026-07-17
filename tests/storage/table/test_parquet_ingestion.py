@@ -330,6 +330,58 @@ def test_parquet_folder_payload_exposes_low_cardinality_string_categoricals(tmp_
     assert item_payload["table_fields"] == {"l0p_style_family": "anime"}
 
 
+def test_parquet_boolean_columns_are_filterable_categoricals(tmp_path: Path) -> None:
+    root = tmp_path
+    for name in ("a.jpg", "b.jpg", "c.jpg"):
+        _make_image(root / name)
+
+    _write_parquet(root / "items.parquet", {
+        "path": ["a.jpg", "b.jpg", "c.jpg"],
+        "prev_rated_1star": [True, False, None],
+    })
+
+    client = TestClient(create_app(str(root)))
+    folder = client.get("/folders", params={"path": "/"}).json()
+
+    assert folder["categorical_keys"] == ["prev_rated_1star"]
+    assert folder["items"][0]["categoricals"] == {"prev_rated_1star": "true"}
+    assert folder["items"][1]["categoricals"] == {"prev_rated_1star": "false"}
+    assert folder["items"][2]["categoricals"] is None
+
+    facets = client.get("/folders/facets", params={"path": "/", "recursive": "1"}).json()
+    assert facets["categoricals"]["prev_rated_1star"]["values"] == [
+        {"value": "false", "population_count": 1},
+        {"value": "true", "population_count": 1},
+    ]
+
+    filtered = client.post(
+        "/folders/query",
+        json={
+            "path": "/",
+            "recursive": True,
+            "filters": {
+                "and": [
+                    {
+                        "categoricalIn": {
+                            "key": "prev_rated_1star",
+                            "values": ["false"],
+                        },
+                    },
+                ],
+            },
+        },
+    )
+    assert filtered.status_code == 200
+    filtered_payload = filtered.json()
+    assert [item["name"] for item in filtered_payload["items"]] == ["b.jpg"]
+    assert (
+        filtered_payload["field_capabilities"]["categoricals"]["prev_rated_1star"][
+            "categorical_input"
+        ]
+        is True
+    )
+
+
 def test_parquet_facets_include_categorical_values_outside_first_page(tmp_path: Path):
     root = tmp_path
     for name in ("a.jpg", "b.jpg", "c.jpg", "d.jpg"):
@@ -363,6 +415,7 @@ def test_table_app_payload_infers_low_cardinality_string_categoricals():
             "width": 8,
             "height": 6,
             "categorical": "anime",
+            "reviewed": True,
             "image_id": "id-a",
             "prompt": "a long prompt should stay a table field",
         },
@@ -372,6 +425,7 @@ def test_table_app_payload_infers_low_cardinality_string_categoricals():
             "width": 8,
             "height": 6,
             "categorical": "photographic",
+            "reviewed": False,
             "image_id": "id-b",
             "prompt": "another long prompt should stay a table field",
         },
@@ -389,9 +443,15 @@ def test_table_app_payload_infers_low_cardinality_string_categoricals():
     payload = TestClient(app).get("/folders", params={"path": "/"}).json()
 
     assert payload["metric_keys"] == []
-    assert payload["categorical_keys"] == ["categorical"]
-    assert payload["items"][0]["categoricals"] == {"categorical": "anime"}
-    assert payload["items"][1]["categoricals"] == {"categorical": "photographic"}
+    assert payload["categorical_keys"] == ["categorical", "reviewed"]
+    assert payload["items"][0]["categoricals"] == {
+        "categorical": "anime",
+        "reviewed": "true",
+    }
+    assert payload["items"][1]["categoricals"] == {
+        "categorical": "photographic",
+        "reviewed": "false",
+    }
 
 
 def test_parquet_folder_payload_rejects_sixty_value_string_categoricals(tmp_path: Path):

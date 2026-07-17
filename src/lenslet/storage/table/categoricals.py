@@ -81,6 +81,8 @@ def normalize_categorical_value(value: object) -> str | None:
     value = _as_python_scalar(value)
     if _is_null_scalar(value):
         return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if isinstance(value, os.PathLike):
         value = os.fspath(value)
     if not isinstance(value, str):
@@ -173,14 +175,30 @@ def infer_categorical_columns(
             continue
         if is_internal_metric_key(column):
             continue
+        values = data.get(column)
+        if _column_has_boolean_values(values):
+            selected.append(column)
+            continue
         if is_categorical_identifier_column(column):
             continue
         if _column_has_low_cardinality_strings(
-            data.get(column),
+            values,
             max_unique_values=max_unique_values,
         ):
             selected.append(column)
     return tuple(selected)
+
+
+def _column_has_boolean_values(values: Any) -> bool:
+    found = False
+    for raw_value in _iter_values(values):
+        value = _as_python_scalar(raw_value)
+        if _is_null_scalar(value):
+            continue
+        if not isinstance(value, bool):
+            return False
+        found = True
+    return found
 
 
 def _column_has_low_cardinality_strings(

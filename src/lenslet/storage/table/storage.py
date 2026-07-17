@@ -35,7 +35,7 @@ from ..progress import ProgressBar
 from ..sidecar_state import default_sidecar_state
 from ..source.backed import SourceBackedConfig, SourceBackedServices, SourceBackedStorageBase
 from ..source.state import SourceBackedIndexState, SourceRowIndexState
-from .categoricals import infer_categorical_columns
+from .categoricals import infer_categorical_columns, normalize_categorical_value
 from .display import (
     is_internal_metric_key,
     normalize_display_value,
@@ -280,13 +280,6 @@ class _RowRemoteProbeResult:
 
 def _is_supported_table_image(name: str) -> bool:
     return is_supported_image(name, TABLE_IMAGE_EXTS)
-
-
-def _normalize_categorical_value(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
 
 
 def _canonical_query_path(path: str) -> str:
@@ -1802,7 +1795,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
     def _extract_categoricals_from_row(self, row_values: dict[str, Any]) -> dict[str, str]:
         categoricals: dict[str, str] = {}
         for column in self._categorical_columns:
-            value = _normalize_categorical_value(row_values.get(column))
+            value = normalize_categorical_value(row_values.get(column))
             if value is not None:
                 categoricals[column] = value
         return categoricals
@@ -1813,7 +1806,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             values = self._data.get(column)
             if values is None or row_idx >= len(values):
                 continue
-            value = _normalize_categorical_value(values[row_idx])
+            value = normalize_categorical_value(values[row_idx])
             if value is not None:
                 categoricals[column] = value
         return categoricals

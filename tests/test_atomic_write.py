@@ -80,6 +80,7 @@ def test_atomic_write_logs_directory_fsync_failure(
     fake_dir_fd = 987654
     real_open = os.open
     real_close = os.close
+    monkeypatch.setattr("lenslet.atomic_write.os.O_DIRECTORY", 0, raising=False)
 
     def _open_directory_for_fsync(path_arg, flags, *args, **kwargs):
         if Path(path_arg).is_dir():
@@ -107,3 +108,26 @@ def test_atomic_write_logs_directory_fsync_failure(
     assert json.loads(path.read_text(encoding="utf-8")) == {"ok": True}
     assert "Could not fsync atomic write directory" in caplog.text
     assert "directory sync failed" in caplog.text
+
+
+def test_atomic_write_skips_directory_fsync_when_unsupported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    path = tmp_path / "state.json"
+    real_open = os.open
+
+    def _reject_directory_open(path_arg, flags, *args, **kwargs):
+        if Path(path_arg).is_dir():
+            raise AssertionError("directory fsync should be skipped")
+        return real_open(path_arg, flags, *args, **kwargs)
+
+    monkeypatch.delattr("lenslet.atomic_write.os.O_DIRECTORY", raising=False)
+    monkeypatch.setattr("lenslet.atomic_write.os.open", _reject_directory_open)
+
+    with caplog.at_level(logging.WARNING, logger="lenslet.atomic_write"):
+        atomic_write_json(path, {"ok": True})
+
+    assert json.loads(path.read_text(encoding="utf-8")) == {"ok": True}
+    assert "atomic write directory" not in caplog.text

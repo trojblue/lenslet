@@ -68,12 +68,16 @@ class ThumbCache(BestEffortCacheMixin):
     def get(self, key: str) -> bytes | None:
         path = self._path_for(key)
         try:
-            return path.read_bytes()
+            data = path.read_bytes()
         except FileNotFoundError:
             return None
         except OSError as exc:
             self._record_failure("read", target=path, exc=exc)
             return None
+        if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return data
+        self._record_failure("read", target=path, detail="invalid WebP payload")
+        return None
 
     def set(self, key: str, data: bytes) -> bool:
         path = self._path_for(key)
@@ -96,11 +100,6 @@ class ThumbCache(BestEffortCacheMixin):
                 tmp = Path(temp_name)
                 with os.fdopen(fd, "wb") as handle:
                     handle.write(data)
-                    handle.flush()
-                    try:
-                        os.fsync(handle.fileno())
-                    except OSError as exc:
-                        self._record_failure("fsync", target=tmp, exc=exc)
                 os.replace(tmp, path)
                 tmp = None
                 if self.max_disk_bytes <= 0:

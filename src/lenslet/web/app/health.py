@@ -82,6 +82,7 @@ def _base_health_payload(
         "counters": {
             **hotpath.counters,
             **runtime.query_coordinator.diagnostics(),
+            **runtime.thumb_queue.diagnostics(),
         },
     })
     return HealthResponse(

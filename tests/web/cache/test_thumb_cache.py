@@ -58,3 +58,14 @@ def test_thumb_cache_cleans_atomic_temp_file_after_write_failure(tmp_path, monke
     assert not list(cache_root.rglob("*.webp"))
     assert cache.last_failure is not None
     assert cache.last_failure.operation == "write"
+
+
+def test_thumb_cache_does_not_fsync_best_effort_thumbnail_files(tmp_path, monkeypatch):
+    cache = ThumbCache(tmp_path / "thumbs")
+
+    def _fail_fsync(_fd: int) -> None:
+        raise AssertionError("best-effort thumbnail persistence must not fsync")
+
+    monkeypatch.setattr("lenslet.web.cache.thumbs.os.fsync", _fail_fsync)
+
+    assert cache.set("a", b"thumbnail")

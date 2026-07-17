@@ -1,35 +1,63 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable, Hashable
 from concurrent.futures import Future
 from dataclasses import dataclass, field
+import logging
 from threading import Condition, Thread
-from typing import Callable, Deque, Generic, Literal, TypeVar
+from typing import Any, Deque, Generic, Literal, TypeVar, cast
 
+
+MAX_THUMBNAIL_WORKERS = 4
+MAX_QUEUED_THUMBNAILS = 128
+MAX_INFLIGHT_THUMBNAILS = 256
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 CancelState = Literal["queued", "inflight", "none"]
 
 
-@dataclass
-class _ThumbnailJob(Generic[T]):
-    key: str
-    fn: Callable[[], T]
-    waiters: set[Future[T]] = field(default_factory=set)
+class ThumbnailBusy(RuntimeError):
+    """Raised when bounded thumbnail work cannot be admitted."""
+
+
+@dataclass(slots=True)
+class _ThumbnailJob:
+    key: Hashable
+    operation: Callable[[], Any]
+    waiters: set[Future[Any]] = field(default_factory=set)
+    background: bool = False
+    started: bool = False
 
 
 class ThumbnailScheduler(Generic[T]):
-    """LIFO thumbnail worker pool with in-flight deduplication."""
+    """Bounded dedicated worker pool with per-key work deduplication."""
 
-    def __init__(self, max_workers: int = 4, name: str = "lenslet-thumb") -> None:
-        self._max_workers = max(1, max_workers)
+    def __init__(
+        self,
+        max_workers: int = MAX_THUMBNAIL_WORKERS,
+        *,
+        max_queue_size: int = MAX_QUEUED_THUMBNAILS,
+        max_inflight_entries: int = MAX_INFLIGHT_THUMBNAILS,
+        name: str = "lenslet-thumb",
+    ) -> None:
+        self._max_workers = min(MAX_THUMBNAIL_WORKERS, max(1, int(max_workers)))
+        self._max_queue_size = min(MAX_QUEUED_THUMBNAILS, max(1, int(max_queue_size)))
+        self._max_inflight_entries = min(
+            MAX_INFLIGHT_THUMBNAILS,
+            max(1, int(max_inflight_entries)),
+        )
         self._name = name
-        self._queue: Deque[_ThumbnailJob[T]] = deque()
-        self._inflight: dict[str, _ThumbnailJob[T]] = {}
+        self._queue: Deque[_ThumbnailJob] = deque()
+        self._inflight: dict[Hashable, _ThumbnailJob] = {}
         self._cond = Condition()
         self._closed = False
         self._started = False
         self._threads: list[Thread] = []
+        self._background_dropped = 0
+        self._active_background = 0
 
     def start(self) -> None:
         with self._cond:
@@ -43,95 +71,187 @@ class ThumbnailScheduler(Generic[T]):
             for thread in self._threads:
                 thread.start()
 
-    def submit(self, key: str, fn: Callable[[], T]) -> Future[T]:
+    def submit(self, key: Hashable, operation: Callable[[], T]) -> Future[T]:
         self.start()
         with self._cond:
-            if self._closed:
-                raise RuntimeError("thumbnail scheduler is closed")
-            waiter: Future[T] = Future()
+            self._ensure_open()
             job = self._inflight.get(key)
+            waiter: Future[Any] = Future()
             if job is not None:
+                if job.background:
+                    raise ThumbnailBusy("thumbnail key is occupied by background work")
                 job.waiters.add(waiter)
-                return waiter
-            job = _ThumbnailJob(key=key, fn=fn)
+                return cast(Future[T], waiter)
+            self._ensure_capacity(prefer_foreground=True)
+            job = _ThumbnailJob(key=key, operation=operation)
             job.waiters.add(waiter)
             self._inflight[key] = job
             self._queue.append(job)
             self._cond.notify()
-            return waiter
+            return cast(Future[T], waiter)
 
-    def _job_in_queue(self, job: _ThumbnailJob[T]) -> bool:
-        return any(queued_job is job for queued_job in self._queue)
+    def submit_background(self, key: Hashable, operation: Callable[[], Any]) -> bool:
+        """Admit best-effort work without creating an unobserved Future."""
+        self.start()
+        with self._cond:
+            if self._closed:
+                return False
+            if key in self._inflight:
+                return True
+            try:
+                self._ensure_capacity(prefer_foreground=False)
+            except ThumbnailBusy:
+                return False
+            job = _ThumbnailJob(key=key, operation=operation, background=True)
+            self._inflight[key] = job
+            self._queue.appendleft(job)
+            self._cond.notify()
+            return True
 
-    def _remove_queued_job(self, job: _ThumbnailJob[T]) -> None:
-        self._queue = deque(queued_job for queued_job in self._queue if queued_job is not job)
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("thumbnail scheduler is closed")
 
-    def _release_inflight(self, key: str, job: _ThumbnailJob[T]) -> None:
-        if self._inflight.get(key) is job:
-            self._inflight.pop(key, None)
+    def _ensure_capacity(self, *, prefer_foreground: bool) -> None:
+        if prefer_foreground:
+            while (
+                len(self._queue) >= self._max_queue_size
+                or len(self._inflight) >= self._max_inflight_entries
+            ) and self._drop_queued_background():
+                pass
+        if len(self._queue) >= self._max_queue_size:
+            raise ThumbnailBusy("thumbnail queue is full")
+        if len(self._inflight) >= self._max_inflight_entries:
+            raise ThumbnailBusy("thumbnail deduplication table is full")
 
-    def cancel(self, key: str, fut: Future[T]) -> CancelState:
+    def _drop_queued_background(self) -> bool:
+        for job in self._queue:
+            if not job.background:
+                continue
+            self._remove_queued_job(job)
+            self._release_inflight(job)
+            self._background_dropped += 1
+            logger.warning("thumbnail background work dropped for foreground admission")
+            return True
+        return False
+
+    def cancel(self, key: Hashable, future: Future[T]) -> CancelState:
         with self._cond:
             job = self._inflight.get(key)
-            if job is None or fut not in job.waiters:
+            if job is None or future not in job.waiters:
                 return "none"
-            job.waiters.remove(fut)
-            fut.cancel()
+            job.waiters.remove(future)
+            future.cancel()
             if job.waiters:
                 return "none"
-            was_queued = self._job_in_queue(job)
-            if was_queued:
+            if not job.started:
                 self._remove_queued_job(job)
-                self._release_inflight(key, job)
-            return "queued" if was_queued else "inflight"
+                self._release_inflight(job)
+                return "queued"
+            return "inflight"
 
-    def _take_waiters(self, job: _ThumbnailJob[T]) -> tuple[Future[T], ...]:
+    def _remove_queued_job(self, job: _ThumbnailJob) -> None:
+        self._queue = deque(queued_job for queued_job in self._queue if queued_job is not job)
+
+    def _release_inflight(self, job: _ThumbnailJob) -> None:
+        if self._inflight.get(job.key) is job:
+            self._inflight.pop(job.key, None)
+
+    def _finish_job(
+        self,
+        job: _ThumbnailJob,
+        *,
+        result: Any = None,
+        error: BaseException | None = None,
+    ) -> None:
         with self._cond:
             waiters = tuple(job.waiters)
             job.waiters.clear()
-            self._release_inflight(job.key, job)
-        return waiters
-
-    def _finish_job_success(self, job: _ThumbnailJob[T], result: T) -> None:
-        for waiter in self._take_waiters(job):
-            if not waiter.done():
+            self._release_inflight(job)
+            if job.background:
+                self._active_background -= 1
+                self._cond.notify_all()
+        for waiter in waiters:
+            if waiter.done():
+                continue
+            if error is None:
                 waiter.set_result(result)
-
-    def _finish_job_error(self, job: _ThumbnailJob[T], exc: Exception) -> None:
-        for waiter in self._take_waiters(job):
-            if not waiter.done():
-                waiter.set_exception(exc)
+            else:
+                waiter.set_exception(error)
 
     def _worker(self) -> None:
         while True:
             with self._cond:
-                while not self._queue and not self._closed:
+                job = self._take_next_job()
+                while job is None and not self._closed:
                     self._cond.wait()
-                if self._closed:
+                    job = self._take_next_job()
+                if job is None:
                     return
-                job = self._queue.pop()
 
-            if not job.waiters:
-                with self._cond:
-                    self._release_inflight(job.key, job)
+            if not job.background and not job.waiters:
+                self._finish_job(job)
                 continue
-
             try:
-                result = job.fn()
+                result = job.operation()
             except Exception as exc:
-                self._finish_job_error(job, exc)
+                self._finish_job(job, error=exc)
             else:
-                self._finish_job_success(job, result)
+                self._finish_job(job, result=result)
+
+    def _take_next_job(self) -> _ThumbnailJob | None:
+        if not self._queue:
+            return None
+        if self._queue[-1].background:
+            if self._active_background:
+                return None
+            self._active_background += 1
+        job = self._queue.pop()
+        job.started = True
+        return job
 
     def stats(self) -> dict[str, int]:
         with self._cond:
             return {
+                "workers": self._max_workers,
                 "queued": len(self._queue),
+                "active": sum(job.started for job in self._inflight.values()),
                 "inflight": len(self._inflight),
                 "waiters": sum(len(job.waiters) for job in self._inflight.values()),
+                "queue_capacity": self._max_queue_size,
+                "inflight_capacity": self._max_inflight_entries,
+                "background_dropped": self._background_dropped,
+                "active_background": self._active_background,
             }
+
+    def diagnostics(self) -> dict[str, int]:
+        stats = self.stats()
+        return {
+            "thumbnail_workers": stats["workers"],
+            "thumbnail_active_work": stats["active"],
+            "thumbnail_queued_work": stats["queued"],
+            "thumbnail_inflight_entries": stats["inflight"],
+            "thumbnail_waiters": stats["waiters"],
+            "thumbnail_background_dropped_total": stats["background_dropped"],
+            "thumbnail_active_background_work": stats["active_background"],
+        }
 
     def close(self) -> None:
         with self._cond:
+            if self._closed:
+                return
             self._closed = True
+            queued = tuple(self._queue)
+            self._queue.clear()
+            for job in queued:
+                self._release_inflight(job)
             self._cond.notify_all()
+            threads = tuple(self._threads)
+        error = RuntimeError("thumbnail scheduler is closed")
+        for job in queued:
+            for waiter in tuple(job.waiters):
+                if not waiter.done():
+                    waiter.set_exception(error)
+            job.waiters.clear()
+        for thread in threads:
+            thread.join()

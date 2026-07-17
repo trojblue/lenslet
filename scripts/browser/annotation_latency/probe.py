@@ -312,7 +312,7 @@ def _endpoint_bytes(entries: list[dict[str, Any]], endpoint: str) -> int:
 
 def _facet_field_count(request: Any) -> int | None:
     try:
-        body = json.loads(request.post_data or "{}")
+        body = json.loads(getattr(request, "post_data", None) or "{}")
         fields = body.get("facet_fields")
         if not isinstance(fields, dict):
             return None

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import stat
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from fastapi import HTTPException, Request, Response
@@ -19,19 +21,29 @@ from ..media_errors import (
 )
 from ..storage.base import MediaStorage
 from .cache.thumbs import ThumbCache
-from .thumbs import ThumbnailScheduler
+from .thumbs import MAX_THUMBNAIL_WORKERS, ThumbnailBusy, ThumbnailScheduler
 
 if TYPE_CHECKING:
     from .hotpath import HotpathTelemetry
+
+
+logger = logging.getLogger(__name__)
 
 
 class _ClientDisconnected(Exception):
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class _ThumbnailWorkResult:
+    content: bytes
+    source: Literal["memory", "disk", "generated"]
+    persist_key: str | None = None
+
+
 def thumb_worker_count() -> int:
     cpu = os.cpu_count() or 2
-    return max(1, min(4, cpu))
+    return max(1, min(MAX_THUMBNAIL_WORKERS, cpu))
 
 
 _FAST_PATH_FALLBACK_ERRORS = (OSError, ValueError)
@@ -59,7 +71,7 @@ def _get_cached_thumbnail(storage: MediaStorage, path: str) -> bytes | None:
 async def _await_thumbnail(
     request: Request,
     future,
-) -> bytes | None:
+) -> _ThumbnailWorkResult:
     wrapped = asyncio.wrap_future(future)
     while True:
         done, _ = await asyncio.wait({wrapped}, timeout=0.05)
@@ -80,6 +92,51 @@ def _thumb_cache_key(storage: MediaStorage, path: str) -> str | None:
         return cache_key(path)
     except _FAST_PATH_FALLBACK_ERRORS:
         return None
+
+
+def _read_disk_thumbnail(thumb_cache: ThumbCache, cache_key: str) -> bytes | None:
+    try:
+        return thumb_cache.get(cache_key)
+    except Exception as exc:
+        logger.warning("thumbnail cache read failed; regenerating: %s", exc)
+        return None
+
+
+def _resolve_thumbnail(
+    storage: MediaStorage,
+    path: str,
+    thumb_cache: ThumbCache | None,
+) -> _ThumbnailWorkResult:
+    cached = _get_cached_thumbnail(storage, path)
+    if cached is not None:
+        return _ThumbnailWorkResult(content=cached, source="memory")
+
+    cache_key = _thumb_cache_key(storage, path) if thumb_cache is not None else None
+    if thumb_cache is not None and cache_key:
+        cached_disk = _read_disk_thumbnail(thumb_cache, cache_key)
+        if cached_disk is not None:
+            return _ThumbnailWorkResult(content=cached_disk, source="disk")
+
+    content = storage.get_or_build_thumbnail(path)
+    return _ThumbnailWorkResult(
+        content=content,
+        source="generated",
+        persist_key=cache_key,
+    )
+
+
+def _persist_thumbnail(thumb_cache: ThumbCache, cache_key: str, content: bytes) -> None:
+    try:
+        persisted = thumb_cache.set(cache_key, content)
+    except Exception as exc:
+        logger.warning("thumbnail cache persistence failed: %s", exc)
+        return
+    if not persisted:
+        logger.warning("thumbnail cache persistence failed")
+
+
+def _thumbnail_busy() -> HTTPException:
+    return HTTPException(503, "thumbnail_busy", headers={"Retry-After": "1"})
 
 
 def media_failure_to_http_error(exc: Exception) -> HTTPException:
@@ -175,23 +232,20 @@ async def thumb_response_async(
     thumb_cache: ThumbCache | None = None,
     hotpath_metrics: HotpathTelemetry | None = None,
 ) -> Response:
-    cached = _get_cached_thumbnail(storage, path)
-    if cached is not None:
-        return Response(content=cached, media_type="image/webp")
-
-    cache_key = None
-    if thumb_cache is not None:
-        cache_key = _thumb_cache_key(storage, path)
-        if cache_key:
-            cached_disk = thumb_cache.get(cache_key)
-            if cached_disk is not None:
-                return Response(content=cached_disk, media_type="image/webp")
-
-    future = queue.submit(path, lambda: storage.get_or_build_thumbnail(path))
+    work_key = (id(storage), path)
     try:
-        thumb = await _await_thumbnail(request, future)
+        future = queue.submit(
+            work_key,
+            lambda: _resolve_thumbnail(storage, path, thumb_cache),
+        )
+    except ThumbnailBusy as exc:
+        if hotpath_metrics is not None:
+            hotpath_metrics.increment("thumbnail_busy_total")
+        raise _thumbnail_busy() from exc
+    try:
+        result = await _await_thumbnail(request, future)
     except _ClientDisconnected:
-        cancel_state = queue.cancel(path, future)
+        cancel_state = queue.cancel(work_key, future)
         if hotpath_metrics is not None:
             hotpath_metrics.increment("thumb_disconnect_cancel_total")
             if cancel_state in ("queued", "inflight"):
@@ -203,9 +257,19 @@ async def thumb_response_async(
         read_error = MediaReadError.from_exception(path, exc)
         raise media_failure_to_http_error(read_error) from exc
 
-    if thumb_cache is not None and cache_key:
-        thumb_cache.set(cache_key, thumb)
-    return Response(content=thumb, media_type="image/webp")
+    if hotpath_metrics is not None:
+        hotpath_metrics.increment(f"thumbnail_{result.source}_total")
+    if thumb_cache is not None and result.persist_key:
+        persist_key = result.persist_key
+        accepted = queue.submit_background(
+            ("persist", persist_key),
+            lambda: _persist_thumbnail(thumb_cache, persist_key, result.content),
+        )
+        if not accepted:
+            logger.warning("thumbnail cache persistence skipped: coordinator busy")
+            if hotpath_metrics is not None:
+                hotpath_metrics.increment("thumbnail_cache_persist_skipped_total")
+    return Response(content=result.content, media_type="image/webp")
 
 
 FilePrefetchContext = Literal["viewer", "compare"]

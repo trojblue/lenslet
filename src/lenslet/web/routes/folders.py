@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 from collections import deque
 from collections.abc import Callable
 from typing import TypeVar
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 
 from ...browse.query import (
     BrowseFilterAst,
@@ -29,13 +28,30 @@ from ...browse.query import (
     UrlContainsFilter,
     UrlNotContainsFilter,
     WidthCompareFilter,
+    browse_analysis_query_key,
+    browse_query_request_token,
 )
+from ...diagnostics import mark_request_handler_started, request_phase
+from ...storage.base import BrowseStorage
+from ...storage.table.query_coordinator import (
+    AnalysisBusy,
+    AnalysisLease,
+    AnalysisSuperseded,
+)
+from ...storage.table.query_engine import (
+    TableFilterAnalysis,
+    TableOrderAnalysis,
+    TableQueryStale,
+)
+from ...storage.table.storage import TableStorage
 from ..browse import (
     RECURSIVE_WINDOW_MAX_LIMIT,
     ToItemFn,
     build_folder_facets,
+    build_folder_facets_from_summary,
     build_folder_index,
     build_folder_query,
+    build_folder_query_from_result,
     storage_from_request,
 )
 from ..context import get_request_context
@@ -63,26 +79,216 @@ from ..models import (
     BrowseQueryWidthCompareClausePayload,
 )
 from ..paths import canonical_path
-from ...storage.base import BrowseStorage
-from ...diagnostics import mark_request_handler_started
-from ..hotpath import HotpathTelemetry
 
 
+_CLIENT_SESSION_HEADER = "X-Lenslet-Client-Session"
+_QUERY_REVISION_HEADER = "X-Lenslet-Query-Revision"
+_MAX_CLIENT_SESSION_LENGTH = 128
+_MAX_QUERY_REVISION = (1 << 63) - 1
+_STALE_RETRIES = 3
 T = TypeVar("T")
 
 
-def _run_recorded_analysis(metrics: HotpathTelemetry, operation: Callable[[], T]) -> T:
-    metrics.record_analysis("started")
+def _analysis_owner(request: Request) -> tuple[str, int]:
+    session = request.headers.get(_CLIENT_SESSION_HEADER)
+    raw_revision = request.headers.get(_QUERY_REVISION_HEADER)
+    if session is None or raw_revision is None:
+        raise HTTPException(400, "analysis ownership headers must be sent together")
+    if (
+        not session
+        or len(session) > _MAX_CLIENT_SESSION_LENGTH
+        or session != session.strip()
+        or any(ord(character) < 33 or ord(character) > 126 for character in session)
+    ):
+        raise HTTPException(400, "invalid analysis client session")
     try:
-        result = operation()
-    except asyncio.CancelledError:
-        metrics.record_analysis("cancelled")
-        raise
-    except Exception:
-        metrics.increment("analysis_failed_total")
-        raise
-    metrics.record_analysis("completed")
-    return result
+        revision = int(raw_revision)
+    except ValueError as exc:
+        raise HTTPException(400, "invalid query revision") from exc
+    if str(revision) != raw_revision or not 0 <= revision <= _MAX_QUERY_REVISION:
+        raise HTTPException(400, "invalid query revision")
+    return session, revision
+
+
+def _analysis_busy() -> HTTPException:
+    return HTTPException(
+        503,
+        "analysis_busy",
+        headers={"Retry-After": "1"},
+    )
+
+
+def _analysis_superseded() -> HTTPException:
+    return HTTPException(409, "analysis_superseded")
+
+
+def _raise_storage_query_error(exc: ValueError | FileNotFoundError) -> None:
+    if isinstance(exc, FileNotFoundError):
+        raise HTTPException(404, "folder not found") from exc
+    raise HTTPException(400, "invalid path") from exc
+
+
+async def _acquire_table_filter(
+    storage: TableStorage,
+    spec: BrowseQuerySpec,
+    request: Request,
+    session: str,
+    revision: int,
+) -> TableFilterAnalysis:
+    coordinator = get_request_context(request).runtime.query_coordinator
+    for _attempt in range(_STALE_RETRIES):
+        try:
+            key = storage.table_filter_key(spec)
+            with request_phase("analysis"):
+                lease = await coordinator.acquire(
+                    "filter",
+                    key,
+                    lambda cancel: storage.analyze_table_filter(spec, key, cancel),
+                    client_session=session,
+                    query_revision=revision,
+                    disconnected=request.is_disconnected,
+                )
+            return storage.refresh_table_filter(spec, lease.value)
+        except AnalysisBusy as exc:
+            raise _analysis_busy() from exc
+        except AnalysisSuperseded as exc:
+            raise _analysis_superseded() from exc
+        except TableQueryStale:
+            continue
+        except (ValueError, FileNotFoundError) as exc:
+            _raise_storage_query_error(exc)
+    raise _analysis_busy()
+
+
+async def _acquire_table_order(
+    storage: TableStorage,
+    spec: BrowseQuerySpec,
+    analysis: TableFilterAnalysis,
+    request: Request,
+    session: str,
+    revision: int,
+) -> TableOrderAnalysis:
+    coordinator = get_request_context(request).runtime.query_coordinator
+    key = storage.table_order_key(spec, analysis)
+    try:
+        with request_phase("ordering"):
+            lease = await coordinator.acquire(
+                "order",
+                key,
+                lambda cancel: storage.order_table_analysis(
+                    spec, analysis, key, cancel,
+                ),
+                client_session=session,
+                query_revision=revision,
+                disconnected=request.is_disconnected,
+            )
+    except AnalysisBusy as exc:
+        raise _analysis_busy() from exc
+    except AnalysisSuperseded as exc:
+        raise _analysis_superseded() from exc
+    return lease.value
+
+
+async def _coordinated_table_query(
+    storage: TableStorage,
+    spec: BrowseQuerySpec,
+    request: Request,
+    to_item: ToItemFn,
+    session: str,
+    revision: int,
+) -> BrowseQueryResponse:
+    coordinator = get_request_context(request).runtime.query_coordinator
+    analysis = await _acquire_table_filter(
+        storage, spec, request, session, revision,
+    )
+    ordered = await _acquire_table_order(
+        storage, spec, analysis, request, session, revision,
+    )
+    projection_key = (
+        "window",
+        ordered.key,
+        spec.offset,
+        spec.limit,
+        id(analysis),
+    )
+    try:
+        with request_phase("projection"):
+            lease = await coordinator.acquire(
+                "request",
+                projection_key,
+                lambda _cancel: build_folder_query_from_result(
+                    storage,
+                    storage.query_browse_scope_from_analysis(spec, analysis, ordered),
+                    spec,
+                    to_item,
+                ),
+                client_session=session,
+                query_revision=revision,
+                disconnected=request.is_disconnected,
+            )
+    except AnalysisBusy as exc:
+        raise _analysis_busy() from exc
+    except AnalysisSuperseded as exc:
+        raise _analysis_superseded() from exc
+    return lease.value
+
+
+async def _coordinated_table_facets(
+    storage: TableStorage,
+    spec: BrowseQuerySpec,
+    request: Request,
+    session: str,
+    revision: int,
+) -> BrowseFacetsPayload:
+    coordinator = get_request_context(request).runtime.query_coordinator
+    analysis = await _acquire_table_filter(
+        storage, spec, request, session, revision,
+    )
+    facet_key = ("facets", analysis.key, id(analysis))
+    try:
+        with request_phase("facet"):
+            lease = await coordinator.acquire(
+                "request",
+                facet_key,
+                lambda _cancel: build_folder_facets_from_summary(
+                    storage.facet_summary_for_query_from_analysis(spec, analysis),
+                    spec,
+                ),
+                client_session=session,
+                query_revision=revision,
+                disconnected=request.is_disconnected,
+            )
+    except AnalysisBusy as exc:
+        raise _analysis_busy() from exc
+    except AnalysisSuperseded as exc:
+        raise _analysis_superseded() from exc
+    return lease.value
+
+
+async def _coordinated_generic_request(
+    *,
+    kind: str,
+    key: str,
+    operation: Callable[[], T],
+    request: Request,
+    session: str,
+    revision: int,
+) -> T:
+    coordinator = get_request_context(request).runtime.query_coordinator
+    try:
+        lease: AnalysisLease[T] = await coordinator.acquire(
+            "generic",
+            (kind, key),
+            lambda _cancel: operation(),
+            client_session=session,
+            query_revision=revision,
+            disconnected=request.is_disconnected,
+        )
+    except AnalysisBusy as exc:
+        raise _analysis_busy() from exc
+    except AnalysisSuperseded as exc:
+        raise _analysis_superseded() from exc
+    return lease.value
 
 
 def _collect_folder_paths(storage: BrowseStorage) -> list[str]:
@@ -197,20 +403,25 @@ def register_folder_routes(
     to_item: ToItemFn,
 ) -> None:
     @app.post("/folders/query", response_model=BrowseQueryResponse)
-    def post_folder_query(
+    async def post_folder_query(
         body: BrowseQueryRequest,
         request: Request,
     ) -> BrowseQueryResponse:
         mark_request_handler_started()
         storage = storage_from_request(request)
-        runtime = get_request_context(request).runtime
-        return _run_recorded_analysis(
-            runtime.hotpath_metrics,
-            lambda: build_folder_query(
-                storage,
-                _query_spec_from_payload(body),
-                to_item,
-            ),
+        spec = _query_spec_from_payload(body)
+        session, revision = _analysis_owner(request)
+        if isinstance(storage, TableStorage):
+            return await _coordinated_table_query(
+                storage, spec, request, to_item, session, revision,
+            )
+        return await _coordinated_generic_request(
+            kind="query",
+            key=browse_query_request_token(spec),
+            operation=lambda: build_folder_query(storage, spec, to_item),
+            request=request,
+            session=session,
+            revision=revision,
         )
 
     @app.get("/folders", response_model=BrowseFolderPayload)
@@ -242,41 +453,51 @@ def register_folder_routes(
         return BrowseFolderPathsPayload(paths=_collect_folder_paths(storage))
 
     @app.post("/folders/facets", response_model=BrowseFacetsPayload)
-    def post_folder_facets(
+    async def post_folder_facets(
         body: BrowseQueryRequest,
         request: Request,
     ) -> BrowseFacetsPayload:
         mark_request_handler_started()
         storage = storage_from_request(request)
-        runtime = get_request_context(request).runtime
-        return _run_recorded_analysis(
-            runtime.hotpath_metrics,
-            lambda: build_folder_facets(
-                storage,
-                _query_spec_from_payload(body),
-                to_item,
-            ),
+        spec = _query_spec_from_payload(body)
+        session, revision = _analysis_owner(request)
+        if isinstance(storage, TableStorage):
+            return await _coordinated_table_facets(
+                storage, spec, request, session, revision,
+            )
+        return await _coordinated_generic_request(
+            kind="facets",
+            key=browse_analysis_query_key(spec),
+            operation=lambda: build_folder_facets(storage, spec, to_item),
+            request=request,
+            session=session,
+            revision=revision,
         )
 
     @app.get("/folders/facets", response_model=BrowseFacetsPayload)
-    def get_folder_facets(
+    async def get_folder_facets(
         request: Request,
         path: str = "/",
         recursive: bool = True,
     ) -> BrowseFacetsPayload:
         mark_request_handler_started()
         storage = storage_from_request(request)
-        runtime = get_request_context(request).runtime
-        return _run_recorded_analysis(
-            runtime.hotpath_metrics,
-            lambda: build_folder_facets(
-                storage,
-                BrowseQuerySpec(
-                    path=canonical_path(path),
-                    recursive=recursive,
-                    offset=0,
-                    limit=1,
-                ),
-                to_item,
-            ),
+        spec = BrowseQuerySpec(
+            path=canonical_path(path),
+            recursive=recursive,
+            offset=0,
+            limit=1,
+        )
+        session, revision = _analysis_owner(request)
+        if isinstance(storage, TableStorage):
+            return await _coordinated_table_facets(
+                storage, spec, request, session, revision,
+            )
+        return await _coordinated_generic_request(
+            kind="facets",
+            key=browse_analysis_query_key(spec),
+            operation=lambda: build_folder_facets(storage, spec, to_item),
+            request=request,
+            session=session,
+            revision=revision,
         )

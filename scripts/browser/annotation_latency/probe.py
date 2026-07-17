@@ -127,22 +127,29 @@ def run_superseded_filter_sequence(page: Any) -> dict[str, Any]:
     fresh_body["filters"]["and"][1]["metricRange"]["min"] = 0.2
     return page.evaluate(
         """async ({staleBody, freshBody}) => {
-          const post = (path, body, signal) => fetch(path, {
+          const clientSession = sessionStorage.getItem('lenslet.client_id.session');
+          if (!clientSession) throw new Error('missing Lenslet client session');
+          const staleRevision = Date.now() * 1000 + 100;
+          const post = (path, body, revision, signal) => fetch(path, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Lenslet-Client-Session': clientSession,
+              'X-Lenslet-Query-Revision': String(revision),
+            },
             body: JSON.stringify(body),
             signal,
           });
           const staleController = new AbortController();
           const stale = [
-            post('/folders/query', staleBody, staleController.signal),
-            post('/folders/facets', staleBody, staleController.signal),
+            post('/folders/query', staleBody, staleRevision, staleController.signal),
+            post('/folders/facets', staleBody, staleRevision, staleController.signal),
           ];
           await new Promise(resolve => requestAnimationFrame(resolve));
           staleController.abort();
           const fresh = await Promise.all([
-            post('/folders/query', freshBody),
-            post('/folders/facets', freshBody),
+            post('/folders/query', freshBody, staleRevision + 1),
+            post('/folders/facets', freshBody, staleRevision + 1),
           ]);
           const staleResults = await Promise.allSettled(stale);
           return {

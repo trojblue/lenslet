@@ -13,7 +13,14 @@ from ..storage.base import S3DiagnosticsStorage
 from .models import HotpathHealthPayload, HotpathTimerPayload
 
 
-AnalysisEvent = Literal["started", "completed", "joined", "superseded", "cancelled"]
+AnalysisEvent = Literal[
+    "started",
+    "completed",
+    "joined",
+    "superseded",
+    "cancelled",
+    "failed",
+]
 _SERVER_TIMING_ORDER = (
     "queue",
     "analysis",

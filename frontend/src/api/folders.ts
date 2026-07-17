@@ -155,6 +155,23 @@ export const windowRequestToken = (
 
 export const browseQueryKey = (options: BrowseQueryOptions) => windowRequestToken(options, 0)
 
+let activeSemanticQueryKey = ''
+let activeSemanticQueryRevision = Date.now() * 1000
+
+export function semanticQueryRevision(key: AnalysisQueryKey): number {
+  const serialized = JSON.stringify(key)
+  if (serialized !== activeSemanticQueryKey) {
+    activeSemanticQueryKey = serialized
+    activeSemanticQueryRevision += 1
+  }
+  return activeSemanticQueryRevision
+}
+
+export function resetSemanticQueryRevisionForTests(): void {
+  activeSemanticQueryKey = ''
+  activeSemanticQueryRevision = Date.now() * 1000
+}
+
 function parseRecursiveFolderQueryKey(queryKey: readonly unknown[]): RecursiveFolderQueryKey | null {
   if (queryKey[0] !== 'folder' || queryKey[2] !== 'recursive') return null
   if (typeof queryKey[1] !== 'string') return null
@@ -198,13 +215,14 @@ function fetchFolder(path: string, options?: GetFolderOptions): Promise<BrowseFo
 export function useBrowseQuery(options: BrowseQueryOptions & { enabled?: boolean }) {
   const pollingEnabled = usePollingEnabled()
   const queryKey = browseQueryKey(options)
+  const queryRevision = semanticQueryRevision(analysisQueryKey(options))
   return useInfiniteQuery<BrowseQueryResponse>({
     queryKey,
     queryFn: ({ pageParam, signal }) => {
       const offset = typeof pageParam === 'number' ? pageParam : 0
       return api.queryFolder(
         buildBrowseQueryRequest(options, offset),
-        { signal },
+        { signal, queryRevision },
       )
     },
     initialPageParam: 0,
@@ -253,11 +271,12 @@ export function useFolder(path: string, options?: UseFolderOptions) {
 export function useFolderFacets(options: BrowseQueryOptions & { enabled?: boolean }) {
   const pollingEnabled = usePollingEnabled()
   const { enabled = true, ...queryOptions } = options
+  const queryRevision = semanticQueryRevision(analysisQueryKey(queryOptions))
   return useQuery<BrowseFacetsPayload>({
     queryKey: folderFacetsQueryKey(queryOptions),
     queryFn: ({ signal }) => api.queryFolderFacets(
       buildBrowseQueryRequest(queryOptions, 0),
-      { signal },
+      { signal, queryRevision },
     ),
     enabled,
     staleTime: 10_000,

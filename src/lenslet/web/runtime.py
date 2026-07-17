@@ -14,6 +14,7 @@ from .sync.labels import LabelSyncLocks, SnapshotWriter, init_sync_state
 from .sync.presence import PresenceMetrics, PresenceTracker
 from .thumbs import ThumbnailScheduler
 from ..storage.base import BrowseAppStorage
+from ..storage.table.query_coordinator import TableQueryCoordinator
 from ..workspace import Workspace
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ class AppRuntime:
     thumb_queue: ThumbnailScheduler
     thumb_cache: ThumbCache | None
     hotpath_metrics: HotpathTelemetry
+    query_coordinator: TableQueryCoordinator
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +85,14 @@ def build_app_runtime(
     register_lifecycle_handlers(app, startup=thumb_queue.start, shutdown=thumb_queue.close)
     thumb_cache = hooks.build_thumb_cache(assembly.workspace, settings.thumb_cache_enabled)
     hotpath_metrics = hooks.build_hotpath_metrics(app)
+    query_coordinator = TableQueryCoordinator(
+        on_analysis_event=hotpath_metrics.record_analysis,
+    )
+    register_lifecycle_handlers(
+        app,
+        startup=query_coordinator.start,
+        shutdown=query_coordinator.close,
+    )
     return AppRuntime(
         sidecar_lock=sidecar_lock,
         log_lock=log_lock,
@@ -96,4 +106,5 @@ def build_app_runtime(
         thumb_queue=thumb_queue,
         thumb_cache=thumb_cache,
         hotpath_metrics=hotpath_metrics,
+        query_coordinator=query_coordinator,
     )

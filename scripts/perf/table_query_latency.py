@@ -254,7 +254,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _timed_post(client: TestClient, path: str, body: dict[str, Any]):
     started_at = time.perf_counter()
-    response = client.post(path, json=body)
+    response = client.post(
+        path,
+        json=body,
+        headers={
+            "X-Lenslet-Client-Session": "table-query-latency-probe",
+            "X-Lenslet-Query-Revision": "1",
+        },
+    )
     elapsed_ms = (time.perf_counter() - started_at) * 1000.0
     if response.status_code != 200:
         raise RuntimeError(f"{path} returned {response.status_code}: {response.text[:300]}")

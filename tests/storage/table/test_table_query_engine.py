@@ -167,6 +167,51 @@ def _annotate_parity_rows(storage: TableStorage) -> None:
         storage.set_sidecar(path, sidecar)
 
 
+def test_filter_order_and_window_keys_invalidate_only_their_semantic_layer() -> None:
+    storage = _storage(_parity_rows(12), categorical_keys=("category",))
+    base = BrowseQuerySpec(
+        "/gallery",
+        True,
+        0,
+        5,
+        BrowseFilterAst((MetricRangeFilter("q1", 1.0, 8.0),)),
+        BuiltinSortSpec("name", "asc"),
+    )
+    engine = storage.query_engine
+    base_filter_key = engine.filter_key(base)
+    assert engine.filter_key(replace(base, offset=5, limit=2)) == base_filter_key
+    assert engine.filter_key(replace(base, sort=BuiltinSortSpec("added", "desc"))) == base_filter_key
+    assert engine.filter_key(replace(base, text_query="item")) != base_filter_key
+
+    rows = _scope_rows(storage)
+    analysis = engine.analyze_filter(rows, base, expected_key=base_filter_key)
+    base_order_key = engine.order_key(analysis, base)
+    assert engine.order_key(analysis, replace(base, offset=5, limit=2)) == base_order_key
+    assert engine.order_key(
+        analysis,
+        replace(base, sort=BuiltinSortSpec("added", "desc")),
+    ) != base_order_key
+
+    order = engine.order(analysis, base.sort, key=base_order_key)
+    first_window = engine.window_key(order, base, metric_keys=("q1",))
+    assert engine.window_key(
+        order,
+        replace(base, offset=5),
+        metric_keys=("q1",),
+    ) != first_window
+    assert engine.window_key(order, base, metric_keys=("q1", "q2")) != first_window
+
+    sidecar = storage.ensure_sidecar("/gallery/batch-0/image-000.jpg")
+    sidecar["star"] = 5
+    storage.set_sidecar("/gallery/batch-0/image-000.jpg", sidecar)
+    assert engine.filter_key(base) == base_filter_key
+    star_spec = replace(base, filters=BrowseFilterAst((StarsInFilter((5,)),)))
+    star_key = engine.filter_key(star_spec)
+    sidecar["star"] = 4
+    storage.set_sidecar("/gallery/batch-0/image-000.jpg", sidecar)
+    assert engine.filter_key(star_spec) != star_key
+
+
 def test_column_store_normalizes_once_with_stable_rows_and_bounded_buffers() -> None:
     rows = [
         {

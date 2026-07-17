@@ -77,6 +77,13 @@ def _base_health_payload(
     static_refresh_note: str | None = None,
 ) -> HealthResponse:
     writes_enabled = request_can_mutate(request, writes_enabled=workspace.can_write)
+    hotpath = runtime.hotpath_metrics.snapshot(storage)
+    hotpath = hotpath.model_copy(update={
+        "counters": {
+            **hotpath.counters,
+            **runtime.query_coordinator.diagnostics(),
+        },
+    })
     return HealthResponse(
         ok=True,
         mode=mode,
@@ -94,7 +101,7 @@ def _base_health_payload(
         compare_export=_compare_export_health_payload(),
         labels=_labels_health_payload(workspace, writes_enabled=writes_enabled),
         presence=_presence_health_payload(runtime),
-        hotpath=runtime.hotpath_metrics.snapshot(storage),
+        hotpath=hotpath,
         table_launch_status=_table_launch_status_payload(storage, workspace),
         launch_session=launch_session,
     )

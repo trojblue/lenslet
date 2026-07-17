@@ -455,6 +455,14 @@ export type GetFolderOptions = {
 
 export type ApiRequestOptions = {
   signal?: AbortSignal
+  queryRevision?: number
+}
+
+function analysisOwnershipHeaders(queryRevision = 0): Record<string, string> {
+  return {
+    'X-Lenslet-Client-Session': ensureClientId(),
+    'X-Lenslet-Query-Revision': String(queryRevision),
+  }
 }
 
 export function buildFolderQuery(path: string, options?: GetFolderOptions): string {
@@ -488,7 +496,9 @@ export const api = {
   getFolderFacets: (path: string, options?: Pick<GetFolderOptions, 'recursive'>): Promise<BrowseFacetsPayload> => {
     const facetOptions = { recursive: options?.recursive ?? true }
     return runWithRequestBudget('folders', () =>
-      fetchJSON<BrowseFacetsPayload>(apiUrl(`/folders/facets?${buildFolderQuery(path, facetOptions)}`)),
+      fetchJSON<BrowseFacetsPayload>(apiUrl(`/folders/facets?${buildFolderQuery(path, facetOptions)}`), {
+        headers: analysisOwnershipHeaders(),
+      }),
     ).promise
   },
 
@@ -496,7 +506,10 @@ export const api = {
     const task = runWithRequestBudget('folders', () =>
       fetchJSON<BrowseFacetsPayload>(apiUrl('/folders/facets'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...analysisOwnershipHeaders(options?.queryRevision),
+        },
         body: JSON.stringify(body),
         signal: options?.signal,
       }),
@@ -518,7 +531,10 @@ export const api = {
     const task = runWithRequestBudget('folders', () =>
       fetchJSON<BrowseQueryResponse>(apiUrl('/folders/query'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...analysisOwnershipHeaders(options?.queryRevision),
+        },
         body: JSON.stringify(body),
         signal: options?.signal,
       }),

@@ -6,7 +6,7 @@ import io
 import time
 from datetime import datetime, timezone
 from dataclasses import replace
-from typing import Any, Callable, Iterable, cast
+from typing import Any, Callable, Iterable, Mapping, cast
 
 from fastapi import HTTPException, Request
 
@@ -516,19 +516,7 @@ def build_folder_facets(
             raise HTTPException(400, "invalid path") from exc
         except FileNotFoundError as exc:
             raise HTTPException(404, "folder not found") from exc
-        payload = BrowseFacetsPayload.model_validate(raw_payload)
-        return payload.model_copy(update={
-            "analysis_query_key": payload.analysis_query_key or browse_analysis_query_key(spec),
-            "field_capabilities": _field_capabilities_payload(
-                payload.metric_keys,
-                payload.categorical_keys,
-            ),
-            "dependency_manifest": _dependency_manifest_payload(
-                spec,
-                facet_metric_keys=payload.metric_keys,
-                facet_categorical_keys=payload.categorical_keys,
-            ),
-        })
+        return build_folder_facets_from_summary(raw_payload, spec)
     return _facets_from_items(
         storage,
         canonical,
@@ -537,6 +525,25 @@ def build_folder_facets(
         recursive=spec.recursive,
         to_item=to_item,
     )
+
+
+def build_folder_facets_from_summary(
+    raw_payload: Mapping[str, Any],
+    spec: BrowseQuerySpec,
+) -> BrowseFacetsPayload:
+    payload = BrowseFacetsPayload.model_validate(raw_payload)
+    return payload.model_copy(update={
+        "analysis_query_key": payload.analysis_query_key or browse_analysis_query_key(spec),
+        "field_capabilities": _field_capabilities_payload(
+            payload.metric_keys,
+            payload.categorical_keys,
+        ),
+        "dependency_manifest": _dependency_manifest_payload(
+            spec,
+            facet_metric_keys=payload.metric_keys,
+            facet_categorical_keys=payload.categorical_keys,
+        ),
+    })
 
 
 RECURSIVE_SORT_MODE_SCAN = "scan"
@@ -1201,6 +1208,15 @@ def build_folder_query(
         to_item,
         spec,
     )
+
+
+def build_folder_query_from_result(
+    storage: BrowseStorage,
+    result: BrowseQueryResult[Any],
+    spec: BrowseQuerySpec,
+    to_item: ToItemFn,
+) -> BrowseQueryResponse:
+    return _query_result_payload(storage, result, to_item, spec)
 
 
 def search_results(

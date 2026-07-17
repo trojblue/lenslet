@@ -340,7 +340,10 @@ def test_parquet_boolean_columns_are_filterable_categoricals(tmp_path: Path) -> 
         "prev_rated_1star": [True, False, None],
     })
 
-    client = TestClient(create_app(str(root)))
+    client = TestClient(create_app(str(root)), headers={
+        "X-Lenslet-Client-Session": "parquet-ingestion-tests",
+        "X-Lenslet-Query-Revision": "1",
+    })
     folder = client.get("/folders", params={"path": "/"}).json()
 
     assert folder["categorical_keys"] == ["prev_rated_1star"]
@@ -393,7 +396,10 @@ def test_parquet_facets_include_categorical_values_outside_first_page(tmp_path: 
         "quality_score": [0.1, 0.2, 0.7, 0.9],
     })
 
-    client = TestClient(create_app(str(root)))
+    client = TestClient(create_app(str(root)), headers={
+        "X-Lenslet-Client-Session": "parquet-ingestion-tests",
+        "X-Lenslet-Query-Revision": "1",
+    })
 
     page = client.get(
         "/folders",

@@ -230,6 +230,7 @@ def run_browser_scenario(base_url: str, browser_timeout_ms: float) -> dict[str, 
     playwright_error, playwright_timeout_error, sync_playwright = import_playwright()
     evidence_a = BrowserRequestEvidence()
     evidence_b = BrowserRequestEvidence()
+    evidence_churn = BrowserRequestEvidence()
     timeout_ms = min(browser_timeout_ms, 15_000)
     try:
         with sync_playwright() as playwright:
@@ -254,11 +255,6 @@ def run_browser_scenario(base_url: str, browser_timeout_ms: float) -> dict[str, 
             initial_paths = sorted(set(visible_paths(page_a)) & set(visible_paths(page_b)))
             if len(initial_paths) < 2:
                 raise SmokeFailure("two sessions did not expose two common unrated items")
-            evidence_a.phase = "superseded_filter"
-            superseded_filter_sequence = run_superseded_filter_sequence(page_a)
-            superseded_filter_quiescence = wait_for_quiescence(
-                page_a, evidence_a, "superseded_filter", timeout_ms=timeout_ms
-            )
 
             round_one = _run_annotation_round(
                 owner_page=page_a,
@@ -284,6 +280,20 @@ def run_browser_scenario(base_url: str, browser_timeout_ms: float) -> dict[str, 
             )
             _validate_round(round_two)
 
+            context_churn = browser.new_context(viewport={"width": 1440, "height": 960})
+            page_churn = context_churn.new_page()
+            _attach_evidence(page_churn, evidence_churn, browser_timeout_ms)
+            page_churn.goto(filtered_gallery_url(base_url), wait_until="domcontentloaded")
+            _wait_for_ready_gallery(page_churn)
+            wait_for_quiescence(
+                page_churn, evidence_churn, "initial", timeout_ms=timeout_ms,
+            )
+            evidence_churn.phase = "superseded_filter"
+            superseded_filter_sequence = run_superseded_filter_sequence(page_churn)
+            superseded_filter_quiescence = wait_for_quiescence(
+                page_churn, evidence_churn, "superseded_filter", timeout_ms=timeout_ms
+            )
+
             session_ids = {
                 "session_a": page_a.evaluate("sessionStorage.getItem('lenslet.client_id.session')"),
                 "session_b": page_b.evaluate("sessionStorage.getItem('lenslet.client_id.session')"),
@@ -298,6 +308,7 @@ def run_browser_scenario(base_url: str, browser_timeout_ms: float) -> dict[str, 
             }
             context_a.close()
             context_b.close()
+            context_churn.close()
             browser.close()
     except playwright_timeout_error as exc:
         raise SmokeFailure(f"annotation latency scenario timed out: {exc}") from exc
@@ -332,7 +343,7 @@ def run_browser_scenario(base_url: str, browser_timeout_ms: float) -> dict[str, 
         "session_id": session_ids["session_a"],
         "session_ids": session_ids,
         "semantic_revisions": {
-            "protocol_present": False,
+            "protocol_present": True,
             "deliberate_superseded_filter_sequence": superseded_filter_sequence,
         },
         "target_path": round_one["target_path"],
@@ -358,7 +369,7 @@ def run_browser_scenario(base_url: str, browser_timeout_ms: float) -> dict[str, 
         "target_still_visible": any(snapshot["target_still_visible"] for _, _, snapshot in projections),
         "initial_quiescence": initial_quiescence,
         "superseded_filter_quiescence": superseded_filter_quiescence,
-        "superseded_filter_evidence": evidence_a.phase_summary("superseded_filter"),
+        "superseded_filter_evidence": evidence_churn.phase_summary("superseded_filter"),
         "mutation_quiescence": {
             "mutation_1": {role: round_one[role]["quiescence"] for role in ("owner", "remote")},
             "mutation_2": {role: round_two[role]["quiescence"] for role in ("owner", "remote")},

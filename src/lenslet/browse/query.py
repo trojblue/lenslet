@@ -729,6 +729,25 @@ def browse_analysis_query_key(
     )
 
 
+def browse_filter_query_key(spec: BrowseQuerySpec) -> str:
+    """Return the semantic identity of filtering and derived-score work."""
+
+    return _query_payload_token("fq", _filter_query_payload(spec))
+
+
+def browse_order_query_key(spec: BrowseQuerySpec) -> str:
+    """Return the semantic identity of filtering plus ordering work."""
+
+    return _query_payload_token(
+        "oq",
+        {
+            "filter_query_key": browse_filter_query_key(spec),
+            "sort": _sort_token(spec.sort),
+            "random_seed": _active_random_seed_token(spec),
+        },
+    )
+
+
 def browse_window_request_token(
     spec: BrowseQuerySpec,
     *,
@@ -771,16 +790,25 @@ def _analysis_query_payload(
     payload = {
         "path": spec.path,
         "recursive": spec.recursive,
-        "filters": [
-            _clause_token(clause) for clause in normalize_filter_ast(spec.filters).and_clauses
-        ],
+        **_filter_query_payload(spec),
         "sort": _sort_token(spec.sort),
-        "text_query": _normalize_text(spec.text_query),
         "random_seed": _active_random_seed_token(spec),
-        "derived_metric": _derived_metric_token(spec.derived_metric),
         "unsupported_metric_intent": unsupported_intent,
     }
     return payload
+
+
+def _filter_query_payload(spec: BrowseQuerySpec) -> dict[str, object]:
+    return {
+        "path": spec.path,
+        "recursive": spec.recursive,
+        "filters": [
+            _clause_token(clause) for clause in normalize_filter_ast(spec.filters).and_clauses
+        ],
+        "text_query": _normalize_text(spec.text_query),
+        "derived_metric": _derived_metric_token(spec.derived_metric),
+        "unsupported_metric_intent": _normalize_text(spec.unsupported_metric_intent),
+    }
 
 
 def _active_random_seed_token(spec: BrowseQuerySpec) -> str | None:

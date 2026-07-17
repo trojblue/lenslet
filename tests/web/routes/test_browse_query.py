@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import math
 from pathlib import Path
+import time
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -42,7 +45,10 @@ def _client_for_six_row_table(tmp_path: Path) -> TestClient:
             skip_dimension_probe=True,
         ),
     )
-    return TestClient(app)
+    return TestClient(app, headers={
+        "X-Lenslet-Client-Session": "browse-query-tests",
+        "X-Lenslet-Query-Revision": "1",
+    })
 
 
 def test_browse_query_contract_filters_before_windowing(tmp_path: Path) -> None:
@@ -106,6 +112,106 @@ def test_browse_query_contract_filters_before_windowing(tmp_path: Path) -> None:
     }
     changed_payload = client.post("/folders/query", json=changed_token_body).json()
     assert changed_payload["request_token"] != payload["request_token"]
+
+
+def test_query_and_facets_share_one_table_filter_execution() -> None:
+    storage = TableStorage(
+        [
+            {
+                "source": f"https://example.test/gallery/img{index}.jpg",
+                "path": f"gallery/img{index}.jpg",
+                "score": float(index),
+                "width": 8,
+                "height": 6,
+            }
+            for index in range(200)
+        ],
+        options=TableStorageOptions(
+            source_column="source",
+            path_column="path",
+            skip_dimension_probe=True,
+            allow_local=False,
+        ),
+    )
+    original = storage.query_engine.analyze_filter
+    calls = 0
+
+    def counted_analysis(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        time.sleep(0.05)
+        return original(*args, **kwargs)
+
+    storage.query_engine.analyze_filter = counted_analysis
+    app = create_app_from_storage(storage)
+    body = {
+        "path": "/gallery",
+        "recursive": True,
+        "offset": 0,
+        "limit": 20,
+        "filters": {"and": [{"metricRange": {"key": "score", "min": 10, "max": 150}}]},
+        "sort": {"kind": "metric", "key": "score", "dir": "desc"},
+    }
+    headers = {
+        "X-Lenslet-Client-Session": "shared-tab",
+        "X-Lenslet-Query-Revision": "1",
+    }
+
+    async def scenario() -> tuple[httpx.Response, httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            query, facets = await asyncio.gather(
+                client.post("/folders/query", json=body, headers=headers),
+                client.post("/folders/facets", json=body, headers=headers),
+            )
+            health = await client.get("/health")
+        await app.state.lenslet_app_context.runtime.query_coordinator.close()
+        return query, facets, health
+
+    query, facets, health = asyncio.run(scenario())
+
+    assert query.status_code == facets.status_code == 200
+    assert calls == 1
+    assert query.json()["filtered_total"] == facets.json()["total_items"] == 141
+    counters = health.json()["hotpath"]["counters"]
+    assert counters["analysis_active_work"] == 0
+    assert counters["analysis_queued_work"] == 0
+
+
+def test_analysis_ownership_headers_are_validated_together(tmp_path: Path) -> None:
+    client = _client_for_six_row_table(tmp_path)
+    client.headers.pop("X-Lenslet-Client-Session")
+    client.headers.pop("X-Lenslet-Query-Revision")
+    body = {
+        "path": "/gallery",
+        "recursive": True,
+        "offset": 0,
+        "limit": 2,
+    }
+
+    partial = client.post(
+        "/folders/query",
+        json=body,
+        headers={"X-Lenslet-Client-Session": "tab-a"},
+    )
+    invalid_revision = client.post(
+        "/folders/query",
+        json=body,
+        headers={
+            "X-Lenslet-Client-Session": "tab-a",
+            "X-Lenslet-Query-Revision": "01",
+        },
+    )
+    oversized = client.post(
+        "/folders/query",
+        json=body,
+        headers={
+            "X-Lenslet-Client-Session": "a" * 129,
+            "X-Lenslet-Query-Revision": "1",
+        },
+    )
+
+    assert partial.status_code == invalid_revision.status_code == oversized.status_code == 400
 
 
 def test_browse_query_rejects_large_metric_sort_hydration_window(tmp_path: Path) -> None:
@@ -305,7 +411,10 @@ def test_browse_query_text_search_includes_sidecar_source_fields(tmp_path: Path)
     sidecar = storage.ensure_sidecar("/cat.jpg")
     sidecar["source"] = "source-token"
     storage.set_sidecar("/cat.jpg", sidecar)
-    client = TestClient(create_app_from_storage(storage))
+    client = TestClient(create_app_from_storage(storage), headers={
+        "X-Lenslet-Client-Session": "browse-query-tests",
+        "X-Lenslet-Query-Revision": "1",
+    })
 
     response = client.post(
         "/folders/query",
@@ -345,7 +454,10 @@ def test_table_query_totals_and_facets_are_separate_backend_truth() -> None:
     )
     row_store = storage._row_store
     assert row_store is not None
-    client = TestClient(create_app_from_storage(storage))
+    client = TestClient(create_app_from_storage(storage), headers={
+        "X-Lenslet-Client-Session": "browse-query-tests",
+        "X-Lenslet-Query-Revision": "1",
+    })
 
     query_payload = client.post(
         "/folders/query",
@@ -419,7 +531,10 @@ def test_query_projection_uses_the_same_annotation_snapshot_as_membership(
         return ordered
 
     monkeypatch.setattr(storage.query_engine, "order", mutate_after_analysis)
-    client = TestClient(create_app_from_storage(storage))
+    client = TestClient(create_app_from_storage(storage), headers={
+        "X-Lenslet-Client-Session": "browse-query-tests",
+        "X-Lenslet-Query-Revision": "1",
+    })
 
     response = client.post(
         "/folders/query",

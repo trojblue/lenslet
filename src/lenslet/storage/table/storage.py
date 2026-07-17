@@ -23,7 +23,6 @@ from ...browse.query import (
     BrowseQueryFolderEntry,
     BrowseQueryResult,
     BrowseQuerySpec,
-    browse_query_request_token,
 )
 from ...media_errors import MediaDecodeError, MediaReadError
 from ...media_policy import OriginalMediaPolicy, build_original_media_policy
@@ -39,8 +38,7 @@ from .display import (
     normalize_display_value,
     normalize_metrics_display_value,
 )
-from .facets import build_table_query_facet_summary, histogram_summary, metric_keys_for_query_spec
-from ...diagnostics import request_phase
+from .facets import histogram_summary
 from .index import (
     build_index_columns,
     extract_row_display_fields,
@@ -96,7 +94,15 @@ from .source_detection import (
     source_column_name_priority,
 )
 from .pyarrow_runtime import pyarrow_exception_types, require_pyarrow_parquet
-from .query_engine import TableFilterAnalysis, TableQueryEngine
+from . import query_execution
+from .query_engine import (
+    CancellationProbe,
+    TableFilterAnalysis,
+    TableFilterKey,
+    TableOrderAnalysis,
+    TableOrderKey,
+    TableQueryEngine,
+)
 from .row_store import (
     TableRowRemoteDimensionTask,
     TableRowStore,
@@ -258,16 +264,6 @@ class _RowRemoteProbeResult:
 
 def _is_supported_table_image(name: str) -> bool:
     return is_supported_image(name, TABLE_IMAGE_EXTS)
-
-
-def _canonical_query_path(path: str) -> str:
-    normalized = normalize_item_path(path)
-    return f"/{normalized}" if normalized else "/"
-
-
-def _table_query_generation_token(signature: str, generation: int) -> str:
-    parts = [part for part in (str(signature).strip(), str(generation).strip()) if part]
-    return "|".join(parts) if parts else "default"
 
 
 def _sample_source_kind(values: list[Any], *, sample_size: int = 1024) -> str | None:
@@ -1280,49 +1276,51 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             for name in sorted(row_store.folder_dirs(path))
         )
 
-    def query_browse_scope(self, spec: BrowseQuerySpec) -> BrowseQueryResult[TableRowViewItem]:
-        norm = normalize_path(spec.path)
-        row_store = self._require_row_store()
-        rows = self._query_rows_for_scope(row_store, norm, recursive=spec.recursive)
-        folders = self._query_folder_entries(row_store, norm)
-        if not rows and not folders and norm:
-            raise FileNotFoundError(spec.path)
+    def table_filter_key(self, spec: BrowseQuerySpec) -> TableFilterKey:
+        return query_execution.filter_key(self, spec)
 
-        with request_phase("analysis"):
-            analysis = self._table_query_engine.analyze_filter(rows, spec)
-        with request_phase("ordering"):
-            ordered = self._table_query_engine.order(
-                analysis,
-                spec.sort,
-                random_seed=spec.random_seed,
-            )
-        metric_keys = analysis.metric_keys
-        categorical_keys = tuple(self.categorical_keys())
-        result_metric_keys = tuple(metric_keys_for_query_spec(spec, metric_keys))
-        with request_phase("projection"):
-            start = max(0, spec.offset)
-            end = start + max(0, spec.limit)
-            items = tuple(
-                self._materialize_query_item(row_idx, analysis, result_metric_keys)
-                for row_idx in ordered.ordered_row_ids[start:end]
-            )
-        return BrowseQueryResult(
-            path=_canonical_query_path(norm),
-            generated_at=self._generated_at,
-            generation_token=_table_query_generation_token(
-                self.browse_cache_signature(),
-                self.browse_generation(),
-            ),
-            request_token=browse_query_request_token(spec),
-            scope_total=len(rows),
-            filtered_total=len(analysis.row_ids),
-            offset=spec.offset,
-            limit=spec.limit,
-            items=items,
-            folders=folders,
-            metric_keys=result_metric_keys,
-            categorical_keys=categorical_keys,
-            derived_metric_status=analysis.derived_metric_status,
+    def analyze_table_filter(
+        self,
+        spec: BrowseQuerySpec,
+        expected_key: TableFilterKey | None,
+        cancel: CancellationProbe,
+    ) -> TableFilterAnalysis:
+        return query_execution.analyze_filter(self, spec, expected_key, cancel)
+
+    def refresh_table_filter(
+        self,
+        spec: BrowseQuerySpec,
+        analysis: TableFilterAnalysis,
+    ) -> TableFilterAnalysis:
+        return self._table_query_engine.refresh_analysis(analysis, spec)
+
+    def table_order_key(
+        self,
+        spec: BrowseQuerySpec,
+        analysis: TableFilterAnalysis,
+    ) -> TableOrderKey:
+        return query_execution.order_key(self, spec, analysis)
+
+    def order_table_analysis(
+        self,
+        spec: BrowseQuerySpec,
+        analysis: TableFilterAnalysis,
+        key: TableOrderKey,
+        cancel: CancellationProbe,
+    ) -> TableOrderAnalysis:
+        return query_execution.order_analysis(self, spec, analysis, key, cancel)
+
+    def query_browse_scope(self, spec: BrowseQuerySpec) -> BrowseQueryResult[TableRowViewItem]:
+        return query_execution.query_scope(self, spec)
+
+    def query_browse_scope_from_analysis(
+        self,
+        spec: BrowseQuerySpec,
+        analysis: TableFilterAnalysis,
+        ordered: TableOrderAnalysis,
+    ) -> BrowseQueryResult[TableRowViewItem]:
+        return query_execution.query_scope_from_analysis(
+            self, spec, analysis, ordered,
         )
 
     def _source_search_covered_by_path(self) -> bool:
@@ -1700,25 +1698,17 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         *,
         bins: int = 40,
     ) -> dict[str, Any]:
-        norm = normalize_path(spec.path)
-        row_store = self._require_row_store()
-        rows = self._query_rows_for_scope(row_store, norm, recursive=spec.recursive)
-        folders = self._query_folder_entries(row_store, norm)
-        if not rows and not folders and norm:
-            raise FileNotFoundError(spec.path)
+        return query_execution.facets(self, spec, bins=bins)
 
-        with request_phase("analysis"):
-            analysis = self._table_query_engine.analyze_filter(rows, spec)
-        return build_table_query_facet_summary(
-            spec=spec,
-            engine=self._table_query_engine,
-            analysis=analysis,
-            scope_total=len(rows),
-            generated_at=self._generated_at,
-            canonical_path=_canonical_query_path(norm),
-            metric_keys=metric_keys_for_query_spec(spec, analysis.metric_keys),
-            categorical_keys=self.categorical_keys(),
-            bins=bins,
+    def facet_summary_for_query_from_analysis(
+        self,
+        spec: BrowseQuerySpec,
+        analysis: TableFilterAnalysis,
+        *,
+        bins: int = 40,
+    ) -> dict[str, Any]:
+        return query_execution.facets_from_analysis(
+            self, spec, analysis, bins=bins,
         )
 
     def categorical_keys(self) -> list[str]:

@@ -42,7 +42,10 @@ def _table_client(tmp_path: Path, *, writable: bool = False) -> TestClient:
             trusted_write_origins=("http://testserver",) if writable else (),
         ),
     )
-    return TestClient(app)
+    return TestClient(app, headers={
+        "X-Lenslet-Client-Session": "request-timing-tests",
+        "X-Lenslet-Query-Revision": "1",
+    })
 
 
 def test_query_and_facet_routes_emit_named_server_timing_and_health_counts(
@@ -63,14 +66,10 @@ def test_query_and_facet_routes_emit_named_server_timing_and_health_counts(
         assert query.status_code == 200
         assert {"queue", "analysis", "ordering", "projection", "serialize"} <= _timing_names(query)
         assert facets.status_code == 200
-        assert {
-            "queue",
-            "analysis",
-            "ordering",
-            "facet",
-            "projection",
-            "serialize",
-        } <= _timing_names(facets)
+        facet_timings = _timing_names(facets)
+        assert {"queue", "analysis", "facet", "serialize"} <= facet_timings
+        assert "ordering" not in facet_timings
+        assert "projection" not in facet_timings
 
         counters = client.get("/health").json()["hotpath"]["counters"]
         assert counters["analysis_started_total"] == 2

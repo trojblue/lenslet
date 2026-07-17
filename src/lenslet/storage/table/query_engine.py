@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from array import array
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import math
 import struct
@@ -35,6 +35,8 @@ from ...browse.query import (
     UrlContainsFilter,
     UrlNotContainsFilter,
     WidthCompareFilter,
+    browse_filter_query_key,
+    browse_order_query_key,
     derived_metric_key,
     is_derived_metric_key,
     normalize_derived_metric_spec,
@@ -61,6 +63,10 @@ class CancellationProbe(Protocol):
 
 class TableQueryCancelled(RuntimeError):
     """Raised when columnar analysis no longer has a live subscriber."""
+
+
+class TableQueryStale(RuntimeError):
+    """Raised when mutable dependencies change before analysis captures its snapshot."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,7 +430,30 @@ class _MutableColumns:
 
 
 @dataclass(frozen=True, slots=True)
+class TableFilterKey:
+    semantic_key: str
+    source_generation: str
+    dependency_stamp: TableDependencyStamp
+
+
+@dataclass(frozen=True, slots=True)
+class TableOrderKey:
+    filter_key: TableFilterKey
+    semantic_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class TableWindowKey:
+    order_key: TableOrderKey
+    offset: int
+    limit: int
+    metric_keys: tuple[str, ...] = ()
+    categorical_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class TableFilterAnalysis:
+    key: TableFilterKey
     source_generation: str
     dependency_stamp: TableDependencyStamp
     row_ids: tuple[int, ...]
@@ -436,6 +465,7 @@ class TableFilterAnalysis:
 
 @dataclass(frozen=True, slots=True)
 class TableOrderAnalysis:
+    key: TableOrderKey
     ordered_row_ids: tuple[int, ...]
 
 
@@ -491,6 +521,51 @@ class TableQueryEngine:
 
     def dependency_stamp(self, spec: BrowseQuerySpec) -> TableDependencyStamp:
         return self._mutable.dependency_stamp(spec)
+
+    def filter_key(self, spec: BrowseQuerySpec) -> TableFilterKey:
+        stamp = self._mutable.dependency_stamp(spec)
+        return self._filter_key(spec, stamp)
+
+    def order_key(
+        self,
+        analysis: TableFilterAnalysis,
+        spec: BrowseQuerySpec,
+    ) -> TableOrderKey:
+        return TableOrderKey(
+            filter_key=analysis.key,
+            semantic_key=browse_order_query_key(spec),
+        )
+
+    def window_key(
+        self,
+        order: TableOrderAnalysis,
+        spec: BrowseQuerySpec,
+        *,
+        metric_keys: Iterable[str] = (),
+        categorical_keys: Iterable[str] = (),
+    ) -> TableWindowKey:
+        return TableWindowKey(
+            order_key=order.key,
+            offset=max(0, spec.offset),
+            limit=max(0, spec.limit),
+            metric_keys=_normalized_keys(metric_keys),
+            categorical_keys=_normalized_keys(categorical_keys),
+        )
+
+    def refresh_analysis(
+        self,
+        analysis: TableFilterAnalysis,
+        spec: BrowseQuerySpec,
+    ) -> TableFilterAnalysis:
+        mutable = self._mutable.snapshot(spec)
+        key = self._filter_key(spec, mutable.dependency_stamp)
+        if key != analysis.key:
+            raise TableQueryStale("table query dependencies changed")
+        return replace(
+            analysis,
+            metric_keys=tuple(sorted(mutable.available_metric_keys)),
+            _mutable=mutable,
+        )
 
     def project_metrics(
         self,
@@ -555,6 +630,8 @@ class TableQueryEngine:
         row_ids: Iterable[int],
         spec: BrowseQuerySpec,
         cancel: CancellationProbe | None = None,
+        *,
+        expected_key: TableFilterKey | None = None,
     ) -> TableFilterAnalysis:
         checkpoint = _CancellationCheckpoint(cancel, self._clock)
         checkpoint.force()
@@ -562,6 +639,9 @@ class TableQueryEngine:
         base_filters, derived_filters = _split_derived_filters(filters)
         text_query = _normalize_text(spec.text_query)
         mutable = self._mutable.snapshot(spec)
+        key = self._filter_key(spec, mutable.dependency_stamp)
+        if expected_key is not None and key != expected_key:
+            raise TableQueryStale("table query dependencies changed")
         base_filtered: list[int] = []
         for row_id in row_ids:
             slot = self.columns.slot_for_row(row_id)
@@ -598,6 +678,7 @@ class TableQueryEngine:
             checkpoint.step()
         checkpoint.force()
         return TableFilterAnalysis(
+            key=key,
             source_generation=self.columns.source_generation,
             dependency_stamp=mutable.dependency_stamp,
             row_ids=tuple(filtered),
@@ -614,6 +695,7 @@ class TableQueryEngine:
         *,
         random_seed: str | None = None,
         cancel: CancellationProbe | None = None,
+        key: TableOrderKey | None = None,
     ) -> TableOrderAnalysis:
         checkpoint = _CancellationCheckpoint(cancel, self._clock)
         checkpoint.force()
@@ -637,7 +719,23 @@ class TableQueryEngine:
         else:
             ordered = sorted(rows, key=lambda row_id: self._added_sort_key(row_id, sort.direction))
         checkpoint.force()
-        return TableOrderAnalysis(ordered_row_ids=tuple(ordered))
+        if key is None:
+            key = TableOrderKey(
+                filter_key=analysis.key,
+                semantic_key=_order_semantic_key(sort, random_seed=random_seed),
+            )
+        return TableOrderAnalysis(key=key, ordered_row_ids=tuple(ordered))
+
+    def _filter_key(
+        self,
+        spec: BrowseQuerySpec,
+        stamp: TableDependencyStamp,
+    ) -> TableFilterKey:
+        return TableFilterKey(
+            semantic_key=browse_filter_query_key(spec),
+            source_generation=self.columns.source_generation,
+            dependency_stamp=stamp,
+        )
 
     def _matches_filters(
         self,
@@ -1062,6 +1160,16 @@ def _matches_dimension(value: float | None, op: str, target: float) -> bool:
 def _random_key(seed: str, stable_identity: str) -> int:
     digest = hashlib.sha256(f"{seed}\0{stable_identity}".encode("utf-8")).digest()
     return int.from_bytes(digest[:8], "big", signed=False)
+
+
+def _order_semantic_key(sort: BrowseSortSpec, *, random_seed: str | None) -> str:
+    active_seed = (
+        str(random_seed if random_seed is not None else "")
+        if not isinstance(sort, MetricSortSpec) and sort.key == "random"
+        else None
+    )
+    raw = repr((sort, active_seed)).encode("utf-8")
+    return f"oq_{hashlib.sha256(raw).hexdigest()[:24]}"
 
 
 def _reverse_text(value: str) -> str:

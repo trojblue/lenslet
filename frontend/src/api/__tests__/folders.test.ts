@@ -12,6 +12,8 @@ import {
   buildBrowseQueryRequest,
   folderFacetsQueryKey,
   folderQueryKey,
+  resetSemanticQueryRevisionForTests,
+  semanticQueryRevision,
   shouldRemoveRecursiveFolderQuery,
   shouldRetainRecursiveFolderQuery,
   windowRequestToken,
@@ -23,6 +25,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   cancelBrowseRequests()
   resetBrowseRequestBudgetForTests()
+  resetSemanticQueryRevisionForTests()
 })
 
 describe('folder api query helpers', () => {
@@ -247,6 +250,75 @@ describe('folder api query helpers', () => {
       'folder-facets',
       analysisQueryKey(base),
     ]))
+  })
+
+  it('increments semantic revisions independently from pagination and projection', () => {
+    const base: BrowseQueryOptions = {
+      path: '/shots',
+      recursive: true,
+      filters: { and: [] },
+      sort: { kind: 'builtin', key: 'added', dir: 'desc' },
+      textQuery: '',
+    }
+    const firstKey = analysisQueryKey(base)
+    const first = semanticQueryRevision(firstKey)
+
+    expect(semanticQueryRevision(analysisQueryKey({ ...base, limit: 20 }))).toBe(first)
+    expect(semanticQueryRevision(analysisQueryKey({ ...base, textQuery: 'cat' }))).toBe(first + 1)
+    expect(semanticQueryRevision(firstKey)).toBe(first + 2)
+  })
+
+  it('starts a reloaded tab above its prior in-memory revision without another storage key', () => {
+    const options: BrowseQueryOptions = {
+      path: '/shots',
+      filters: { and: [] },
+      sort: { kind: 'builtin', key: 'added', dir: 'desc' },
+    }
+    vi.spyOn(Date, 'now').mockReturnValue(100)
+    resetSemanticQueryRevisionForTests()
+    const beforeReload = semanticQueryRevision(analysisQueryKey(options))
+    vi.spyOn(Date, 'now').mockReturnValue(101)
+    resetSemanticQueryRevisionForTests()
+
+    expect(semanticQueryRevision(analysisQueryKey(options))).toBeGreaterThan(beforeReload)
+  })
+
+  it('uses one client identity with the explicit semantic revision on query requests', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        path: '/shots',
+        generated_at: 'test',
+        generation_token: 'gen',
+        request_token: 'req',
+        analysis_query_key: 'analysis',
+        scope_total: 0,
+        filtered_total: 0,
+        offset: 0,
+        limit: 10,
+        items: [],
+        folders: [],
+        metric_keys: [],
+        categorical_keys: [],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    )
+    const body = buildBrowseQueryRequest({
+      path: '/shots',
+      filters: { and: [] },
+      sort: { kind: 'builtin', key: 'added', dir: 'desc' },
+      limit: 10,
+    })
+
+    await api.queryFolder(body, { queryRevision: 7 })
+    await api.queryFolderFacets(body, { queryRevision: 7 })
+
+    const firstHeaders = new Headers(fetchSpy.mock.calls[0][1]?.headers)
+    const secondHeaders = new Headers(fetchSpy.mock.calls[1][1]?.headers)
+    expect(firstHeaders.get('X-Lenslet-Query-Revision')).toBe('7')
+    expect(secondHeaders.get('X-Lenslet-Query-Revision')).toBe('7')
+    expect(firstHeaders.get('X-Lenslet-Client-Session')).toBeTruthy()
+    expect(secondHeaders.get('X-Lenslet-Client-Session')).toBe(
+      firstHeaders.get('X-Lenslet-Client-Session'),
+    )
   })
 
   it('posts browse-query requests with abortable folder request budget coverage', async () => {

@@ -21,6 +21,7 @@ There is no repository-wide `PLANS.md`. This plan follows `D:\dev\lenslet\AGENTS
 - [x] 2026-07-17: Locked scope, user-visible targets, per-session reconciliation semantics, and the 15-second lazy-persistence bound with the user.
 - [x] 2026-07-17: Drafted the sprint and ticket decomposition.
 - [x] 2026-07-17: Completed independent plan review and incorporated crash recovery, concrete bounds, ticket splits, and validation clarifications.
+- [x] 2026-07-17: Rechecked the plan after the latest remote changes and aligned client identity and table-refresh ownership with the new launch-session and health contracts.
 - [ ] Sprint 0: Establish repeatable latency and request-count evidence.
 - [ ] Sprint 1: Remove annotation page refreshes and duplicate per-session reconciliation.
 - [ ] Sprint 2: Introduce the columnar table query engine.
@@ -46,6 +47,10 @@ The named 1,585-row Parquet file is only about 466 KB, but a 1,000-item query re
 
 Thumbnail cache hits and misses perform synchronous disk work inside an async route. Label-log append and `fsync` currently occur while the event broker lock is held. Warm local measurements do not prove either is the reported 20-second idle-filter cause, but slow, mapped, synchronized, or antivirus-scanned storage can turn both into global tail-latency amplifiers.
 
+The frontend already owns one durable per-tab identity through `ensureClientId()` and `lenslet.client_id.session`. It is used by mutation idempotency and collaboration/presence behavior. Creating another query-only session ID would split one browser tab into multiple identities and make cancellation, owner-echo suppression, and diagnostics disagree about ownership.
+
+The latest launch-session work introduces two health concepts with different lifetimes: `launch_session` is immutable provenance captured at startup, while `table_launch_status` is recomputed from the active storage snapshot. Any later live table refresh must preserve that boundary. Current row counts and freshness belong to live snapshot status, not to a startup `detail_label` that can become stale.
+
 
 ## Decision Log
 
@@ -70,6 +75,10 @@ Thumbnail cache hits and misses perform synchronous disk work inside an async ro
 
 2026-07-17, plan review and Codex: A persistence deadline is satisfied only when append, flush, and `fsync` complete. The writer uses monotonic time, begins a deadline flush no later than 13 seconds to reserve two seconds for I/O, and declares storage unhealthy on error or deadline breach. It admits at most 10,000 pending events or 16 MiB, whichever comes first.
 
+2026-07-17, post-pull review and Codex: Reuse `frontend/src/api/client.ts:ensureClientId()` as the sole per-tab client identity for mutation idempotency, collaboration/presence, query coordination, and diagnostics. Query revision remains a separate monotonically increasing value because it identifies semantic query generations, not clients. Do not add a second session-storage key or identity generator.
+
+2026-07-17, post-pull review and Codex: Keep launch provenance immutable and table snapshot status mutable. `launch_session` continues to describe how and from where the process was launched; `table_launch_status` describes the currently active snapshot, including current row count and source-refresh state. A refresh atomically changes snapshot generation and live status together, while the UI composes them without rewriting provenance.
+
 
 ## Outcomes & Retrospective
 
@@ -85,6 +94,8 @@ At final completion, record the named-dataset and synthetic-fixture latency dist
 The public browse request contract is defined in `D:\dev\lenslet\src\lenslet\web\models.py` and served by `D:\dev\lenslet\src\lenslet\web\routes\folders.py`. Storage-neutral query specifications and the generic row-object evaluator live in `D:\dev\lenslet\src\lenslet\browse\query.py`. Table execution is concentrated in `D:\dev\lenslet\src\lenslet\storage\table\storage.py`, with facets in `D:\dev\lenslet\src\lenslet\storage\table\facets.py` and row/index structures under `D:\dev\lenslet\src\lenslet\storage\table`.
 
 The frontend issues browse and facet requests from `D:\dev\lenslet\frontend\src\api\folders.ts`, applies mutations from `D:\dev\lenslet\frontend\src\api\items.ts`, and receives collaboration events in `D:\dev\lenslet\frontend\src\app\hooks\useAppSyncEvents.ts`. Query membership indexing and item patching currently live in `D:\dev\lenslet\frontend\src\app\model\appShellStateSync.ts`. `D:\dev\lenslet\frontend\src\app\AppShell.tsx` subscribes the index to broad TanStack Query cache events. `D:\dev\lenslet\frontend\src\app\hooks\useAppDataScope.ts` flattens pages and performs several whole-window transformations.
+
+`D:\dev\lenslet\frontend\src\api\client.ts` already defines `ensureClientId()` and stores one opaque identity under `lenslet.client_id.session`. That function is the identity owner for all per-tab protocols in this plan. `D:\dev\lenslet\src\lenslet\web\app\launch_session.py` constructs immutable startup provenance, while `D:\dev\lenslet\src\lenslet\web\app\health.py` independently derives `table_launch_status` from current storage. Conditional source refresh must extend the latter rather than mutate the former.
 
 “Projection” means an immediate local update to an already-known entity and, only when provably correct, its loaded-window membership. “Reconciliation” means a background backend request that restores authoritative membership, ordering, totals, pagination, and facets without clearing the current view. “Analysis” means the filtered row-ID population, derived scores, and ordered row IDs produced before offset/limit slicing. “Window projection” means materializing only the requested row IDs and fields into the response.
 
@@ -134,7 +145,7 @@ Only after the core acceptance suite passes should the implementation enter cond
 
 9. Sprint 8 — Conditional operational tail cleanup. Goal: fix only tail causes proven by Sprint 0 diagnostics after the core cutover. Demo: the diagnostic report records each gate and, when triggered, shows polling/retry or scalar-query tails removed. Tasks: [S8-T1 gate review](#s8-t1-evaluate-operational-tail-gates), [S8-T2 polling and retry coordination](#s8-t2-coordinate-fallback-polling-and-retries-when-triggered), and [S8-T3 scalar evaluator cleanup](#s8-t3-remove-measured-scalar-evaluator-waste-when-triggered).
 
-10. Sprint 9 — Conditional row-group and source-refresh behavior. Goal: prevent repeated row-group conversion and stale table state only where the fixtures prove those cases matter. Demo: a multi-row-group fixture does not thrash, and a changed local Parquet source either swaps in atomically or clearly reports that restart is required. Tasks: [S9-T1 row-group gate and cache](#s9-t1-gate-and-fix-multi-row-group-thrashing), [S9-T2 source-change detection](#s9-t2-detect-table-source-version-changes), and [S9-T3 atomic source refresh](#s9-t3-add-atomic-local-table-refresh-when-triggered).
+10. Sprint 9 — Conditional row-group and source-refresh behavior. Goal: prevent repeated row-group conversion and stale table state only where the fixtures prove those cases matter, while keeping immutable launch provenance separate from mutable snapshot status. Demo: a multi-row-group fixture does not thrash, and a changed local Parquet source either swaps generation, row count, and live status atomically or clearly reports that restart is required without rewriting launch provenance. Tasks: [S9-T1 row-group gate and cache](#s9-t1-gate-and-fix-multi-row-group-thrashing), [S9-T2 source-change detection](#s9-t2-detect-table-source-version-changes), and [S9-T3 atomic source refresh](#s9-t3-add-atomic-local-table-refresh-when-triggered).
 
 
 ## Concrete Steps
@@ -194,7 +205,7 @@ At each sprint boundary, run the focused backend and frontend suites, build the 
 
 16. <a id="s3-t2-add-a-bounded-analysis-coordinator"></a>**S3-T2: Add a bounded analysis coordinator.** Goal: execute one GIL-bound analysis worker app-wide, join identical in-flight work, retain at most eight completed filter and eight completed order analyses, and admit at most 32 distinct queued analyses across all storage snapshots. Coalesce superseded queued revisions from one session, schedule admitted sessions round-robin, return `503 analysis_busy` with `Retry-After: 1` when no safe admission is possible, and stop at the 256-row/25-millisecond checkpoint when no live subscriber remains. Affected areas: a new `src/lenslet/storage/table/query_coordinator.py`, `src/lenslet/web/runtime.py`, and lifecycle shutdown. Validation: deterministic concurrency tests prove one execution for identical subscribers, exact cache/queue caps, cross-session fairness, no cross-generation reuse, admission failure without unbounded state, and cancellation within one checkpoint.
 
-17. <a id="s3-t3-add-the-browser-session-and-query-revision-protocol"></a>**S3-T3: Add the browser session and query revision protocol.** Goal: supersede obsolete work even when fetch abort does not cancel the server thread. Generate a per-tab session ID in `sessionStorage`; send it with a monotonically increasing semantic query revision on query and facet requests. Pagination and field projections reuse the same revision; a path/filter/sort/search/derived change increments it. Use explicit headers such as `X-Lenslet-Client-Session` and `X-Lenslet-Query-Revision`; they identify work ownership, not authorization. Validate header lengths and integers, retain no more than 256 inactive session records for five minutes using LRU eviction, and remove disconnected subscribers. Validation: frontend tests cover revision boundaries and server tests prove a newer revision retires only the older revision from the same session while hostile unique headers cannot grow registry state beyond its cap.
+17. <a id="s3-t3-add-the-browser-session-and-query-revision-protocol"></a>**S3-T3: Add the browser session and query revision protocol.** Goal: supersede obsolete work even when fetch abort does not cancel the server thread. Reuse the existing per-tab identity returned by `frontend/src/api/client.ts:ensureClientId()` and send it with a separate monotonically increasing semantic query revision on query and facet requests. Pagination and field projections reuse the same revision; a path/filter/sort/search/derived change increments it. Use explicit headers such as `X-Lenslet-Client-Session` and `X-Lenslet-Query-Revision`; they identify work ownership, not authorization. Do not create another identity generator or session-storage key. Validate header lengths and integers, retain no more than 256 inactive session records for five minutes using LRU eviction, and remove disconnected subscribers. Validation: frontend tests prove mutation idempotency, presence/collaboration, query requests, and diagnostics use the same `ensureClientId()` value; no second client identity is stored; revision boundaries remain independent; and server tests prove a newer revision retires only the older revision from the same session while hostile unique headers cannot grow registry state beyond its cap.
 
 18. <a id="s3-t4-cut-query-and-facets-over-to-shared-analysis"></a>**S3-T4: Cut query and facets over to shared analysis.** Goal: make both async routes await the coordinator and derive their window or aggregates from the same filtered analysis. A disconnected request unsubscribes; it does not kill shared work with another subscriber. Generic non-table storage uses the same bounded route boundary but may retain its existing evaluator. Validation: simultaneous query and facet calls report one filter execution, facets report no ordering phase, and output remains contract-compatible with current semantics until Sprint 4’s hard cutover.
 
@@ -246,9 +257,9 @@ At each sprint boundary, run the focused backend and frontend suites, build the 
 
 42. <a id="s9-t1-gate-and-fix-multi-row-group-thrashing"></a>**S9-T1: Gate and fix multi-row-group thrashing.** Goal: create a multi-row-group Parquet fixture and alternate detail reads across groups. If query-column preload already removes the repeated work and detail p95 stays below 50 milliseconds, record a skip. Otherwise replace the one-row-group provider cache with a four-row-group LRU keyed by row-group index. Validation: conversion count is bounded by four-entry LRU behavior, memory is capped, and alternating access no longer rereads every group.
 
-43. <a id="s9-t2-detect-table-source-version-changes"></a>**S9-T2: Detect table source version changes.** Goal: prevent a running local table from silently serving an old snapshot after its source file changes. Track a cheap local source fingerprint and expose current, refreshing, stale, or restart-required state through health and sync. Remote providers without a safe version primitive explicitly report restart-required. Validation: replacing a fixture Parquet file triggers one state transition without mixing old and new rows.
+43. <a id="s9-t2-detect-table-source-version-changes"></a>**S9-T2: Detect table source version changes.** Goal: prevent a running local table from silently serving an old snapshot after its source file changes. Track a cheap local source fingerprint and expose current, refreshing, stale, or restart-required state through live table status and sync. Keep `launch_session` unchanged because it records startup provenance. Remote providers without a safe version primitive explicitly report restart-required. Validation: replacing a fixture Parquet file triggers one live-status transition without mixing old and new rows, and tests prove the launch target, copy command, and other provenance fields remain unchanged.
 
-44. <a id="s9-t3-add-atomic-local-table-refresh-when-triggered"></a>**S9-T3: Add atomic local table refresh when triggered.** Goal: if live refresh is required by the source-change gate, build a complete new row store/query engine off to the side, preserve sidecars by canonical path, and atomically swap the storage snapshot and generation. Existing requests finish on their captured snapshot; new requests use the new one; the frontend receives one source-generation reconciliation. Validation: a live browser sees either the complete old dataset or complete new dataset, never a mixture; removed/added paths and sidecars behave predictably; failed rebuild leaves the old snapshot active with a visible error.
+44. <a id="s9-t3-add-atomic-local-table-refresh-when-triggered"></a>**S9-T3: Add atomic local table refresh when triggered.** Goal: if live refresh is required by the source-change gate, build a complete new row store/query engine and `table_launch_status` snapshot off to the side, preserve sidecars by canonical path, and atomically swap storage snapshot, query generation, current row count, and live status through one runtime-owned reference. Existing requests finish on their captured snapshot; new requests use the new one; the frontend receives one source-generation reconciliation and composes immutable `launch_session` provenance with the new live status. Remove dynamic row count from startup-only display text, or make the UI derive it exclusively from `table_launch_status`, so it cannot show two conflicting counts. Validation: a live browser sees either the complete old dataset/status/count or the complete new dataset/status/count, never a mixture; launch provenance remains stable; removed/added paths and sidecars behave predictably; and a failed rebuild leaves the old generation and status active with a visible error.
 
 
 ## Validation and Acceptance
@@ -320,7 +331,7 @@ The required baseline result shape should remain stable enough to compare sprint
 The browser evidence should include the session boundary explicitly:
 
     {
-      "session_id": "opaque-per-tab-id",
+      "session_id": "opaque-ensureClientId-value",
       "semantic_revisions": 1,
       "query_requests": 1,
       "facet_requests": 1,
@@ -378,7 +389,7 @@ The coordinator is app-runtime-owned, globally bounded, fair across sessions, an
 
 Browse and facet requests carry per-tab ownership headers. The server validates length and revision range but never treats them as authentication.
 
-    X-Lenslet-Client-Session: <opaque sessionStorage UUID>
+    X-Lenslet-Client-Session: <opaque ensureClientId() value>
     X-Lenslet-Query-Revision: <monotonic integer>
 
 The item mutation response changes in two explicit hard cutovers. Sprint 1 returns only the sidecar and mutation identity, and collaboration events echo that identity plus authoritative changed fields.
@@ -411,3 +422,5 @@ The buffer checks its 10,000-event and 16-MiB limits before the sidecar mutation
 Do not add dependencies. Backend work uses the standard library, FastAPI/Pydantic, and existing PyArrow. Frontend work uses React, TanStack Query, and TanStack Virtual already declared in `frontend/package.json`. Keep public dataset sources read-only; only workspace logs, snapshots, generated performance fixtures, and best-effort caches may be written.
 
 Revision note: 2026-07-17 initial execution plan drafted from the completed latency investigation and the user’s decisions to defer conditional work, scope reconciliation per browser session, and use observable lazy persistence with a 15-second hard bound. Independent review then added boot-epoch recovery, completion-based durability, explicit capacity limits and admission behavior, an authoritative dependency manifest, staged mutation contracts, four ticket splits, and precise performance measurements.
+
+Revision note: 2026-07-17 post-pull review aligned the plan with the existing `ensureClientId()` identity owner and the new launch-session health model. Query coordination now reuses one per-tab identity across protocols, and conditional source refresh atomically updates mutable snapshot status while preserving immutable launch provenance.

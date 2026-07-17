@@ -66,6 +66,13 @@ export type BrowseQueryRequest = {
   unsupported_metric_intent?: string | null
 }
 
+export type QueryDependencyManifest = {
+  fields: string[]
+  metric_keys: string[]
+  categorical_keys: string[]
+  unknown: boolean
+}
+
 export type BrowseQueryResponse = {
   version: 1
   path: string
@@ -83,6 +90,7 @@ export type BrowseQueryResponse = {
   categorical_keys: string[]
   derived_metric_status?: DerivedMetricStatusPayload | null
   field_capabilities?: FieldCapabilitiesPayload | null
+  dependency_manifest: QueryDependencyManifest
 }
 
 export type DerivedMetricZStatPayload = {
@@ -173,6 +181,7 @@ export type BrowseFacetsPayload = {
   metrics: Record<string, MetricFacet>
   categoricals: Record<string, CategoricalFacet>
   field_capabilities?: FieldCapabilitiesPayload | null
+  dependency_manifest: QueryDependencyManifest
 }
 
 export type BrowseFolderPathsPayload = {
@@ -256,6 +265,11 @@ export type SidecarPatch = {
   remove_tags?: string[]
 }
 
+export type SidecarMutationResponse = {
+  sidecar: Sidecar
+  mutation_id: string
+}
+
 export type ItemUpdatedEvent = {
   path: string
   version: number
@@ -266,6 +280,8 @@ export type ItemUpdatedEvent = {
   updated_by: string
   metrics?: Record<string, number | null>
   metric_labels?: Record<string, string> | null
+  mutation_id: string
+  changed_fields: string[]
 }
 
 export type MetricsUpdatedEvent = {
@@ -275,6 +291,8 @@ export type MetricsUpdatedEvent = {
   metric_labels?: Record<string, string> | null
   updated_at: string
   updated_by: string
+  mutation_id: string
+  changed_fields: string[]
 }
 
 export type PresenceEvent = {

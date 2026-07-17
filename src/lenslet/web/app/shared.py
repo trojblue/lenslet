@@ -107,11 +107,17 @@ def build_record_update(
         sidecar_state: SidecarState,
         event_type: SyncEventName,
         commit: Callable[[], None],
+        *,
+        mutation_id: str | None = None,
+        changed_fields: tuple[str, ...] = (),
     ) -> int:
         context = get_app_context(app)
         workspace = context.workspace
         runtime = context.runtime
         payload = sidecar_payload(path, sidecar_state)
+        if mutation_id is not None:
+            payload["mutation_id"] = mutation_id
+        payload["changed_fields"] = list(changed_fields)
 
         def _commit_with_log(event_id: int) -> None:
             if workspace.can_write:

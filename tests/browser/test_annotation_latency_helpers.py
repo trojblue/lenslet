@@ -144,4 +144,5 @@ def test_baseline_summary_records_targets_without_claiming_acceptance(tmp_path: 
         "current_duplicate_or_reset_behavior": True,
         "post_fix_projection_target_met": False,
         "post_fix_no_page_clear_target_met": False,
+        "multi_editor_target_met": False,
     }

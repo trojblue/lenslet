@@ -76,7 +76,9 @@ def test_item_mutations_publish_modeled_openapi_contracts(tmp_path: Path) -> Non
     patch_responses = schema["paths"]["/item"]["patch"]["responses"]
 
     assert put_responses["200"]["content"]["application/json"]["schema"]["$ref"].endswith("/Sidecar")
-    assert patch_responses["200"]["content"]["application/json"]["schema"]["$ref"].endswith("/Sidecar")
+    assert patch_responses["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/SidecarMutationResponse",
+    )
     assert patch_responses["409"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/SidecarConflictResponse",
     )
@@ -159,6 +161,8 @@ def test_patch_idempotency_and_conflict(tmp_path: Path) -> None:
             first = await client.patch("/item", params={"path": "/sample.jpg"}, headers=headers, json=body)
             assert first.status_code == 200
             first_payload = first.json()
+            assert first_payload["mutation_id"] == "idem-1"
+            assert first_payload["sidecar"]["notes"] == "hello"
 
             second = await client.patch("/item", params={"path": "/sample.jpg"}, headers=headers, json=body)
             assert second.status_code == 200
@@ -207,6 +211,8 @@ def test_sse_replay_last_event_id(tmp_path: Path) -> None:
             assert replay
             event1_id = replay[-1].get("id")
             assert replay[-1].get("event") == "item-updated"
+            assert replay[-1]["data"]["mutation_id"] == "idem-a"
+            assert replay[-1]["data"]["changed_fields"] == ["notes"]
             assert isinstance(event1_id, int)
 
             base2 = await client.get("/item", params={"path": "/sample.jpg"})
@@ -363,9 +369,10 @@ def test_spoofed_write_headers_do_not_control_updated_by(tmp_path: Path) -> None
     )
     assert response.status_code == 200
     payload = response.json()
-    assert payload["updated_by"].startswith("session:")
-    assert payload["updated_by"] != "spoofed-user"
-    assert payload["updated_by"] != "spoofed-client"
+    assert payload["mutation_id"] == "idem-spoof"
+    assert payload["sidecar"]["updated_by"].startswith("session:")
+    assert payload["sidecar"]["updated_by"] != "spoofed-user"
+    assert payload["sidecar"]["updated_by"] != "spoofed-client"
 
 
 def test_non_local_origin_rejects_mutations_before_write_flow(tmp_path: Path) -> None:

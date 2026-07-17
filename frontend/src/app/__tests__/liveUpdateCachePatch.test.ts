@@ -52,6 +52,12 @@ function makeBrowseQueryPages(items: BrowseItemPayload[]) {
       folders: [],
       metric_keys: [],
       categorical_keys: [],
+      dependency_manifest: {
+        fields: ['added_at'],
+        metric_keys: [],
+        categorical_keys: [],
+        unknown: false,
+      },
     }],
     pageParams: [0],
   }
@@ -153,5 +159,43 @@ describe('live update cache patching', () => {
     const nextSearch = queryClient.getQueryData<BrowseSearchResultsPayload>(['search', 'shots', '/'])
     expect(nextSearch?.items[0].path).toBe('/shots/z.jpg')
     expect(nextSearch?.items[0].star).toBeUndefined()
+  })
+
+  it('removes a loaded item that conclusively fails the active star filter', () => {
+    const queryClient = new QueryClient()
+    const queryKey = [
+      'folder-query',
+      [
+        'analysis-query',
+        '/shots',
+        'recursive',
+        { and: [{ starsIn: { values: [0] } }] },
+        { kind: 'builtin', key: 'added', dir: 'desc' },
+        '',
+        null,
+        null,
+        null,
+      ],
+      0,
+      1000,
+      null,
+    ]
+    queryClient.setQueryData(queryKey, makeBrowseQueryPages([
+      makeItem('/shots/unrated.jpg', { star: null }),
+      makeItem('/shots/unrelated.jpg', { star: 1 }),
+    ]))
+    const index = new ItemQueryPathIndex()
+    index.seed(queryClient.getQueryCache().getAll())
+
+    patchIndexedItemQueries(
+      queryClient,
+      index,
+      { path: '/shots/unrated.jpg', star: 1 },
+      { removeConclusiveFilterMismatch: true },
+    )
+
+    const next = queryClient.getQueryData<ReturnType<typeof makeBrowseQueryPages>>(queryKey)
+    expect(next?.pages[0].items.map((item) => item.path)).toEqual(['/shots/unrelated.jpg'])
+    expect(next?.pages[0].filtered_total).toBe(1)
   })
 })

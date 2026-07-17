@@ -122,6 +122,7 @@ import {
   patchIndexedItemQueries,
   syncItemQueryIndexFromEvent,
   type ItemCacheUpdatePayload,
+  type ItemCacheUpdateOptions,
 } from './model/appShellStateSync'
 import { applyThemePreset, type ThemePresetId } from '../theme/runtime'
 import { loadWorkspaceThemePreset, writeStoredThemePreset } from '../theme/storage'
@@ -611,8 +612,11 @@ export default function AppShell({
     [embeddingsAvailable, embeddingsLoading, selectedPaths.length],
   )
 
-  const updateItemCaches = useCallback((payload: ItemCacheUpdatePayload) => {
-    patchIndexedItemQueries(queryClient, itemQueryIndexRef.current, payload)
+  const updateItemCaches = useCallback((
+    payload: ItemCacheUpdatePayload,
+    options?: ItemCacheUpdateOptions,
+  ) => {
+    patchIndexedItemQueries(queryClient, itemQueryIndexRef.current, payload, options)
   }, [queryClient])
 
   const {

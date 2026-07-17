@@ -361,6 +361,13 @@ class DerivedMetricStatusPayload(BaseModel):
     z_stats: dict[str, DerivedMetricZStatPayload] = Field(default_factory=dict)
 
 
+class QueryDependencyManifestPayload(BaseModel):
+    fields: list[str] = Field(default_factory=list)
+    metric_keys: list[str] = Field(default_factory=list)
+    categorical_keys: list[str] = Field(default_factory=list)
+    unknown: bool = True
+
+
 class BrowseQueryResponse(BaseModel):
     version: int = 1
     path: str
@@ -381,6 +388,9 @@ class BrowseQueryResponse(BaseModel):
     )
     field_capabilities: "FieldCapabilitiesPayload" = Field(
         default_factory=lambda: FieldCapabilitiesPayload()
+    )
+    dependency_manifest: QueryDependencyManifestPayload = Field(
+        default_factory=QueryDependencyManifestPayload
     )
 
 
@@ -460,6 +470,9 @@ class BrowseFacetsPayload(BaseModel):
     metrics: dict[str, MetricFacetPayload] = Field(default_factory=dict)
     categoricals: dict[str, CategoricalFacetPayload] = Field(default_factory=dict)
     field_capabilities: FieldCapabilitiesPayload = Field(default_factory=FieldCapabilitiesPayload)
+    dependency_manifest: QueryDependencyManifestPayload = Field(
+        default_factory=QueryDependencyManifestPayload
+    )
 
 
 class BrowseFolderPathsPayload(BaseModel):
@@ -498,6 +511,11 @@ class Sidecar(BaseModel):
     updated_at: str = ""
     updated_by: str = "server"
     table_fields: JsonObject | None = None
+
+
+class SidecarMutationResponse(BaseModel):
+    sidecar: Sidecar
+    mutation_id: str
 
 
 class SidecarPatch(BaseModel):

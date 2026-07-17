@@ -22,7 +22,7 @@ import { getConnectionLabel, useAppSyncEvents } from './useAppSyncEvents'
 import { useAppHealthPolling } from './useAppHealthPolling'
 import { usePresenceLeaseLifecycle } from './usePresenceLeaseLifecycle'
 import { useRecentEditState } from './useRecentEditState'
-import type { ItemCacheUpdatePayload } from '../model/appShellStateSync'
+import type { ItemCacheUpdateOptions, ItemCacheUpdatePayload } from '../model/appShellStateSync'
 
 type UseAppPresenceSyncParams = {
   current: string
@@ -30,7 +30,7 @@ type UseAppPresenceSyncParams = {
   itemPaths: string[]
   items: BrowseItemPayload[]
   queryClient: QueryClient
-  updateItemCaches: (payload: ItemCacheUpdatePayload) => void
+  updateItemCaches: (payload: ItemCacheUpdatePayload, options?: ItemCacheUpdateOptions) => void
   setLocalStarOverrides: Dispatch<SetStateAction<Record<string, StarRating>>>
 }
 

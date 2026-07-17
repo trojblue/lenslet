@@ -193,6 +193,14 @@ class BrowseQuerySpec:
 
 
 @dataclass(frozen=True, slots=True)
+class QueryDependencyManifest:
+    fields: frozenset[str] = frozenset()
+    metric_keys: frozenset[str] = frozenset()
+    categorical_keys: frozenset[str] = frozenset()
+    unknown: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class BrowseQueryFolderEntry:
     name: str
     kind: Literal["branch", "leaf-real", "leaf-pointer"] = "branch"
@@ -460,6 +468,70 @@ def normalize_derived_metric_spec(spec: DerivedMetricSpec | None) -> DerivedMetr
         intercept=spec.intercept,
         numeric_terms=tuple(numeric_terms),
         categorical_terms=tuple(categorical_terms),
+    )
+
+
+def query_dependency_manifest(
+    spec: BrowseQuerySpec,
+    *,
+    facet_metric_keys: Iterable[str] = (),
+    facet_categorical_keys: Iterable[str] = (),
+) -> QueryDependencyManifest:
+    """Return mutation dependencies for one normalized browse analysis."""
+    fields: set[str] = set()
+    metric_keys = {key for key in facet_metric_keys if key}
+    categorical_keys = {key for key in facet_categorical_keys if key}
+    unknown = bool(_normalize_text(spec.unsupported_metric_intent))
+
+    for clause in normalize_filter_ast(spec.filters).and_clauses:
+        if isinstance(clause, (StarsInFilter, StarsNotInFilter)):
+            fields.add("star")
+        elif isinstance(clause, (NameContainsFilter, NameNotContainsFilter)):
+            fields.add("name")
+        elif isinstance(clause, (NotesContainsFilter, NotesNotContainsFilter)):
+            fields.add("notes")
+        elif isinstance(clause, (UrlContainsFilter, UrlNotContainsFilter)):
+            fields.update(("source", "url"))
+        elif isinstance(clause, DateRangeFilter):
+            fields.add("added_at")
+        elif isinstance(clause, WidthCompareFilter):
+            fields.add("width")
+        elif isinstance(clause, HeightCompareFilter):
+            fields.add("height")
+        elif isinstance(clause, MetricRangeFilter):
+            metric_keys.add(clause.key)
+        elif isinstance(clause, CategoricalInFilter):
+            categorical_keys.add(clause.key)
+        else:
+            unknown = True
+
+    if _normalize_text(spec.text_query):
+        fields.update(("name", "path", "tags", "notes", "source", "url"))
+
+    if isinstance(spec.sort, BuiltinSortSpec):
+        if spec.sort.key == "added":
+            fields.add("added_at")
+        elif spec.sort.key == "name":
+            fields.add("name")
+        elif spec.sort.key != "random":
+            unknown = True
+    elif isinstance(spec.sort, MetricSortSpec):
+        metric_keys.add(spec.sort.key)
+    else:
+        unknown = True
+
+    derived = normalize_derived_metric_spec(spec.derived_metric)
+    if spec.derived_metric is not None and derived is None:
+        unknown = True
+    if derived is not None:
+        metric_keys.update(term.key for term in derived.numeric_terms)
+        categorical_keys.update(term.key for term in derived.categorical_terms)
+
+    return QueryDependencyManifest(
+        fields=frozenset(fields),
+        metric_keys=frozenset(metric_keys),
+        categorical_keys=frozenset(categorical_keys),
+        unknown=unknown,
     )
 
 

@@ -32,6 +32,9 @@ class _SidecarPayloadRequired(TypedDict):
 class SidecarPayload(_SidecarPayloadRequired, SidecarState, total=False):
     """JSON event/log payload shape for an item sidecar."""
 
+    mutation_id: str
+    changed_fields: list[str]
+
 
 class StorageWriteUnsupportedError(PermissionError):
     """Raised when a storage backend does not support raw writes."""

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, makeIdempotencyKey } from './client'
 import { usePollingEnabled } from './polling'
 import { FetchError } from '../lib/fetcher'
-import type { Sidecar, SidecarPatch } from '../lib/types'
+import type { Sidecar, SidecarMutationResponse, SidecarPatch } from '../lib/types'
 
 export const sidecarQueryKey = (path: string) => ['item', path] as const
 
@@ -19,6 +19,29 @@ export type ConflictEntry = {
   current: Sidecar
   pending: SidecarPatch
   receivedAt: string
+}
+
+export type AnnotationMutationResponse = {
+  path: string
+  response: SidecarMutationResponse
+  changedFields: string[]
+}
+
+const annotationMutationListeners = new Set<(mutation: AnnotationMutationResponse) => void>()
+
+export function subscribeAnnotationMutationResponses(
+  listener: (mutation: AnnotationMutationResponse) => void,
+): () => void {
+  annotationMutationListeners.add(listener)
+  return () => {
+    annotationMutationListeners.delete(listener)
+  }
+}
+
+function publishAnnotationMutationResponse(mutation: AnnotationMutationResponse): void {
+  for (const listener of annotationMutationListeners) {
+    listener(mutation)
+  }
 }
 
 const DEFAULT_SIDECAR: Sidecar = {
@@ -252,6 +275,20 @@ function hasPatchFields(patch: SidecarPatch): boolean {
   )
 }
 
+function changedFieldsForPatch(patch: SidecarPatch): string[] {
+  const changed: string[] = []
+  if (patch.set_star !== undefined) changed.push('star')
+  if (patch.set_notes !== undefined) changed.push('notes')
+  if (
+    patch.set_tags !== undefined
+    || (patch.add_tags?.length ?? 0) > 0
+    || (patch.remove_tags?.length ?? 0) > 0
+  ) {
+    changed.push('tags')
+  }
+  return changed
+}
+
 function normalizeTags(values: string[] | null | undefined): string[] {
   const out: string[] = []
   const seen = new Set<string>()
@@ -343,15 +380,18 @@ export function useUpdateSidecar(path: string) {
   const qc = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ patch, baseVersion, idempotencyKey }: { patch: UpdateFields; baseVersion: number; idempotencyKey?: string }) => {
+    mutationFn: async ({ patch, baseVersion, idempotencyKey }: { patch: UpdateFields; baseVersion: number; idempotencyKey: string }) => {
       const body = buildPatch(patch)
       if (!hasPatchFields(body)) {
-        return qc.getQueryData<Sidecar>(sidecarQueryKey(path)) ?? DEFAULT_SIDECAR
+        return {
+          sidecar: qc.getQueryData<Sidecar>(sidecarQueryKey(path)) ?? DEFAULT_SIDECAR,
+          mutation_id: idempotencyKey,
+        }
       }
       const payload = { ...body, base_version: baseVersion }
       try {
         return await api.patchSidecar(path, payload, {
-          idempotencyKey: idempotencyKey ?? makeIdempotencyKey('patch'),
+          idempotencyKey,
           ifMatch: baseVersion,
         })
       } catch (err) {
@@ -370,11 +410,16 @@ export function useUpdateSidecar(path: string) {
       const inflightId = trackDirectInflightStart()
       return { inflightId }
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       clearConflict(path)
-      qc.setQueryData(sidecarQueryKey(path), data)
-      void qc.resetQueries({ queryKey: ['folder-query'] })
-      qc.invalidateQueries({ queryKey: ['folder-facets'] })
+      qc.setQueryData(sidecarQueryKey(path), data.sidecar)
+      if (data.sidecar.version !== variables.baseVersion) {
+        publishAnnotationMutationResponse({
+          path,
+          response: data,
+          changedFields: changedFieldsForPatch(buildPatch(variables.patch)),
+        })
+      }
     },
     onError: (err) => {
       if (err instanceof FetchError && err.status === 409) return
@@ -468,10 +513,17 @@ export async function queueSidecarUpdate(
         const payload = { ...body, base_version: baseVersion }
 
         try {
-          await api.patchSidecar(path, payload, {
+          const response = await api.patchSidecar(path, payload, {
             idempotencyKey: makeIdempotencyKey('patch'),
             ifMatch: baseVersion,
           })
+          if (response.sidecar.version !== baseVersion) {
+            publishAnnotationMutationResponse({
+              path,
+              response,
+              changedFields: changedFieldsForPatch(body),
+            })
+          }
           clearConflict(path)
           if (pendingPatches.get(path) === toSend) {
             pendingPatches.delete(path)

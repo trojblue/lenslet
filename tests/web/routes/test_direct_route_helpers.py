@@ -81,11 +81,19 @@ def test_common_route_helpers_apply_sidecar_patch() -> None:
             return {}
 
     storage = _Storage()
-    commits: list[tuple[str, int]] = []
+    commits: list[tuple[str, int, str | None, tuple[str, ...]]] = []
 
-    def record_update(path: str, sidecar_state: dict, event: str, commit) -> int:
+    def record_update(
+        path: str,
+        sidecar_state: dict,
+        event: str,
+        commit,
+        *,
+        mutation_id: str | None = None,
+        changed_fields: tuple[str, ...] = (),
+    ) -> int:
         commit()
-        commits.append((event, sidecar_state["version"]))
+        commits.append((event, sidecar_state["version"], mutation_id, changed_fields))
         return 7
 
     result = item_routes._apply_sidecar_patch(
@@ -95,6 +103,7 @@ def test_common_route_helpers_apply_sidecar_patch() -> None:
         1,
         "tester",
         record_update,
+        mutation_id="patch-test",
     )
 
     assert result.status == 200
@@ -103,7 +112,7 @@ def test_common_route_helpers_apply_sidecar_patch() -> None:
     assert result.payload["version"] == 2
     assert result.payload["updated_by"] == "tester"
     assert storage.sidecar["notes"] == "new"
-    assert commits == [("item-updated", 2)]
+    assert commits == [("item-updated", 2, "patch-test", ("notes",))]
 
     conflict = item_routes._apply_sidecar_patch(
         storage,

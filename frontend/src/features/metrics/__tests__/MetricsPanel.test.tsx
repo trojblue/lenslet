@@ -116,6 +116,12 @@ describe('MetricsPanel', () => {
           total_items: 4,
           metric_keys: [],
           categorical_keys: ['original_source'],
+          dependency_manifest: {
+            fields: [],
+            metric_keys: [],
+            categorical_keys: ['original_source'],
+            unknown: false,
+          },
           metrics: {},
           categoricals: {
             original_source: {

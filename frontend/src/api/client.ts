@@ -14,6 +14,7 @@ import type {
   BrowseFacetsPayload,
   BrowseFolderPathsPayload,
   Sidecar,
+  SidecarMutationResponse,
   SidecarPatch,
   RefreshResponse,
   BrowseSearchResultsPayload,
@@ -574,14 +575,14 @@ export const api = {
     path: string,
     body: SidecarPatch,
     opts?: { idempotencyKey?: string; ifMatch?: number }
-  ): Promise<Sidecar> => {
+  ): Promise<SidecarMutationResponse> => {
     const idempotencyKey = opts?.idempotencyKey ?? makeIdempotencyKey('patch')
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Idempotency-Key': idempotencyKey,
     }
     if (opts?.ifMatch != null) headers['If-Match'] = String(opts.ifMatch)
-    return fetchJSON<Sidecar>(apiUrl(`/item?path=${encodeURIComponent(path)}`), {
+    return fetchJSON<SidecarMutationResponse>(apiUrl(`/item?path=${encodeURIComponent(path)}`), {
       method: 'PATCH',
       headers,
       body: JSON.stringify(body),

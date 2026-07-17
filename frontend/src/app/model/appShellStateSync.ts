@@ -4,10 +4,13 @@ import type {
   BrowseFolderPayload,
   BrowseItemPayload,
   BrowseSearchResultsPayload,
+  FilterAST,
+  QueryDependencyManifest,
   StarRating,
   ViewMode,
   ViewState,
 } from '../../lib/types'
+import { applyFilterAst } from '../../features/browse/model/filters'
 
 type QueryLike = {
   queryHash?: string
@@ -22,6 +25,16 @@ export type ItemCacheUpdatePayload = {
   star?: StarRating | null
   metrics?: Record<string, number | null> | null
   notes?: string | null
+}
+
+export type ItemCacheUpdateOptions = {
+  removeConclusiveFilterMismatch?: boolean
+}
+
+export type AnnotationProjection = {
+  mutationId: string
+  changedFields: readonly string[]
+  item: ItemCacheUpdatePayload
 }
 
 export type PersistedAppShellSettings = {
@@ -202,6 +215,7 @@ export function patchIndexedItemQueries(
   queryClient: QueryClient,
   index: ItemQueryPathIndex,
   payload: ItemCacheUpdatePayload,
+  options: ItemCacheUpdateOptions = {},
 ): void {
   const hasStar = Object.prototype.hasOwnProperty.call(payload, 'star')
   const hasMetrics = payload.metrics !== undefined
@@ -217,9 +231,24 @@ export function patchIndexedItemQueries(
       | undefined
     >(
       queryKey,
-      (oldData) => patchIndexedQueryData(oldData, payload),
+      (oldData) => patchIndexedQueryData(
+        oldData,
+        payload,
+        options.removeConclusiveFilterMismatch ? folderQueryFilters(queryKey) : null,
+      ),
     )
   }
+}
+
+function folderQueryFilters(queryKey: QueryKey): FilterAST | null {
+  if (!Array.isArray(queryKey) || queryKey[0] !== 'folder-query') return null
+  const analysisKey = queryKey[1]
+  if (!Array.isArray(analysisKey)) return null
+  const filters = analysisKey[3]
+  if (!filters || typeof filters !== 'object' || !Array.isArray((filters as FilterAST).and)) {
+    return null
+  }
+  return filters as FilterAST
 }
 
 function patchIndexedQueryData<
@@ -227,6 +256,7 @@ function patchIndexedQueryData<
 >(
   oldData: T | undefined,
   payload: ItemCacheUpdatePayload,
+  filters: FilterAST | null,
 ): T | undefined {
   if (!oldData) return oldData
   const pages = (oldData as { pages?: unknown }).pages
@@ -234,12 +264,182 @@ function patchIndexedQueryData<
     return patchItemCollection(oldData as BrowseFolderPayload | BrowseSearchResultsPayload, payload) as T | undefined
   }
   let changed = false
+  let removed = false
   const nextPages = pages.map((page) => {
     const next = patchItemCollection(page as BrowseFolderPayload, payload)
+    if (filters && next) {
+      const keptItems = next.items.filter((item) => (
+        item.path !== payload.path || applyFilterAst([item], filters).length > 0
+      ))
+      if (keptItems.length !== next.items.length) {
+        changed = true
+        removed = true
+        return { ...next, items: keptItems }
+      }
+    }
     if (next !== page) changed = true
     return next
   })
-  return changed ? { ...oldData, pages: nextPages } : oldData
+  const adjustedPages = removed
+    ? nextPages.map((page) => {
+      const filteredTotal = (page as { filtered_total?: unknown }).filtered_total
+      return typeof filteredTotal === 'number'
+        ? { ...page, filtered_total: Math.max(0, filteredTotal - 1) }
+        : page
+    })
+    : nextPages
+  return changed ? { ...oldData, pages: adjustedPages } : oldData
+}
+
+function dependencyManifestFromData(data: unknown): QueryDependencyManifest | null {
+  if (!data || typeof data !== 'object') return null
+  const direct = (data as { dependency_manifest?: QueryDependencyManifest }).dependency_manifest
+  if (direct) return direct
+  const pages = (data as { pages?: unknown }).pages
+  if (!Array.isArray(pages)) return null
+  for (const page of pages) {
+    const manifest = (page as { dependency_manifest?: QueryDependencyManifest } | null)?.dependency_manifest
+    if (manifest) return manifest
+  }
+  return null
+}
+
+export function mutationAffectsDependencyManifest(
+  changedFields: readonly string[],
+  manifest: QueryDependencyManifest | null | undefined,
+): boolean {
+  if (!changedFields.length) return false
+  if (!manifest || manifest.unknown) return true
+  const fields = new Set(manifest.fields)
+  const metricKeys = new Set(manifest.metric_keys)
+  const categoricalKeys = new Set(manifest.categorical_keys)
+  for (const changed of changedFields) {
+    if (fields.has(changed)) return true
+    if (changed === 'metrics' && metricKeys.size > 0) return true
+    if (changed === 'categoricals' && categoricalKeys.size > 0) return true
+    if (changed.startsWith('metric:') && metricKeys.has(changed.slice('metric:'.length))) {
+      return true
+    }
+    if (
+      changed.startsWith('categorical:')
+      && categoricalKeys.has(changed.slice('categorical:'.length))
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+const ANNOTATION_MUTATION_ID_LIMIT = 512
+const ANNOTATION_MUTATION_ID_TTL_MS = 10 * 60_000
+
+export class AnnotationReconciler {
+  private readonly seenMutationIds = new Map<string, number>()
+  private readonly pendingChangedFields = new Set<string>()
+  private active: Promise<void> | null = null
+  private reconciliationPasses = 0
+
+  constructor(
+    private readonly queryClient: QueryClient,
+    private readonly project: (
+      payload: ItemCacheUpdatePayload,
+      options: ItemCacheUpdateOptions,
+    ) => void,
+    private readonly now: () => number = () => globalThis.performance?.now() ?? Date.now(),
+  ) {}
+
+  accept(projection: AnnotationProjection): boolean {
+    const now = this.now()
+    this.pruneSeen(now)
+    if (this.seenMutationIds.has(projection.mutationId)) return false
+    this.seenMutationIds.set(projection.mutationId, now)
+    this.pruneSeen(now)
+
+    this.project(projection.item, { removeConclusiveFilterMismatch: true })
+    if (!this.hasRelevantActiveQuery(projection.changedFields)) return true
+    for (const field of projection.changedFields) {
+      this.pendingChangedFields.add(field)
+    }
+    this.startReconciliation()
+    return true
+  }
+
+  diagnostics(): { seenMutationIds: number; active: boolean; reconciliationPasses: number } {
+    this.pruneSeen(this.now())
+    return {
+      seenMutationIds: this.seenMutationIds.size,
+      active: this.active !== null,
+      reconciliationPasses: this.reconciliationPasses,
+    }
+  }
+
+  async whenIdle(): Promise<void> {
+    while (this.active) {
+      await this.active
+    }
+  }
+
+  private pruneSeen(now: number): void {
+    for (const [mutationId, seenAt] of this.seenMutationIds) {
+      if (now - seenAt <= ANNOTATION_MUTATION_ID_TTL_MS) break
+      this.seenMutationIds.delete(mutationId)
+    }
+    while (this.seenMutationIds.size > ANNOTATION_MUTATION_ID_LIMIT) {
+      const oldest = this.seenMutationIds.keys().next().value as string | undefined
+      if (oldest === undefined) break
+      this.seenMutationIds.delete(oldest)
+    }
+  }
+
+  private hasRelevantActiveQuery(changedFields: readonly string[]): boolean {
+    return this.queryClient.getQueryCache().findAll({ type: 'active' }).some((query) => (
+      isReconciliationQueryKey(query.queryKey)
+      && mutationAffectsDependencyManifest(
+        changedFields,
+        dependencyManifestFromData(query.state.data),
+      )
+    ))
+  }
+
+  private startReconciliation(): void {
+    if (this.active) return
+    const run = async () => {
+      await this.runPass()
+      if (this.pendingChangedFields.size > 0) {
+        await this.runPass()
+      }
+    }
+    this.active = run().finally(() => {
+      this.active = null
+      if (this.pendingChangedFields.size > 0) {
+        this.startReconciliation()
+      }
+    })
+  }
+
+  private async runPass(): Promise<void> {
+    const changedFields = Array.from(this.pendingChangedFields)
+    this.pendingChangedFields.clear()
+    const activeQueries = this.queryClient.getQueryCache().findAll({ type: 'active' }).filter((query) => (
+      isReconciliationQueryKey(query.queryKey)
+      && mutationAffectsDependencyManifest(
+        changedFields,
+        dependencyManifestFromData(query.state.data),
+      )
+    ))
+    if (!activeQueries.length) return
+    this.reconciliationPasses += 1
+    await Promise.all(activeQueries.map((query) => this.queryClient.invalidateQueries({
+      queryKey: query.queryKey,
+      exact: true,
+      refetchType: 'active',
+    })))
+  }
+}
+
+function isReconciliationQueryKey(queryKey: QueryKey): boolean {
+  return Array.isArray(queryKey)
+    && (queryKey[0] === 'folder-query' || queryKey[0] === 'folder-facets')
 }
 
 function scheduleIdleCommit(callback: () => void): IdleCommitHandle {

@@ -20,6 +20,7 @@ from ..browse.query import (
     browse_query_request_token,
     evaluate_browse_records,
     is_derived_metric_key,
+    query_dependency_manifest,
 )
 from ..diagnostics import request_phase
 from ..metrics import normalize_metric_mapping
@@ -56,6 +57,7 @@ from .models import (
     MetricFacetPayload,
     MetricHistogramFacetPayload,
     MetricCategoryFacetPayload,
+    QueryDependencyManifestPayload,
     Sidecar,
 )
 from .paths import canonical_path
@@ -457,6 +459,11 @@ def _facets_from_records(
             categorical_key_list,
             items=item_payloads,
         ),
+        dependency_manifest=_dependency_manifest_payload(
+            spec,
+            facet_metric_keys=metric_key_list,
+            facet_categorical_keys=categorical_key_list,
+        ),
     )
 
 
@@ -512,6 +519,11 @@ def build_folder_facets(
             "field_capabilities": _field_capabilities_payload(
                 payload.metric_keys,
                 payload.categorical_keys,
+            ),
+            "dependency_manifest": _dependency_manifest_payload(
+                spec,
+                facet_metric_keys=payload.metric_keys,
+                facet_categorical_keys=payload.categorical_keys,
             ),
         })
     return _facets_from_items(
@@ -981,7 +993,27 @@ def _query_result_payload(
                 result.categorical_keys,
                 items=items,
             ),
+            dependency_manifest=_dependency_manifest_payload(spec),
         )
+
+
+def _dependency_manifest_payload(
+    spec: BrowseQuerySpec,
+    *,
+    facet_metric_keys: Iterable[str] = (),
+    facet_categorical_keys: Iterable[str] = (),
+) -> QueryDependencyManifestPayload:
+    manifest = query_dependency_manifest(
+        spec,
+        facet_metric_keys=facet_metric_keys,
+        facet_categorical_keys=facet_categorical_keys,
+    )
+    return QueryDependencyManifestPayload(
+        fields=sorted(manifest.fields),
+        metric_keys=sorted(manifest.metric_keys),
+        categorical_keys=sorted(manifest.categorical_keys),
+        unknown=manifest.unknown,
+    )
 
 
 def _derived_metric_status_payload(status: DerivedMetricStatus) -> DerivedMetricStatusPayload:

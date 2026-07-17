@@ -166,14 +166,22 @@ def visible_paths(page: Any) -> list[str]:
 def install_projection_probe(page: Any, target_path: str) -> None:
     page.evaluate(
         """targetPath => {
+            const previous = window.__lensletAnnotationLatencyProbe;
+            previous?.observer?.disconnect();
+            if (previous?.clickListener) {
+              document.removeEventListener('click', previous.clickListener, true);
+            }
             const gallery = document.querySelector('[role="grid"][aria-label="Gallery"]');
             if (!gallery) throw new Error('gallery root is unavailable');
             const targetId = `cell-${encodeURIComponent(targetPath)}`;
             const state = {
               gallery,
               targetId,
+              armed: false,
               inputTimestamp: null,
+              inputEpochMs: null,
               projectionTimestamp: null,
+              projectionEpochMs: null,
               loadingStates: [],
               scrollTopBefore: gallery.scrollTop,
             };
@@ -190,10 +198,11 @@ def install_projection_probe(page: Any, target_path: str) -> None:
               }
             };
             const recordProjection = () => {
-              if (state.inputTimestamp == null || state.projectionTimestamp != null) return;
+              if (!state.armed || state.projectionTimestamp != null) return;
               if (document.getElementById(targetId)) return;
               requestAnimationFrame(() => {
                 state.projectionTimestamp = performance.now();
+                state.projectionEpochMs = performance.timeOrigin + state.projectionTimestamp;
                 recordLoading();
               });
             };
@@ -207,19 +216,36 @@ def install_projection_probe(page: Any, target_path: str) -> None:
               attributes: true,
               attributeFilter: ['aria-busy', 'data-grid-state'],
             });
-            document.addEventListener('click', event => {
+            const clickListener = event => {
               const button = event.target instanceof Element
                 ? event.target.closest('button[aria-label="1 star"]')
                 : null;
               if (!button || state.inputTimestamp != null) return;
+              state.armed = true;
               state.inputTimestamp = performance.now();
+              state.inputEpochMs = performance.timeOrigin + state.inputTimestamp;
               recordLoading();
               recordProjection();
-            }, true);
+            };
+            state.observer = observer;
+            state.clickListener = clickListener;
+            document.addEventListener('click', clickListener, true);
             recordLoading();
             window.__lensletAnnotationLatencyProbe = state;
           }""",
         target_path,
+    )
+
+
+def arm_projection_probe(page: Any) -> None:
+    page.evaluate(
+        """() => {
+            const state = window.__lensletAnnotationLatencyProbe;
+            if (!state) throw new Error('annotation latency probe is not installed');
+            state.armed = true;
+            state.inputTimestamp = performance.now();
+            state.inputEpochMs = performance.timeOrigin + state.inputTimestamp;
+          }"""
     )
 
 
@@ -231,7 +257,9 @@ def projection_snapshot(page: Any) -> dict[str, Any]:
             const currentGallery = document.querySelector('[role="grid"][aria-label="Gallery"]');
             return {
               input_timestamp_ms: state.inputTimestamp,
+              input_epoch_ms: state.inputEpochMs,
               projection_timestamp_ms: state.projectionTimestamp,
+              projection_epoch_ms: state.projectionEpochMs,
               projection_latency_ms: state.inputTimestamp == null || state.projectionTimestamp == null
                 ? null
                 : state.projectionTimestamp - state.inputTimestamp,

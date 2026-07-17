@@ -15,3 +15,12 @@ Plan: /fsx/yada/dev/lenslet/docs/20260717_table_query_annotation_latency_executi
 - Broader validation note: full repository `pytest` finished with 704 passed, one xfailed, and one out-of-scope export/preindex failure (`test_export_comparison_returns_422_for_undecodable_source_payload`, actual 404 after preindex excludes the corrupt file). Sprint 0 does not touch that behavior.
 - Blockers: none for Sprint 0. The overall plan remains incomplete.
 - Next step: begin Sprint 1 at S1-T1, carrying mutation identity through response and sync; do not begin later sprints in the same iteration.
+
+## Iteration 3 — 2026-07-17 17:13 UTC
+
+- Sprint: Sprint 1 — Immediate annotation projection and scoped reconciliation (closed after recovering the interrupted iteration 2 working tree).
+- Completed tasks: S1-T1, S1-T2, S1-T3, S1-T4.
+- Files changed: mutation/query contracts under `src/lenslet/browse/` and `src/lenslet/web/`; frontend mutation delivery, projection, reconciliation, and focused tests under `frontend/src/`; regenerated `src/lenslet/frontend/` assets; the two-context annotation browser scenario and helper tests; execution plan and this progress log.
+- Validation: focused backend tests passed (63); focused frontend tests passed (16); affected backend suites passed (203); full frontend tests passed (524); frontend production build and shipped-asset synchronization passed; repository lint passed; GUI smoke passed with its known non-blocking folder-anchor warning; the dedicated two-context annotation scenario passed at 70.74 ms projection p95 with no page clear, stable gallery/scroll identity, independent session IDs, converged paths/counts, and exactly one query plus one facet reconciliation per session and relevant mutation.
+- Blockers: none for Sprint 1. The overall plan remains incomplete. The pre-existing untracked Ralph workspace files remain outside the sprint commit.
+- Next step: begin Sprint 2 at S2-T1 and complete no more than six Sprint 2 task IDs in the next iteration; do not start Sprint 3.

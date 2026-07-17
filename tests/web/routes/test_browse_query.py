@@ -82,6 +82,12 @@ def test_browse_query_contract_filters_before_windowing(tmp_path: Path) -> None:
     assert payload["field_capabilities"]["display_metrics"] == ["score"]
     assert payload["field_capabilities"]["metrics"]["score"]["sortable"] is True
     assert payload["field_capabilities"]["categoricals"]["source_column"]["categorical_input"] is True
+    assert payload["dependency_manifest"] == {
+        "fields": ["name", "notes", "path", "source", "tags", "url"],
+        "metric_keys": [],
+        "categorical_keys": ["source_column"],
+        "unknown": False,
+    }
 
     next_body = {**body, "offset": 1, "limit": 1}
     next_payload = client.post("/folders/query", json=next_body).json()

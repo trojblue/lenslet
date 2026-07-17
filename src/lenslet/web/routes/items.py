@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -14,7 +15,14 @@ from ..browse import (
     storage_from_request,
 )
 from ..context import get_request_context
-from ..models import ErrorResponse, ImageMetadataResponse, Sidecar, SidecarConflictResponse, SidecarPatch
+from ..models import (
+    ErrorResponse,
+    ImageMetadataResponse,
+    Sidecar,
+    SidecarConflictResponse,
+    SidecarMutationResponse,
+    SidecarPatch,
+)
 from ..permissions import deny_if_mutation_forbidden
 from ..record_update import RecordUpdateFn
 from ..paths import canonical_path
@@ -38,6 +46,14 @@ class PatchApplicationResult:
     status: int
     payload: IdempotencyPayload
     event_id: int | None = None
+
+
+def _changed_sidecar_fields(before: SidecarState, after: SidecarState) -> tuple[str, ...]:
+    return tuple(
+        field
+        for field in ("star", "notes", "tags")
+        if before.get(field) != after.get(field)
+    )
 
 
 def _error_response(status: int, error: str, message: str) -> JSONResponse:
@@ -99,6 +115,8 @@ def _apply_sidecar_patch(
     expected_version: int,
     updated_by: str,
     record_update: RecordUpdateFn,
+    *,
+    mutation_id: str | None = None,
 ) -> PatchApplicationResult:
     current_sidecar_state = ensure_sidecar_fields(copy_sidecar_state(storage.get_sidecar_readonly(path)))
     if expected_version != current_sidecar_state.get("version", 1):
@@ -120,6 +138,8 @@ def _apply_sidecar_patch(
         sidecar_snapshot,
         "item-updated",
         lambda: storage.set_sidecar(path, copy_sidecar_state(sidecar_snapshot)),
+        mutation_id=mutation_id,
+        changed_fields=_changed_sidecar_fields(current_sidecar_state, sidecar_snapshot),
     )
     payload = build_sidecar_from_state(storage, path, sidecar_snapshot).model_dump()
     return PatchApplicationResult(200, payload, event_id)
@@ -176,11 +196,14 @@ def register_item_routes(
                     now_iso=now_iso,
                 )
                 try:
+                    previous_sidecar = storage.get_sidecar_readonly(path)
                     event_id = record_update(
                         path,
                         sidecar_snapshot,
                         "item-updated",
                         lambda: storage.set_sidecar(path, copy_sidecar_state(sidecar_snapshot)),
+                        mutation_id=f"put:{uuid4()}",
+                        changed_fields=_changed_sidecar_fields(previous_sidecar, sidecar_snapshot),
                     )
                 except LabelPersistenceError:
                     return _label_persistence_error_response()
@@ -192,7 +215,7 @@ def register_item_routes(
 
     @app.patch(
         "/item",
-        response_model=Sidecar,
+        response_model=SidecarMutationResponse,
         responses={**mutation_error_responses, 409: {"model": SidecarConflictResponse}},
     )
     def patch_item(path: str, body: SidecarPatch, request: Request) -> JSONResponse:
@@ -233,10 +256,14 @@ def register_item_routes(
                         expected,
                         updated_by_from_request(request),
                         record_update,
+                        mutation_id=idem_key,
                     )
             except LabelPersistenceError:
                 return _label_persistence_error_response()
             if result.event_id is not None and context.workspace.can_write:
                 with request_phase("writer"):
                     runtime.snapshotter.maybe_write(storage, result.event_id)
-            return _cached_json_response(idempotency_cache, idem_key, result.status, result.payload)
+            payload = result.payload
+            if result.status == 200:
+                payload = {"sidecar": payload, "mutation_id": idem_key}
+            return _cached_json_response(idempotency_cache, idem_key, result.status, payload)

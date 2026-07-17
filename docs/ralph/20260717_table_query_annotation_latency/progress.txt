@@ -24,3 +24,12 @@ Plan: /fsx/yada/dev/lenslet/docs/20260717_table_query_annotation_latency_executi
 - Validation: focused backend tests passed (63); focused frontend tests passed (16); affected backend suites passed (203); full frontend tests passed (524); frontend production build and shipped-asset synchronization passed; repository lint passed; GUI smoke passed with its known non-blocking folder-anchor warning; the dedicated two-context annotation scenario passed at 70.74 ms projection p95 with no page clear, stable gallery/scroll identity, independent session IDs, converged paths/counts, and exactly one query plus one facet reconciliation per session and relevant mutation.
 - Blockers: none for Sprint 1. The overall plan remains incomplete. The pre-existing untracked Ralph workspace files remain outside the sprint commit.
 - Next step: begin Sprint 2 at S2-T1 and complete no more than six Sprint 2 task IDs in the next iteration; do not start Sprint 3.
+
+## Iteration 4 — 2026-07-17 17:46 UTC
+
+- Sprint: Sprint 2 — Columnar table query engine (open; six-task slice complete).
+- Completed tasks: S2-T1, S2-T2, S2-T3, S2-T4, S2-T5, S2-T6.
+- Files changed: new `src/lenslet/storage/table/query_engine.py`; engine construction and sidecar integration in `src/lenslet/storage/table/storage.py`; shared histogram helper in `src/lenslet/storage/table/facets.py`; new `tests/storage/table/test_table_query_engine.py`; execution plan and this progress log.
+- Validation: final engine suite passed (21); pre-existing table browse/index/storage-contract gate passed (73); the broader browse/table/storage-contract/route gate passed (195); the final affected browse/table/web-route/web-sync/web-cache suite passed (219); repository lint and the 2,000-line hard guard passed; `git diff --check` passed; the repeatable 2,000-row/30-metric/300-rated probe passed with unchanged inputs and 309.582 ms combined p95 (215.649 ms query, 94.343 ms facets).
+- Blockers: none for this slice. Sprint 2 remains incomplete because the six-task cap leaves S2-T7, production bounded projection, and sprint-boundary cleanup/review/acceptance for the next iteration. No frontend files or shipped assets changed.
+- Next step: execute S2-T7 only, cut query/facet routing over to the engine and slice before item materialization, then run Sprint 2 cleanup, independent review, affected validation, and live performance acceptance. Do not start Sprint 3 in that iteration.

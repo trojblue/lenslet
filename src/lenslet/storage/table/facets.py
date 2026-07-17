@@ -81,7 +81,7 @@ def build_table_query_facet_summary(
             "categorical_keys": categorical_keys_out,
             "metrics": {
                 key: {
-                    "histogram": _histogram_summary(values, bins),
+                    "histogram": histogram_summary(values, bins),
                     "categories": [],
                 }
                 for key, values in metric_values.items()
@@ -103,7 +103,7 @@ def build_table_query_facet_summary(
         }
 
 
-def _histogram_summary(values: list[float], bins: int) -> dict[str, Any] | None:
+def histogram_summary(values: list[float], bins: int) -> dict[str, Any] | None:
     if not values:
         return None
     safe_bins = max(1, bins)

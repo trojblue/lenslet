@@ -41,7 +41,7 @@ from .display import (
     normalize_display_value,
     normalize_metrics_display_value,
 )
-from .facets import build_table_query_facet_summary, metric_keys_for_query_spec
+from .facets import build_table_query_facet_summary, histogram_summary, metric_keys_for_query_spec
 from ...diagnostics import request_phase
 from .index import (
     build_index_columns,
@@ -98,6 +98,7 @@ from .source_detection import (
     source_column_name_priority,
 )
 from .pyarrow_runtime import pyarrow_exception_types, require_pyarrow_parquet
+from .query_engine import TableQueryEngine
 from .row_store import (
     TableRowRemoteDimensionTask,
     TableRowStore,
@@ -111,28 +112,6 @@ from ..search_text import build_search_haystack, normalize_search_path, sidecar_
 TABLE_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 GC_DISABLE_ROW_THRESHOLD = 100_000
 SOURCE_COLUMN_SAMPLE_SIZE = 100
-
-
-def _histogram_summary(values: list[float], bins: int) -> dict[str, Any] | None:
-    if not values:
-        return None
-    safe_bins = max(1, bins)
-    min_value = min(values)
-    max_value = max(values)
-    if min_value == max_value:
-        max_value = min_value + 1
-    counts = [0] * safe_bins
-    scale = safe_bins / (max_value - min_value)
-    for value in values:
-        idx = max(0, min(safe_bins - 1, int((value - min_value) * scale)))
-        counts[idx] += 1
-    return {
-        "bins": counts,
-        "min": min_value,
-        "max": max_value,
-        "count": len(values),
-    }
-
 
 def _table_field_provider_errors() -> tuple[type[BaseException], ...]:
     return pyarrow_exception_types() + (
@@ -577,6 +556,15 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             self._probe_row_remote_dimensions(row_store_result.remote_tasks)
         with _bulk_table_gc_pause(self._row_count):
             self._browse_signature = self._compute_browse_signature()
+            self._table_query_engine = TableQueryEngine.from_row_store(
+                self._require_row_store(),
+                source_generation=self._browse_signature, metric_keys=self._metric_keys,
+                categorical_keys=self._categorical_columns,
+                metrics_for_row=self._metrics_for_row,
+                categoricals_for_row=self._query_categoricals_for_row,
+                include_source_in_search=self._include_source_in_search,
+                sidecars=self._sidecars,
+            )
         current_status = self._source_column_status(self._source_column, selected=True)
         if row_store_result.store.total_rows() == 0:
             self._source_column_warning = "The selected source column produced no loadable gallery entries."
@@ -1627,6 +1615,18 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             width, height = 0, 0
         return default_sidecar_state(width=width, height=height)
 
+    @property
+    def query_engine(self) -> TableQueryEngine:
+        return self._table_query_engine
+
+    def set_sidecar(self, path: str, sidecar: SidecarState) -> None:
+        super().set_sidecar(path, sidecar)
+        self._table_query_engine.update_sidecar(path, sidecar)
+
+    def replace_sidecars(self, sidecars: dict[str, SidecarState]) -> None:
+        super().replace_sidecars(sidecars)
+        self._table_query_engine.replace_sidecars(self._sidecars)
+
     def thumbnail_cache_key(self, path: str) -> str | None:
         try:
             source = self.get_source_path(path)
@@ -1737,7 +1737,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             "categorical_keys": categorical_keys,
             "metrics": {
                 key: {
-                    "histogram": _histogram_summary(values, bins),
+                    "histogram": histogram_summary(values, bins),
                     "categories": [],
                 }
                 for key, values in metric_values.items()

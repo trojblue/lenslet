@@ -21,11 +21,9 @@ logger = logging.getLogger(__name__)
 
 from ...browse.query import (
     BrowseQueryFolderEntry,
-    BrowseQueryRecord,
     BrowseQueryResult,
     BrowseQuerySpec,
     browse_query_request_token,
-    evaluate_browse_records,
 )
 from ...media_errors import MediaDecodeError, MediaReadError
 from ...media_policy import OriginalMediaPolicy, build_original_media_policy
@@ -98,7 +96,7 @@ from .source_detection import (
     source_column_name_priority,
 )
 from .pyarrow_runtime import pyarrow_exception_types, require_pyarrow_parquet
-from .query_engine import TableQueryEngine
+from .query_engine import TableFilterAnalysis, TableQueryEngine
 from .row_store import (
     TableRowRemoteDimensionTask,
     TableRowStore,
@@ -106,7 +104,7 @@ from .row_store import (
     TableRowViewItem,
     build_table_row_store,
 )
-from ..search_text import build_search_haystack, normalize_search_path, sidecar_source_fields
+from ..search_text import normalize_search_path
 
 
 TABLE_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
@@ -265,12 +263,6 @@ def _is_supported_table_image(name: str) -> bool:
 def _canonical_query_path(path: str) -> str:
     normalized = normalize_item_path(path)
     return f"/{normalized}" if normalized else "/"
-
-
-def _added_at_from_mtime(mtime: float) -> str | None:
-    if mtime <= 0:
-        return None
-    return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
 
 def _table_query_generation_token(signature: str, generation: int) -> str:
@@ -1262,86 +1254,12 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             parts.append(notes)
         return " ".join(part for part in parts if part).lower()
 
-    def _query_sidecar_for_row(self, row_store: TableRowStore, row_idx: int) -> SidecarState:
-        path = row_store.path_for_row_index(row_idx)
-        if path is None:
-            return {}
-        return self.get_sidecar_readonly(path)
-
     def _query_categoricals_for_row(self, row_idx: int) -> dict[str, str]:
         if self._categorical_row_provider is not None:
             return self._extract_categoricals_from_row(
                 self._categorical_row_provider(row_idx)
             )
         return self._categoricals_for_row(row_idx)
-
-    def _query_search_text(
-        self,
-        *,
-        path: str,
-        name: str,
-        source: str | None,
-        url: str | None,
-        sidecar_state: SidecarState,
-    ) -> str:
-        tags = sidecar_state.get("tags", [])
-        if not isinstance(tags, list):
-            tags = []
-        sidecar_source, sidecar_url = sidecar_source_fields(sidecar_state)
-        row_source = source if self._include_source_in_search else None
-        row_url = url if self._include_source_in_search else None
-        search_source = " ".join(value for value in (row_source, sidecar_source) if value) or None
-        search_url = " ".join(value for value in (row_url, sidecar_url) if value) or None
-        return build_search_haystack(
-            logical_path=path,
-            name=name,
-            tags=tags,
-            notes=sidecar_state.get("notes", ""),
-            source=search_source,
-            url=search_url,
-            include_source_fields=self._include_source_in_search or bool(search_source or search_url),
-        )
-
-    def _query_record_for_row(
-        self,
-        row_store: TableRowStore,
-        row_idx: int,
-    ) -> BrowseQueryRecord[int]:
-        (
-            path,
-            name,
-            _mime,
-            width,
-            height,
-            _size,
-            mtime,
-            url,
-            source,
-        ) = row_store.item_fields_for_row(row_idx)
-        canonical = _canonical_query_path(path)
-        sidecar_state = self._query_sidecar_for_row(row_store, row_idx)
-        return BrowseQueryRecord(
-            payload=row_idx,
-            stable_identity=canonical,
-            path=canonical,
-            name=name,
-            added_at=_added_at_from_mtime(mtime),
-            width=width,
-            height=height,
-            source=source,
-            url=url,
-            metrics=self._metrics_for_row(row_idx),
-            categoricals=self._query_categoricals_for_row(row_idx),
-            star=sidecar_state.get("star"),
-            notes=sidecar_state.get("notes", ""),
-            search_text=self._query_search_text(
-                path=canonical,
-                name=name,
-                source=source,
-                url=url,
-                sidecar_state=sidecar_state,
-            ),
-        )
 
     def _query_rows_for_scope(
         self,
@@ -1371,20 +1289,22 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             raise FileNotFoundError(spec.path)
 
         with request_phase("analysis"):
-            records = [self._query_record_for_row(row_store, row_idx) for row_idx in rows]
-        metric_keys = tuple(self.metric_keys())
+            analysis = self._table_query_engine.analyze_filter(rows, spec)
+        with request_phase("ordering"):
+            ordered = self._table_query_engine.order(
+                analysis,
+                spec.sort,
+                random_seed=spec.random_seed,
+            )
+        metric_keys = analysis.metric_keys
         categorical_keys = tuple(self.categorical_keys())
-        evaluation = evaluate_browse_records(
-            records,
-            spec,
-            metric_keys=metric_keys,
-            categorical_keys=categorical_keys,
-        )
-        result_metric_keys = metric_keys_for_query_spec(spec, metric_keys)
+        result_metric_keys = tuple(metric_keys_for_query_spec(spec, metric_keys))
         with request_phase("projection"):
+            start = max(0, spec.offset)
+            end = start + max(0, spec.limit)
             items = tuple(
-                self._materialize_query_record_item(record)
-                for record in evaluation.window
+                self._materialize_query_item(row_idx, analysis, result_metric_keys)
+                for row_idx in ordered.ordered_row_ids[start:end]
             )
         return BrowseQueryResult(
             path=_canonical_query_path(norm),
@@ -1395,14 +1315,14 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             ),
             request_token=browse_query_request_token(spec),
             scope_total=len(rows),
-            filtered_total=evaluation.filtered_total,
+            filtered_total=len(analysis.row_ids),
             offset=spec.offset,
             limit=spec.limit,
             items=items,
             folders=folders,
-            metric_keys=tuple(result_metric_keys),
+            metric_keys=result_metric_keys,
             categorical_keys=categorical_keys,
-            derived_metric_status=evaluation.derived_metric_status,
+            derived_metric_status=analysis.derived_metric_status,
         )
 
     def _source_search_covered_by_path(self) -> bool:
@@ -1427,16 +1347,22 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             metrics_provider=self._metrics_for_row,
         )
 
-    def _materialize_query_record_item(self, record: BrowseQueryRecord[int]) -> TableRowViewItem:
-        item = self._materialize_row_item(record.payload)
-        if record.metrics is not None:
-            item.metrics = {
-                key: value
-                for key, raw_value in record.metrics.items()
-                if isinstance(key, str)
-                for value in (coerce_finite_metric_value(raw_value),)
-                if value is not None
-            }
+    def _materialize_query_item(
+        self,
+        row_idx: int,
+        analysis: TableFilterAnalysis,
+        metric_keys: tuple[str, ...],
+    ) -> TableRowViewItem:
+        item = self._require_row_store().materialize_item(
+            row_idx,
+            dimensions=self._table_query_engine.project_dimensions(analysis, row_idx),
+            sidecar_snapshot=self._table_query_engine.project_sidecar(analysis, row_idx),
+        )
+        item.metrics = self._table_query_engine.project_metrics(
+            analysis,
+            row_idx,
+            metric_keys,
+        )
         return item
 
     def _lookup_item(self, norm: str) -> TableRowViewItem | None:
@@ -1561,7 +1487,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             raise MediaDecodeError.from_exception(path, exc) from exc
         self._thumbnails[norm] = thumb
         if dims:
-            self._require_row_store().update_dimensions(norm, dims, size=len(raw))
+            self._update_dimensions(norm, dims, size=len(raw))
         return thumb
 
     def get_dimensions(self, path: str) -> tuple[int, int]:
@@ -1575,7 +1501,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             raise FileNotFoundError(path)
         width, height = row_store.dimensions_for_row(row_idx)
         if width > 0 and height > 0:
-            row_store.update_dimensions(norm, (width, height))
+            self._update_dimensions(norm, (width, height))
             return width, height
 
         source = row_store.source_for_row(row_idx)
@@ -1585,7 +1511,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             if total:
                 row_store.update_size(norm, total)
             if dims:
-                row_store.update_dimensions(norm, dims, size=total)
+                self._update_dimensions(norm, dims, size=total)
                 return dims
 
         try:
@@ -1605,8 +1531,18 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         except (OSError, ValueError) as exc:
             raise MediaDecodeError.from_exception(path, exc) from exc
 
-        row_store.update_dimensions(norm, dims, size=len(raw))
+        self._update_dimensions(norm, dims, size=len(raw))
         return dims
+
+    def _update_dimensions(
+        self,
+        path: str,
+        dimensions: tuple[int, int],
+        *,
+        size: int | None = None,
+    ) -> None:
+        self._require_row_store().update_dimensions(path, dimensions, size=size)
+        self._table_query_engine.update_dimensions(path, dimensions)
 
     def _default_sidecar(self, norm: str):
         try:
@@ -1772,14 +1708,15 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             raise FileNotFoundError(spec.path)
 
         with request_phase("analysis"):
-            records = [self._query_record_for_row(row_store, row_idx) for row_idx in rows]
+            analysis = self._table_query_engine.analyze_filter(rows, spec)
         return build_table_query_facet_summary(
             spec=spec,
-            records=records,
+            engine=self._table_query_engine,
+            analysis=analysis,
             scope_total=len(rows),
             generated_at=self._generated_at,
             canonical_path=_canonical_query_path(norm),
-            metric_keys=metric_keys_for_query_spec(spec, self.metric_keys()),
+            metric_keys=metric_keys_for_query_spec(spec, analysis.metric_keys),
             categorical_keys=self.categorical_keys(),
             bins=bins,
         )

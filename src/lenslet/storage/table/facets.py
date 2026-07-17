@@ -1,19 +1,16 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import replace
 from typing import Any, Iterable
 
 from ...browse.query import (
-    BrowseQueryRecord,
     BrowseQuerySpec,
     browse_analysis_query_key,
     derived_metric_key,
-    evaluate_browse_records,
     normalize_derived_metric_spec,
 )
-from ...metrics import coerce_finite_metric_value
 from ...diagnostics import request_phase
+from .query_engine import TableFilterAnalysis, TableQueryEngine
 
 
 def metric_keys_for_query_spec(
@@ -30,7 +27,8 @@ def metric_keys_for_query_spec(
 def build_table_query_facet_summary(
     *,
     spec: BrowseQuerySpec,
-    records: Iterable[BrowseQueryRecord[Any]],
+    engine: TableQueryEngine,
+    analysis: TableFilterAnalysis,
     scope_total: int,
     generated_at: str,
     canonical_path: str,
@@ -40,28 +38,16 @@ def build_table_query_facet_summary(
 ) -> dict[str, Any]:
     metric_key_list = list(metric_keys)
     categorical_key_list = list(categorical_keys)
-    evaluation = evaluate_browse_records(
-        tuple(records),
-        replace(spec, offset=0, limit=max(1, scope_total)),
-        metric_keys=metric_key_list,
-        categorical_keys=categorical_key_list,
-    )
 
     with request_phase("facet"):
-        metric_values: dict[str, list[float]] = {key: [] for key in metric_key_list}
-        categorical_counts: dict[str, Counter[str]] = {
-            key: Counter()
+        metric_values = {
+            key: list(engine.iter_metric_values(analysis, key))
+            for key in metric_key_list
+        }
+        categorical_counts = {
+            key: Counter(engine.iter_categorical_values(analysis, key))
             for key in categorical_key_list
         }
-        for record in evaluation.window:
-            for key, value in (record.metrics or {}).items():
-                coerced = coerce_finite_metric_value(value)
-                if coerced is not None:
-                    metric_values.setdefault(key, []).append(coerced)
-            for key, value in (record.categoricals or {}).items():
-                normalized = _normalize_categorical_value(value)
-                if normalized is not None:
-                    categorical_counts.setdefault(key, Counter())[normalized] += 1
 
         metric_keys_out = sorted(metric_values)
         categorical_keys_out = sorted(categorical_counts)
@@ -70,10 +56,10 @@ def build_table_query_facet_summary(
             "path": canonical_path,
             "generated_at": generated_at,
             "analysis_query_key": browse_analysis_query_key(spec),
-            "total_items": evaluation.filtered_total,
+            "total_items": len(analysis.row_ids),
             "count_provenance": {
                 "scope_total": scope_total,
-                "query_filtered_total": evaluation.filtered_total,
+                "query_filtered_total": len(analysis.row_ids),
                 "loaded_window_total": None,
                 "source": "backend_query",
             },
@@ -122,10 +108,3 @@ def histogram_summary(values: list[float], bins: int) -> dict[str, Any] | None:
         "max": max_value,
         "count": len(values),
     }
-
-
-def _normalize_categorical_value(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None

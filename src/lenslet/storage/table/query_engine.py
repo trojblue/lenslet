@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from array import array
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 import hashlib
 import math
@@ -243,6 +243,7 @@ class TableDependencyStamp:
     source_generation: str
     star_generation: int = 0
     text_generation: int = 0
+    dimension_generation: int = 0
     metric_generations: tuple[tuple[str, int], ...] = ()
     unknown_generation: int = 0
 
@@ -252,6 +253,7 @@ class _MutableSnapshot:
     stars: tuple[int | None, ...]
     notes: tuple[str, ...]
     search_text: tuple[str, ...]
+    dimension_overrides: tuple[tuple[float | None, float | None] | None, ...]
     dynamic_metrics: tuple[tuple[tuple[str, float], ...], ...]
     available_metric_keys: frozenset[str]
     dependency_stamp: TableDependencyStamp
@@ -262,9 +264,6 @@ class _MutableSnapshot:
                 return value
         return None
 
-    def has_dynamic_metric(self, slot: int, key: str) -> bool:
-        return any(candidate == key for candidate, _value in self.dynamic_metrics[slot])
-
 
 class _MutableColumns:
     def __init__(self, store: TableColumnStore) -> None:
@@ -273,12 +272,16 @@ class _MutableColumns:
         self._stars: list[int | None] = [None] * len(store.row_ids)
         self._notes = [""] * len(store.row_ids)
         self._search_text = list(store.static_search_text)
+        self._dimension_overrides: list[tuple[float | None, float | None] | None] = [
+            None for _row_id in store.row_ids
+        ]
         self._dynamic_metrics: list[tuple[tuple[str, float], ...]] = [
             () for _row_id in store.row_ids
         ]
         self._dynamic_metric_counts: dict[str, int] = {}
         self._star_generation = 0
         self._text_generation = 0
+        self._dimension_generation = 0
         self._metric_generations: dict[str, int] = {}
         self._mutation_generation = 0
 
@@ -301,6 +304,20 @@ class _MutableColumns:
             if self._replace_row_metrics(slot, metrics):
                 changed = True
             if changed:
+                self._mutation_generation += 1
+        return True
+
+    def update_dimensions(self, path: str, dimensions: tuple[int, int]) -> bool:
+        slot = self._store.slot_for_path(path)
+        if slot is None:
+            return False
+        values = (_finite_dimension(dimensions[0]), _finite_dimension(dimensions[1]))
+        static = (self._store.widths.value(slot), self._store.heights.value(slot))
+        override = None if values == static else values
+        with self._lock:
+            if self._dimension_overrides[slot] != override:
+                self._dimension_overrides[slot] = override
+                self._dimension_generation += 1
                 self._mutation_generation += 1
         return True
 
@@ -345,6 +362,7 @@ class _MutableColumns:
                 stars=tuple(self._stars),
                 notes=tuple(self._notes),
                 search_text=tuple(self._search_text),
+                dimension_overrides=tuple(self._dimension_overrides),
                 dynamic_metrics=tuple(self._dynamic_metrics),
                 available_metric_keys=frozenset(
                     (*self._store.metrics.keys(), *self._dynamic_metric_counts.keys())
@@ -361,6 +379,7 @@ class _MutableColumns:
         self,
         star_dependency: bool,
         text_dependency: bool,
+        dimension_dependency: bool,
         metric_dependencies: frozenset[str],
         unknown_dependency: bool,
     ) -> TableDependencyStamp:
@@ -368,6 +387,9 @@ class _MutableColumns:
             source_generation=self._store.source_generation,
             star_generation=self._star_generation if star_dependency else 0,
             text_generation=self._text_generation if text_dependency else 0,
+            dimension_generation=(
+                self._dimension_generation if dimension_dependency else 0
+            ),
             metric_generations=tuple(
                 (key, self._metric_generations.get(key, 0))
                 for key in sorted(metric_dependencies)
@@ -406,6 +428,7 @@ class TableFilterAnalysis:
     source_generation: str
     dependency_stamp: TableDependencyStamp
     row_ids: tuple[int, ...]
+    metric_keys: tuple[str, ...]
     derived_scores: Mapping[int, float]
     derived_metric_status: DerivedMetricStatus
     _mutable: _MutableSnapshot = field(repr=False, compare=False)
@@ -413,12 +436,7 @@ class TableFilterAnalysis:
 
 @dataclass(frozen=True, slots=True)
 class TableOrderAnalysis:
-    source_generation: str
-    dependency_stamp: TableDependencyStamp
-    filtered_row_ids: tuple[int, ...]
     ordered_row_ids: tuple[int, ...]
-    derived_scores: Mapping[int, float]
-    derived_metric_status: DerivedMetricStatus
 
 
 class TableQueryEngine:
@@ -465,11 +483,72 @@ class TableQueryEngine:
     def update_sidecar(self, path: str, sidecar: SidecarState) -> bool:
         return self._mutable.update(path, sidecar)
 
+    def update_dimensions(self, path: str, dimensions: tuple[int, int]) -> bool:
+        return self._mutable.update_dimensions(path, dimensions)
+
     def replace_sidecars(self, sidecars: Mapping[str, SidecarState]) -> None:
         self._mutable.replace(sidecars)
 
     def dependency_stamp(self, spec: BrowseQuerySpec) -> TableDependencyStamp:
         return self._mutable.dependency_stamp(spec)
+
+    def project_metrics(
+        self,
+        analysis: TableFilterAnalysis,
+        row_id: int,
+        metric_keys: Iterable[str],
+    ) -> dict[str, float]:
+        slot = self.columns.slot_for_row(row_id)
+        values: dict[str, float] = {}
+        for key in metric_keys:
+            value = self._analysis_metric_value(analysis, row_id, slot, key)
+            if value is not None:
+                values[key] = value
+        return values
+
+    def project_sidecar(
+        self,
+        analysis: TableFilterAnalysis,
+        row_id: int,
+    ) -> SidecarState:
+        slot = self.columns.slot_for_row(row_id)
+        return {
+            "star": analysis._mutable.stars[slot],
+            "notes": analysis._mutable.notes[slot],
+        }
+
+    def project_dimensions(
+        self,
+        analysis: TableFilterAnalysis,
+        row_id: int,
+    ) -> tuple[int, int]:
+        slot = self.columns.slot_for_row(row_id)
+        return (
+            int(self._dimension_value(slot, "width", analysis._mutable) or 0),
+            int(self._dimension_value(slot, "height", analysis._mutable) or 0),
+        )
+
+    def iter_metric_values(
+        self,
+        analysis: TableFilterAnalysis,
+        key: str,
+    ) -> Iterator[float]:
+        for row_id in analysis.row_ids:
+            slot = self.columns.slot_for_row(row_id)
+            value = self._analysis_metric_value(analysis, row_id, slot, key)
+            if value is not None:
+                yield value
+
+    def iter_categorical_values(
+        self,
+        analysis: TableFilterAnalysis,
+        key: str,
+    ) -> Iterator[str]:
+        for row_id in analysis.row_ids:
+            slot = self.columns.slot_for_row(row_id)
+            value = self.columns.categorical_value(slot, key)
+            if value is not None:
+                yield value
 
     def analyze_filter(
         self,
@@ -522,6 +601,7 @@ class TableQueryEngine:
             source_generation=self.columns.source_generation,
             dependency_stamp=mutable.dependency_stamp,
             row_ids=tuple(filtered),
+            metric_keys=tuple(sorted(mutable.available_metric_keys)),
             derived_scores=derived_scores,
             derived_metric_status=derived_status,
             _mutable=mutable,
@@ -557,14 +637,7 @@ class TableQueryEngine:
         else:
             ordered = sorted(rows, key=lambda row_id: self._added_sort_key(row_id, sort.direction))
         checkpoint.force()
-        return TableOrderAnalysis(
-            source_generation=analysis.source_generation,
-            dependency_stamp=analysis.dependency_stamp,
-            filtered_row_ids=analysis.row_ids,
-            ordered_row_ids=tuple(ordered),
-            derived_scores=analysis.derived_scores,
-            derived_metric_status=analysis.derived_metric_status,
-        )
+        return TableOrderAnalysis(ordered_row_ids=tuple(ordered))
 
     def _matches_filters(
         self,
@@ -610,9 +683,11 @@ class TableQueryEngine:
         if isinstance(clause, DateRangeFilter):
             return _matches_date(self.columns.added_ms.value(slot), clause)
         if isinstance(clause, WidthCompareFilter):
-            return _matches_dimension(self.columns.widths.value(slot), clause.op, clause.value)
+            value = self._dimension_value(slot, "width", mutable)
+            return _matches_dimension(value, clause.op, clause.value)
         if isinstance(clause, HeightCompareFilter):
-            return _matches_dimension(self.columns.heights.value(slot), clause.op, clause.value)
+            value = self._dimension_value(slot, "height", mutable)
+            return _matches_dimension(value, clause.op, clause.value)
         if isinstance(clause, MetricRangeFilter):
             if is_derived_metric_key(clause.key):
                 row_id = self.columns.row_ids[slot]
@@ -755,9 +830,31 @@ class TableQueryEngine:
         return score if math.isfinite(score) else None
 
     def _metric_value(self, slot: int, key: str, mutable: _MutableSnapshot) -> float | None:
-        if mutable.has_dynamic_metric(slot, key):
-            return mutable.dynamic_metric_value(slot, key)
-        return self.columns.metric_value(slot, key)
+        dynamic = mutable.dynamic_metric_value(slot, key)
+        return dynamic if dynamic is not None else self.columns.metric_value(slot, key)
+
+    def _analysis_metric_value(
+        self,
+        analysis: TableFilterAnalysis,
+        row_id: int,
+        slot: int,
+        key: str,
+    ) -> float | None:
+        if key == analysis.derived_metric_status.key:
+            return analysis.derived_scores.get(row_id)
+        return self._metric_value(slot, key, analysis._mutable)
+
+    def _dimension_value(
+        self,
+        slot: int,
+        axis: str,
+        mutable: _MutableSnapshot,
+    ) -> float | None:
+        override = mutable.dimension_overrides[slot]
+        if override is not None:
+            return override[0] if axis == "width" else override[1]
+        column = self.columns.widths if axis == "width" else self.columns.heights
+        return column.value(slot)
 
     def _identity(self, row_id: int) -> str:
         return self.columns.stable_identities[self.columns.slot_for_row(row_id)]
@@ -786,10 +883,7 @@ class TableQueryEngine:
         analysis: TableFilterAnalysis,
     ) -> tuple[int, float, str, str]:
         slot = self.columns.slot_for_row(row_id)
-        if sort.key == analysis.derived_metric_status.key:
-            value = analysis.derived_scores.get(row_id)
-        else:
-            value = self._metric_value(slot, sort.key, analysis._mutable)
+        value = self._analysis_metric_value(analysis, row_id, slot, sort.key)
         name = self.columns.names[slot]
         identity = self.columns.stable_identities[slot]
         if value is None:
@@ -832,6 +926,11 @@ def _normalized_keys(keys: Iterable[str]) -> tuple[str, ...]:
 def _finite_or_nan(value: object) -> float:
     number = coerce_finite_metric_value(value)
     return number if number is not None else math.nan
+
+
+def _finite_dimension(value: object) -> float | None:
+    number = coerce_finite_metric_value(value)
+    return number if number is not None and number > 0 else None
 
 
 def _normalize_text(value: str | None) -> str | None:
@@ -896,15 +995,18 @@ def _metric_counts(rows: Iterable[tuple[tuple[str, float], ...]]) -> dict[str, i
     return counts
 
 
-def _dependency_requirements(spec: BrowseQuerySpec) -> tuple[bool, bool, frozenset[str], bool]:
+def _dependency_requirements(
+    spec: BrowseQuerySpec,
+) -> tuple[bool, bool, bool, frozenset[str], bool]:
     manifest: QueryDependencyManifest = query_dependency_manifest(spec)
     star = "star" in manifest.fields
     text = bool(_normalize_text(spec.text_query)) or any(
         isinstance(clause, (NotesContainsFilter, NotesNotContainsFilter))
         for clause in normalize_filter_ast(spec.filters).and_clauses
     )
+    dimensions = bool({"width", "height"} & manifest.fields)
     metric_keys = frozenset(key for key in manifest.metric_keys if not is_derived_metric_key(key))
-    return star, text, metric_keys, manifest.unknown
+    return star, text, dimensions, metric_keys, manifest.unknown
 
 
 def _split_derived_filters(filters: BrowseFilterAst) -> tuple[BrowseFilterAst, BrowseFilterAst]:

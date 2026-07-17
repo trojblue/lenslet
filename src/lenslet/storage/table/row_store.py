@@ -4,6 +4,7 @@ from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from typing import Callable
 
+from ..base import SidecarState
 from ..image_media import ImageMime, normalize_image_mime
 from ..progress import ProgressTicker
 from ..search_text import normalize_search_path
@@ -57,6 +58,7 @@ class TableRowViewItem:
     _metrics: dict[str, float] | None
     _metrics_provider: MetricProvider | None
     _media_update: MediaUpdateCallback | None
+    sidecar_snapshot: SidecarState | None
 
     def __init__(
         self,
@@ -76,6 +78,7 @@ class TableRowViewItem:
         metrics: dict[str, float] | None = None,
         metrics_provider: MetricProvider | None = None,
         media_update: MediaUpdateCallback | None = None,
+        sidecar_snapshot: SidecarState | None = None,
     ) -> None:
         self.path = path
         self.name = name
@@ -92,6 +95,7 @@ class TableRowViewItem:
         self._metrics = metrics
         self._metrics_provider = metrics_provider
         self._media_update = media_update
+        self.sidecar_snapshot = sidecar_snapshot
 
     def _write_media_update(self) -> None:
         if self._media_update is not None:
@@ -338,8 +342,12 @@ class TableRowStore:
         row_idx: int,
         *,
         metrics_provider: MetricProvider | None = None,
+        dimensions: tuple[int, int] | None = None,
+        sidecar_snapshot: SidecarState | None = None,
     ) -> TableRowViewItem:
         path, name, mime, width, height, size, mtime, url, source = self.item_fields_for_row(row_idx)
+        if dimensions is not None:
+            width, height = dimensions
         self.materialized_item_count += 1
         return TableRowViewItem(
             path=path,
@@ -353,6 +361,7 @@ class TableRowStore:
             source=source,
             row_idx=row_idx,
             metrics_provider=metrics_provider,
+            sidecar_snapshot=sidecar_snapshot,
             media_update=lambda new_width, new_height, new_size: self._update_materialized_media(
                 row_idx,
                 path,

@@ -12,6 +12,7 @@ from lenslet.browse.query import (
     MetricSortSpec,
     NotesContainsFilter,
     StarsInFilter,
+    WidthCompareFilter,
     derived_metric_key,
 )
 from lenslet.storage.table import TableStorage, TableStorageOptions
@@ -68,6 +69,109 @@ def test_table_query_filters_full_scope_and_materializes_only_window() -> None:
     assert row_store.materialized_item_count == 1
     assert result.metric_keys == ("score",)
     assert "source_column" in result.categorical_keys
+
+
+def test_table_query_and_facets_use_columns_and_bound_window_materialization(
+    monkeypatch,
+) -> None:
+    metric_count = 300
+    rows = [
+        {
+            "source": f"https://example.test/gallery/img{index:04}.jpg",
+            "path": f"gallery/img{index:04}.jpg",
+            "width": 8,
+            "height": 6,
+            "metrics": {
+                f"q{metric_index}": float(index + metric_index)
+                for metric_index in range(metric_count)
+            },
+        }
+        for index in range(500)
+    ]
+    storage = _table_storage(rows)
+    row_store = storage._require_row_store()
+    row_store.materialized_item_count = 0
+
+    def fail_row_metric_expansion(_row_idx: int) -> dict[str, float]:
+        raise AssertionError("production query paths must read prebuilt columns")
+
+    def fail_facet_sort(*_args, **_kwargs):
+        raise AssertionError("facet aggregation must not order filtered rows")
+
+    monkeypatch.setattr(storage, "_metrics_for_row", fail_row_metric_expansion)
+    spec = BrowseQuerySpec(
+        path="/gallery",
+        recursive=True,
+        offset=100,
+        limit=200,
+        sort=BuiltinSortSpec("name", "asc"),
+    )
+
+    result = storage.query_browse_scope(spec)
+
+    assert len(result.items) == 200
+    assert row_store.materialized_item_count == 200
+    assert all(len(item.metrics) == metric_count for item in result.items)
+
+    row_store.materialized_item_count = 0
+    monkeypatch.setattr(storage.query_engine, "order", fail_facet_sort)
+    facets = storage.facet_summary_for_query(spec)
+
+    assert facets["total_items"] == 500
+    assert facets["metrics"]["q0"]["histogram"]["count"] == 500
+    assert row_store.materialized_item_count == 0
+
+
+def test_dynamic_sidecar_metrics_are_projected_and_faceted() -> None:
+    storage = _table_storage(_rows())
+    path = "/gallery/img4.jpg"
+    sidecar = storage.ensure_sidecar(path)
+    sidecar["metrics"] = {"review_score": 42.0}
+    storage.set_sidecar(path, sidecar)
+    spec = BrowseQuerySpec(
+        path="/gallery",
+        recursive=True,
+        offset=0,
+        limit=10,
+        filters=BrowseFilterAst((MetricRangeFilter("review_score", 40.0, 50.0),)),
+        sort=MetricSortSpec("review_score", "desc"),
+    )
+
+    result = storage.query_browse_scope(spec)
+    facets = storage.facet_summary_for_query(spec)
+
+    assert [item.path for item in result.items] == ["gallery/img4.jpg"]
+    assert result.items[0].metrics["review_score"] == 42.0
+    assert "review_score" in result.metric_keys
+    assert facets["metric_keys"] == ["review_score", "score"]
+    assert facets["metrics"]["review_score"]["histogram"]["count"] == 1
+
+
+def test_lazy_dimensions_update_column_filters_and_projected_items() -> None:
+    storage = _table_storage([{
+        "source": "https://example.test/gallery/img0.jpg",
+        "path": "gallery/img0.jpg",
+        "width": 0,
+        "height": 0,
+    }])
+    spec = BrowseQuerySpec(
+        path="/gallery",
+        recursive=True,
+        offset=0,
+        limit=10,
+        filters=BrowseFilterAst((WidthCompareFilter(">=", 8),)),
+    )
+    baseline_stamp = storage.query_engine.dependency_stamp(spec)
+
+    assert storage.query_browse_scope(spec).items == ()
+
+    storage._update_dimensions("/gallery/img0.jpg", (8, 6))
+    result = storage.query_browse_scope(spec)
+
+    assert storage.query_engine.dependency_stamp(spec) != baseline_stamp
+    assert [(item.path, item.width, item.height) for item in result.items] == [
+        ("gallery/img0.jpg", 8, 6),
+    ]
 
 
 def test_table_query_sidecar_filters_do_not_materialize_unsliced_candidates() -> None:
@@ -196,4 +300,5 @@ def test_table_query_sorts_by_derived_metric_across_full_scope() -> None:
 
     assert result.filtered_total == 1
     assert [item.path for item in result.items] == ["gallery/img4.jpg"]
+    assert result.items[0].metrics[key] == 14.0
     assert row_store.materialized_item_count == 1

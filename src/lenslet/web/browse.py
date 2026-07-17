@@ -144,6 +144,9 @@ def build_item_payload(
     source: str | None = None,
     categoricals: dict[str, str] | None = None,
 ) -> BrowseItemPayload:
+    query_sidecar = getattr(cached, "sidecar_snapshot", None)
+    if query_sidecar is not None:
+        sidecar_state = query_sidecar
     if source is None:
         source = getattr(cached, "source", None)
     canonical = canonical_path(cached.path)

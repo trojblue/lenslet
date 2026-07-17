@@ -392,6 +392,51 @@ def test_table_query_totals_and_facets_are_separate_backend_truth() -> None:
     assert facets_payload["field_capabilities"]["categorical_inputs"]
 
 
+def test_query_projection_uses_the_same_annotation_snapshot_as_membership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = TableStorage(
+        [{
+            "source": "https://example.test/gallery/img0.jpg",
+            "path": "gallery/img0.jpg",
+            "width": 8,
+            "height": 6,
+        }],
+        options=TableStorageOptions(
+            source_column="source",
+            path_column="path",
+            skip_dimension_probe=True,
+            allow_local=False,
+        ),
+    )
+    original_order = storage.query_engine.order
+
+    def mutate_after_analysis(*args, **kwargs):
+        ordered = original_order(*args, **kwargs)
+        sidecar = storage.ensure_sidecar("/gallery/img0.jpg")
+        sidecar["star"] = 5
+        storage.set_sidecar("/gallery/img0.jpg", sidecar)
+        return ordered
+
+    monkeypatch.setattr(storage.query_engine, "order", mutate_after_analysis)
+    client = TestClient(create_app_from_storage(storage))
+
+    response = client.post(
+        "/folders/query",
+        json={
+            "path": "/gallery",
+            "recursive": True,
+            "offset": 0,
+            "limit": 10,
+            "filters": {"and": [{"starsIn": {"values": [0]}}]},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["star"] is None
+    assert storage.get_sidecar_readonly("/gallery/img0.jpg")["star"] == 5
+
+
 def test_browse_query_fallback_refuses_unbounded_recursive_materialization() -> None:
     class _Storage:
         def load_recursive_index(self, path: str):

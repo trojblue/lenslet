@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 import math
 import random
 
@@ -8,6 +9,7 @@ import pytest
 
 from lenslet.browse.query import (
     BrowseFilterAst,
+    BrowseQueryRecord,
     BrowseQuerySpec,
     BuiltinSortSpec,
     CategoricalInFilter,
@@ -28,6 +30,9 @@ from lenslet.browse.query import (
     evaluate_browse_records,
     evaluate_derived_metric_for_records,
 )
+from lenslet.metrics import normalize_metric_mapping
+from lenslet.storage.search_text import build_search_haystack, sidecar_source_fields
+from lenslet.storage.source.paths import normalize_item_path
 from lenslet.storage.table import TableStorage, TableStorageOptions
 from lenslet.storage.table.query_engine import (
     TableQueryCancelled,
@@ -61,10 +66,59 @@ def _scope_rows(storage: TableStorage) -> tuple[int, ...]:
 
 def _generic_records(storage: TableStorage):
     row_store = storage._require_row_store()
-    return [
-        storage._query_record_for_row(row_store, row_id)
-        for row_id in _scope_rows(storage)
-    ]
+    records: list[BrowseQueryRecord[int]] = []
+    for row_id in _scope_rows(storage):
+        path, name, _mime, width, height, _size, mtime, url, source = (
+            row_store.item_fields_for_row(row_id)
+        )
+        canonical = f"/{normalize_item_path(path)}"
+        sidecar = storage.get_sidecar_readonly(path)
+        tags = sidecar.get("tags", [])
+        if not isinstance(tags, list):
+            tags = []
+        sidecar_source, sidecar_url = sidecar_source_fields(sidecar)
+        row_source = source if storage._include_source_in_search else None
+        row_url = url if storage._include_source_in_search else None
+        search_source = " ".join(
+            value for value in (row_source, sidecar_source) if value
+        ) or None
+        search_url = " ".join(
+            value for value in (row_url, sidecar_url) if value
+        ) or None
+        metrics = storage._metrics_for_row(row_id)
+        metrics.update(normalize_metric_mapping(sidecar.get("metrics")) or {})
+        records.append(BrowseQueryRecord(
+            payload=row_id,
+            stable_identity=canonical,
+            path=canonical,
+            name=name,
+            added_at=(
+                datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+                if mtime > 0
+                else None
+            ),
+            width=width,
+            height=height,
+            source=source,
+            url=url,
+            metrics=metrics,
+            categoricals=storage._query_categoricals_for_row(row_id),
+            star=sidecar.get("star"),
+            notes=sidecar.get("notes", ""),
+            search_text=build_search_haystack(
+                logical_path=canonical,
+                name=name,
+                tags=tags,
+                notes=sidecar.get("notes", ""),
+                source=search_source,
+                url=search_url,
+                include_source_fields=(
+                    storage._include_source_in_search
+                    or bool(sidecar_source or sidecar_url)
+                ),
+            ),
+        ))
+    return records
 
 
 def _assert_query_parity(storage: TableStorage, spec: BrowseQuerySpec) -> None:
@@ -295,13 +349,9 @@ def test_column_filters_match_generic_evaluator(spec: BrowseQuerySpec) -> None:
     _assert_query_parity(storage, spec)
 
 
-def test_column_filtering_does_not_materialize_generic_query_records(monkeypatch) -> None:
+def test_column_filtering_does_not_materialize_generic_query_records() -> None:
     storage = _storage(_parity_rows(), categorical_keys=("category",))
-
-    def fail_record_materialization(*_args, **_kwargs):
-        raise AssertionError("column filtering must not construct BrowseQueryRecord instances")
-
-    monkeypatch.setattr(storage, "_query_record_for_row", fail_record_materialization)
+    assert not hasattr(storage, "_query_record_for_row")
     result = storage.query_engine.analyze_filter(
         _scope_rows(storage),
         BrowseQuerySpec(

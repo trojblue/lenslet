@@ -1,0 +1,10 @@
+{
+  "mode": "plan",
+  "tool": "codex",
+  "maxIterations": 20,
+  "maxTasksPerIteration": 6,
+  "planFile": "/fsx/yada/dev/lenslet/docs/20260717_table_query_annotation_latency_execution_plan.md",
+  "prdFile": "prd.json",
+  "progressFile": "progress.txt",
+  "sharedDir": "../shared"
+}

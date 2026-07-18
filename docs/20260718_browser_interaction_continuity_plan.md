@@ -221,6 +221,8 @@ Iteration 2 reconfirmed that the execution host is Linux and has no Microsoft Ed
 
 Iteration 3 repeated the capability check with the same result: this Linux host has no Edge executable or Windows environment, so there is still no plan-compliant local action that can close S1-T4. Sprint 2 remains dependency-blocked, and rerunning Chromium would add no acceptance evidence beyond the already passing proxy.
 
+Iteration 4 found no newly attached native-browser evidence and reconfirmed the same host limitation: Linux is the only available environment, with no Edge executable under the checked command paths, `/opt`, or `/usr/bin`. S1-T4 therefore remains externally blocked; product code, cleanup/review gates, and Sprint 2 remain untouched in dependency order.
+
 Each sprint is independently revertible by its ticket commits. Retry is idempotent: rebuild fixtures and frontend assets, rerun the focused failure, then rerun the sprint’s primary gate. Never copy a failed build into `src/lenslet/frontend/`. Preserve unrelated worktree changes and do not use destructive resets.
 
 
@@ -241,6 +243,7 @@ Each sprint is independently revertible by its ticket commits. Retry is idempote
 - [x] 2026-07-18 UTC — Committed the validated Sprint 1 implementation/automated slice as `1f66ad0` (`feat: stabilize browse controls and layout`).
 - [x] 2026-07-18 UTC — Ralph iteration 2 re-read the canonical plan and found no additional actionable Sprint 1 code task: the host is Linux with no Edge executable, so the required Windows 11 Edge three-theme visual cannot run here. No product files changed, Sprint 1 remains open, and Sprint 2 was not started out of dependency order.
 - [x] 2026-07-18 UTC — Ralph iteration 3 reconfirmed the same external gate: this host cannot produce the required native Windows 11 Edge visual evidence. No product or test files changed, Chromium evidence was not redundantly rerun, and later sprints remain untouched.
+- [x] 2026-07-18 UTC — Ralph iteration 4 found no attached Windows Edge evidence and reconfirmed the Linux-only host limitation. No product or test files changed, the already-green Chromium proxy was not rerun, and Sprint 1 remains open at S1-T4.
 - [ ] S1-T4 — Record the required Windows 11 Edge Metric dropdown visual in Original, Teal, and Charcoal; Chromium computed evidence is green but cannot close this gate.
 - [ ] Implementation — Close Sprint 1 only after the Edge visual, then run the blocking code-simplifier and code-review routines and add the sprint handoff.
 - [ ] Implementation — Execute Sprint 2 and record focused, primary, cleanup, review, and handoff evidence.
@@ -263,5 +266,7 @@ Baseline evidence before implementation:
 Iteration 1 implementation commit is `1f66ad0`. It owns `frontend/src/shared/ui/Dropdown.tsx`, `frontend/src/app/layout/useSidebars.ts`, `frontend/src/lib/gridItemSize.ts`, `frontend/src/app/hooks/useGridResizeGestures.ts`, the narrow AppShell/Toolbar/persistence wiring, focused tests, and the annotation/overall-cleanup/responsive/viewer browser helpers. The shipped bundle was regenerated from a passing Vite build; current entry asset is `assets/index-BZ3U0WR-.js`. Automated evidence is saved at `/tmp/lenslet-browser-continuity-sprint1.json`, `/tmp/lenslet-browser-continuity-annotation.json`, and `/tmp/lenslet-browser-continuity-gui-smoke.json`.
 
 Next, run Windows 11 Edge against the actual 300-metric dropdown in Original, Teal, and Charcoal and attach the visual result. Once that required primary gate passes, run the blocking code-simplifier routine, then the blocking code-review routine, resolve any findings, rerun affected evidence, and close Sprint 1. The broader responsive run’s mobile Theme Settings timeout is recorded in `/tmp/lenslet-browser-continuity-responsive.json`; the legacy overall-cleanup focused-control failure is unrelated to this slice and must not be relabeled as passing. Do not treat the Sprint 3 200-millisecond value as a performance promise; tune it only from the real painted-frame scenario.
+
+Iteration 4 handoff is unchanged because the blocker is external: attach the three-theme native Windows 11 Edge result before starting cleanup, review, or any Sprint 2 work.
 
 Revision note: 2026-07-18 initial draft incorporates the user’s post-investigation scope decisions and replaces speculative source-aware loading prediction with a minimal actual-latency grace/loading state machine. Adversarial review then narrowed shared-media and routing work, distinguished Chromium proxies from the required Windows Edge visual check, made failure-frame semantics explicit, and reduced combinatorial browser coverage to representative live paths plus focused wiring tests.

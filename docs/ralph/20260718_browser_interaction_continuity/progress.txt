@@ -28,3 +28,5 @@ Validations:
 Blocker: this Linux workspace cannot produce the mandatory native Windows 11 Edge visual result for the actual 300-metric dropdown in Original, Teal, and Charcoal. Chromium computed styling is explicitly insufficient under the plan, so Sprint 1 cannot close and the blocking code-simplifier/code-review gates have not started.
 
 Next step: record the three-theme Windows 11 Edge visual result. If it passes, run code-simplifier, then code-review, resolve findings, rerun affected validation, and close Sprint 1 before moving to Sprint 2.
+
+Implementation commit: `1f66ad0` (`feat: stabilize browse controls and layout`).

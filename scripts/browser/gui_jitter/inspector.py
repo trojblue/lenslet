@@ -58,6 +58,7 @@ REQUIRED_INSPECTOR_SURFACES = (
 INSPECTOR_SENTINELS = {
     QUICK_ZERO_PATH: ("quick_00_meta.png", "alpha prompt", "notes-00_meta", "tag-00_meta"),
     QUICK_ONE_PATH: ("quick_01_meta.png", "beta prompt", "notes-01_meta", "tag-01_meta"),
+    QUICK_THREE_PATH: ("quick_03_meta.png", "gamma prompt", "notes-03_meta", "tag-03_meta"),
 }
 TRACKED_REQUEST_PATHS = {"/item", "/item/detail", "/metadata"}
 RequestIdentity = tuple[str, str, str]
@@ -345,7 +346,91 @@ def summarize_inspector_trace(trace: dict[str, Any], max_delta_px: float) -> dic
         required_surfaces=REQUIRED_INSPECTOR_SURFACES,
         sentinels_by_path=INSPECTOR_SENTINELS,
         max_delta_px=max_delta_px,
+        fallback_texts=(
+            "Loading inspector...",
+            "Inspector could not load.",
+            "PNG metadata not loaded yet.",
+            "Load meta",
+        ),
     )
+
+
+def summarize_metadata_loading_timing(
+    trace: dict[str, Any],
+    *,
+    action_id: str,
+    minimum_delay_ms: float,
+    expect_delayed_copy: bool,
+    settled_text: str | None = None,
+    include_text_samples: bool = False,
+) -> dict[str, Any]:
+    frames = trace.get("frames")
+    markers = trace.get("markers")
+    if not isinstance(frames, list) or not isinstance(markers, list):
+        return {"violations": ["metadata timing trace is malformed"]}
+    marker = next(
+        (
+            candidate
+            for candidate in markers
+            if isinstance(candidate, dict) and candidate.get("actionId") == action_id
+        ),
+        None,
+    )
+    if not isinstance(marker, dict):
+        return {"violations": [f"metadata timing marker {action_id!r} is absent"]}
+    started_at = float(marker.get("startedAt") or 0)
+    loading_offsets: list[float] = []
+    forbidden_frames = 0
+    matching_frames = 0
+    settled: bool | None = None if settled_text is None else False
+    text_samples: list[dict[str, Any]] = []
+    for frame in frames:
+        if not isinstance(frame, dict) or not isinstance(frame.get("marker"), dict):
+            continue
+        if frame["marker"].get("actionId") != action_id:
+            continue
+        matching_frames += 1
+        surfaces = frame.get("surfaces")
+        metadata = surfaces.get("metadata") if isinstance(surfaces, dict) else None
+        text = str(metadata.get("text") or "") if isinstance(metadata, dict) else ""
+        offset_ms = float(frame.get("timestamp") or 0) - started_at
+        if not text_samples or text_samples[-1]["text"] != text:
+            text_samples.append({"offset_ms": offset_ms, "text": text})
+        if "PNG metadata not loaded yet." in text or "Load meta" in text:
+            forbidden_frames += 1
+        if "Loading metadata" in text or "Loading…" in text:
+            loading_offsets.append(offset_ms)
+        if settled_text is not None and settled_text in text and "Copy" in text:
+            settled = True
+    violations: list[str] = []
+    if not matching_frames:
+        violations.append(f"metadata timing action {action_id!r} has no painted frames")
+    if forbidden_frames:
+        violations.append(
+            f"autoload-on metadata painted idle fallback in {forbidden_frames} frames"
+        )
+    if expect_delayed_copy and not loading_offsets:
+        violations.append("slow metadata transition never painted delayed neutral loading copy")
+    elif loading_offsets and min(loading_offsets) < minimum_delay_ms:
+        violations.append(
+            f"metadata loading copy painted at {min(loading_offsets):.3f}ms before "
+            f"the {minimum_delay_ms:.0f}ms delay"
+        )
+    elif not expect_delayed_copy and loading_offsets:
+        violations.append("fast or superseded metadata transition painted loading copy")
+    if settled is False:
+        violations.append("slow metadata transition never painted settled target content")
+    return {
+        "action_id": action_id,
+        "expect_delayed_copy": expect_delayed_copy,
+        "minimum_delay_ms": minimum_delay_ms,
+        "first_loading_copy_ms": min(loading_offsets) if loading_offsets else None,
+        "forbidden_idle_frames": forbidden_frames,
+        "settled_target_painted": settled,
+        "frame_count": matching_frames,
+        "text_samples": text_samples if include_text_samples else [],
+        "violations": violations,
+    }
 
 
 FETCH_DELAY_INIT_SCRIPT = """(() => {
@@ -365,7 +450,7 @@ FETCH_DELAY_INIT_SCRIPT = """(() => {
         '/quick_00_meta.png': 320,
         '/quick_01_meta.png': 45,
         '/quick_02_plain.png': 180,
-        '/quick_03_meta.png': 260,
+        '/quick_03_meta.png': 1250,
       };
       delayMs = metadataDelays[targetPath] || 100;
     }
@@ -716,6 +801,7 @@ def exercise_selection_continuity(
     browser_timeout_ms: float,
 ) -> dict[str, Any]:
     context = browser.new_context(viewport={"width": 1280, "height": 900})
+    context.add_init_script(FETCH_DELAY_INIT_SCRIPT)
     try:
         page = context.new_page()
         page.set_default_timeout(browser_timeout_ms)
@@ -730,9 +816,40 @@ def exercise_selection_continuity(
             phase="selection",
             selectors=INSPECTOR_TRACE_SELECTORS,
         )
+        mark_and_click(
+            page,
+            action_id="selection-superseded-slow",
+            expected_path=QUICK_THREE_PATH,
+            selector=f'[id="cell-{quote(QUICK_THREE_PATH, safe="")}"]',
+        )
+        page.wait_for_function(
+            """() => (document.querySelector('.inspector-preview-block [title]')?.textContent || '').includes('quick_03_meta.png')""",
+            timeout=browser_timeout_ms,
+        )
+        wait_for_request_count(
+            page,
+            requests,
+            "selection",
+            method="GET",
+            pathname="/metadata",
+            expected=1,
+            browser_timeout_ms=browser_timeout_ms,
+        )
+        page.wait_for_timeout(200)
+        mark_and_click(
+            page,
+            action_id="selection-superseding-fast",
+            expected_path=QUICK_ONE_PATH,
+            selector=f'[id="cell-{quote(QUICK_ONE_PATH, safe="")}"]',
+        )
+        wait_for_inspector_hydrated(page, QUICK_ONE_PATH, browser_timeout_ms)
+        page.wait_for_timeout(1_150)
         request_windows: list[dict[str, Any]] = []
-        for index in range(20):
-            path = QUICK_ZERO_PATH if index % 2 == 0 else QUICK_ONE_PATH
+        paths = [QUICK_THREE_PATH] + [
+            QUICK_ZERO_PATH if index % 2 == 0 else QUICK_ONE_PATH
+            for index in range(19)
+        ]
+        for index, path in enumerate(paths):
             selector = f'[id="cell-{quote(path, safe="")}"]'
             before_record_count = len(requests.phase_records("selection"))
             mark_and_click(
@@ -788,6 +905,43 @@ def exercise_selection_continuity(
             )
         trace = stop_painted_frame_trace(page)
         summary = summarize_inspector_trace(trace, max_delta_px)
+        metadata_loading_timings = [
+            summarize_metadata_loading_timing(
+                trace,
+                action_id="selection-superseded-slow",
+                minimum_delay_ms=1_000.0,
+                expect_delayed_copy=False,
+            ),
+            summarize_metadata_loading_timing(
+                trace,
+                action_id="selection-superseding-fast",
+                minimum_delay_ms=1_000.0,
+                expect_delayed_copy=False,
+            ),
+            summarize_metadata_loading_timing(
+                trace,
+                action_id="selection-1",
+                minimum_delay_ms=1_000.0,
+                expect_delayed_copy=True,
+                settled_text="gamma-model",
+                include_text_samples=True,
+            ),
+            *(
+                summarize_metadata_loading_timing(
+                    trace,
+                    action_id=f"selection-{index}",
+                    minimum_delay_ms=1_000.0,
+                    expect_delayed_copy=False,
+                )
+                for index in range(2, 21)
+            ),
+        ]
+        summary["metadata_loading_timings"] = metadata_loading_timings
+        for timing in metadata_loading_timings:
+            summary["violations"].extend(
+                f"{timing['action_id']}: {violation}"
+                for violation in timing["violations"]
+            )
         request_summary = summarize_requests(requests, "selection")
         summary["requests"] = request_summary
         summary["request_windows"] = request_windows

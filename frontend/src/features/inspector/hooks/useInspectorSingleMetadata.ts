@@ -16,6 +16,7 @@ type UseInspectorSingleMetadataResult = {
   metaRaw: MetadataRecord
   metaError: string | null
   metaState: MetadataState
+  showMetadataLoadingCopy: boolean
   showPilInfo: boolean
   setMetaError: Dispatch<SetStateAction<string | null>>
   setShowPilInfo: Dispatch<SetStateAction<boolean>>
@@ -39,19 +40,28 @@ const EMPTY_SINGLE_METADATA_VIEW: SingleMetadataView = {
   showPilInfo: false,
 }
 
+export const METADATA_LOADING_COPY_DELAY_MS = 1_000
+
 export function projectSingleMetadataSnapshot(
   snapshot: SingleMetadataSnapshot,
   activeContextKey: string | null,
+  autoloadMetadata = false,
 ): SingleMetadataView {
   if (snapshot.contextKey !== activeContextKey) {
-    return EMPTY_SINGLE_METADATA_VIEW
+    return autoloadMetadata && activeContextKey
+      ? { ...EMPTY_SINGLE_METADATA_VIEW, metaState: 'loading' }
+      : EMPTY_SINGLE_METADATA_VIEW
   }
-  return {
+  const projected = {
     metaRaw: snapshot.metaRaw,
     metaError: snapshot.metaError,
     metaState: snapshot.metaState,
     showPilInfo: snapshot.showPilInfo,
   }
+  if (autoloadMetadata && activeContextKey && projected.metaState === 'idle') {
+    projected.metaState = 'loading'
+  }
+  return projected
 }
 
 export function useInspectorSingleMetadata({
@@ -62,6 +72,7 @@ export function useInspectorSingleMetadata({
   const [metaError, setMetaError] = useState<string | null>(null)
   const [metaState, setMetaState] = useState<MetadataState>('idle')
   const [showPilInfo, setShowPilInfo] = useState(false)
+  const [loadingCopyContextKey, setLoadingCopyContextKey] = useState<string | null>(null)
   const metadataContextKey = buildSingleMetadataContextKey(path)
   const [metaContextKey, setMetaContextKey] = useState<string | null>(metadataContextKey)
   const metaRequestIdRef = useRef(0)
@@ -133,12 +144,24 @@ export function useInspectorSingleMetadata({
       showPilInfo,
     },
     metadataContextKey,
+    autoloadMetadata,
   )
+
+  useEffect(() => {
+    setLoadingCopyContextKey(null)
+    if (projected.metaState !== 'loading' || !metadataContextKey) return
+    const timeoutId = window.setTimeout(() => {
+      setLoadingCopyContextKey(metadataContextKey)
+    }, METADATA_LOADING_COPY_DELAY_MS)
+    return () => window.clearTimeout(timeoutId)
+  }, [metadataContextKey, projected.metaState])
 
   return {
     metaRaw: projected.metaRaw,
     metaError: projected.metaError,
     metaState: projected.metaState,
+    showMetadataLoadingCopy: projected.metaState === 'loading'
+      && loadingCopyContextKey === metadataContextKey,
     showPilInfo: projected.showPilInfo,
     setMetaError,
     setShowPilInfo,

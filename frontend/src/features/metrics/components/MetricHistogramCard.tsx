@@ -135,8 +135,9 @@ export default function MetricHistogramCard({
 
   const selectedCount = selectedValues.length
   const populationMaxBin = Math.max(1, ...population.bins)
+  const footerInfo = histogramFooterInfo(displayRange, domain, hoverValue)
   return (
-    <div className="ui-card">
+    <div className="ui-card" data-metric-histogram-card={metricKey}>
       {showTitle && (
         <div className="ui-section-title mb-2">{displayLabel}</div>
       )}
@@ -177,27 +178,19 @@ export default function MetricHistogramCard({
           dashed: true,
         })}
       </svg>
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted mt-2 tabular-nums">
-        <span>{formatNumber(domain.min)}</span>
-        <div className="flex min-w-0 flex-1 flex-col items-center text-center leading-tight">
-          {displayRange ? (
-            <span className="text-text">
-              {isApprox(displayRange.min, domain.min)
-                ? `≤ ${formatNumber(displayRange.max)}`
-                : isApprox(displayRange.max, domain.max)
-                  ? `≥ ${formatNumber(displayRange.min)}`
-                  : `${formatNumber(displayRange.min)} – ${formatNumber(displayRange.max)}`}
-            </span>
-          ) : hoverValue != null ? (
-            <span className="text-text">Cursor: {formatNumber(hoverValue)}</span>
-          ) : (
-            <span>Drag to filter</span>
-          )}
-          {displayRange && hoverValue != null && (
-            <span className="text-[11px] text-muted">Cursor: {formatNumber(hoverValue)}</span>
-          )}
-        </div>
-        <span>{formatNumber(domain.max)}</span>
+      <div
+        className="flex h-4 items-center justify-between gap-2 text-[11px] text-muted mt-2 tabular-nums whitespace-nowrap"
+        data-histogram-footer
+      >
+        <span className="shrink-0">{formatNumber(domain.min)}</span>
+        <span
+          className={`min-w-0 flex-1 truncate text-center ${footerInfo.emphasized ? 'text-text' : ''}`}
+          title={footerInfo.text}
+          aria-label={footerInfo.text}
+        >
+          {footerInfo.text}
+        </span>
+        <span className="shrink-0">{formatNumber(domain.max)}</span>
       </div>
       <div className="grid grid-cols-2 gap-2 mt-3 items-end">
         <div>
@@ -243,14 +236,38 @@ export default function MetricHistogramCard({
           />
         </div>
         <button
-          className="btn btn-xs btn-ghost text-muted hover:text-text col-span-2 justify-self-start"
+          className={`btn btn-xs btn-ghost text-muted hover:text-text col-span-2 justify-self-start ${activeRange ? '' : 'invisible'}`}
           onClick={() => onChangeRange(metricKey, null)}
+          disabled={!activeRange}
+          aria-hidden={!activeRange}
+          data-card-action="clear"
         >
           Clear
         </button>
       </div>
     </div>
   )
+}
+
+function histogramFooterInfo(
+  displayRange: Range | null,
+  domain: { min: number; max: number },
+  hoverValue: number | null,
+): { text: string; emphasized: boolean } {
+  if (!displayRange) {
+    return hoverValue == null
+      ? { text: 'Drag to filter', emphasized: false }
+      : { text: `Cursor: ${formatNumber(hoverValue)}`, emphasized: true }
+  }
+  const rangeText = isApprox(displayRange.min, domain.min)
+    ? `≤ ${formatNumber(displayRange.max)}`
+    : isApprox(displayRange.max, domain.max)
+      ? `≥ ${formatNumber(displayRange.min)}`
+      : `${formatNumber(displayRange.min)} – ${formatNumber(displayRange.max)}`
+  return {
+    text: hoverValue == null ? rangeText : `${rangeText} · Cursor: ${formatNumber(hoverValue)}`,
+    emphasized: true,
+  }
 }
 
 function renderBars(

@@ -1,0 +1,14 @@
+# Ralph Progress Log
+Started: 2026-07-18T13:27:35Z
+Mode: plan
+Tool: codex
+Repo: /fsx/yada/dev/lenslet
+Plan: /fsx/yada/dev/lenslet/docs/20260718_frontend_ui_stability_execution_plan.md
+---
+Iteration 1 — 2026-07-18T13:27:35Z
+- Completed tasks: S1-T1, S1-T2, S1-T3, S1-T4.
+- Files changed: `docs/DESIGN_SYSTEM.md`; the canonical plan; metrics cards and focused tests; Inspector metadata hook/section and focused tests; `scripts/browser/gui_jitter/{fixtures,metrics,inspector,probe}.py`; regenerated `src/lenslet/frontend/` assets.
+- Validation passed: focused Vitest (23 assertions); full frontend Vitest (109 files, 592 tests); `npx tsc --noEmit`; painted-frame/browser-helper pytest (56 tests); metrics probe (1,585 rows, 0px maximum anchor delta, 16px no-wrap footer, apply/clear covered); final Inspector probe (22 timed transitions, 0 false-idle frames, delayed copy first at 1,013.7ms, 0px anchor delta); default GUI acceptance; `npm run build` plus `rsync`; `python scripts/lint_repo.py`; `git diff --check`.
+- Cleanup/review: code-simplifier removed one dead derivation and one duplicate calculation (-3 LOC). Adversarial review found no high/critical product defect; its evidence and handoff findings were resolved and affected probes rerun green.
+- Blockers: none. Known pending `Filtered: 0` is intentionally deferred to S2-T3 behind S2-T1 atomic browse ownership.
+- Next step: Sprint 2, beginning with S2-T1 only.

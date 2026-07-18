@@ -1,0 +1,10 @@
+{
+  "mode": "plan",
+  "tool": "codex",
+  "maxIterations": 10,
+  "maxTasksPerIteration": 6,
+  "planFile": "/fsx/yada/dev/lenslet/docs/20260718_frontend_ui_stability_execution_plan.md",
+  "prdFile": "prd.json",
+  "progressFile": "progress.txt",
+  "sharedDir": "../shared"
+}

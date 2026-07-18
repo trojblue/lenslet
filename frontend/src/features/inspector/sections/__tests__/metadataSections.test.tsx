@@ -190,6 +190,7 @@ describe('inspector metadata section rendering', () => {
         onToggle={noop}
         metadataLoading={false}
         metadataActionLabel="Copy"
+        metadataActionAriaLabel="Copy metadata"
         onMetadataAction={noop}
         metadataActionDisabled={false}
         hasPilInfo

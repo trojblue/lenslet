@@ -213,6 +213,7 @@ export default function Inspector({
     metaRaw,
     metaError,
     metaState,
+    showMetadataLoadingCopy,
     showPilInfo,
     setMetaError,
     setShowPilInfo,
@@ -493,7 +494,7 @@ export default function Inspector({
 
   let metaContent = metaDisplayValue ? '' : 'PNG metadata not loaded yet.'
   if (metaState === 'loading') {
-    metaContent = 'Loading metadata…'
+    metaContent = showMetadataLoadingCopy ? 'Loading metadata…' : ''
   } else if (metaState === 'error' && metaError) {
     metaContent = metaError
   }
@@ -502,10 +503,11 @@ export default function Inspector({
   const metaHeightClass = path && autoloadImageMetadata ? 'h-48' : (metaLoaded ? 'h-48' : 'h-24')
   let metadataActionLabel = 'Load meta'
   if (metadataLoading) {
-    metadataActionLabel = 'Loading…'
+    metadataActionLabel = showMetadataLoadingCopy ? 'Loading…' : '\u00a0'
   } else if (metaLoaded) {
     metadataActionLabel = metaCopied ? 'Copied' : 'Copy'
   }
+  const metadataActionAriaLabel = metadataLoading ? 'Loading metadata' : metadataActionLabel
   const handleMetadataAction = metaLoaded ? copyMetadata : fetchMetadata
 
   const hasPilInfo = hasPilInfoMetadata(metaRaw)
@@ -671,6 +673,7 @@ export default function Inspector({
       sortableEnabled: true,
       metadataLoading,
       metadataActionLabel,
+      metadataActionAriaLabel,
       onMetadataAction: handleMetadataAction,
       metadataActionDisabled: !path,
       hasPilInfo,

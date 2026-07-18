@@ -17,6 +17,7 @@ if __name__ == "__main__" and not __package__:
 from scripts.browser.gui_jitter.fixtures import build_fixture_dataset as _build_fixture_dataset
 from scripts.browser.gui_jitter.grid import GridProbeConfig, run_grid_probe
 from scripts.browser.gui_jitter.inspector import run_inspector_probe
+from scripts.browser.gui_jitter.metrics import run_metrics_probe
 from scripts.browser.gui_jitter.toolbar import run_toolbar_probe
 from scripts.browser.gui_jitter.shared import (
     build_base_url as _build_base_url,
@@ -35,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run UI jitter probe scenarios.")
     parser.add_argument(
         "--scenario",
-        choices=["toolbar", "grid", "inspector"],
+        choices=["toolbar", "grid", "inspector", "metrics"],
         required=True,
         help="Probe scenario to execute.",
     )
@@ -124,11 +125,15 @@ def main() -> int:
 
     port = choose_port(args.host, args.port)
     base_url = _build_base_url(args.host, port)
+    source_path = dataset_dir / "metrics_items.parquet" if args.scenario == "metrics" else dataset_dir
+    extra_args = ["--verbose"]
+    if args.scenario == "metrics":
+        extra_args.extend(["--source-column", "source", "--base-dir", str(dataset_dir)])
     process = launch_lenslet(
-        dataset_dir,
+        source_path,
         host=args.host,
         port=port,
-        extra_args=["--verbose"],
+        extra_args=extra_args,
         cwd=Path(__file__).resolve().parents[1],
     )
 
@@ -152,8 +157,10 @@ def main() -> int:
                     metric_filter_max=args.metric_filter_max,
                 )
             )
-        else:
+        elif args.scenario == "inspector":
             result = run_inspector_probe(base_url, args.max_delta_px, args.browser_timeout_ms)
+        else:
+            result = run_metrics_probe(base_url, args.max_delta_px, args.browser_timeout_ms)
 
         summary = {
             "status": "passed",

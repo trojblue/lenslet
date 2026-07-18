@@ -13,6 +13,8 @@ from PIL import Image, PngImagePlugin
 
 from scripts.browser.gui_jitter.shared import write_bytes_atomic, write_json_atomic
 
+METRICS_FIXTURE_ROW_COUNT = 1_585
+
 
 def build_fixture_dataset(root: Path) -> None:
     payload = jpeg_payload()
@@ -20,6 +22,7 @@ def build_fixture_dataset(root: Path) -> None:
         write_image(root / f"sample_{idx:03d}.jpg", payload)
     build_inspector_fixture_images(root)
     write_fixture_items_parquet(root)
+    write_metrics_fixture_parquet(root)
     write_fixture_labels_snapshot(root)
 
 
@@ -120,6 +123,20 @@ def write_fixture_items_parquet(root: Path) -> None:
         )
     table = pa.Table.from_pylist(rows)
     pq.write_table(table, root / "items.parquet")
+
+
+def write_metrics_fixture_parquet(root: Path) -> None:
+    source = str((root / "sample_000.jpg").resolve())
+    rows = [
+        {
+            "path": f"metrics/item_{idx:04d}.jpg",
+            "source": source,
+            "quality_score": idx / (METRICS_FIXTURE_ROW_COUNT - 1),
+            "dataset_from": "gt" if idx % 2 == 0 else "synthetic",
+        }
+        for idx in range(METRICS_FIXTURE_ROW_COUNT)
+    ]
+    pq.write_table(pa.Table.from_pylist(rows), root / "metrics_items.parquet")
 
 
 def jpeg_payload() -> bytes:

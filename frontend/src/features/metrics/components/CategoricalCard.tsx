@@ -46,7 +46,7 @@ export default function CategoricalCard({
   }
 
   return (
-    <div className="ui-card">
+    <div className="ui-card" data-categorical-card={categoricalKey}>
       {showTitle && <div className="ui-section-title mb-2">{categoricalKey}</div>}
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted mb-2 tabular-nums">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -56,12 +56,6 @@ export default function CategoricalCard({
         </div>
         <span>{buckets.length} value{buckets.length === 1 ? '' : 's'}</span>
       </div>
-      {activeValues.length > 0 && (
-        <div className="mb-2 text-[11px] text-text min-w-0">
-          <span className="text-muted">Active: </span>
-          <span className="break-words">{activeValues.join(', ')}</span>
-        </div>
-      )}
       <div className="space-y-1 max-h-72 overflow-auto scrollbar-thin pr-1">
         {buckets.map((bucket) => {
           const active = activeSet.has(bucket.value)
@@ -93,14 +87,15 @@ export default function CategoricalCard({
           )
         })}
       </div>
-      {activeValues.length > 0 && (
-        <button
-          className="btn btn-xs btn-ghost text-muted hover:text-text mt-3"
-          onClick={() => onChangeValues(categoricalKey, null)}
-        >
-          Clear
-        </button>
-      )}
+      <button
+        className={`btn btn-xs btn-ghost text-muted hover:text-text mt-3 ${activeValues.length ? '' : 'invisible'}`}
+        onClick={() => onChangeValues(categoricalKey, null)}
+        disabled={!activeValues.length}
+        aria-hidden={!activeValues.length}
+        data-card-action="clear"
+      >
+        Clear
+      </button>
     </div>
   )
 }

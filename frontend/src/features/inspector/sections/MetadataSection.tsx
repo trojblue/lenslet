@@ -9,6 +9,7 @@ interface MetadataSectionProps {
   onToggle: () => void
   metadataLoading: boolean
   metadataActionLabel: string
+  metadataActionAriaLabel: string
   onMetadataAction: () => void
   metadataActionDisabled: boolean
   hasPilInfo: boolean
@@ -30,6 +31,7 @@ function MetadataSectionComponent({
   onToggle,
   metadataLoading,
   metadataActionLabel,
+  metadataActionAriaLabel,
   onMetadataAction,
   metadataActionDisabled,
   hasPilInfo,
@@ -59,6 +61,7 @@ function MetadataSectionComponent({
         className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[78px]"
         onClick={onMetadataAction}
         disabled={metadataActionDisabled || metadataLoading}
+        aria-label={metadataActionAriaLabel}
       >
         {metadataActionLabel}
       </button>

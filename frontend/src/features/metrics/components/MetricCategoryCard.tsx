@@ -24,9 +24,6 @@ export default function MetricCategoryCard({
   showFilteredCounts = true,
 }: MetricCategoryCardProps) {
   const activeRange = getMetricRangeFilter(filters, metricKey)
-  const activeCategories = activeRange
-    ? categories.filter((category) => categoryInRange(category.code, activeRange))
-    : []
   const populationCount = categories.reduce((sum, category) => sum + category.populationCount, 0)
   const filteredCount = categories.reduce((sum, category) => sum + category.filteredCount, 0)
   const selectedCount = categories.reduce((sum, category) => sum + category.selectedCount, 0)
@@ -43,7 +40,7 @@ export default function MetricCategoryCard({
   }
 
   return (
-    <div className="ui-card">
+    <div className="ui-card" data-metric-category-card={metricKey}>
       {showTitle && <div className="ui-section-title mb-2">{displayLabel}</div>}
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted mb-2 tabular-nums">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -53,12 +50,6 @@ export default function MetricCategoryCard({
         </div>
         <span>{categories.length} class{categories.length === 1 ? '' : 'es'}</span>
       </div>
-      {activeCategories.length > 0 && (
-        <div className="mb-2 text-[11px] text-text min-w-0">
-          <span className="text-muted">Active: </span>
-          <span className="break-words">{activeCategories.map((category) => category.label).join(', ')}</span>
-        </div>
-      )}
       <div className="space-y-1 max-h-72 overflow-auto scrollbar-thin pr-1">
         {categories.map((category) => {
           const active = activeRange ? categoryInRange(category.code, activeRange) : false
@@ -91,14 +82,15 @@ export default function MetricCategoryCard({
           )
         })}
       </div>
-      {activeRange && (
-        <button
-          className="btn btn-xs btn-ghost text-muted hover:text-text mt-3"
-          onClick={() => onChangeRange(metricKey, null)}
-        >
-          Clear
-        </button>
-      )}
+      <button
+        className={`btn btn-xs btn-ghost text-muted hover:text-text mt-3 ${activeRange ? '' : 'invisible'}`}
+        onClick={() => onChangeRange(metricKey, null)}
+        disabled={!activeRange}
+        aria-hidden={!activeRange}
+        data-card-action="clear"
+      >
+        Clear
+      </button>
     </div>
   )
 }

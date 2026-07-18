@@ -86,7 +86,7 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
   }
 
   return (
-    <div className="ui-card">
+    <div className="ui-card" data-attributes-card>
       <div className="ui-section-title mb-3">Attributes</div>
       <div className="space-y-3">
         <div>

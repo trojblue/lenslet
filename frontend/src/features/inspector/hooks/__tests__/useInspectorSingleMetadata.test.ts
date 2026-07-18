@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { projectSingleMetadataSnapshot } from '../useInspectorSingleMetadata'
+import {
+  METADATA_LOADING_COPY_DELAY_MS,
+  projectSingleMetadataSnapshot,
+} from '../useInspectorSingleMetadata'
 
 describe('projectSingleMetadataSnapshot', () => {
   it('returns the active snapshot when context keys match', () => {
@@ -40,5 +43,30 @@ describe('projectSingleMetadataSnapshot', () => {
       metaState: 'idle',
       showPilInfo: false,
     })
+  })
+
+  it('projects target-owned pending synchronously for autoload context changes', () => {
+    const projected = projectSingleMetadataSnapshot(
+      {
+        contextKey: '/images/a.png',
+        metaRaw: { quick_view_defaults: { prompt: 'stale prompt' } },
+        metaError: null,
+        metaState: 'loaded',
+        showPilInfo: true,
+      },
+      '/images/b.png',
+      true,
+    )
+
+    expect(projected).toEqual({
+      metaRaw: null,
+      metaError: null,
+      metaState: 'loading',
+      showPilInfo: false,
+    })
+  })
+
+  it('keeps the approved metadata loading-copy delay explicit', () => {
+    expect(METADATA_LOADING_COPY_DELAY_MS).toBe(1_000)
   })
 })

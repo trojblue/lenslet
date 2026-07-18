@@ -17,9 +17,10 @@ type UseSimilaritySearchWorkflowParams = {
 }
 
 type UseSimilaritySearchWorkflowResult = {
+  cancelPendingSimilaritySearch: () => void
   clearSimilarity: () => void
   handleRevealOffView: () => void
-  handleSimilaritySearch: (payload: EmbeddingSearchRequest) => Promise<void>
+  handleSimilaritySearch: (payload: EmbeddingSearchRequest) => Promise<boolean>
 }
 
 export function similarityOwnerKey(scopePath: string, sessionResetToken: number): string {
@@ -57,6 +58,10 @@ export function useSimilaritySearchWorkflow({
     similarityPrevSelectionRef.current = null
   }, [activeOwnerKey])
 
+  const cancelPendingSimilaritySearch = useCallback(() => {
+    latestRequestIdRef.current += 1
+  }, [])
+
   const clearSimilarity = useCallback(() => {
     latestRequestIdRef.current += 1
     setSimilarityState(null)
@@ -79,9 +84,9 @@ export function useSimilaritySearchWorkflow({
   }, [clearSimilarity, setQuery, setViewState, similarityState])
 
   const handleSimilaritySearch = useCallback(async (payload: EmbeddingSearchRequest) => {
-    if (!similarityState && similarityPrevSelectionRef.current === null) {
-      similarityPrevSelectionRef.current = selectedPaths
-    }
+    const selectionBeforeRequest = !similarityState && similarityPrevSelectionRef.current === null
+      ? [...selectedPaths]
+      : null
     const requestId = latestRequestIdRef.current + 1
     latestRequestIdRef.current = requestId
     const requestOwnerKey = activeOwnerKey
@@ -91,7 +96,10 @@ export function useSimilaritySearchWorkflow({
       requestId,
       latestOwnerKeyRef.current,
       latestRequestIdRef.current,
-    )) return
+    )) return false
+    if (selectionBeforeRequest !== null && similarityPrevSelectionRef.current === null) {
+      similarityPrevSelectionRef.current = selectionBeforeRequest
+    }
     const queryPath = payload.query.kind === 'path' ? payload.query.path : null
     const queryVector = payload.query.kind === 'vector' ? payload.query.vector_b64 : null
     setSimilarityState({
@@ -114,6 +122,7 @@ export function useSimilaritySearchWorkflow({
     } else {
       setSelectedPaths([])
     }
+    return true
   }, [
     bumpRestoreGridToSelectionToken,
     activeOwnerKey,
@@ -126,6 +135,7 @@ export function useSimilaritySearchWorkflow({
   ])
 
   return {
+    cancelPendingSimilaritySearch,
     clearSimilarity,
     handleRevealOffView,
     handleSimilaritySearch,

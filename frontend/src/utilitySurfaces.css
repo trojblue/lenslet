@@ -1,0 +1,138 @@
+.tree-row-count {
+  width: 7ch;
+  flex: 0 0 7ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-row-action-placeholder {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tree-child-state {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+  font-size: 12px;
+}
+
+.folder-tree-scroll,
+.inspector-panel {
+  scrollbar-gutter: stable;
+}
+
+.sync-indicator-count {
+  width: 3ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sync-indicator-local {
+  width: 7ch;
+  overflow: hidden;
+  text-align: left;
+}
+
+.sync-indicator-local[data-active="false"],
+.sync-indicator-typing-line[data-active="false"] {
+  visibility: hidden;
+}
+
+.sync-indicator-card {
+  width: min(260px, calc(100vw - 24px));
+  min-width: 0;
+  max-width: none;
+  animation: none;
+}
+
+.sync-indicator-item-time {
+  width: 7ch;
+  flex: 0 0 7ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.toolbar-count {
+  flex: 0 0 18ch;
+  width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.dropdown-item-check {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 14px;
+}
+
+.context-menu-panel {
+  width: 280px;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.context-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.similarity-modal-shell {
+  height: min(640px, calc(100dvh - 32px));
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.similarity-modal-header,
+.similarity-modal-footer {
+  flex: 0 0 auto;
+}
+
+.similarity-modal-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.similarity-modal-query {
+  min-height: 156px;
+}
+
+.similarity-modal-status {
+  min-height: 52px;
+}
+
+.theme-settings-menu-panel {
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.app-right-panel .quick-view-label,
+.app-right-panel .quick-view-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-right-panel .quick-view-value {
+  max-height: none;
+}
+
+@media (pointer: coarse) {
+  .tree-child-state {
+    min-height: 44px;
+  }
+}

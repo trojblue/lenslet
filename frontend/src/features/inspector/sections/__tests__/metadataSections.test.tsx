@@ -291,6 +291,8 @@ describe('inspector metadata section rendering', () => {
     expect(html).toContain('Prompt')
     expect(html).toContain('quick_fields.parameters')
     expect(html).toContain('character portrait')
+    expect(html).toContain('class="ui-kv-value quick-view-value')
+    expect(html).toContain('title="character portrait"')
     expect(html).toContain('Prompt copied')
     expect(html).toContain('aria-label="Copy Prompt"')
     expect(html).toContain('Custom JSON paths')

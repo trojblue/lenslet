@@ -112,8 +112,14 @@ export default function SyncIndicator({
         {!isNarrow && (
           <span className="sync-indicator-count tabular-nums">{viewingLabel}</span>
         )}
-        {!isNarrow && localTypingActive && (
-          <span className="sync-indicator-local">typing…</span>
+        {!isNarrow && (
+          <span
+            className="sync-indicator-local"
+            data-active={localTypingActive}
+            aria-hidden={!localTypingActive}
+          >
+            {localTypingActive ? 'typing…' : '\u00a0'}
+          </span>
         )}
       </button>
       {open && (
@@ -124,11 +130,13 @@ export default function SyncIndicator({
           <div className="sync-indicator-line sync-indicator-muted">
             {hasEdits ? `Last edited: ${lastEditedLabel}` : 'No edits yet.'}
           </div>
-          {localTypingActive && (
-            <div className="sync-indicator-line sync-indicator-muted">
-              Local typing in progress (saved on blur).
-            </div>
-          )}
+          <div
+            className="sync-indicator-line sync-indicator-muted sync-indicator-typing-line"
+            data-active={localTypingActive}
+            aria-hidden={!localTypingActive}
+          >
+            {localTypingActive ? 'Local typing in progress (saved on blur).' : '\u00a0'}
+          </div>
           <div className="sync-indicator-section">
             <div className="sync-indicator-section-title">Recently touched files</div>
             {recentTouches.length > 0 ? (
@@ -143,7 +151,10 @@ export default function SyncIndicator({
                     >
                       {entry.label}
                     </button>
-                    <span className="sync-indicator-item-time tabular-nums">
+                    <span
+                      className="sync-indicator-item-time tabular-nums"
+                      title={copiedPath === entry.path ? 'Copied' : entry.timeLabel}
+                    >
                       {copiedPath === entry.path ? 'Copied' : entry.timeLabel}
                     </span>
                   </div>

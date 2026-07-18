@@ -182,7 +182,8 @@ export default function FolderTree({
   }, [handlePullRefresh, isPullRefreshing, onPullRefresh, pullDistance, resetPullState])
 
   const containerClass = className ?? 'h-full overflow-auto bg-panel scrollbar-thin'
-  const treeContainerClass = onPullRefresh ? `${containerClass} overscroll-y-contain` : containerClass
+  const stableContainerClass = `${containerClass} folder-tree-scroll`
+  const treeContainerClass = onPullRefresh ? `${stableContainerClass} overscroll-y-contain` : stableContainerClass
   const showPullIndicator = !!onPullRefresh && (isPullRefreshing || pullDistance > 0)
   const pullReady = pullDistance >= PULL_REFRESH_THRESHOLD
   const pullIndicatorHeight = isPullRefreshing ? 28 : Math.min(44, pullDistance)
@@ -265,7 +266,7 @@ function TreeNode({
   const isExpanded = expanded.has(path)
   const isActive = current === path
   const shouldFetchFolder = path === '/' || isExpanded || isActive
-  const { data } = useFolder(path, { enabled: shouldFetchFolder })
+  const { data, isError } = useFolder(path, { enabled: shouldFetchFolder })
   const folderPayload = initial && path === initial.path ? initial : data
   const hasFolderData = !!folderPayload
   const isLeaf = hasFolderData ? folderPayload.folders.length === 0 : false
@@ -354,12 +355,15 @@ function TreeNode({
           {isLeaf ? '•' : (isExpanded ? '▼' : '▶')}
         </button>
         <span className="flex-1 overflow-hidden truncate text-sm" title={label}>{middleTruncate(label, 28)}</span>
-        {subtreeCount !== null && (
-          <span className="text-[10px] opacity-50 bg-white/5 border border-white/5 rounded px-1.5 min-w-[24px] text-center">
-            {subtreeCount}
-          </span>
-        )}
-        {onOpenActions && (
+        <span
+          className="tree-row-count text-[10px] opacity-50 bg-white/5 border border-white/5 rounded px-1.5 text-center"
+          data-pending={subtreeCount === null}
+          title={subtreeCount === null ? 'Folder item count loading' : `${subtreeCount.toLocaleString()} items`}
+          aria-label={subtreeCount === null ? 'Folder item count loading' : `${subtreeCount.toLocaleString()} items`}
+        >
+          {subtreeCount === null ? '…' : subtreeCount.toLocaleString()}
+        </span>
+        {onOpenActions ? (
           <button
             type="button"
             className="tree-row-action-btn touch-manipulation"
@@ -374,8 +378,19 @@ function TreeNode({
               <circle cx="12" cy="19" r="1.5" />
             </svg>
           </button>
+        ) : (
+          <span className="tree-row-action-btn tree-row-action-placeholder" aria-hidden="true" />
         )}
       </div>
+      {isExpanded && !folderPayload && (
+        <div
+          className={`tree-child-state ${isError ? 'text-danger' : 'text-muted'}`}
+          style={{ paddingLeft: 8 + (depth + 1) * 14 }}
+          role={isError ? 'alert' : 'status'}
+        >
+          {isError ? 'Failed to load folders' : 'Loading folders…'}
+        </div>
+      )}
       {isExpanded && folderPayload?.folders?.map(d => (
         <TreeNode
           key={d.name}

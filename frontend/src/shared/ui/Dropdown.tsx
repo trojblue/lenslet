@@ -4,6 +4,7 @@ import {
   getDropdownPanelPosition,
   getVisibleViewportBounds,
   subscribeVisibleViewportChanges,
+  type MenuSide,
 } from '../../lib/menuPosition'
 import {
   filterDropdownOptions,
@@ -53,10 +54,12 @@ interface FloatingPanelPosition {
   x: number
   y: number
   ready: boolean
+  maxHeight: number | null
 }
 
 const NOOP_ON_OPEN_CHANGE = (_open: boolean) => {}
 const DEFAULT_SEARCH_THRESHOLD = 12
+const DROPDOWN_PANEL_MAX_HEIGHT_PX = 420
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 export function getDropdownPanelClassName(
@@ -67,7 +70,7 @@ export function getDropdownPanelClassName(
 }
 
 function getInitialPosition(): FloatingPanelPosition {
-  return { x: 0, y: 0, ready: false }
+  return { x: 0, y: 0, ready: false, maxHeight: null }
 }
 
 export default function Dropdown({
@@ -102,6 +105,7 @@ export default function Dropdown({
   const panelRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const itemRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const panelSideRef = useRef<MenuSide | null>(null)
   const [panelPosition, setPanelPosition] = useState<FloatingPanelPosition>(getInitialPosition)
 
   const flatOptions = useMemo(() => flattenDropdownOptions(options), [options])
@@ -141,18 +145,20 @@ export default function Dropdown({
     const anchorRect = anchor.getBoundingClientRect()
     const panelRect = panel.getBoundingClientRect()
     const panelWidth = forcedPanelWidth ?? panelRect.width ?? 180
-    const panelHeight = panelRect.height || panel.scrollHeight || 1
+    const panelHeight = Math.max(panel.scrollHeight, panelRect.height, 1)
     const next = getDropdownPanelPosition({
       anchorRect,
       menuSize: { width: panelWidth, height: panelHeight },
       viewport: getVisibleViewportBounds(),
       align,
+      preferredSide: panelSideRef.current ?? undefined,
     })
+    panelSideRef.current = next.side
 
     setPanelPosition((prev) => (
-      prev.x === next.x && prev.y === next.y && prev.ready
+      prev.x === next.x && prev.y === next.y && prev.maxHeight === next.availableHeight && prev.ready
         ? prev
-        : { x: next.x, y: next.y, ready: true }
+        : { x: next.x, y: next.y, ready: true, maxHeight: next.availableHeight }
     ))
   }, [align, forcedPanelWidth, open])
 
@@ -171,6 +177,7 @@ export default function Dropdown({
 
   useIsomorphicLayoutEffect(() => {
     if (!open) {
+      panelSideRef.current = null
       setPanelPosition(getInitialPosition())
       return
     }
@@ -195,6 +202,10 @@ export default function Dropdown({
 
     const onViewportChange = () => updatePanelPosition()
     const unsubscribeViewport = subscribeVisibleViewportChanges(onViewportChange)
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(updatePanelPosition)
+    if (panelRef.current) resizeObserver?.observe(panelRef.current)
 
     window.addEventListener('click', onClick)
     window.addEventListener('keydown', onEscape)
@@ -203,6 +214,7 @@ export default function Dropdown({
       window.removeEventListener('click', onClick)
       window.removeEventListener('keydown', onEscape)
       unsubscribeViewport()
+      resizeObserver?.disconnect()
     }
   }, [closeDropdown, open, updatePanelPosition])
 
@@ -352,11 +364,13 @@ export default function Dropdown({
       >
         {opt.icon && <span className="shrink-0">{opt.icon}</span>}
         <span className="flex-1 truncate">{opt.label}</span>
-        {opt.value === value && (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-accent">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        )}
+        <span className="dropdown-item-check" aria-hidden="true">
+          {opt.value === value && (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          )}
+        </span>
       </button>
     ))
   }
@@ -366,6 +380,9 @@ export default function Dropdown({
     left: panelPosition.x,
     top: panelPosition.y,
     visibility: panelPosition.ready ? 'visible' : 'hidden',
+    maxHeight: panelPosition.maxHeight == null
+      ? undefined
+      : Math.min(DROPDOWN_PANEL_MAX_HEIGHT_PX, panelPosition.maxHeight),
     ...(forcedPanelWidth ? { width: forcedPanelWidth, minWidth: forcedPanelWidth } : {}),
   }), [forcedPanelWidth, panelPosition])
 
@@ -520,6 +537,7 @@ export function DropdownMenu({
   const [internalOpen, setInternalOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const panelSideRef = useRef<MenuSide | null>(null)
   const [panelPosition, setPanelPosition] = useState<FloatingPanelPosition>(getInitialPosition)
 
   const isControlled = controlledOpen !== undefined
@@ -535,23 +553,26 @@ export function DropdownMenu({
     const anchorRect = anchor.getBoundingClientRect()
     const panelRect = panel.getBoundingClientRect()
     const panelWidth = width ?? panelRect.width ?? 180
-    const panelHeight = panelRect.height || panel.scrollHeight || 1
+    const panelHeight = Math.max(panel.scrollHeight, panelRect.height, 1)
     const next = getDropdownPanelPosition({
       anchorRect,
       menuSize: { width: panelWidth, height: panelHeight },
       viewport: getVisibleViewportBounds(),
       align,
+      preferredSide: panelSideRef.current ?? undefined,
     })
+    panelSideRef.current = next.side
 
     setPanelPosition((prev) => (
-      prev.x === next.x && prev.y === next.y && prev.ready
+      prev.x === next.x && prev.y === next.y && prev.maxHeight === next.availableHeight && prev.ready
         ? prev
-        : { x: next.x, y: next.y, ready: true }
+        : { x: next.x, y: next.y, ready: true, maxHeight: next.availableHeight }
     ))
   }, [align, open, width])
 
   useIsomorphicLayoutEffect(() => {
     if (!open) {
+      panelSideRef.current = null
       setPanelPosition(getInitialPosition())
       return
     }
@@ -576,6 +597,10 @@ export function DropdownMenu({
 
     const onViewportChange = () => updatePanelPosition()
     const unsubscribeViewport = subscribeVisibleViewportChanges(onViewportChange)
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(updatePanelPosition)
+    if (panelRef.current) resizeObserver?.observe(panelRef.current)
 
     window.addEventListener('click', onClick)
     window.addEventListener('keydown', onEscape)
@@ -584,6 +609,7 @@ export function DropdownMenu({
       window.removeEventListener('click', onClick)
       window.removeEventListener('keydown', onEscape)
       unsubscribeViewport()
+      resizeObserver?.disconnect()
     }
   }, [open, setOpen, updatePanelPosition])
 
@@ -592,6 +618,9 @@ export function DropdownMenu({
     left: panelPosition.x,
     top: panelPosition.y,
     visibility: panelPosition.ready ? 'visible' : 'hidden',
+    maxHeight: panelPosition.maxHeight == null
+      ? undefined
+      : Math.min(DROPDOWN_PANEL_MAX_HEIGHT_PX, panelPosition.maxHeight),
     ...(width ? { width, minWidth: width } : {}),
   }
 

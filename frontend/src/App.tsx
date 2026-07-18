@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AppModeRouter from './app/AppModeRouter'
 import './styles.css'
+import './utilitySurfaces.css'
 
 /**
  * React Query client with sensible defaults for a gallery app:

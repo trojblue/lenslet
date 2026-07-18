@@ -156,6 +156,25 @@ describe('Toolbar refresh trigger', () => {
     expect(html).not.toContain('__index_level_0__')
   })
 
+  it('keeps the item-count slot mounted while totals are pending', () => {
+    const html = renderToStaticMarkup(
+      <Toolbar
+        onSearch={() => {}}
+        themePreset="teal"
+        onThemePresetChange={() => {}}
+        autoloadImageMetadata={false}
+        onAutoloadImageMetadataChange={() => {}}
+        proxyHttpOriginals={false}
+        onProxyHttpOriginalsChange={() => {}}
+        compareOrderMode="gallery"
+        onCompareOrderModeChange={() => {}}
+      />,
+    )
+
+    expect(html).toContain('class="toolbar-count')
+    expect(html).toContain('aria-hidden="true"')
+  })
+
   it('uses metric display names for derived sort options', () => {
     const html = renderToStaticMarkup(
       <Toolbar

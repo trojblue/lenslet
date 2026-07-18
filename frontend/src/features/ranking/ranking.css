@@ -392,6 +392,7 @@
   padding: 10px;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 .ranking-ranks-panel {
@@ -461,6 +462,7 @@
   min-height: 0;
   flex: 1 1 auto;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 0 10px 12px;
 }
 

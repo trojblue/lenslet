@@ -78,10 +78,10 @@ function QuickViewSectionComponent({
           ))
           : rows.map((row) => (
             <div key={row.id} className="ui-kv-row items-start gap-2">
-              <span className="ui-kv-label w-20 shrink-0 break-words" title={row.sourcePath}>
+              <span className="ui-kv-label quick-view-label w-20 shrink-0" title={row.sourcePath}>
                 {row.label}
               </span>
-              <span className="ui-kv-value inspector-scroll-value flex-1 text-left">
+              <span className="ui-kv-value quick-view-value flex-1 text-left" title={row.value || undefined}>
                 {row.value || '—'}
               </span>
               <button

@@ -5,6 +5,7 @@ import ThemeSettingsMenu, {
   LaunchSessionMenuSection,
   copyLaunchCommandToClipboard,
   formatSourceRefresh,
+  getThemeMenuPanelMaxHeight,
   getThemeMenuPanelPosition,
   reduceThemeSettingsMenuOpenState,
   resolveSourceColumnMenuState,
@@ -131,6 +132,32 @@ describe('ThemeSettingsMenu panel positioning', () => {
 
     expect(pos.x).toBe(52)
     expect(pos.y).toBe(168)
+  })
+
+  it('pins an oversized async panel to every viewport edge', () => {
+    const pos = getThemeMenuPanelPosition({
+      placement: 'mobile',
+      anchorRect: { left: 380, right: 420, top: 790, bottom: 830 },
+      panelSize: { width: 500, height: 900 },
+      viewport: { left: 0, top: 0, width: 390, height: 844, right: 390, bottom: 844 },
+    })
+
+    expect(pos).toEqual({ x: 8, y: 8 })
+  })
+
+  it('caps async growth at the trigger-anchored bottom edge', () => {
+    const viewport = { left: 0, top: 0, width: 1440, height: 920, right: 1440, bottom: 920 }
+
+    expect(getThemeMenuPanelMaxHeight(
+      'sidebar',
+      { left: 8, right: 48, top: 868, bottom: 908 },
+      viewport,
+    )).toBe(900)
+    expect(getThemeMenuPanelMaxHeight(
+      'mobile',
+      { left: 12, right: 120, top: 820, bottom: 864 },
+      viewport,
+    )).toBe(804)
   })
 })
 

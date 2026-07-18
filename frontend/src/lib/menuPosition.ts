@@ -2,6 +2,7 @@ export const MENU_VIEWPORT_MARGIN_PX = 8
 export const MENU_SIDE_OFFSET_PX = 6
 
 export type MenuAlign = 'left' | 'right'
+export type MenuSide = 'above' | 'below'
 
 export interface ViewportSize {
   width: number
@@ -43,6 +44,14 @@ interface DropdownPanelPositionInput {
   align?: MenuAlign
   margin?: number
   sideOffset?: number
+  preferredSide?: MenuSide
+}
+
+export interface DropdownPanelPosition {
+  x: number
+  y: number
+  side: MenuSide
+  availableHeight: number
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -95,7 +104,8 @@ export function getDropdownPanelPosition({
   align = 'left',
   margin = MENU_VIEWPORT_MARGIN_PX,
   sideOffset = MENU_SIDE_OFFSET_PX,
-}: DropdownPanelPositionInput): { x: number; y: number } {
+  preferredSide,
+}: DropdownPanelPositionInput): DropdownPanelPosition {
   const bounds = toViewportBounds(viewport)
   const desiredX = align === 'right'
     ? anchorRect.right - menuSize.width
@@ -103,18 +113,34 @@ export function getDropdownPanelPosition({
 
   const belowY = anchorRect.bottom + sideOffset
   const aboveY = anchorRect.top - menuSize.height - sideOffset
+  const availableBelowHeight = Math.max(0, bounds.bottom - belowY - margin)
+  const availableAboveHeight = Math.max(0, anchorRect.top - sideOffset - bounds.top - margin)
   const canFitBelow = belowY + menuSize.height + margin <= bounds.bottom
   const canFitAbove = aboveY >= bounds.top + margin
-  const desiredY = !canFitBelow && canFitAbove ? aboveY : belowY
+  const side = preferredSide ?? (
+    canFitBelow
+      ? 'below'
+      : canFitAbove || availableAboveHeight > availableBelowHeight
+        ? 'above'
+        : 'below'
+  )
+  const availableHeight = Math.max(1, side === 'above'
+    ? availableAboveHeight
+    : availableBelowHeight)
+  const constrainedHeight = Math.min(menuSize.height, availableHeight)
+  const desiredY = side === 'above'
+    ? anchorRect.top - constrainedHeight - sideOffset
+    : belowY
 
-  return clampMenuPosition({
+  const position = clampMenuPosition({
     x: desiredX,
     y: desiredY,
     menuWidth: menuSize.width,
-    menuHeight: menuSize.height,
+    menuHeight: constrainedHeight,
     viewport,
     margin,
   })
+  return { ...position, side, availableHeight }
 }
 
 export function getVisibleViewportBounds(): ViewportBounds {

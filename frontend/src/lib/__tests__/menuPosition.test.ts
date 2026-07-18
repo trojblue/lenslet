@@ -72,6 +72,37 @@ describe('menu positioning', () => {
     })
 
     expect(pos.y).toBeLessThan(820)
+    expect(pos.side).toBe('above')
+  })
+
+  it('keeps an open dropdown on its preferred side as content size changes', () => {
+    const first = getDropdownPanelPosition({
+      anchorRect: { left: 40, right: 120, top: 620, bottom: 650 },
+      menuSize: { width: 180, height: 120 },
+      viewport,
+    })
+    const grown = getDropdownPanelPosition({
+      anchorRect: { left: 40, right: 120, top: 620, bottom: 650 },
+      menuSize: { width: 180, height: 300 },
+      viewport,
+      preferredSide: first.side,
+    })
+
+    expect(first.side).toBe('below')
+    expect(grown.side).toBe('below')
+    expect(grown.y).toBeGreaterThanOrEqual(650)
+  })
+
+  it('uses the roomier side when the panel fits neither side', () => {
+    const pos = getDropdownPanelPosition({
+      anchorRect: { left: 40, right: 120, top: 150, bottom: 170 },
+      menuSize: { width: 180, height: 300 },
+      viewport: { width: 390, height: 200 },
+    })
+
+    expect(pos.side).toBe('above')
+    expect(pos.availableHeight).toBe(136)
+    expect(pos.y).toBe(8)
   })
 
   it('clamps right-aligned dropdown near viewport edge', () => {

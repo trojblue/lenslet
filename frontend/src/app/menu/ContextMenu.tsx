@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import {
   clampMenuPosition,
   getVisibleViewportBounds,
+  MENU_VIEWPORT_MARGIN_PX,
   subscribeVisibleViewportChanges,
 } from '../../lib/menuPosition'
 
@@ -21,7 +22,7 @@ interface ContextMenuProps {
 
 export default function ContextMenu({ x, y, items }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
-  const [position, setPosition] = useState({ x, y })
+  const [position, setPosition] = useState<{ x: number; y: number; width?: number }>({ x, y })
   const [ready, setReady] = useState(false)
   const handleItemClick = useCallback((item: MenuItem, event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
@@ -32,7 +33,10 @@ export default function ContextMenu({ x, y, items }: ContextMenuProps) {
     const menuEl = menuRef.current
     const viewport = getVisibleViewportBounds()
     const rect = menuEl?.getBoundingClientRect()
-    const menuWidth = rect?.width ?? 180
+    const menuWidth = Math.min(
+      280,
+      Math.max(0, viewport.width - (2 * MENU_VIEWPORT_MARGIN_PX)),
+    )
     const menuHeight = rect?.height ?? Math.max(40, items.length * 36)
     const next = clampMenuPosition({
       x,
@@ -41,7 +45,11 @@ export default function ContextMenu({ x, y, items }: ContextMenuProps) {
       menuHeight,
       viewport,
     })
-    setPosition((prev) => (prev.x === next.x && prev.y === next.y ? prev : next))
+    setPosition((prev) => (
+      prev.x === next.x && prev.y === next.y && prev.width === menuWidth
+        ? prev
+        : { ...next, width: menuWidth }
+    ))
     setReady(true)
   }, [items.length, x, y])
 
@@ -56,9 +64,14 @@ export default function ContextMenu({ x, y, items }: ContextMenuProps) {
   return (
     <div
       ref={menuRef}
-      className="dropdown-panel fixed"
+      className="dropdown-panel context-menu-panel fixed"
       role="menu"
-      style={{ left: position.x, top: position.y, minWidth: 180, visibility: ready ? 'visible' : 'hidden' }}
+      style={{
+        left: position.x,
+        top: position.y,
+        width: position.width,
+        visibility: ready ? 'visible' : 'hidden',
+      }}
       onClick={(e) => e.stopPropagation()}
     >
       {items.map((item, idx) => (
@@ -71,7 +84,7 @@ export default function ContextMenu({ x, y, items }: ContextMenuProps) {
           onClick={(e) => handleItemClick(item, e)}
         >
           {item.icon && <span className="shrink-0">{item.icon}</span>}
-          <span>{item.label}</span>
+          <span className="context-menu-label" title={item.label}>{item.label}</span>
         </button>
       ))}
     </div>

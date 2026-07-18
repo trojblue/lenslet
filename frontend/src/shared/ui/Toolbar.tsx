@@ -305,9 +305,13 @@ export default function Toolbar({
               {scopeName}
             </span>
           </div>
-          {countLabel && (
-            <span className="toolbar-count text-xs text-muted whitespace-nowrap tabular-nums">{countLabel}</span>
-          )}
+          <span
+            className="toolbar-count text-xs text-muted whitespace-nowrap tabular-nums"
+            title={countLabel ?? undefined}
+            aria-hidden={countLabel === null}
+          >
+            {countLabel ?? '\u00a0'}
+          </span>
         </div>
         {topToolbarActionsVisible && (
           <div className="toolbar-sort flex items-center gap-2">

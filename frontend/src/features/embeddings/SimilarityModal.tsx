@@ -1,23 +1,21 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Dropdown from '../../shared/ui/Dropdown'
 import type { EmbeddingSpec, EmbeddingRejected, EmbeddingSearchRequest } from '../../lib/types'
 import { FetchError } from '../../lib/fetcher'
 
 interface SimilarityModalProps {
-  open: boolean
   embeddings: EmbeddingSpec[]
   rejected?: EmbeddingRejected[]
   selectedPath: string | null
   embeddingsLoading?: boolean
   embeddingsError?: string | null
   onClose: () => void
-  onSearch: (req: EmbeddingSearchRequest) => Promise<void>
+  onSearch: (req: EmbeddingSearchRequest) => Promise<boolean>
 }
 
 type QueryMode = 'path' | 'vector'
 
 export default function SimilarityModal({
-  open,
   embeddings,
   rejected = [],
   selectedPath,
@@ -26,9 +24,9 @@ export default function SimilarityModal({
   onClose,
   onSearch,
 }: SimilarityModalProps) {
-  const [embeddingName, setEmbeddingName] = useState('')
-  const [mode, setMode] = useState<QueryMode>('path')
-  const [queryPath, setQueryPath] = useState('')
+  const [embeddingName, setEmbeddingName] = useState(() => embeddings[0]?.name ?? '')
+  const [mode, setMode] = useState<QueryMode>(() => selectedPath ? 'path' : 'vector')
+  const [queryPath, setQueryPath] = useState(() => selectedPath ?? '')
   const [queryVector, setQueryVector] = useState('')
   const [topK, setTopK] = useState('50')
   const [minScore, setMinScore] = useState('')
@@ -37,6 +35,14 @@ export default function SimilarityModal({
 
   const pathInputRef = useRef<HTMLInputElement | null>(null)
   const vectorInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const activeLifetimeRef = useRef(true)
+
+  useLayoutEffect(() => {
+    activeLifetimeRef.current = true
+    return () => {
+      activeLifetimeRef.current = false
+    }
+  }, [])
 
   const selectedEmbedding = useMemo(
     () => embeddings.find((e) => e.name === embeddingName) ?? embeddings[0] ?? null,
@@ -44,26 +50,16 @@ export default function SimilarityModal({
   )
 
   useEffect(() => {
-    if (!open) return
-    setError(null)
     if (embeddings.length > 0 && !embeddings.some((e) => e.name === embeddingName)) {
       setEmbeddingName(embeddings[0].name)
     }
-    if (selectedPath) {
-      setMode('path')
-      setQueryPath(selectedPath)
-    } else {
-      setMode('vector')
-      setQueryPath('')
-    }
-  }, [open, embeddings, embeddingName, selectedPath])
+  }, [embeddings, embeddingName])
 
   useEffect(() => {
-    if (!open) return
     const target = mode === 'vector' ? vectorInputRef.current : pathInputRef.current
     const handle = window.requestAnimationFrame(() => target?.focus())
     return () => window.cancelAnimationFrame(handle)
-  }, [open, mode])
+  }, [mode])
 
   const handleSubmit = useCallback(async () => {
     setError(null)
@@ -111,9 +107,10 @@ export default function SimilarityModal({
 
     setBusy(true)
     try {
-      await onSearch(payload)
-      onClose()
+      const applied = await onSearch(payload)
+      if (applied && activeLifetimeRef.current) onClose()
     } catch (err) {
+      if (!activeLifetimeRef.current) return
       if (err instanceof FetchError) {
         setError(err.message)
       } else if (err instanceof Error) {
@@ -122,12 +119,11 @@ export default function SimilarityModal({
         setError('Failed to run similarity search.')
       }
     } finally {
-      setBusy(false)
+      if (activeLifetimeRef.current) setBusy(false)
     }
   }, [embeddings.length, selectedEmbedding, queryPath, queryVector, topK, minScore, mode, onSearch, onClose])
 
   useEffect(() => {
-    if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -141,7 +137,7 @@ export default function SimilarityModal({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose, handleSubmit])
+  }, [onClose, handleSubmit])
 
   const handleUseSelected = useCallback(() => {
     if (!selectedPath) return
@@ -149,8 +145,6 @@ export default function SimilarityModal({
     setQueryPath(selectedPath)
     pathInputRef.current?.focus()
   }, [selectedPath])
-
-  if (!open) return null
 
   const embeddingOptions = embeddings.map((e) => ({
     value: e.name,
@@ -163,19 +157,19 @@ export default function SimilarityModal({
 
   return (
     <div
-      className="fixed inset-0 z-[var(--z-overlay)] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+      className="similarity-modal-overlay fixed inset-0 z-[var(--z-overlay)] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
       <div
-        className="w-full max-w-2xl rounded-lg border border-border bg-panel shadow-[0_20px_50px_rgba(0,0,0,0.55)]"
+        className="similarity-modal-shell w-full max-w-2xl rounded-lg border border-border bg-panel shadow-[0_20px_50px_rgba(0,0,0,0.55)]"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Find similar"
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="similarity-modal-header flex items-center justify-between px-4 py-3 border-b border-border">
           <div>
             <div className="text-sm font-semibold text-text">Find similar</div>
             <div className="text-xs text-muted">Search with embeddings</div>
@@ -184,12 +178,7 @@ export default function SimilarityModal({
             Close
           </button>
         </div>
-        <div className="px-4 py-4 space-y-4">
-          {embeddingsError && (
-            <div className="ui-banner ui-banner-danger text-xs" role="alert">
-              {embeddingsError}
-            </div>
-          )}
+        <div className="similarity-modal-body scrollbar-thin px-4 py-4 space-y-4">
           <div className="space-y-2">
             <label className="ui-label">Embedding</label>
             <div className="flex items-center gap-2">
@@ -234,45 +223,47 @@ export default function SimilarityModal({
             </div>
           </div>
 
-          {mode === 'path' ? (
-            <div className="space-y-2">
-              <label className="ui-label">Image path</label>
-              <div className="flex items-center gap-2">
-                <input
-                  ref={pathInputRef}
-                  type="text"
-                  className="input w-full"
-                  value={queryPath}
-                  onChange={(e) => setQueryPath(e.target.value)}
-                  placeholder={selectedPath ? 'Selected image path' : 'Select an image first'}
+          <div className="similarity-modal-query">
+            {mode === 'path' ? (
+              <div className="space-y-2">
+                <label className="ui-label">Image path</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={pathInputRef}
+                    type="text"
+                    className="input w-full"
+                    value={queryPath}
+                    onChange={(e) => setQueryPath(e.target.value)}
+                    placeholder={selectedPath ? 'Selected image path' : 'Select an image first'}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={handleUseSelected}
+                    disabled={!selectedPath}
+                    title={selectedPath ? 'Use selected image' : 'Select an image first'}
+                  >
+                    Use selected
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="ui-label">Vector (base64 float32)</label>
+                <textarea
+                  ref={vectorInputRef}
+                  className="ui-textarea w-full text-[11px]"
+                  rows={5}
+                  value={queryVector}
+                  onChange={(e) => setQueryVector(e.target.value)}
+                  placeholder="Paste base64-encoded float32 vector"
                 />
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={handleUseSelected}
-                  disabled={!selectedPath}
-                  title={selectedPath ? 'Use selected image' : 'Select an image first'}
-                >
-                  Use selected
-                </button>
+                <div className="text-[11px] text-muted">
+                  Base64 of little-endian float32. Length must match embedding dimension.
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <label className="ui-label">Vector (base64 float32)</label>
-              <textarea
-                ref={vectorInputRef}
-                className="ui-textarea w-full text-[11px]"
-                rows={5}
-                value={queryVector}
-                onChange={(e) => setQueryVector(e.target.value)}
-                placeholder="Paste base64-encoded float32 vector"
-              />
-              <div className="text-[11px] text-muted">
-                Base64 of little-endian float32. Length must match embedding dimension.
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
@@ -300,27 +291,33 @@ export default function SimilarityModal({
             </div>
           </div>
 
-          {showRejected && (
-            <div className="ui-banner text-xs">
-              <div className="font-semibold">Skipped columns</div>
-              <div className="mt-1 space-y-1 text-muted">
-                {rejectedPreview.map((item) => (
-                  <div key={item.name}>{item.name}: {item.reason}</div>
-                ))}
-                {rejected.length > rejectedPreview.length && (
-                  <div>+{rejected.length - rejectedPreview.length} more</div>
-                )}
+          <div className="similarity-modal-status space-y-2">
+            {embeddingsError && (
+              <div className="ui-banner ui-banner-danger text-xs" role="alert">
+                {embeddingsError}
               </div>
-            </div>
-          )}
-
-          {error && (
-            <div className="ui-banner ui-banner-danger text-xs" role="alert">
-              {error}
-            </div>
-          )}
+            )}
+            {showRejected && (
+              <div className="ui-banner text-xs">
+                <div className="font-semibold">Skipped columns</div>
+                <div className="mt-1 space-y-1 text-muted">
+                  {rejectedPreview.map((item) => (
+                    <div key={item.name}>{item.name}: {item.reason}</div>
+                  ))}
+                  {rejected.length > rejectedPreview.length && (
+                    <div>+{rejected.length - rejectedPreview.length} more</div>
+                  )}
+                </div>
+              </div>
+            )}
+            {error && (
+              <div className="ui-banner ui-banner-danger text-xs" role="alert">
+                {error}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+        <div className="similarity-modal-footer flex items-center justify-between px-4 py-3 border-t border-border">
           <div className="text-xs text-muted">
             {selectedEmbedding ? `Metric: ${selectedEmbedding.metric}` : 'Metric: cosine'}
           </div>

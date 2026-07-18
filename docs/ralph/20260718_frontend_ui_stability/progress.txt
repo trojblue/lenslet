@@ -36,3 +36,11 @@ Iteration 4 — 2026-07-18T18:34:00Z
 - Cleanup/review: mandatory Tier 1 code-simplifier cleanup reduced the slice by eight lines. Repeated adversarial findings on presentation-owned immutable entities, render-phase ref mutation, explicit pending clears, scrolled context visibility, and decisive Compare coverage were fixed; the final fresh review reported no actionable findings.
 - Blockers: none. Sprint 4's fixed one-rail geometry and committed selection/Compare ownership are closed contracts for later work.
 - Next step: Sprint 5, beginning with S5-T1 only.
+
+Iteration 5 — 2026-07-18T20:06:46Z
+- Completed tasks: S5-T1, S5-T2, S5-T3, S5-T4, S5-T5.
+- Files changed: canonical plan/progress; `AppShell` and Similarity workflow/modal ownership plus focused tests; ContextMenu and shared menu positioning/tests; Dropdown, Theme Settings, Toolbar, Sync, FolderTree, Inspector Quick View, ranking gutters, and focused tests; extracted `frontend/src/utilitySurfaces.css`; extended `scripts/browser/gui_jitter/toolbar.py`; regenerated `src/lenslet/frontend/` assets.
+- Validation passed: full frontend Vitest (114 files, 635 tests); `npx tsc --noEmit`; painted-frame/browser-helper pytest (62 tests); final toolbar probe at `/tmp/lenslet-ui-stability-s5-toolbar.json` (zero violations and 0px maximum anchor delta across first paint, exact count, typing/copy, folder hydration, async growth, 160px layout and 200x230 visual viewports, constrained-above growth, and stale Similarity lifetime); default GUI acceptance with 0px Inspector continuity; final `npm run build` plus `rsync`; `python scripts/lint_repo.py`; hard-cut/dependency checks; `git diff --check`.
+- Cleanup/review: mandatory Tier 1 cleanup made one indentation-only edit. Repeated adversarial review findings around stale Similarity lifetime/baseline ownership, constrained/roomier Dropdown placement and resizing, ContextMenu layout/visual viewport bounds, StrictMode teardown, and false-green count evidence were fixed; the fresh closure review reported no actionable findings.
+- Blockers: none. Residual non-blocking gaps are classic-scrollbar environment dependence, mirrored DropdownMenu growth not separately painted, and the toolbar evidence owner's warn-only 1,287-line size.
+- Next step: Sprint 6, beginning with S6-T1 only.

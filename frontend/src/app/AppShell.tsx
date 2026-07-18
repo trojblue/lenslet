@@ -998,6 +998,7 @@ export default function AppShell({
   ])
 
   const {
+    cancelPendingSimilaritySearch,
     clearSimilarity,
     handleRevealOffView,
     handleSimilaritySearch,
@@ -1012,6 +1013,10 @@ export default function AppShell({
     scopePath: current,
     sessionResetToken: scopeSessionResetToken,
   })
+  const closeSimilarityDialog = useCallback(() => {
+    cancelPendingSimilaritySearch()
+    setSimilarityOpen(false)
+  }, [cancelPendingSimilaritySearch])
 
   const handleMetricRange = useCallback((key: string, range: { min: number; max: number } | null) => {
     updateFilters((filters) => setMetricRangeFilter(filters, key, range))
@@ -1194,14 +1199,14 @@ export default function AppShell({
 
     resetForScopeBoundary(explicitViewerPath)
     setCtx(null)
-    setSimilarityOpen(false)
+    closeSimilarityDialog()
     setSimilarityState(null)
     setMobileSelectMode(false)
     setGridTopAnchorPath(null)
     setRestoreGridToTopAnchorToken((token) => token + 1)
     setScopeSessionResetToken((token) => token + 1)
     cancelBrowseRequests(explicitViewerPath ? ['thumb'] : ['thumb', 'file'])
-  }, [current, resetForScopeBoundary, setCtx])
+  }, [closeSimilarityDialog, current, resetForScopeBoundary, setCtx])
 
   const {
     views,
@@ -1596,16 +1601,17 @@ export default function AppShell({
           </LazySurfaceBoundary>
         )}
       </div>
-      <SimilarityModal
-        open={similarityOpen}
-        embeddings={embeddings}
-        rejected={embeddingsRejected}
-        selectedPath={selectedPaths[0] ?? null}
-        embeddingsLoading={embeddingsLoading}
-        embeddingsError={embeddingsError}
-        onClose={() => setSimilarityOpen(false)}
-        onSearch={handleSimilaritySearch}
-      />
+      {similarityOpen && (
+        <SimilarityModal
+          embeddings={embeddings}
+          rejected={embeddingsRejected}
+          selectedPath={selectedPaths[0] ?? null}
+          embeddingsLoading={embeddingsLoading}
+          embeddingsError={embeddingsError}
+          onClose={closeSimilarityDialog}
+          onSearch={handleSimilaritySearch}
+        />
+      )}
       {viewer && (
         <LazySurfaceBoundary
           resetKey={`viewer:${viewer}`}

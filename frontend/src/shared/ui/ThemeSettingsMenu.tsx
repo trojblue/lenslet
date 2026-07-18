@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Copy } from 'lucide-react'
 import { THEME_PRESETS, resolveThemePresetId, type ThemePresetId } from '../../theme/runtime'
@@ -72,6 +72,7 @@ type ThemeMenuPanelPosition = {
   x: number
   y: number
   ready: boolean
+  maxHeight: number | null
 }
 
 type ClipboardWriter = {
@@ -86,9 +87,10 @@ const THEME_OPTIONS: readonly ThemeMenuOption[] = (['default', 'teal', 'charcoal
 const VIEWPORT_PADDING = 8
 const SIDEBAR_PANEL_GAP = 10
 const MOBILE_PANEL_GAP = 8
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 function getInitialPanelPosition(): ThemeMenuPanelPosition {
-  return { x: 0, y: 0, ready: false }
+  return { x: 0, y: 0, ready: false, maxHeight: null }
 }
 
 export function getThemeMenuPanelPosition({
@@ -116,6 +118,20 @@ export function getThemeMenuPanelPosition({
     viewport,
     margin: VIEWPORT_PADDING,
   })
+}
+
+export function getThemeMenuPanelMaxHeight(
+  placement: ThemeSettingsMenuPlacement,
+  anchorRect: RectLike,
+  viewport: ViewportBounds,
+): number {
+  const anchoredBottom = placement === 'sidebar'
+    ? anchorRect.bottom
+    : anchorRect.top - MOBILE_PANEL_GAP
+  return Math.max(1, Math.min(
+    viewport.height - VIEWPORT_PADDING * 2,
+    anchoredBottom - viewport.top - VIEWPORT_PADDING,
+  ))
 }
 
 export function resolveThemeMenuSelection(value: string | null | undefined): ThemePresetId {
@@ -305,25 +321,38 @@ export default function ThemeSettingsMenu({
 
     const anchorRect = rootElement.getBoundingClientRect()
     const panelRect = panelElement.getBoundingClientRect()
+    const viewport = getVisibleViewportBounds()
     const next = getThemeMenuPanelPosition({
       placement,
       anchorRect,
       panelSize: { width: panelRect.width, height: panelRect.height },
-      viewport: getVisibleViewportBounds(),
+      viewport,
     })
+    const maxHeight = getThemeMenuPanelMaxHeight(placement, anchorRect, viewport)
 
     setPanelPosition((prev) => (
-      prev.ready && prev.x === next.x && prev.y === next.y
+      prev.ready && prev.x === next.x && prev.y === next.y && prev.maxHeight === maxHeight
         ? prev
-        : { x: next.x, y: next.y, ready: true }
+        : { x: next.x, y: next.y, ready: true, maxHeight }
     ))
   }, [open, placement])
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!open) {
       setPanelPosition(getInitialPanelPosition())
       return
     }
+
+    updatePanelPosition()
+    const panelElement = panelRef.current
+    if (!panelElement || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(updatePanelPosition)
+    observer.observe(panelElement)
+    return () => observer.disconnect()
+  }, [open, updatePanelPosition])
+
+  useEffect(() => {
+    if (!open) return
 
     const onWindowClick = (event: MouseEvent) => {
       const target = event.target as Node | null
@@ -337,11 +366,6 @@ export default function ThemeSettingsMenu({
       setOpen((current) => reduceThemeSettingsMenuOpenState(current, 'escape'))
     }
 
-    updatePanelPosition()
-    const rafHandle = typeof window !== 'undefined'
-      ? window.requestAnimationFrame(() => updatePanelPosition())
-      : null
-
     window.addEventListener('click', onWindowClick)
     window.addEventListener('keydown', onWindowKeyDown)
     const unsubscribeViewport = subscribeVisibleViewportChanges(updatePanelPosition)
@@ -349,9 +373,6 @@ export default function ThemeSettingsMenu({
       window.removeEventListener('click', onWindowClick)
       window.removeEventListener('keydown', onWindowKeyDown)
       unsubscribeViewport()
-      if (rafHandle != null) {
-        window.cancelAnimationFrame(rafHandle)
-      }
     }
   }, [open, updatePanelPosition])
 
@@ -362,12 +383,13 @@ export default function ThemeSettingsMenu({
     left: panelPosition.x,
     top: panelPosition.y,
     visibility: panelPosition.ready ? ('visible' as const) : ('hidden' as const),
+    maxHeight: panelPosition.maxHeight ?? undefined,
   }
 
   const panelNode = open ? (
     <div
       ref={panelRef}
-      className="theme-settings-menu-panel"
+      className="theme-settings-menu-panel scrollbar-thin"
       role="menu"
       aria-label="Settings"
       style={panelStyle}

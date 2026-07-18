@@ -58,6 +58,13 @@ const NOOP_ON_OPEN_CHANGE = (_open: boolean) => {}
 const DEFAULT_SEARCH_THRESHOLD = 12
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
+export function getDropdownPanelClassName(
+  panelClassName = '',
+  searchable = false,
+): string {
+  return `dropdown-panel scrollbar-thin ${searchable ? 'dropdown-panel-searchable' : ''} ${panelClassName}`
+}
+
 function getInitialPosition(): FloatingPanelPosition {
   return { x: 0, y: 0, ready: false }
 }
@@ -319,7 +326,7 @@ export default function Dropdown({
   const panelNode = open ? (
     <div
       ref={panelRef}
-      className={`dropdown-panel ${effectiveSearchable ? 'dropdown-panel-searchable' : ''} ${panelClassName}`}
+      className={getDropdownPanelClassName(panelClassName, effectiveSearchable)}
       style={panelStyle}
       role="listbox"
       aria-label={ariaLabel}
@@ -510,7 +517,7 @@ export function DropdownMenu({
   }
 
   const panelNode = open ? (
-    <div ref={panelRef} className={`dropdown-panel ${panelClassName}`} style={panelStyle} role="menu">
+    <div ref={panelRef} className={getDropdownPanelClassName(panelClassName)} style={panelStyle} role="menu">
       {children}
     </div>
   ) : null

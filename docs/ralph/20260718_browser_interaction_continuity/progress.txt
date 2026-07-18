@@ -1,0 +1,30 @@
+# Ralph Progress Log
+Started: 2026-07-18T05:01:11Z
+Mode: plan
+Tool: codex
+Repo: /fsx/yada/dev/lenslet
+Plan: /fsx/yada/dev/lenslet/docs/20260718_browser_interaction_continuity_plan.md
+---
+
+## Iteration 1 — 2026-07-18T05:01:11Z
+
+Completed task IDs: S1-T1, S1-T2, S1-T3. S1-T4's implementation and automated Chromium slice are complete, but the task remains open because its required Windows 11 Edge visual gate has not run.
+
+Files changed: shared Dropdown panel styling/tests; shared sidebar width state/storage/tests; the grid resize size contract, gesture hook, AppShell/Toolbar/settings wiring, and tests; annotation-latency, overall-cleanup, responsive-geometry, and Viewer browser helpers; regenerated `src/lenslet/frontend/`; canonical plan/progress documents.
+
+Validations:
+- PASS — focused frontend tests: 26 tests.
+- PASS — full frontend suite: 105 files, 574 tests.
+- PASS — `npx tsc --noEmit`.
+- PASS — `npm run build`; shipped frontend regenerated, entry asset `assets/index-BZ3U0WR-.js`.
+- PASS — focused Python/browser-helper suites: 83 tests; earlier focused set: 69 tests.
+- PASS — `python scripts/lint_repo.py` and `git diff --check`.
+- PASS — `python -m scripts.browser.overall_cleanup.browser --only-continuity-sprint1`: shared geometry/persistence, Ctrl/Meta wheel, viewport scale, top identity, and ordinary scrolling.
+- PASS — `python -m scripts.browser.annotation_latency.acceptance --rows 2000 --metrics 300 --rated 300`: actual Metric dropdown overflow and computed Lenslet scrollbar evidence.
+- PASS — `python -m scripts.browser.gui_smoke.acceptance`.
+- BASELINE FAILURE — full responsive geometry timed out opening the unrelated mobile Theme Settings menu after shared-key scenarios were updated.
+- BASELINE FAILURE — legacy overall-cleanup `--only-sprint1` passed the new stable-controls phase, then failed its unrelated Viewer focused-control navigation check.
+
+Blocker: this Linux workspace cannot produce the mandatory native Windows 11 Edge visual result for the actual 300-metric dropdown in Original, Teal, and Charcoal. Chromium computed styling is explicitly insufficient under the plan, so Sprint 1 cannot close and the blocking code-simplifier/code-review gates have not started.
+
+Next step: record the three-theme Windows 11 Edge visual result. If it passes, run code-simplifier, then code-review, resolve findings, rerun affected validation, and close Sprint 1 before moving to Sprint 2.

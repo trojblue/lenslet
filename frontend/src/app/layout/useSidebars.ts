@@ -4,14 +4,20 @@ import {
   clampSidebarDragWidth,
   resolveSidebarDragConstraint,
 } from './responsiveLayoutPolicy'
-import type { LeftTool } from './sidebarLayout'
 
 export const SIDEBAR_STORAGE_KEYS = {
-  leftFolders: 'leftW.folders',
-  leftMetrics: 'leftW.metrics',
-  leftDerived: 'leftW.derived',
+  left: 'leftW.shared',
   right: 'rightW',
 } as const
+
+export const DEFAULT_LEFT_SIDEBAR_WIDTH = 360
+const DEFAULT_RIGHT_SIDEBAR_WIDTH = 240
+const OBSOLETE_LEFT_SIDEBAR_STORAGE_KEYS = [
+  'leftW.folders',
+  'leftW.metrics',
+  'leftW.derived',
+  'leftW',
+] as const
 
 type SidebarStorageKey = (typeof SIDEBAR_STORAGE_KEYS)[keyof typeof SIDEBAR_STORAGE_KEYS]
 
@@ -24,23 +30,16 @@ function parseStoredWidth(value: string | null): number | null {
   return isPositiveFiniteNumber(parsed) ? parsed : null
 }
 
-export function getLeftSidebarStorageKey(leftTool: LeftTool): SidebarStorageKey {
-  if (leftTool === 'metrics') return SIDEBAR_STORAGE_KEYS.leftMetrics
-  if (leftTool === 'derived') return SIDEBAR_STORAGE_KEYS.leftDerived
-  return SIDEBAR_STORAGE_KEYS.leftFolders
-}
-
-export function readPersistedSidebarWidths(storage: Pick<Storage, 'getItem'>): {
-  leftFoldersW: number | null
-  leftMetricsW: number | null
-  leftDerivedW: number | null
+export function readPersistedSidebarWidths(
+  storage: Pick<Storage, 'getItem' | 'removeItem'>,
+): {
+  leftW: number | null
   rightW: number | null
 } {
-  const leftFoldersW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.leftFolders))
-  const leftMetricsW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.leftMetrics))
-  const leftDerivedW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.leftDerived))
+  const leftW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.left))
   const rightW = parseStoredWidth(storage.getItem(SIDEBAR_STORAGE_KEYS.right))
-  return { leftFoldersW, leftMetricsW, leftDerivedW, rightW }
+  for (const key of OBSOLETE_LEFT_SIDEBAR_STORAGE_KEYS) storage.removeItem(key)
+  return { leftW, rightW }
 }
 
 export function persistSidebarWidth(
@@ -130,21 +129,25 @@ function tryReleasePointerCapture(target: HTMLDivElement, pointerId: number): vo
 
 export function useSidebars(
   appRef: React.RefObject<HTMLDivElement | null>,
-  leftTool: LeftTool,
   options: {
     userLeftOpen: boolean
     userRightOpen: boolean
   },
 ) {
-  const [leftFoldersW, setLeftFoldersW] = useState<number>(240)
-  const [leftMetricsW, setLeftMetricsW] = useState<number>(320)
-  const [leftDerivedW, setLeftDerivedW] = useState<number>(520)
-  const [rightW, setRightW] = useState<number>(240)
-  const leftW = leftTool === 'metrics'
-    ? leftMetricsW
-    : leftTool === 'derived'
-      ? leftDerivedW
-      : leftFoldersW
+  const [{ leftW, rightW }, setWidths] = useState(() => {
+    try {
+      const persisted = readPersistedSidebarWidths(window.localStorage)
+      return {
+        leftW: persisted.leftW ?? DEFAULT_LEFT_SIDEBAR_WIDTH,
+        rightW: persisted.rightW ?? DEFAULT_RIGHT_SIDEBAR_WIDTH,
+      }
+    } catch {
+      return {
+        leftW: DEFAULT_LEFT_SIDEBAR_WIDTH,
+        rightW: DEFAULT_RIGHT_SIDEBAR_WIDTH,
+      }
+    }
+  })
   const leftWRef = useRef(leftW)
   const rightWRef = useRef(rightW)
   const userLeftOpenRef = useRef(options.userLeftOpen)
@@ -153,16 +156,6 @@ export function useSidebars(
   useEffect(() => { rightWRef.current = rightW }, [rightW])
   useEffect(() => { userLeftOpenRef.current = options.userLeftOpen }, [options.userLeftOpen])
   useEffect(() => { userRightOpenRef.current = options.userRightOpen }, [options.userRightOpen])
-  useEffect(() => {
-    try {
-      const persisted = readPersistedSidebarWidths(window.localStorage)
-      if (persisted.leftFoldersW !== null) setLeftFoldersW(persisted.leftFoldersW)
-      if (persisted.leftMetricsW !== null) setLeftMetricsW(persisted.leftMetricsW)
-      if (persisted.leftDerivedW !== null) setLeftDerivedW(persisted.leftDerivedW)
-      if (persisted.rightW !== null) setRightW(persisted.rightW)
-    } catch {}
-  }, [])
-
   const bindPointerDrag = (
     event: React.PointerEvent<HTMLDivElement>,
     onMove: (event: PointerEvent) => void,
@@ -201,7 +194,6 @@ export function useSidebars(
     const app = appRef.current
     if (!app) return
     const rect = app.getBoundingClientRect()
-    const storageKey = getLeftSidebarStorageKey(leftTool)
     const constraint = resolveSidebarDragConstraint({
       viewportWidth: rect.width,
       activeSide: 'left',
@@ -217,17 +209,12 @@ export function useSidebars(
       (event) => {
         const nw = clampSidebarDragWidth(event.clientX - rect.left, constraint)
         latestWidth = nw
-        if (leftTool === 'metrics') {
-          setLeftMetricsW(nw)
-        } else if (leftTool === 'derived') {
-          setLeftDerivedW(nw)
-        } else {
-          setLeftFoldersW(nw)
-        }
+        leftWRef.current = nw
+        setWidths((current) => ({ ...current, leftW: nw }))
       },
       () => {
         try {
-          persistSidebarWidth(window.localStorage, storageKey, latestWidth)
+          persistSidebarWidth(window.localStorage, SIDEBAR_STORAGE_KEYS.left, latestWidth)
         } catch {}
       },
     )
@@ -253,7 +240,7 @@ export function useSidebars(
         const nw = clampSidebarDragWidth(rect.width - (event.clientX - rect.left), constraint)
         latestWidth = nw
         rightWRef.current = nw
-        setRightW(nw)
+        setWidths((current) => ({ ...current, rightW: nw }))
       },
       () => {
         try {

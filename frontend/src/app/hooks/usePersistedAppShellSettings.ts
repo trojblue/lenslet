@@ -11,6 +11,7 @@ import type {
   ViewMode,
   ViewState,
 } from '../../lib/types'
+import { GRID_ITEM_SIZE_CONTRACT } from '../../lib/gridItemSize'
 import {
   createDeferredWriteScheduler,
   type PersistedAppShellSettings,
@@ -98,7 +99,11 @@ export function readPersistedSettingsFromStorage(storage: Storage): RestoredAppS
   const storedGridSize = storage.getItem(STORAGE_KEYS.gridItemSize)
   if (storedGridSize) {
     const size = Number(storedGridSize)
-    if (!Number.isNaN(size) && size >= 80 && size <= 500) {
+    if (
+      !Number.isNaN(size)
+      && size >= GRID_ITEM_SIZE_CONTRACT.min
+      && size <= GRID_ITEM_SIZE_CONTRACT.max
+    ) {
       restored.gridItemSize = size
     }
   }

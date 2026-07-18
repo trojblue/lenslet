@@ -23,7 +23,7 @@ def seed_storage_script() -> str:
     values = {
         "leftOpen": "1",
         "rightOpen": "1",
-        "leftW.folders": "240",
+        "leftW.shared": "240",
         "rightW": "220",
         "viewMode": "grid",
         "gridItemSize": "220",

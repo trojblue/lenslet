@@ -7,31 +7,104 @@ from scripts.browser.overall_cleanup.support import OverallCleanupBrowserFailure
 from scripts.browser.overall_cleanup.transforms import wait_for_image_ready
 
 def verify_browse_ctrl_wheel_and_slider(page: Any, timeout_ms: float) -> dict[str, Any]:
-    page.set_viewport_size({"width": 1024, "height": 640})
-    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    page.set_viewport_size({"width": 1440, "height": 920})
+    grid = page.get_by_role("grid", name="Gallery")
+    grid.wait_for(state="visible", timeout=timeout_ms)
     slider = page.get_by_role("slider", name="Thumbnail size").first
     slider.wait_for(state="visible", timeout=timeout_ms)
     before_value = slider.input_value()
-    page.evaluate(
+    before_anchor = wait_for_visible_grid_cell_ids(page, minimum_count=1, timeout_ms=timeout_ms)[0]
+    before_viewport = page.evaluate(
         """() => {
-          const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
-          if (!grid) throw new Error('Missing gallery grid for Ctrl+wheel check')
-          grid.dispatchEvent(new WheelEvent('wheel', {
-            bubbles: true,
-            cancelable: true,
-            ctrlKey: true,
-            deltaY: -480,
-          }))
+          const rect = document.querySelector('.app-shell')?.getBoundingClientRect()
+          return {
+            innerWidth: window.innerWidth,
+            innerHeight: window.innerHeight,
+            visualScale: window.visualViewport?.scale ?? 1,
+            appWidth: rect?.width ?? 0,
+            appHeight: rect?.height ?? 0,
+          }
         }"""
     )
-    page.wait_for_timeout(160)
+    grid_box = grid.bounding_box()
+    if grid_box is None:
+        raise OverallCleanupBrowserFailure("Gallery has no bounding box for Ctrl+wheel check.")
+    page.mouse.move(
+        float(grid_box["x"]) + float(grid_box["width"]) / 2,
+        float(grid_box["y"]) + float(grid_box["height"]) / 2,
+    )
+    page.keyboard.down("Control")
+    try:
+        page.mouse.wheel(0, -120)
+    finally:
+        page.keyboard.up("Control")
+    page.wait_for_function(
+        """before => {
+          const slider = document.querySelector('input[aria-label="Thumbnail size"]')
+          return slider instanceof HTMLInputElement && slider.value !== before
+        }""",
+        arg=before_value,
+        timeout=timeout_ms,
+    )
     after_ctrl_wheel_value = slider.input_value()
-    if after_ctrl_wheel_value != before_value:
+    if int(after_ctrl_wheel_value) <= int(before_value):
         raise OverallCleanupBrowserFailure(
-            f"Browse Ctrl+wheel mutated thumbnail size: {before_value!r} -> {after_ctrl_wheel_value!r}."
+            f"Browse Ctrl+wheel did not increase thumbnail size: {before_value!r} -> {after_ctrl_wheel_value!r}."
+        )
+    after_ctrl_anchor = wait_for_visible_grid_cell_ids(page, minimum_count=1, timeout_ms=timeout_ms)[0]
+    if after_ctrl_anchor != before_anchor:
+        raise OverallCleanupBrowserFailure(
+            f"Browse Ctrl+wheel moved the top-visible path: {before_anchor!r} -> {after_ctrl_anchor!r}."
+        )
+    after_viewport = page.evaluate(
+        """() => {
+          const rect = document.querySelector('.app-shell')?.getBoundingClientRect()
+          return {
+            innerWidth: window.innerWidth,
+            innerHeight: window.innerHeight,
+            visualScale: window.visualViewport?.scale ?? 1,
+            appWidth: rect?.width ?? 0,
+            appHeight: rect?.height ?? 0,
+          }
+        }"""
+    )
+    for key in ("innerWidth", "innerHeight", "visualScale", "appWidth", "appHeight"):
+        if abs(float(after_viewport[key]) - float(before_viewport[key])) > 1.0:
+            raise OverallCleanupBrowserFailure(
+                f"Browse Ctrl+wheel changed viewport geometry for {key}: "
+                f"{before_viewport!r} -> {after_viewport!r}."
+            )
+
+    meta_result = grid.evaluate(
+        """element => {
+          const event = new WheelEvent('wheel', {
+            bubbles: true,
+            cancelable: true,
+            metaKey: true,
+            deltaY: 120,
+          })
+          element.dispatchEvent(event)
+          return { defaultPrevented: event.defaultPrevented }
+        }"""
+    )
+    if not meta_result.get("defaultPrevented"):
+        raise OverallCleanupBrowserFailure(f"Browse Meta+wheel was not synchronously prevented: {meta_result!r}.")
+    page.wait_for_function(
+        """before => {
+          const slider = document.querySelector('input[aria-label="Thumbnail size"]')
+          return slider instanceof HTMLInputElement && slider.value !== before
+        }""",
+        arg=after_ctrl_wheel_value,
+        timeout=timeout_ms,
+    )
+    after_meta_wheel_value = slider.input_value()
+    if int(after_meta_wheel_value) >= int(after_ctrl_wheel_value):
+        raise OverallCleanupBrowserFailure(
+            "Browse Meta+wheel did not decrease thumbnail size: "
+            f"{after_ctrl_wheel_value!r} -> {after_meta_wheel_value!r}."
         )
 
-    explicit_value = "280" if before_value != "280" else "220"
+    explicit_value = "500"
     slider.evaluate(
         """(element, value) => {
           element.value = value
@@ -48,10 +121,36 @@ def verify_browse_ctrl_wheel_and_slider(page: Any, timeout_ms: float) -> dict[st
         arg={"selector": 'input[aria-label="Thumbnail size"]', "value": explicit_value},
         timeout=timeout_ms,
     )
+    ordinary_default_prevented = grid.evaluate(
+        """element => {
+          const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 120 })
+          element.dispatchEvent(event)
+          return event.defaultPrevented
+        }"""
+    )
+    if ordinary_default_prevented:
+        raise OverallCleanupBrowserFailure("Browse ordinary wheel was unexpectedly prevented.")
+    grid.evaluate("element => { element.scrollTop = 0 }")
+    page.mouse.move(
+        float(grid_box["x"]) + float(grid_box["width"]) / 2,
+        float(grid_box["y"]) + float(grid_box["height"]) / 2,
+    )
+    page.mouse.wheel(0, 480)
+    page.wait_for_function(
+        """() => (document.querySelector('[role="grid"][aria-label="Gallery"]')?.scrollTop ?? 0) > 0""",
+        timeout=timeout_ms,
+    )
+    ordinary_scroll_top = float(grid.evaluate("element => element.scrollTop"))
     return {
         "initial_size": before_value,
         "after_ctrl_wheel_size": after_ctrl_wheel_value,
+        "after_meta_wheel_size": after_meta_wheel_value,
         "explicit_slider_size": explicit_value,
+        "ordinary_scroll_top": ordinary_scroll_top,
+        "top_anchor_before": before_anchor,
+        "top_anchor_after_ctrl_wheel": after_ctrl_anchor,
+        "viewport_before": before_viewport,
+        "viewport_after": after_viewport,
     }
 
 def verify_mobile_viewer_navigation(page: Any, timeout_ms: float) -> dict[str, Any]:

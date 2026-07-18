@@ -188,7 +188,7 @@ def test_responsive_geometry_fixture_module_builds_dataset(tmp_path: Path) -> No
     assert (tmp_path / "alpha" / "alpha_01.png").is_file()
     assert (tmp_path / "beta" / "beta_03.png").is_file()
     assert (tmp_path / "items.parquet").is_file()
-    assert "leftW.metrics" in responsive_geometry_fixtures.seed_storage_script(
+    assert "leftW.shared" in responsive_geometry_fixtures.seed_storage_script(
         responsive_geometry_fixtures.scenario_storage()
     )
 

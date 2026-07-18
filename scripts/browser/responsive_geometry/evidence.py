@@ -184,8 +184,7 @@ def _snapshot_focus_selection_storage(page: Any) -> dict[str, Any]:
             storage: {
               leftOpen: localStorage.getItem('leftOpen'),
               rightOpen: localStorage.getItem('rightOpen'),
-              leftFoldersWidth: localStorage.getItem('leftW.folders'),
-              leftMetricsWidth: localStorage.getItem('leftW.metrics'),
+              leftSharedWidth: localStorage.getItem('leftW.shared'),
               rightWidth: localStorage.getItem('rightW'),
             },
           };

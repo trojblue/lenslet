@@ -87,8 +87,7 @@ def scenario_storage() -> dict[str, str]:
     return {
         "leftOpen": "1",
         "rightOpen": "1",
-        "leftW.folders": "760",
-        "leftW.metrics": "760",
+        "leftW.shared": "760",
         "rightW": "900",
     }
 

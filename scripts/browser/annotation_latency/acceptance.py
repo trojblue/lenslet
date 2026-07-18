@@ -131,6 +131,46 @@ def _open_metrics_panel(page: Any) -> None:
     page.get_by_role("button", name="Open Metrics Panel").click()
 
 
+def _metric_dropdown_scrollbar_evidence(page: Any) -> dict[str, Any]:
+    trigger = page.get_by_role("button", name="Metric", exact=True).first
+    trigger.click()
+    panel = page.locator('.dropdown-panel[role="listbox"][aria-label="Metric"]').first
+    panel.wait_for(state="visible")
+    evidence = panel.evaluate(
+        """element => {
+          const style = getComputedStyle(element)
+          const thumb = getComputedStyle(element, '::-webkit-scrollbar-thumb')
+          const track = getComputedStyle(element, '::-webkit-scrollbar-track')
+          return {
+            className: element.className,
+            overflowY: style.overflowY,
+            scrollbarWidth: style.scrollbarWidth,
+            scrollbarColor: style.scrollbarColor,
+            clientHeight: element.clientHeight,
+            scrollHeight: element.scrollHeight,
+            thumbBackgroundColor: thumb.backgroundColor,
+            thumbBorderRadius: thumb.borderRadius,
+            thumbBorderStyle: thumb.borderStyle,
+            trackBackgroundColor: track.backgroundColor,
+          }
+        }"""
+    )
+    required_classes = {"dropdown-panel", "scrollbar-thin"}
+    if not required_classes.issubset(set(str(evidence["className"]).split())):
+        raise SmokeFailure(f"Metric dropdown missed shared scrollbar classes: {evidence}")
+    if evidence["overflowY"] != "auto" or int(evidence["scrollHeight"]) <= int(evidence["clientHeight"]):
+        raise SmokeFailure(f"Metric dropdown did not expose visible vertical overflow: {evidence}")
+    if evidence["scrollbarWidth"] != "thin" or evidence["scrollbarColor"] == "auto":
+        raise SmokeFailure(f"Metric dropdown did not compute Lenslet scrollbar properties: {evidence}")
+    if evidence["thumbBackgroundColor"] in {"rgba(0, 0, 0, 0)", "transparent"}:
+        raise SmokeFailure(f"Metric dropdown thumb styling was not computed: {evidence}")
+    if evidence["thumbBorderRadius"] == "0px" or evidence["thumbBorderStyle"] == "none":
+        raise SmokeFailure(f"Metric dropdown thumb shape/border styling was not computed: {evidence}")
+    panel.press("Escape")
+    panel.wait_for(state="hidden")
+    return evidence
+
+
 def _run_filter_and_wide_panel_acceptance(
     page: Any,
     evidence: BrowserRequestEvidence,
@@ -197,6 +237,7 @@ def _run_filter_and_wide_panel_acceptance(
     ).is_disabled():
         raise SmokeFailure("committed Notes draft did not resynchronize after Apply")
 
+    metric_dropdown_scrollbar = _metric_dropdown_scrollbar_evidence(page)
     evidence.phase = "wide_panel"
     show_all = page.locator("button[data-metric-show-all]")
     page_errors: list[str] = []
@@ -257,6 +298,7 @@ def _run_filter_and_wide_panel_acceptance(
         },
         "wide_panel": {
             "field_count": WIDE_METRIC_COUNT,
+            "metric_dropdown_scrollbar": metric_dropdown_scrollbar,
             "first_render_ms": first_render_ms,
             "mounted_cards_initial": initial_mounted,
             "mounted_cards_after_scroll": final_mounted,

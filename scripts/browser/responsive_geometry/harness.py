@@ -256,7 +256,7 @@ def run_resize_persistence_scenario(page: Any, base_url: str, timeout_ms: float)
                 "Responsive suppression rewrote persisted sidebar preferences during "
                 f"{snapshot.get('name')}: storage={storage!r}."
             )
-        if storage.get("leftFoldersWidth") != "760" or storage.get("rightWidth") != "900":
+        if storage.get("leftSharedWidth") != "760" or storage.get("rightWidth") != "900":
             raise ResponsiveGeometryFailure(
                 "Responsive suppression rewrote persisted sidebar widths during "
                 f"{snapshot.get('name')}: storage={storage!r}."

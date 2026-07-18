@@ -17,6 +17,7 @@ import SortDirectionIcon from './toolbar/SortDirectionIcon'
 import ToolbarFilterMenu from './toolbar/ToolbarFilterMenu'
 import ToolbarMobileDrawer from './toolbar/ToolbarMobileDrawer'
 import type { ThemePresetId } from '../../theme/runtime'
+import { GRID_ITEM_SIZE_CONTRACT } from '../../lib/gridItemSize'
 
 export interface ToolbarProps {
   rootRef?: React.RefObject<HTMLDivElement>
@@ -428,9 +429,9 @@ export default function Toolbar({
               <span className="text-xs text-muted">Size</span>
               <input
                 type="range"
-                min={80}
-                max={500}
-                step={10}
+                min={GRID_ITEM_SIZE_CONTRACT.min}
+                max={GRID_ITEM_SIZE_CONTRACT.max}
+                step={GRID_ITEM_SIZE_CONTRACT.step}
                 value={gridItemSize ?? 220}
                 onChange={(e) => onGridItemSize(Number(e.target.value))}
                 className="w-28 h-1.5 bg-border rounded-full appearance-none cursor-pointer hover:bg-hover transition-colors [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-text [&::-moz-range-thumb]:border-0"

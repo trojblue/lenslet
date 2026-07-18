@@ -104,6 +104,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run only interaction-polish preflight and Sprint 1 browser evidence.",
     )
+    parser.add_argument(
+        "--only-continuity-sprint1",
+        action="store_true",
+        help="Run only browser-interaction continuity Sprint 1 controls/layout evidence.",
+    )
     return parser.parse_args()
 
 
@@ -333,12 +338,146 @@ def run_interaction_polish_sprint1_checks(
     }
 
 
+def verify_stable_controls_layout(page: Any, timeout_ms: float) -> dict[str, Any]:
+    page.set_viewport_size({"width": 1440, "height": 920})
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+
+    def activate_tool(name: str) -> None:
+        button = page.get_by_role("button", name=name, exact=True).first
+        if button.get_attribute("aria-pressed") != "true":
+            button.click()
+        page.wait_for_function(
+            """name => document.querySelector(`button[aria-label="${name}"]`)?.getAttribute('aria-pressed') === 'true'""",
+            arg=name,
+            timeout=timeout_ms,
+        )
+
+    def snapshot(name: str) -> dict[str, Any]:
+        geometry = page.evaluate(
+            """name => {
+              const left = document.querySelector('.app-left-panel')?.getBoundingClientRect()
+              const center = document.querySelector('.grid-shell')?.getBoundingClientRect()
+              return {
+                name,
+                leftWidth: left?.width ?? 0,
+                centerWidth: center?.width ?? 0,
+              }
+            }""",
+            name,
+        )
+        geometry["topVisiblePath"] = wait_for_visible_grid_cell_ids(
+            page,
+            minimum_count=1,
+            timeout_ms=timeout_ms,
+        )[0]
+        return geometry
+
+    def assert_same_geometry(reference: dict[str, Any], candidate: dict[str, Any]) -> None:
+        for key in ("leftWidth", "centerWidth"):
+            if abs(float(reference[key]) - float(candidate[key])) > 1.0:
+                raise OverallCleanupBrowserFailure(
+                    f"Shared sidebar geometry changed for {key}: {reference!r} -> {candidate!r}."
+                )
+        if reference["topVisiblePath"] != candidate["topVisiblePath"]:
+            raise OverallCleanupBrowserFailure(
+                f"Shared sidebar transition moved the top-visible path: {reference!r} -> {candidate!r}."
+            )
+
+    before_resize: list[dict[str, Any]] = []
+    for button_name in ("Folders", "Metrics and Filters", "Derived Score"):
+        activate_tool(button_name)
+        before_resize.append(snapshot(f"before-resize-{button_name}"))
+    for candidate in before_resize[1:]:
+        assert_same_geometry(before_resize[0], candidate)
+
+    resize_handle = page.locator(".app-left-panel .sidebar-resize-handle-left").first
+    handle_box = resize_handle.bounding_box()
+    if handle_box is None:
+        raise OverallCleanupBrowserFailure("Left sidebar resize handle has no visible bounding box.")
+    current_width = float(before_resize[-1]["leftWidth"])
+    page.mouse.move(
+        float(handle_box["x"]) + float(handle_box["width"]) / 2,
+        float(handle_box["y"]) + float(handle_box["height"]) / 2,
+    )
+    page.mouse.down()
+    page.mouse.move(
+        float(handle_box["x"]) + float(handle_box["width"]) / 2 + 40,
+        float(handle_box["y"]) + float(handle_box["height"]) / 2,
+        steps=8,
+    )
+    page.mouse.up()
+    page.wait_for_function(
+        """before => {
+          const width = document.querySelector('.app-left-panel')?.getBoundingClientRect().width ?? 0
+          return Math.abs(width - before) > 10
+        }""",
+        arg=current_width,
+        timeout=timeout_ms,
+    )
+    resized = snapshot("after-resize-Derived Score")
+
+    after_resize: list[dict[str, Any]] = [resized]
+    for button_name in ("Metrics and Filters", "Folders"):
+        activate_tool(button_name)
+        after_resize.append(snapshot(f"after-resize-{button_name}"))
+    for candidate in after_resize[1:]:
+        assert_same_geometry(resized, candidate)
+
+    page.reload(wait_until="domcontentloaded")
+    page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
+    reloaded = snapshot("after-reload-Folders")
+    assert_same_geometry(resized, reloaded)
+    storage = page.evaluate(
+        """() => ({
+          shared: localStorage.getItem('leftW.shared'),
+          legacy: [
+            localStorage.getItem('leftW.folders'),
+            localStorage.getItem('leftW.metrics'),
+            localStorage.getItem('leftW.derived'),
+            localStorage.getItem('leftW'),
+          ],
+        })"""
+    )
+    if storage["shared"] is None or any(value is not None for value in storage["legacy"]):
+        raise OverallCleanupBrowserFailure(f"Shared sidebar storage hard cut failed: {storage!r}.")
+
+    return {
+        "before_resize": before_resize,
+        "after_resize": after_resize,
+        "after_reload": reloaded,
+        "storage": storage,
+        "wheel": verify_browse_ctrl_wheel_and_slider(page, timeout_ms),
+    }
+
+
+def run_stable_controls_browser_checks(base_url: str, timeout_ms: float) -> dict[str, Any]:
+    playwright_import = import_playwright()
+    sync_playwright = playwright_import[2]
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        context = browser.new_context(accept_downloads=True, viewport={"width": 1440, "height": 920})
+        try:
+            page = context.new_page()
+            page.set_default_timeout(timeout_ms)
+            page.goto(base_url, wait_until="domcontentloaded")
+            return verify_stable_controls_layout(page, timeout_ms)
+        finally:
+            context.close()
+            browser.close()
+
+
 def run_sprint1_browser_checks(base_url: str, timeout_ms: float, screenshot_dir: Path) -> dict[str, Any]:
     playwright_import = import_playwright()
     sync_playwright = playwright_import[2]
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         try:
+            context = browser.new_context(accept_downloads=True, viewport={"width": 1440, "height": 920})
+            page = context.new_page()
+            page.set_default_timeout(timeout_ms)
+            page.goto(base_url, wait_until="domcontentloaded")
+            stable_controls_layout = verify_stable_controls_layout(page, timeout_ms)
+            context.close()
             return {
                 "preflight": run_preflight_checks(browser, base_url, timeout_ms, screenshot_dir),
                 "interaction_polish_sprint1": run_interaction_polish_sprint1_checks(
@@ -347,6 +486,7 @@ def run_sprint1_browser_checks(base_url: str, timeout_ms: float, screenshot_dir:
                     timeout_ms,
                     screenshot_dir,
                 ),
+                "stable_controls_layout": stable_controls_layout,
             }
         finally:
             browser.close()
@@ -766,7 +906,8 @@ def run_browser_checks(base_url: str, timeout_ms: float, screenshot_dir: Path) -
                 adaptive_geometry = run_adaptive_geometry_checks(page, timeout_ms)
                 menu_bounds = verify_menu_bounds_and_roles(page, timeout_ms)
                 hover_preview = verify_hover_preview(page, timeout_ms, media_requests)
-                ctrl_wheel = verify_browse_ctrl_wheel_and_slider(page, timeout_ms)
+                stable_controls_layout = verify_stable_controls_layout(page, timeout_ms)
+                ctrl_wheel = stable_controls_layout["wheel"]
                 viewer_resize_focus = verify_viewer_resize_focus(page, timeout_ms)
                 page.set_viewport_size({"width": 1440, "height": 920})
                 page.get_by_role("grid", name="Gallery").wait_for(state="visible", timeout=timeout_ms)
@@ -791,6 +932,7 @@ def run_browser_checks(base_url: str, timeout_ms: float, screenshot_dir: Path) -
                     "menu_bounds": menu_bounds,
                     "hover_preview": hover_preview,
                     "ctrl_wheel": ctrl_wheel,
+                    "stable_controls_layout": stable_controls_layout,
                     "preflight": preflight,
                     "interaction_polish_sprint1": interaction_polish_sprint1,
                     "viewer_resize_focus": viewer_resize_focus,
@@ -878,7 +1020,9 @@ def main() -> int:
             raise OverallCleanupBrowserFailure(
                 f"Lenslet exited unexpectedly with code {server_proc.returncode}."
             )
-        if args.only_sprint1:
+        if args.only_continuity_sprint1:
+            checks = run_stable_controls_browser_checks(base_url, args.browser_timeout_ms)
+        elif args.only_sprint1:
             checks = run_sprint1_browser_checks(base_url, args.browser_timeout_ms, args.screenshot_dir)
         else:
             checks = run_browser_checks(base_url, args.browser_timeout_ms, args.screenshot_dir)

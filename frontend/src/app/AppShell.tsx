@@ -110,7 +110,7 @@ import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts'
 import { useFolderSessionState } from './hooks/useFolderSessionState'
 import { useFolderRefreshActions } from './hooks/useFolderRefreshActions'
 import { useBrowserZoomWarning } from './hooks/useBrowserZoomWarning'
-import { useGridPinchResize } from './hooks/useGridPinchResize'
+import { useGridResizeGestures } from './hooks/useGridResizeGestures'
 import { usePersistedAppShellSettings } from './hooks/usePersistedAppShellSettings'
 import { useSimilaritySearchWorkflow } from './hooks/useSimilaritySearchWorkflow'
 import { useSmartFolders } from './hooks/useSmartFolders'
@@ -297,7 +297,6 @@ export default function AppShell({
   
   const appRef = useRef<HTMLDivElement>(null)
   const browseShellRef = useRef<HTMLDivElement>(null)
-  const gridShellRef = useRef<HTMLDivElement>(null)
   const gridScrollRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const itemQueryIndexRef = useRef(new ItemQueryPathIndex())
@@ -308,7 +307,7 @@ export default function AppShell({
     viewState: initialSharedViewState.viewState,
   })
 
-  const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, leftTool, {
+  const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, {
     userLeftOpen: leftOpen,
     userRightOpen: rightOpen,
   })
@@ -1023,11 +1022,11 @@ export default function AppShell({
     setMobileSelectMode(false)
   }, [mobileSelectEnabled, mobileSelectMode])
 
-  useGridPinchResize({
-    shellRef: gridShellRef,
+  useGridResizeGestures({
+    gridRef: gridScrollRef,
     disabled: Boolean(viewer) || compareOpen,
     gridItemSize,
-    setGridItemSize,
+    onGridItemSizeChange: handleGridItemSizeChange,
   })
 
   useEffect(() => {
@@ -1319,7 +1318,7 @@ export default function AppShell({
             onTableSourceColumnChange={handleTableSourceColumnChange}
           />
         )}
-        <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col" ref={gridShellRef}>
+        <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col">
           <div aria-live="polite" className="sr-only">
             {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
           </div>

@@ -3,12 +3,11 @@ import {
   SIDEBAR_STORAGE_KEYS,
   clampLeftSidebarWidth,
   clampRightSidebarWidth,
-  getLeftSidebarStorageKey,
   persistSidebarWidth,
   readPersistedSidebarWidths,
 } from '../useSidebars'
 
-class MemoryStorage implements Pick<Storage, 'getItem' | 'setItem'> {
+class MemoryStorage implements Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {
   private readonly data = new Map<string, string>()
 
   constructor(initial?: Record<string, string>) {
@@ -25,51 +24,55 @@ class MemoryStorage implements Pick<Storage, 'getItem' | 'setItem'> {
   setItem(key: string, value: string): void {
     this.data.set(key, value)
   }
+
+  removeItem(key: string): void {
+    this.data.delete(key)
+  }
 }
 
 describe('useSidebars resize and persistence helpers', () => {
-  it('loads persisted widths from the current per-pane keys', () => {
+  it('loads the shared and right widths while pruning obsolete left keys', () => {
     const storage = new MemoryStorage({
-      [SIDEBAR_STORAGE_KEYS.leftFolders]: '286',
-      [SIDEBAR_STORAGE_KEYS.leftMetrics]: '341',
-      [SIDEBAR_STORAGE_KEYS.leftDerived]: '520',
+      [SIDEBAR_STORAGE_KEYS.left]: '341',
       [SIDEBAR_STORAGE_KEYS.right]: '299',
+      'leftW.folders': '286',
+      'leftW.metrics': '320',
+      'leftW.derived': '520',
+      leftW: '250',
     })
 
     expect(readPersistedSidebarWidths(storage)).toEqual({
-      leftFoldersW: 286,
-      leftMetricsW: 341,
-      leftDerivedW: 520,
+      leftW: 341,
       rightW: 299,
     })
+    expect(storage.getItem('leftW.folders')).toBeNull()
+    expect(storage.getItem('leftW.metrics')).toBeNull()
+    expect(storage.getItem('leftW.derived')).toBeNull()
+    expect(storage.getItem('leftW')).toBeNull()
   })
 
   it('ignores invalid persisted values', () => {
     const storage = new MemoryStorage({
-      [SIDEBAR_STORAGE_KEYS.leftFolders]: '-5',
-      [SIDEBAR_STORAGE_KEYS.leftMetrics]: '0',
-      [SIDEBAR_STORAGE_KEYS.leftDerived]: 'NaN',
+      [SIDEBAR_STORAGE_KEYS.left]: '-5',
       [SIDEBAR_STORAGE_KEYS.right]: 'not-a-number',
     })
 
     expect(readPersistedSidebarWidths(storage)).toEqual({
-      leftFoldersW: null,
-      leftMetricsW: null,
-      leftDerivedW: null,
+      leftW: null,
       rightW: null,
     })
   })
 
-  it('persists widths using side-specific storage keys', () => {
+  it('persists shared and right widths independently', () => {
     const storage = new MemoryStorage()
-    persistSidebarWidth(storage, getLeftSidebarStorageKey('folders'), 278.5)
-    persistSidebarWidth(storage, getLeftSidebarStorageKey('metrics'), 332)
-    persistSidebarWidth(storage, getLeftSidebarStorageKey('derived'), 540)
+    persistSidebarWidth(storage, SIDEBAR_STORAGE_KEYS.left, 332)
     persistSidebarWidth(storage, SIDEBAR_STORAGE_KEYS.right, 304)
 
-    expect(storage.getItem(SIDEBAR_STORAGE_KEYS.leftFolders)).toBe('278.5')
-    expect(storage.getItem(SIDEBAR_STORAGE_KEYS.leftMetrics)).toBe('332')
-    expect(storage.getItem(SIDEBAR_STORAGE_KEYS.leftDerived)).toBe('540')
+    expect(storage.getItem(SIDEBAR_STORAGE_KEYS.left)).toBe('332')
+    expect(storage.getItem(SIDEBAR_STORAGE_KEYS.right)).toBe('304')
+
+    persistSidebarWidth(storage, SIDEBAR_STORAGE_KEYS.left, 360)
+    expect(storage.getItem(SIDEBAR_STORAGE_KEYS.left)).toBe('360')
     expect(storage.getItem(SIDEBAR_STORAGE_KEYS.right)).toBe('304')
   })
 

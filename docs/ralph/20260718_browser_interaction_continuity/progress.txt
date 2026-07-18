@@ -110,3 +110,19 @@ Validations:
 Blocker: the mandatory Windows 11 Edge visual check for the actual 300-metric dropdown in Original, Teal, and Charcoal requires an external Windows 11 Edge environment. No qualifying evidence is attached, and there is no additional in-scope local implementation or validation that can close S1-T4.
 
 Next step: run and attach the three-theme Windows 11 Edge result. If it passes, resume with the blocking Sprint 1 code-simplifier and code-review agents, resolve findings, rerun affected evidence, add the sprint handoff, and close Sprint 1 before starting Sprint 2.
+
+## Iteration 7 — 2026-07-18T05:36:06Z
+
+Completed task IDs: none. Sprint 1 remains the next incomplete sprint, with S1-T4 blocked on the required external native-browser acceptance evidence.
+
+Files changed: canonical plan and append-only Ralph progress log only. Product code, tests, shipped frontend assets, dependency manifests, and the existing untracked Ralph runtime files were left untouched.
+
+Validations:
+- PASS — re-read `AGENTS.md`, the required skill instructions, the complete canonical plan, and the full progress log; dependency order still forbids cleanup/review and Sprint 2 until S1-T4 passes.
+- PASS — host/browser discovery reports Linux `6.1.163-186.299.amzn2023.x86_64`, with no `microsoft-edge`, `microsoft-edge-stable`, `msedge`, or matching executable under `/opt` or `/usr/bin`.
+- PASS — evidence discovery found no new Edge/theme visual; `docs/msedge_cPDvMjjYTr.png` remains the only Edge-named document and was already confirmed unrelated in iteration 6.
+- NOT RUN — Chromium acceptance was not redundantly rerun because its existing green computed-style proxy cannot satisfy the native Windows Edge visual gate.
+
+Blocker: the mandatory Windows 11 Edge visual check for the actual 300-metric dropdown in Original, Teal, and Charcoal requires an external Windows 11 Edge environment. This is the final configured Ralph iteration, and no qualifying evidence is attached; there is no plan-compliant local task that can close Sprint 1 or unlock later sprints.
+
+Next step: run and attach the three-theme Windows 11 Edge result. If it passes, resume the Ralph plan with the blocking Sprint 1 code-simplifier and code-review agents, resolve findings, rerun affected evidence, add the sprint handoff, and close Sprint 1 before starting Sprint 2.

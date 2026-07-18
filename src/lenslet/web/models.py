@@ -567,9 +567,32 @@ class Sidecar(BaseModel):
     table_fields: JsonObject | None = None
 
 
+class AcceptedEventPayload(BaseModel):
+    boot_epoch: str
+    event_id: int
+
+
+class LabelPersistenceStatePayload(BaseModel):
+    enabled: bool
+    boot_epoch: str
+    state: Literal["disabled", "saved", "pending", "failed"]
+    durable_watermark: AcceptedEventPayload
+    pending_count: int
+    pending_bytes: int
+    max_pending_count: int
+    max_pending_bytes: int
+    oldest_pending_age_ms: float | None = None
+    error: str | None = None
+    failure_total: int = 0
+    deadline_breach_total: int = 0
+
+
 class SidecarMutationResponse(BaseModel):
     sidecar: Sidecar
     mutation_id: str
+    accepted_event: AcceptedEventPayload | None = None
+    persistence: Literal["pending", "saved"]
+    durable_watermark: AcceptedEventPayload
 
 
 class SidecarPatch(BaseModel):
@@ -661,6 +684,7 @@ class LabelsHealthPayload(BaseModel):
     enabled: bool
     log: str | None = None
     snapshot: str | None = None
+    persistence: LabelPersistenceStatePayload | None = None
 
 
 class BrowseCacheHealthPayload(BaseModel):

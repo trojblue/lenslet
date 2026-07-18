@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
+import { labelPersistenceTracker } from '../../api/labelPersistence'
 import type { HealthMode, HealthResponse, LaunchSessionPayload, TableLaunchStatusPayload } from '../../lib/types'
 import {
   indexingEquals,
@@ -80,6 +81,9 @@ export function useAppHealthPolling(): AppHealthPollingState {
         if (cancelled) return
 
         setPersistenceEnabled(health?.labels?.enabled ?? true)
+        if (health?.labels?.persistence) {
+          labelPersistenceTracker.observeStatus(health.labels.persistence, 'health')
+        }
         setHealthMode(health?.mode ?? null)
         const refreshCapability = normalizeHealthRefresh(health)
         setRefreshEnabled(refreshCapability.enabled)

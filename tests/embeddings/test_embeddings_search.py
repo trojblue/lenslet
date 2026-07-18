@@ -19,7 +19,6 @@ from lenslet.web.context import AppContext, set_app_context
 from lenslet.web.routes.embeddings import register_embedding_routes
 from lenslet.web.runtime import AppRuntime
 from lenslet.web.sync.events import EventBroker, IdempotencyCache
-from lenslet.web.sync.labels import SnapshotWriter
 from lenslet.web.sync.presence import PresenceMetrics, PresenceTracker
 from lenslet.web.thumbs import ThumbnailScheduler
 from lenslet.storage.table import TableStorage, TableStorageOptions, load_parquet_table
@@ -67,11 +66,9 @@ def _runtime_stub(workspace: Workspace) -> AppRuntime:
     thumb_queue: ThumbnailScheduler[bytes] = ThumbnailScheduler(max_workers=1)
     return AppRuntime(
         sidecar_lock=None,
-        log_lock=None,
         broker=EventBroker(),
         idempotency_cache=IdempotencyCache(),
-        snapshotter=SnapshotWriter(workspace),
-        sync_state={"last_event_id": 0},
+        label_writer=Mock(),
         presence=PresenceTracker(view_ttl=1.0, edit_ttl=1.0),
         presence_metrics=PresenceMetrics(),
         presence_prune_interval=1.0,

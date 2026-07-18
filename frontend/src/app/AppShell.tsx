@@ -789,10 +789,11 @@ export default function AppShell({
 
   const syncLabel = (() => {
     if (syncStatus.state === 'syncing') return 'Syncing…'
+    if (syncStatus.state === 'saving') return 'Saving…'
     if (syncStatus.state === 'error') {
       return syncStatus.message ? `Not saved — ${syncStatus.message}` : 'Not saved — retry'
     }
-    return 'All changes saved'
+    return 'Saved'
   })()
   const longSync = oldestInflightAgeMs != null && oldestInflightAgeMs > LONG_SYNC_THRESHOLD_MS
   const isOffline = connectionStatus === 'offline' || connectionStatus === 'connecting' || connectionStatus === 'idle'

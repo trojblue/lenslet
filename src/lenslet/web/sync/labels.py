@@ -6,22 +6,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
-from .events import EventBroker, IdempotencyCache
 from ...metrics import coerce_finite_metric_value
-from ..paths import canonical_path
-from ...storage.sidecar_state import ensure_sidecar_fields
 from ...storage.base import SidecarInventoryStorage, SidecarState
+from ...storage.sidecar_state import ensure_sidecar_fields
 from ...workspace import Workspace, WorkspaceReadResult
+from ..paths import canonical_path
+from .events import EventBroker, IdempotencyCache, IdempotencyPayload
 
 
 class LabelPersistenceError(RuntimeError):
-    """Raised when a label mutation cannot be durably recorded."""
-
-
-@dataclass(frozen=True)
-class LabelSyncLocks:
-    sidecar: threading.Lock | None = None
-    log: threading.Lock | None = None
+    """Raised when a label mutation cannot be admitted or made durable."""
 
 
 class _PersistedSidecarRecordRequired(TypedDict):
@@ -37,13 +31,26 @@ class PersistedSidecarRecord(_PersistedSidecarRecordRequired, total=False):
     metrics: dict[str, float]
 
 
+class PersistedMutationResult(TypedDict):
+    status: int
+    payload: IdempotencyPayload
+
+
 class LabelsSnapshotPayload(TypedDict):
     version: int
     last_event_id: int
     items: dict[str, PersistedSidecarRecord]
+    mutations: dict[str, PersistedMutationResult]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
+class LoadedLabelState:
+    last_event_id: int
+    items: dict[str, PersistedSidecarRecord]
+    mutations: dict[str, PersistedMutationResult]
+
+
+@dataclass(frozen=True, slots=True)
 class SnapshotWriterOptions:
     min_interval: float = 5.0
     min_updates: int = 20
@@ -51,95 +58,63 @@ class SnapshotWriterOptions:
 
 
 class SnapshotWriter:
+    """Persist writer-owned durable state, never the live sidecar mapping."""
+
     def __init__(
         self,
         workspace: Workspace,
         *,
-        locks: LabelSyncLocks | None = None,
         options: SnapshotWriterOptions | None = None,
     ) -> None:
         config = options or SnapshotWriterOptions()
         self._workspace = workspace
         self._min_interval = config.min_interval
         self._min_updates = config.min_updates
+        self._compact_threshold = config.compact_threshold_bytes
         self._last_write = 0.0
         self._since = 0
         self._lock = threading.Lock()
-        self._locks = locks or LabelSyncLocks()
-        self._compact_threshold = config.compact_threshold_bytes
 
-    def maybe_write(self, storage: SidecarInventoryStorage, last_event_id: int) -> None:
+    def maybe_write(
+        self,
+        items: Mapping[str, PersistedSidecarRecord],
+        mutations: Mapping[str, PersistedMutationResult],
+        last_event_id: int,
+        *,
+        force: bool = False,
+    ) -> bool:
         if not self._workspace.can_write:
-            return
+            return False
         now = time.monotonic()
         with self._lock:
             self._since += 1
-            if self._since < self._min_updates and now - self._last_write < self._min_interval:
-                return
+            if not force and self._since < self._min_updates and now - self._last_write < self._min_interval:
+                return False
             self._since = 0
             self._last_write = now
-        self.flush(storage, last_event_id)
-
-    def flush(self, storage: SidecarInventoryStorage, last_event_id: int) -> bool:
-        if not self._workspace.can_write:
-            return False
-        with self._lock:
-            self._since = 0
-            self._last_write = time.monotonic()
-        if self._locks.sidecar is None:
-            payload = _build_snapshot_payload(storage, last_event_id)
-        else:
-            with self._locks.sidecar:
-                payload = _build_snapshot_payload(storage, last_event_id)
+        payload: LabelsSnapshotPayload = {
+            "version": 2,
+            "last_event_id": last_event_id,
+            "items": {path: dict(record) for path, record in items.items()},
+            "mutations": {
+                key: {"status": result["status"], "payload": dict(result["payload"])}
+                for key, result in mutations.items()
+            },
+        }
         try:
             self._workspace.write_labels_snapshot(payload)
+            if self._compact_threshold > 0:
+                self._workspace.compact_labels_log(
+                    last_event_id,
+                    max_bytes=self._compact_threshold,
+                )
         except (OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
             print(f"[lenslet] Warning: failed to write labels snapshot: {exc}")
             return False
-        if self._compact_threshold <= 0:
-            return True
-        try:
-            if self._locks.log is None:
-                self._workspace.compact_labels_log(last_event_id, max_bytes=self._compact_threshold)
-            else:
-                with self._locks.log:
-                    self._workspace.compact_labels_log(
-                        last_event_id, max_bytes=self._compact_threshold
-                    )
-        except (OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
-            print(f"[lenslet] Warning: failed to compact labels log: {exc}")
-            return False
         return True
 
 
-def _build_snapshot_payload(
-    storage: SidecarInventoryStorage, last_event_id: int
-) -> LabelsSnapshotPayload:
-    items: dict[str, PersistedSidecarRecord] = {}
-    for path, sidecar in list(storage.sidecar_items()):
-        sidecar = ensure_sidecar_fields(sidecar)
-        if not _should_persist_sidecar(sidecar):
-            continue
-        key = canonical_path(path)
-        items[key] = _persistable_sidecar(sidecar)
-    return {"version": 1, "last_event_id": last_event_id, "items": items}
-
-
-def _should_persist_sidecar(sidecar: SidecarState) -> bool:
-    if sidecar.get("version", 1) > 1:
-        return True
-    if sidecar.get("tags"):
-        return True
-    if sidecar.get("notes"):
-        return True
-    if sidecar.get("star") is not None:
-        return True
-    if _coerce_metrics(sidecar.get("metrics")) is not None:
-        return True
-    return False
-
-
-def _persistable_sidecar(sidecar: SidecarState) -> PersistedSidecarRecord:
+def persistable_sidecar(sidecar: SidecarState) -> PersistedSidecarRecord:
     sidecar = ensure_sidecar_fields(sidecar)
     payload: PersistedSidecarRecord = {
         "tags": _coerce_tags(sidecar.get("tags")),
@@ -155,11 +130,20 @@ def _persistable_sidecar(sidecar: SidecarState) -> PersistedSidecarRecord:
     return payload
 
 
+def should_persist_sidecar(sidecar: SidecarState) -> bool:
+    if sidecar.get("version", 1) > 1:
+        return True
+    if sidecar.get("tags") or sidecar.get("notes") or sidecar.get("star") is not None:
+        return True
+    return _coerce_metrics(sidecar.get("metrics")) is not None
+
+
 def _apply_persisted_record(
-    storage: SidecarInventoryStorage, path: str, record: Mapping[str, object]
+    storage: SidecarInventoryStorage,
+    path: str,
+    record: Mapping[str, object],
 ) -> bool:
-    sidecar = storage.ensure_sidecar(path)
-    sidecar = ensure_sidecar_fields(sidecar)
+    sidecar = ensure_sidecar_fields(storage.ensure_sidecar(path))
     incoming_version = record.get("version", sidecar.get("version", 1))
     if not isinstance(incoming_version, int):
         incoming_version = sidecar.get("version", 1)
@@ -177,14 +161,12 @@ def _apply_persisted_record(
         if metrics is not None:
             sidecar["metrics"] = metrics
     sidecar["version"] = incoming_version
-    if "updated_at" in record:
-        updated_at = record.get("updated_at")
-        sidecar["updated_at"] = updated_at if isinstance(updated_at, str) else ""
-    if "updated_by" in record:
-        updated_by = record.get("updated_by")
-        sidecar["updated_by"] = (
-            updated_by if isinstance(updated_by, str) and updated_by else "server"
-        )
+    updated_at = record.get("updated_at")
+    if isinstance(updated_at, str):
+        sidecar["updated_at"] = updated_at
+    updated_by = record.get("updated_by")
+    if isinstance(updated_by, str) and updated_by:
+        sidecar["updated_by"] = updated_by
     storage.set_sidecar(path, sidecar)
     return True
 
@@ -196,9 +178,7 @@ def _coerce_tags(value: object) -> list[str]:
 
 
 def _coerce_star(value: object) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
+    if value is None or isinstance(value, bool):
         return None
     return value if isinstance(value, int) else None
 
@@ -217,45 +197,92 @@ def _coerce_metrics(value: object) -> dict[str, float] | None:
     return metrics
 
 
-def _load_label_state(storage: SidecarInventoryStorage, workspace: Workspace) -> int:
+def _coerce_persisted_record(record: Mapping[str, object]) -> PersistedSidecarRecord:
+    payload: PersistedSidecarRecord = {
+        "tags": _coerce_tags(record.get("tags")),
+        "notes": record.get("notes") if isinstance(record.get("notes"), str) else "",
+        "star": _coerce_star(record.get("star")),
+        "version": record.get("version") if isinstance(record.get("version"), int) else 1,
+        "updated_at": record.get("updated_at") if isinstance(record.get("updated_at"), str) else "",
+        "updated_by": record.get("updated_by")
+        if isinstance(record.get("updated_by"), str) and record.get("updated_by")
+        else "server",
+    }
+    metrics = _coerce_metrics(record.get("metrics"))
+    if metrics is not None:
+        payload["metrics"] = metrics
+    return payload
+
+
+def coerce_durable_mutation_result(value: object) -> PersistedMutationResult | None:
+    if not isinstance(value, Mapping):
+        return None
+    status = value.get("status")
+    payload = value.get("payload")
+    if not isinstance(status, int) or not isinstance(payload, dict):
+        return None
+    durable_payload = dict(payload)
+    accepted_event = durable_payload.get("accepted_event")
+    if isinstance(accepted_event, dict):
+        durable_payload["persistence"] = "saved"
+        durable_payload["durable_watermark"] = dict(accepted_event)
+    return {"status": status, "payload": durable_payload}
+
+
+def load_label_state(storage: SidecarInventoryStorage, workspace: Workspace) -> LoadedLabelState:
     max_event_id = 0
     last_snapshot_id = 0
+    durable_items: dict[str, PersistedSidecarRecord] = {}
+    durable_mutations: dict[str, PersistedMutationResult] = {}
     snapshot_result = workspace.read_labels_snapshot_result()
     _raise_for_workspace_state("labels snapshot", snapshot_result)
     snapshot = snapshot_result.value
     if isinstance(snapshot, dict):
-        last_snapshot_id = snapshot.get("last_event_id", 0) or 0
+        raw_snapshot_id = snapshot.get("last_event_id", 0)
+        if isinstance(raw_snapshot_id, int):
+            last_snapshot_id = raw_snapshot_id
+            max_event_id = raw_snapshot_id
         items = snapshot.get("items", {})
         if isinstance(items, dict):
             for raw_path, record in items.items():
                 path = canonical_path(raw_path if isinstance(raw_path, str) else None)
                 if isinstance(record, Mapping):
                     _apply_persisted_record(storage, path, record)
-        if isinstance(last_snapshot_id, int):
-            max_event_id = max(max_event_id, last_snapshot_id)
+                    durable_items[path] = _coerce_persisted_record(record)
+        mutations = snapshot.get("mutations", {})
+        if isinstance(mutations, dict):
+            for key, value in mutations.items():
+                result = coerce_durable_mutation_result(value)
+                if isinstance(key, str) and result is not None:
+                    durable_mutations[key] = result
+
     log_result = workspace.read_labels_log_result()
     _raise_for_workspace_state("labels log", log_result)
     for entry in log_result.value:
-        if not isinstance(entry, dict):
+        event_id = entry.get("id", 0)
+        if not isinstance(event_id, int):
             continue
-        event_id = entry.get("id", 0) or 0
-        if isinstance(event_id, int) and event_id <= last_snapshot_id:
-            continue
-        if entry.get("type") not in ("item-updated", "metrics-updated") and "path" not in entry:
+        max_event_id = max(max_event_id, event_id)
+        if event_id <= last_snapshot_id:
             continue
         raw_path = entry.get("path")
         path = canonical_path(raw_path if isinstance(raw_path, str) else None)
-        _apply_persisted_record(storage, path, entry)
-        if isinstance(event_id, int):
-            max_event_id = max(max_event_id, event_id)
-    return max_event_id
+        if path and _apply_persisted_record(storage, path, entry):
+            durable_items[path] = _coerce_persisted_record(entry)
+        mutation_id = entry.get("mutation_id")
+        mutation_result = coerce_durable_mutation_result(entry.get("mutation_result"))
+        if isinstance(mutation_id, str) and mutation_result is not None:
+            durable_mutations[mutation_id] = mutation_result
+    return LoadedLabelState(max_event_id, durable_items, durable_mutations)
 
 
-def _raise_for_workspace_state(
-    label: str,
-    result: WorkspaceReadResult[Any],
-) -> None:
-    if result.status in {"missing", "ok"}:
+def _load_label_state(storage: SidecarInventoryStorage, workspace: Workspace) -> int:
+    """Return the durable event watermark for focused workspace callers."""
+    return load_label_state(storage, workspace).last_event_id
+
+
+def _raise_for_workspace_state(label: str, result: WorkspaceReadResult[Any]) -> None:
+    if result.status in {"missing", "ok", "recoverable_tail"}:
         return
     detail = result.detail or result.status
     raise RuntimeError(f"workspace {label} is unreadable: {detail}")
@@ -264,12 +291,10 @@ def _raise_for_workspace_state(
 def init_sync_state(
     storage: SidecarInventoryStorage,
     workspace: Workspace,
-    locks: LabelSyncLocks | None = None,
-) -> tuple[EventBroker, IdempotencyCache, SnapshotWriter, int]:
+) -> tuple[EventBroker, IdempotencyCache, LoadedLabelState]:
+    loaded = load_label_state(storage, workspace)
     broker = EventBroker(buffer_size=500)
-    max_event_id = _load_label_state(storage, workspace)
-    if max_event_id:
-        broker.set_next_id(max_event_id + 1)
-    idempotency = IdempotencyCache(ttl_seconds=600)
-    snapshotter = SnapshotWriter(workspace, locks=locks)
-    return broker, idempotency, snapshotter, max_event_id
+    broker.set_next_id(loaded.last_event_id + 1)
+    idempotency = IdempotencyCache(ttl_seconds=600, max_entries=10_000)
+    idempotency.seed(loaded.mutations)
+    return broker, idempotency, loaded

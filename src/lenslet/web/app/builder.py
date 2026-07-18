@@ -99,18 +99,19 @@ def set_runtime_context(
     app: FastAPI,
     context: BrowseAppContextInputs,
 ) -> AppContext:
-    return set_app_context(
-        app,
-        AppContext(
-            storage=context.storage,
-            workspace=context.workspace,
-            runtime=context.runtime,
-            recursive_browse_cache=RecursiveBrowseCache(cache_dir=context.workspace.browse_cache_dir()),
-            og_cache=og_cache_from_workspace(context.workspace, enabled=context.og_preview),
-            storage_mode=context.storage_mode,
-            storage_origin=context.storage_origin,
-            indexing=context.indexing,
-        ),
+    return set_app_context(app, build_runtime_context(context))
+
+
+def build_runtime_context(context: BrowseAppContextInputs) -> AppContext:
+    return AppContext(
+        storage=context.storage,
+        workspace=context.workspace,
+        runtime=context.runtime,
+        recursive_browse_cache=RecursiveBrowseCache(cache_dir=context.workspace.browse_cache_dir()),
+        og_cache=og_cache_from_workspace(context.workspace, enabled=context.og_preview),
+        storage_mode=context.storage_mode,
+        storage_origin=context.storage_origin,
+        indexing=context.indexing,
     )
 
 

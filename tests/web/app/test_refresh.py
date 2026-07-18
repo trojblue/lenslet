@@ -1,3 +1,5 @@
+import threading
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -245,6 +247,9 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         [{"path": "/shots/first.jpg", "source": str(first_image)}],
         options=TableStorageOptions(root=None, skip_dimension_probe=True),
     )
+    transferred_sidecar = storage_a.ensure_sidecar("/shots/first.jpg")
+    transferred_sidecar.update({"notes": "transferred", "version": 2})
+    storage_a.set_sidecar("/shots/first.jpg", transferred_sidecar)
     storage_b = TableStorage(
         [
             {"path": "/shots/first.jpg", "source": str(first_image)},
@@ -272,6 +277,7 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         assert health_before_payload["refresh"]["enabled"] is True
         assert health_before_payload["browse_cache"]["path"] == str(workspace_a.browse_cache_dir())
         assert health_before_payload["labels"]["log"] == str(workspace_a.labels_log_path())
+        epoch_before = health_before_payload["labels"]["persistence"]["boot_epoch"]
 
         views_before = client.get("/views")
         assert views_before.status_code == 200
@@ -284,8 +290,47 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
 
         og_before = client.get("/og-image", params={"path": "/shots"})
         assert og_before.status_code == 200
+        sidecar_before = client.get("/item", params={"path": "/shots/first.jpg"}).json()
 
-        refresh = client.post("/refresh", params={"path": "/shots"})
+        original_runtime_for_workspace = local_app.runtime_for_workspace
+        replacement_ready = threading.Event()
+        release_replacement = threading.Event()
+
+        def pause_before_context_swap(*args, **kwargs):
+            updated_runtime = original_runtime_for_workspace(*args, **kwargs)
+            replacement_ready.set()
+            assert release_replacement.wait(timeout=2.0)
+            return updated_runtime
+
+        monkeypatch.setattr(local_app, "runtime_for_workspace", pause_before_context_swap)
+        refresh_responses: list = []
+        refresh_thread = threading.Thread(
+            target=lambda: refresh_responses.append(
+                client.post("/refresh", params={"path": "/shots"})
+            ),
+            daemon=True,
+        )
+        refresh_thread.start()
+        assert replacement_ready.wait(timeout=1.0)
+        during_swap = client.get("/sync/state")
+        assert during_swap.status_code == 200
+        assert during_swap.json()["boot_epoch"] == epoch_before
+        mutation_started = time.monotonic()
+        during_swap_mutation = client.patch(
+            "/item",
+            params={"path": "/shots/first.jpg"},
+            headers={
+                "Idempotency-Key": "refresh-transition",
+                "If-Match": str(sidecar_before["version"]),
+            },
+            json={"base_version": sidecar_before["version"], "set_notes": "must-retry"},
+        )
+        assert during_swap_mutation.status_code == 503
+        assert time.monotonic() - mutation_started < 0.1
+        release_replacement.set()
+        refresh_thread.join(timeout=2.0)
+        assert refresh_responses
+        refresh = refresh_responses[0]
         assert refresh.status_code == 200
         assert refresh.json()["ok"] is True
 
@@ -295,7 +340,15 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         assert health_after_payload["browse_cache"]["path"] == str(workspace_b.browse_cache_dir())
         assert health_after_payload["labels"]["log"] == str(workspace_b.labels_log_path())
         assert health_after_payload["labels"]["snapshot"] == str(workspace_b.labels_snapshot_path())
+        assert health_after_payload["labels"]["persistence"]["boot_epoch"] != epoch_before
+        assert any(
+            event["event"] == "persistence"
+            and event["data"]["boot_epoch"] == health_after_payload["labels"]["persistence"]["boot_epoch"]
+            for event in get_app_context(app).runtime.broker.replay(0)
+        )
         assert health_after_payload["indexing"]["generation"] != health_before_payload["indexing"]["generation"]
+        replacement_snapshot = workspace_b.read_labels_snapshot()
+        assert replacement_snapshot["items"]["/shots/first.jpg"]["notes"] == "transferred"
 
         views_after = client.get("/views")
         assert views_after.status_code == 200
@@ -315,10 +368,7 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
         )
         assert update_after.status_code == 200
         context = get_app_context(app)
-        assert context.runtime.snapshotter.flush(
-            context.storage,
-            context.runtime.sync_state["last_event_id"],
-        )
+        context.runtime.label_writer.flush_all()
 
         og_after = client.get("/og-image", params={"path": "/shots"})
         assert og_after.status_code == 200

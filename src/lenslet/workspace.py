@@ -5,7 +5,7 @@ import tempfile
 from dataclasses import dataclass
 import hashlib
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, BinaryIO, Generic, TypeVar
 
 from .atomic_write import atomic_write_json, atomic_write_text
 
@@ -22,7 +22,7 @@ class WorkspaceReadResult(Generic[T]):
 
     @property
     def has_issue(self) -> bool:
-        return self.status in {"invalid", "error", "partial"}
+        return self.status in {"invalid", "error", "partial", "recoverable_tail"}
 
 
 @dataclass
@@ -254,6 +254,7 @@ class Workspace:
                 detail="labels snapshot must be a JSON object",
             )
         items = data.get("items", {})
+        mutations = data.get("mutations", {})
         last_event_id = data.get("last_event_id", 0)
         version = data.get("version", 1)
         if not isinstance(items, dict):
@@ -268,6 +269,12 @@ class Workspace:
                 value=None,
                 detail="labels snapshot 'last_event_id' must be an integer",
             )
+        if not isinstance(mutations, dict):
+            return WorkspaceReadResult(
+                status="invalid",
+                value=None,
+                detail="labels snapshot 'mutations' must be a JSON object",
+            )
         if not isinstance(version, int):
             return WorkspaceReadResult(
                 status="invalid",
@@ -280,6 +287,7 @@ class Workspace:
                 "version": version,
                 "last_event_id": last_event_id,
                 "items": items,
+                "mutations": mutations,
             },
         )
 
@@ -292,16 +300,29 @@ class Workspace:
         atomic_write_json(path, payload, indent=2, sort_keys=True)
 
     def append_labels_log(self, payload: dict[str, Any]) -> None:
+        self.append_labels_log_batch([payload])
+
+    def append_labels_log_batch(self, payloads: list[dict[str, Any]]) -> None:
         path = self.labels_log_path()
         self.ensure_writable()
         if path is None:
             raise PermissionError("workspace is read-only")
+        if not payloads:
+            return
         self.ensure()
-        line = json.dumps(payload, separators=(",", ":"))
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        lines = [
+            (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
+            for payload in payloads
+        ]
+        with path.open("a+b") as handle:
+            boundary = _truncate_partial_labels_log_tail(handle)
+            matching_prefix = _matching_labels_log_batch_prefix(
+                handle,
+                boundary,
+                payloads,
+                lines,
+            )
+            _append_and_sync(handle, b"".join(lines[matching_prefix:]))
 
     def compact_labels_log(self, last_event_id: int, max_bytes: int = 5_000_000) -> bool:
         path = self.labels_log_path()
@@ -353,9 +374,13 @@ class Workspace:
             return WorkspaceReadResult(status="missing", value=[])
         entries: list[dict[str, Any]] = []
         invalid_entries = 0
+        recoverable_tail = False
         try:
             with path.open("r", encoding="utf-8") as handle:
                 for line in handle:
+                    if not line.endswith("\n"):
+                        recoverable_tail = True
+                        break
                     raw = line.strip()
                     if not raw:
                         continue
@@ -377,6 +402,13 @@ class Workspace:
                 detail=f"ignored {invalid_entries} malformed log entr{'y' if invalid_entries == 1 else 'ies'}",
                 invalid_entries=invalid_entries,
             )
+        if recoverable_tail:
+            return WorkspaceReadResult(
+                status="recoverable_tail",
+                value=entries,
+                detail="ignored an unterminated final labels log entry",
+                invalid_entries=1,
+            )
         return WorkspaceReadResult(status="ok", value=entries)
 
     def _warn_read_issue(
@@ -390,6 +422,109 @@ class Workspace:
         location = str(path) if path is not None else "<memory>"
         detail = result.detail or result.status
         print(f"[lenslet] Warning: failed to read {label} at {location}: {detail}")
+
+
+def _append_and_sync(handle: BinaryIO, payload: bytes) -> None:
+    if payload:
+        handle.write(payload)
+    handle.flush()
+    os.fsync(handle.fileno())
+
+
+def _truncate_partial_labels_log_tail(handle: BinaryIO) -> int:
+    handle.seek(0, os.SEEK_END)
+    end = handle.tell()
+    if end == 0:
+        return 0
+    handle.seek(end - 1)
+    if handle.read(1) == b"\n":
+        return end
+
+    cursor = end
+    while cursor > 0:
+        chunk_start = max(0, cursor - 64 * 1024)
+        handle.seek(chunk_start)
+        chunk = handle.read(cursor - chunk_start)
+        newline = chunk.rfind(b"\n")
+        if newline >= 0:
+            boundary = chunk_start + newline + 1
+            handle.truncate(boundary)
+            return boundary
+        cursor = chunk_start
+    handle.truncate(0)
+    return 0
+
+
+def _matching_labels_log_batch_prefix(
+    handle: BinaryIO,
+    boundary: int,
+    payloads: list[dict[str, Any]],
+    encoded_lines: list[bytes],
+) -> int:
+    if boundary == 0:
+        return 0
+    tail_size = min(boundary, sum(len(line) for line in encoded_lines))
+    tail_start = boundary - tail_size
+    handle.seek(tail_start)
+    tail = handle.read(tail_size)
+    if tail_start > 0:
+        handle.seek(tail_start - 1)
+        if handle.read(1) != b"\n":
+            newline = tail.find(b"\n")
+            tail = tail[newline + 1 :] if newline >= 0 else b""
+    tail_lines = [line for line in tail.splitlines() if line]
+    expected_lines = [line.removesuffix(b"\n") for line in encoded_lines]
+    max_prefix = min(len(payloads), len(tail_lines))
+    for prefix_length in range(max_prefix, 0, -1):
+        if tail_lines[-prefix_length:] == expected_lines[:prefix_length]:
+            _validate_labels_log_retry_identities(
+                tail_lines,
+                payloads,
+                prefix_length,
+            )
+            return prefix_length
+    _validate_labels_log_retry_identities(tail_lines, payloads, 0)
+    return 0
+
+
+def _validate_labels_log_retry_identities(
+    tail_lines: list[bytes],
+    payloads: list[dict[str, Any]],
+    matching_prefix: int,
+) -> None:
+    expected = {
+        identity: payload
+        for payload in payloads
+        if (identity := _label_event_identity(payload)) is not None
+    }
+    matched = {
+        identity
+        for payload in payloads[:matching_prefix]
+        if (identity := _label_event_identity(payload)) is not None
+    }
+    for raw in tail_lines:
+        try:
+            existing = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        if not isinstance(existing, dict):
+            continue
+        identity = _label_event_identity(existing)
+        if identity not in expected:
+            continue
+        if identity not in matched or existing != expected[identity]:
+            raise RuntimeError("labels log retry identity conflicts with the durable tail")
+
+
+def _label_event_identity(payload: dict[str, Any]) -> tuple[str, int] | None:
+    accepted = payload.get("accepted_event")
+    if not isinstance(accepted, dict):
+        return None
+    boot_epoch = accepted.get("boot_epoch")
+    event_id = accepted.get("event_id")
+    if not isinstance(boot_epoch, str) or not isinstance(event_id, int):
+        return None
+    return boot_epoch, event_id
 
 
 def _decode_json_object(raw: str) -> dict[str, Any] | None:

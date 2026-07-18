@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createFieldSchemaRefreshScheduler } from '../useAppSyncEvents'
+import {
+  createBoundedRetryScheduler,
+  createFieldSchemaRefreshScheduler,
+} from '../useAppSyncEvents'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -33,5 +36,29 @@ describe('field schema refresh scheduling', () => {
     vi.runAllTimers()
 
     expect(refresh).not.toHaveBeenCalled()
+  })
+})
+
+describe('persistence repair retry scheduling', () => {
+  it('caps retries and resets after a successful repair', () => {
+    vi.useFakeTimers()
+    const retry = vi.fn()
+    const scheduler = createBoundedRetryScheduler(retry, [10, 20])
+
+    scheduler.schedule()
+    scheduler.schedule()
+    vi.advanceTimersByTime(10)
+    expect(retry).toHaveBeenCalledTimes(1)
+    scheduler.schedule()
+    vi.advanceTimersByTime(20)
+    expect(retry).toHaveBeenCalledTimes(2)
+    scheduler.schedule()
+    vi.runAllTimers()
+    expect(retry).toHaveBeenCalledTimes(2)
+
+    scheduler.reset()
+    scheduler.schedule()
+    vi.advanceTimersByTime(10)
+    expect(retry).toHaveBeenCalledTimes(3)
   })
 })

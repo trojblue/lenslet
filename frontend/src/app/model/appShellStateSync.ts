@@ -338,6 +338,8 @@ const ANNOTATION_MUTATION_ID_TTL_MS = 10 * 60_000
 export class AnnotationReconciler {
   private readonly seenMutationIds = new Map<string, number>()
   private readonly pendingChangedFields = new Set<string>()
+  private forceReconciliation = false
+  private throwOnReconciliationError = false
   private active: Promise<void> | null = null
   private reconciliationPasses = 0
 
@@ -384,6 +386,13 @@ export class AnnotationReconciler {
     }
   }
 
+  async reconcileAll(): Promise<void> {
+    this.forceReconciliation = true
+    this.throwOnReconciliationError = true
+    this.startReconciliation()
+    await this.whenIdle()
+  }
+
   private pruneSeen(now: number): void {
     for (const [mutationId, seenAt] of this.seenMutationIds) {
       if (now - seenAt <= ANNOTATION_MUTATION_ID_TTL_MS) break
@@ -410,13 +419,13 @@ export class AnnotationReconciler {
     if (this.active) return
     const run = async () => {
       await this.runPass()
-      if (this.pendingChangedFields.size > 0) {
+      if (this.pendingChangedFields.size > 0 || this.forceReconciliation) {
         await this.runPass()
       }
     }
     this.active = run().finally(() => {
       this.active = null
-      if (this.pendingChangedFields.size > 0) {
+      if (this.pendingChangedFields.size > 0 || this.forceReconciliation) {
         this.startReconciliation()
       }
     })
@@ -425,20 +434,27 @@ export class AnnotationReconciler {
   private async runPass(): Promise<void> {
     const changedFields = Array.from(this.pendingChangedFields)
     this.pendingChangedFields.clear()
+    const force = this.forceReconciliation
+    this.forceReconciliation = false
+    const throwOnError = this.throwOnReconciliationError
+    this.throwOnReconciliationError = false
     const activeQueries = this.queryClient.getQueryCache().findAll({ type: 'active' }).filter((query) => (
       isReconciliationQueryKey(query.queryKey)
-      && mutationAffectsDependencyManifest(
+      && (force || mutationAffectsDependencyManifest(
         changedFields,
         dependencyManifestFromData(query.state.data),
-      )
+      ))
     ))
     if (!activeQueries.length) return
     this.reconciliationPasses += 1
-    await Promise.all(activeQueries.map((query) => this.queryClient.invalidateQueries({
-      queryKey: query.queryKey,
-      exact: true,
-      refetchType: 'active',
-    })))
+    await Promise.all(activeQueries.map((query) => this.queryClient.invalidateQueries(
+      {
+        queryKey: query.queryKey,
+        exact: true,
+        refetchType: 'active',
+      },
+      { throwOnError },
+    )))
   }
 }
 

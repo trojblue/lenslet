@@ -55,6 +55,7 @@ def test_workspace_labels_snapshot_and_log_round_trip(tmp_path: Path) -> None:
     snapshot = {
         "version": 1,
         "last_event_id": 2,
+        "mutations": {},
         "items": {
             "/sample.jpg": {"notes": "persisted", "star": 4, "tags": ["keep"], "version": 2},
         },

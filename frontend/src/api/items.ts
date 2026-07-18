@@ -4,13 +4,17 @@ import { api, makeIdempotencyKey } from './client'
 import { usePollingEnabled } from './polling'
 import { FetchError } from '../lib/fetcher'
 import type { Sidecar, SidecarMutationResponse, SidecarPatch } from '../lib/types'
+import {
+  labelPersistenceTracker,
+  requestLabelPersistenceRefresh,
+} from './labelPersistence'
 
 export const sidecarQueryKey = (path: string) => ['item', path] as const
 
 type UpdateFields = Partial<Omit<Sidecar, 'v' | 'version' | 'updated_at' | 'updated_by'>>
 
 export type SyncStatus = {
-  state: 'idle' | 'syncing' | 'error'
+  state: 'idle' | 'syncing' | 'saving' | 'error'
   message?: string
 }
 
@@ -41,6 +45,13 @@ export function subscribeAnnotationMutationResponses(
 function publishAnnotationMutationResponse(mutation: AnnotationMutationResponse): void {
   for (const listener of annotationMutationListeners) {
     listener(mutation)
+  }
+}
+
+function observeMutationPersistence(path: string, response: SidecarMutationResponse): void {
+  labelPersistenceTracker.observeMutation(path, response)
+  if (!response.accepted_event && response.persistence === 'pending') {
+    requestLabelPersistenceRefresh()
   }
 }
 
@@ -95,8 +106,19 @@ function updateSyncState() {
     notifySync({ state: 'syncing' })
     return
   }
+  const persistence = labelPersistenceTracker.snapshot()
+  if (persistence.state === 'failed') {
+    notifySync({ state: 'error', message: persistence.error ?? 'Label storage is unavailable' })
+    return
+  }
+  if (persistence.state === 'saving') {
+    notifySync({ state: 'saving' })
+    return
+  }
   notifySync({ state: 'idle' })
 }
+
+labelPersistenceTracker.subscribe(() => updateSyncState())
 
 function getOldestInflightStart(): number | null {
   let oldest: number | null = null
@@ -397,6 +419,9 @@ export function useUpdateSidecar(path: string) {
         return {
           sidecar: qc.getQueryData<Sidecar>(sidecarQueryKey(path)) ?? DEFAULT_SIDECAR,
           mutation_id: idempotencyKey,
+          accepted_event: null,
+          persistence: 'saved' as const,
+          durable_watermark: { boot_epoch: 'client-noop', event_id: 0 },
         }
       }
       const payload = { ...body, base_version: baseVersion }
@@ -424,6 +449,9 @@ export function useUpdateSidecar(path: string) {
     onSuccess: (data, variables) => {
       clearConflict(path)
       qc.setQueryData(sidecarQueryKey(path), data.sidecar)
+      if (data.durable_watermark.boot_epoch !== 'client-noop') {
+        observeMutationPersistence(path, data)
+      }
       if (data.sidecar.version !== variables.baseVersion) {
         publishAnnotationMutationResponse({
           path,
@@ -528,6 +556,7 @@ export async function queueSidecarUpdate(
             idempotencyKey: makeIdempotencyKey('patch'),
             ifMatch: baseVersion,
           })
+          observeMutationPersistence(path, response)
           if (response.sidecar.version !== baseVersion) {
             publishAnnotationMutationResponse({
               path,

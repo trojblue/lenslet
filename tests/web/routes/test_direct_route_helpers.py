@@ -91,10 +91,12 @@ def test_common_route_helpers_apply_sidecar_patch() -> None:
         *,
         mutation_id: str | None = None,
         changed_fields: tuple[str, ...] = (),
-    ) -> int:
+        mutation_sidecar_payload: dict | None = None,
+    ):
+        _ = mutation_sidecar_payload
         commit()
         commits.append((event, sidecar_state["version"], mutation_id, changed_fields))
-        return 7
+        return SimpleNamespace(event_id=7)
 
     result = item_routes._apply_sidecar_patch(
         storage,
@@ -213,10 +215,10 @@ def test_label_sync_metric_payloads_omit_nonfinite_values() -> None:
         "metrics": {"score": 0.5, "nan_score": math.nan, "infinite_score": math.inf},
     }
 
-    assert label_sync._persistable_sidecar(sidecar_state)["metrics"] == {"score": 0.5}
+    assert label_sync.persistable_sidecar(sidecar_state)["metrics"] == {"score": 0.5}
     invalid_only = dict(sidecar_state, metrics={"nan_score": math.nan, "infinite_score": math.inf})
-    assert label_sync._should_persist_sidecar(invalid_only) is True
-    assert label_sync._persistable_sidecar(invalid_only)["metrics"] == {}
+    assert label_sync.should_persist_sidecar(invalid_only) is True
+    assert label_sync.persistable_sidecar(invalid_only)["metrics"] == {}
 
     class _Storage:
         def __init__(self) -> None:

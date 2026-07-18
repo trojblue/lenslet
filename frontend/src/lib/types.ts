@@ -291,9 +291,32 @@ export type SidecarPatch = {
   remove_tags?: string[]
 }
 
+export type AcceptedEventIdentity = {
+  boot_epoch: string
+  event_id: number
+}
+
+export type LabelPersistenceState = {
+  enabled: boolean
+  boot_epoch: string
+  state: 'disabled' | 'saved' | 'pending' | 'failed'
+  durable_watermark: AcceptedEventIdentity
+  pending_count: number
+  pending_bytes: number
+  max_pending_count: number
+  max_pending_bytes: number
+  oldest_pending_age_ms?: number | null
+  error?: string | null
+  failure_total: number
+  deadline_breach_total: number
+}
+
 export type SidecarMutationResponse = {
   sidecar: Sidecar
   mutation_id: string
+  accepted_event?: AcceptedEventIdentity | null
+  persistence: 'pending' | 'saved'
+  durable_watermark: AcceptedEventIdentity
 }
 
 export type ItemUpdatedEvent = {
@@ -308,6 +331,9 @@ export type ItemUpdatedEvent = {
   metric_labels?: Record<string, string> | null
   mutation_id: string
   changed_fields: string[]
+  accepted_event?: AcceptedEventIdentity | null
+  persistence?: 'pending' | 'saved'
+  durable_watermark?: AcceptedEventIdentity
 }
 
 export type MetricsUpdatedEvent = {
@@ -319,6 +345,9 @@ export type MetricsUpdatedEvent = {
   updated_by: string
   mutation_id: string
   changed_fields: string[]
+  accepted_event?: AcceptedEventIdentity | null
+  persistence?: 'pending' | 'saved'
+  durable_watermark?: AcceptedEventIdentity
 }
 
 export type PresenceEvent = {
@@ -342,6 +371,7 @@ export type HealthResponse = {
     enabled: boolean
     log?: string | null
     snapshot?: string | null
+    persistence?: LabelPersistenceState | null
   }
   indexing?: {
     state: 'idle' | 'running' | 'ready' | 'error'

@@ -204,4 +204,36 @@ describe('event stream reconnect lifecycle', () => {
 
     client.disconnectEvents()
   })
+
+  it('delivers persistence watermark events to sync subscribers', async () => {
+    vi.resetModules()
+    setWindow(new MemoryStorage(), new MemoryStorage())
+    setEventSource(FakeEventSource)
+    const client = await import('../client')
+    client.__resetClientStateForTests()
+    const listener = vi.fn()
+    const unsubscribe = client.subscribeEvents(listener)
+
+    client.connectEvents()
+    FakeEventSource.latest().emitEvent('persistence', {
+      enabled: true,
+      boot_epoch: 'epoch-a',
+      state: 'saved',
+      durable_watermark: { boot_epoch: 'epoch-a', event_id: 4 },
+      pending_count: 0,
+      pending_bytes: 0,
+      max_pending_count: 10_000,
+      max_pending_bytes: 16 * 1024 * 1024,
+      failure_total: 0,
+      deadline_breach_total: 0,
+    }, 5)
+
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'persistence',
+      id: 5,
+      data: expect.objectContaining({ state: 'saved' }),
+    }))
+    unsubscribe()
+    client.disconnectEvents()
+  })
 })

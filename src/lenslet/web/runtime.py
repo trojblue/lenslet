@@ -10,7 +10,8 @@ from fastapi import FastAPI
 from .cache.thumbs import ThumbCache
 from .lifecycle import register_lifecycle_handlers
 from .sync.events import EventBroker, IdempotencyCache
-from .sync.labels import LabelSyncLocks, SnapshotWriter, init_sync_state
+from .sync.labels import init_sync_state
+from .sync.persistence import LabelWriteBuffer
 from .sync.presence import PresenceMetrics, PresenceTracker
 from .thumbs import ThumbnailScheduler
 from ..storage.base import BrowseAppStorage
@@ -24,11 +25,9 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class AppRuntime:
     sidecar_lock: threading.Lock
-    log_lock: threading.Lock
     broker: EventBroker
     idempotency_cache: IdempotencyCache
-    snapshotter: SnapshotWriter
-    sync_state: dict[str, int]
+    label_writer: LabelWriteBuffer
     presence: PresenceTracker
     presence_metrics: PresenceMetrics
     presence_prune_interval: float
@@ -68,14 +67,17 @@ def build_app_runtime(
     settings = assembly.settings
     hooks = assembly.hooks
     sidecar_lock = threading.Lock()
-    log_lock = threading.Lock()
-    locks = LabelSyncLocks(sidecar=sidecar_lock, log=log_lock)
-    broker, idempotency_cache, snapshotter, max_event_id = init_sync_state(
+    broker, idempotency_cache, loaded_labels = init_sync_state(
         assembly.storage,
         assembly.workspace,
-        locks,
     )
-    sync_state = {"last_event_id": max_event_id}
+    label_writer = LabelWriteBuffer(
+        assembly.workspace,
+        loaded_labels,
+        broker=broker,
+        idempotency_cache=idempotency_cache,
+    )
+    register_lifecycle_handlers(app, startup=label_writer.start, shutdown=label_writer.close)
     presence = PresenceTracker(
         view_ttl=settings.presence_view_ttl,
         edit_ttl=settings.presence_edit_ttl,
@@ -95,11 +97,9 @@ def build_app_runtime(
     )
     return AppRuntime(
         sidecar_lock=sidecar_lock,
-        log_lock=log_lock,
         broker=broker,
         idempotency_cache=idempotency_cache,
-        snapshotter=snapshotter,
-        sync_state=sync_state,
+        label_writer=label_writer,
         presence=presence,
         presence_metrics=presence_metrics,
         presence_prune_interval=settings.presence_prune_interval,

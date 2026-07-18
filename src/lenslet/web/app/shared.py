@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from pyarrow.lib import ArrowException
 
 from ...degraded import report_degraded_feature
+from ...diagnostics import request_phase
 from ...embeddings.cache import EmbeddingCache
 from ...embeddings.config import EmbeddingConfig
 from ...embeddings.detect import EmbeddingDetection, detect_embeddings
@@ -17,14 +18,14 @@ from ...embeddings.index import EmbeddingManager
 from ...storage.base import BrowseAppStorage, SidecarState
 from ...storage.table.storage import TableStorage, load_parquet_schema
 from ...workspace import Workspace
-from ...diagnostics import request_phase
 from ..auth import MutationPolicy, READ_ONLY_MUTATION_POLICY, trusted_local_mutation_policy
 from ..cache.thumbs import ThumbCache
 from ..context import get_app_context
 from ..hotpath import build_hotpath_metrics
+from ..lifecycle import register_lifecycle_handlers
 from ..media import thumb_worker_count
 from ..models import RefreshResponse
-from ..record_update import RecordUpdateFn
+from ..record_update import RecordUpdateFn, RecordUpdateResult
 from ..runtime import (
     AppRuntime,
     AppRuntimeAssembly,
@@ -33,8 +34,15 @@ from ..runtime import (
     build_app_runtime,
 )
 from ..sidecars import sidecar_payload
-from ..sync.events import SyncEventName
-from ..sync.labels import LabelPersistenceError, LabelSyncLocks, SnapshotWriter
+from ..sync.events import IdempotencyCache, SyncEventName
+from ..sync.labels import (
+    LabelPersistenceError,
+    LoadedLabelState,
+    load_label_state,
+    persistable_sidecar,
+    should_persist_sidecar,
+)
+from ..sync.persistence import LabelWriteBuffer
 
 _BYTES_PER_MIB = 1024 * 1024
 DEFAULT_THUMB_CACHE_CAP_BYTES = 200 * _BYTES_PER_MIB
@@ -42,7 +50,6 @@ DEFAULT_THUMB_CACHE_CAP_BYTES = 200 * _BYTES_PER_MIB
 _PARQUET_SCHEMA_ERRORS = (ArrowException, ImportError, OSError, ValueError)
 _EMBEDDING_DETECTION_ERRORS = (ArrowException, AttributeError, TypeError, ValueError)
 _EMBEDDING_MANAGER_ERRORS = (AttributeError, ImportError, OSError, TypeError, ValueError)
-_LABEL_LOG_ERRORS = (OSError, TypeError, ValueError)
 
 
 def mutation_policy_for_workspace(
@@ -110,51 +117,97 @@ def build_record_update(
         *,
         mutation_id: str | None = None,
         changed_fields: tuple[str, ...] = (),
-    ) -> int:
+        mutation_sidecar_payload: dict | None = None,
+    ) -> RecordUpdateResult:
         context = get_app_context(app)
-        workspace = context.workspace
         runtime = context.runtime
         payload = sidecar_payload(path, sidecar_state)
         if mutation_id is not None:
             payload["mutation_id"] = mutation_id
         payload["changed_fields"] = list(changed_fields)
-
-        def _commit_with_log(event_id: int) -> None:
-            if workspace.can_write:
-                entry = {"id": event_id, "type": event_type, **payload}
-                try:
-                    with request_phase("writer"):
-                        with runtime.log_lock:
-                            workspace.append_labels_log(entry)
-                except _LABEL_LOG_ERRORS as exc:
-                    report_degraded_feature(
-                        "label log persistence",
-                        exc,
-                        detail=f"failed to append labels event {event_id}: {exc}",
-                        impact="mutation rejected before publishing",
-                    )
-                    raise LabelPersistenceError("failed to persist label update") from exc
+        event_id = runtime.broker.reserve()
+        accepted_event = runtime.label_writer.accepted_identity(event_id)
+        persistence = runtime.label_writer.status()
+        mutation_payload = {
+            "sidecar": dict(mutation_sidecar_payload or {}),
+            "mutation_id": mutation_id or f"event:{event_id}",
+            "accepted_event": dict(accepted_event),
+            "persistence": "pending",
+            "durable_watermark": dict(persistence["durable_watermark"]),
+        }
+        payload.update(
+            {
+                "accepted_event": dict(accepted_event),
+                "persistence": "pending",
+                "durable_watermark": dict(persistence["durable_watermark"]),
+            }
+        )
+        entry = {
+            "id": event_id,
+            "type": event_type,
+            **payload,
+            "mutation_result": {"status": 200, "payload": mutation_payload},
+        }
+        try:
+            with request_phase("writer"):
+                runtime.label_writer.accept(entry)
+        except LabelPersistenceError:
+            runtime.broker.cancel_reserved(event_id)
+            raise
+        try:
             commit()
-
-        event_id = runtime.broker.publish_after_commit(event_type, payload, _commit_with_log)
-        runtime.sync_state["last_event_id"] = event_id
-        return event_id
+            runtime.label_writer.mark_ready(event_id)
+        except BaseException:
+            runtime.label_writer.cancel(event_id)
+            runtime.broker.cancel_reserved(event_id)
+            raise
+        runtime.broker.publish_reserved(event_id, event_type, payload)
+        return RecordUpdateResult(
+            event_id=event_id,
+            accepted_event=accepted_event,
+            persistence=runtime.label_writer.status(),
+            mutation_payload=mutation_payload,
+        )
 
     return _record_update
 
 
 def runtime_for_workspace(
+    app: FastAPI,
     runtime: AppRuntime,
     workspace: Workspace,
+    storage: BrowseAppStorage,
     *,
     thumb_cache_enabled: bool,
 ) -> AppRuntime:
+    runtime.label_writer.flush_all()
+    loaded = load_label_state(storage, workspace)
+    migrated_items = {
+        path: persistable_sidecar(sidecar)
+        for path, sidecar in storage.sidecar_items()
+        if should_persist_sidecar(sidecar)
+    }
+    loaded = LoadedLabelState(
+        last_event_id=loaded.last_event_id,
+        items=migrated_items,
+        mutations=loaded.mutations,
+    )
+    idempotency_cache = IdempotencyCache(ttl_seconds=600, max_entries=10_000)
+    idempotency_cache.seed(loaded.mutations)
+    label_writer = LabelWriteBuffer(
+        workspace,
+        loaded,
+        broker=runtime.broker,
+        idempotency_cache=idempotency_cache,
+    )
+    runtime.broker.set_next_id(loaded.last_event_id + 1)
+    label_writer.persist_state()
+    label_writer.start()
+    register_lifecycle_handlers(app, shutdown=label_writer.close)
     return replace(
         runtime,
-        snapshotter=SnapshotWriter(
-            workspace,
-            locks=LabelSyncLocks(sidecar=runtime.sidecar_lock, log=runtime.log_lock),
-        ),
+        idempotency_cache=idempotency_cache,
+        label_writer=label_writer,
         thumb_cache=thumb_cache_from_workspace(workspace, thumb_cache_enabled),
     )
 

@@ -15,7 +15,7 @@ from ..browse import (
     ensure_image,
     storage_from_request,
 )
-from ..context import get_request_context
+from ..context import get_app_context, get_request_context
 from ..models import (
     ErrorResponse,
     ImageMetadataResponse,
@@ -26,7 +26,7 @@ from ..models import (
     BrowseItemPayload,
 )
 from ..permissions import deny_if_mutation_forbidden
-from ..record_update import RecordUpdateFn
+from ..record_update import RecordUpdateFn, RecordUpdateResult
 from ..paths import canonical_path
 from ..request_headers import parse_if_match
 from ..sidecars import (
@@ -47,7 +47,11 @@ PatchError = tuple[int, IdempotencyPayload]
 class PatchApplicationResult:
     status: int
     payload: IdempotencyPayload
-    event_id: int | None = None
+    update: RecordUpdateResult | None = None
+
+    @property
+    def event_id(self) -> int | None:
+        return self.update.event_id if self.update is not None else None
 
 
 def _changed_sidecar_fields(before: SidecarState, after: SidecarState) -> tuple[str, ...]:
@@ -63,7 +67,19 @@ def _error_response(status: int, error: str, message: str) -> JSONResponse:
 
 
 def _label_persistence_error_response() -> JSONResponse:
-    return _error_response(500, "label_persistence_failed", "failed to persist label update")
+    return _error_response(
+        503,
+        "label_persistence_unavailable",
+        "label persistence is unavailable; retry after storage recovers",
+    )
+
+
+def _stale_context_response() -> JSONResponse:
+    return _error_response(
+        503,
+        "application_context_changed",
+        "the dataset refreshed while the mutation was waiting; retry",
+    )
 
 
 def _resolve_image_request(path: str, request: Request) -> tuple[ItemRouteStorage, str]:
@@ -135,16 +151,17 @@ def _apply_sidecar_patch(
     next_sidecar_state["updated_at"] = now_iso()
     next_sidecar_state["updated_by"] = updated_by
     sidecar_snapshot = copy_sidecar_state(next_sidecar_state)
-    event_id = record_update(
+    sidecar_payload = build_sidecar_from_state(storage, path, sidecar_snapshot).model_dump()
+    update = record_update(
         path,
         sidecar_snapshot,
         "item-updated",
         lambda: storage.set_sidecar(path, copy_sidecar_state(sidecar_snapshot)),
         mutation_id=mutation_id,
         changed_fields=_changed_sidecar_fields(current_sidecar_state, sidecar_snapshot),
+        mutation_sidecar_payload=sidecar_payload,
     )
-    payload = build_sidecar_from_state(storage, path, sidecar_snapshot).model_dump()
-    return PatchApplicationResult(200, payload, event_id)
+    return PatchApplicationResult(200, sidecar_payload, update)
 
 
 def _cached_json_response(
@@ -167,6 +184,7 @@ def register_item_routes(
         400: {"model": ErrorResponse},
         403: {"model": ErrorResponse},
         500: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
     }
 
     @app.get("/item")
@@ -198,8 +216,9 @@ def register_item_routes(
         runtime = context.runtime
         updated_by = updated_by_from_request(request)
         with request_phase("mutation"):
-            event_id: int | None = None
             with runtime.sidecar_lock:
+                if get_app_context(request.app) is not context:
+                    return _stale_context_response()
                 sidecar_snapshot = _put_item_sidecar_state(
                     storage.get_sidecar_readonly(path),
                     body,
@@ -207,22 +226,20 @@ def register_item_routes(
                     ensure_sidecar_fields=ensure_sidecar_fields,
                     now_iso=now_iso,
                 )
+                sidecar = build_sidecar_from_state(storage, path, sidecar_snapshot)
                 try:
                     previous_sidecar = storage.get_sidecar_readonly(path)
-                    event_id = record_update(
+                    record_update(
                         path,
                         sidecar_snapshot,
                         "item-updated",
                         lambda: storage.set_sidecar(path, copy_sidecar_state(sidecar_snapshot)),
                         mutation_id=f"put:{uuid4()}",
                         changed_fields=_changed_sidecar_fields(previous_sidecar, sidecar_snapshot),
+                        mutation_sidecar_payload=sidecar.model_dump(),
                     )
                 except LabelPersistenceError:
                     return _label_persistence_error_response()
-                sidecar = build_sidecar_from_state(storage, path, sidecar_snapshot)
-            if event_id is not None and context.workspace.can_write:
-                with request_phase("writer"):
-                    runtime.snapshotter.maybe_write(storage, event_id)
             return sidecar
 
     @app.patch(
@@ -261,6 +278,8 @@ def register_item_routes(
         with request_phase("mutation"):
             try:
                 with runtime.sidecar_lock:
+                    if get_app_context(request.app) is not context:
+                        return _stale_context_response()
                     result = _apply_sidecar_patch(
                         storage,
                         path,
@@ -272,10 +291,20 @@ def register_item_routes(
                     )
             except LabelPersistenceError:
                 return _label_persistence_error_response()
-            if result.event_id is not None and context.workspace.can_write:
-                with request_phase("writer"):
-                    runtime.snapshotter.maybe_write(storage, result.event_id)
             payload = result.payload
             if result.status == 200:
-                payload = {"sidecar": payload, "mutation_id": idem_key}
+                if result.update is not None:
+                    payload = result.update.mutation_payload
+                else:
+                    persistence = runtime.label_writer.status()
+                    if persistence["state"] == "failed":
+                        return _label_persistence_error_response()
+                    payload = {
+                        "sidecar": payload,
+                        "mutation_id": idem_key,
+                        "persistence": "saved"
+                        if persistence["state"] == "saved"
+                        else "pending",
+                        "durable_watermark": persistence["durable_watermark"],
+                    }
             return _cached_json_response(idempotency_cache, idem_key, result.status, payload)

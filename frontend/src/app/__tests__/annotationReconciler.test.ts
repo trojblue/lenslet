@@ -120,6 +120,37 @@ describe('AnnotationReconciler', () => {
     reconciler.accept(projection('patch-fresh'))
     expect(reconciler.diagnostics().seenMutationIds).toBe(1)
   })
+
+  it('forces one active query and facet repair after a persistence epoch change', async () => {
+    const queryClient = new QueryClient()
+    const stopQuery = activateQuery(queryClient, QUERY_KEY, manifest([]))
+    const stopFacets = activateQuery(queryClient, FACET_KEY, manifest([]))
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+    const reconciler = new AnnotationReconciler(queryClient, vi.fn())
+
+    await reconciler.reconcileAll()
+
+    expect(invalidate).toHaveBeenCalledTimes(2)
+    expect(reconciler.diagnostics().reconciliationPasses).toBe(1)
+    stopQuery()
+    stopFacets()
+  })
+
+  it('propagates forced repair refetch failures to the persistence retry owner', async () => {
+    const queryClient = new QueryClient()
+    const stopQuery = activateQuery(queryClient, QUERY_KEY, manifest([]))
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockRejectedValue(
+      new Error('offline'),
+    )
+    const reconciler = new AnnotationReconciler(queryClient, vi.fn())
+
+    await expect(reconciler.reconcileAll()).rejects.toThrow('offline')
+    expect(invalidate).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: QUERY_KEY }),
+      { throwOnError: true },
+    )
+    stopQuery()
+  })
 })
 
 describe('mutationAffectsDependencyManifest', () => {

@@ -30,6 +30,7 @@ import type {
   PresenceEvent,
   ItemUpdatedEvent,
   MetricsUpdatedEvent,
+  LabelPersistenceState,
   TableSourceColumnsPayload,
 } from '../lib/types'
 import { apiUrl } from './base'
@@ -220,6 +221,7 @@ export type ConnectionStatus = 'idle' | 'connecting' | 'live' | 'reconnecting' |
 export type SyncEvent =
   | { type: 'item-updated'; id: number | null; data: ItemUpdatedEvent }
   | { type: 'metrics-updated'; id: number | null; data: MetricsUpdatedEvent }
+  | { type: 'persistence'; id: number | null; data: LabelPersistenceState }
   | { type: 'presence'; id: number | null; data: PresenceEvent }
 
 export type PresenceSessionResponse = PresenceEvent & {
@@ -318,6 +320,7 @@ function openEventSource(): void {
 
   es.addEventListener('item-updated', handle('item-updated'))
   es.addEventListener('metrics-updated', handle('metrics-updated'))
+  es.addEventListener('persistence', handle('persistence'))
   es.addEventListener('presence', handle('presence'))
 
   es.onopen = () => {
@@ -593,6 +596,10 @@ export const api = {
 
   getSidecar: (path: string): Promise<Sidecar> => {
     return fetchJSON<Sidecar>(apiUrl(`/item?path=${encodeURIComponent(path)}`)).promise
+  },
+
+  getSyncState: (): Promise<LabelPersistenceState> => {
+    return fetchJSON<LabelPersistenceState>(apiUrl('/sync/state')).promise
   },
 
   getItemDetail: (path: string): Promise<BrowseItemPayload> => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
 import {
+  api,
   connectEvents,
   disconnectEvents,
   subscribeEvents,
@@ -10,11 +11,21 @@ import {
   type SyncEvent,
 } from '../../api/client'
 import {
+  labelPersistenceTracker,
+  subscribeLabelPersistenceRefresh,
+} from '../../api/labelPersistence'
+import {
   sidecarQueryKey,
   subscribeAnnotationMutationResponses,
   updateConflictFromServer,
 } from '../../api/items'
-import type { PresenceEvent, Sidecar, StarRating } from '../../lib/types'
+import type {
+  AcceptedEventIdentity,
+  LabelPersistenceState,
+  PresenceEvent,
+  Sidecar,
+  StarRating,
+} from '../../lib/types'
 import {
   AnnotationReconciler,
   type ItemCacheUpdateOptions,
@@ -23,6 +34,7 @@ import {
 import type { RecentActivityKind } from '../presenceActivity'
 
 const FIELD_SCHEMA_REFRESH_DEBOUNCE_MS = 250
+const PERSISTENCE_REPAIR_RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000] as const
 
 export function createFieldSchemaRefreshScheduler(
   refresh: () => void,
@@ -40,6 +52,37 @@ export function createFieldSchemaRefreshScheduler(
     cancel: () => {
       if (timer !== null) globalThis.clearTimeout(timer)
       timer = null
+    },
+  }
+}
+
+export function createBoundedRetryScheduler(
+  retry: () => void,
+  delays: readonly number[] = PERSISTENCE_REPAIR_RETRY_DELAYS_MS,
+): { schedule: () => void; reset: () => void; cancel: () => void } {
+  let attempt = 0
+  let timer: ReturnType<typeof globalThis.setTimeout> | null = null
+  const clear = () => {
+    if (timer !== null) globalThis.clearTimeout(timer)
+    timer = null
+  }
+  return {
+    schedule: () => {
+      if (timer !== null || attempt >= delays.length) return
+      const delay = delays[attempt]
+      attempt += 1
+      timer = globalThis.setTimeout(() => {
+        timer = null
+        retry()
+      }, delay)
+    },
+    reset: () => {
+      clear()
+      attempt = 0
+    },
+    cancel: () => {
+      clear()
+      attempt = delays.length
     },
   }
 }
@@ -104,6 +147,46 @@ export function useAppSyncEvents({
         refetchType: 'active',
       })
     })
+    let active = true
+    let reconnectStateRequest = 0
+    const persistenceRepairRetry = createBoundedRetryScheduler(() => {
+      void refreshPersistenceStatus()
+    })
+
+    const applyPersistenceStatus = async (
+      status: LabelPersistenceState,
+      source: 'sync' | 'event',
+    ) => {
+      const repairs = labelPersistenceTracker.observeStatus(status, source)
+      if (!repairs.length) return
+      const invalidations = repairs.flatMap(({ path }) => [
+        queryClient.invalidateQueries({
+          queryKey: sidecarQueryKey(path),
+          exact: true,
+          refetchType: 'active',
+        }, { throwOnError: true }),
+        queryClient.invalidateQueries({
+          queryKey: ['item-detail', path],
+          exact: true,
+          refetchType: 'active',
+        }, { throwOnError: true }),
+      ])
+      await Promise.all([...invalidations, reconciler.reconcileAll()])
+      if (active) labelPersistenceTracker.acknowledgeRepairs(repairs)
+    }
+
+    const refreshPersistenceStatus = async () => {
+      reconnectStateRequest += 1
+      const requestId = reconnectStateRequest
+      try {
+        const status = await api.getSyncState()
+        if (!active || requestId !== reconnectStateRequest) return
+        await applyPersistenceStatus(status, 'sync')
+        persistenceRepairRetry.reset()
+      } catch {
+        if (active) persistenceRepairRetry.schedule()
+      }
+    }
 
     const mutationIdentity = (
       payload: { mutation_id?: string; path: string; version?: number; updated_at?: string },
@@ -124,6 +207,9 @@ export function useAppSyncEvents({
         mutation_id?: string
         changed_fields?: string[]
         metrics?: Record<string, number | null>
+        accepted_event?: AcceptedEventIdentity | null
+        persistence?: 'pending' | 'saved'
+        durable_watermark?: AcceptedEventIdentity
       },
       eventId: number | null,
     ) => {
@@ -139,6 +225,14 @@ export function useAppSyncEvents({
         replaceMutableMetrics: payload.metrics !== undefined,
       })
       if (!accepted) return
+      if (payload.accepted_event && payload.durable_watermark) {
+        labelPersistenceTracker.observeAccepted(
+          payload.path,
+          payload.accepted_event,
+          payload.persistence ?? 'pending',
+          payload.durable_watermark,
+        )
+      }
       const existing = queryClient.getQueryData<Sidecar>(sidecarQueryKey(payload.path))
       const sidecar: Sidecar = {
         ...existing,
@@ -174,6 +268,13 @@ export function useAppSyncEvents({
 
     connectEvents()
     const offEvents = subscribeEvents((evt: SyncEvent) => {
+      if (evt.type === 'persistence') {
+        void applyPersistenceStatus(evt.data, 'event').then(
+          persistenceRepairRetry.reset,
+          persistenceRepairRetry.schedule,
+        )
+        return
+      }
       if (evt.type === 'presence') {
         const data = evt.data
         if (!data?.gallery_id) return
@@ -197,18 +298,36 @@ export function useAppSyncEvents({
           replaceMutableMetrics: true,
         })
         if (!accepted) return
+        if (payload.accepted_event && payload.durable_watermark) {
+          labelPersistenceTracker.observeAccepted(
+            path,
+            payload.accepted_event,
+            payload.persistence ?? 'pending',
+            payload.durable_watermark,
+          )
+        }
         fieldSchemaRefresh.schedule()
         markRecentActivity(path, 'metrics-updated', evt.id)
         markRecentTouch(path, 'metrics-updated', payload.updated_at)
         updateLastEdited(payload.updated_at)
       }
     })
-    const offStatus = subscribeEventStatus(setConnectionStatus)
+    const offStatus = subscribeEventStatus((status) => {
+      setConnectionStatus(status)
+      if (status === 'live') void refreshPersistenceStatus()
+    })
+    const offPersistenceRefresh = subscribeLabelPersistenceRefresh(() => {
+      void refreshPersistenceStatus()
+    })
     return () => {
+      active = false
+      reconnectStateRequest += 1
       fieldSchemaRefresh.cancel()
+      persistenceRepairRetry.cancel()
       offMutationResponses()
       offEvents()
       offStatus()
+      offPersistenceRefresh()
       disconnectEvents()
     }
   }, [

@@ -34,17 +34,20 @@ from ...storage.table.launch import TableLaunchRequest, TableLaunchResult, prepa
 from ...workspace import Workspace
 from ..auth import set_mutation_policy
 from ..browse import build_item_payload, categoricals_for_cached_item
-from ..context import AppContext, get_app_context, get_request_context
+from ..context import AppContext, get_app_context, get_request_context, set_app_context
 from ..lifecycle import register_lifecycle_handlers
 from ..models import ErrorResponse, HealthResponse, RefreshResponse
 from ..permissions import deny_if_mutation_forbidden
 from ..record_update import RecordUpdateFn
 from ..paths import canonical_path
+from ..runtime import AppRuntime
+from ..sync.labels import LabelPersistenceError
 from .base import create_api_app
 from .builder import (
     BrowseAppAdapters,
     BrowseAppAssembly,
     BrowseAppContextInputs,
+    build_runtime_context,
     finalize_browse_app,
     set_runtime_context,
 )
@@ -328,37 +331,76 @@ def refresh_preindex_storage(
     if preindex_storage is None:
         raise HTTPException(500, "failed to rebuild preindex table")
 
-    if isinstance(current_storage, TableStorage) and isinstance(preindex_storage, TableStorage):
-        preindex_storage.replace_sidecars(
-            current_storage.sidecar_snapshot_for_paths(preindex_storage.row_index_map().values())
-        )
-    if context.recursive_browse_cache is not None:
-        context.recursive_browse_cache.invalidate_path(path)
-
-    updated_runtime = context.runtime
-    if (
+    workspace_rebound = (
         updated_workspace.root != context.workspace.root
         or updated_workspace.views_override != context.workspace.views_override
         or updated_workspace.can_write != context.workspace.can_write
-    ):
-        updated_runtime = runtime_for_workspace(
-            context.runtime,
-            updated_workspace,
-            thumb_cache_enabled=browse_options.thumb_cache,
+    )
+
+    def _stage_context(updated_runtime: AppRuntime) -> AppContext:
+        return build_runtime_context(
+            BrowseAppContextInputs(
+                storage=preindex_storage,
+                workspace=updated_workspace,
+                runtime=updated_runtime,
+                storage_mode=context.storage_mode,
+                storage_origin=context.storage_origin,
+                indexing=context.indexing,
+                og_preview=options.og_preview,
+            ),
         )
 
-    updated_context = set_runtime_context(
-        app,
-        BrowseAppContextInputs(
-            storage=preindex_storage,
-            workspace=updated_workspace,
-            runtime=updated_runtime,
-            storage_mode=context.storage_mode,
-            storage_origin=context.storage_origin,
-            indexing=context.indexing,
-            og_preview=options.og_preview,
-        ),
-    )
+    def _transfer_sidecars() -> None:
+        if isinstance(current_storage, TableStorage) and isinstance(preindex_storage, TableStorage):
+            preindex_storage.replace_sidecars(
+                current_storage.sidecar_snapshot_for_paths(preindex_storage.row_index_map().values())
+            )
+
+    if not workspace_rebound:
+        updated_context = _stage_context(context.runtime)
+        with context.runtime.sidecar_lock:
+            if get_app_context(app) is not context:
+                raise HTTPException(409, "application context changed during refresh; retry")
+            _transfer_sidecars()
+            set_app_context(app, updated_context)
+    else:
+        with context.runtime.sidecar_lock:
+            if get_app_context(app) is not context:
+                raise HTTPException(409, "application context changed during refresh; retry")
+            _transfer_sidecars()
+            try:
+                context.runtime.label_writer.pause_admission(
+                    "label persistence is changing workspaces; retry"
+                )
+            except LabelPersistenceError as exc:
+                raise HTTPException(409, str(exc)) from exc
+
+        updated_runtime = context.runtime
+        try:
+            updated_runtime = runtime_for_workspace(
+                app,
+                context.runtime,
+                updated_workspace,
+                preindex_storage,
+                thumb_cache_enabled=browse_options.thumb_cache,
+            )
+            updated_context = _stage_context(updated_runtime)
+            with context.runtime.sidecar_lock:
+                if get_app_context(app) is not context:
+                    raise HTTPException(409, "application context changed during refresh; retry")
+                set_app_context(app, updated_context)
+                updated_runtime.label_writer.publish_status()
+        except BaseException:
+            if updated_runtime is not context.runtime:
+                updated_runtime.label_writer.close()
+            context.runtime.label_writer.resume_admission()
+            raise
+        try:
+            context.runtime.label_writer.close()
+        except LabelPersistenceError as exc:
+            print(f"[lenslet] Warning: failed to stop replaced label writer: {exc}")
+    if context.recursive_browse_cache is not None:
+        context.recursive_browse_cache.invalidate_path(path)
     if updated_context.recursive_browse_cache is not None:
         updated_context.recursive_browse_cache.invalidate_path(path)
     return {"ok": True}

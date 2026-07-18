@@ -47,6 +47,7 @@ def test_workspace_labels_snapshot_round_trip(tmp_path: Path) -> None:
     payload = {
         "version": 1,
         "last_event_id": 7,
+        "mutations": {},
         "items": {
             "/shots/first.jpg": {
                 "tags": ["picked"],
@@ -171,6 +172,25 @@ def test_workspace_read_results_report_partial_log_corruption(tmp_path: Path) ->
     assert result.status == "partial"
     assert result.invalid_entries == 1
     assert [entry["id"] for entry in result.value] == [1, 2]
+
+
+def test_workspace_read_results_recover_durable_prefix_before_unterminated_tail(
+    tmp_path: Path,
+) -> None:
+    workspace = Workspace(root=tmp_path / ".lenslet", can_write=True)
+    workspace.ensure()
+    log_path = workspace.labels_log_path()
+    assert log_path is not None
+    log_path.write_text(
+        '{"id":1,"path":"/shots/first.jpg","version":2}\n'
+        '{"id":2,"path":"/shots/second.jpg"',
+        encoding="utf-8",
+    )
+
+    result = workspace.read_labels_log_result()
+
+    assert result.status == "recoverable_tail"
+    assert [entry["id"] for entry in result.value] == [1]
 
 
 def test_load_label_state_fails_on_corrupt_workspace_persistence(tmp_path: Path) -> None:

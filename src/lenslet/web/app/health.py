@@ -50,7 +50,12 @@ def _presence_health_payload(runtime: AppRuntime) -> PresenceHealthPayload:
     )
 
 
-def _labels_health_payload(workspace: Workspace, *, writes_enabled: bool | None = None) -> LabelsHealthPayload:
+def _labels_health_payload(
+    workspace: Workspace,
+    runtime: AppRuntime,
+    *,
+    writes_enabled: bool | None = None,
+) -> LabelsHealthPayload:
     if writes_enabled is None:
         writes_enabled = workspace.can_write
     if not writes_enabled:
@@ -59,6 +64,7 @@ def _labels_health_payload(workspace: Workspace, *, writes_enabled: bool | None 
         enabled=True,
         log=str(workspace.labels_log_path()),
         snapshot=str(workspace.labels_snapshot_path()),
+        persistence=runtime.label_writer.status(),
     )
 
 
@@ -100,7 +106,7 @@ def _base_health_payload(
         ),
         browse_cache=_browse_cache_health_payload(recursive_browse_cache),
         compare_export=_compare_export_health_payload(),
-        labels=_labels_health_payload(workspace, writes_enabled=writes_enabled),
+        labels=_labels_health_payload(workspace, runtime, writes_enabled=writes_enabled),
         presence=_presence_health_payload(runtime),
         hotpath=hotpath,
         table_launch_status=_table_launch_status_payload(storage, workspace),

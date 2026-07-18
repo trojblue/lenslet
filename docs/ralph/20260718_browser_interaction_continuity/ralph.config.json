@@ -1,0 +1,10 @@
+{
+  "mode": "plan",
+  "tool": "codex",
+  "maxIterations": 7,
+  "maxTasksPerIteration": 6,
+  "planFile": "/fsx/yada/dev/lenslet/docs/20260718_browser_interaction_continuity_plan.md",
+  "prdFile": "prd.json",
+  "progressFile": "progress.txt",
+  "sharedDir": "../shared"
+}

@@ -217,6 +217,8 @@ Shared Dropdown styling can affect menus beyond Metrics. The rollback is a singl
 
 The remaining Sprint 1 blocker is environmental rather than an automated-code failure: the required native scrollbar visual must be recorded on Windows 11 Edge in Original, Teal, and Charcoal. Do not close the sprint from the passing Chromium computed-style proxy.
 
+Iteration 2 reconfirmed that the execution host is Linux and has no Microsoft Edge executable. The unblock remains a Windows 11 Edge run against the actual 300-metric dropdown in all three themes, with screenshots or an equivalent recorded visual result attached to the sprint evidence. After that result passes, resume at the Sprint 1 cleanup gate; do not substitute another Chromium run or begin Sprint 2 first.
+
 Each sprint is independently revertible by its ticket commits. Retry is idempotent: rebuild fixtures and frontend assets, rerun the focused failure, then rerun the sprint’s primary gate. Never copy a failed build into `src/lenslet/frontend/`. Preserve unrelated worktree changes and do not use destructive resets.
 
 
@@ -235,6 +237,7 @@ Each sprint is independently revertible by its ticket commits. Retry is idempote
 - [x] 2026-07-18 UTC — Implemented S1-T3’s production gesture path: the real gallery scroll owner now binds pinch plus non-passive Ctrl/Meta wheel, uses one exported 80/500/10 contract, retains sub-step deltas, coalesces to one update per animation frame, and calls the existing anchor-restoring size callback. Focused policy/binding/cleanup tests and `npx tsc --noEmit` pass.
 - [x] 2026-07-18 UTC — Implemented S1-T4’s automated harness slice and regenerated the shipped frontend. Targeted stable-controls Chromium, the 2000-row/300-metric acceptance, default GUI acceptance, full frontend tests/build/typecheck, focused Python helpers, and repository lint pass.
 - [x] 2026-07-18 UTC — Committed the validated Sprint 1 implementation/automated slice as `1f66ad0` (`feat: stabilize browse controls and layout`).
+- [x] 2026-07-18 UTC — Ralph iteration 2 re-read the canonical plan and found no additional actionable Sprint 1 code task: the host is Linux with no Edge executable, so the required Windows 11 Edge three-theme visual cannot run here. No product files changed, Sprint 1 remains open, and Sprint 2 was not started out of dependency order.
 - [ ] S1-T4 — Record the required Windows 11 Edge Metric dropdown visual in Original, Teal, and Charcoal; Chromium computed evidence is green but cannot close this gate.
 - [ ] Implementation — Close Sprint 1 only after the Edge visual, then run the blocking code-simplifier and code-review routines and add the sprint handoff.
 - [ ] Implementation — Execute Sprint 2 and record focused, primary, cleanup, review, and handoff evidence.

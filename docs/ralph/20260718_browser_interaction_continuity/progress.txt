@@ -30,3 +30,18 @@ Blocker: this Linux workspace cannot produce the mandatory native Windows 11 Edg
 Next step: record the three-theme Windows 11 Edge visual result. If it passes, run code-simplifier, then code-review, resolve findings, rerun affected validation, and close Sprint 1 before moving to Sprint 2.
 
 Implementation commit: `1f66ad0` (`feat: stabilize browse controls and layout`).
+
+## Iteration 2 — 2026-07-18T05:25:43Z
+
+Completed task IDs: none. The next incomplete sprint is still Sprint 1, and S1-T4 has no remaining Linux-actionable implementation work.
+
+Files changed: canonical plan and append-only Ralph progress log only. Product code, tests, and the regenerated frontend bundle were unchanged. Existing untracked Ralph runtime files were left untouched.
+
+Validations:
+- PASS — re-read `AGENTS.md`, the full canonical plan, and the progress log; dependency order still forbids starting Sprint 2 before Sprint 1 closes.
+- PASS — host capability check reports Linux `6.1.163-186.299.amzn2023.x86_64` and no `microsoft-edge`, `microsoft-edge-stable`, or `msedge` executable.
+- PASS — iteration documentation passed `git diff --check`.
+
+Blocker: the mandatory native Windows 11 Edge visual check for the actual 300-metric dropdown in Original, Teal, and Charcoal cannot run on this host. The plan explicitly forbids substituting Chromium computed-style evidence, and cleanup/review agents start only after the complete Sprint 1 primary scenario passes.
+
+Next step: run the three-theme visual check on Windows 11 Edge and attach the result. On pass, run the blocking Sprint 1 code-simplifier agent, then the blocking code-review agent, resolve findings, rerun affected evidence, add the sprint handoff, and only then begin Sprint 2.

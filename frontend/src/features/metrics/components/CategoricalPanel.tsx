@@ -14,7 +14,8 @@ interface CategoricalPanelProps {
   filteredItems: BrowseItemPayload[]
   categoricalKeys: string[]
   facets?: BrowseFacetsPayload | null
-  itemPopulationComplete?: boolean
+  populationItemsComplete?: boolean
+  filteredItemsComplete?: boolean
   selectedItems?: BrowseItemPayload[]
   filters: FilterAST
   onChangeValues: (key: string, values: string[] | null) => void
@@ -26,7 +27,8 @@ export default function CategoricalPanel({
   filteredItems,
   categoricalKeys,
   facets = null,
-  itemPopulationComplete = true,
+  populationItemsComplete = true,
+  filteredItemsComplete = true,
   selectedItems,
   filters,
   onChangeValues,
@@ -49,13 +51,13 @@ export default function CategoricalPanel({
           filteredItems,
           selectedItems,
           scopedCategoricalKeys,
-          itemPopulationComplete,
+          filteredItemsComplete,
         )
       }
-      if (!itemPopulationComplete) return new Map()
+      if (!populationItemsComplete) return new Map()
       return collectCategoricalBucketsByKey(items, filteredItems, selectedItems, scopedCategoricalKeys)
     },
-    [facets, filteredItems, itemPopulationComplete, items, selectedItems, scopedCategoricalKeys]
+    [facets, filteredItems, filteredItemsComplete, items, populationItemsComplete, selectedItems, scopedCategoricalKeys]
   )
   const categoricalOptions = useMemo(() => (
     categoricalKeys.map((key) => ({
@@ -84,7 +86,7 @@ export default function CategoricalPanel({
       filters={filters}
       onChangeValues={onChangeValues}
       showTitle={showTitle}
-      showFilteredCounts={itemPopulationComplete}
+      showFilteredCounts={filteredItemsComplete}
     />
   )
 

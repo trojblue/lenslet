@@ -190,10 +190,13 @@ def _run_filter_and_wide_panel_acceptance(
     filter_requests = evidence.phase_summary("committed_filter")
     if not filter_quiescence["completed"]:
         raise SmokeFailure(f"committed text filter did not quiesce: {filter_quiescence}")
-    if filter_requests["query_requests"] != 1 or filter_requests["facet_requests"] != 1:
-        raise SmokeFailure(f"ten characters did not commit one query/facet pair: {filter_requests}")
+    if filter_requests["query_requests"] != 1 or filter_requests["facet_requests"] != 0:
+        raise SmokeFailure(
+            "ten characters did not commit one query while retaining population facets: "
+            f"{filter_requests}"
+        )
     if filter_wall_ms >= 1_000:
-        raise SmokeFailure(f"committed query/facet wall time missed one second: {filter_wall_ms}")
+        raise SmokeFailure(f"committed query wall time missed one second: {filter_wall_ms}")
 
     evidence.phase = "filter_reset"
     input_box.fill("")
@@ -204,7 +207,7 @@ def _run_filter_and_wide_panel_acceptance(
     reset_requests = evidence.phase_summary("filter_reset")
     if not reset_quiescence["completed"]:
         raise SmokeFailure(f"filter reset did not quiesce: {reset_quiescence}")
-    if reset_requests["query_requests"] != 1 or reset_requests["facet_requests"] > 1:
+    if reset_requests["query_requests"] != 1 or reset_requests["facet_requests"] != 0:
         raise SmokeFailure(f"Enter did not commit exactly once: {reset_requests}")
 
     evidence.phase = "filter_blur"
@@ -216,7 +219,7 @@ def _run_filter_and_wide_panel_acceptance(
     blur_requests = evidence.phase_summary("filter_blur")
     if not blur_quiescence["completed"]:
         raise SmokeFailure(f"blur commit did not quiesce: {blur_quiescence}")
-    if blur_requests["query_requests"] != 1 or blur_requests["facet_requests"] != 1:
+    if blur_requests["query_requests"] != 1 or blur_requests["facet_requests"] != 0:
         raise SmokeFailure(f"blur did not commit exactly once: {blur_requests}")
 
     evidence.phase = "filter_apply"
@@ -230,7 +233,7 @@ def _run_filter_and_wide_panel_acceptance(
     apply_requests = evidence.phase_summary("filter_apply")
     if not apply_quiescence["completed"]:
         raise SmokeFailure(f"Apply commit did not quiesce: {apply_quiescence}")
-    if apply_requests["query_requests"] != 1 or apply_requests["facet_requests"] > 1:
+    if apply_requests["query_requests"] != 1 or apply_requests["facet_requests"] != 0:
         raise SmokeFailure(f"Apply did not commit exactly once: {apply_requests}")
     if input_box.input_value() != "" or not page.get_by_role(
         "button", name="Apply Filename contains",
@@ -386,8 +389,8 @@ def _validate_round(round_result: dict[str, Any]) -> None:
         requests = result["requests"]
         if not 1 <= requests["query_requests"] <= 2:
             raise SmokeFailure(f"{role} missed the query reconciliation bound: {requests}")
-        if not 1 <= requests["facet_requests"] <= 2:
-            raise SmokeFailure(f"{role} missed the facet reconciliation bound: {requests}")
+        if requests["facet_requests"] != 0:
+            raise SmokeFailure(f"{role} unexpectedly refreshed stable population facets: {requests}")
 
 
 def _gallery_count_label(page: Any) -> str:

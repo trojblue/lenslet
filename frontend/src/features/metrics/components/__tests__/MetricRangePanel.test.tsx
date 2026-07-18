@@ -70,4 +70,74 @@ describe('MetricRangePanel', () => {
     expect(html).toContain('Filtered: 1')
     expect(html).toContain('0/1')
   })
+
+  it('keeps the population histogram domain while a metric range is selected', () => {
+    const html = renderToStaticMarkup(
+      <MetricRangePanel
+        items={[]}
+        filteredItems={[]}
+        metricKeys={['quality_score']}
+        facets={{
+          version: 1,
+          path: '/',
+          generated_at: 'test',
+          total_items: 100,
+          metric_keys: ['quality_score'],
+          categorical_keys: [],
+          metrics: {
+            quality_score: {
+              histogram: {
+                bins: Array.from({ length: 40 }, (_, index) => index === 0 ? 100 : 0),
+                min: 0,
+                max: 100,
+                count: 100,
+              },
+              categories: [],
+            },
+          },
+          categoricals: {},
+          dependency_manifest: {
+            fields: [],
+            metric_keys: ['quality_score'],
+            categorical_keys: [],
+            unknown: false,
+          },
+        }}
+        populationItemsComplete={false}
+        filteredItemsComplete={false}
+        selectedMetric="quality_score"
+        onSelectMetric={() => {}}
+        filters={{ and: [{ metricRange: { key: 'quality_score', min: 40, max: 60 } }] }}
+        onChangeRange={() => {}}
+      />,
+    )
+
+    expect(html).toContain('Population: 100')
+    expect(html).toContain('placeholder="0"')
+    expect(html).toContain('placeholder="100"')
+    expect(html).toContain('40.00 – 60.00')
+  })
+
+  it('does not substitute a complete filtered slice for a pending population', () => {
+    const filteredItems = [
+      makeItem('/a.jpg', { quality_score: 0.4 }),
+      makeItem('/b.jpg', { quality_score: 0.6 }),
+    ]
+    const html = renderToStaticMarkup(
+      <MetricRangePanel
+        items={filteredItems}
+        filteredItems={filteredItems}
+        metricKeys={['quality_score']}
+        populationItemsComplete={false}
+        filteredItemsComplete
+        selectedMetric="quality_score"
+        onSelectMetric={() => {}}
+        filters={{ and: [{ metricRange: { key: 'quality_score', min: 0.4, max: 0.6 } }] }}
+        onChangeRange={() => {}}
+      />,
+    )
+
+    expect(html).toContain('No values found for this metric.')
+    expect(html).not.toContain('Population: 2')
+  })
 })

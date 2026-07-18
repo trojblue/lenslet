@@ -46,7 +46,8 @@ type LeftSidebarProps = {
   categoricalKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
   metricsFacets?: BrowseFacetsPayload | null
-  metricsItemPopulationComplete?: boolean
+  metricsPopulationItemsComplete?: boolean
+  metricsFilteredItemsComplete?: boolean
   derivedMetric: DerivedMetricEvaluation
   derivedRankDisabledReason?: string | null
   derivedMetricBackendAuthoritative?: boolean
@@ -110,7 +111,8 @@ export default function LeftSidebar({
   categoricalKeys,
   metricDisplayNames,
   metricsFacets,
-  metricsItemPopulationComplete,
+  metricsPopulationItemsComplete,
+  metricsFilteredItemsComplete,
   derivedMetric,
   derivedRankDisabledReason,
   derivedMetricBackendAuthoritative = false,
@@ -287,7 +289,8 @@ export default function LeftSidebar({
                 categoricalKeys={categoricalKeys}
                 metricDisplayNames={metricDisplayNames}
                 facets={metricsFacets}
-                itemPopulationComplete={metricsItemPopulationComplete}
+                populationItemsComplete={metricsPopulationItemsComplete}
+                filteredItemsComplete={metricsFilteredItemsComplete}
                 selectedItems={selectedItems}
                 selectedMetric={selectedMetric}
                 onSelectMetric={onSelectMetric}

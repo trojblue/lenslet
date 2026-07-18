@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { api } from '../../../api/client'
 import { markFirstThumbnailRendered } from '../../../lib/browseHotpath'
-import { useBlobResource } from '../../../shared/hooks/useBlobUrl'
 import { mediaErrorSummary } from '../../../lib/mediaResourceState'
+import { useThumbnailResource } from '../hooks/useThumbnailResource'
 
 interface ThumbCardProps {
   path: string
@@ -40,12 +39,11 @@ export default function ThumbCard({
   const [loaded, setLoaded] = useState(false)
   const [requestedPath, setRequestedPath] = useState<string | null>(() => (priority ? path : null))
 
-  const resource = useBlobResource(
-    requestedPath === path ? () => api.getThumb(path) : null,
-    [path, requestedPath],
-    { source: 'thumbnail' },
-  )
+  const resource = useThumbnailResource(path, requestedPath === path)
   const url = resource.status === 'ready' ? resource.url : null
+  const decoded = resource.status === 'ready' ? resource.decoded : false
+  const imageVisible = loaded || decoded
+  const markDecoded = resource.status === 'ready' ? resource.markDecoded : null
   const error = resource.status === 'error' ? resource.error : null
   const retry = resource.status === 'error' ? resource.retry : null
 
@@ -88,15 +86,22 @@ export default function ThumbCard({
       return
     }
 
+    if (decoded) {
+      setLoaded(true)
+      markFirstThumbnailRendered(path)
+      return
+    }
+
     // If the image is already cached, mark it loaded to avoid flicker (e.g. after browser zoom/layout shifts).
     const imgEl = hostRef.current?.querySelector('img') as HTMLImageElement | null
     if (imgEl && imgEl.complete && imgEl.naturalWidth > 0) {
       setLoaded(true)
+      markDecoded?.()
       markFirstThumbnailRendered(path)
     } else {
       setLoaded(false)
     }
-  }, [url])
+  }, [decoded, markDecoded, path, url])
 
   const cardClassName = [
     'absolute inset-0 bg-surface rounded-[10px] overflow-hidden select-none',
@@ -122,13 +127,14 @@ export default function ThumbCard({
       )}
       {url ? (
         <img
-          className={`w-full h-full ${fit === 'contain' ? 'object-contain' : 'object-cover'} block pointer-events-none select-none opacity-0 transition-opacity duration-[160ms] ${loaded ? 'opacity-100' : ''}`}
+          className={`w-full h-full ${fit === 'contain' ? 'object-contain' : 'object-cover'} block pointer-events-none select-none opacity-0 transition-opacity duration-[160ms] ${imageVisible ? 'opacity-100' : ''}`}
           src={url}
           alt={name}
           loading="lazy"
           decoding="async"
           onLoad={() => {
             setLoaded(true)
+            markDecoded?.()
             markFirstThumbnailRendered(path)
           }}
           width={displayW ? Math.round(displayW) : undefined}

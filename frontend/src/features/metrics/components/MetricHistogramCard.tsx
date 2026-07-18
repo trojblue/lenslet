@@ -8,6 +8,7 @@ import {
   computeHistogramFromValues,
   formatInputValue,
   formatNumber,
+  histogramBarHeights,
   isApprox,
   normalizeRange,
   parseNumberInput,
@@ -133,6 +134,7 @@ export default function MetricHistogramCard({
   }
 
   const selectedCount = selectedValues.length
+  const populationMaxBin = Math.max(1, ...population.bins)
   return (
     <div className="ui-card">
       {showTitle && (
@@ -158,9 +160,12 @@ export default function MetricHistogramCard({
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerLeave}
       >
-        {renderBars(population.bins, '#2e3a4b')}
-        {showFilteredCounts && filtered && renderBars(filtered.bins, '#3a8fff')}
-        {selectedHistogram && renderBars(selectedHistogram.bins, '#f59e0b', { opacity: 0.55 })}
+        {renderBars(population.bins, '#2e3a4b', { scaleMax: populationMaxBin })}
+        {showFilteredCounts && filtered && renderBars(filtered.bins, '#3a8fff', { scaleMax: populationMaxBin })}
+        {selectedHistogram && renderBars(selectedHistogram.bins, '#f59e0b', {
+          opacity: 0.55,
+          scaleMax: populationMaxBin,
+        })}
         {displayRange && renderRange(displayRange, domain)}
         {selectedValue != null && renderValueMarker(selectedValue, domain, {
           color: 'var(--highlight)',
@@ -248,11 +253,14 @@ export default function MetricHistogramCard({
   )
 }
 
-function renderBars(bins: number[], color: string, options?: { opacity?: number }) {
-  const max = Math.max(1, ...bins)
-  const opacity = options?.opacity ?? 0.9
-  return bins.map((count, i) => {
-    const height = (count / max) * 100
+function renderBars(
+  bins: number[],
+  color: string,
+  options: { opacity?: number; scaleMax: number },
+) {
+  const opacity = options.opacity ?? 0.9
+  const heights = histogramBarHeights(bins, options.scaleMax)
+  return heights.map((height, i) => {
     return (
       <rect
         key={`${color}-${i}`}

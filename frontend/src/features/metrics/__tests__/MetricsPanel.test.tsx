@@ -134,7 +134,8 @@ describe('MetricsPanel', () => {
             },
           },
         }}
-        itemPopulationComplete={false}
+        populationItemsComplete={false}
+        filteredItemsComplete={false}
         onSelectMetric={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
@@ -162,7 +163,8 @@ describe('MetricsPanel', () => {
         filteredItems={items.slice(0, 1)}
         metricKeys={[]}
         categoricalKeys={['original_source']}
-        itemPopulationComplete={false}
+        populationItemsComplete={false}
+        filteredItemsComplete={false}
         onSelectMetric={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}

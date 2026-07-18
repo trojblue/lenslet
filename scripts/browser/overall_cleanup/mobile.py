@@ -6,6 +6,184 @@ from scripts.browser.overall_cleanup.grid import wait_for_visible_grid_cell_ids
 from scripts.browser.overall_cleanup.support import OverallCleanupBrowserFailure
 from scripts.browser.overall_cleanup.transforms import wait_for_image_ready
 
+
+def start_grid_thumbnail_frame_probe(page: Any, timeout_ms: float) -> None:
+    page.wait_for_function(
+        """() => Array.from(document.querySelectorAll('[role="grid"][aria-label="Gallery"] img'))
+          .some(image => image.complete && image.naturalWidth > 0)""",
+        timeout=timeout_ms,
+    )
+    page.evaluate(
+        """() => {
+          const frames = []
+          let active = true
+          const sample = () => {
+            const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
+            const viewport = grid?.getBoundingClientRect()
+            const decodedVisible = viewport
+              ? Array.from(grid.querySelectorAll('img')).filter(image => {
+                  const rect = image.getBoundingClientRect()
+                  const intersects = rect.bottom > viewport.top && rect.top < viewport.bottom
+                    && rect.right > viewport.left && rect.left < viewport.right
+                  return intersects
+                    && image.complete
+                    && image.naturalWidth > 0
+                    && Number.parseFloat(getComputedStyle(image).opacity) > 0
+                }).length
+              : 0
+            frames.push(decodedVisible)
+            if (active) requestAnimationFrame(sample)
+          }
+          window.__lensletGridThumbnailFrameProbe = {
+            frames,
+            stop: () => { active = false },
+          }
+          requestAnimationFrame(sample)
+        }"""
+    )
+
+
+def stop_grid_thumbnail_frame_probe(page: Any) -> dict[str, Any]:
+    page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+    return page.evaluate(
+        """() => {
+          const probe = window.__lensletGridThumbnailFrameProbe
+          probe?.stop()
+          const frames = probe?.frames ?? []
+          delete window.__lensletGridThumbnailFrameProbe
+          return {
+            frameCount: frames.length,
+            minDecodedVisible: frames.length ? Math.min(...frames) : 0,
+            maxDecodedVisible: frames.length ? Math.max(...frames) : 0,
+          }
+        }"""
+    )
+
+
+def verify_browse_presentation_grace(page: Any, timeout_ms: float) -> dict[str, Any]:
+    search_box = page.get_by_label("Search filename, tags, notes").first
+    page.evaluate(
+        """() => {
+          if (window.__lensletDelayedQueryFetchInstalled) return
+          const originalFetch = window.fetch.bind(window)
+          window.__lensletDelayedQueryFetchInstalled = true
+          window.__lensletDelayNextQueryMs = 0
+          window.fetch = async (...args) => {
+            const input = args[0]
+            const rawUrl = input instanceof Request ? input.url : String(input)
+            const response = await originalFetch(...args)
+            const delayMs = window.__lensletDelayNextQueryMs
+            if (new URL(rawUrl, location.href).pathname !== '/folders/query' || delayMs <= 0) {
+              return response
+            }
+            window.__lensletDelayNextQueryMs = 0
+            await new Promise(resolve => setTimeout(resolve, delayMs))
+            return response
+          }
+        }"""
+    )
+
+    def run_transition(term: str, delay_ms: int) -> dict[str, Any]:
+        page.evaluate(
+            """delayMs => {
+              window.__lensletDelayNextQueryMs = delayMs
+              const frames = []
+              let active = true
+              const sample = now => {
+                const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
+                frames.push({
+                  now,
+                  phase: grid?.getAttribute('data-grid-presentation-phase') ?? null,
+                  cells: grid?.querySelectorAll('[role="gridcell"]').length ?? 0,
+                })
+                if (active) requestAnimationFrame(sample)
+              }
+              window.__lensletBrowsePresentationProbe = {
+                frames,
+                stop: () => { active = false },
+              }
+              requestAnimationFrame(sample)
+            }""",
+            delay_ms,
+        )
+        search_box.fill(term)
+        page.wait_for_function(
+            """() => {
+              const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
+              return grid?.getAttribute('data-grid-presentation-phase') !== 'steady'
+            }""",
+            timeout=timeout_ms,
+        )
+        page.wait_for_function(
+            """term => {
+              const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
+              const cells = Array.from(grid?.querySelectorAll('[role="gridcell"]') ?? [])
+              return grid?.getAttribute('data-grid-presentation-phase') === 'steady'
+                && grid.getAttribute('aria-busy') !== 'true'
+                && cells.length > 0
+                && cells.every(cell => decodeURIComponent(cell.id).includes(term))
+            }""",
+            arg=term,
+            timeout=timeout_ms,
+        )
+        page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+        return page.evaluate(
+            """() => {
+              const probe = window.__lensletBrowsePresentationProbe
+              probe?.stop()
+              const frames = probe?.frames ?? []
+              delete window.__lensletBrowsePresentationProbe
+              return { frames }
+            }"""
+        )
+
+    sub_grace = run_transition("nested", 600)
+    slow = run_transition("cleanup", 1_050)
+
+    sub_grace_frames = sub_grace["frames"]
+    sub_grace_grace = [frame for frame in sub_grace_frames if frame["phase"] == "grace"]
+    if not sub_grace_grace or any(frame["cells"] < 1 for frame in sub_grace_grace):
+        raise OverallCleanupBrowserFailure(
+            f"Sub-grace browse transition did not retain populated cells: {sub_grace!r}."
+        )
+    if any(frame["phase"] == "loading" for frame in sub_grace_frames):
+        raise OverallCleanupBrowserFailure(
+            f"Sub-grace browse transition exposed loading before its 600 ms response: {sub_grace!r}."
+        )
+
+    slow_frames = slow["frames"]
+    slow_grace = [frame for frame in slow_frames if frame["phase"] == "grace"]
+    slow_loading = [frame for frame in slow_frames if frame["phase"] == "loading"]
+    if not slow_grace or any(frame["cells"] < 1 for frame in slow_grace):
+        raise OverallCleanupBrowserFailure(f"Slow browse transition missed inert populated grace: {slow!r}.")
+    if not slow_loading or any(frame["cells"] != 0 for frame in slow_loading):
+        raise OverallCleanupBrowserFailure(f"Slow browse transition missed explicit empty loading: {slow!r}.")
+    grace_duration_ms = float(slow_loading[0]["now"]) - float(slow_grace[0]["now"])
+    if grace_duration_ms < 750:
+        raise OverallCleanupBrowserFailure(
+            f"Browse loading appeared before the 800 ms grace elapsed: {grace_duration_ms:.1f} ms."
+        )
+
+    search_box.fill("")
+    page.wait_for_function(
+        """() => {
+          const grid = document.querySelector('[role="grid"][aria-label="Gallery"]')
+          return grid?.getAttribute('data-grid-presentation-phase') === 'steady'
+            && grid.getAttribute('aria-busy') !== 'true'
+            && (grid.querySelectorAll('[role="gridcell"]').length ?? 0) > 1
+        }""",
+        timeout=timeout_ms,
+    )
+    return {
+        "sub_grace_frame_count": len(sub_grace_frames),
+        "sub_grace_retained_frames": len(sub_grace_grace),
+        "slow_frame_count": len(slow_frames),
+        "slow_retained_frames": len(slow_grace),
+        "slow_loading_frames": len(slow_loading),
+        "measured_grace_ms": round(grace_duration_ms, 1),
+    }
+
+
 def verify_browse_ctrl_wheel_and_slider(page: Any, timeout_ms: float) -> dict[str, Any]:
     page.set_viewport_size({"width": 1440, "height": 920})
     grid = page.get_by_role("grid", name="Gallery")
@@ -33,6 +211,7 @@ def verify_browse_ctrl_wheel_and_slider(page: Any, timeout_ms: float) -> dict[st
         float(grid_box["x"]) + float(grid_box["width"]) / 2,
         float(grid_box["y"]) + float(grid_box["height"]) / 2,
     )
+    start_grid_thumbnail_frame_probe(page, timeout_ms)
     page.keyboard.down("Control")
     try:
         page.mouse.wheel(0, -120)
@@ -46,6 +225,11 @@ def verify_browse_ctrl_wheel_and_slider(page: Any, timeout_ms: float) -> dict[st
         arg=before_value,
         timeout=timeout_ms,
     )
+    frame_probe = stop_grid_thumbnail_frame_probe(page)
+    if frame_probe["frameCount"] < 1 or frame_probe["minDecodedVisible"] < 1:
+        raise OverallCleanupBrowserFailure(
+            f"Browse Ctrl+wheel painted a frame without a decoded visible thumbnail: {frame_probe!r}."
+        )
     after_ctrl_wheel_value = slider.input_value()
     if int(after_ctrl_wheel_value) <= int(before_value):
         raise OverallCleanupBrowserFailure(
@@ -151,6 +335,7 @@ def verify_browse_ctrl_wheel_and_slider(page: Any, timeout_ms: float) -> dict[st
         "top_anchor_after_ctrl_wheel": after_ctrl_anchor,
         "viewport_before": before_viewport,
         "viewport_after": after_viewport,
+        "thumbnail_frame_probe": frame_probe,
     }
 
 def verify_mobile_viewer_navigation(page: Any, timeout_ms: float) -> dict[str, Any]:

@@ -4,6 +4,7 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -68,6 +69,7 @@ import type {
 import { getMetricDisplayName } from '../lib/metricDisplay'
 import { cssVars } from '../lib/cssVars'
 import { fileCache, thumbCache } from '../lib/blobCache'
+import { thumbnailObjectUrlCache } from '../features/browse/model/thumbnailObjectUrlCache'
 import LeftSidebar from './components/LeftSidebar'
 import GridTopStack from './components/GridTopStack'
 import { deriveIndicatorState } from './presenceUi'
@@ -97,6 +99,7 @@ import {
   shouldResetUnavailableMetricSort,
 } from './model/appShellSelectors'
 import { resolveGridStatus } from './model/loadingState'
+import { metricsPopulationFacetOptions } from './model/metricsFacetScope'
 import {
   formatScopeLabel,
   resolveExplicitViewerForScope,
@@ -111,6 +114,7 @@ import { useFolderSessionState } from './hooks/useFolderSessionState'
 import { useFolderRefreshActions } from './hooks/useFolderRefreshActions'
 import { useBrowserZoomWarning } from './hooks/useBrowserZoomWarning'
 import { useGridResizeGestures } from './hooks/useGridResizeGestures'
+import { useGridPresentation } from './hooks/useGridPresentation'
 import { usePersistedAppShellSettings } from './hooks/usePersistedAppShellSettings'
 import { useSimilaritySearchWorkflow } from './hooks/useSimilaritySearchWorkflow'
 import { useSmartFolders } from './hooks/useSmartFolders'
@@ -426,6 +430,7 @@ export default function AppShell({
     loadMoreFolderItems,
     browseQueryUnavailableReason,
     analysisUnsupportedMetricIntent,
+    browseTargetIdentity,
   } = useAppDataScope({
     current,
     query,
@@ -529,6 +534,7 @@ export default function AppShell({
         setDismissedTableSourceWarning(null)
         fileCache.clear()
         thumbCache.clear()
+        thumbnailObjectUrlCache.clear()
         queryClient.invalidateQueries()
         setSelectedPaths([])
         setSimilarityState(null)
@@ -587,24 +593,35 @@ export default function AppShell({
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
   const metricsPanelActive = leftOpen && (leftTool === 'metrics' || leftTool === 'derived')
   const needsBackendMetricRailSummary = metricSortKey !== null && isDerivedMetricKey(metricSortKey)
-  const requestedFacetFields = useMemo(() => {
-    const panelFields = leftTool === 'metrics'
+  const panelFacetFields = useMemo(() => {
+    const fields = leftTool === 'metrics'
       ? metricsFacetFields
       : leftTool === 'derived'
         ? derivedFacetFields
         : { metric_keys: [], categorical_keys: [] }
     return {
-      metric_keys: Array.from(new Set([
-        ...panelFields.metric_keys,
-        ...(needsBackendMetricRailSummary && metricSortKey ? [metricSortKey] : []),
-      ])).sort(),
-      categorical_keys: Array.from(new Set(panelFields.categorical_keys)).sort(),
+      metric_keys: Array.from(new Set(fields.metric_keys)).sort(),
+      categorical_keys: Array.from(new Set(fields.categorical_keys)).sort(),
     }
-  }, [derivedFacetFields, leftTool, metricSortKey, metricsFacetFields, needsBackendMetricRailSummary])
-  const hasRequestedFacetFields = (
-    requestedFacetFields.metric_keys.length + requestedFacetFields.categorical_keys.length > 0
+  }, [derivedFacetFields, leftTool, metricsFacetFields])
+  const hasPanelFacetFields = (
+    panelFacetFields.metric_keys.length + panelFacetFields.categorical_keys.length > 0
   )
-  const metricsFacetsQuery = useFolderFacets({
+  const metricsPopulationFacetsQuery = useFolderFacets({
+    ...metricsPopulationFacetOptions({
+      path: current,
+      derivedMetric: viewState.derivedMetric ?? null,
+      facetFields: panelFacetFields,
+    }),
+    analysisChannel: 'metrics-population',
+    enabled: metricsPanelActive && hasPanelFacetFields && !similarityState,
+  })
+  const metricsPopulationFacets = (
+    metricsPopulationFacetsQuery.data?.path === (data?.path ?? current)
+      ? metricsPopulationFacetsQuery.data
+      : null
+  )
+  const metricRailFacetsQuery = useFolderFacets({
     path: current,
     recursive: true,
     filters: viewState.filters,
@@ -613,25 +630,32 @@ export default function AppShell({
     randomSeed,
     derivedMetric: viewState.derivedMetric ?? null,
     unsupportedToken: analysisUnsupportedMetricIntent,
-    facetFields: requestedFacetFields,
+    facetFields: {
+      metric_keys: metricSortKey ? [metricSortKey] : [],
+      categorical_keys: [],
+    },
     enabled: (
-      (metricsPanelActive || needsBackendMetricRailSummary)
-      && hasRequestedFacetFields
+      needsBackendMetricRailSummary
       && !similarityState
     ),
   })
-  const metricsFacets = metricsFacetsQuery.data?.path === (data?.path ?? current)
-    ? metricsFacetsQuery.data
+  const metricRailFacets = metricRailFacetsQuery.data?.path === (data?.path ?? current)
+    ? metricRailFacetsQuery.data
     : null
-  const metricsItemPopulationComplete = similarityState !== null || items.length >= filteredCount
+  const metricsFilteredItemsComplete = similarityState !== null || items.length >= filteredCount
+  const metricsPopulationItemsComplete = similarityState !== null || (
+    viewState.filters.and.length === 0
+    && normalizedQ === ''
+    && items.length >= scopeTotal
+  )
   const metricRailHistogram = metricSortKey
-    ? metricHistogramFromFacet(metricsFacets?.metrics[metricSortKey]?.histogram)
+    ? metricHistogramFromFacet(metricRailFacets?.metrics[metricSortKey]?.histogram)
     : null
   const hasMetricScrollbar = useMemo(
     () => metricRailHistogram !== null || (
-      metricsItemPopulationComplete && hasMetricSortValues(items, metricSortKey)
+      metricsFilteredItemsComplete && hasMetricSortValues(items, metricSortKey)
     ),
-    [items, metricRailHistogram, metricSortKey, metricsItemPopulationComplete],
+    [items, metricRailHistogram, metricSortKey, metricsFilteredItemsComplete],
   )
   const findSimilarAvailability = useMemo(
     () => resolveFindSimilarAvailability({
@@ -823,7 +847,7 @@ export default function AppShell({
     () => getSimilarityCountLabel(similarityState !== null, activeFilterCount, filteredCount, totalCount),
     [similarityState, activeFilterCount, filteredCount, totalCount],
   )
-  const gridStatus = resolveGridStatus({
+  const targetGridStatus = resolveGridStatus({
     similarityActive,
     searching,
     itemCount: items.length,
@@ -833,6 +857,19 @@ export default function AppShell({
     unavailableReason: browseQueryUnavailableReason,
     filteredCount,
   })
+  const gridPresentation = useGridPresentation({
+    targetKey: browseTargetIdentity,
+    targetItems: items,
+    targetStatus: targetGridStatus,
+  })
+  const gridStatus = gridPresentation.retained
+    ? {
+        kind: 'updating' as const,
+        title: 'Updating results...',
+        message: 'Keeping the previous gallery visible while the next view loads.',
+        showCentered: false,
+      }
+    : targetGridStatus
   const handleSearchChange = useCallback((nextQuery: string) => {
     requestGridContextRestore()
     setQuery(nextQuery)
@@ -1070,6 +1107,10 @@ export default function AppShell({
     setSelectedPaths,
   })
 
+  useLayoutEffect(() => {
+    if (gridPresentation.retained) setCtx(null)
+  }, [gridPresentation.retained, setCtx])
+
   useEffect(() => {
     const previousScope = previousScopeRef.current
     if (previousScope === current) return
@@ -1157,7 +1198,7 @@ export default function AppShell({
   const mobileDrawerHeight = layoutModel.shellReserves.mobileDrawerHeightPx > 0
     ? `calc(${layoutModel.shellReserves.mobileDrawerHeightPx}px + env(safe-area-inset-bottom, 0px))`
     : '0px'
-  const metricRailActive = hasMetricScrollbar && metricSortKey !== null
+  const metricRailActive = hasMetricScrollbar && metricSortKey !== null && !gridPresentation.retained
 
   return (
     <div
@@ -1286,8 +1327,9 @@ export default function AppShell({
             metricKeys={metricKeys}
             categoricalKeys={categoricalKeys}
             metricDisplayNames={metricDisplayNames}
-            metricsFacets={metricsFacets}
-            metricsItemPopulationComplete={metricsItemPopulationComplete}
+            metricsFacets={metricsPopulationFacets}
+            metricsPopulationItemsComplete={metricsPopulationItemsComplete}
+            metricsFilteredItemsComplete={metricsFilteredItemsComplete}
             derivedMetric={derivedMetric}
             derivedMetricBackendAuthoritative={!similarityActive}
             derivedRankDisabledReason={derivedRankDisabledReason}
@@ -1356,7 +1398,9 @@ export default function AppShell({
           <div className="grid-body flex-1 min-h-0" data-grid-body>
             <div className="grid-body-main relative min-h-0 min-w-0" data-grid-body-main>
               <VirtualGrid
-                items={items}
+                items={gridPresentation.items}
+                interactionDisabled={gridPresentation.retained}
+                presentationPhase={gridPresentation.phase}
                 proxyHttpOriginals={proxyHttpOriginals}
                 selected={selectedPaths}
                 restoreToSelectionToken={restoreGridToSelectionToken}
@@ -1403,7 +1447,7 @@ export default function AppShell({
                     sortDir={viewState.sort.dir}
                     currentPath={gridTopAnchorPath}
                     histogramOverride={metricRailHistogram}
-                    populationComplete={metricsItemPopulationComplete}
+                    populationComplete={metricsFilteredItemsComplete}
                     onJumpToMetricValue={handleMetricRailJump}
                   />
                 )

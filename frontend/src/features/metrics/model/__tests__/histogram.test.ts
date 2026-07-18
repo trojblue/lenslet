@@ -5,6 +5,7 @@ import {
   computeHistogramFromValues,
   formatInputValue,
   formatNumber,
+  histogramBarHeights,
   isApprox,
   normalizeRange,
   parseNumberInput,
@@ -34,6 +35,10 @@ describe('metrics histogram model utilities', () => {
     expect(filtered?.min).toBe(0)
     expect(filtered?.max).toBe(10)
     expect(filtered?.bins).toEqual([0, 0, 0, 0, 1])
+  })
+
+  it('keeps secondary histogram bars on the population vertical scale', () => {
+    expect(histogramBarHeights([0, 5, 10], 20)).toEqual([0, 25, 50])
   })
 
   it('normalizes ranges regardless of drag direction', () => {

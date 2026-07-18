@@ -65,6 +65,8 @@ function toLongPressEvent(ev: React.PointerEvent<HTMLDivElement>) {
 
 interface VirtualGridProps {
   items: BrowseItemPayload[]
+  interactionDisabled?: boolean
+  presentationPhase?: 'steady' | 'grace' | 'loading'
   selected: string[]
   restoreToSelectionToken?: number
   restoreToTopAnchorToken?: number
@@ -94,6 +96,8 @@ interface VirtualGridProps {
 
 export default function VirtualGrid({
   items,
+  interactionDisabled = false,
+  presentationPhase = 'steady',
   selected,
   restoreToSelectionToken,
   restoreToTopAnchorToken,
@@ -183,6 +187,16 @@ export default function VirtualGrid({
     captionH: CAPTION_H,
     viewMode,
   })
+
+  useLayoutEffect(() => {
+    const element = parentRef.current
+    if (!element) return
+    if (interactionDisabled) {
+      element.setAttribute('inert', '')
+      return
+    }
+    element.removeAttribute('inert')
+  }, [interactionDisabled, parentRef])
 
   const pathToIndex = useMemo(() => {
     const map = new Map<string, number>()
@@ -275,6 +289,7 @@ export default function VirtualGrid({
   useEffect(() => {
     const controller = new LongPressController({
       onLongPress: (event) => {
+        if (interactionDisabled) return
         const path = longPressPathRef.current
         if (!path || !onOpenItemActions) return
         const point = longPressPointRef.current ?? { x: event.clientX, y: event.clientY }
@@ -289,7 +304,7 @@ export default function VirtualGrid({
         longPressControllerRef.current = null
       }
     }
-  }, [onOpenItemActions])
+  }, [interactionDisabled, onOpenItemActions])
 
   function cancelPreviewTimer(): void {
     if (previewTimerRef.current != null) {
@@ -311,8 +326,14 @@ export default function VirtualGrid({
     setPreviewSize(null)
   }
 
+  useLayoutEffect(() => {
+    if (!interactionDisabled) return
+    longPressControllerRef.current?.cancelFromScroll()
+    clearPreview(true)
+  }, [interactionDisabled])
+
   const schedulePreview = (path: string) => {
-    if (isScrolling) return
+    if (interactionDisabled || isScrolling) return
     cancelPreviewTimer()
     previewControllerRef.current?.clear()
     const itemIndex = pathToIndex.get(path)
@@ -383,7 +404,7 @@ export default function VirtualGrid({
   const effectiveColumns = layout.mode === 'grid' ? layout.columns : Math.max(1, Math.floor(width / (TARGET_CELL + GAP)))
 
   useEffect(() => {
-    if (!onLoadMore || !hasMore || isLoadingMore || !items.length || !virtualRows.length) return
+    if (interactionDisabled || !onLoadMore || !hasMore || isLoadingMore || !items.length || !virtualRows.length) return
     const lastVirtualRow = virtualRows[virtualRows.length - 1]
     const lastVisibleIndex = layout.mode === 'grid'
       ? Math.min(items.length - 1, ((lastVirtualRow.index + 1) * Math.max(1, layout.columns)) - 1)
@@ -393,7 +414,7 @@ export default function VirtualGrid({
       )
     const threshold = Math.max(30, effectiveColumns * 8)
     if (lastVisibleIndex >= items.length - threshold) onLoadMore()
-  }, [effectiveColumns, hasMore, isLoadingMore, items.length, layout, onLoadMore, virtualRows])
+  }, [effectiveColumns, hasMore, interactionDisabled, isLoadingMore, items.length, layout, onLoadMore, virtualRows])
 
   const findClosestInRow = (rowIdx: number, targetCenter: number): string | null => {
     if (layout.mode !== 'adaptive') return null
@@ -465,8 +486,9 @@ export default function VirtualGrid({
   }, [])
 
   const openActionsForPath = useCallback((path: string, anchor: { x: number; y: number }) => {
+    if (interactionDisabled) return
     onOpenItemActions?.(path, anchor)
-  }, [onOpenItemActions])
+  }, [interactionDisabled, onOpenItemActions])
 
   const clearLongPressTracking = () => {
     longPressPathRef.current = null
@@ -474,6 +496,7 @@ export default function VirtualGrid({
   }
 
   const handleItemPointerDown = (path: string, ev: React.PointerEvent<HTMLDivElement>) => {
+    if (interactionDisabled) return
     if ((ev.target as HTMLElement).closest('[data-grid-action]')) return
     lastPointerRef.current = { path, pointerType: ev.pointerType }
     if (multiSelectMode) return
@@ -483,24 +506,28 @@ export default function VirtualGrid({
   }
 
   const handleItemPointerMove = (ev: React.PointerEvent<HTMLDivElement>) => {
+    if (interactionDisabled) return
     if (multiSelectMode) return
     longPressPointRef.current = { x: ev.clientX, y: ev.clientY }
     longPressControllerRef.current?.pointerMove(toLongPressEvent(ev))
   }
 
   const handleItemPointerUp = (ev: React.PointerEvent<HTMLDivElement>) => {
+    if (interactionDisabled) return
     if (multiSelectMode) return
     longPressControllerRef.current?.pointerUp(ev.pointerId)
     clearLongPressTracking()
   }
 
   const handleItemPointerCancel = (ev: React.PointerEvent<HTMLDivElement>) => {
+    if (interactionDisabled) return
     if (multiSelectMode) return
     longPressControllerRef.current?.pointerCancel(ev.pointerId)
     clearLongPressTracking()
   }
 
   const handleItemClick = (path: string, ev: React.MouseEvent) => {
+    if (interactionDisabled) return
     const suppressed = suppressClickRef.current
     if (suppressed && suppressed.path === path && suppressed.untilMs > Date.now()) {
       suppressClickRef.current = null
@@ -561,6 +588,7 @@ export default function VirtualGrid({
     const el = parentRef.current
     if (!el) return
     const onKey = (e: KeyboardEvent) => {
+      if (interactionDisabled) return
       const nextPath = getNextPath(focused, e)
       if (nextPath == null) return
       e.preventDefault()
@@ -592,11 +620,11 @@ export default function VirtualGrid({
     }
     el.addEventListener('keydown', onKey)
     return () => { el.removeEventListener('keydown', onKey) }
-  }, [items, focused, effectiveColumns, onOpenViewer, layout, adaptivePositions, adaptiveRowMeta, pathToIndex])
+  }, [items, focused, effectiveColumns, interactionDisabled, onOpenViewer, layout, adaptivePositions, adaptiveRowMeta, pathToIndex])
 
   useLayoutEffect(() => {
     const el = parentRef.current
-    if (!el) return
+    if (!el || interactionDisabled) return
     const restoreDecision = resolveVirtualGridRestoreDecision({
       selectionToken: restoreToSelectionToken,
       appliedSelectionToken: appliedSelectionRestoreTokenRef.current,
@@ -630,6 +658,7 @@ export default function VirtualGrid({
     pathToIndex,
     layout,
     adaptiveRowMeta,
+    interactionDisabled,
   ])
 
   const selectedSet = useMemo(() => new Set(selected), [selected])
@@ -657,15 +686,16 @@ export default function VirtualGrid({
   )
 
   useEffect(() => {
-    if (isScrolling || adjacentThumbPrefetchPaths.length === 0) return
+    if (interactionDisabled || isScrolling || adjacentThumbPrefetchPaths.length === 0) return
     for (const path of adjacentThumbPrefetchPaths) {
       prefetchThumbSafely(path)
     }
-  }, [isScrolling, adjacentThumbPrefetchPaths, prefetchThumbSafely])
+  }, [interactionDisabled, isScrolling, adjacentThumbPrefetchPaths, prefetchThumbSafely])
 
   useEffect(() => {
+    if (interactionDisabled) return
     parentRef.current?.focus()
-  }, [])
+  }, [interactionDisabled, parentRef])
 
   useEffect(() => {
     if (!suppressSelectionHighlight) return
@@ -685,18 +715,18 @@ export default function VirtualGrid({
   )
 
   useEffect(() => {
-    if (!onVisiblePathsChange) return
+    if (interactionDisabled || !onVisiblePathsChange) return
     if (arePathSetsEqual(lastVisiblePathsRef.current, visiblePaths)) return
     lastVisiblePathsRef.current = visiblePaths
     onVisiblePathsChange(visiblePaths)
-  }, [onVisiblePathsChange, visiblePaths])
+  }, [interactionDisabled, onVisiblePathsChange, visiblePaths])
 
   useEffect(() => {
-    if (!onTopAnchorPathChange) return
+    if (interactionDisabled || !onTopAnchorPathChange) return
     if (lastTopAnchorPathRef.current === topAnchorPath) return
     lastTopAnchorPathRef.current = topAnchorPath
     onTopAnchorPathChange(topAnchorPath)
-  }, [onTopAnchorPathChange, topAnchorPath])
+  }, [interactionDisabled, onTopAnchorPathChange, topAnchorPath])
 
   const activeDescendantId = focused ? `cell-${encodeURIComponent(focused)}` : undefined
   const gridBusy = gridStatus.kind === 'loading' || gridStatus.kind === 'updating' || isLoadingMore
@@ -744,10 +774,13 @@ export default function VirtualGrid({
       tabIndex={0} 
       aria-activedescendant={activeDescendantId} 
       aria-busy={gridBusy || undefined}
-      onMouseDown={() => parentRef.current?.focus()} 
+      aria-disabled={interactionDisabled || undefined}
+      data-grid-presentation-phase={presentationPhase}
+      data-grid-interaction-disabled={interactionDisabled ? 'true' : 'false'}
+      onMouseDown={() => { if (!interactionDisabled) parentRef.current?.focus() }}
       style={cssVars({ '--gap': `${GAP}px` })}
     >
-      <div key={`${viewMode}-${effectiveColumns}`} className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+      <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
         <VirtualGridRows
           virtualRows={virtualRows}
           layout={layout}
@@ -763,14 +796,14 @@ export default function VirtualGrid({
           highlight={highlight}
           isScrolling={isScrolling}
           multiSelectMode={multiSelectMode}
-          onCellFocus={setFocused}
+          onCellFocus={(path) => { if (!interactionDisabled) setFocused(path) }}
           onPointerDown={handleItemPointerDown}
           onPointerMove={handleItemPointerMove}
           onPointerUp={handleItemPointerUp}
           onPointerCancel={handleItemPointerCancel}
-          onContextMenuItem={onContextMenuItem}
+          onContextMenuItem={interactionDisabled ? undefined : onContextMenuItem}
           onOpenItemActions={openActionsForPath}
-          onOpenViewer={onOpenViewer}
+          onOpenViewer={(path) => { if (!interactionDisabled) onOpenViewer(path) }}
           onClearPreview={clearPreview}
           onSchedulePreview={schedulePreview}
           onItemClick={handleItemClick}

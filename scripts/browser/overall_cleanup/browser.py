@@ -51,6 +51,7 @@ from scripts.browser.overall_cleanup.media_requests import (
 from scripts.browser.overall_cleanup.menus import verify_menu_bounds_and_roles
 from scripts.browser.overall_cleanup.mobile import (
     verify_browse_ctrl_wheel_and_slider,
+    verify_browse_presentation_grace,
     verify_coarse_pointer_actions,
     verify_mobile_viewer_navigation,
     verify_reduced_motion,
@@ -446,6 +447,7 @@ def verify_stable_controls_layout(page: Any, timeout_ms: float) -> dict[str, Any
         "after_resize": after_resize,
         "after_reload": reloaded,
         "storage": storage,
+        "browse_presentation": verify_browse_presentation_grace(page, timeout_ms),
         "wheel": verify_browse_ctrl_wheel_and_slider(page, timeout_ms),
     }
 

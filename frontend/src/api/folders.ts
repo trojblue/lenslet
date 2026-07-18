@@ -18,7 +18,7 @@ import type {
   FilterAST,
   SortSpec,
 } from '../lib/types'
-import type { GetFolderOptions } from './client'
+import type { AnalysisOwnershipChannel, GetFolderOptions } from './client'
 
 export const DEFAULT_FOLDER_GC_TIME_MS = 5 * 60_000
 export const RECURSIVE_FOLDER_GC_TIME_MS = 60_000
@@ -190,21 +190,27 @@ export const windowRequestToken = (
 
 export const browseQueryKey = (options: BrowseQueryOptions) => windowRequestToken(options, 0)
 
-let activeSemanticQueryKey = ''
-let activeSemanticQueryRevision = Date.now() * 1000
+type SemanticQueryRevisionState = {
+  key: string
+  revision: number
+}
 
-export function semanticQueryRevision(key: AnalysisQueryKey): number {
+const semanticQueryRevisionByChannel = new Map<AnalysisOwnershipChannel, SemanticQueryRevisionState>()
+
+export function semanticQueryRevision(
+  key: AnalysisQueryKey,
+  channel: AnalysisOwnershipChannel = 'browse',
+): number {
   const serialized = JSON.stringify(key)
-  if (serialized !== activeSemanticQueryKey) {
-    activeSemanticQueryKey = serialized
-    activeSemanticQueryRevision += 1
-  }
-  return activeSemanticQueryRevision
+  const current = semanticQueryRevisionByChannel.get(channel)
+  if (current?.key === serialized) return current.revision
+  const revision = (current?.revision ?? Date.now() * 1000) + 1
+  semanticQueryRevisionByChannel.set(channel, { key: serialized, revision })
+  return revision
 }
 
 export function resetSemanticQueryRevisionForTests(): void {
-  activeSemanticQueryKey = ''
-  activeSemanticQueryRevision = Date.now() * 1000
+  semanticQueryRevisionByChannel.clear()
 }
 
 function parseRecursiveFolderQueryKey(queryKey: readonly unknown[]): RecursiveFolderQueryKey | null {
@@ -346,10 +352,15 @@ export function useFolder(path: string, options?: UseFolderOptions) {
   })
 }
 
-export function useFolderFacets(options: BrowseQueryOptions & { enabled?: boolean }) {
+export type UseFolderFacetsOptions = BrowseQueryOptions & {
+  enabled?: boolean
+  analysisChannel?: AnalysisOwnershipChannel
+}
+
+export function useFolderFacets(options: UseFolderFacetsOptions) {
   const pollingEnabled = usePollingEnabled()
-  const { enabled = true, ...queryOptions } = options
-  const queryRevision = semanticQueryRevision(analysisQueryKey(queryOptions))
+  const { enabled = true, analysisChannel = 'browse', ...queryOptions } = options
+  const queryRevision = semanticQueryRevision(analysisQueryKey(queryOptions), analysisChannel)
   const batches = facetFieldBatches(queryOptions.facetFields)
   const results = useQueries({
     queries: batches.map((facetFields) => {
@@ -358,7 +369,7 @@ export function useFolderFacets(options: BrowseQueryOptions & { enabled?: boolea
         queryKey: folderFacetsQueryKey(batchOptions),
         queryFn: ({ signal }: { signal: AbortSignal }) => api.queryFolderFacets(
           buildBrowseQueryRequest(batchOptions, 0),
-          { signal, queryRevision },
+          { signal, queryRevision, analysisChannel },
         ),
         enabled,
         staleTime: 10_000,

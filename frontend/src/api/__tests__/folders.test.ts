@@ -343,6 +343,30 @@ describe('folder api query helpers', () => {
     expect(semanticQueryRevision(firstKey)).toBe(first + 2)
   })
 
+  it('tracks semantic revisions independently for browse and population analyses', () => {
+    const base: BrowseQueryOptions = {
+      path: '/shots',
+      filters: { and: [] },
+      sort: { kind: 'builtin', key: 'added', dir: 'desc' },
+    }
+    const browseRevision = semanticQueryRevision(analysisQueryKey(base))
+    const populationRevision = semanticQueryRevision(
+      analysisQueryKey({ ...base, textQuery: 'population' }),
+      'metrics-population',
+    )
+
+    expect(semanticQueryRevision(analysisQueryKey(base))).toBe(browseRevision)
+    expect(semanticQueryRevision(
+      analysisQueryKey({ ...base, textQuery: 'population' }),
+      'metrics-population',
+    )).toBe(populationRevision)
+    expect(semanticQueryRevision(
+      analysisQueryKey({ ...base, textQuery: 'next' }),
+      'metrics-population',
+    )).toBe(populationRevision + 1)
+    expect(semanticQueryRevision(analysisQueryKey(base))).toBe(browseRevision)
+  })
+
   it('retains only the active plus two recent query variants for one path', () => {
     const queryClient = new QueryClient()
     const keys = Array.from({ length: 50 }, (_, index) => [
@@ -377,7 +401,7 @@ describe('folder api query helpers', () => {
     expect(semanticQueryRevision(analysisQueryKey(options))).toBeGreaterThan(beforeReload)
   })
 
-  it('uses one client identity with the explicit semantic revision on query requests', async () => {
+  it('uses separate analysis identities with explicit semantic revisions', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({
         path: '/shots',
@@ -404,15 +428,24 @@ describe('folder api query helpers', () => {
 
     await api.queryFolder(body, { queryRevision: 7 })
     await api.queryFolderFacets(body, { queryRevision: 7 })
+    await api.queryFolderFacets(body, {
+      queryRevision: 9,
+      analysisChannel: 'metrics-population',
+    })
 
     const firstHeaders = new Headers(fetchSpy.mock.calls[0][1]?.headers)
     const secondHeaders = new Headers(fetchSpy.mock.calls[1][1]?.headers)
+    const populationHeaders = new Headers(fetchSpy.mock.calls[2][1]?.headers)
     expect(firstHeaders.get('X-Lenslet-Query-Revision')).toBe('7')
     expect(secondHeaders.get('X-Lenslet-Query-Revision')).toBe('7')
     expect(firstHeaders.get('X-Lenslet-Client-Session')).toBeTruthy()
     expect(secondHeaders.get('X-Lenslet-Client-Session')).toBe(
       firstHeaders.get('X-Lenslet-Client-Session'),
     )
+    expect(populationHeaders.get('X-Lenslet-Client-Session')).toBe(
+      `${firstHeaders.get('X-Lenslet-Client-Session')}:metrics-population`,
+    )
+    expect(populationHeaders.get('X-Lenslet-Query-Revision')).toBe('9')
   })
 
   it('posts browse-query requests with abortable folder request budget coverage', async () => {

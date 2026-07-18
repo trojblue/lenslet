@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_LEFT_SIDEBAR_WIDTH,
   SIDEBAR_STORAGE_KEYS,
   clampLeftSidebarWidth,
   clampRightSidebarWidth,
@@ -31,6 +32,10 @@ class MemoryStorage implements Pick<Storage, 'getItem' | 'setItem' | 'removeItem
 }
 
 describe('useSidebars resize and persistence helpers', () => {
+  it('uses a compact fresh-install left sidebar width', () => {
+    expect(DEFAULT_LEFT_SIDEBAR_WIDTH).toBe(340)
+  })
+
   it('loads the shared and right widths while pruning obsolete left keys', () => {
     const storage = new MemoryStorage({
       [SIDEBAR_STORAGE_KEYS.left]: '341',

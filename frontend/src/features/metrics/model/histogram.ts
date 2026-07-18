@@ -24,6 +24,11 @@ export function computeHistogramFromValues(values: number[], bins: number, base?
   return { bins: counts, min, max, count: values.length }
 }
 
+export function histogramBarHeights(bins: number[], scaleMax: number): number[] {
+  const denominator = Math.max(1, scaleMax)
+  return bins.map((count) => (count / denominator) * 100)
+}
+
 export function normalizeRange(a: number, b: number): Range {
   return a < b ? { min: a, max: b } : { min: b, max: a }
 }

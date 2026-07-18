@@ -10,7 +10,7 @@ export const SIDEBAR_STORAGE_KEYS = {
   right: 'rightW',
 } as const
 
-export const DEFAULT_LEFT_SIDEBAR_WIDTH = 360
+export const DEFAULT_LEFT_SIDEBAR_WIDTH = 340
 const DEFAULT_RIGHT_SIDEBAR_WIDTH = 240
 const OBSOLETE_LEFT_SIDEBAR_STORAGE_KEYS = [
   'leftW.folders',

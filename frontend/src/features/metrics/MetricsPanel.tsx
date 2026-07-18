@@ -17,7 +17,8 @@ interface MetricsPanelProps {
   categoricalKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
   facets?: BrowseFacetsPayload | null
-  itemPopulationComplete?: boolean
+  populationItemsComplete?: boolean
+  filteredItemsComplete?: boolean
   selectedItems?: BrowseItemPayload[]
   selectedMetric?: string
   onSelectMetric: (key: string) => void
@@ -45,7 +46,8 @@ export default function MetricsPanel({
   categoricalKeys,
   metricDisplayNames,
   facets = null,
-  itemPopulationComplete = true,
+  populationItemsComplete = true,
+  filteredItemsComplete = true,
   selectedItems,
   selectedMetric,
   onSelectMetric,
@@ -89,7 +91,8 @@ export default function MetricsPanel({
       filteredItems={filteredItems}
       categoricalKeys={categoricalKeys}
       facets={facets}
-      itemPopulationComplete={itemPopulationComplete}
+      populationItemsComplete={populationItemsComplete}
+      filteredItemsComplete={filteredItemsComplete}
       selectedItems={selectedItems}
       filters={filters}
       onChangeValues={onChangeCategoricalValues}
@@ -119,7 +122,8 @@ export default function MetricsPanel({
           metricKeys={metricKeys}
           metricDisplayNames={metricDisplayNames}
           facets={facets}
-          itemPopulationComplete={itemPopulationComplete}
+          populationItemsComplete={populationItemsComplete}
+          filteredItemsComplete={filteredItemsComplete}
           selectedItems={selectedItems}
           selectedValuesByKey={selectedValuesByKey}
           selectedMetric={selectedMetric}

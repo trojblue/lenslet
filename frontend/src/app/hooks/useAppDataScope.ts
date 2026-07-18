@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   BACKEND_BROWSE_PAGE_SIZE,
+  browseQueryKey,
   shouldRemoveRecursiveFolderQuery,
   useBrowseQuery,
   useFolderCount,
   useFolderFields,
+  type BrowseQueryOptions,
 } from '../../api/folders'
 import { buildCanonicalSearchRequest, normalizeSearchScopePath } from '../../api/search'
 import { useEmbeddings } from '../../api/embeddings'
@@ -98,6 +100,7 @@ type UseAppDataScopeResult = {
   loadMoreFolderItems: () => void
   browseQueryUnavailableReason: string | null
   analysisUnsupportedMetricIntent: string | null
+  browseTargetIdentity: string
 }
 
 export type BrowseCapabilityKeys = {
@@ -341,7 +344,7 @@ export function useAppDataScope({
   ), [browseProjection, similarityActive, viewState.filters, viewState.sort])
   const analysisUnsupportedMetricIntent = browseQueryUnavailableReason
     ?? urlUnsupportedMetricIntent
-  const browseQuery = useBrowseQuery({
+  const browseQueryOptions = useMemo<BrowseQueryOptions>(() => ({
     path: current,
     recursive: true,
     filters: viewState.filters,
@@ -352,6 +355,23 @@ export function useAppDataScope({
     limit: BACKEND_BROWSE_PAGE_SIZE,
     unsupportedToken: analysisUnsupportedMetricIntent,
     projection: browseProjection,
+  }), [
+    analysisUnsupportedMetricIntent,
+    browseProjection,
+    current,
+    normalizedQ,
+    randomSeed,
+    viewState.derivedMetric,
+    viewState.filters,
+    viewState.sort,
+  ])
+  const browseTargetIdentity = useMemo(() => (
+    similarityState
+      ? JSON.stringify(['similarity', similarityState.createdAt, viewState.filters])
+      : JSON.stringify(browseQueryKey(browseQueryOptions))
+  ), [browseQueryOptions, similarityState, viewState.filters])
+  const browseQuery = useBrowseQuery({
+    ...browseQueryOptions,
     enabled: !similarityActive && browseQueryUnavailableReason === null,
   })
   const { data: rootCount } = useFolderCount('/', { enabled: current !== '/' })
@@ -568,5 +588,6 @@ export function useAppDataScope({
     loadMoreFolderItems,
     browseQueryUnavailableReason,
     analysisUnsupportedMetricIntent,
+    browseTargetIdentity,
   }
 }

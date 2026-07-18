@@ -475,11 +475,20 @@ export type GetFolderOptions = {
 export type ApiRequestOptions = {
   signal?: AbortSignal
   queryRevision?: number
+  analysisChannel?: AnalysisOwnershipChannel
 }
 
-function analysisOwnershipHeaders(queryRevision = 0): Record<string, string> {
+export type AnalysisOwnershipChannel = 'browse' | 'metrics-population'
+
+function analysisOwnershipHeaders(
+  queryRevision = 0,
+  channel: AnalysisOwnershipChannel = 'browse',
+): Record<string, string> {
+  const clientSession = ensureClientId()
   return {
-    'X-Lenslet-Client-Session': ensureClientId(),
+    'X-Lenslet-Client-Session': channel === 'browse'
+      ? clientSession
+      : `${clientSession}:${channel}`,
     'X-Lenslet-Query-Revision': String(queryRevision),
   }
 }
@@ -534,7 +543,7 @@ export const api = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...analysisOwnershipHeaders(options?.queryRevision),
+          ...analysisOwnershipHeaders(options?.queryRevision, options?.analysisChannel),
         },
         body: JSON.stringify(body),
         signal: options?.signal,
@@ -559,7 +568,7 @@ export const api = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...analysisOwnershipHeaders(options?.queryRevision),
+          ...analysisOwnershipHeaders(options?.queryRevision, options?.analysisChannel),
         },
         body: JSON.stringify(body),
         signal: options?.signal,

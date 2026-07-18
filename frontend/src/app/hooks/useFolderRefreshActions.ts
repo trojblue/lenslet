@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
 import { fileCache, thumbCache } from '../../lib/blobCache'
 import { sanitizePath } from '../../lib/paths'
+import { thumbnailObjectUrlCache } from '../../features/browse/model/thumbnailObjectUrlCache'
 
 type UseFolderRefreshActionsParams = {
   current: string
@@ -82,6 +83,7 @@ export function useFolderRefreshActions({
     }
 
     thumbCache.evictPrefix(target)
+    thumbnailObjectUrlCache.evictPrefix(target)
     fileCache.evictPrefix(target)
   }, [
     current,

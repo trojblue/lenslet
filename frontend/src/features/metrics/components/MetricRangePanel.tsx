@@ -22,7 +22,8 @@ interface MetricRangePanelProps {
   metricKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
   facets?: BrowseFacetsPayload | null
-  itemPopulationComplete?: boolean
+  populationItemsComplete?: boolean
+  filteredItemsComplete?: boolean
   selectedItems?: BrowseItemPayload[]
   selectedValuesByKey?: MetricValuesByKey | null
   selectedMetric?: string
@@ -40,7 +41,8 @@ export default function MetricRangePanel({
   metricKeys,
   metricDisplayNames,
   facets = null,
-  itemPopulationComplete = true,
+  populationItemsComplete = true,
+  filteredItemsComplete = true,
   selectedItems,
   selectedValuesByKey,
   selectedMetric,
@@ -56,8 +58,8 @@ export default function MetricRangePanel({
     showAll ? visibleMetricKeys : activeMetric ? [activeMetric] : []
   ), [showAll, visibleMetricKeys, activeMetric])
   const populationValuesByKey = useMemo(
-    () => itemPopulationComplete ? collectMetricValuesByKey(items, scopedMetricKeys) : EMPTY_VALUES_BY_KEY,
-    [itemPopulationComplete, items, scopedMetricKeys]
+    () => populationItemsComplete ? collectMetricValuesByKey(items, scopedMetricKeys) : EMPTY_VALUES_BY_KEY,
+    [items, populationItemsComplete, scopedMetricKeys]
   )
   const filteredValuesByKey = useMemo(
     () => collectMetricValuesByKey(filteredItems, scopedMetricKeys),
@@ -71,13 +73,13 @@ export default function MetricRangePanel({
           filteredItems,
           selectedItems,
           scopedMetricKeys,
-          itemPopulationComplete,
+          filteredItemsComplete,
         )
       }
-      if (!itemPopulationComplete) return new Map()
+      if (!populationItemsComplete) return new Map()
       return collectMetricCategoriesByKey(items, filteredItems, selectedItems, scopedMetricKeys)
     },
-    [facets, filteredItems, itemPopulationComplete, items, selectedItems, scopedMetricKeys]
+    [facets, filteredItems, filteredItemsComplete, items, populationItemsComplete, selectedItems, scopedMetricKeys]
   )
   const selectedValues = selectedValuesByKey ?? EMPTY_VALUES_BY_KEY
   const metricOptions = useMemo(() => (
@@ -101,7 +103,7 @@ export default function MetricRangePanel({
     const categories = getMetricCategories(categoriesByKey, key)
     const metricFacet = facets?.metrics[key] ?? null
     const facetHistogram = metricHistogramFromFacet(metricFacet?.histogram)
-    const showFilteredCounts = itemPopulationComplete
+    const showFilteredCounts = filteredItemsComplete
     if (categories.length) {
       return (
         <MetricCategoryCard

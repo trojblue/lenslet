@@ -15,6 +15,7 @@ from scripts.browser.gui_jitter import fixtures as jitter_fixtures  # noqa: E402
 from scripts.browser.gui_jitter import grid as jitter_grid  # noqa: E402
 from scripts.browser.gui_jitter import grid_dom as jitter_grid_dom  # noqa: E402
 from scripts.browser.gui_jitter import inspector as jitter_inspector  # noqa: E402
+from scripts.browser.gui_jitter import metrics as jitter_metrics  # noqa: E402
 from scripts.browser.gui_jitter import probe as jitter_probe  # noqa: E402
 from scripts.browser.gui_jitter import shared as jitter_shared  # noqa: E402
 from scripts.browser.gui_jitter import toolbar as jitter_toolbar  # noqa: E402
@@ -107,6 +108,85 @@ class _FakeRoute:
 
     def continue_(self) -> None:
         self.continued += 1
+
+
+def _metrics_surface(token: str, text: str) -> dict:
+    return {
+        "token": token,
+        "rect": {"top": 0, "left": 0, "width": 100, "height": 40},
+        "text": text,
+        "value": None,
+        "visible": True,
+    }
+
+
+def test_metrics_facet_summary_rejects_previous_field_data_under_target_label() -> None:
+    trace = {
+        "frames": [
+            {
+                "surfaces": {
+                    "categorical_card": _metrics_surface("card", "Population: 10 synthetic"),
+                    "categorical_selector": _metrics_surface("selector", "dataset_from"),
+                    "next_control": _metrics_surface("next", "Attributes"),
+                }
+            },
+            {
+                "surfaces": {
+                    "categorical_card": _metrics_surface("card", "Population: 10 synthetic"),
+                    "categorical_selector": _metrics_surface("selector", "review_group"),
+                    "next_control": _metrics_surface("next", "Attributes"),
+                }
+            },
+        ]
+    }
+
+    summary = jitter_metrics._target_facet_trace_summary(
+        trace,
+        field="review_group",
+        forbidden_texts=("synthetic",),
+        expected_text="Population: 10",
+        max_delta_px=1.0,
+    )
+
+    assert any("previous field" in violation for violation in summary["violations"])
+
+
+def test_metrics_facet_summary_accepts_pending_to_target_ready_in_one_shell() -> None:
+    trace = {
+        "frames": [
+            {
+                "surfaces": {
+                    "categorical_card": _metrics_surface("card", "Population: 10 synthetic"),
+                    "categorical_selector": _metrics_surface("selector", "dataset_from"),
+                    "next_control": _metrics_surface("next", "Attributes"),
+                }
+            },
+            {
+                "surfaces": {
+                    "categorical_card": _metrics_surface("card", "Loading values for this field…"),
+                    "categorical_selector": _metrics_surface("selector", "review_group"),
+                    "next_control": _metrics_surface("next", "Attributes"),
+                }
+            },
+            {
+                "surfaces": {
+                    "categorical_card": _metrics_surface("card", "Population: 10 review-0"),
+                    "categorical_selector": _metrics_surface("selector", "review_group"),
+                    "next_control": _metrics_surface("next", "Attributes"),
+                }
+            },
+        ]
+    }
+
+    summary = jitter_metrics._target_facet_trace_summary(
+        trace,
+        field="review_group",
+        forbidden_texts=("synthetic",),
+        expected_text="Population: 10",
+        max_delta_px=1.0,
+    )
+
+    assert summary["violations"] == []
 
 
 def _viewer_frame(

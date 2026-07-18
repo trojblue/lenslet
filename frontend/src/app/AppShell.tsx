@@ -652,6 +652,11 @@ export default function AppShell({
       ? metricsPopulationFacetsQuery.data
       : null
   )
+  const metricsPopulationFacetsState = metricsPopulationFacetsQuery.isError
+    ? 'error'
+    : metricsPopulationFacetsQuery.isLoading
+      ? 'pending'
+      : 'settled'
   const metricRailFacetsQuery = useFolderFacets({
     path: current,
     recursive: true,
@@ -1378,6 +1383,8 @@ export default function AppShell({
             categoricalKeys={categoricalKeys}
             metricDisplayNames={metricDisplayNames}
             metricsFacets={metricsPopulationFacets}
+            metricsFacetsState={metricsPopulationFacetsState}
+            metricsFacetFieldStates={metricsPopulationFacetsQuery.fieldStates}
             metricsPopulationItemsComplete={metricsPopulationItemsComplete}
             metricsFilteredItemsComplete={metricsFilteredItemsComplete}
             derivedMetric={derivedMetric}

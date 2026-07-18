@@ -75,7 +75,6 @@ export default function VirtualFieldList({
           return (
             <div
               key={key}
-              ref={virtualizer.measureElement}
               data-index={virtualItem.index}
               data-virtual-field-card={kind}
               data-field-key={key}

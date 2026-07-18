@@ -386,6 +386,7 @@ export function useFolderFacets(options: UseFolderFacetsOptions) {
       }
     }),
   })
+  const fieldStates = buildFacetFieldQueryStates(batches, results)
   return {
     data: mergeBrowseFacetPayloads(
       results.flatMap((result) => result.data ? [result.data as BrowseFacetsPayload] : []),
@@ -394,8 +395,30 @@ export function useFolderFacets(options: UseFolderFacetsOptions) {
     isFetching: results.some((result) => result.isFetching),
     isError: results.some((result) => result.isError),
     error: results.find((result) => result.error)?.error ?? null,
+    fieldStates,
     refetch: () => Promise.all(results.map((result) => result.refetch())),
   }
+}
+
+export function buildFacetFieldQueryStates(
+  batches: readonly (BrowseFacetFields | undefined)[],
+  results: readonly { data?: unknown; isError?: boolean }[],
+): {
+  metrics: Record<string, 'pending' | 'error' | 'settled'>
+  categoricals: Record<string, 'pending' | 'error' | 'settled'>
+} {
+  const states = {
+    metrics: {} as Record<string, 'pending' | 'error' | 'settled'>,
+    categoricals: {} as Record<string, 'pending' | 'error' | 'settled'>,
+  }
+  batches.forEach((fields, index) => {
+    if (!fields) return
+    const result = results[index]
+    const state = result?.data ? 'settled' : result?.isError ? 'error' : 'pending'
+    fields.metric_keys.forEach((key) => { states.metrics[key] = state })
+    fields.categorical_keys.forEach((key) => { states.categoricals[key] = state })
+  })
+  return states
 }
 
 export function facetFieldBatches(fields: BrowseFacetFields | undefined): Array<BrowseFacetFields | undefined> {

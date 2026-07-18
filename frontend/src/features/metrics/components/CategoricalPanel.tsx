@@ -5,6 +5,12 @@ import {
   collectCategoricalBucketsFromFacets,
   getCategoricalBuckets,
 } from '../model/categoricalValues'
+import {
+  facetFieldQueryState,
+  resolveFacetFieldState,
+  type FacetFieldQueryStates,
+  type FacetQueryState,
+} from '../model/facetPresentation'
 import Dropdown from '../../../shared/ui/Dropdown'
 import CategoricalCard from './CategoricalCard'
 import VirtualFieldList from './VirtualFieldList'
@@ -14,6 +20,8 @@ interface CategoricalPanelProps {
   filteredItems: BrowseItemPayload[]
   categoricalKeys: string[]
   facets?: BrowseFacetsPayload | null
+  facetsState?: FacetQueryState
+  facetFieldStates?: FacetFieldQueryStates
   populationItemsComplete?: boolean
   filteredItemsComplete?: boolean
   selectedItems?: BrowseItemPayload[]
@@ -27,6 +35,8 @@ export default function CategoricalPanel({
   filteredItems,
   categoricalKeys,
   facets = null,
+  facetsState = 'settled',
+  facetFieldStates,
   populationItemsComplete = true,
   filteredItemsComplete = true,
   selectedItems,
@@ -59,6 +69,12 @@ export default function CategoricalPanel({
     },
     [facets, filteredItems, filteredItemsComplete, items, populationItemsComplete, selectedItems, scopedCategoricalKeys]
   )
+  const localBucketsByKey = useMemo(
+    () => populationItemsComplete
+      ? collectCategoricalBucketsByKey(items, filteredItems, selectedItems, scopedCategoricalKeys)
+      : new Map(),
+    [filteredItems, items, populationItemsComplete, scopedCategoricalKeys, selectedItems],
+  )
   const categoricalOptions = useMemo(() => (
     categoricalKeys.map((key) => ({
       value: key,
@@ -78,17 +94,34 @@ export default function CategoricalPanel({
 
   if (!categoricalKeys.length) return null
 
-  const renderCategoricalCard = (key: string, showTitle = false) => (
-    <CategoricalCard
-      key={key}
-      categoricalKey={key}
-      buckets={getCategoricalBuckets(bucketsByKey, key)}
-      filters={filters}
-      onChangeValues={onChangeValues}
-      showTitle={showTitle}
-      showFilteredCounts={filteredItemsComplete}
-    />
-  )
+  const renderCategoricalCard = (key: string, showTitle = false) => {
+    const hasFacet = Object.prototype.hasOwnProperty.call(facets?.categoricals ?? {}, key)
+    const facetBuckets = getCategoricalBuckets(bucketsByKey, key)
+    const localBuckets = getCategoricalBuckets(localBucketsByKey, key)
+    return (
+      <CategoricalCard
+        categoricalKey={key}
+        buckets={hasFacet ? facetBuckets : localBuckets}
+        filters={filters}
+        onChangeValues={onChangeValues}
+        showTitle={showTitle}
+        showFilteredCounts={filteredItemsComplete}
+        state={resolveFacetFieldState({
+          facetDataState: !hasFacet
+            ? 'absent'
+            : facetBuckets.length > 0
+              ? 'ready'
+              : 'empty',
+          localDataState: !populationItemsComplete
+            ? 'absent'
+            : localBuckets.length > 0
+              ? 'ready'
+              : 'empty',
+          queryState: facetFieldQueryState(facetFieldStates, 'categoricals', key, facetsState),
+        })}
+      />
+    )
+  }
 
   return (
     <>
@@ -129,7 +162,7 @@ export default function CategoricalPanel({
       {showAll ? (
         <VirtualFieldList
           keys={categoricalKeys}
-          estimateSize={420}
+          estimateSize={384}
           kind="categorical"
           onVisibleKeysChange={handleVisibleKeysChange}
           renderCard={(key) => renderCategoricalCard(key, true)}

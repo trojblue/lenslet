@@ -63,6 +63,40 @@ const DEFAULT_DERIVED_METRIC_NAME = 'new_score'
 const DEFAULT_WEIGHT = '1'
 const SIMPLE_FORMULA_TOKEN_RE = /^[A-Za-z0-9_./:]+$/
 
+export function derivedMetricDraftResetToken(
+  evaluation: DerivedMetricEvaluation,
+  metricKeys: readonly string[],
+  categoricalKeys: readonly string[],
+): string {
+  const definition = evaluation.spec
+    ? {
+      kind: 'valid',
+      version: evaluation.spec.version,
+      id: evaluation.spec.id,
+      name: evaluation.spec.name,
+      intercept: evaluation.spec.intercept,
+      numericTerms: evaluation.spec.numericTerms.map((term) => ({
+        key: term.key,
+        weight: term.weight,
+        missing: term.missing,
+        zNormalize: term.zNormalize,
+      })),
+      categoricalTerms: evaluation.spec.categoricalTerms.map((term) => ({
+        key: term.key,
+        value: term.value,
+        weight: term.weight,
+      })),
+    }
+    : evaluation.definitionIdentity == null
+      ? null
+      : { kind: 'invalid', identity: evaluation.definitionIdentity }
+  return JSON.stringify({
+    definition,
+    metricKeys: Array.from(new Set(metricKeys)).sort(),
+    categoricalKeys: Array.from(new Set(categoricalKeys)).sort(),
+  })
+}
+
 export function createDerivedMetricDraft(
   spec: DerivedMetricSpec | null,
   metricKeys: readonly string[],

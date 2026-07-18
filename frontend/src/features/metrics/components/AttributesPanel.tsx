@@ -24,6 +24,7 @@ import {
   setUrlNotContainsFilter,
   setWidthCompareFilter,
 } from '../../browse/model/filters'
+import Dropdown from '../../../shared/ui/Dropdown'
 
 type CompareOp = '<' | '<=' | '>' | '>='
 
@@ -34,6 +35,7 @@ interface AttributesPanelProps {
 
 const STAR_VALUES = [5, 4, 3, 2, 1]
 const COMPARE_OPS: CompareOp[] = ['<', '<=', '>', '>=']
+const COMPARE_OPTIONS = COMPARE_OPS.map((op) => ({ value: op, label: op }))
 const TEXT_COMMIT_DELAY_MS = 250
 
 export default function AttributesPanel({ filters, onChangeFilters }: AttributesPanelProps) {
@@ -261,21 +263,23 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
             <div>
               <label className="ui-label">Width</label>
               <div className="flex gap-2">
-                <select
-                  className="ui-select ui-select-compact w-16"
-                  value={widthOp}
-                  onChange={(e) => {
-                    const nextOp = e.target.value as CompareOp
-                    setWidthOp(nextOp)
-                    if (widthCompare) {
-                      onChangeFilters(setWidthCompareFilter(filters, { op: nextOp, value: widthCompare.value }))
-                    }
-                  }}
-                >
-                  {COMPARE_OPS.map((op) => (
-                    <option key={`w-${op}`} value={op}>{op}</option>
-                  ))}
-                </select>
+                <div className="w-16 shrink-0" data-dimension-operator="width">
+                  <Dropdown
+                    value={widthOp}
+                    onChange={(value) => {
+                      const nextOp = value as CompareOp
+                      setWidthOp(nextOp)
+                      if (widthCompare) {
+                        onChangeFilters(setWidthCompareFilter(filters, { op: nextOp, value: widthCompare.value }))
+                      }
+                    }}
+                    options={COMPARE_OPTIONS}
+                    aria-label="Width operator"
+                    title={`Width ${widthOp}`}
+                    triggerClassName="w-16 justify-between px-2"
+                    width="trigger"
+                  />
+                </div>
                 <input
                   type="number"
                   className="ui-input ui-number w-full"
@@ -298,21 +302,23 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
             <div>
               <label className="ui-label">Height</label>
               <div className="flex gap-2">
-                <select
-                  className="ui-select ui-select-compact w-16"
-                  value={heightOp}
-                  onChange={(e) => {
-                    const nextOp = e.target.value as CompareOp
-                    setHeightOp(nextOp)
-                    if (heightCompare) {
-                      onChangeFilters(setHeightCompareFilter(filters, { op: nextOp, value: heightCompare.value }))
-                    }
-                  }}
-                >
-                  {COMPARE_OPS.map((op) => (
-                    <option key={`h-${op}`} value={op}>{op}</option>
-                  ))}
-                </select>
+                <div className="w-16 shrink-0" data-dimension-operator="height">
+                  <Dropdown
+                    value={heightOp}
+                    onChange={(value) => {
+                      const nextOp = value as CompareOp
+                      setHeightOp(nextOp)
+                      if (heightCompare) {
+                        onChangeFilters(setHeightCompareFilter(filters, { op: nextOp, value: heightCompare.value }))
+                      }
+                    }}
+                    options={COMPARE_OPTIONS}
+                    aria-label="Height operator"
+                    title={`Height ${heightOp}`}
+                    triggerClassName="w-16 justify-between px-2"
+                    width="trigger"
+                  />
+                </div>
                 <input
                   type="number"
                   className="ui-input ui-number w-full"

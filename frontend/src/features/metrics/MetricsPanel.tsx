@@ -3,12 +3,15 @@ import type { BrowseFacetFields, FilterAST, BrowseFacetsPayload, BrowseItemPaylo
 import AttributesPanel from './components/AttributesPanel'
 import CategoricalPanel from './components/CategoricalPanel'
 import MetricRangePanel from './components/MetricRangePanel'
-import { formatNumber, type Range } from './model/histogram'
+import type { Range } from './model/histogram'
 import {
   collectMetricValuesByKey,
   type MetricValuesByKey,
 } from './model/metricValues'
-import { getMetricDisplayName } from '../../lib/metricDisplay'
+import type {
+  FacetFieldQueryStates,
+  FacetQueryState,
+} from './model/facetPresentation'
 
 interface MetricsPanelProps {
   items: BrowseItemPayload[]
@@ -17,6 +20,8 @@ interface MetricsPanelProps {
   categoricalKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
   facets?: BrowseFacetsPayload | null
+  facetsState?: FacetQueryState
+  facetFieldStates?: FacetFieldQueryStates
   populationItemsComplete?: boolean
   filteredItemsComplete?: boolean
   selectedItems?: BrowseItemPayload[]
@@ -29,16 +34,6 @@ interface MetricsPanelProps {
   onFacetFieldsChange?: (fields: BrowseFacetFields) => void
 }
 
-interface SelectedMetricsPanelProps {
-  selectedValuesByKey: MetricValuesByKey
-  selectedItems: BrowseItemPayload[]
-  totalItems: number
-  metricKeys: string[]
-  metricDisplayNames?: MetricDisplayNames | null
-}
-
-const MAX_SELECTED_METRICS = 12
-
 export default function MetricsPanel({
   items,
   filteredItems,
@@ -46,6 +41,8 @@ export default function MetricsPanel({
   categoricalKeys,
   metricDisplayNames,
   facets = null,
+  facetsState = 'settled',
+  facetFieldStates,
   populationItemsComplete = true,
   filteredItemsComplete = true,
   selectedItems,
@@ -68,17 +65,6 @@ export default function MetricsPanel({
   const selectedValuesByKey = useMemo(() => (
     selectedItems?.length ? collectMetricValuesByKey(selectedItems, metricKeys) : null
   ), [selectedItems, metricKeys])
-  const metricsSummary = selectedValuesByKey && selectedItems && selectedItems.length
-    ? (
-      <SelectedMetricsPanel
-        selectedValuesByKey={selectedValuesByKey}
-        selectedItems={selectedItems}
-        totalItems={selectedItems.length}
-        metricKeys={metricKeys}
-        metricDisplayNames={metricDisplayNames}
-      />
-    )
-    : null
   const attributesPanel = (
     <AttributesPanel
       filters={filters}
@@ -91,6 +77,8 @@ export default function MetricsPanel({
       filteredItems={filteredItems}
       categoricalKeys={categoricalKeys}
       facets={facets}
+      facetsState={facetsState}
+      facetFieldStates={facetFieldStates}
       populationItemsComplete={populationItemsComplete}
       filteredItemsComplete={filteredItemsComplete}
       selectedItems={selectedItems}
@@ -103,7 +91,6 @@ export default function MetricsPanel({
   if (!metricKeys.length && !categoricalKeys.length) {
     return (
       <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
-        {metricsSummary}
         {attributesPanel}
         <div className="p-4 text-sm text-muted">
           No metrics or categoricals found in this dataset.
@@ -114,7 +101,6 @@ export default function MetricsPanel({
 
   return (
     <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
-      {metricsSummary}
       {metricKeys.length > 0 && (
         <MetricRangePanel
           items={items}
@@ -122,6 +108,8 @@ export default function MetricsPanel({
           metricKeys={metricKeys}
           metricDisplayNames={metricDisplayNames}
           facets={facets}
+          facetsState={facetsState}
+          facetFieldStates={facetFieldStates}
           populationItemsComplete={populationItemsComplete}
           filteredItemsComplete={filteredItemsComplete}
           selectedItems={selectedItems}
@@ -137,82 +125,4 @@ export default function MetricsPanel({
       {attributesPanel}
     </div>
   )
-}
-
-function SelectedMetricsPanel({
-  selectedValuesByKey,
-  selectedItems,
-  totalItems,
-  metricKeys,
-  metricDisplayNames,
-}: SelectedMetricsPanelProps) {
-  const summary = useMemo(() => {
-    if (!selectedValuesByKey.size) return null
-    const keys = metricKeys.length
-      ? metricKeys.filter((key) => selectedValuesByKey.has(key))
-      : Array.from(selectedValuesByKey.keys()).sort()
-    const entries = keys.map((key) => {
-      const categorySummary = selectedCategorySummary(selectedItems, key)
-      if (categorySummary) {
-        return { key, text: categorySummary, count: selectedValuesByKey.get(key)?.length ?? 0 }
-      }
-      const values = selectedValuesByKey.get(key) ?? []
-      const min = Math.min(...values)
-      const max = Math.max(...values)
-      const avg = values.reduce((sum, v) => sum + v, 0) / Math.max(1, values.length)
-      return { key, value: values[0], min, max, avg, count: values.length }
-    })
-    return { entries, totalItems }
-  }, [selectedValuesByKey, selectedItems, metricKeys, totalItems])
-
-  if (!summary) return null
-
-  const { entries, totalItems: summaryTotalItems } = summary
-  const show = entries.slice(0, MAX_SELECTED_METRICS)
-  const remaining = entries.length - show.length
-  const isMulti = summaryTotalItems > 1
-
-  return (
-    <div className="ui-card">
-      <div className="ui-card-header">
-        <div className="ui-section-title">Selected metrics</div>
-        <div className="text-[11px] text-muted">{summaryTotalItems} item{summaryTotalItems === 1 ? '' : 's'}</div>
-      </div>
-      <div className="space-y-1 text-[12px]">
-        {show.map((entry) => (
-          <div key={entry.key} className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 min-w-0">
-            <span className="text-muted min-w-0 flex-1 basis-[7rem] truncate" title={getMetricDisplayName(entry.key, metricDisplayNames)}>
-              {getMetricDisplayName(entry.key, metricDisplayNames)}
-            </span>
-            <span className="text-text text-right tabular-nums min-w-0 flex-1 basis-[6rem] whitespace-normal break-words">
-              {'text' in entry ? entry.text : isMulti ? `${formatNumber(entry.min)} – ${formatNumber(entry.max)}` : formatNumber(entry.value)}
-              {!('text' in entry) && isMulti && (
-                <span className="text-[11px] text-muted ml-1 inline-block">
-                  avg {formatNumber(entry.avg)}
-                  {entry.count !== summaryTotalItems ? ` · ${entry.count}/${summaryTotalItems}` : ''}
-                </span>
-              )}
-            </span>
-          </div>
-        ))}
-        {remaining > 0 && (
-          <div className="text-[11px] text-muted">+{remaining} more</div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function selectedCategorySummary(items: BrowseItemPayload[], key: string): string | null {
-  const counts = new Map<string, number>()
-  for (const item of items) {
-    const label = item.metric_labels?.[key]
-    if (!label) continue
-    counts.set(label, (counts.get(label) ?? 0) + 1)
-  }
-  if (!counts.size) return null
-  return Array.from(counts.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([label, count]) => count > 1 ? `${label} (${count})` : label)
-    .join(', ')
 }

@@ -232,11 +232,13 @@ def _snapshot_side_panels(page: Any) -> dict[str, Any]:
               })
             : [];
           const leftPanel = document.querySelector('.app-left-panel');
-          const selectedMetricsHeader = leftPanel
-            ? Array.from(leftPanel.querySelectorAll('.ui-section-title'))
-              .find((el) => elementText(el) === 'Selected metrics')
+          const selectedMetricsCard = leftPanel
+            ? Array.from(leftPanel.querySelectorAll([
+                '[data-metric-histogram-card]',
+                '[data-metric-category-card]',
+                '[data-categorical-card]',
+              ].join(','))).find((el) => /Selected:\\s*[1-9]/.test(elementText(el))) || null
             : null;
-          const selectedMetricsCard = selectedMetricsHeader?.closest('.ui-card') || null;
           const selectedMetricsChecks = leftPanel && selectedMetricsCard
             ? Array.from(selectedMetricsCard.querySelectorAll('*')).map((el) => {
               const rect = el.getBoundingClientRect();
@@ -984,10 +986,10 @@ def _assert_metrics_left_visible_panel(snapshot: dict[str, Any], left_panel: Any
         raise ResponsiveGeometryFailure(f"Metrics-left panel has horizontal overflow in {snapshot.get('name')}.")
     selected_card = left_panel.get("selectedMetricsCard")
     if not isinstance(selected_card, dict):
-        raise ResponsiveGeometryFailure(f"Selected metrics summary is missing in {snapshot.get('name')}.")
+        raise ResponsiveGeometryFailure(f"Reserved metric selection region is missing in {snapshot.get('name')}.")
     if selected_card.get("overflowsPanel") or int(selected_card.get("childOverflowCount", 0)) > 0:
         raise ResponsiveGeometryFailure(
-            f"Selected metrics summary escaped the left panel in {snapshot.get('name')}: {selected_card!r}."
+            f"Reserved metric selection region escaped the left panel in {snapshot.get('name')}: {selected_card!r}."
         )
 
 
@@ -1007,13 +1009,13 @@ def assert_visible_metrics_left_contained(snapshot: dict[str, Any]) -> None:
         )
     selected_card = left_panel.get("selectedMetricsCard")
     if not isinstance(selected_card, dict):
-        raise ResponsiveGeometryFailure(f"Visible selected metrics summary is missing in {snapshot.get('name')}.")
+        raise ResponsiveGeometryFailure(f"Visible reserved metric selection region is missing in {snapshot.get('name')}.")
     if float(selected_card.get("scrollWidth", 0)) > float(selected_card.get("clientWidth", 0)) + 1:
         raise ResponsiveGeometryFailure(
-            f"Selected metrics summary has horizontal overflow in {snapshot.get('name')}: "
+            f"Reserved metric selection region has horizontal overflow in {snapshot.get('name')}: "
             f"scrollWidth={selected_card.get('scrollWidth')}, clientWidth={selected_card.get('clientWidth')}."
         )
     if selected_card.get("overflowsPanel") or int(selected_card.get("childOverflowCount", 0)) > 0:
         raise ResponsiveGeometryFailure(
-            f"Selected metrics summary escaped the visible left panel in {snapshot.get('name')}: {selected_card!r}."
+            f"Reserved metric selection region escaped the visible left panel in {snapshot.get('name')}: {selected_card!r}."
         )

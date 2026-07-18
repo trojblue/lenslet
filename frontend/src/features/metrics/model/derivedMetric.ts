@@ -32,6 +32,7 @@ export type DerivedMetricEvaluation = {
   categoricalKeys: string[]
   metricDisplayNames: MetricDisplayNames
   spec: DerivedMetricSpec | null
+  definitionIdentity: string | null
   key: string | null
   name: string | null
   status: DerivedMetricStatus
@@ -163,6 +164,7 @@ export function evaluateDerivedMetric({
   const sourceMetricKeys = filterSourceMetricKeys(metricKeys)
   const sourceCategoricalKeys = uniqueSortedStrings(categoricalKeys)
   const normalizedSpec = normalizeDerivedMetricSpec(spec)
+  const definitionIdentity = derivedMetricDefinitionIdentity(spec)
   const normalizedTotalItems = normalizeTotalItems(totalItems)
   const partialLoadWarning = normalizedTotalItems != null && loadedCount < normalizedTotalItems
 
@@ -176,6 +178,7 @@ export function evaluateDerivedMetric({
       categoricalKeys: sourceCategoricalKeys,
       metricDisplayNames: invalidKey && invalidName ? { [invalidKey]: invalidName } : {},
       spec: null,
+      definitionIdentity,
       key: invalidKey,
       name: invalidName,
       status: spec == null ? 'none' : 'invalid',
@@ -212,6 +215,7 @@ export function evaluateDerivedMetric({
       categoricalKeys: sourceCategoricalKeys,
       metricDisplayNames,
       spec: normalizedSpec,
+      definitionIdentity,
       key,
       name: displayName,
       status: 'unavailable',
@@ -260,6 +264,7 @@ export function evaluateDerivedMetric({
     categoricalKeys: sourceCategoricalKeys,
     metricDisplayNames,
     spec: normalizedSpec,
+    definitionIdentity,
     key,
     name: displayName,
     status: 'valid',
@@ -288,7 +293,18 @@ export function evaluateBackendDerivedMetric({
 }: EvaluateBackendDerivedMetricParams): DerivedMetricEvaluation {
   const status = backendStatus?.status ?? 'none'
   const normalizedSpec = normalizeDerivedMetricSpec(spec)
+  const definitionIdentity = derivedMetricDefinitionIdentity(spec)
   if (status === 'none') {
+    if (spec != null && !normalizedSpec) {
+      return evaluateDerivedMetric({
+        items,
+        metricKeys,
+        categoricalKeys,
+        spec,
+        loadedCount,
+        totalItems,
+      })
+    }
     const key = normalizedSpec ? derivedMetricKey(normalizedSpec) : null
     return {
       items,
@@ -296,6 +312,7 @@ export function evaluateBackendDerivedMetric({
       categoricalKeys: uniqueSortedStrings(categoricalKeys),
       metricDisplayNames: key ? { [key]: normalizedSpec!.name } : {},
       spec: normalizedSpec,
+      definitionIdentity,
       key,
       name: normalizedSpec?.name ?? null,
       status: 'none',
@@ -334,6 +351,7 @@ export function evaluateBackendDerivedMetric({
     categoricalKeys: sourceCategoricalKeys,
     metricDisplayNames,
     spec: normalizedSpec,
+    definitionIdentity,
     key,
     name: key ? displayName : null,
     status: status === 'applied' ? 'valid' : status,
@@ -349,6 +367,29 @@ export function evaluateBackendDerivedMetric({
     scorePopulationCount,
     zStats,
   }
+}
+
+function derivedMetricDefinitionIdentity(raw: unknown): string | null {
+  if (raw == null) return null
+  const normalized = normalizeDerivedMetricSpec(raw)
+  return JSON.stringify(normalized ?? canonicalizeDefinitionValue(raw))
+}
+
+function canonicalizeDefinitionValue(value: unknown): unknown {
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    return { __nonfinite_number__: String(value) }
+  }
+  if (Array.isArray(value)) return value.map(canonicalizeDefinitionValue)
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return Object.fromEntries(
+      Object.keys(record).sort().map((key) => [key, canonicalizeDefinitionValue(record[key])]),
+    )
+  }
+  if (value === undefined) return { __undefined__: true }
+  if (typeof value === 'bigint') return { __bigint__: value.toString() }
+  if (typeof value === 'function' || typeof value === 'symbol') return String(value)
+  return value
 }
 
 function normalizeDerivedId(value: unknown): string | null {

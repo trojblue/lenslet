@@ -1505,7 +1505,6 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: var(--shadow-lg);
-  animation: slideDown 0.12s ease-out;
 }
 
 .dropdown-search-wrap {

@@ -14,6 +14,7 @@ import {
   parseNumberInput,
   type Range,
 } from '../model/histogram'
+import type { FacetFieldState } from '../model/facetPresentation'
 
 export type { Range } from '../model/histogram'
 
@@ -28,6 +29,8 @@ export interface MetricHistogramCardProps {
   onChangeRange: (key: string, range: Range | null) => void
   showTitle?: boolean
   showFilteredCounts?: boolean
+  state?: FacetFieldState
+  embedded?: boolean
 }
 
 const BIN_COUNT = 40
@@ -43,6 +46,8 @@ export default function MetricHistogramCard({
   onChangeRange,
   showTitle = false,
   showFilteredCounts = true,
+  state = 'ready',
+  embedded = false,
 }: MetricHistogramCardProps) {
   const population = useMemo(() => (
     populationHistogram ?? computeHistogramFromValues(populationValues, BIN_COUNT)
@@ -76,6 +81,7 @@ export default function MetricHistogramCard({
     if (!population || selectedValues.length < 2) return null
     return computeHistogramFromValues(selectedValues, BIN_COUNT, population)
   }, [selectedValues, population])
+  const displayState = population && domain ? 'ready' : state === 'ready' ? 'empty' : state
 
   useEffect(() => {
     if (!activeRange || !domain) {
@@ -122,67 +128,78 @@ export default function MetricHistogramCard({
     onChangeRange(metricKey, next)
   }
 
-  if (!population || !domain) {
-    return (
-      <div className="ui-card">
-        {showTitle && (
-          <div className="ui-section-title mb-2">{displayLabel}</div>
-        )}
-        <div className="text-sm text-muted">No values found for this metric.</div>
-      </div>
-    )
-  }
-
   const selectedCount = selectedValues.length
-  const populationMaxBin = Math.max(1, ...population.bins)
-  const footerInfo = histogramFooterInfo(displayRange, domain, hoverValue)
+  const populationMaxBin = population ? Math.max(1, ...population.bins) : 1
+  const footerInfo = domain
+    ? histogramFooterInfo(displayRange, domain, hoverValue)
+    : { text: '', emphasized: false }
+  const selectionText = selectedValues.length === 1
+    ? `Selected: ${formatNumber(selectedValues[0])}`
+    : `Selected: ${selectedValues.length}`
   return (
-    <div className="ui-card" data-metric-histogram-card={metricKey}>
+    <div
+      className={embedded ? 'flex h-full flex-col' : 'ui-card flex h-96 flex-col'}
+      data-metric-histogram-card={metricKey}
+      data-facet-state={displayState}
+    >
       {showTitle && (
         <div className="ui-section-title mb-2">{displayLabel}</div>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted mb-2 tabular-nums">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <span>Population: {population.count}</span>
-          {showFilteredCounts && <span>Filtered: {filtered?.count ?? 0}</span>}
-          {selectedCount > 1 && <span className="text-text">Selected: {selectedCount}</span>}
+      <div className="flex h-4 shrink-0 items-center justify-between gap-2 text-[11px] text-muted mb-2 tabular-nums whitespace-nowrap">
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+          <span>Population: {displayState === 'ready' ? population?.count : '—'}</span>
+          {showFilteredCounts && <span>Filtered: {displayState === 'ready' ? filtered?.count ?? 0 : '—'}</span>}
         </div>
-        {selectedValue != null && (
-          <span className="text-text">Selected: {formatNumber(selectedValue)}</span>
-        )}
+        <span
+          className={`w-28 shrink-0 truncate text-right text-text ${selectedCount > 0 ? '' : 'invisible'}`}
+          title={selectedCount > 0 ? selectionText : undefined}
+          aria-hidden={selectedCount > 0 ? undefined : true}
+        >
+          {selectedCount > 0 ? selectionText : 'Selected: 0'}
+        </span>
       </div>
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${BIN_COUNT} 100`}
-        preserveAspectRatio="none"
-        className="w-full h-28 cursor-crosshair rounded-md bg-surface-inset"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={onPointerLeave}
-      >
-        {renderBars(population.bins, '#2e3a4b', { scaleMax: populationMaxBin })}
-        {showFilteredCounts && filtered && renderBars(filtered.bins, '#3a8fff', { scaleMax: populationMaxBin })}
-        {selectedHistogram && renderBars(selectedHistogram.bins, '#f59e0b', {
-          opacity: 0.55,
-          scaleMax: populationMaxBin,
-        })}
-        {displayRange && renderRange(displayRange, domain)}
-        {selectedValue != null && renderValueMarker(selectedValue, domain, {
-          color: 'var(--highlight)',
-          strokeWidth: 0.7,
-        })}
-        {hoverValue != null && renderValueMarker(hoverValue, domain, {
-          color: 'rgba(255,255,255,0.75)',
-          strokeWidth: 0.5,
-          dashed: true,
-        })}
-      </svg>
+      {displayState === 'ready' && population && domain ? (
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${BIN_COUNT} 100`}
+          preserveAspectRatio="none"
+          className="w-full h-28 shrink-0 cursor-crosshair rounded-md bg-surface-inset"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerLeave={onPointerLeave}
+        >
+          {renderBars(population.bins, '#2e3a4b', { scaleMax: populationMaxBin })}
+          {showFilteredCounts && filtered && renderBars(filtered.bins, '#3a8fff', { scaleMax: populationMaxBin })}
+          {selectedHistogram && renderBars(selectedHistogram.bins, '#f59e0b', {
+            opacity: 0.55,
+            scaleMax: populationMaxBin,
+          })}
+          {displayRange && renderRange(displayRange, domain)}
+          {selectedValue != null && renderValueMarker(selectedValue, domain, {
+            color: 'var(--highlight)',
+            strokeWidth: 0.7,
+          })}
+          {hoverValue != null && renderValueMarker(hoverValue, domain, {
+            color: 'rgba(255,255,255,0.75)',
+            strokeWidth: 0.5,
+            dashed: true,
+          })}
+        </svg>
+      ) : (
+        <div className="flex h-28 shrink-0 items-center justify-center rounded-md bg-surface-inset px-3 text-center text-sm text-muted" role="status">
+          {displayState === 'pending'
+            ? 'Loading values for this metric…'
+            : displayState === 'error'
+              ? 'Could not load values for this metric.'
+              : 'No values found for this metric.'}
+        </div>
+      )}
       <div
         className="flex h-4 items-center justify-between gap-2 text-[11px] text-muted mt-2 tabular-nums whitespace-nowrap"
         data-histogram-footer
       >
-        <span className="shrink-0">{formatNumber(domain.min)}</span>
+        <span className="w-12 shrink-0">{domain ? formatNumber(domain.min) : ''}</span>
         <span
           className={`min-w-0 flex-1 truncate text-center ${footerInfo.emphasized ? 'text-text' : ''}`}
           title={footerInfo.text}
@@ -190,9 +207,9 @@ export default function MetricHistogramCard({
         >
           {footerInfo.text}
         </span>
-        <span className="shrink-0">{formatNumber(domain.max)}</span>
+        <span className="w-12 shrink-0 text-right">{domain ? formatNumber(domain.max) : ''}</span>
       </div>
-      <div className="grid grid-cols-2 gap-2 mt-3 items-end">
+      <div className="grid grid-cols-2 gap-2 mt-auto items-end">
         <div>
           <label className="ui-label">Min</label>
           <input
@@ -200,7 +217,8 @@ export default function MetricHistogramCard({
             step="any"
             className="ui-input ui-number w-full"
             value={minInput}
-            placeholder={formatInputValue(domain.min)}
+            placeholder={domain ? formatInputValue(domain.min) : ''}
+            disabled={!domain}
             onFocus={() => setEditingField('min')}
             onBlur={() => {
               setEditingField(null)
@@ -221,7 +239,8 @@ export default function MetricHistogramCard({
             step="any"
             className="ui-input ui-number w-full"
             value={maxInput}
-            placeholder={formatInputValue(domain.max)}
+            placeholder={domain ? formatInputValue(domain.max) : ''}
+            disabled={!domain}
             onFocus={() => setEditingField('max')}
             onBlur={() => {
               setEditingField(null)

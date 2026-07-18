@@ -135,7 +135,14 @@ def write_metrics_fixture_parquet(root: Path) -> None:
             "path": f"metrics/item_{idx:04d}.jpg",
             "source": source,
             "quality_score": idx / (METRICS_FIXTURE_ROW_COUNT - 1),
+            "contrast_score": 1 - (idx / (METRICS_FIXTURE_ROW_COUNT - 1)),
             "dataset_from": "gt" if idx % 2 == 0 else "synthetic",
+            "review_group": f"review-{idx % 3}",
+            "empty_group": "placeholder",
+            "explicit_empty_group": f"explicit-{idx % 2}",
+            "error_group": f"error-{idx % 2}",
+            "custom_group": f"known-{idx % 4}",
+            "derived_group": f"derived-{idx % 5}",
         }
         for idx in range(METRICS_FIXTURE_ROW_COUNT)
     ]

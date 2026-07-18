@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import type { ComponentProps } from 'react'
 import DerivedScorePanel from '../DerivedScorePanel'
 import MetricsPanel from '../MetricsPanel'
-import type { BrowseItemPayload } from '../../../lib/types'
+import type { BrowseFacetsPayload, BrowseItemPayload } from '../../../lib/types'
 import type { DerivedMetricEvaluation } from '../model/derivedMetric'
 
 function makeItem(path: string, metrics?: BrowseItemPayload['metrics']): BrowseItemPayload {
@@ -19,6 +20,29 @@ function makeItem(path: string, metrics?: BrowseItemPayload['metrics']): BrowseI
   }
 }
 
+function makeCategoricalFacets(key: string, values: string[]): BrowseFacetsPayload {
+  return {
+    version: 1,
+    path: '/',
+    generated_at: 'test',
+    total_items: values.length,
+    metric_keys: [],
+    categorical_keys: [key],
+    metrics: {},
+    categoricals: {
+      [key]: {
+        values: values.map((value) => ({ value, population_count: 1 })),
+      },
+    },
+    dependency_manifest: {
+      fields: [],
+      metric_keys: [],
+      categorical_keys: [key],
+      unknown: false,
+    },
+  }
+}
+
 function makeDerivedMetricEvaluation(
   overrides: Partial<DerivedMetricEvaluation> = {},
 ): DerivedMetricEvaluation {
@@ -28,6 +52,7 @@ function makeDerivedMetricEvaluation(
     categoricalKeys: [],
     metricDisplayNames: {},
     spec: null,
+    definitionIdentity: null,
     key: null,
     name: null,
     status: 'none',
@@ -163,6 +188,7 @@ describe('MetricsPanel', () => {
         filteredItems={items.slice(0, 1)}
         metricKeys={[]}
         categoricalKeys={['original_source']}
+        facetsState="pending"
         populationItemsComplete={false}
         filteredItemsComplete={false}
         onSelectMetric={() => {}}
@@ -178,7 +204,8 @@ describe('MetricsPanel', () => {
     expect(html).not.toContain('>gt<')
     expect(html).not.toContain('Filtered:')
     expect(html).not.toContain('1/1')
-    expect(html).toContain('No values found for this field.')
+    expect(html).toContain('data-facet-state="pending"')
+    expect(html).toContain('Loading values for this field…')
   })
 
   it('renders the derived score card even when no source inputs exist', () => {
@@ -195,6 +222,95 @@ describe('MetricsPanel', () => {
 
     expect(html).toContain('Derived Score')
     expect(html).toContain('No score inputs in this view.')
+  })
+
+  it('keeps selected values in reserved card regions instead of inserting a summary card', () => {
+    const items = [
+      makeItem('/a.jpg', { quality_score: 0.2 }),
+      makeItem('/b.jpg', { quality_score: 0.8 }),
+    ]
+    const html = renderToStaticMarkup(
+      <MetricsPanel
+        items={items}
+        filteredItems={items}
+        metricKeys={['quality_score']}
+        categoricalKeys={[]}
+        selectedItems={items}
+        selectedMetric="quality_score"
+        onSelectMetric={() => {}}
+        filters={{ and: [] }}
+        onChangeRange={() => {}}
+        onChangeCategoricalValues={() => {}}
+        onChangeFilters={() => {}}
+      />,
+    )
+
+    expect(html).not.toContain('Selected metrics')
+    expect(html).toContain('Selected: 2')
+    expect(html).toContain('h-96')
+  })
+
+  it('keeps the derived categorical value control app-owned across facet states', () => {
+    const html = renderToStaticMarkup(
+      <DerivedScorePanel
+        items={[{ ...makeItem('/a.jpg'), categoricals: { dataset_from: 'partial-only' } }]}
+        metricKeys={['q1']}
+        categoricalKeys={['dataset_from']}
+        facetsState="pending"
+        populationItemsComplete={false}
+        derivedMetric={makeDerivedMetricEvaluation({
+          spec: {
+            version: 1,
+            id: 'score_v1',
+            name: 'new_score',
+            intercept: 0,
+            numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: false }],
+            categoricalTerms: [{ key: 'dataset_from', value: 'custom', weight: 1 }],
+          },
+        })}
+        onApplyDerivedMetric={() => {}}
+        onRankByDerivedMetric={() => {}}
+      />,
+    )
+
+    expect(html).toContain('data-facet-state="pending"')
+    expect(html).toContain('role="combobox"')
+    expect(html).toContain('value="custom"')
+    expect(html).not.toContain('<select')
+  })
+
+  it('distinguishes explicit empty Derived facets from partial local errors', () => {
+    const derivedMetric = makeDerivedMetricEvaluation({
+      spec: {
+        version: 1,
+        id: 'score_v1',
+        name: 'new_score',
+        intercept: 0,
+        numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: false }],
+        categoricalTerms: [{ key: 'dataset_from', value: 'custom', weight: 1 }],
+      },
+    })
+    const render = (props: Partial<ComponentProps<typeof DerivedScorePanel>>) => (
+      renderToStaticMarkup(
+        <DerivedScorePanel
+          items={[{ ...makeItem('/a.jpg'), categoricals: { dataset_from: 'partial-only' } }]}
+          metricKeys={['q1']}
+          categoricalKeys={['dataset_from']}
+          populationItemsComplete={false}
+          derivedMetric={derivedMetric}
+          onApplyDerivedMetric={() => {}}
+          onRankByDerivedMetric={() => {}}
+          {...props}
+        />,
+      )
+    )
+
+    const empty = render({ facets: makeCategoricalFacets('dataset_from', []) })
+    const error = render({ facetsState: 'error' })
+
+    expect(empty).toContain('data-derived-categorical-value="0" data-facet-state="empty"')
+    expect(error).toContain('data-derived-categorical-value="0" data-facet-state="error"')
+    expect(error).not.toContain('partial-only')
   })
 
   it('allows backend ranking without loading every source metric into card entities', () => {

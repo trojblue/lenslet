@@ -18,6 +18,10 @@ import type {
   TableSourceColumnsPayload,
 } from '../../lib/types'
 import type { DerivedMetricEvaluation } from '../../features/metrics/model/derivedMetric'
+import type {
+  FacetFieldQueryStates,
+  FacetQueryState,
+} from '../../features/metrics/model/facetPresentation'
 import type { ThemePresetId } from '../../theme/runtime'
 import ThemeSettingsMenu from '../../shared/ui/ThemeSettingsMenu'
 import type { LeftTool } from '../layout/sidebarLayout'
@@ -46,6 +50,8 @@ type LeftSidebarProps = {
   categoricalKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
   metricsFacets?: BrowseFacetsPayload | null
+  metricsFacetsState?: FacetQueryState
+  metricsFacetFieldStates?: FacetFieldQueryStates
   metricsPopulationItemsComplete?: boolean
   metricsFilteredItemsComplete?: boolean
   derivedMetric: DerivedMetricEvaluation
@@ -111,6 +117,8 @@ export default function LeftSidebar({
   categoricalKeys,
   metricDisplayNames,
   metricsFacets,
+  metricsFacetsState = 'settled',
+  metricsFacetFieldStates,
   metricsPopulationItemsComplete,
   metricsFilteredItemsComplete,
   derivedMetric,
@@ -289,6 +297,8 @@ export default function LeftSidebar({
                 categoricalKeys={categoricalKeys}
                 metricDisplayNames={metricDisplayNames}
                 facets={metricsFacets}
+                facetsState={metricsFacetsState}
+                facetFieldStates={metricsFacetFieldStates}
                 populationItemsComplete={metricsPopulationItemsComplete}
                 filteredItemsComplete={metricsFilteredItemsComplete}
                 selectedItems={selectedItems}
@@ -307,6 +317,9 @@ export default function LeftSidebar({
                 categoricalKeys={categoricalKeys}
                 metricDisplayNames={metricDisplayNames}
                 facets={metricsFacets}
+                facetsState={metricsFacetsState}
+                facetFieldStates={metricsFacetFieldStates}
+                populationItemsComplete={metricsPopulationItemsComplete}
                 derivedMetric={derivedMetric}
                 backendAuthoritative={derivedMetricBackendAuthoritative}
                 derivedRankDisabledReason={derivedRankDisabledReason}

@@ -371,4 +371,26 @@ describe('derived metric evaluation', () => {
     expect(result.scoreScope).toBe('none')
     expect(result.items[0].metrics?.['@derived/rubric_1']).toBeUndefined()
   })
+
+  it('preserves invalid saved definitions while backend status is absent', () => {
+    const result = evaluateBackendDerivedMetric({
+      items: [makeItem('/a.jpg', { metrics: { q1: 1 } })],
+      metricKeys: ['q1'],
+      categoricalKeys: [],
+      spec: {
+        version: 1,
+        id: 'broken_score',
+        name: 'Broken score',
+        intercept: Number.NaN,
+        numericTerms: [],
+        categoricalTerms: [],
+      },
+      backendStatus: null,
+    })
+
+    expect(result.status).toBe('invalid')
+    expect(result.key).toBe('@derived/broken_score')
+    expect(result.name).toBe('Broken score')
+    expect(result.invalidReasons).toEqual(['Invalid derived metric definition.'])
+  })
 })

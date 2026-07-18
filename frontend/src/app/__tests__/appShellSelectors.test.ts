@@ -53,6 +53,7 @@ function makeDerivedMetricEvaluation(
     categoricalKeys: [],
     metricDisplayNames: { '@derived/rubric_1': 'Rubric score' },
     spec: null,
+    definitionIdentity: null,
     key: '@derived/rubric_1',
     name: 'Rubric score',
     status: 'valid',

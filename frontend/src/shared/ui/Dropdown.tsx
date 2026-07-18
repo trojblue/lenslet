@@ -44,6 +44,7 @@ export interface DropdownProps {
   searchThreshold?: number
   searchPlaceholder?: string
   emptyMessage?: string
+  editable?: boolean
   portal?: boolean
   'aria-label'?: string
 }
@@ -86,6 +87,7 @@ export default function Dropdown({
   searchThreshold = DEFAULT_SEARCH_THRESHOLD,
   searchPlaceholder = 'Search options...',
   emptyMessage = 'No matching options',
+  editable = false,
   portal = true,
   'aria-label': ariaLabel,
 }: DropdownProps) {
@@ -93,16 +95,18 @@ export default function Dropdown({
   const [open, setOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [highlightedValue, setHighlightedValue] = useState<string | null>(null)
+  const [keyboardNavigated, setKeyboardNavigated] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const editableInputRef = useRef<HTMLInputElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const itemRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
   const [panelPosition, setPanelPosition] = useState<FloatingPanelPosition>(getInitialPosition)
 
   const flatOptions = useMemo(() => flattenDropdownOptions(options), [options])
-  const selectedLabel = flatOptions.find((option) => option.value === value)?.label ?? placeholder
-  const effectiveSearchable = searchable === true || (
+  const selectedLabel = flatOptions.find((option) => option.value === value)?.label ?? (value || placeholder)
+  const effectiveSearchable = editable || searchable === true || (
     searchable === 'auto' && flatOptions.length >= searchThreshold
   )
   const filteredOptions = useMemo(() => (
@@ -114,9 +118,13 @@ export default function Dropdown({
     () => flattenDropdownOptions(filteredOptions.options),
     [filteredOptions.options],
   )
+  const optionIds = useMemo(() => new Map(
+    flatOptions.map((option, index) => [option.value, `${listboxId}-option-${index}`]),
+  ), [flatOptions, listboxId])
 
   const triggerWidth = containerRef.current?.getBoundingClientRect().width
     ?? triggerRef.current?.offsetWidth
+    ?? editableInputRef.current?.offsetWidth
     ?? 0
   const forcedPanelWidth = width === 'trigger'
     ? triggerWidth
@@ -151,7 +159,7 @@ export default function Dropdown({
   const closeDropdown = useCallback((focusTrigger = false) => {
     setOpen(false)
     if (focusTrigger) {
-      window.requestAnimationFrame(() => triggerRef.current?.focus())
+      window.requestAnimationFrame(() => (editableInputRef.current ?? triggerRef.current)?.focus())
     }
   }, [])
 
@@ -203,6 +211,7 @@ export default function Dropdown({
     itemRefs.current.clear()
     setSearchQuery('')
     setHighlightedValue(null)
+    setKeyboardNavigated(false)
   }, [open])
 
   useEffect(() => {
@@ -217,10 +226,10 @@ export default function Dropdown({
   }, [filteredOptions.options, open, value])
 
   useEffect(() => {
-    if (!open || !effectiveSearchable) return
+    if (!open || !effectiveSearchable || editable) return
     const handle = window.requestAnimationFrame(() => searchInputRef.current?.focus())
     return () => window.cancelAnimationFrame(handle)
-  }, [effectiveSearchable, open])
+  }, [editable, effectiveSearchable, open])
 
   useEffect(() => {
     if (!open || !highlightedValue) return
@@ -229,10 +238,11 @@ export default function Dropdown({
 
   const handleSelect = useCallback((optValue: string) => {
     onChange(optValue)
-    closeDropdown(true)
-  }, [closeDropdown, onChange])
+    closeDropdown(!editable)
+  }, [closeDropdown, editable, onChange])
 
   const moveHighlight = useCallback((direction: 1 | -1) => {
+    setKeyboardNavigated(true)
     setHighlightedValue((current) => (
       findNextEnabledOption(filteredOptions.options, current, direction)?.value ?? current
     ))
@@ -268,7 +278,19 @@ export default function Dropdown({
 
   const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (disabled) return
-    if (event.key === 'ArrowDown') {
+    if (open && event.key === 'Enter') {
+      event.preventDefault()
+      selectHighlighted()
+    } else if (open && event.key === 'Escape') {
+      event.preventDefault()
+      closeDropdown(true)
+    } else if (open && event.key === 'Home') {
+      event.preventDefault()
+      setHighlightedValue(findFirstEnabledOption(filteredOptions.options)?.value ?? null)
+    } else if (open && event.key === 'End') {
+      event.preventDefault()
+      setHighlightedValue(findNextEnabledOption(filteredOptions.options, null, -1)?.value ?? null)
+    } else if (event.key === 'ArrowDown') {
       event.preventDefault()
       openDropdown()
       moveHighlight(1)
@@ -279,6 +301,26 @@ export default function Dropdown({
     } else if (effectiveSearchable && isPrintableKey(event)) {
       event.preventDefault()
       openDropdown(event.key)
+    }
+  }
+
+  const handleEditableKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (disabled) return
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      if (!open) openDropdown(searchQuery)
+      moveHighlight(1)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      if (!open) openDropdown(searchQuery)
+      moveHighlight(-1)
+    } else if (event.key === 'Enter' && open) {
+      event.preventDefault()
+      if (keyboardNavigated) selectHighlighted()
+      else closeDropdown()
+    } else if (event.key === 'Escape' && open) {
+      event.preventDefault()
+      closeDropdown()
     }
   }
 
@@ -294,12 +336,16 @@ export default function Dropdown({
     return opts.map((opt) => (
       <button
         key={opt.value}
+        id={optionIds.get(opt.value)}
         ref={(node) => setItemRef(opt.value, node)}
         className="dropdown-item"
         data-active={opt.value === value}
         data-highlighted={opt.value === highlightedValue}
         disabled={opt.disabled}
         onClick={() => !opt.disabled && handleSelect(opt.value)}
+        onMouseDown={(event) => {
+          if (editable) event.preventDefault()
+        }}
         onMouseEnter={() => !opt.disabled && setHighlightedValue(opt.value)}
         role="option"
         aria-selected={opt.value === value}
@@ -326,14 +372,14 @@ export default function Dropdown({
   const panelNode = open ? (
     <div
       ref={panelRef}
-      className={getDropdownPanelClassName(panelClassName, effectiveSearchable)}
+      className={getDropdownPanelClassName(panelClassName, effectiveSearchable && !editable)}
       style={panelStyle}
       role="listbox"
       aria-label={ariaLabel}
       id={listboxId}
       onKeyDown={handlePanelKeyDown}
     >
-      {effectiveSearchable && (
+      {effectiveSearchable && !editable && (
         <div className="dropdown-search-wrap">
           <input
             ref={searchInputRef}
@@ -375,6 +421,39 @@ export default function Dropdown({
     <div ref={containerRef} className="relative">
       {trigger ? (
         <div onClick={() => !disabled && setOpen((o) => !o)}>{trigger}</div>
+      ) : editable ? (
+        <input
+          ref={editableInputRef}
+          type="text"
+          className={`dropdown-trigger ${triggerClassName}`}
+          value={value}
+          placeholder={placeholder}
+          disabled={disabled}
+          title={title}
+          role="combobox"
+          aria-label={ariaLabel}
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={open ? listboxId : undefined}
+          aria-activedescendant={open && highlightedValue
+            ? optionIds.get(highlightedValue)
+            : undefined}
+          autoComplete="off"
+          spellCheck={false}
+          onFocus={() => openDropdown('')}
+          onClick={() => {
+            if (!open) openDropdown('')
+          }}
+          onChange={(event) => {
+            const nextValue = event.currentTarget.value
+            onChange(nextValue)
+            setSearchQuery(nextValue)
+            setKeyboardNavigated(false)
+            if (!open) openDropdown(nextValue)
+          }}
+          onKeyDown={handleEditableKeyDown}
+        />
       ) : (
         <button
           ref={triggerRef}

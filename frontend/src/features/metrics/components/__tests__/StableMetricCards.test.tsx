@@ -24,7 +24,9 @@ describe('stable metric card regions', () => {
     expect(inactive).toContain('invisible')
     expect(active).toContain('data-card-action="clear"')
     expect(active).not.toContain('Active:')
-    expect(active).not.toContain('invisible')
+    const activeClear = active.match(/<button[^>]*data-card-action="clear"[^>]*>/)?.[0]
+    expect(activeClear).toBeDefined()
+    expect(activeClear).not.toContain('invisible')
   })
 
   it('keeps metric-category Clear in one slot without rendering redundant Active copy', () => {
@@ -59,5 +61,24 @@ describe('stable metric card regions', () => {
     expect(html).toContain('whitespace-nowrap')
     expect(html).toContain('0.250 – 0.750')
     expect(html).toContain('data-card-action="clear"')
+  })
+
+  it('uses the same fixed card and body shells for pending, empty, and ready content', () => {
+    const render = (state: 'pending' | 'error' | 'ready', values: number[]) => renderToStaticMarkup(
+      <MetricHistogramCard
+        metricKey="quality_score"
+        populationValues={values}
+        filteredValues={values}
+        state={state}
+        filters={{ and: [] }}
+        onChangeRange={() => {}}
+      />,
+    )
+
+    for (const html of [render('pending', []), render('error', []), render('ready', []), render('ready', [1, 2])]) {
+      expect(html).toContain('ui-card flex h-96 flex-col')
+      expect(html).toContain('data-histogram-footer="true"')
+      expect(html).toContain('data-card-action="clear"')
+    }
   })
 })

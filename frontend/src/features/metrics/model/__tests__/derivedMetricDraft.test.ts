@@ -8,8 +8,10 @@ import {
   collectCategoricalValuesByKey,
   createCategoricalDraftTerm,
   createDerivedMetricDraft,
+  derivedMetricDraftResetToken,
   evaluateDerivedMetricDraft,
 } from '../derivedMetricDraft'
+import { evaluateBackendDerivedMetric, evaluateDerivedMetric } from '../derivedMetric'
 
 function makeItem(path: string, options: {
   metrics?: BrowseItemPayload['metrics']
@@ -182,5 +184,144 @@ describe('derived metric drafts', () => {
       value: 'gt',
       weight: '1',
     })
+  })
+
+  it('uses semantic spec and schema identity for editor resets', () => {
+    const draft = createDerivedMetricDraft(null, ['q1'])
+    const spec = buildDerivedMetricSpecFromDraft(draft).spec!
+    const evaluation = evaluateDerivedMetric({
+      items: [],
+      metricKeys: ['q1', 'q2'],
+      categoricalKeys: ['source'],
+      spec,
+    })
+    const equivalentEvaluation = evaluateDerivedMetric({
+      items: [],
+      metricKeys: ['q2', 'q1'],
+      categoricalKeys: ['source'],
+      spec: {
+        ...spec,
+        numericTerms: spec.numericTerms.map((term) => ({ ...term })),
+        categoricalTerms: spec.categoricalTerms.map((term) => ({ ...term })),
+      },
+    })
+    const baseline = derivedMetricDraftResetToken(evaluation, ['q1', 'q2'], ['source'])
+
+    expect(derivedMetricDraftResetToken(
+      equivalentEvaluation,
+      ['q2', 'q1'],
+      ['source'],
+    )).toBe(baseline)
+    expect(derivedMetricDraftResetToken(evaluation, ['q1', 'q2', 'q3'], ['source'])).not.toBe(baseline)
+    expect(derivedMetricDraftResetToken(
+      evaluateDerivedMetric({
+        items: [],
+        metricKeys: ['q1', 'q2'],
+        categoricalKeys: ['source'],
+        spec: { ...spec, name: 'Changed score' },
+      }),
+      ['q1', 'q2'],
+      ['source'],
+    )).not.toBe(baseline)
+  })
+
+  it('distinguishes invalid saved definitions from an absent draft identity', () => {
+    const invalid = evaluateDerivedMetric({
+      items: [],
+      metricKeys: ['q1'],
+      categoricalKeys: [],
+      spec: {
+        version: 1,
+        id: 'broken_score',
+        name: 'Broken score',
+        intercept: Number.NaN,
+        numericTerms: [],
+        categoricalTerms: [],
+      },
+    })
+    const absent = evaluateDerivedMetric({
+      items: [],
+      metricKeys: ['q1'],
+      categoricalKeys: [],
+      spec: null,
+    })
+
+    expect(invalid.status).toBe('invalid')
+    expect(derivedMetricDraftResetToken(invalid, ['q1'], [])).not.toBe(
+      derivedMetricDraftResetToken(absent, ['q1'], []),
+    )
+  })
+
+  it('ignores backend status changes for the same valid saved definition', () => {
+    const spec = buildDerivedMetricSpecFromDraft(createDerivedMetricDraft(null, ['q1'])).spec!
+    const pending = evaluateBackendDerivedMetric({
+      items: [],
+      metricKeys: ['q1'],
+      categoricalKeys: [],
+      spec,
+      backendStatus: null,
+    })
+    const invalid = evaluateBackendDerivedMetric({
+      items: [],
+      metricKeys: ['q1'],
+      categoricalKeys: [],
+      spec,
+      backendStatus: {
+        key: '@derived/score_v1',
+        display_name: spec.name,
+        status: 'invalid',
+        score_scope: 'none',
+        score_population_count: 0,
+        valid_count: 0,
+        invalid_count: 0,
+        missing_numeric_inputs: [],
+        unavailable_categorical_inputs: [],
+        z_stats: {},
+      },
+    })
+
+    expect(derivedMetricDraftResetToken(invalid, ['q1'], [])).toBe(
+      derivedMetricDraftResetToken(pending, ['q1'], []),
+    )
+  })
+
+  it('keys malformed saved definitions by their canonical raw content', () => {
+    const evaluateInvalid = (spec: Record<string, unknown>) => evaluateDerivedMetric({
+      items: [],
+      metricKeys: ['q1'],
+      categoricalKeys: [],
+      spec,
+    })
+    const first = evaluateInvalid({
+      version: 1,
+      id: 'broken_score',
+      name: 'Broken score',
+      intercept: 'not-a-number',
+      numericTerms: [],
+      categoricalTerms: [],
+    })
+    const reordered = evaluateInvalid({
+      categoricalTerms: [],
+      numericTerms: [],
+      intercept: 'not-a-number',
+      name: 'Broken score',
+      id: 'broken_score',
+      version: 1,
+    })
+    const changed = evaluateInvalid({
+      version: 1,
+      id: 'broken_score',
+      name: 'Broken score',
+      intercept: 'still-not-a-number',
+      numericTerms: [],
+      categoricalTerms: [],
+    })
+
+    expect(derivedMetricDraftResetToken(reordered, ['q1'], [])).toBe(
+      derivedMetricDraftResetToken(first, ['q1'], []),
+    )
+    expect(derivedMetricDraftResetToken(changed, ['q1'], [])).not.toBe(
+      derivedMetricDraftResetToken(first, ['q1'], []),
+    )
   })
 })

@@ -11,6 +11,7 @@ import {
   analysisQueryKey,
   browseQueryKey,
   buildBrowseQueryRequest,
+  buildFacetFieldQueryStates,
   facetFieldBatches,
   folderFacetsQueryKey,
   folderQueryKey,
@@ -287,6 +288,23 @@ describe('folder api query helpers', () => {
     expect(merged?.categorical_keys).toEqual(['split'])
     expect(Object.keys(merged?.metrics ?? {})).toEqual(['q1', 'q2'])
     expect(merged?.categoricals.split.values).toHaveLength(1)
+  })
+
+  it('tracks facet readiness per requested batch without retaining cross-field data', () => {
+    const batches = [
+      { metric_keys: ['q1'], categorical_keys: ['source'] },
+      { metric_keys: ['q2'], categorical_keys: ['group'] },
+      { metric_keys: ['q3'], categorical_keys: [] },
+    ]
+
+    expect(buildFacetFieldQueryStates(batches, [
+      { data: { version: 1 } },
+      {},
+      { isError: true },
+    ])).toEqual({
+      metrics: { q1: 'settled', q2: 'pending', q3: 'error' },
+      categoricals: { source: 'settled', group: 'pending' },
+    })
   })
 
   it('normalizes unsupported metric intent in browse-query request bodies', () => {

@@ -21,6 +21,7 @@ import {
   createCategoricalDraftTerm,
   createDerivedMetricDraft,
   createNumericDraftTerm,
+  derivedMetricDraftResetToken,
   evaluateDerivedMetricDraft,
   type DerivedMetricFormulaDiagnostics,
   type DerivedMetricCategoricalDraftTerm,
@@ -35,6 +36,12 @@ import {
 } from '../model/metricValues'
 import Dropdown from '../../../shared/ui/Dropdown'
 import DerivedMetricMiniHistogram from './DerivedMetricMiniHistogram'
+import {
+  facetFieldQueryState,
+  resolveFacetFieldState,
+  type FacetFieldQueryStates,
+  type FacetQueryState,
+} from '../model/facetPresentation'
 
 interface DerivedScoreCardProps {
   items: BrowseItemPayload[]
@@ -42,7 +49,9 @@ interface DerivedScoreCardProps {
   categoricalKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
   facets?: BrowseFacetsPayload | null
-  categoricalValuesByKey?: Map<string, string[]>
+  facetsState?: FacetQueryState
+  facetFieldStates?: FacetFieldQueryStates
+  populationItemsComplete?: boolean
   derivedMetric: DerivedMetricEvaluation
   backendAuthoritative?: boolean
   rankDisabledReason?: string | null
@@ -51,27 +60,58 @@ interface DerivedScoreCardProps {
   onFacetFieldsChange?: (fields: BrowseFacetFields) => void
 }
 
-export default function DerivedScoreCard({
+type DerivedScoreCardEditorProps = Omit<DerivedScoreCardProps, 'metricKeys'> & {
+  sourceMetricKeys: string[]
+}
+
+const MISSING_VALUE_OPTIONS = [
+  { value: 'invalid', label: 'Require value' },
+  { value: 'zero', label: 'Missing = 0' },
+]
+
+export default function DerivedScoreCard(props: DerivedScoreCardProps): JSX.Element {
+  const sourceMetricKeys = props.metricKeys.filter((key) => !isDerivedMetricKey(key))
+  const resetToken = derivedMetricDraftResetToken(
+    props.derivedMetric,
+    sourceMetricKeys,
+    props.categoricalKeys,
+  )
+  return (
+    <DerivedScoreCardEditor
+      key={resetToken}
+      {...props}
+      sourceMetricKeys={sourceMetricKeys}
+    />
+  )
+}
+
+function DerivedScoreCardEditor({
   items,
-  metricKeys,
+  sourceMetricKeys,
   categoricalKeys,
   metricDisplayNames,
   facets = null,
-  categoricalValuesByKey: categoricalValuesByKeyOverride,
+  facetsState = 'settled',
+  facetFieldStates,
+  populationItemsComplete = true,
   derivedMetric,
   backendAuthoritative = false,
   rankDisabledReason = null,
   onApplyDerivedMetric,
   onRankByDerivedMetric,
   onFacetFieldsChange,
-}: DerivedScoreCardProps): JSX.Element {
-  const sourceMetricKeys = useMemo(
-    () => metricKeys.filter((key) => !isDerivedMetricKey(key)),
-    [metricKeys],
-  )
-  const categoricalValuesByKey = useMemo(
-    () => categoricalValuesByKeyOverride ?? collectCategoricalValuesByKey(items, categoricalKeys),
-    [categoricalKeys, categoricalValuesByKeyOverride, items],
+}: DerivedScoreCardEditorProps): JSX.Element {
+  const categoricalValuesByKey = useMemo(() => {
+    const values = populationItemsComplete
+      ? collectCategoricalValuesByKey(items, categoricalKeys)
+      : new Map<string, string[]>()
+    categoricalKeys.forEach((key) => {
+      const facet = facets?.categoricals[key]
+      if (facet) values.set(key, facet.values.map((entry) => entry.value))
+    })
+    return values
+  },
+    [categoricalKeys, facets, items, populationItemsComplete],
   )
   const [draft, setDraft] = useState<DerivedMetricDraft>(() => (
     createDerivedMetricDraft(derivedMetric.spec, sourceMetricKeys)
@@ -95,11 +135,6 @@ export default function DerivedScoreCard({
       keywords: [key],
     })),
   ], [categoricalKeys])
-
-  useEffect(() => {
-    setDraft(createDerivedMetricDraft(derivedMetric.spec, sourceMetricKeys))
-  }, [derivedMetric.key, derivedMetric.spec, sourceMetricKeys])
-
   const formulaCodeFromDraft = useMemo(() => buildDerivedMetricFormulaCode(draft), [draft])
   useEffect(() => {
     if (!formulaDirty) setFormulaCode(formulaCodeFromDraft)
@@ -314,21 +349,22 @@ export default function DerivedScoreCard({
                         onChange={(event) => updateNumericTerm(index, { weight: event.currentTarget.value })}
                       />
                     </label>
-                    <label className="flex min-w-[10rem] flex-[0_0_10.5rem] flex-col gap-1">
+                    <div className="flex min-w-[10rem] flex-[0_0_10.5rem] flex-col gap-1">
                       <span className="ui-label mb-0 text-[10px]">Missing</span>
-                      <select
-                        className="ui-select ui-select-compact w-full"
-                        value={term.missing}
-                        aria-label={`Numeric missing ${index + 1}`}
-                        data-derived-numeric-missing={index}
-                        onChange={(event) => updateNumericTerm(index, {
-                          missing: event.currentTarget.value === 'zero' ? 'zero' : 'invalid',
-                        })}
-                      >
-                        <option value="invalid">Require value</option>
-                        <option value="zero">Missing = 0</option>
-                      </select>
-                    </label>
+                      <div data-derived-numeric-missing={index}>
+                        <Dropdown
+                          value={term.missing}
+                          onChange={(nextValue) => updateNumericTerm(index, {
+                            missing: nextValue === 'zero' ? 'zero' : 'invalid',
+                          })}
+                          options={MISSING_VALUE_OPTIONS}
+                          aria-label={`Numeric missing ${index + 1}`}
+                          title={term.missing === 'zero' ? 'Missing = 0' : 'Require value'}
+                          triggerClassName="w-full justify-between"
+                          width="trigger"
+                        />
+                      </div>
+                    </div>
                     <div className="ml-auto flex items-center gap-1 self-end">
                       <button
                         type="button"
@@ -356,14 +392,14 @@ export default function DerivedScoreCard({
                       </button>
                     </div>
                   </div>
-                  {term.key.trim() && (
-                    <div className="mt-2">
-                      <DerivedMetricMiniHistogram
-                        metricKey={term.key.trim()}
-                        histogram={histogramsByMetric.get(term.key.trim()) ?? null}
-                      />
-                    </div>
-                  )}
+                  <div className="mt-2">
+                    <DerivedMetricMiniHistogram
+                      metricKey={term.key.trim() || 'Unselected metric'}
+                      histogram={term.key.trim()
+                        ? histogramsByMetric.get(term.key.trim()) ?? null
+                        : null}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
@@ -396,6 +432,30 @@ export default function DerivedScoreCard({
             <div className="space-y-2">
               {draft.categoricalTerms.map((term, index) => {
                 const values = categoricalValuesByKey.get(term.key) ?? []
+                const hasFacet = !!term.key && Object.prototype.hasOwnProperty.call(
+                  facets?.categoricals ?? {},
+                  term.key,
+                )
+                const valueState = term.key
+                  ? resolveFacetFieldState({
+                    facetDataState: !hasFacet
+                      ? 'absent'
+                      : values.length > 0
+                        ? 'ready'
+                        : 'empty',
+                    localDataState: hasFacet || !populationItemsComplete
+                      ? 'absent'
+                      : values.length > 0
+                        ? 'ready'
+                        : 'empty',
+                    queryState: facetFieldQueryState(
+                      facetFieldStates,
+                      'categoricals',
+                      term.key,
+                      facetsState,
+                    ),
+                  })
+                  : 'empty'
                 return (
                   <div key={`categorical-${index}`} className="rounded-md border border-border/60 bg-surface-inset p-2">
                     <div className="flex flex-wrap items-end gap-2">
@@ -423,37 +483,28 @@ export default function DerivedScoreCard({
                       </div>
                       <label className="flex min-w-[12rem] flex-[1_1_14rem] flex-col gap-1">
                         <span className="ui-label mb-0 text-[10px]">Value</span>
-                        {values.length ? (
-                          <div data-derived-categorical-value={index}>
-                            <Dropdown
-                              value={term.value}
-                              onChange={(nextValue) => updateCategoricalTerm(index, { value: nextValue })}
-                              options={[
-                                { value: '', label: 'Value', keywords: ['value'] },
-                                ...values.map((value) => ({
-                                  value,
-                                  label: value,
-                                  keywords: [value],
-                                })),
-                              ]}
-                              aria-label={`Categorical value ${index + 1}`}
-                              title={term.value || 'Value'}
-                              triggerClassName="w-full min-w-0 justify-between"
-                              width="trigger"
-                              searchable="auto"
-                              searchPlaceholder="Search values..."
-                              emptyMessage="No matching values"
-                            />
-                          </div>
-                        ) : (
-                          <input
-                            className="ui-input w-full min-w-0"
+                        <div data-derived-categorical-value={index} data-facet-state={valueState}>
+                          <Dropdown
                             value={term.value}
+                            onChange={(nextValue) => updateCategoricalTerm(index, { value: nextValue })}
+                            options={values.map((value) => ({
+                              value,
+                              label: value,
+                              keywords: [value],
+                            }))}
                             aria-label={`Categorical value ${index + 1}`}
-                            data-derived-categorical-value={index}
-                            onChange={(event) => updateCategoricalTerm(index, { value: event.currentTarget.value })}
+                            title={valueState === 'pending' ? 'Loading known values…' : term.value || 'Value'}
+                            placeholder={valueControlPlaceholder(valueState)}
+                            triggerClassName="w-full min-w-0"
+                            panelClassName="min-w-[12rem]"
+                            width="trigger"
+                            editable
+                            disabled={valueState === 'pending'}
+                            emptyMessage={valueState === 'error'
+                              ? 'Known values could not be loaded; enter a custom value.'
+                              : 'No known values; enter a custom value.'}
                           />
-                        )}
+                        </div>
                       </label>
                       <label className="flex w-24 flex-col gap-1">
                         <span className="ui-label mb-0 text-[10px]">Bonus</span>
@@ -491,25 +542,28 @@ export default function DerivedScoreCard({
           )}
         </div>
 
-        <div className="rounded-md border border-border/60 bg-surface-inset px-2 py-1.5 text-[12px] text-text break-words" data-derived-formula-preview>
+        <div
+          className="h-16 overflow-auto scrollbar-thin rounded-md border border-border/60 bg-surface-inset px-2 py-1.5 text-[12px] text-text break-words"
+          data-derived-formula-preview
+          tabIndex={0}
+          title={formulaPreview}
+        >
           {formulaPreview}
         </div>
 
-        <div className="min-h-4 text-[11px] text-muted" data-derived-score-status>
+        <div className="h-10 overflow-auto scrollbar-thin text-[11px] text-muted" data-derived-score-status tabIndex={0}>
           {!hasInputs
             ? 'No score inputs in this view.'
             : unavailableInputs.length
               ? `Unavailable inputs: ${unavailableInputs.join(', ')}.`
               : applyDisabledReason ?? rankReason ?? activeStatusText ?? 'Score ready.'}
         </div>
-        {scorePreview && (
-          <div data-derived-score-preview-histogram>
-            <DerivedMetricMiniHistogram
-              metricKey={scorePreview.key}
-              histogram={scorePreview.histogram}
-            />
-          </div>
-        )}
+        <div data-derived-score-preview-histogram>
+          <DerivedMetricMiniHistogram
+            metricKey={scorePreview?.key ?? 'Derived score preview'}
+            histogram={scorePreview?.histogram ?? null}
+          />
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -556,7 +610,7 @@ export default function DerivedScoreCard({
           </div>
           <textarea
             id="derived-formula-code"
-            className="ui-textarea font-mono w-full min-h-[84px] text-[12px]"
+            className="ui-textarea font-mono h-24 w-full resize-none text-[12px]"
             data-derived-formula-code
             value={formulaCode}
             spellCheck={false}
@@ -577,15 +631,25 @@ export default function DerivedScoreCard({
               Apply formula
             </button>
           </div>
-          {formulaDiagnosticText && (
-            <div className="min-h-4 text-[11px] text-muted" data-derived-formula-diagnostics>
-              {formulaDiagnosticText}
-            </div>
-          )}
+          <div
+            className="h-14 overflow-auto scrollbar-thin text-[11px] text-muted"
+            data-derived-formula-diagnostics
+            tabIndex={0}
+            title={formulaDiagnosticText ?? undefined}
+          >
+            {formulaDiagnosticText}
+          </div>
         </div>
       </div>
     </div>
   )
+}
+
+function valueControlPlaceholder(state: 'pending' | 'error' | 'empty' | 'ready'): string {
+  if (state === 'pending') return 'Loading values…'
+  if (state === 'error') return 'Enter a value'
+  if (state === 'empty') return 'Enter a value'
+  return 'Value'
 }
 
 function uniqueTermKeys(terms: readonly { key: string }[]): string[] {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { DropdownMenu, getDropdownPanelClassName } from '../Dropdown'
+import Dropdown, { DropdownMenu, getDropdownPanelClassName } from '../Dropdown'
 
 describe('Dropdown shared panel styling', () => {
   it('includes the Lenslet scrollbar class for searchable and menu panels', () => {
@@ -26,5 +26,21 @@ describe('Dropdown shared panel styling', () => {
 
     expect(html).toContain('dropdown-panel scrollbar-thin')
     expect(html).toContain('custom-panel')
+  })
+
+  it('renders one editable app-owned combobox for freeform values', () => {
+    const html = renderToStaticMarkup(
+      <Dropdown
+        value="custom"
+        onChange={() => {}}
+        options={[{ value: 'known', label: 'Known' }]}
+        editable
+        aria-label="Categorical value"
+      />,
+    )
+
+    expect(html).toContain('role="combobox"')
+    expect(html).toContain('value="custom"')
+    expect(html).not.toContain('<select')
   })
 })

@@ -3,6 +3,12 @@ import type { FilterAST, BrowseFacetsPayload, BrowseItemPayload, MetricDisplayNa
 import { getMetricDisplayName } from '../../../lib/metricDisplay'
 import type { Range } from '../model/histogram'
 import {
+  facetFieldQueryState,
+  resolveFacetFieldState,
+  type FacetFieldQueryStates,
+  type FacetQueryState,
+} from '../model/facetPresentation'
+import {
   collectMetricCategoriesByKey,
   collectMetricCategoriesFromFacets,
   collectMetricValuesByKey,
@@ -22,6 +28,8 @@ interface MetricRangePanelProps {
   metricKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
   facets?: BrowseFacetsPayload | null
+  facetsState?: FacetQueryState
+  facetFieldStates?: FacetFieldQueryStates
   populationItemsComplete?: boolean
   filteredItemsComplete?: boolean
   selectedItems?: BrowseItemPayload[]
@@ -41,6 +49,8 @@ export default function MetricRangePanel({
   metricKeys,
   metricDisplayNames,
   facets = null,
+  facetsState = 'settled',
+  facetFieldStates,
   populationItemsComplete = true,
   filteredItemsComplete = true,
   selectedItems,
@@ -81,6 +91,12 @@ export default function MetricRangePanel({
     },
     [facets, filteredItems, filteredItemsComplete, items, populationItemsComplete, selectedItems, scopedMetricKeys]
   )
+  const localCategoriesByKey = useMemo(
+    () => populationItemsComplete
+      ? collectMetricCategoriesByKey(items, filteredItems, selectedItems, scopedMetricKeys)
+      : new Map(),
+    [filteredItems, items, populationItemsComplete, scopedMetricKeys, selectedItems],
+  )
   const selectedValues = selectedValuesByKey ?? EMPTY_VALUES_BY_KEY
   const metricOptions = useMemo(() => (
     metricKeys.map((key) => ({
@@ -100,38 +116,64 @@ export default function MetricRangePanel({
   }, [onFacetFieldsChange])
 
   const renderMetricCard = (key: string, showTitle = false) => {
-    const categories = getMetricCategories(categoriesByKey, key)
     const metricFacet = facets?.metrics[key] ?? null
+    const hasFacet = Object.prototype.hasOwnProperty.call(facets?.metrics ?? {}, key)
+    const facetCategories = getMetricCategories(categoriesByKey, key)
+    const localCategories = getMetricCategories(localCategoriesByKey, key)
+    const categories = hasFacet ? facetCategories : localCategories
     const facetHistogram = metricHistogramFromFacet(metricFacet?.histogram)
     const showFilteredCounts = filteredItemsComplete
-    if (categories.length) {
-      return (
-        <MetricCategoryCard
-          key={key}
-          metricKey={key}
-          metricLabel={getMetricDisplayName(key, metricDisplayNames)}
-          categories={categories}
-          filters={filters}
-          onChangeRange={onChangeRange}
-          showTitle={showTitle}
-          showFilteredCounts={showFilteredCounts}
-        />
-      )
-    }
+    const localPopulationValues = getMetricValues(populationValuesByKey, key)
+    const fieldState = resolveFacetFieldState({
+      facetDataState: !hasFacet
+        ? 'absent'
+        : facetCategories.length > 0 || facetHistogram !== null
+          ? 'ready'
+          : 'empty',
+      localDataState: !populationItemsComplete
+        ? 'absent'
+        : localCategories.length > 0 || localPopulationValues.length > 0
+          ? 'ready'
+          : 'empty',
+      queryState: facetFieldQueryState(facetFieldStates, 'metrics', key, facetsState),
+    })
     return (
-      <MetricHistogramCard
-        key={key}
-        metricKey={key}
-        metricLabel={getMetricDisplayName(key, metricDisplayNames)}
-        populationValues={facets ? [] : getMetricValues(populationValuesByKey, key)}
-        filteredValues={showFilteredCounts ? getMetricValues(filteredValuesByKey, key) : []}
-        populationHistogram={facetHistogram}
-        selectedValues={getMetricValues(selectedValues, key)}
-        filters={filters}
-        onChangeRange={onChangeRange}
-        showTitle={showTitle}
-        showFilteredCounts={showFilteredCounts}
-      />
+      <div
+        className="ui-card h-96"
+        data-metric-card-host={key}
+        data-facet-state={fieldState}
+      >
+        {categories.length ? (
+          <MetricCategoryCard
+            key={key}
+            metricKey={key}
+            metricLabel={getMetricDisplayName(key, metricDisplayNames)}
+            categories={categories}
+            filters={filters}
+            onChangeRange={onChangeRange}
+            showTitle={showTitle}
+            showFilteredCounts={showFilteredCounts}
+            state={fieldState}
+            embedded
+          />
+        ) : (
+          <MetricHistogramCard
+            key={key}
+            metricKey={key}
+            metricLabel={getMetricDisplayName(key, metricDisplayNames)}
+            populationValues={hasFacet ? [] : localPopulationValues}
+            filteredValues={showFilteredCounts ? getMetricValues(filteredValuesByKey, key) : []}
+            populationHistogram={facetHistogram}
+            selectedValues={getMetricValues(selectedValues, key)}
+            filters={filters}
+            onChangeRange={onChangeRange}
+            showTitle={showTitle}
+            showFilteredCounts={showFilteredCounts}
+            state={fieldState}
+            embedded
+          />
+        )}
+      </div>
     )
   }
 
@@ -174,7 +216,7 @@ export default function MetricRangePanel({
       {showAll ? (
         <VirtualFieldList
           keys={metricKeys}
-          estimateSize={340}
+          estimateSize={384}
           kind="metric"
           onVisibleKeysChange={handleVisibleKeysChange}
           renderCard={(key) => renderMetricCard(key, true)}

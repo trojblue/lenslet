@@ -20,3 +20,11 @@ Iteration 2 — 2026-07-18T16:06:14Z
 - Cleanup/review: mandatory Tier 1 cleanup made only local formatting edits. Adversarial review findings around retained similarity payloads, mutable-only overlays, reset/facet generations, presence/population ownership, stale similarity side effects, and weak frame assertions were fixed; repeated final review reported no actionable findings.
 - Blockers: none. The 45-pixel filter-band top-stack delta remains explicitly deferred to Sprint 4; grid-width delta stayed 0 pixels.
 - Next step: Sprint 3, beginning with S3-T1.
+
+Iteration 3 — 2026-07-18T17:18:51Z
+- Completed tasks: S3-T1, S3-T2, S3-T3, S3-T4, S3-T5.
+- Files changed: canonical plan/progress; facet query states and focused presentation model/tests; `AppShell`/`LeftSidebar`; Metrics and Derived panels/cards/models/tests; Attributes operators; shared Dropdown/tests; `frontend/src/styles.css`; `scripts/browser/gui_jitter/{fixtures,metrics}.py`; responsive geometry and browser-helper evidence; regenerated `src/lenslet/frontend/` assets.
+- Validation passed: focused frontend sets up to 42 assertions; full frontend Vitest (111 files, 617 tests); `npx tsc --noEmit`; painted-frame/browser-helper pytest (61 tests); final metrics probe at `/tmp/lenslet-ui-stability-s3.json` (1,585 rows, zero violations, 0px maximum anchor delta, fixed 384px virtual cards, stable histogram-to-category host, omitted/explicit empty and error states, no native selects/fade, Derived retention/reset and long content); default GUI acceptance; `npm run build` plus `rsync`; `python scripts/lint_repo.py`; hard-cut searches; `git diff --check`.
+- Cleanup/review: mandatory code-simplifier made formatting-only JSX edits. Repeated adversarial review findings around empty facets, invalid-definition identity, keyed metric state/stable hosts, editable pointer and active-descendant behavior, and partial-local Derived values were fixed; final review reported no actionable findings.
+- Blockers: none. Residual browser-test risk is a deliberate rapid A-to-B-to-C facet race; reviewed query-key/per-field ownership has no known defect.
+- Next step: Sprint 4, beginning with S4-T1 only.

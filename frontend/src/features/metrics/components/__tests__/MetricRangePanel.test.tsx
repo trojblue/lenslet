@@ -43,6 +43,7 @@ describe('MetricRangePanel', () => {
     )
 
     expect(html).toContain('data-metric-selector')
+    expect(html).toContain('data-metric-card-host="quality_score"')
     expect(html).toContain('quality_score')
     expect(html).toContain('Population: 2')
   })
@@ -130,6 +131,7 @@ describe('MetricRangePanel', () => {
         metricKeys={['quality_score']}
         populationItemsComplete={false}
         filteredItemsComplete
+        facetsState="pending"
         selectedMetric="quality_score"
         onSelectMetric={() => {}}
         filters={{ and: [{ metricRange: { key: 'quality_score', min: 0.4, max: 0.6 } }] }}
@@ -137,7 +139,8 @@ describe('MetricRangePanel', () => {
       />,
     )
 
-    expect(html).toContain('No values found for this metric.')
+    expect(html).toContain('data-facet-state="pending"')
+    expect(html).toContain('Loading values for this metric…')
     expect(html).not.toContain('Population: 2')
   })
 })

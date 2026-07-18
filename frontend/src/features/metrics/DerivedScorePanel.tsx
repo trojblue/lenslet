@@ -7,6 +7,10 @@ import type {
   MetricDisplayNames,
 } from '../../lib/types'
 import type { DerivedMetricEvaluation } from './model/derivedMetric'
+import type {
+  FacetFieldQueryStates,
+  FacetQueryState,
+} from './model/facetPresentation'
 
 interface DerivedScorePanelProps {
   items: BrowseItemPayload[]
@@ -14,6 +18,9 @@ interface DerivedScorePanelProps {
   categoricalKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
   facets?: BrowseFacetsPayload | null
+  facetsState?: FacetQueryState
+  facetFieldStates?: FacetFieldQueryStates
+  populationItemsComplete?: boolean
   derivedMetric: DerivedMetricEvaluation
   backendAuthoritative?: boolean
   derivedRankDisabledReason?: string | null
@@ -28,6 +35,9 @@ export default function DerivedScorePanel({
   categoricalKeys,
   metricDisplayNames,
   facets = null,
+  facetsState = 'settled',
+  facetFieldStates,
+  populationItemsComplete = true,
   derivedMetric,
   backendAuthoritative = false,
   derivedRankDisabledReason,
@@ -43,7 +53,9 @@ export default function DerivedScorePanel({
         categoricalKeys={categoricalKeys}
         metricDisplayNames={metricDisplayNames}
         facets={facets}
-        categoricalValuesByKey={categoricalValuesFromFacets(facets, categoricalKeys)}
+        facetsState={facetsState}
+        facetFieldStates={facetFieldStates}
+        populationItemsComplete={populationItemsComplete}
         derivedMetric={derivedMetric}
         backendAuthoritative={backendAuthoritative}
         rankDisabledReason={derivedRankDisabledReason}
@@ -53,15 +65,4 @@ export default function DerivedScorePanel({
       />
     </div>
   )
-}
-
-function categoricalValuesFromFacets(
-  facets: BrowseFacetsPayload | null,
-  categoricalKeys: readonly string[],
-): Map<string, string[]> | undefined {
-  if (!facets) return undefined
-  return new Map(categoricalKeys.map((key) => [
-    key,
-    (facets.categoricals[key]?.values ?? []).map((entry) => entry.value),
-  ]))
 }

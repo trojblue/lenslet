@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { markFirstThumbnailRendered } from '../../../lib/browseHotpath'
 import { mediaErrorSummary } from '../../../lib/mediaResourceState'
 import { useThumbnailResource } from '../hooks/useThumbnailResource'
+import { decodeThumbnailBeforeReveal } from '../model/thumbnailReveal'
 
 interface ThumbCardProps {
   path: string
@@ -46,6 +47,17 @@ export default function ThumbCard({
   const markDecoded = resource.status === 'ready' ? resource.markDecoded : null
   const error = resource.status === 'error' ? resource.error : null
   const retry = resource.status === 'error' ? resource.retry : null
+  const revealDecodedImage = useCallback((image: HTMLImageElement) => {
+    void decodeThumbnailBeforeReveal(image)
+      .catch(() => undefined)
+      .then(() => {
+        if (!hostRef.current?.contains(image)) return
+        if ((image.currentSrc || image.src) !== url) return
+        setLoaded(true)
+        markDecoded?.()
+        markFirstThumbnailRendered(path)
+      })
+  }, [markDecoded, path, url])
 
   useEffect(() => {
     const host = hostRef.current
@@ -92,16 +104,14 @@ export default function ThumbCard({
       return
     }
 
-    // If the image is already cached, mark it loaded to avoid flicker (e.g. after browser zoom/layout shifts).
+    // Cached network bytes still wait for browser decode before the card reveals them.
     const imgEl = hostRef.current?.querySelector('img') as HTMLImageElement | null
     if (imgEl && imgEl.complete && imgEl.naturalWidth > 0) {
-      setLoaded(true)
-      markDecoded?.()
-      markFirstThumbnailRendered(path)
+      revealDecodedImage(imgEl)
     } else {
       setLoaded(false)
     }
-  }, [decoded, markDecoded, path, url])
+  }, [decoded, path, revealDecodedImage, url])
 
   const cardClassName = [
     'absolute inset-0 bg-surface rounded-[10px] overflow-hidden select-none',
@@ -132,11 +142,8 @@ export default function ThumbCard({
           alt={name}
           loading="lazy"
           decoding="async"
-          onLoad={() => {
-            setLoaded(true)
-            markDecoded?.()
-            markFirstThumbnailRendered(path)
-          }}
+          data-thumbnail-reveal={imageVisible ? 'decoded' : 'pending'}
+          onLoad={(event) => revealDecodedImage(event.currentTarget)}
           width={displayW ? Math.round(displayW) : undefined}
           height={displayH ? Math.round(displayH) : undefined}
         />

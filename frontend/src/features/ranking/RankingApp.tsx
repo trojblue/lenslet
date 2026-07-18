@@ -1,7 +1,9 @@
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type ReactNode,
 } from 'react'
@@ -40,6 +42,9 @@ import {
   type RankingContainerId,
 } from './model/containers'
 import { RANKING_DOT_COLORS, buildDotColorByImageId } from './model/palette'
+import BootShell from '../../shared/ui/BootShell'
+import { useDelayedVisibility } from '../../shared/hooks/useDelayedVisibility'
+import { BOOT_LOADING_COPY_DELAY_MS } from '../../app/model/lazySurface'
 
 type ImageView = {
   url: string
@@ -233,7 +238,11 @@ function RankingDropColumn({
   )
 }
 
-export default function RankingApp() {
+type RankingAppProps = {
+  bootStartedAtMs?: number
+}
+
+export default function RankingApp({ bootStartedAtMs }: RankingAppProps) {
   const {
     dataset,
     currentIndex,
@@ -250,6 +259,11 @@ export default function RankingApp() {
     moveCurrentImageToRank,
     selectCurrentImage,
   } = useRankingSession()
+  const showLoadingCopy = useDelayedVisibility(
+    loading,
+    BOOT_LOADING_COPY_DELAY_MS,
+    bootStartedAtMs,
+  )
   const cardRefs = useRef<Record<string, HTMLElement | null>>({})
   const workspaceRef = useRef<HTMLDivElement | null>(null)
 
@@ -298,6 +312,44 @@ export default function RankingApp() {
     selectCurrentImage,
   })
   const fullscreenImage = fullscreenImageId ? imageById.get(fullscreenImageId) ?? null : null
+  const fullscreenTargetIdentity = fullscreenImageId && fullscreenImage
+    ? `${fullscreenImageId}\u0000${fullscreenImage.url}`
+    : null
+  const [presentedFullscreenImageId, setPresentedFullscreenImageId] = useState<string | null>(null)
+  const [fullscreenLoadErrorIdentity, setFullscreenLoadErrorIdentity] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!fullscreenTargetIdentity || !fullscreenImageId || !fullscreenImage) {
+      setPresentedFullscreenImageId(null)
+      setFullscreenLoadErrorIdentity(null)
+      return
+    }
+
+    let active = true
+    const candidate = new Image()
+    const commitTarget = () => {
+      if (!active) return
+      setFullscreenLoadErrorIdentity(null)
+      setPresentedFullscreenImageId(fullscreenImageId)
+    }
+    const failTarget = () => {
+      if (active) setFullscreenLoadErrorIdentity(fullscreenTargetIdentity)
+    }
+    candidate.onload = () => {
+      void candidate.decode().then(commitTarget, failTarget)
+    }
+    candidate.onerror = failTarget
+    candidate.src = fullscreenImage.url
+    return () => {
+      active = false
+      candidate.onload = null
+      candidate.onerror = null
+    }
+  }, [fullscreenImage, fullscreenImageId, fullscreenTargetIdentity])
+  const presentedFullscreenImage = presentedFullscreenImageId
+    ? imageById.get(presentedFullscreenImageId) ?? null
+    : null
+  const fullscreenTargetFailed = fullscreenLoadErrorIdentity === fullscreenTargetIdentity
 
   const {
     activeDragImageId,
@@ -326,6 +378,7 @@ export default function RankingApp() {
     activeDragImageId,
     clearDragState,
     currentIndex,
+    layoutIdentity: !loading ? currentInstance?.instance_id ?? null : null,
     workspaceRef,
   })
 
@@ -345,7 +398,7 @@ export default function RankingApp() {
   })
 
   if (loading) {
-    return <div className="ranking-loading">Loading ranking session...</div>
+    return <BootShell showLoadingCopy={showLoadingCopy} />
   }
 
   if (loadError || !currentInstance || !currentSession || !dataset) {
@@ -360,8 +413,8 @@ export default function RankingApp() {
   const rankCount = Math.max(1, currentSession.board.rankColumns.length)
   const rankHotkeyHint = `1-${rankCount}`
   const exportHref = apiUrl('/rank/export?completed_only=true')
-  const fullscreenPosition = fullscreenImageId
-    ? currentImageOrder.indexOf(fullscreenImageId) + 1
+  const fullscreenPosition = presentedFullscreenImageId
+    ? currentImageOrder.indexOf(presentedFullscreenImageId) + 1
     : 0
   const workspaceClassName = [
     'ranking-workspace',
@@ -416,11 +469,20 @@ export default function RankingApp() {
           </div>
 
           <div className="ranking-header-trailing">
-            {currentSession.saveError ? (
-              <div className="ranking-save-error" role="status">
-                Save failed: {currentSession.saveError}
-              </div>
-            ) : null}
+            <div
+              className="ranking-save-status"
+              aria-hidden={currentSession.saveError ? undefined : true}
+            >
+              {currentSession.saveError ? (
+                <div
+                  className="ranking-save-error"
+                  role="status"
+                  title={`Save failed: ${currentSession.saveError}`}
+                >
+                  Save failed: {currentSession.saveError}
+                </div>
+              ) : '\u00a0'}
+            </div>
             <label className="ranking-thumb-size-control ranking-unselectable ranking-thumb-size-control-header">
               <span>Thumbs</span>
               <input
@@ -548,13 +610,24 @@ export default function RankingApp() {
       </DndContext>
 
       {fullscreenImageId && fullscreenImage ? (
-        <div className="ranking-fullscreen" role="dialog" aria-modal="true">
+        <div
+          className="ranking-fullscreen"
+          role="dialog"
+          aria-modal="true"
+          data-fullscreen-target-id={fullscreenImageId}
+          data-fullscreen-presented-id={presentedFullscreenImageId ?? ''}
+          data-fullscreen-error-id={fullscreenTargetFailed ? fullscreenImageId : undefined}
+        >
           <header className="ranking-fullscreen-header">
-            <div className="ranking-fullscreen-meta">
-              <strong>
-                {fullscreenPosition} / {currentImageOrder.length}
-              </strong>
-              <span>{cardLabel(fullscreenImage.sourcePath)}</span>
+            <div className="ranking-fullscreen-meta" aria-live="polite">
+              {presentedFullscreenImage ? (
+                <>
+                  <strong>
+                    {fullscreenPosition} / {currentImageOrder.length}
+                  </strong>
+                  <span>{cardLabel(presentedFullscreenImage.sourcePath)}</span>
+                </>
+              ) : '\u00a0'}
             </div>
             <div className="ranking-fullscreen-hint">
               Hotkeys: {rankHotkeyHint} rank, a/d image, Esc close
@@ -576,15 +649,26 @@ export default function RankingApp() {
             onPointerCancel={handleFullscreenPointerEnd}
             onDoubleClick={resetFullscreenTransform}
           >
-            <img
-              src={fullscreenImage.url}
-              alt={fullscreenImage.sourcePath}
-              className="ranking-fullscreen-image"
-              draggable={false}
-              style={{
-                transform: `translate3d(${fullscreenTransform.offsetX}px, ${fullscreenTransform.offsetY}px, 0) scale(${fullscreenTransform.zoom})`,
-              }}
-            />
+            {presentedFullscreenImage ? (
+              <img
+                src={presentedFullscreenImage.url}
+                alt={presentedFullscreenImage.sourcePath}
+                data-fullscreen-image-id={presentedFullscreenImageId ?? undefined}
+                className="ranking-fullscreen-image"
+                draggable={false}
+                style={{
+                  transform: `translate3d(${fullscreenTransform.offsetX}px, ${fullscreenTransform.offsetY}px, 0) scale(${fullscreenTransform.zoom})`,
+                }}
+              />
+            ) : null}
+            {fullscreenTargetFailed ? (
+              <div className="media-error-overlay" role="status">
+                <div className="media-error-title">Image failed</div>
+                <div className="media-error-message">
+                  Could not decode {cardLabel(fullscreenImage.sourcePath)}.
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

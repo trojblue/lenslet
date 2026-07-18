@@ -40,7 +40,6 @@
   padding-inline: 16px;
 }
 
-.ranking-loading,
 .ranking-error {
   min-height: 100vh;
   display: grid;
@@ -115,8 +114,16 @@
   flex-wrap: nowrap;
 }
 
+.ranking-save-status {
+  width: clamp(132px, 20vw, 240px);
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
 .ranking-save-error {
-  max-width: min(320px, 32vw);
+  width: 100%;
   padding: 6px 9px;
   border: 1px solid color-mix(in oklab, var(--danger) 40%, var(--border));
   border-radius: 6px;
@@ -794,6 +801,10 @@
     justify-content: flex-start;
     gap: 12px;
     flex-wrap: wrap;
+  }
+
+  .ranking-save-status {
+    width: min(100%, 320px);
   }
 
   .ranking-header-trailing .ranking-nav-group {

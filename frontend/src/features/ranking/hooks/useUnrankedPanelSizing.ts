@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -57,6 +58,7 @@ type UseUnrankedPanelSizingParams = {
   activeDragImageId: string | null
   clearDragState: () => void
   currentIndex: number
+  layoutIdentity: string | null
   workspaceRef: RefObject<HTMLDivElement | null>
 }
 
@@ -64,6 +66,7 @@ export function useUnrankedPanelSizing({
   activeDragImageId,
   clearDragState,
   currentIndex,
+  layoutIdentity,
   workspaceRef,
 }: UseUnrankedPanelSizingParams) {
   const [unrankedHeightPx, setUnrankedHeightPx] = useState<number>(() => {
@@ -94,16 +97,16 @@ export function useUnrankedPanelSizing({
     })
   }, [workspaceRef])
 
+  useLayoutEffect(() => {
+    if (!layoutIdentity) return
+    clampWorkspaceHeight()
+  }, [clampWorkspaceHeight, currentIndex, layoutIdentity])
+
   useEffect(() => {
     if (typeof window === 'undefined') return
-    clampWorkspaceHeight()
     window.addEventListener('resize', clampWorkspaceHeight)
     return () => window.removeEventListener('resize', clampWorkspaceHeight)
   }, [clampWorkspaceHeight])
-
-  useEffect(() => {
-    clampWorkspaceHeight()
-  }, [clampWorkspaceHeight, currentIndex])
 
   useEffect(() => {
     if (typeof window === 'undefined') return

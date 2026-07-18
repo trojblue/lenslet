@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { useBlobResource, useBlobUrl } from '../../shared/hooks/useBlobUrl'
+import { useBlobResource } from '../../shared/hooks/useBlobUrl'
 import { useModalFocusTrap } from '../../shared/hooks/useModalFocusTrap'
 import { getHorizontalNavigationDelta, shouldHandleDialogNavigationKey } from '../../lib/keyboard'
 import type { BrowseItemPayload } from '../../lib/types'
@@ -9,6 +9,14 @@ import { useDividerDrag } from './hooks/useDividerDrag'
 import { useCompareZoomPan } from './hooks/useCompareZoomPan'
 import { directOriginalImageUrl, originalMediaUnsupportedReason } from '../media/originalImageResource'
 import { browserDecodeMediaError, mediaErrorSummary, type MediaResourceError } from '../../lib/mediaResourceState'
+import {
+  comparePairCanCommit,
+  compareResource,
+  retainCurrentDecodedResourceIdentities,
+  selectDecodedCompareResource,
+  type CompareResource,
+} from './comparePresentation'
+import './compare.css'
 
 interface CompareViewerProps {
   aItem: BrowseItemPayload | null
@@ -20,6 +28,85 @@ interface CompareViewerProps {
   canNext: boolean
   onNavigate: (delta: number) => void
   onClose: () => void
+}
+
+type ComparePairPresentation = {
+  pairKey: string
+  aItem: BrowseItemPayload
+  bItem: BrowseItemPayload
+  aResource: CompareResource | null
+  bResource: CompareResource | null
+  aLoadError: MediaResourceError | null
+  bLoadError: MediaResourceError | null
+  aUnsupported: string | null
+  bUnsupported: string | null
+  index: number
+  total: number
+}
+
+type CompareDecodeError = {
+  resourceIdentity: string
+  error: MediaResourceError
+}
+
+type DecodeCandidateProps = {
+  resource: CompareResource | null
+  onDecoded: (resource: CompareResource) => void
+  onError?: (resource: CompareResource) => void
+}
+
+function DecodeCandidate({ resource, onDecoded, onError }: DecodeCandidateProps) {
+  if (!resource) return null
+  return (
+    <img
+      key={resource.identity}
+      src={resource.url}
+      alt=""
+      aria-hidden="true"
+      className="compare-decode-candidate"
+      onLoad={(event) => {
+        const image = event.currentTarget
+        void image.decode().then(
+          () => {
+            if (image.isConnected && (image.currentSrc || image.src) === resource.url) {
+              onDecoded(resource)
+            }
+          },
+          () => onError?.(resource),
+        )
+      }}
+      onError={() => onError?.(resource)}
+    />
+  )
+}
+
+function useBoundCompareResource(
+  path: string | null,
+  url: string | null,
+  kind: CompareResource['kind'],
+): CompareResource | null {
+  const [bound, setBound] = useState<CompareResource | null>(null)
+  useLayoutEffect(() => {
+    setBound(compareResource(path, url, kind))
+    // A retained URL must stay bound to the path that produced it. A path-only
+    // render deliberately does not rebind it before the resource hook advances.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, url])
+  return bound?.path === path ? bound : null
+}
+
+function useBoundCompareError(
+  path: string | null,
+  error: MediaResourceError | null,
+): MediaResourceError | null {
+  const [bound, setBound] = useState<{ path: string; error: MediaResourceError } | null>(null)
+  useLayoutEffect(() => {
+    setBound(path && error ? { path, error } : null)
+    // Like object URLs, retained errors belong to the request path that created
+    // them and must not be projected onto a path-only render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [error])
+  return bound?.path === path ? bound.error : null
 }
 
 export default function CompareViewer({
@@ -35,23 +122,27 @@ export default function CompareViewer({
 }: CompareViewerProps) {
   const overlayRef = useRef<HTMLDivElement | null>(null)
   const [splitPct, setSplitPct] = useState(50)
-  const [readyA, setReadyA] = useState(false)
-  const [readyB, setReadyB] = useState(false)
   const [loadedAPath, setLoadedAPath] = useState<string | null>(null)
   const [loadedBPath, setLoadedBPath] = useState<string | null>(null)
-  const [errorA, setErrorA] = useState<MediaResourceError | null>(null)
-  const [errorB, setErrorB] = useState<MediaResourceError | null>(null)
+  const [errorA, setErrorA] = useState<CompareDecodeError | null>(null)
+  const [errorB, setErrorB] = useState<CompareDecodeError | null>(null)
   const [directFailures, setDirectFailures] = useState<Set<string>>(() => new Set())
-  const aUrlPathRef = useRef<string | null>(null)
-  const bUrlPathRef = useRef<string | null>(null)
   const fittedPairKeyRef = useRef<string | null>(null)
   const userInteractedPairKeyRef = useRef<string | null>(null)
+  const [decodedResourceIdentities, setDecodedResourceIdentities] = useState<Set<string>>(
+    () => new Set(),
+  )
+  const [presentedPair, setPresentedPair] = useState<ComparePairPresentation | null>(null)
+  const aTargetFullIdentityRef = useRef<string | null>(null)
+  const bTargetFullIdentityRef = useRef<string | null>(null)
+  const currentCandidateIdentitiesRef = useRef<Set<string>>(new Set())
   const aPath = aItem?.path ?? null
   const bPath = bItem?.path ?? null
   const pairKey = buildComparePairKey(aPath, bPath)
+  const presentedPairKey = presentedPair?.pairKey ?? null
   const markCompareUserInteraction = useCallback(() => {
-    userInteractedPairKeyRef.current = pairKey
-  }, [pairKey])
+    userInteractedPairKeyRef.current = presentedPairKey ?? pairKey
+  }, [pairKey, presentedPairKey])
   const {
     scale,
     baseA,
@@ -73,14 +164,10 @@ export default function CompareViewer({
     handlePointerCancel,
   } = useCompareZoomPan({ onUserInteraction: markCompareUserInteraction })
 
-  const aLabel = aItem?.name ?? aPath ?? 'Select an image'
-  const bLabel = bItem?.name ?? bPath ?? 'Select another image'
   const handleDialogKeyDown = useModalFocusTrap(overlayRef, { onEscape: onClose })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     resetView()
-    setReadyA(false)
-    setReadyB(false)
     setLoadedAPath(null)
     setLoadedBPath(null)
     setErrorA(null)
@@ -122,44 +209,98 @@ export default function CompareViewer({
     [bPath, bDirectUrl, bUnsupportedReason],
     { source: 'proxy', unsupportedReason: bUnsupportedReason },
   )
+  const aThumbBlobResource = useBlobResource(
+    aPath ? () => api.getThumb(aPath) : null,
+    [aPath],
+    { source: 'thumbnail' },
+  )
+  const bThumbBlobResource = useBlobResource(
+    bPath ? () => api.getThumb(bPath) : null,
+    [bPath],
+    { source: 'thumbnail' },
+  )
   const aBlobUrl = aBlobResource.status === 'ready' ? aBlobResource.url : null
   const bBlobUrl = bBlobResource.status === 'ready' ? bBlobResource.url : null
-  const aUrl = aDirectUrl ?? aBlobUrl
-  const bUrl = bDirectUrl ?? bBlobUrl
-  const aLoadError = errorA ?? (aBlobResource.status === 'error' ? aBlobResource.error : null)
-  const bLoadError = errorB ?? (bBlobResource.status === 'error' ? bBlobResource.error : null)
+  const aThumbUrl = aThumbBlobResource.status === 'ready' ? aThumbBlobResource.url : null
+  const bThumbUrl = bThumbBlobResource.status === 'ready' ? bThumbBlobResource.url : null
+  const boundABlobResource = useBoundCompareResource(aPath, aBlobUrl, 'full')
+  const boundBBlobResource = useBoundCompareResource(bPath, bBlobUrl, 'full')
+  const boundAThumbResource = useBoundCompareResource(aPath, aThumbUrl, 'thumbnail')
+  const boundBThumbResource = useBoundCompareResource(bPath, bThumbUrl, 'thumbnail')
+  const boundABlobError = useBoundCompareError(
+    aPath,
+    aBlobResource.status === 'error' ? aBlobResource.error : null,
+  )
+  const boundBBlobError = useBoundCompareError(
+    bPath,
+    bBlobResource.status === 'error' ? bBlobResource.error : null,
+  )
   const aRetryLoad = aBlobResource.status === 'error' ? aBlobResource.retry : null
   const bRetryLoad = bBlobResource.status === 'error' ? bBlobResource.retry : null
-  const aUnsupported = aBlobResource.status === 'unsupported' ? aBlobResource.reason : null
-  const bUnsupported = bBlobResource.status === 'unsupported' ? bBlobResource.reason : null
-  const aResourceIdentity = aDirectUrl ? `${aPath ?? ''}\n${aDirectUrl}` : aUrl
-  const bResourceIdentity = bDirectUrl ? `${bPath ?? ''}\n${bDirectUrl}` : bUrl
-  const aThumb = useBlobUrl(aPath ? () => api.getThumb(aPath) : null, [aPath])
-  const bThumb = useBlobUrl(bPath ? () => api.getThumb(bPath) : null, [bPath])
-  const markImageAReady = useCallback(() => {
-    const image = imgARef.current
-    if (!aPath || !aUrl || aUrlPathRef.current !== aPath || !image || (image.currentSrc || image.src) !== aUrl) {
-      return
-    }
-    setLoadedAPath(aPath)
-    try {
-      requestAnimationFrame(() => setReadyA(true))
-    } catch {
-      setReadyA(true)
-    }
-  }, [aPath, aUrl, imgARef])
-  const markImageBReady = useCallback(() => {
-    const image = imgBRef.current
-    if (!bPath || !bUrl || bUrlPathRef.current !== bPath || !image || (image.currentSrc || image.src) !== bUrl) {
-      return
-    }
-    setLoadedBPath(bPath)
-    try {
-      requestAnimationFrame(() => setReadyB(true))
-    } catch {
-      setReadyB(true)
-    }
-  }, [bPath, bUrl, imgBRef])
+  const aUnsupported = aUnsupportedReason
+  const bUnsupported = bUnsupportedReason
+  const aFullCandidate = aDirectUrl
+    ? compareResource(aPath, aDirectUrl, 'full')
+    : boundABlobResource
+  const bFullCandidate = bDirectUrl
+    ? compareResource(bPath, bDirectUrl, 'full')
+    : boundBBlobResource
+  const aThumbCandidate = boundAThumbResource
+  const bThumbCandidate = boundBThumbResource
+  useLayoutEffect(() => {
+    currentCandidateIdentitiesRef.current = new Set(
+      [aFullCandidate, aThumbCandidate, bFullCandidate, bThumbCandidate]
+        .flatMap((resource) => resource ? [resource.identity] : []),
+    )
+    setDecodedResourceIdentities((prev) => {
+      const retained = retainCurrentDecodedResourceIdentities(
+        [aFullCandidate, aThumbCandidate, bFullCandidate, bThumbCandidate],
+        prev,
+      )
+      if (retained.size === prev.size && [...retained].every((identity) => prev.has(identity))) {
+        return prev
+      }
+      return retained
+    })
+  }, [
+    aFullCandidate?.identity,
+    aThumbCandidate?.identity,
+    bFullCandidate?.identity,
+    bThumbCandidate?.identity,
+  ])
+  const aLoadError = errorA && errorA.resourceIdentity === aFullCandidate?.identity
+    ? errorA.error
+    : boundABlobError
+  const bLoadError = errorB && errorB.resourceIdentity === bFullCandidate?.identity
+    ? errorB.error
+    : boundBBlobError
+  const aDecodedCandidate = selectDecodedCompareResource(
+    aFullCandidate,
+    aThumbCandidate,
+    decodedResourceIdentities,
+  )
+  const bDecodedCandidate = selectDecodedCompareResource(
+    bFullCandidate,
+    bThumbCandidate,
+    decodedResourceIdentities,
+  )
+  const aTerminal = Boolean(aLoadError || aUnsupported)
+  const bTerminal = Boolean(bLoadError || bUnsupported)
+  const targetPairCanCommit = comparePairCanCommit(
+    aDecodedCandidate,
+    bDecodedCandidate,
+    aTerminal,
+    bTerminal,
+  )
+  const markResourceDecoded = useCallback((resource: CompareResource) => {
+    if (!currentCandidateIdentitiesRef.current.has(resource.identity)) return
+    setDecodedResourceIdentities((prev) => {
+      if (prev.has(resource.identity)) return prev
+      const next = new Set(prev)
+      next.add(resource.identity)
+      return next
+    })
+  }, [])
   const markDirectImageFailed = useCallback((path: string | null, directUrl: string | null) => {
     if (!path || !directUrl) return
     setDirectFailures((prev) => {
@@ -169,80 +310,139 @@ export default function CompareViewer({
       return next
     })
   }, [])
-  const handleImageAError = useCallback(() => {
-    if (aDirectUrl) {
-      markDirectImageFailed(aPath, aDirectUrl)
+  useLayoutEffect(() => {
+    aTargetFullIdentityRef.current = aFullCandidate?.identity ?? null
+    bTargetFullIdentityRef.current = bFullCandidate?.identity ?? null
+  }, [aFullCandidate?.identity, bFullCandidate?.identity])
+  const handleCandidateAFullError = useCallback((resource: CompareResource) => {
+    if (aTargetFullIdentityRef.current !== resource.identity) return
+    if (aDirectUrl === resource.url) {
+      markDirectImageFailed(resource.path, resource.url)
       return
     }
-    setErrorA(browserDecodeMediaError())
-    setReadyA(false)
-  }, [aDirectUrl, aPath, markDirectImageFailed])
-  const handleImageBError = useCallback(() => {
-    if (bDirectUrl) {
-      markDirectImageFailed(bPath, bDirectUrl)
+    setErrorA({ resourceIdentity: resource.identity, error: browserDecodeMediaError() })
+  }, [aDirectUrl, markDirectImageFailed])
+  const handleCandidateBFullError = useCallback((resource: CompareResource) => {
+    if (bTargetFullIdentityRef.current !== resource.identity) return
+    if (bDirectUrl === resource.url) {
+      markDirectImageFailed(resource.path, resource.url)
       return
     }
-    setErrorB(browserDecodeMediaError())
-    setReadyB(false)
-  }, [bDirectUrl, bPath, markDirectImageFailed])
-  const retryA = useCallback(() => {
-    setErrorA(null)
-    aRetryLoad?.()
-  }, [aRetryLoad])
-  const retryB = useCallback(() => {
-    setErrorB(null)
-    bRetryLoad?.()
-  }, [bRetryLoad])
+    setErrorB({ resourceIdentity: resource.identity, error: browserDecodeMediaError() })
+  }, [bDirectUrl, markDirectImageFailed])
 
+  useLayoutEffect(() => {
+    if (!aItem || !bItem || !pairKey) {
+      setPresentedPair(null)
+      return
+    }
+    if (!targetPairCanCommit) return
+
+    const next: ComparePairPresentation = {
+      pairKey,
+      aItem,
+      bItem,
+      aResource: aDecodedCandidate,
+      bResource: bDecodedCandidate,
+      aLoadError,
+      bLoadError,
+      aUnsupported,
+      bUnsupported,
+      index,
+      total,
+    }
+    setPresentedPair((prev) => {
+      if (
+        prev?.pairKey === next.pairKey
+        && prev.aResource?.identity === next.aResource?.identity
+        && prev.bResource?.identity === next.bResource?.identity
+        && prev.aLoadError === next.aLoadError
+        && prev.bLoadError === next.bLoadError
+        && prev.aUnsupported === next.aUnsupported
+        && prev.bUnsupported === next.bUnsupported
+        && prev.index === next.index
+        && prev.total === next.total
+      ) return prev
+      return next
+    })
+  }, [
+    aDecodedCandidate,
+    aItem,
+    aLoadError,
+    aUnsupported,
+    bDecodedCandidate,
+    bItem,
+    bLoadError,
+    bUnsupported,
+    index,
+    pairKey,
+    targetPairCanCommit,
+    total,
+  ])
+
+  const presentedAPath = presentedPair?.aItem.path ?? null
+  const presentedBPath = presentedPair?.bItem.path ?? null
+  const presentedAResource = presentedPair?.aResource ?? null
+  const presentedBResource = presentedPair?.bResource ?? null
+  const aLabel = presentedPair?.aItem.name ?? presentedAPath ?? 'Select an image'
+  const bLabel = presentedPair?.bItem.name ?? presentedBPath ?? 'Select another image'
+  const presentedARetry = presentedAPath === aPath && presentedPair?.aLoadError?.retryable
+    ? aRetryLoad
+    : null
+  const presentedBRetry = presentedBPath === bPath && presentedPair?.bLoadError?.retryable
+    ? bRetryLoad
+    : null
+  const markImageAReady = useCallback(() => {
+    const image = imgARef.current
+    if (
+      !presentedAPath
+      || !presentedAResource
+      || !image
+      || (image.currentSrc || image.src) !== presentedAResource.url
+    ) {
+      return
+    }
+    setLoadedAPath(presentedAPath)
+  }, [imgARef, presentedAPath, presentedAResource])
+  const markImageBReady = useCallback(() => {
+    const image = imgBRef.current
+    if (
+      !presentedBPath
+      || !presentedBResource
+      || !image
+      || (image.currentSrc || image.src) !== presentedBResource.url
+    ) {
+      return
+    }
+    setLoadedBPath(presentedBPath)
+  }, [imgBRef, presentedBPath, presentedBResource])
   useEffect(() => {
     if (!shouldAutoFitComparePair({
-      aPath,
-      bPath,
+      aPath: presentedAPath,
+      bPath: presentedBPath,
       loadedAPath,
       loadedBPath,
       fittedPairKey: fittedPairKeyRef.current,
-      userInteracted: userInteractedPairKeyRef.current === pairKey,
+      userInteracted: userInteractedPairKeyRef.current === presentedPairKey,
     })) return
     if (fitAndCenter()) {
-      fittedPairKeyRef.current = pairKey
+      fittedPairKeyRef.current = presentedPairKey
     }
-  }, [aPath, bPath, fitAndCenter, loadedAPath, loadedBPath, pairKey])
+  }, [fitAndCenter, loadedAPath, loadedBPath, presentedAPath, presentedBPath, presentedPairKey])
 
   useEffect(() => {
-    if (!aUrl) {
-      aUrlPathRef.current = null
-      setReadyA(false)
-      setLoadedAPath(null)
-      return
-    }
-    aUrlPathRef.current = aPath
-    setErrorA(null)
     const image = imgARef.current
     if (image?.complete && image.naturalWidth > 0) {
       markImageAReady()
     }
-  // URL changes bind the blob URL to the current path; path-only renders with
-  // the previous URL must stay hidden until a new URL arrives.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aResourceIdentity])
+  }, [markImageAReady, presentedAResource])
 
   useEffect(() => {
-    if (!bUrl) {
-      bUrlPathRef.current = null
-      setReadyB(false)
-      setLoadedBPath(null)
-      return
-    }
-    bUrlPathRef.current = bPath
-    setErrorB(null)
     const image = imgBRef.current
     if (image?.complete && image.naturalWidth > 0) {
       markImageBReady()
     }
-  // URL changes bind the blob URL to the current path; path-only renders with
-  // the previous URL must stay hidden until a new URL arrives.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bResourceIdentity])
+  }, [markImageBReady, presentedBResource])
 
   const handleStagePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement | null
@@ -277,8 +477,12 @@ export default function CompareViewer({
       role="dialog"
       aria-modal={true}
       aria-label="Compare images"
-      data-compare-a-path={aPath ?? undefined}
-      data-compare-b-path={bPath ?? undefined}
+      data-compare-a-path={presentedAPath ?? undefined}
+      data-compare-b-path={presentedBPath ?? undefined}
+      data-compare-target-a-path={aPath ?? undefined}
+      data-compare-target-b-path={bPath ?? undefined}
+      data-compare-target-pair={pairKey}
+      data-compare-presented-pair={presentedPairKey ?? ''}
       tabIndex={-1}
       className="toolbar-offset absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] bg-panel z-viewer flex flex-col overflow-hidden"
       onKeyDown={handleDialogKeyDown}
@@ -286,7 +490,9 @@ export default function CompareViewer({
       <div className="compare-header flex items-center gap-3 px-3 py-2">
         <div className="text-[11px] uppercase tracking-wide text-muted">Compare</div>
         <div className="text-xs text-muted">
-          {total >= 2 ? `${index + 1}-${Math.min(index + 2, total)} of ${total}` : 'Select 2 images'}
+          {presentedPair && presentedPair.total >= 2
+            ? `${presentedPair.index + 1}-${Math.min(presentedPair.index + 2, presentedPair.total)} of ${presentedPair.total}`
+            : 'Select 2 images'}
         </div>
         <div className="ml-auto flex items-center gap-2">
           <button className="btn btn-sm" onClick={() => onNavigate(-1)} disabled={!canPrev} title="Previous (Left Arrow or A)">
@@ -324,91 +530,83 @@ export default function CompareViewer({
             <div className="absolute inset-0 flex items-center justify-center text-sm text-muted">
               Select 2 images to compare.
             </div>
-          ) : (
+          ) : presentedPair ? (
             <>
               <div className="compare-label left-3">
                 <span className="compare-label-tag">A</span>
-                <span className="truncate" title={aItem.path}>{aLabel}</span>
+                <span className="truncate" title={presentedPair.aItem.path}>{aLabel}</span>
               </div>
               <div className="compare-label right-3">
                 <span className="compare-label-tag">B</span>
-                <span className="truncate" title={bItem.path}>{bLabel}</span>
+                <span className="truncate" title={presentedPair.bItem.path}>{bLabel}</span>
               </div>
               <div className="compare-layer" style={{ clipPath: `inset(0 ${100 - splitPct}% 0 0)` }}>
-                {aThumb && (
-                  <img
-                    src={aThumb}
-                    alt=""
-                    aria-hidden={true}
-                    className="compare-image compare-image-thumb"
-                    draggable={false}
-                    onDragStart={(e)=> e.preventDefault()}
-                    style={{ transform: `translate(${txA}px, ${tyA}px) scale(${baseA})`, transformOrigin: '0 0', opacity: readyA ? 0 : 0.5 }}
-                  />
-                )}
-                {(aLoadError || aUnsupported) && (
+                {(presentedPair.aLoadError || presentedPair.aUnsupported) && (
                   <div className="media-error-overlay media-error-overlay-compare">
-                    <div className="media-error-title">{aUnsupported ? 'Original unsupported' : 'Image A failed'}</div>
-                    <div className="media-error-message">{aUnsupported ?? (aLoadError ? mediaErrorSummary(aLoadError) : '')}</div>
-                    {aLoadError?.retryable && aRetryLoad && (
-                      <button type="button" className="btn btn-xs" onClick={retryA}>
+                    <div className="media-error-title">{presentedPair.aUnsupported ? 'Original unsupported' : 'Image A failed'}</div>
+                    <div className="media-error-message">{presentedPair.aUnsupported ?? (presentedPair.aLoadError ? mediaErrorSummary(presentedPair.aLoadError) : '')}</div>
+                    {presentedARetry && (
+                      <button type="button" className="btn btn-xs" onClick={presentedARetry}>
                         Retry
                       </button>
                     )}
                   </div>
                 )}
-                {aUrl && !aLoadError && !aUnsupported && (
+                {presentedAResource && !presentedPair.aLoadError && !presentedPair.aUnsupported && (
                   <img
                     ref={imgARef}
-                    src={aUrl}
+                    src={presentedAResource.url}
                     alt={`Compare image A: ${aLabel}`}
                     data-compare-image="a"
-                    data-current-path={loadedAPath ?? undefined}
-                    className="compare-image"
+                    data-current-path={presentedAResource.path}
+                    data-resource-kind={presentedAResource.kind}
+                    className={`compare-image${presentedAResource.kind === 'thumbnail' ? ' compare-image-thumb' : ''}`}
                     draggable={false}
                     onDragStart={(e)=> e.preventDefault()}
                     onLoad={markImageAReady}
-                    onError={handleImageAError}
-                    style={{ transform: `translate(${txA}px, ${tyA}px) scale(${baseA * scale})`, transformOrigin: '0 0', opacity: readyA ? 0.99 : 0 }}
+                    onError={presentedAResource.kind === 'full'
+                      ? () => handleCandidateAFullError(presentedAResource)
+                      : undefined}
+                    style={{
+                      transform: `translate(${txA}px, ${tyA}px) scale(${baseA * scale})`,
+                      transformOrigin: '0 0',
+                      opacity: presentedAResource.kind === 'full' ? 0.99 : 0.5,
+                    }}
                   />
                 )}
               </div>
               <div className="compare-layer" style={{ clipPath: `inset(0 0 0 ${splitPct}%)` }}>
-                {bThumb && (
-                  <img
-                    src={bThumb}
-                    alt=""
-                    aria-hidden={true}
-                    className="compare-image compare-image-thumb"
-                    draggable={false}
-                    onDragStart={(e)=> e.preventDefault()}
-                    style={{ transform: `translate(${txB}px, ${tyB}px) scale(${baseB})`, transformOrigin: '0 0', opacity: readyB ? 0 : 0.5 }}
-                  />
-                )}
-                {(bLoadError || bUnsupported) && (
+                {(presentedPair.bLoadError || presentedPair.bUnsupported) && (
                   <div className="media-error-overlay media-error-overlay-compare">
-                    <div className="media-error-title">{bUnsupported ? 'Original unsupported' : 'Image B failed'}</div>
-                    <div className="media-error-message">{bUnsupported ?? (bLoadError ? mediaErrorSummary(bLoadError) : '')}</div>
-                    {bLoadError?.retryable && bRetryLoad && (
-                      <button type="button" className="btn btn-xs" onClick={retryB}>
+                    <div className="media-error-title">{presentedPair.bUnsupported ? 'Original unsupported' : 'Image B failed'}</div>
+                    <div className="media-error-message">{presentedPair.bUnsupported ?? (presentedPair.bLoadError ? mediaErrorSummary(presentedPair.bLoadError) : '')}</div>
+                    {presentedBRetry && (
+                      <button type="button" className="btn btn-xs" onClick={presentedBRetry}>
                         Retry
                       </button>
                     )}
                   </div>
                 )}
-                {bUrl && !bLoadError && !bUnsupported && (
+                {presentedBResource && !presentedPair.bLoadError && !presentedPair.bUnsupported && (
                   <img
                     ref={imgBRef}
-                    src={bUrl}
+                    src={presentedBResource.url}
                     alt={`Compare image B: ${bLabel}`}
                     data-compare-image="b"
-                    data-current-path={loadedBPath ?? undefined}
-                    className="compare-image"
+                    data-current-path={presentedBResource.path}
+                    data-resource-kind={presentedBResource.kind}
+                    className={`compare-image${presentedBResource.kind === 'thumbnail' ? ' compare-image-thumb' : ''}`}
                     draggable={false}
                     onDragStart={(e)=> e.preventDefault()}
                     onLoad={markImageBReady}
-                    onError={handleImageBError}
-                    style={{ transform: `translate(${txB}px, ${tyB}px) scale(${baseB * scale})`, transformOrigin: '0 0', opacity: readyB ? 0.99 : 0 }}
+                    onError={presentedBResource.kind === 'full'
+                      ? () => handleCandidateBFullError(presentedBResource)
+                      : undefined}
+                    style={{
+                      transform: `translate(${txB}px, ${tyB}px) scale(${baseB * scale})`,
+                      transformOrigin: '0 0',
+                      opacity: presentedBResource.kind === 'full' ? 0.99 : 0.5,
+                    }}
                   />
                 )}
               </div>
@@ -421,7 +619,25 @@ export default function CompareViewer({
                 <div className="compare-divider-handle" />
               </div>
             </>
-          )}
+          ) : null}
+          <DecodeCandidate
+            resource={aFullCandidate}
+            onDecoded={markResourceDecoded}
+            onError={handleCandidateAFullError}
+          />
+          <DecodeCandidate
+            resource={aThumbCandidate}
+            onDecoded={markResourceDecoded}
+          />
+          <DecodeCandidate
+            resource={bFullCandidate}
+            onDecoded={markResourceDecoded}
+            onError={handleCandidateBFullError}
+          />
+          <DecodeCandidate
+            resource={bThumbCandidate}
+            onDecoded={markResourceDecoded}
+          />
         </div>
       </div>
     </div>

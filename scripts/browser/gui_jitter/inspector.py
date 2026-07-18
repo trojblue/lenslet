@@ -63,6 +63,28 @@ INSPECTOR_SENTINELS = {
 TRACKED_REQUEST_PATHS = {"/item", "/item/detail", "/metadata"}
 RequestIdentity = tuple[str, str, str]
 
+LAZY_SURFACE_FRAME_INIT_SCRIPT = r"""
+(() => {
+  window.__lensletLazySurfaceFrames = [];
+  window.__lensletLazySurfaceTraceRunning = true;
+  const sample = () => {
+    if (!window.__lensletLazySurfaceTraceRunning) return;
+    const inspector = document.querySelector('[data-lazy-surface="inspector"]');
+    const overlay = document.querySelector('[data-lazy-surface="overlay"]');
+    window.__lensletLazySurfaceFrames.push({
+      now: performance.now(),
+      inspectorFallback: Boolean(inspector),
+      inspectorCopy: inspector?.getAttribute('data-loading-copy-visible') === 'true',
+      overlayFallback: Boolean(overlay),
+      overlayCopy: overlay?.getAttribute('data-loading-copy-visible') === 'true',
+      text: document.body?.innerText || '',
+    });
+    requestAnimationFrame(sample);
+  };
+  requestAnimationFrame(sample);
+})();
+"""
+
 
 class InspectorProbeFailure(SmokeFailure):
     """Inspector failure carrying bounded frame/request evidence for JSON output."""
@@ -1172,6 +1194,150 @@ def inspector_violations(
     return violations
 
 
+def stop_lazy_surface_trace(page: Any) -> list[dict[str, Any]]:
+    return page.evaluate(
+        """() => {
+          window.__lensletLazySurfaceTraceRunning = false;
+          return window.__lensletLazySurfaceFrames || [];
+        }"""
+    )
+
+
+def lazy_surface_timing(
+    frames: list[dict[str, Any]],
+    *,
+    fallback_key: str,
+    copy_key: str,
+) -> dict[str, Any]:
+    fallback_frames = [frame for frame in frames if frame.get(fallback_key)]
+    copy_frames = [frame for frame in fallback_frames if frame.get(copy_key)]
+    first_fallback = min((float(frame["now"]) for frame in fallback_frames), default=0.0)
+    first_copy = min((float(frame["now"]) for frame in copy_frames), default=0.0)
+    return {
+        "fallback_frame_count": len(fallback_frames),
+        "loading_copy_frame_count": len(copy_frames),
+        "first_loading_copy_offset_ms": first_copy - first_fallback if copy_frames else None,
+    }
+
+
+def exercise_sprint6_lazy_surfaces(
+    browser: Any,
+    base_url: str,
+    browser_timeout_ms: float,
+) -> dict[str, Any]:
+    def delayed_chunk(chunk_name: str):
+        def handle(route: Any) -> None:
+            if chunk_name in route.request.url:
+                time.sleep(1.2)
+            route.continue_()
+
+        return handle
+
+    inspector_context = browser.new_context(viewport={"width": 1280, "height": 900})
+    inspector_context.add_init_script(LAZY_SURFACE_FRAME_INIT_SCRIPT)
+    def handle_inspector_chunk(route: Any) -> None:
+        if "CompareViewer-" in route.request.url:
+            route.abort()
+            return
+        delayed_chunk("Inspector-")(route)
+
+    inspector_context.route("**/*.js", handle_inspector_chunk)
+    inspector_page_errors: list[str] = []
+    try:
+        inspector_page = inspector_context.new_page()
+        inspector_page.on("pageerror", lambda error: inspector_page_errors.append(str(error)))
+        inspector_page.set_default_timeout(browser_timeout_ms)
+        inspector_page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_grid(inspector_page, browser_timeout_ms)
+        select_grid_path(inspector_page, QUICK_ZERO_PATH, browser_timeout_ms)
+        inspector_page.locator(".inspector-preview-shell").wait_for(
+            state="visible",
+            timeout=browser_timeout_ms,
+        )
+        inspector_page.wait_for_timeout(80)
+        inspector_frames = stop_lazy_surface_trace(inspector_page)
+    finally:
+        inspector_context.close()
+
+    compare_browser = browser.browser_type.launch(headless=True)
+    compare_context = compare_browser.new_context(viewport={"width": 1280, "height": 900})
+    compare_context.add_init_script(LAZY_SURFACE_FRAME_INIT_SCRIPT)
+    compare_context.add_init_script(
+        """(() => {
+          window.requestIdleCallback = callback => {
+            window.__lensletDeferredIdleCallback = callback;
+            return 1;
+          };
+          window.cancelIdleCallback = () => {};
+        })();"""
+    )
+    compare_context.route("**/*.js", delayed_chunk("CompareViewer-"))
+    compare_page_errors: list[str] = []
+    try:
+        compare_page = compare_context.new_page()
+        compare_page.on("pageerror", lambda error: compare_page_errors.append(str(error)))
+        compare_page.set_default_timeout(browser_timeout_ms)
+        compare_page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_grid(compare_page, browser_timeout_ms)
+        for path in (QUICK_ZERO_PATH, QUICK_ONE_PATH):
+            compare_page.locator(f'[id="cell-{quote(path, safe="")}"]').click(
+                modifiers=["Control"]
+            )
+        compare_page.get_by_label("Compare selected images").first.click()
+        compare_page.wait_for_function(
+            """() => Boolean(document.querySelector('[aria-label="Compare images"]')?.getAttribute('data-compare-presented-pair'))""",
+            timeout=browser_timeout_ms,
+        )
+        compare_page.wait_for_timeout(80)
+        compare_frames = stop_lazy_surface_trace(compare_page)
+    finally:
+        compare_context.close()
+        compare_browser.close()
+
+    inspector_timing = lazy_surface_timing(
+        inspector_frames,
+        fallback_key="inspectorFallback",
+        copy_key="inspectorCopy",
+    )
+    compare_timing = lazy_surface_timing(
+        compare_frames,
+        fallback_key="overlayFallback",
+        copy_key="overlayCopy",
+    )
+    violations: list[str] = []
+    for name, timing in (("Inspector", inspector_timing), ("Compare", compare_timing)):
+        if timing["fallback_frame_count"] == 0:
+            violations.append(f"{name} cold chunk did not reproduce a lazy fallback")
+        if timing["loading_copy_frame_count"] == 0:
+            violations.append(f"{name} slow chunk never painted delayed loading copy")
+        offset = timing["first_loading_copy_offset_ms"]
+        if offset is not None and float(offset) < 780.0:
+            violations.append(f"{name} lazy loading copy painted before 800ms")
+    if any(
+        "Loading inspector" in str(frame.get("text", "")) and not frame.get("inspectorCopy")
+        for frame in inspector_frames
+    ):
+        violations.append("Inspector painted loading copy before its delayed slot enabled")
+    if any(
+        "Loading compare" in str(frame.get("text", "")) and not frame.get("overlayCopy")
+        for frame in compare_frames
+    ):
+        violations.append("Compare painted loading copy before its delayed slot enabled")
+    if inspector_page_errors:
+        violations.append(f"Inspector cold chunk raised page errors: {inspector_page_errors}")
+    if compare_page_errors:
+        violations.append(f"Compare cold chunk raised page errors: {compare_page_errors}")
+    return {
+        "inspector": inspector_timing,
+        "compare": compare_timing,
+        "page_errors": {
+            "inspector": inspector_page_errors,
+            "compare": compare_page_errors,
+        },
+        "violations": violations,
+    }
+
+
 def inspector_result(
     snapshots: InspectorSnapshots,
     continuity: dict[str, Any],
@@ -1234,6 +1400,14 @@ def run_inspector_probe(base_url: str, max_delta_px: float, browser_timeout_ms: 
                 max_delta_px,
                 browser_timeout_ms,
             )
+            lazy_surfaces = exercise_sprint6_lazy_surfaces(
+                browser,
+                base_url,
+                browser_timeout_ms,
+            )
+            continuity["lazy_surfaces"] = lazy_surfaces
+            if isinstance(continuity.get("violations"), list):
+                continuity["violations"].extend(lazy_surfaces["violations"])
             browser.close()
     except playwright_timeout_error as exc:
         raise SmokeFailure(f"playwright timeout: {exc}") from exc

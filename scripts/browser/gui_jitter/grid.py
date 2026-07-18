@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from scripts.browser.gui_jitter.grid_dom import (
     open_metrics_panel,
@@ -19,6 +19,10 @@ from scripts.browser.gui_jitter.shared import (
     set_local_storage,
     state_delta,
     wait_for_grid,
+)
+from scripts.browser.gui_jitter.sprint6_evidence import (
+    exercise_sprint6_browse_media,
+    exercise_sprint6_ranking,
 )
 from scripts.smoke_harness import SmokeFailure, import_playwright
 
@@ -1406,6 +1410,10 @@ def grid_result(snapshots: GridProbeSnapshots, config: GridProbeConfig) -> Probe
     violations = snapshot_mount_violations(named_snapshots)
     violations.extend(grid_state_violations(snapshots))
     violations.extend(browse_continuity_violations(snapshots.continuity))
+    media_stability = snapshots.continuity.get("sprint6_media", {})
+    violations.extend(media_stability.get("violations", []))
+    ranking_stability = snapshots.continuity.get("sprint6_ranking", {})
+    violations.extend(ranking_stability.get("violations", []))
     if max_grid_width_delta > config.max_delta_px:
         violations.append(
             f"grid-width delta {max_grid_width_delta:.3f}px exceeded threshold {config.max_delta_px:.3f}px"
@@ -1437,6 +1445,8 @@ def grid_result(snapshots: GridProbeSnapshots, config: GridProbeConfig) -> Probe
             "baseline_counts": snapshots.baseline_counts,
             "filtered_counts": snapshots.filtered_counts,
             "browse_continuity": browse_continuity_summary(snapshots.continuity),
+            "media_stability": media_stability,
+            "ranking_stability": ranking_stability,
             "top_rail": snapshots.top_rail,
             "violations": violations,
         },
@@ -1483,6 +1493,16 @@ def run_grid_probe(config: GridProbeConfig) -> ProbeResult:
             page.set_default_timeout(config.browser_timeout_ms)
             snapshots = exercise_grid_probe(page, config, playwright_error)
             context.close()
+            snapshots.continuity["sprint6_media"] = exercise_sprint6_browse_media(
+                browser,
+                config.base_url,
+                config.browser_timeout_ms,
+            )
+            snapshots.continuity["sprint6_ranking"] = exercise_sprint6_ranking(
+                browser,
+                config.base_url,
+                config.browser_timeout_ms,
+            )
             browser.close()
     except playwright_timeout_error as exc:
         raise SmokeFailure(f"grid playwright timeout: {exc}") from exc

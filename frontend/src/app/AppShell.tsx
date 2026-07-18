@@ -142,9 +142,29 @@ import {
 import { browseEntityStore, patchBrowseEntity } from './model/browseEntityStore'
 import { applyThemePreset, type ThemePresetId } from '../theme/runtime'
 import { loadWorkspaceThemePreset, writeStoredThemePreset } from '../theme/storage'
+import { useDelayedVisibility } from '../shared/hooks/useDelayedVisibility'
+import {
+  LAZY_SURFACE_LOADING_COPY_DELAY_MS,
+  lazySurfaceMessage,
+} from './model/lazySurface'
 
-const CompareViewer = lazy(() => import('../features/compare/CompareViewer'))
-const Inspector = lazy(() => import('../features/inspector/Inspector'))
+const loadCompareViewer = () => import('../features/compare/CompareViewer')
+const loadInspector = () => import('../features/inspector/Inspector')
+const CompareViewer = lazy(loadCompareViewer)
+const Inspector = lazy(loadInspector)
+
+function scheduleLazySurfacePrefetch(): () => void {
+  const prefetch = () => {
+    void loadInspector().catch(() => undefined)
+    void loadCompareViewer().catch(() => undefined)
+  }
+  if (typeof window.requestIdleCallback === 'function') {
+    const idleId = window.requestIdleCallback(prefetch, { timeout: 1_000 })
+    return () => window.cancelIdleCallback(idleId)
+  }
+  const timeoutId = window.setTimeout(prefetch, 0)
+  return () => window.clearTimeout(timeoutId)
+}
 
 type AppShellProps = {
   themeHealthMode: HealthMode | null
@@ -201,14 +221,20 @@ type InspectorFallbackProps = {
 }
 
 function InspectorFallback({ message, onClose, busy = false }: InspectorFallbackProps): JSX.Element {
+  const showLoadingCopy = useDelayedVisibility(busy, LAZY_SURFACE_LOADING_COPY_DELAY_MS)
+  const visibleMessage = lazySurfaceMessage(message, busy, showLoadingCopy)
   return (
     <div
       className="app-right-panel inspector-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative"
       data-inspector-panel
       aria-busy={busy ? 'true' : undefined}
     >
-      <div className="p-3 flex items-center justify-between gap-3 text-sm text-muted">
-        <span>{message}</span>
+      <div
+        className="p-3 flex items-center justify-between gap-3 text-sm text-muted"
+        data-lazy-surface="inspector"
+        data-loading-copy-visible={busy && showLoadingCopy ? 'true' : 'false'}
+      >
+        <span>{visibleMessage}</span>
         <button className="btn btn-sm" onClick={onClose}>
           Close
         </button>
@@ -225,12 +251,16 @@ type OverlayFallbackProps = {
 }
 
 function OverlayFallback({ label, message, onClose, busy = false }: OverlayFallbackProps): JSX.Element {
+  const showLoadingCopy = useDelayedVisibility(busy, LAZY_SURFACE_LOADING_COPY_DELAY_MS)
+  const visibleMessage = lazySurfaceMessage(message, busy, showLoadingCopy)
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={label}
       aria-busy={busy ? 'true' : undefined}
+      data-lazy-surface="overlay"
+      data-loading-copy-visible={busy && showLoadingCopy ? 'true' : 'false'}
       tabIndex={-1}
       className="toolbar-offset absolute inset-0 left-[var(--overlay-left)] right-[var(--overlay-right)] bg-panel z-viewer flex items-center justify-center"
       onKeyDown={(event) => {
@@ -241,7 +271,7 @@ function OverlayFallback({ label, message, onClose, busy = false }: OverlayFallb
       }}
     >
       <div className="flex flex-col items-center gap-3 text-sm text-muted">
-        <span>{message}</span>
+        <span>{visibleMessage}</span>
         <button className="btn btn-sm" onClick={onClose} autoFocus>
           Close
         </button>
@@ -254,6 +284,7 @@ export default function AppShell({
   themeHealthMode,
   themeWorkspaceId,
 }: AppShellProps) {
+  useEffect(() => scheduleLazySurfacePrefetch(), [])
   const [current, setCurrent] = useState<string>('/')
   const [initialSharedViewState] = useState(() => readSharedViewStateFromCurrentUrl())
   const [initialPersistedSettings] = useState(() => readInitialPersistedAppShellSettings())

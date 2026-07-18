@@ -17,11 +17,16 @@ METRICS_FIXTURE_ROW_COUNT = 1_585
 
 
 def build_fixture_dataset(root: Path) -> None:
-    payload = jpeg_payload()
     for idx in range(12):
-        write_image(root / f"sample_{idx:03d}.jpg", payload)
+        write_image(
+            root / f"sample_{idx:03d}.jpg",
+            jpeg_payload(color=(32 + idx * 12, 72 + idx * 5, 144 - idx * 4)),
+        )
     for idx in range(2):
-        write_image(root / "scope_a" / f"scope_{idx:02d}.jpg", payload)
+        write_image(
+            root / "scope_a" / f"scope_{idx:02d}.jpg",
+            jpeg_payload(color=(160 + idx * 30, 64, 48 + idx * 40)),
+        )
     build_inspector_fixture_images(root)
     write_fixture_items_parquet(root)
     write_metrics_fixture_parquet(root)
@@ -40,6 +45,7 @@ def build_inspector_fixture_images(root: Path) -> None:
                 }
             )
         },
+        color=(72, 36, 120),
     )
     write_png_with_metadata(
         root / "quick_01_meta.png",
@@ -52,10 +58,12 @@ def build_inspector_fixture_images(root: Path) -> None:
                 }
             )
         },
+        color=(36, 126, 74),
     )
     write_png_with_metadata(
         root / "quick_02_plain.png",
         text_chunks={"comment": "no quick-view defaults"},
+        color=(148, 72, 34),
     )
     write_png_with_metadata(
         root / "quick_03_meta.png",
@@ -68,6 +76,7 @@ def build_inspector_fixture_images(root: Path) -> None:
                 }
             )
         },
+        color=(38, 96, 154),
     )
 
 
@@ -149,9 +158,9 @@ def write_metrics_fixture_parquet(root: Path) -> None:
     pq.write_table(pa.Table.from_pylist(rows), root / "metrics_items.parquet")
 
 
-def jpeg_payload() -> bytes:
+def jpeg_payload(color: tuple[int, int, int] = (44, 88, 132)) -> bytes:
     buf = BytesIO()
-    Image.new("RGB", (48, 32), color=(44, 88, 132)).save(buf, format="JPEG", quality=80)
+    Image.new("RGB", (48, 32), color=color).save(buf, format="JPEG", quality=80)
     return buf.getvalue()
 
 
@@ -165,6 +174,7 @@ def write_png_with_metadata(
     *,
     text_chunks: dict[str, str] | None = None,
     itxt_chunks: dict[str, str] | None = None,
+    color: tuple[int, int, int] = (72, 36, 120),
 ) -> None:
     meta = PngImagePlugin.PngInfo()
     for key, value in (text_chunks or {}).items():
@@ -172,4 +182,4 @@ def write_png_with_metadata(
     for key, value in (itxt_chunks or {}).items():
         meta.add_itxt(key, value)
     path.parent.mkdir(parents=True, exist_ok=True)
-    Image.new("RGB", (48, 32), color=(72, 36, 120)).save(path, format="PNG", pnginfo=meta)
+    Image.new("RGB", (48, 32), color=color).save(path, format="PNG", pnginfo=meta)

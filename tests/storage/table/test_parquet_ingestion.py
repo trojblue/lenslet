@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pyarrow as pa
@@ -246,6 +247,76 @@ def test_parquet_row_field_provider_memoizes_failed_optional_row_group(tmp_path:
 
     assert failing.calls == 1
     assert "table field enrichment skipped for parquet row group 0" in caplog.text
+
+
+def test_parquet_row_field_provider_bounds_four_group_lru(tmp_path: Path) -> None:
+    parquet_path = tmp_path / "items.parquet"
+    pq.write_table(
+        pa.table({
+            "path": [f"item-{index}.jpg" for index in range(10)],
+            "label": [f"value-{index}" for index in range(10)],
+        }),
+        parquet_path,
+        row_group_size=2,
+    )
+    provider = ParquetRowFieldProvider(parquet_path, ("label",))
+
+    class _CountingParquetFile:
+        def __init__(self, inner) -> None:
+            self.inner = inner
+            self.calls: list[int] = []
+
+        def read_row_group(self, row_group: int, *, columns: list[str]):
+            self.calls.append(row_group)
+            return self.inner.read_row_group(row_group, columns=columns)
+
+    counting = _CountingParquetFile(provider._parquet_file)
+    provider._parquet_file = counting
+
+    for row_idx in (0, 2, 4, 6, 0, 2, 4, 6):
+        assert provider(row_idx) == {"label": f"value-{row_idx}"}
+    assert counting.calls == [0, 1, 2, 3]
+    assert tuple(provider._row_group_cache) == (0, 1, 2, 3)
+
+    assert provider(8) == {"label": "value-8"}
+    assert tuple(provider._row_group_cache) == (1, 2, 3, 4)
+    assert provider(2) == {"label": "value-2"}
+    assert provider(0) == {"label": "value-0"}
+    assert counting.calls == [0, 1, 2, 3, 4, 0]
+    assert len(provider._row_group_cache) == 4
+
+
+def test_parquet_row_field_provider_serializes_concurrent_group_loads(tmp_path: Path) -> None:
+    parquet_path = tmp_path / "items.parquet"
+    pq.write_table(
+        pa.table({
+            "path": [f"item-{index}.jpg" for index in range(8)],
+            "label": [f"value-{index}" for index in range(8)],
+        }),
+        parquet_path,
+        row_group_size=2,
+    )
+    provider = ParquetRowFieldProvider(parquet_path, ("label",))
+
+    class _CountingParquetFile:
+        def __init__(self, inner) -> None:
+            self.inner = inner
+            self.calls: list[int] = []
+
+        def read_row_group(self, row_group: int, *, columns: list[str]):
+            self.calls.append(row_group)
+            return self.inner.read_row_group(row_group, columns=columns)
+
+    counting = _CountingParquetFile(provider._parquet_file)
+    provider._parquet_file = counting
+    row_indices = (0, 2, 4, 6) * 8
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        values = list(executor.map(provider, row_indices))
+
+    assert values == [{"label": f"value-{row_idx}"} for row_idx in row_indices]
+    assert sorted(counting.calls) == [0, 1, 2, 3]
+    assert len(provider._row_group_cache) == 4
 
 
 def test_parquet_metric_keys_include_schema_backed_q_columns_for_null_only_folder(tmp_path: Path):
@@ -831,6 +902,8 @@ def test_prepare_table_launch_caches_extensionless_remote_dimensions(
     assert launch_result.storage.row_dimensions() == [(21, 13)]
     assert cached_table["width"].to_pylist() == [21]
     assert cached_table["height"].to_pylist() == [13]
+    assert launch_result.storage.table_launch_status().source_refresh is not None
+    assert launch_result.storage.table_launch_status().source_refresh.state == "current"
     assert {notice.kind for notice in launch_result.notices} >= {
         "dimension_cache_requires_probe",
         "dimensions_cached",

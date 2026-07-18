@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 if TYPE_CHECKING:
     import faiss
@@ -104,6 +104,7 @@ class EmbeddingManager:
         row_to_path: dict[int, str],
         cache: EmbeddingCache | None = None,
         prefer_faiss: bool = True,
+        source_guard: Callable[[], None] | None = None,
     ) -> None:
         self.parquet_path = parquet_path
         self._specs = {spec.name: spec for spec in detection}
@@ -111,6 +112,7 @@ class EmbeddingManager:
         self._row_to_path = row_to_path
         self._cache = cache
         self._prefer_faiss = prefer_faiss
+        self._source_guard = source_guard
         self._indexes: dict[str, EmbeddingIndex] = {}
 
     @property
@@ -129,16 +131,23 @@ class EmbeddingManager:
         if spec is None:
             raise EmbeddingIndexError("embedding not found")
         if name not in self._indexes:
+            if self._source_guard is not None:
+                self._source_guard()
             try:
-                self._indexes[name] = EmbeddingIndex(
-                    self.parquet_path,
-                    spec,
-                    self._row_to_path,
-                    cache=self._cache,
-                    prefer_faiss=self._prefer_faiss,
-                )
+                try:
+                    index = EmbeddingIndex(
+                        self.parquet_path,
+                        spec,
+                        self._row_to_path,
+                        cache=self._cache,
+                        prefer_faiss=self._prefer_faiss,
+                    )
+                finally:
+                    if self._source_guard is not None:
+                        self._source_guard()
             except EmbeddingIOError as exc:
                 raise EmbeddingIndexError(str(exc)) from exc
+            self._indexes[name] = index
         return self._indexes[name]
 
     def preload(self) -> None:

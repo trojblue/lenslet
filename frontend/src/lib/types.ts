@@ -230,6 +230,12 @@ export type TableSourceColumnsPayload = {
   warning?: string | null
 }
 
+export type TableSourceRefreshPayload = {
+  state: 'current' | 'refreshing' | 'stale' | 'restart-required'
+  generation?: string | null
+  message?: string | null
+}
+
 export type TableLaunchStatusPayload = {
   source_column?: string | null
   path_column?: string | null
@@ -257,6 +263,7 @@ export type TableLaunchStatusPayload = {
   dimension_write_policy: string
   original_media_policy: OriginalMediaPolicy
   warnings: string[]
+  source_refresh?: TableSourceRefreshPayload | null
 }
 
 export type LaunchSessionPayload = {

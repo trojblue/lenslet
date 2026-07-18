@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import OrderedDict
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeAlias
+from threading import RLock
+from typing import TYPE_CHECKING, Any, Callable, TypeAlias
 
 from .categoricals import (
     CATEGORICAL_MAX_UNIQUE_VALUES,
@@ -30,6 +32,11 @@ from .launch_sources import (
 )
 from .pyarrow_runtime import pyarrow_exception_types, require_pyarrow, require_pyarrow_parquet
 from .schema import resolve_column, resolve_named_column, resolve_path_column
+from .source_refresh import (
+    TABLE_SOURCE_CHANGED_MESSAGE,
+    TableSourceChangedError,
+    TableSourceRefreshTracker,
+)
 
 if TYPE_CHECKING:
     from ...embeddings.detect import EmbeddingDetection as EmbeddingDetectionType
@@ -56,6 +63,7 @@ _WIDTH_COLUMNS = ("width", "w")
 _HEIGHT_COLUMNS = ("height", "h")
 _SIZE_COLUMNS = ("size", "bytes")
 _MTIME_COLUMNS = ("mtime", "modified", "modified_at")
+_ROW_GROUP_CACHE_SIZE = 4
 
 
 def _table_schema_errors() -> tuple[type[BaseException], ...]:
@@ -177,8 +185,15 @@ class TableRootResolution:
     notices: tuple[TableLaunchNotice, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True, slots=True)
+class SourceDimensionCacheResult:
+    notices: tuple[TableLaunchNotice, ...] = ()
+    rewritten_table: PyArrowTable | None = None
+
+
 def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
     parquet_path = request.parquet_path
+    source_refresh_tracker = TableSourceRefreshTracker.for_local_file(parquet_path)
     column_selection = select_embedding_columns(parquet_path, request.embedding_config)
     schema = column_selection.schema or load_parquet_schema(str(parquet_path))
     browse_columns = select_browse_columns(
@@ -223,11 +238,6 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
         request.dimension_cache_dir,
         dimension_cache_identity,
     )
-    row_field_provider = (
-        ParquetRowFieldProvider(parquet_path, browse_columns.table_field_columns)
-        if browse_columns.is_projected and browse_columns.table_field_columns
-        else None
-    )
     categorical_row_provider = (
         ArrowTableRowFieldProvider(
             load_parquet_table(str(parquet_path), columns=list(browse_columns.categorical_columns))
@@ -244,7 +254,6 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
             source_column=browse_columns.source_column or request.source_column,
             path_column=request.path_column,
             skip_dimension_probe=dimension_probe_policy.skip_dimension_probe,
-            row_field_provider=row_field_provider,
             table_field_columns=browse_columns.table_field_columns,
             categorical_columns=browse_columns.categorical_columns,
             categorical_row_provider=categorical_row_provider,
@@ -260,24 +269,47 @@ def prepare_table_launch(request: TableLaunchRequest) -> TableLaunchResult:
         ),
     )
 
+    source_refresh_tracker.ensure_current()
+    dimension_cache_result = cache_missing_dimensions(
+        cache_dimensions=request.cache_dimensions,
+        parquet_path=parquet_path,
+        table=table,
+        table_is_projected=browse_columns.is_projected,
+        dimensions=dimensions,
+        row_dims=storage.row_dimensions(),
+        source_guard=source_refresh_tracker.ensure_current,
+    )
     notices = [
         *column_selection.notices,
         *dimension_probe_policy.notices,
         *root_resolution.notices,
-        *cache_missing_dimensions(
-            cache_dimensions=request.cache_dimensions,
-            parquet_path=parquet_path,
-            table=table,
-            table_is_projected=browse_columns.is_projected,
-            dimensions=dimensions,
-            row_dims=storage.row_dimensions(),
-        ),
+        *dimension_cache_result.notices,
         *cache_workspace_dimensions(
             dimension_cache_dir=request.dimension_cache_dir,
             dimension_cache_identity=dimension_cache_identity,
             rows=storage.dimension_cache_rows(),
         ),
     ]
+    if dimension_cache_result.rewritten_table is not None:
+        source_refresh_tracker = TableSourceRefreshTracker.for_local_file(parquet_path)
+        try:
+            rewritten_source = load_parquet_table(str(parquet_path))
+        except _table_schema_errors() as exc:
+            source_refresh_tracker.ensure_current()
+            raise TableSourceChangedError(TABLE_SOURCE_CHANGED_MESSAGE) from exc
+        source_refresh_tracker.ensure_current()
+        if not dimension_cache_result.rewritten_table.equals(
+            rewritten_source,
+            check_metadata=True,
+        ):
+            raise TableSourceChangedError(TABLE_SOURCE_CHANGED_MESSAGE)
+    source_refresh_tracker.ensure_current()
+    if browse_columns.is_projected and browse_columns.table_field_columns:
+        storage.set_row_field_provider(
+            ParquetRowFieldProvider(parquet_path, browse_columns.table_field_columns)
+        )
+        source_refresh_tracker.ensure_current()
+    storage.set_source_refresh_tracker(source_refresh_tracker)
 
     return TableLaunchResult(
         storage=storage,
@@ -720,26 +752,35 @@ def cache_missing_dimensions(
     table_is_projected: bool,
     dimensions: TableDimensionState,
     row_dims: list[tuple[int, int] | None],
-) -> tuple[TableLaunchNotice, ...]:
+    source_guard: Callable[[], None],
+) -> SourceDimensionCacheResult:
     if not cache_dimensions:
-        return ()
+        return SourceDimensionCacheResult()
     if dimensions.missing_count <= 0 and dimensions.width_name and dimensions.height_name:
-        return ()
+        return SourceDimensionCacheResult()
 
-    updated = write_missing_dimensions(
+    source_guard()
+    source_table = table
+    if table_is_projected:
+        source_table = load_parquet_table(str(parquet_path))
+        source_guard()
+    rewritten_table = write_missing_dimensions(
         parquet_path=parquet_path,
-        table=load_parquet_table(str(parquet_path)) if table_is_projected else table,
+        table=source_table,
         width_name=dimensions.width_name,
         height_name=dimensions.height_name,
         row_dims=row_dims,
     )
-    if not updated:
-        return ()
-    return (
-        TableLaunchNotice(
-            kind="dimensions_cached",
-            message=f"[lenslet] Cached width/height into {parquet_path}",
+    if rewritten_table is None:
+        return SourceDimensionCacheResult()
+    return SourceDimensionCacheResult(
+        notices=(
+            TableLaunchNotice(
+                kind="dimensions_cached",
+                message=f"[lenslet] Cached width/height into {parquet_path}",
+            ),
         ),
+        rewritten_table=rewritten_table,
     )
 
 
@@ -888,12 +929,12 @@ def write_missing_dimensions(
     width_name: str | None,
     height_name: str | None,
     row_dims: list[tuple[int, int] | None],
-) -> bool:
+) -> PyArrowTable | None:
     pyarrow, parquet = require_pyarrow()
     widths, heights, changed = merged_dimension_arrays(table, width_name, height_name, row_dims)
 
     if not changed and width_name and height_name:
-        return False
+        return None
 
     width_arr = pyarrow.array(widths, type=pyarrow.int64())
     height_arr = pyarrow.array(heights, type=pyarrow.int64())
@@ -903,7 +944,7 @@ def write_missing_dimensions(
     table_out, height_name = upsert_dimension_column(table_out, height_name, "height", height_arr)
 
     parquet.write_table(table_out, str(parquet_path))
-    return True
+    return table_out
 
 
 class ParquetRowFieldProvider:
@@ -913,9 +954,13 @@ class ParquetRowFieldProvider:
         self._parquet_file = parquet.ParquetFile(str(parquet_path))
         self._columns = list(columns)
         self._row_group_starts = self._build_row_group_starts()
-        self._cached_row_group: int | None = None
-        self._cached_columns: dict[str, list[Any]] = {}
+        self._row_group_cache: OrderedDict[int, dict[str, list[Any]]] = OrderedDict()
         self._failed_row_groups: set[int] = set()
+        self._lock = RLock()
+        self._source_refresh_tracker: TableSourceRefreshTracker | None = None
+
+    def set_source_refresh_tracker(self, tracker: TableSourceRefreshTracker) -> None:
+        self._source_refresh_tracker = tracker
 
     def _build_row_group_starts(self) -> list[int]:
         starts: list[int] = []
@@ -931,30 +976,40 @@ class ParquetRowFieldProvider:
     def __call__(self, row_idx: int) -> dict[str, Any]:
         row_group = max(0, bisect_right(self._row_group_starts, row_idx) - 1)
         local_idx = row_idx - self._row_group_starts[row_group]
-        if row_group in self._failed_row_groups:
-            return {}
-        if self._cached_row_group != row_group:
-            try:
-                table = self._parquet_file.read_row_group(row_group, columns=self._columns)
-                cached_columns = table.to_pydict()
-            except _parquet_row_field_read_errors() as exc:
-                self._failed_row_groups.add(row_group)
-                self._cached_row_group = None
-                self._cached_columns = {}
-                logger.warning(
-                    "table field enrichment skipped for parquet row group %s in %s: %s",
-                    row_group,
-                    self._parquet_path,
-                    exc,
-                )
+        with self._lock:
+            if row_group in self._failed_row_groups:
                 return {}
-            self._cached_columns = cached_columns
-            self._cached_row_group = row_group
-        return {
-            column: values[local_idx]
-            for column, values in self._cached_columns.items()
-            if local_idx < len(values)
-        }
+            cached_columns = self._row_group_cache.get(row_group)
+            if cached_columns is None:
+                tracker = self._source_refresh_tracker
+                if tracker is not None:
+                    tracker.ensure_current()
+                try:
+                    table = self._parquet_file.read_row_group(row_group, columns=self._columns)
+                    cached_columns = table.to_pydict()
+                except _parquet_row_field_read_errors() as exc:
+                    if tracker is not None:
+                        tracker.ensure_current()
+                    self._failed_row_groups.add(row_group)
+                    logger.warning(
+                        "table field enrichment skipped for parquet row group %s in %s: %s",
+                        row_group,
+                        self._parquet_path,
+                        exc,
+                    )
+                    return {}
+                if tracker is not None:
+                    tracker.ensure_current()
+                self._row_group_cache[row_group] = cached_columns
+                if len(self._row_group_cache) > _ROW_GROUP_CACHE_SIZE:
+                    self._row_group_cache.popitem(last=False)
+            else:
+                self._row_group_cache.move_to_end(row_group)
+            return {
+                column: values[local_idx]
+                for column, values in cached_columns.items()
+                if local_idx < len(values)
+            }
 
 
 class ArrowTableRowFieldProvider:

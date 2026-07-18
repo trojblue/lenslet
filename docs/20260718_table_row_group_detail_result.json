@@ -1,0 +1,25 @@
+{
+  "cache": {
+    "capacity_groups": 4,
+    "retained_groups": 4
+  },
+  "detail_endpoint": "/item",
+  "fixture": "synthetic-4000-rows-8-groups",
+  "latency_ms": {
+    "max": 6.880616769194603,
+    "p50": 1.094692386686802,
+    "p95": 1.2640208471566436
+  },
+  "repetitions": 20,
+  "requests": 80,
+  "row_count": 4000,
+  "row_group_count": 8,
+  "row_group_reads": {
+    "measured": 0,
+    "warmup": 4
+  },
+  "row_group_size": 500,
+  "schema_version": 1,
+  "warmup_rounds": 1,
+  "working_set_groups": 4
+}

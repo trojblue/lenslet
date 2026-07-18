@@ -754,6 +754,12 @@ class TableDimensionCoveragePayload(BaseModel):
     total: int
 
 
+class TableSourceRefreshPayload(BaseModel):
+    state: Literal["current", "refreshing", "stale", "restart-required"]
+    generation: str | None = None
+    message: str | None = None
+
+
 class TableLaunchStatusPayload(BaseModel):
     source_column: str | None = None
     path_column: str | None = None
@@ -770,6 +776,7 @@ class TableLaunchStatusPayload(BaseModel):
     dimension_write_policy: str
     original_media_policy: OriginalMediaPolicyPayload
     warnings: list[str] = Field(default_factory=list)
+    source_refresh: TableSourceRefreshPayload | None = None
 
 
 class LaunchSessionPayload(BaseModel):

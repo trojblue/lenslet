@@ -32,6 +32,7 @@ import type {
   MetricsUpdatedEvent,
   LabelPersistenceState,
   TableSourceColumnsPayload,
+  TableSourceRefreshPayload,
 } from '../lib/types'
 import { apiUrl } from './base'
 
@@ -223,6 +224,7 @@ export type SyncEvent =
   | { type: 'metrics-updated'; id: number | null; data: MetricsUpdatedEvent }
   | { type: 'persistence'; id: number | null; data: LabelPersistenceState }
   | { type: 'presence'; id: number | null; data: PresenceEvent }
+  | { type: 'table-source'; id: number | null; data: TableSourceRefreshPayload }
 
 export type PresenceSessionResponse = PresenceEvent & {
   client_id: string
@@ -245,6 +247,7 @@ let connectionStatus: ConnectionStatus = 'idle'
 const eventListeners = new Set<(evt: SyncEvent) => void>()
 const statusListeners = new Set<(status: ConnectionStatus) => void>()
 const pollingListeners = new Set<(enabled: boolean) => void>()
+const healthRefreshListeners = new Set<() => void>()
 
 function notifyStatus(next: ConnectionStatus) {
   connectionStatus = next
@@ -322,6 +325,7 @@ function openEventSource(): void {
   es.addEventListener('metrics-updated', handle('metrics-updated'))
   es.addEventListener('persistence', handle('persistence'))
   es.addEventListener('presence', handle('presence'))
+  es.addEventListener('table-source', handle('table-source'))
 
   es.onopen = () => {
     resetReconnect()
@@ -378,6 +382,15 @@ export function subscribePollingStatus(listener: (enabled: boolean) => void): ()
   }
 }
 
+export function requestHealthRefresh(): void {
+  for (const listener of healthRefreshListeners) listener()
+}
+
+export function subscribeHealthRefresh(listener: () => void): () => void {
+  healthRefreshListeners.add(listener)
+  return () => healthRefreshListeners.delete(listener)
+}
+
 export function getPollingStatus(): boolean {
   return pollingEnabled
 }
@@ -397,6 +410,7 @@ export function __resetClientStateForTests(): void {
   eventListeners.clear()
   statusListeners.clear()
   pollingListeners.clear()
+  healthRefreshListeners.clear()
   if (eventSource) {
     eventSource.close()
     eventSource = null

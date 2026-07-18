@@ -10,6 +10,7 @@ from ..models import LaunchSessionPayload
 
 StorageRefreshMode: TypeAlias = Literal["static", "subtree"]
 StorageMode: TypeAlias = Literal["memory", "table", "dataset", "storage"]
+TableSourceRefreshMode: TypeAlias = Literal["untracked", "restart-required"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +68,7 @@ class TableAppOptions:
     workspace: Workspace | None = None
     embedding_table_path: str | None = None
     launch_session: LaunchSessionPayload | None = None
+    source_refresh: TableSourceRefreshMode = "untracked"
     trusted_write_origins: tuple[str, ...] = ()
 
 

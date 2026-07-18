@@ -13,6 +13,7 @@ from .sync.events import EventBroker, IdempotencyCache
 from .sync.labels import init_sync_state
 from .sync.persistence import LabelWriteBuffer
 from .sync.presence import PresenceMetrics, PresenceTracker
+from .source_monitor import TableSourceMonitor
 from .thumbs import ThumbnailScheduler
 from ..storage.base import BrowseAppStorage
 from ..storage.table.query_coordinator import TableQueryCoordinator
@@ -35,6 +36,7 @@ class AppRuntime:
     thumb_cache: ThumbCache | None
     hotpath_metrics: HotpathTelemetry
     query_coordinator: TableQueryCoordinator
+    table_source_monitor: TableSourceMonitor
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +97,12 @@ def build_app_runtime(
         startup=query_coordinator.start,
         shutdown=query_coordinator.close,
     )
+    table_source_monitor = TableSourceMonitor(assembly.storage, broker)
+    register_lifecycle_handlers(
+        app,
+        startup=table_source_monitor.start,
+        shutdown=table_source_monitor.close,
+    )
     return AppRuntime(
         sidecar_lock=sidecar_lock,
         broker=broker,
@@ -107,4 +115,5 @@ def build_app_runtime(
         thumb_cache=thumb_cache,
         hotpath_metrics=hotpath_metrics,
         query_coordinator=query_coordinator,
+        table_source_monitor=table_source_monitor,
     )

@@ -1,5 +1,6 @@
 from pathlib import Path
 import base64
+import os
 from dataclasses import replace
 from unittest.mock import Mock
 
@@ -76,6 +77,7 @@ def _runtime_stub(workspace: Workspace) -> AppRuntime:
         thumb_cache=None,
         hotpath_metrics=type("Metrics", (), {"snapshot": lambda self, storage=None: {"counters": {}, "timers_ms": {}}})(),
         query_coordinator=Mock(spec=TableQueryCoordinator),
+        table_source_monitor=Mock(),
     )
 
 
@@ -223,6 +225,46 @@ def test_embedding_search_by_path_and_vector(tmp_path: Path):
         },
     )
     assert resp.status_code == 400
+
+
+def test_lazy_embedding_load_rejects_changed_table_source(tmp_path: Path) -> None:
+    _make_image(tmp_path / "a.jpg")
+    _make_image(tmp_path / "b.jpg")
+    embed_type = pa.list_(pa.float32(), 2)
+    source = tmp_path / "items.parquet"
+    _write_parquet(
+        source,
+        pa.table({
+            "path": ["a.jpg", "b.jpg"],
+            "clip": pa.array([[1.0, 0.0], [0.0, 1.0]], type=embed_type),
+        }),
+    )
+    app = create_app(str(tmp_path))
+    replacement = tmp_path / "replacement.parquet"
+    _write_parquet(
+        replacement,
+        pa.table({
+            "path": ["a.jpg", "b.jpg"],
+            "clip": pa.array([[0.0, 1.0], [1.0, 0.0]], type=embed_type),
+        }),
+    )
+    os.replace(replacement, source)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/embeddings/search",
+            json={
+                "embedding": "clip",
+                "query": {"kind": "vector", "vector_b64": _encode_vec([1.0, 0.0])},
+                "top_k": 1,
+            },
+        )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": "table_source_changed",
+        "message": "The source table changed; restart Lenslet to load the new snapshot.",
+    }
 
 
 def test_embedding_search_requires_discriminated_query_payload() -> None:

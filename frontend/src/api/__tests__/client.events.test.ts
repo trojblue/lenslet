@@ -236,4 +236,38 @@ describe('event stream reconnect lifecycle', () => {
     unsubscribe()
     client.disconnectEvents()
   })
+
+  it('delivers table source events and notifies health refresh subscribers', async () => {
+    vi.resetModules()
+    setWindow(new MemoryStorage(), new MemoryStorage())
+    setEventSource(FakeEventSource)
+    const client = await import('../client')
+    client.__resetClientStateForTests()
+    const eventListener = vi.fn()
+    const healthListener = vi.fn()
+    const unsubscribeEvent = client.subscribeEvents(eventListener)
+    const unsubscribeHealth = client.subscribeHealthRefresh(healthListener)
+
+    client.connectEvents()
+    FakeEventSource.latest().emitEvent('table-source', {
+      state: 'restart-required',
+      generation: 'generation-a',
+      message: 'restart required',
+    }, 6)
+    client.requestHealthRefresh()
+
+    expect(eventListener).toHaveBeenCalledWith({
+      type: 'table-source',
+      id: 6,
+      data: {
+        state: 'restart-required',
+        generation: 'generation-a',
+        message: 'restart required',
+      },
+    })
+    expect(healthListener).toHaveBeenCalledTimes(1)
+    unsubscribeEvent()
+    unsubscribeHealth()
+    client.disconnectEvents()
+  })
 })

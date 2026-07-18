@@ -220,6 +220,21 @@ function formatDimensionCoverage(status: TableLaunchStatusPayload): string {
   return `${formatCount(coverage.known)} / ${formatCount(coverage.total)} dimensions`
 }
 
+export function formatSourceRefresh(status: TableLaunchStatusPayload): string | null {
+  const source = status.source_refresh
+  if (!source) return null
+  switch (source.state) {
+    case 'current':
+      return 'Source snapshot: current'
+    case 'refreshing':
+      return 'Source snapshot: refreshing…'
+    case 'stale':
+      return source.message || 'Source snapshot: stale'
+    case 'restart-required':
+      return source.message || 'Source snapshot changed; restart Lenslet to reload it.'
+  }
+}
+
 function formatMediaPolicyMode(mode: TableLaunchStatusPayload['original_media_policy']['mode']): string {
   switch (mode) {
     case 'local_streaming':
@@ -270,6 +285,7 @@ export default function ThemeSettingsMenu({
   const sourceColumnState = resolveSourceColumnMenuState(sourceColumns)
   const supportsSourceColumnSetting = sourceColumnState.enabled && typeof onSourceColumnChange === 'function'
   const showSourceSection = supportsSourceColumnSetting || tableLaunchStatus !== null
+  const sourceRefreshLabel = tableLaunchStatus ? formatSourceRefresh(tableLaunchStatus) : null
   const { selectedSourceColumn, selectedSourceStatus } = sourceColumnState
   const sourceColumnOptions = useMemo(() => (
     sourceColumns?.columns.map((column) => ({
@@ -435,6 +451,11 @@ export default function ThemeSettingsMenu({
                   Media: {formatMediaPolicyMode(tableLaunchStatus.original_media_policy.mode)}
                   {tableLaunchStatus.original_media_policy.redacted_origin ? `, ${tableLaunchStatus.original_media_policy.redacted_origin}` : ''}
                 </span>
+                {sourceRefreshLabel && (
+                  <span className="theme-settings-menu-option-subtitle">
+                    {sourceRefreshLabel}
+                  </span>
+                )}
                 {tableLaunchStatus.warnings.slice(0, 2).map((warning) => (
                   <span key={warning} className="theme-settings-menu-option-subtitle">{warning}</span>
                 ))}

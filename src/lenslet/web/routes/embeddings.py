@@ -47,7 +47,11 @@ def register_embedding_routes(
             return EmbeddingsResponse()
         return _build_embeddings_payload(manager)
 
-    @app.post("/embeddings/search", response_model=EmbeddingSearchResponse, responses=error_response_models(400, 404))
+    @app.post(
+        "/embeddings/search",
+        response_model=EmbeddingSearchResponse,
+        responses=error_response_models(400, 404, 409),
+    )
     def search_embeddings(body: EmbeddingSearchRequest, request: Request) -> EmbeddingSearchResponse | JSONResponse:
         if manager is None:
             return error_response(404, "embedding_search_unavailable", "embedding search unavailable")

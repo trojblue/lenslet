@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import type { TableLaunchStatusPayload } from '../../../lib/types'
 import ThemeSettingsMenu, {
   LaunchSessionMenuSection,
   copyLaunchCommandToClipboard,
+  formatSourceRefresh,
   getThemeMenuPanelPosition,
   reduceThemeSettingsMenuOpenState,
   resolveSourceColumnMenuState,
@@ -58,6 +60,39 @@ describe('ThemeSettingsMenu selection model', () => {
     expect(state.enabled).toBe(true)
     expect(state.selectedSourceColumn).toBe('image_url')
     expect(state.selectedSourceStatus?.sample_usable).toBe(0)
+  })
+
+  it('formats current and restart-required table source state', () => {
+    const base: TableLaunchStatusPayload = {
+      path_mode: 'explicit',
+      root_policy: 'none',
+      source_table_rows: 1,
+      gallery_rows: 1,
+      skipped_rows: { total: 0 },
+      media_source_kind: 'http',
+      dimension_coverage: { known: 0, missing: 1, total: 1 },
+      dimension_cache_policy: 'none',
+      dimension_write_policy: 'none',
+      original_media_policy: {
+        mode: 'backend_proxy_required',
+        source_kind: 'http',
+        proxy_available: true,
+      },
+      warnings: [],
+    }
+
+    expect(formatSourceRefresh({
+      ...base,
+      source_refresh: { state: 'current', generation: 'generation-a' },
+    })).toBe('Source snapshot: current')
+    expect(formatSourceRefresh({
+      ...base,
+      source_refresh: {
+        state: 'restart-required',
+        generation: 'generation-a',
+        message: 'The source table changed; restart Lenslet to load the new snapshot.',
+      },
+    })).toBe('The source table changed; restart Lenslet to load the new snapshot.')
   })
 })
 
@@ -131,7 +166,7 @@ describe('LaunchSessionMenuSection', () => {
           loaded_from_label: 'Hugging Face dataset',
           target_label: 'incantor/aes-composite-x0.2-additional-images',
           title_label: 'incantor/aes-composite-x0.2-additional-images',
-          detail_label: 'Remote table · read-only · 37,670 rows',
+          detail_label: 'Remote table · read-only',
           copy_command: 'lenslet incantor/aes-composite-x0.2-additional-images',
         }}
       />,
@@ -141,7 +176,7 @@ describe('LaunchSessionMenuSection', () => {
     expect(html).toContain('Loaded from')
     expect(html).toContain('Hugging Face dataset')
     expect(html).toContain('incantor/aes-composite-x0.2-additional-images')
-    expect(html).toContain('Remote table · read-only · 37,670 rows')
+    expect(html).toContain('Remote table · read-only')
     expect(html).toContain('Copy command')
   })
 
@@ -153,7 +188,7 @@ describe('LaunchSessionMenuSection', () => {
           loaded_from_label: 'Local Parquet',
           target_label: '.../items.parquet',
           title_label: 'items.parquet',
-          detail_label: 'Table · writable sidecar · 37,670 rows',
+          detail_label: 'Table · writable sidecar',
           copy_command: null,
         }}
       />,

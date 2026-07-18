@@ -5,6 +5,7 @@ import {
   api,
   connectEvents,
   disconnectEvents,
+  requestHealthRefresh,
   subscribeEvents,
   subscribeEventStatus,
   type ConnectionStatus,
@@ -268,6 +269,10 @@ export function useAppSyncEvents({
 
     connectEvents()
     const offEvents = subscribeEvents((evt: SyncEvent) => {
+      if (evt.type === 'table-source') {
+        requestHealthRefresh()
+        return
+      }
       if (evt.type === 'persistence') {
         void applyPersistenceStatus(evt.data, 'event').then(
           persistenceRepairRetry.reset,
@@ -314,7 +319,10 @@ export function useAppSyncEvents({
     })
     const offStatus = subscribeEventStatus((status) => {
       setConnectionStatus(status)
-      if (status === 'live') void refreshPersistenceStatus()
+      if (status === 'live') {
+        void refreshPersistenceStatus()
+        requestHealthRefresh()
+      }
     })
     const offPersistenceRefresh = subscribeLabelPersistenceRefresh(() => {
       void refreshPersistenceStatus()

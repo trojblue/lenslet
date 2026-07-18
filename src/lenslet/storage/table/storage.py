@@ -93,6 +93,7 @@ from .source_detection import (
     score_source_column_values,
     source_column_name_priority,
 )
+from .source_refresh import TableSourceRefreshStatus, TableSourceRefreshTracker
 from .pyarrow_runtime import pyarrow_exception_types, require_pyarrow_parquet
 from . import query_execution
 from .query_engine import (
@@ -183,6 +184,7 @@ class TableStorageOptions:
     dimension_cache_policy: str = "none"
     dimension_write_policy: str = "none"
     launch_warnings: tuple[str, ...] = ()
+    source_refresh_tracker: TableSourceRefreshTracker | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +254,7 @@ class TableLaunchStatus:
     dimension_write_policy: str
     original_media_policy: OriginalMediaPolicy
     warnings: tuple[str, ...]
+    source_refresh: TableSourceRefreshStatus | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -420,6 +423,7 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         self._dimension_cache_policy = options.dimension_cache_policy
         self._dimension_write_policy = options.dimension_write_policy
         self._launch_warnings = tuple(options.launch_warnings)
+        self._source_refresh_tracker = options.source_refresh_tracker
         self._last_skipped_rows = TableSkippedRowCounts()
         self._progress_bar = ProgressBar()
 
@@ -1846,7 +1850,37 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
             dimension_write_policy=self._dimension_write_policy,
             original_media_policy=original_policy,
             warnings=tuple(dict.fromkeys(warnings)),
+            source_refresh=(
+                self._source_refresh_tracker.status()
+                if self._source_refresh_tracker is not None
+                else None
+            ),
         )
+
+    def set_source_refresh_tracker(self, tracker: TableSourceRefreshTracker) -> None:
+        self._source_refresh_tracker = tracker
+        bind_tracker = getattr(self._row_field_provider, "set_source_refresh_tracker", None)
+        if callable(bind_tracker):
+            bind_tracker(tracker)
+
+    def set_row_field_provider(self, provider: Callable[[int], dict[str, Any]]) -> None:
+        self._row_field_provider = provider
+        self._row_field_provider_error_logged = False
+
+    def source_refresh_pollable(self) -> bool:
+        return (
+            self._source_refresh_tracker is not None
+            and self._source_refresh_tracker.is_pollable()
+        )
+
+    def ensure_source_current(self) -> None:
+        if self._source_refresh_tracker is not None:
+            self._source_refresh_tracker.ensure_current()
+
+    def poll_source_refresh(self) -> tuple[TableSourceRefreshStatus | None, bool]:
+        if self._source_refresh_tracker is None:
+            return None, False
+        return self._source_refresh_tracker.poll()
 
     def path_for_row_index(self, index: int) -> str | None:
         return self._require_row_store().path_for_row_index(index)

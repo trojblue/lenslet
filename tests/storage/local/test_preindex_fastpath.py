@@ -70,6 +70,9 @@ def test_create_app_folder_items_parquet_uses_strict_local_validation(
         def dimension_cache_rows(self):
             return []
 
+        def set_source_refresh_tracker(self, tracker):
+            captured["source_refresh_tracker"] = tracker
+
         def load_index(self, path: str):
             _ = path
             return None
@@ -175,4 +178,3 @@ def test_preindex_skips_corrupt_images_and_reports_examples(
     cached_output = capsys.readouterr().out
     assert "[lenslet] Preindex skipped 1 unreadable/corrupt image(s)." in cached_output
     assert "bad.jpg" in cached_output
-

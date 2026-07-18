@@ -97,6 +97,7 @@ def build_embedding_manager(
             row_to_path=storage.row_index_map(),
             cache=cache,
             prefer_faiss=prefer_faiss,
+            source_guard=storage.ensure_source_current,
         )
         if preload:
             manager.preload()

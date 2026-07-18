@@ -25,7 +25,6 @@ from ..web.app.launch_session import (
     build_launch_session_payload,
     filesystem_detail_label,
     table_detail_label,
-    table_input_row_count,
 )
 from ..web.models import LaunchSessionPayload
 from ..workspace import Workspace
@@ -188,14 +187,6 @@ def _workspace_mode_label(workspace: Workspace | None) -> str | None:
     return "memory"
 
 
-def _table_launch_row_count(result: TableLaunchResult, workspace: Workspace | None) -> int | None:
-    status_fn = getattr(result.storage, "table_launch_status", None)
-    if not callable(status_fn):
-        return None
-    status = status_fn(workspace_mode=_workspace_mode_label(workspace))
-    return status.gallery_rows
-
-
 def _launch_session_flags(
     args: BrowseCliArgs,
     *,
@@ -217,7 +208,6 @@ def _remote_launch_session(
     args: BrowseCliArgs,
     target_info: BrowseTarget,
     *,
-    row_count: int | None,
     source_column: str | None,
 ) -> LaunchSessionPayload:
     kind = "hf_dataset" if target_info.remote_kind == "hf" else "remote_parquet"
@@ -229,7 +219,6 @@ def _remote_launch_session(
         detail_label=table_detail_label(
             table_kind="Remote table",
             workspace_mode="read-only",
-            row_count=row_count,
         ),
         command_flags=_launch_session_flags(args, source_column=source_column),
     )
@@ -239,7 +228,6 @@ def _local_table_launch_session(
     *,
     raw_target: str,
     kind: str,
-    row_count: int | None,
     workspace: Workspace | None,
 ) -> LaunchSessionPayload:
     return build_launch_session_payload(
@@ -248,7 +236,6 @@ def _local_table_launch_session(
         loaded_from_label="Local Parquet",
         detail_label=table_detail_label(
             workspace_mode=_workspace_mode_label(workspace),
-            row_count=row_count,
         ),
     )
 
@@ -540,9 +527,9 @@ def _create_remote_table_app_or_exit(plan: BrowseLaunchPlan) -> object:
             launch_session=_remote_launch_session(
                 args,
                 target_info,
-                row_count=table_input_row_count(loaded_table.table),
                 source_column=source_column,
             ),
+            source_refresh="restart-required",
             trusted_write_origins=plan.trusted_write_origins,
         ),
     )
@@ -584,7 +571,6 @@ def _create_table_file_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> obje
             launch_session=_local_table_launch_session(
                 raw_target=str(target),
                 kind="local_parquet",
-                row_count=_table_launch_row_count(launch_result, workspace),
                 workspace=workspace,
             ),
             storage_mode="table",
@@ -631,7 +617,6 @@ def _create_directory_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> objec
             _local_table_launch_session(
                 raw_target=str(items_path),
                 kind="local_items_parquet",
-                row_count=_table_launch_row_count(table_launch, plan.dataset_workspace),
                 workspace=plan.dataset_workspace,
             )
             if table_launch is not None

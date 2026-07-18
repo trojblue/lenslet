@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pyarrow as pa
@@ -7,8 +8,20 @@ import pyarrow.parquet as pq
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from lenslet.server import LocalAppOptions, TableAppOptions, create_app, create_app_from_datasets, create_app_from_table
+from lenslet.server import (
+    LocalAppOptions,
+    StorageAppOptions,
+    TableAppOptions,
+    create_app,
+    create_app_from_datasets,
+    create_app_from_storage,
+    create_app_from_table,
+)
 from lenslet.storage.table import TableStorage
+from lenslet.storage.table.launch import TableLaunchRequest, prepare_table_launch
+from lenslet.web.context import get_app_context
+from lenslet.web.models import LaunchSessionPayload
+from lenslet.workspace import Workspace
 
 
 def _make_image(path: Path) -> None:
@@ -154,6 +167,104 @@ def test_health_exposes_redacted_table_launch_status(tmp_path: Path) -> None:
     [query_item] = query.json()["items"]
     assert query_item["source"] is None
     assert query_item["original_media"]["mode"] == "local_streaming"
+
+
+def test_local_table_source_change_publishes_one_restart_transition(tmp_path: Path) -> None:
+    source = tmp_path / "items.parquet"
+    _write_parquet(source, {
+        "source": ["https://example.test/a.jpg"],
+        "path": ["a.jpg"],
+    })
+    launch = prepare_table_launch(
+        TableLaunchRequest(
+            parquet_path=source,
+            base_dir=None,
+            source_column="source",
+            path_column="path",
+            cache_dimensions=False,
+            skip_dimension_probe=True,
+        )
+    )
+    launch_session = LaunchSessionPayload(
+        kind="local_parquet",
+        loaded_from_label="Local Parquet",
+        target_label=".../items.parquet",
+        title_label="items.parquet",
+        detail_label="Table · read-only",
+    )
+    app = create_app_from_storage(
+        launch.storage,
+        options=StorageAppOptions(
+            workspace=Workspace.for_dataset(None, can_write=False),
+            storage_mode="table",
+            storage_origin="parquet",
+            refresh="static",
+            launch_session=launch_session,
+        ),
+    )
+
+    with TestClient(app) as client:
+        context = get_app_context(app)
+        client.portal.call(context.runtime.table_source_monitor.close)
+        initial = client.get("/health").json()
+        replacement = tmp_path / "replacement.parquet"
+        _write_parquet(replacement, {
+            "source": ["https://example.test/b.jpg", "https://example.test/c.jpg"],
+            "path": ["b.jpg", "c.jpg"],
+        })
+        os.replace(replacement, source)
+
+        assert client.portal.call(context.runtime.table_source_monitor.poll_once) is True
+        assert client.portal.call(context.runtime.table_source_monitor.poll_once) is False
+        changed = client.get("/health").json()
+
+    assert initial["table_launch_status"]["source_refresh"]["state"] == "current"
+    assert changed["table_launch_status"]["source_refresh"] == {
+        "state": "restart-required",
+        "generation": initial["table_launch_status"]["source_refresh"]["generation"],
+        "message": "The source table changed; restart Lenslet to load the new snapshot.",
+    }
+    assert changed["table_launch_status"]["source_table_rows"] == 1
+    assert changed["table_launch_status"]["gallery_rows"] == 1
+    assert changed["total_images"] == 1
+    assert changed["launch_session"] == initial["launch_session"] == launch_session.model_dump(
+        exclude_none=True
+    )
+    assert changed["refresh"] == {
+        "enabled": False,
+        "note": "The source table changed; restart Lenslet to load the new snapshot.",
+    }
+    source_events = [
+        event
+        for event in context.runtime.broker.replay(0)
+        if event["event"] == "table-source"
+    ]
+    assert len(source_events) == 1
+    assert str(tmp_path) not in str(source_events[0])
+
+
+def test_unversioned_table_source_reports_restart_required() -> None:
+    client = TestClient(
+        create_app_from_table(
+            [{"source": "https://example.test/a.jpg", "path": "a.jpg"}],
+            options=TableAppOptions(
+                source_column="source",
+                path_column="path",
+                skip_dimension_probe=True,
+                source_refresh="restart-required",
+            ),
+        )
+    )
+
+    health = client.get("/health").json()
+
+    assert health["table_launch_status"]["source_refresh"] == {
+        "state": "restart-required",
+        "message": "This table source cannot be checked safely; restart Lenslet to reload it.",
+    }
+    assert health["refresh"]["note"] == (
+        "This table source cannot be checked safely; restart Lenslet to reload it."
+    )
 
 
 def test_projected_parquet_source_column_switch_keeps_q_metric_keys(

@@ -28,6 +28,7 @@ from ..models import (
     RefreshStatusPayload,
     TableDimensionCoveragePayload,
     TableLaunchStatusPayload,
+    TableSourceRefreshPayload,
     TableSkippedRowsPayload,
     LaunchSessionPayload,
 )
@@ -91,25 +92,33 @@ def _base_health_payload(
             **runtime.thumb_queue.diagnostics(),
         },
     })
+    table_launch_status = _table_launch_status_payload(storage, workspace)
+    refresh = _refresh_health_payload(
+        mode=mode,
+        storage_origin=storage_origin,
+        writes_enabled=writes_enabled,
+        refresh_mode=refresh_mode,
+        static_refresh_note=static_refresh_note,
+    )
+    source_refresh = table_launch_status.source_refresh if table_launch_status is not None else None
+    if source_refresh is not None and source_refresh.state == "restart-required":
+        refresh = RefreshStatusPayload(
+            enabled=False,
+            note=source_refresh.message or "Restart Lenslet to reload the table source.",
+        )
     return HealthResponse(
         ok=True,
         mode=mode,
         can_write=writes_enabled,
         workspace_id=workspace_id,
         storage_origin=storage_origin,
-        refresh=_refresh_health_payload(
-            mode=mode,
-            storage_origin=storage_origin,
-            writes_enabled=writes_enabled,
-            refresh_mode=refresh_mode,
-            static_refresh_note=static_refresh_note,
-        ),
+        refresh=refresh,
         browse_cache=_browse_cache_health_payload(recursive_browse_cache),
         compare_export=_compare_export_health_payload(),
         labels=_labels_health_payload(workspace, runtime, writes_enabled=writes_enabled),
         presence=_presence_health_payload(runtime),
         hotpath=hotpath,
-        table_launch_status=_table_launch_status_payload(storage, workspace),
+        table_launch_status=table_launch_status,
         launch_session=launch_session,
     )
 
@@ -205,6 +214,15 @@ def _table_launch_status_payload(
         dimension_write_policy=status.dimension_write_policy,
         original_media_policy=status.original_media_policy.to_payload(),
         warnings=list(status.warnings),
+        source_refresh=(
+            TableSourceRefreshPayload(
+                state=status.source_refresh.state,
+                generation=status.source_refresh.generation,
+                message=status.source_refresh.message,
+            )
+            if status.source_refresh is not None
+            else None
+        ),
     )
 
 

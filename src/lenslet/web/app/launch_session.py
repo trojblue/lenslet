@@ -49,14 +49,11 @@ def table_detail_label(
     *,
     table_kind: str = "Table",
     workspace_mode: str | None,
-    row_count: int | None = None,
 ) -> str:
     parts = [table_kind]
     workspace = _workspace_label(workspace_mode)
     if workspace:
         parts.append(workspace)
-    if row_count is not None:
-        parts.append(_format_count(row_count, "row"))
     return " · ".join(parts)
 
 
@@ -106,21 +103,6 @@ def copyable_launch_command(
             return None
         parts.append(value)
     return " ".join(shlex.quote(part) for part in parts)
-
-
-def table_input_row_count(table: object) -> int | None:
-    value = getattr(table, "num_rows", None)
-    if isinstance(value, int):
-        return value
-    try:
-        return len(table)  # type: ignore[arg-type]
-    except TypeError:
-        return None
-
-
-def _format_count(value: int, noun: str) -> str:
-    suffix = noun if value == 1 else f"{noun}s"
-    return f"{value:,} {suffix}"
 
 
 def _workspace_label(workspace_mode: str | None) -> str | None:

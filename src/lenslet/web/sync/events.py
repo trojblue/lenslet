@@ -12,7 +12,13 @@ from typing import Literal, TypeAlias, TypedDict
 from ...storage.base import SidecarPayload
 
 
-SyncEventName: TypeAlias = Literal["item-updated", "metrics-updated", "persistence", "presence"]
+SyncEventName: TypeAlias = Literal[
+    "item-updated",
+    "metrics-updated",
+    "persistence",
+    "presence",
+    "table-source",
+]
 JsonPrimitive: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonPrimitive | list["JsonValue"] | dict[str, "JsonValue"]
 IdempotencyPayload: TypeAlias = dict[str, JsonValue]

@@ -291,11 +291,12 @@ def test_remote_table_launch_uses_detected_source_column(monkeypatch) -> None:
     assert captured["table"] is rows
     assert captured["options"].source_column == "image_url"
     assert captured["options"].allow_local is False
+    assert captured["options"].source_refresh == "restart-required"
     launch_session = captured["options"].launch_session
     assert launch_session.kind == "hf_dataset"
     assert launch_session.loaded_from_label == "Hugging Face dataset"
     assert launch_session.target_label == "owner/repo"
-    assert launch_session.detail_label == "Remote table · read-only · 1 row"
+    assert launch_session.detail_label == "Remote table · read-only"
     assert launch_session.copy_command == "lenslet owner/repo --source-column image_url"
 
 

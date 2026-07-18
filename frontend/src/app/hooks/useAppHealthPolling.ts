@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../../api/client'
+import { api, subscribeHealthRefresh } from '../../api/client'
 import { labelPersistenceTracker } from '../../api/labelPersistence'
 import type { HealthMode, HealthResponse, LaunchSessionPayload, TableLaunchStatusPayload } from '../../lib/types'
 import {
@@ -17,6 +17,17 @@ const REFRESH_UNAVAILABLE_FALLBACK = 'Refresh unavailable in current mode'
 type RefreshCapability = {
   enabled: boolean
   note: string | null
+}
+
+export function createLatestHealthRequestGuard() {
+  let latestRequest = 0
+  return {
+    begin: () => {
+      latestRequest += 1
+      return latestRequest
+    },
+    isCurrent: (request: number) => request === latestRequest,
+  }
 }
 
 export type AppHealthPollingState = {
@@ -61,6 +72,7 @@ export function useAppHealthPolling(): AppHealthPollingState {
   useEffect(() => {
     let cancelled = false
     let timerId: number | null = null
+    const requestGuard = createLatestHealthRequestGuard()
 
     const clearPollTimer = () => {
       if (timerId == null) return
@@ -76,9 +88,10 @@ export function useAppHealthPolling(): AppHealthPollingState {
     }
 
     const pollHealth = async () => {
+      const request = requestGuard.begin()
       try {
         const health = await api.getHealth()
-        if (cancelled) return
+        if (cancelled || !requestGuard.isCurrent(request)) return
 
         setPersistenceEnabled(health?.labels?.enabled ?? true)
         if (health?.labels?.persistence) {
@@ -97,15 +110,19 @@ export function useAppHealthPolling(): AppHealthPollingState {
           schedulePoll(nextIndexingPollDelayMs(nextIndexing, HEALTH_POLL_RUNNING_MS, HEALTH_POLL_RETRY_MS))
         }
       } catch {
-        if (cancelled) return
+        if (cancelled || !requestGuard.isCurrent(request)) return
         schedulePoll(HEALTH_POLL_RETRY_MS)
       }
     }
 
+    const unsubscribeHealthRefresh = subscribeHealthRefresh(() => {
+      void pollHealth()
+    })
     void pollHealth()
     return () => {
       cancelled = true
       clearPollTimer()
+      unsubscribeHealthRefresh()
     }
   }, [])
 

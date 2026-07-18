@@ -180,6 +180,9 @@ def main() -> int:
             "max_delta_px": args.max_delta_px,
             "error": str(exc),
         }
+        evidence = getattr(exc, "evidence", None)
+        if isinstance(evidence, dict):
+            summary["checks"] = evidence
         print(json.dumps(summary, indent=2), file=sys.stderr)
         _write_output_json(args.output_json, summary)
         return 1

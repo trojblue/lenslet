@@ -2,7 +2,7 @@ import React, { Fragment, useEffect, useMemo, useCallback, useLayoutEffect, useR
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQueryClient } from '@tanstack/react-query'
-import { useItemDetail, useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict } from '../../api/items'
+import { useItemDetail, useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, sidecarQueryKey, useSidecarConflict } from '../../api/items'
 import { api, makeIdempotencyKey } from '../../api/client'
 import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
 import type { BrowseItemPayload, MetricDisplayNames, SortSpec, StarRating } from '../../lib/types'
@@ -25,7 +25,7 @@ import {
 } from './model/quickViewFields'
 import { resolveFindSimilarAvailability } from './model/findSimilarAvailability'
 import { INSPECTOR_WIDGETS, type InspectorWidgetContext } from './inspectorWidgets'
-import { resolveCompareMetadataTargets } from './hooks/metadataRequestGuards'
+import { pathConsistentValue, resolveCompareMetadataTargets } from './hooks/metadataRequestGuards'
 import { useInspectorCompareExport } from './hooks/useInspectorCompareExport'
 import { useInspectorCompareMetadata } from './hooks/useInspectorCompareMetadata'
 import { useInspectorSidecarWorkflow } from './hooks/useInspectorSidecarWorkflow'
@@ -75,6 +75,12 @@ const INSPECTOR_WIDGET_MAP = new Map(
   INSPECTOR_WIDGETS.map((widget) => [widget.id, widget] as const),
 )
 
+function InspectorPreviewImage({ path }: { path: string }): JSX.Element | null {
+  const thumbUrl = useBlobUrl(() => api.getThumb(path), [path])
+  if (!thumbUrl) return null
+  return <img src={thumbUrl} alt="thumb" className="inspector-preview-image block" />
+}
+
 export default function Inspector({
   path,
   selectedPaths = [],
@@ -97,10 +103,13 @@ export default function Inspector({
   onActionError,
 }: InspectorProps) {
   const enabled = !!path
-  const { data } = useSidecar(path ?? '')
+  const qc = useQueryClient()
+  const { data: queriedSidecar } = useSidecar(path ?? '')
   const { data: itemDetail } = useItemDetail(path ?? '')
   const mut = useUpdateSidecar(path ?? '')
-  const qc = useQueryClient()
+  const data = path && qc.getQueryData(sidecarQueryKey(path)) === queriedSidecar
+    ? queriedSidecar
+    : undefined
 
   const selectedCount = selectedPaths.length
   const multi = selectedCount > 1
@@ -161,7 +170,6 @@ export default function Inspector({
     markMetadataValueCopied,
   } = useInspectorUiState({
     path,
-    sidecarUpdatedAt: data?.updated_at,
     comparePaths: compareTargetPaths,
     selectedCount,
     metadataCompareAvailable,
@@ -211,7 +219,6 @@ export default function Inspector({
     fetchMetadata,
   } = useInspectorSingleMetadata({
     path,
-    sidecarUpdatedAt: data?.updated_at,
     autoloadMetadata: autoloadImageMetadata && !multi,
   })
 
@@ -281,8 +288,6 @@ export default function Inspector({
     return () => window.removeEventListener('keydown', onKey)
   }, [path, multi, selectedPaths, commitSidecar, onStarChanged])
 
-  const thumbUrl = useBlobUrl(path ? () => api.getThumb(path) : null, [path])
-
   const filename = path ? path.split('/').pop() || path : ''
   const ext = useMemo(() => {
     if (filename.includes('.')) {
@@ -295,10 +300,19 @@ export default function Inspector({
     return ''
   }, [filename, items, path])
   
+  const currentDetail = pathConsistentValue(path, itemDetail)
   const currentItem = useMemo(
-    () => itemDetail ?? items.find((i) => i.path === path),
-    [itemDetail, items, path]
+    () => currentDetail ?? items.find((i) => i.path === path),
+    [currentDetail, items, path]
   )
+  const previousBasicsHeightRef = useRef(0)
+  useLayoutEffect(() => {
+    if (!currentDetail) return
+    const basicsSection = document.querySelector('[data-inspector-section-id="basics"]')
+    if (basicsSection instanceof HTMLElement) {
+      previousBasicsHeightRef.current = basicsSection.getBoundingClientRect().height
+    }
+  }, [currentDetail])
   const sourceValue = useMemo(() => {
     if (!path) return ''
     return currentItem?.source ?? path
@@ -337,7 +351,16 @@ export default function Inspector({
   )
   const previousSelectionKeyRef = useRef<string | null>(null)
   const previousQuickViewRowsRef = useRef(0)
-  const selectionKey = `${path ?? ''}::${data?.updated_at ?? ''}`
+  const previousQuickViewHeightRef = useRef(0)
+  const selectionKey = path ?? ''
+  const selectionPendingQuickViewReservation = (
+    previousSelectionKeyRef.current !== null
+    && previousSelectionKeyRef.current !== selectionKey
+    && autoloadImageMetadata
+    && !multi
+    && !!path
+    && previousQuickViewRowsRef.current > 0
+  )
 
   useLayoutEffect(() => {
     const previousSelectionKey = previousSelectionKeyRef.current
@@ -360,6 +383,10 @@ export default function Inspector({
     if (quickViewVisible) {
       const measuredRows = Math.max(quickViewRows.length, QUICK_VIEW_FALLBACK_ROW_COUNT)
       previousQuickViewRowsRef.current = measuredRows
+      const quickViewSection = document.querySelector('[data-inspector-section-id="quickView"]')
+      if (quickViewSection instanceof HTMLElement) {
+        previousQuickViewHeightRef.current = quickViewSection.getBoundingClientRect().height
+      }
       setQuickViewReservationRowCount(measuredRows)
     }
 
@@ -401,7 +428,9 @@ export default function Inspector({
     quickViewReservationActive,
     quickViewVisible,
   ])
-  const quickViewReserved = quickViewReservationActive && !quickViewVisible
+  const quickViewReserved = (
+    quickViewReservationActive || selectionPendingQuickViewReservation
+  ) && !quickViewVisible
 
   const compareColumns = useMemo(
     () => compareTargetPaths.map((comparePath) => ({
@@ -470,7 +499,7 @@ export default function Inspector({
   }
   const metadataLoading = metaState === 'loading'
   const metaLoaded = metaState === 'loaded' && !!metaRawText
-  const metaHeightClass = metaLoaded ? 'h-48' : 'h-24'
+  const metaHeightClass = path && autoloadImageMetadata ? 'h-48' : (metaLoaded ? 'h-48' : 'h-24')
   let metadataActionLabel = 'Load meta'
   if (metadataLoading) {
     metadataActionLabel = 'Loading…'
@@ -558,6 +587,7 @@ export default function Inspector({
       reservationActive: quickViewReserved,
       reservationRowCount: quickViewReservationRowCount,
       metadataLoading,
+      reservationHeightPx: previousQuickViewHeightRef.current || undefined,
       quickViewCopiedRowId,
       onCopyQuickViewValue: handleCopyQuickViewValue,
       quickViewCustomPathsDraft,
@@ -627,6 +657,9 @@ export default function Inspector({
       onToggleMetricsExpanded: toggleMetricsExpanded,
       metricsPreviewLimit: METRICS_PREVIEW_LIMIT,
       tableFields: data?.table_fields ?? null,
+      reservationHeightPx: path && !currentDetail
+        ? previousBasicsHeightRef.current || undefined
+        : undefined,
       onFindSimilar,
       canFindSimilar,
       findSimilarDisabledReason,
@@ -692,7 +725,7 @@ export default function Inspector({
         <div className="inspector-preview-shell p-3 border-b border-border flex justify-center">
           <div className="inspector-preview-block space-y-2">
             <div className="inspector-preview-card relative rounded-lg overflow-hidden border border-border bg-panel select-none">
-              {thumbUrl && <img src={thumbUrl} alt="thumb" className="inspector-preview-image block" />}
+              {path && <InspectorPreviewImage key={path} path={path} />}
               {!!ext && <div className="absolute top-1.5 left-1.5 bg-surface border border-border text-text text-xs px-1.5 py-0.5 rounded-md select-none">{ext}</div>}
             </div>
             <div className="space-y-0.5">

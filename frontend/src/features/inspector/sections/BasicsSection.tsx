@@ -40,6 +40,7 @@ interface BasicsSectionProps {
   onToggleMetricsExpanded: () => void
   metricsPreviewLimit: number
   tableFields?: Record<string, unknown> | null
+  reservationHeightPx?: number
   sortableId?: InspectorWidgetId
   sortableEnabled?: boolean
 }
@@ -111,6 +112,7 @@ export function BasicsSection({
   onToggleMetricsExpanded,
   metricsPreviewLimit,
   tableFields,
+  reservationHeightPx,
   sortableId,
   sortableEnabled = false,
 }: BasicsSectionProps): JSX.Element {
@@ -121,6 +123,7 @@ export function BasicsSection({
       onToggle={onToggle}
       sortableId={sortableId}
       sortableEnabled={sortableEnabled}
+      minHeightPx={reservationHeightPx}
       actions={onFindSimilar && (
         <button
           type="button"

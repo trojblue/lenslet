@@ -1,0 +1,967 @@
+{
+  "status": "passed",
+  "base_url": "http://127.0.0.1:40077",
+  "dataset_dir": "/tmp/lenslet-jitter-probe-4vhtpnl5",
+  "scenario": "inspector",
+  "max_delta_px": 1.0,
+  "max_anchor_delta_px": 0.0,
+  "max_toolbar_delta_px": 0.0,
+  "max_top_stack_delta_px": 0.0,
+  "max_grid_width_delta_px": 0.0,
+  "max_inspector_delta_px": 0.0,
+  "checks": {
+    "quick_view_deltas_px": {
+      "quick_to_quick_pending_delta": 0.0,
+      "quick_to_quick_loaded_delta": 0.0,
+      "quick_to_plain_pending_delta": 0.0
+    },
+    "quick_one_loaded_snapshot": {
+      "present": true,
+      "top": 277,
+      "height": 228.21875,
+      "rowCount": 3,
+      "placeholderRowCount": 0,
+      "loading": false,
+      "promptValue": "beta prompt"
+    },
+    "pending_quick_snapshot": {
+      "present": true,
+      "top": 277,
+      "height": 228.21875,
+      "rowCount": 0,
+      "placeholderRowCount": 3,
+      "loading": false,
+      "promptValue": null
+    },
+    "quick_three_loaded_snapshot": {
+      "present": true,
+      "top": 277,
+      "height": 228.21875,
+      "rowCount": 3,
+      "placeholderRowCount": 0,
+      "loading": false,
+      "promptValue": "gamma prompt"
+    },
+    "pending_plain_snapshot": {
+      "present": true,
+      "top": 277,
+      "height": 228.21875,
+      "rowCount": 0,
+      "placeholderRowCount": 3,
+      "loading": false,
+      "promptValue": null
+    },
+    "plain_resolved_snapshot": {
+      "present": false,
+      "top": null,
+      "height": null,
+      "rowCount": 0,
+      "placeholderRowCount": 0,
+      "loading": false,
+      "promptValue": null
+    },
+    "inspector_continuity": {
+      "local_rating": {
+        "page_id": "owner",
+        "phase": "local_rating",
+        "iterations": 20,
+        "frame_count": 105,
+        "paint_p95_ms": 14.005000019073487,
+        "max_anchor_delta_px": 0.0,
+        "max_anchor_surface": null,
+        "anchor_deltas_px": {
+          "panel": 0.0,
+          "preview_shell": 0.0,
+          "preview_card": 0.0,
+          "filename": 0.0,
+          "quick_view": 0.0,
+          "basics": 0.0,
+          "metadata": 0.0,
+          "notes": 0.0
+        },
+        "missing_required_surface_frames": 0,
+        "root_or_required_nodes_replaced": false,
+        "replaced_surfaces": [],
+        "stale_text_frames": 0,
+        "blank_or_fallback_frames": 0,
+        "missing_expected_content_frames": 0,
+        "violations": [],
+        "failing_frames": [],
+        "patch_item_requests": 20,
+        "metadata_gets_after_warmup": 0,
+        "detail_gets_after_warmup": 0,
+        "dirty_drafts_preserved": true,
+        "requests": {
+          "page_id": "owner",
+          "phase": "local_rating",
+          "counts": {
+            "GET /item": 20,
+            "PATCH /item": 20
+          },
+          "by_path": {
+            "/quick_01_meta.png": {
+              "GET /item": 20,
+              "PATCH /item": 20
+            }
+          },
+          "records": [
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "local_rating",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            }
+          ]
+        }
+      },
+      "remote_echo": {
+        "page_id": "remote",
+        "phase": "remote_echo",
+        "iterations": 1,
+        "frame_count": 7,
+        "paint_p95_ms": 62.60000038146973,
+        "max_anchor_delta_px": 0.0,
+        "max_anchor_surface": null,
+        "anchor_deltas_px": {
+          "panel": 0.0,
+          "preview_shell": 0.0,
+          "preview_card": 0.0,
+          "filename": 0.0,
+          "quick_view": 0.0,
+          "basics": 0.0,
+          "metadata": 0.0,
+          "notes": 0.0
+        },
+        "missing_required_surface_frames": 0,
+        "root_or_required_nodes_replaced": false,
+        "replaced_surfaces": [],
+        "stale_text_frames": 0,
+        "blank_or_fallback_frames": 0,
+        "missing_expected_content_frames": 0,
+        "violations": [],
+        "failing_frames": [],
+        "dirty_drafts_preserved": true,
+        "requests": {
+          "page_id": "remote",
+          "phase": "remote_echo",
+          "counts": {},
+          "by_path": {},
+          "records": []
+        },
+        "originating_page_requests": {
+          "page_id": "owner",
+          "phase": "remote_echo",
+          "counts": {
+            "GET /item": 1,
+            "PATCH /item": 1
+          },
+          "by_path": {
+            "/quick_01_meta.png": {
+              "GET /item": 1,
+              "PATCH /item": 1
+            }
+          },
+          "records": [
+            {
+              "page_id": "owner",
+              "phase": "remote_echo",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "owner",
+              "phase": "remote_echo",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            }
+          ]
+        }
+      },
+      "selection": {
+        "page_id": "selection",
+        "phase": "selection",
+        "iterations": 20,
+        "frame_count": 122,
+        "paint_p95_ms": 13.434999656677247,
+        "max_anchor_delta_px": 0.0,
+        "max_anchor_surface": null,
+        "anchor_deltas_px": {
+          "panel": 0.0,
+          "preview_shell": 0.0,
+          "preview_card": 0.0,
+          "filename": 0.0,
+          "quick_view": 0.0,
+          "basics": 0.0,
+          "metadata": 0.0,
+          "notes": 0.0
+        },
+        "missing_required_surface_frames": 0,
+        "root_or_required_nodes_replaced": false,
+        "replaced_surfaces": [],
+        "stale_text_frames": 0,
+        "blank_or_fallback_frames": 0,
+        "missing_expected_content_frames": 0,
+        "violations": [],
+        "failing_frames": [],
+        "requests": {
+          "page_id": "selection",
+          "phase": "selection",
+          "counts": {
+            "GET /item": 1,
+            "GET /item/detail": 1,
+            "GET /metadata": 20
+          },
+          "by_path": {
+            "/quick_00_meta.png": {
+              "GET /item": 1,
+              "GET /item/detail": 1,
+              "GET /metadata": 10
+            },
+            "/quick_01_meta.png": {
+              "GET /metadata": 10
+            }
+          },
+          "records": [
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/item/detail",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "selection",
+              "phase": "selection",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_01_meta.png"
+            }
+          ]
+        },
+        "request_windows": [
+          {
+            "action_id": "selection-1",
+            "path": "/quick_00_meta.png",
+            "counts": {
+              "/item": 1,
+              "/item/detail": 1,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-2",
+            "path": "/quick_01_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-3",
+            "path": "/quick_00_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-4",
+            "path": "/quick_01_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-5",
+            "path": "/quick_00_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-6",
+            "path": "/quick_01_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-7",
+            "path": "/quick_00_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-8",
+            "path": "/quick_01_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-9",
+            "path": "/quick_00_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-10",
+            "path": "/quick_01_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-11",
+            "path": "/quick_00_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-12",
+            "path": "/quick_01_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-13",
+            "path": "/quick_00_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-14",
+            "path": "/quick_01_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-15",
+            "path": "/quick_00_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-16",
+            "path": "/quick_01_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-17",
+            "path": "/quick_00_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-18",
+            "path": "/quick_01_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-19",
+            "path": "/quick_00_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          },
+          {
+            "action_id": "selection-20",
+            "path": "/quick_01_meta.png",
+            "counts": {
+              "/item": 0,
+              "/item/detail": 0,
+              "/metadata": 1
+            },
+            "attribution_violations": []
+          }
+        ]
+      },
+      "delayed_rating_switch": {
+        "page_id": "delayed",
+        "phase": "delayed_rating_switch",
+        "iterations": 2,
+        "frame_count": 87,
+        "paint_p95_ms": 12.549999809265136,
+        "max_anchor_delta_px": 0.0,
+        "max_anchor_surface": null,
+        "anchor_deltas_px": {
+          "panel": 0.0,
+          "preview_shell": 0.0,
+          "preview_card": 0.0,
+          "filename": 0.0,
+          "quick_view": 0.0,
+          "basics": 0.0,
+          "metadata": 0.0,
+          "notes": 0.0
+        },
+        "missing_required_surface_frames": 0,
+        "root_or_required_nodes_replaced": false,
+        "replaced_surfaces": [],
+        "stale_text_frames": 0,
+        "blank_or_fallback_frames": 0,
+        "missing_expected_content_frames": 0,
+        "violations": [],
+        "failing_frames": [],
+        "requests": {
+          "page_id": "delayed",
+          "phase": "delayed_rating_switch",
+          "counts": {
+            "GET /item": 2,
+            "GET /item/detail": 1,
+            "GET /metadata": 3,
+            "PATCH /item": 1
+          },
+          "by_path": {
+            "/quick_00_meta.png": {
+              "GET /item": 1,
+              "GET /item/detail": 1,
+              "GET /metadata": 2
+            },
+            "/quick_01_meta.png": {
+              "GET /metadata": 1,
+              "GET /item": 1,
+              "PATCH /item": 1
+            }
+          },
+          "records": [
+            {
+              "page_id": "delayed",
+              "phase": "delayed_rating_switch",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "delayed",
+              "phase": "delayed_rating_switch",
+              "method": "GET",
+              "pathname": "/item/detail",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "delayed",
+              "phase": "delayed_rating_switch",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            },
+            {
+              "page_id": "delayed",
+              "phase": "delayed_rating_switch",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "delayed",
+              "phase": "delayed_rating_switch",
+              "method": "GET",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "delayed",
+              "phase": "delayed_rating_switch",
+              "method": "PATCH",
+              "pathname": "/item",
+              "path": "/quick_01_meta.png"
+            },
+            {
+              "page_id": "delayed",
+              "phase": "delayed_rating_switch",
+              "method": "GET",
+              "pathname": "/metadata",
+              "path": "/quick_00_meta.png"
+            }
+          ]
+        },
+        "target_rating_preserved": true,
+        "old_path_responses_ignored": true
+      },
+      "workaround_used": false,
+      "violations": []
+    },
+    "violations": []
+  }
+}

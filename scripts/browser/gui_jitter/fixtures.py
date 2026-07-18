@@ -77,9 +77,11 @@ def write_fixture_labels_snapshot(root: Path) -> None:
     for idx, image_path in enumerate(fixture_image_paths(root)):
         path = f"/{image_path.name}"
         score = round((idx % 7) / 7.0, 6)
+        sentinel = image_path.stem.replace("quick_", "")
+        inspector_fixture = image_path.name.startswith("quick_")
         item = {
-            "tags": [],
-            "notes": "",
+            "tags": [f"tag-{sentinel}"] if inspector_fixture else [],
+            "notes": f"notes-{sentinel}" if inspector_fixture else "",
             "star": None,
             "version": 100,
             "updated_at": "",

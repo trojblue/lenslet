@@ -518,10 +518,8 @@ def run_viewer_restore_scenario(page: Page, timeout_ms: float) -> ViewerRestoreS
 
 
 def prepare_reorder_scenario(page: Page, timeout_ms: float) -> None:
-    # Work around current production-bundle instability when selecting while inspector is mounted.
-    set_right_panel_open(page, open_state=False, timeout_ms=10_000)
-    select_first_visible_grid_cell(page, timeout_ms=timeout_ms)
     set_right_panel_open(page, open_state=True, timeout_ms=10_000)
+    select_first_visible_grid_cell(page, timeout_ms=timeout_ms)
     ensure_inspector_reorder_handles(page, timeout_ms=10_000)
 
 

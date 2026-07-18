@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import shutil
 import sys
@@ -20,6 +21,9 @@ from scripts.browser.gui_smoke.fixtures import (
     build_derived_metric_table_fixture,
     build_fixture_dataset,
 )
+from scripts.browser.gui_jitter.fixtures import build_fixture_dataset as build_inspector_fixture_dataset
+from scripts.browser.gui_jitter.inspector import run_inspector_probe
+from scripts.browser.gui_jitter.shared import ProbeResult
 from scripts.browser.gui_smoke.scenarios import (
     BackendBrowseFilterSmokeResult,
     DerivedMetricSmokeResult,
@@ -121,6 +125,35 @@ def has_indexing_lifecycle_proof(payload: dict[str, Any]) -> bool:
     return finished_at >= started_at
 
 
+def compact_inspector_continuity(result: ProbeResult) -> dict[str, Any]:
+    continuity = copy.deepcopy(result.checks["inspector_continuity"])
+    for phase in ("local_rating", "remote_echo", "selection", "delayed_rating_switch"):
+        phase_summary = continuity.get(phase)
+        if not isinstance(phase_summary, dict):
+            continue
+        for request_key in ("requests", "originating_page_requests"):
+            requests = phase_summary.get(request_key)
+            if isinstance(requests, dict):
+                requests.pop("records", None)
+    selection = continuity.get("selection")
+    if isinstance(selection, dict):
+        windows = selection.pop("request_windows", [])
+        if isinstance(windows, list):
+            selection["request_window_count"] = len(windows)
+            selection["max_requests_per_action"] = {
+                endpoint: max(
+                    (
+                        int(window.get("counts", {}).get(endpoint, 0))
+                        for window in windows
+                        if isinstance(window, dict) and isinstance(window.get("counts"), dict)
+                    ),
+                    default=0,
+                )
+                for endpoint in ("/item", "/item/detail", "/metadata")
+            }
+    return continuity
+
+
 def build_summary(
     *,
     base_url: str,
@@ -133,6 +166,8 @@ def build_summary(
     backend_filter_server_log: Path | None = None,
     derived_metric_result: DerivedMetricSmokeResult | None = None,
     derived_metric_server_log: Path | None = None,
+    inspector_result: ProbeResult | None = None,
+    inspector_server_log: Path | None = None,
 ) -> dict[str, Any]:
     indexing_lifecycle_proof = has_indexing_lifecycle_proof(initial_health) or has_indexing_lifecycle_proof(final_health)
 
@@ -173,6 +208,10 @@ def build_summary(
             "inspector_reloaded_order": result.inspector_reloaded_order,
             "inspector_reorder_persisted": result.inspector_reordered_order == result.inspector_reloaded_order,
             "inspector_compare_over_cap_message": result.inspector_compare_over_cap_message,
+            "inspector_continuity": None if inspector_result is None else {
+                **compact_inspector_continuity(inspector_result),
+                "server_log": None if inspector_server_log is None else str(inspector_server_log),
+            },
             "backend_browse_filter": None if backend_filter_result is None else {
                 "scope_total": backend_filter_result.scope_total,
                 "filtered_total": backend_filter_result.filtered_total,
@@ -209,6 +248,7 @@ def main() -> int:
     dataset_dir, cleanup_dir = resolve_dataset(args)
     backend_filter_dataset_dir = Path(tempfile.mkdtemp(prefix="lenslet-backend-filter-smoke-")).resolve()
     derived_dataset_dir = Path(tempfile.mkdtemp(prefix="lenslet-derived-metric-smoke-")).resolve()
+    inspector_dataset_dir = Path(tempfile.mkdtemp(prefix="lenslet-inspector-smoke-")).resolve()
     log_path: Path | None = None
 
     try:
@@ -218,6 +258,7 @@ def main() -> int:
             "/backend-query/target_1005.jpg",
         ]
         derived_table_path = build_derived_metric_table_fixture(derived_dataset_dir)
+        build_inspector_fixture_dataset(inspector_dataset_dir)
         port = choose_port(args.host, args.port)
 
         with running_lenslet_server(
@@ -237,6 +278,33 @@ def main() -> int:
             final_health = wait_for_health(server.base_url, args.server_timeout_seconds)
 
         backend_filter_port = choose_port(args.host, args.port)
+
+        inspector_port = choose_port(args.host, args.port)
+        with running_lenslet_server(
+            inspector_dataset_dir,
+            host=args.host,
+            port=inspector_port,
+            extra_args=["--verbose"],
+            cwd=Path(__file__).resolve().parents[1],
+            log_prefix="lenslet-inspector-smoke-server-",
+        ) as inspector_server:
+            log_path = inspector_server.log_path
+            _inspector_initial_health = wait_for_health(
+                inspector_server.base_url,
+                args.server_timeout_seconds,
+            )
+            if inspector_server.process.poll() is not None:
+                raise SmokeFailure(f"Lenslet exited unexpectedly with code {inspector_server.process.returncode}.")
+            inspector_result = run_inspector_probe(
+                inspector_server.base_url,
+                max_delta_px=1.0,
+                browser_timeout_ms=args.browser_timeout_ms,
+            )
+            _inspector_final_health = wait_for_health(
+                inspector_server.base_url,
+                args.server_timeout_seconds,
+            )
+
         with running_lenslet_server(
             backend_filter_table_path,
             host=args.host,
@@ -291,12 +359,24 @@ def main() -> int:
                 backend_filter_server_log=backend_filter_server.log_path,
                 derived_metric_result=derived_metric_result,
                 derived_metric_server_log=derived_server.log_path,
+                inspector_result=inspector_result,
+                inspector_server_log=inspector_server.log_path,
             )
             print(json.dumps(summary, indent=2))
             write_output(args.output_json, summary)
             return 0
     except Exception as exc:
         tail = read_log_tail(log_path) if log_path is not None else "<unavailable>"
+        failure_summary = {
+            "status": "failed",
+            "dataset_dir": str(dataset_dir),
+            "error": str(exc),
+        }
+        evidence = getattr(exc, "evidence", None)
+        if isinstance(evidence, dict):
+            failure_summary["checks"] = evidence
+        print(json.dumps(failure_summary, indent=2), file=sys.stderr)
+        write_output(args.output_json, failure_summary)
         print(f"[gui-smoke] FAILED: {exc}", file=sys.stderr)
         print(f"[gui-smoke] Server log tail ({log_path}):\n{tail}", file=sys.stderr)
         return 1
@@ -305,6 +385,7 @@ def main() -> int:
             shutil.rmtree(dataset_dir, ignore_errors=True)
         shutil.rmtree(backend_filter_dataset_dir, ignore_errors=True)
         shutil.rmtree(derived_dataset_dir, ignore_errors=True)
+        shutil.rmtree(inspector_dataset_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

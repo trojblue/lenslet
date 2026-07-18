@@ -14,10 +14,17 @@ export interface CompareMetadataTargets {
 
 export function buildSingleMetadataContextKey(
   path: string | null,
-  sidecarUpdatedAt: string | undefined,
 ): string | null {
   if (!path) return null
-  return `${path}::${sidecarUpdatedAt ?? ''}`
+  return path
+}
+
+export function pathConsistentValue<T extends { path: string }>(
+  selectedPath: string | null,
+  value: T | null | undefined,
+): T | null {
+  if (!selectedPath || value?.path !== selectedPath) return null
+  return value
 }
 
 function normalizedComparePaths(comparePaths: readonly string[]): string[] {

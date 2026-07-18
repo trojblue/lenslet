@@ -7,6 +7,7 @@ import {
   buildSidecarDraft,
   hasSemanticNotesChange,
   hasSemanticTagsChange,
+  mergeAuthoritativeSidecarDraft,
   parseSidecarTags,
   type SidecarDraft,
 } from './sidecarDraftGuards'
@@ -57,9 +58,11 @@ export function useInspectorSidecarWorkflow({
 }: UseInspectorSidecarWorkflowParams): UseInspectorSidecarWorkflowResult {
   const [tags, setTags] = useState('')
   const [notes, setNotes] = useState('')
+  const [draftPath, setDraftPath] = useState<string | null>(path)
   const localTypingActiveRef = useRef(false)
   const notesDirtyRef = useRef(false)
   const tagsDirtyRef = useRef(false)
+  const draftPathRef = useRef<string | null>(path)
   const baselineDraftRef = useRef<SidecarDraft>(buildSidecarDraft(undefined))
 
   const notifyLocalTyping = useCallback(
@@ -84,12 +87,22 @@ export function useInspectorSidecarWorkflow({
   )
 
   useEffect(() => {
-    if (!path) {
-      resetDraftState(buildSidecarDraft(undefined))
+    const nextDraft = buildSidecarDraft(path ? sidecar : undefined)
+    if (draftPathRef.current !== path) {
+      draftPathRef.current = path
+      setDraftPath(path)
+      resetDraftState(nextDraft)
       return
     }
-    resetDraftState(buildSidecarDraft(sidecar))
-  }, [path, resetDraftState, sidecar?.updated_at, sidecar?.version])
+    baselineDraftRef.current = nextDraft
+    const mergedDraft = mergeAuthoritativeSidecarDraft(
+      { notes, tags },
+      nextDraft,
+      { notes: notesDirtyRef.current, tags: tagsDirtyRef.current },
+    )
+    if (!notesDirtyRef.current) setNotes(mergedDraft.notes)
+    if (!tagsDirtyRef.current) setTags(mergedDraft.tags)
+  }, [notes, path, resetDraftState, sidecar?.notes, sidecar?.tags, tags])
 
   useEffect(
     () => () => {
@@ -188,8 +201,8 @@ export function useInspectorSidecarWorkflow({
   }, [conflict, notifyLocalTyping, onStarChanged, path, queryClient])
 
   return {
-    tags,
-    notes,
+    tags: draftPath === path ? tags : '',
+    notes: draftPath === path ? notes : '',
     conflictFields,
     commitSidecar,
     applyConflict,

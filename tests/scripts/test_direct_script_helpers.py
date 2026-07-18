@@ -454,6 +454,23 @@ def test_gui_smoke_acceptance_summary_and_section_order(tmp_path: Path) -> None:
         inspector_reloaded_order=["quickView", "metadata"],
         inspector_compare_over_cap_message="too many",
     )
+    inspector_result = gui_smoke_acceptance.ProbeResult(
+        scenario="inspector",
+        max_delta_px=1.0,
+        checks={
+            "inspector_continuity": {
+                "local_rating": {"requests": {"counts": {"PATCH /item": 20}, "records": [{}]}},
+                "remote_echo": {"requests": {"counts": {}, "records": []}},
+                "selection": {
+                    "requests": {"counts": {"GET /metadata": 2}, "records": [{}, {}]},
+                    "request_windows": [
+                        {"counts": {"/item": 1, "/item/detail": 1, "/metadata": 1}},
+                    ],
+                },
+                "delayed_rating_switch": {"requests": {"counts": {}, "records": []}},
+            }
+        },
+    )
     summary = gui_smoke_acceptance.build_summary(
         base_url="http://127.0.0.1:7070",
         dataset_dir=tmp_path,
@@ -461,9 +478,15 @@ def test_gui_smoke_acceptance_summary_and_section_order(tmp_path: Path) -> None:
         initial_health={},
         final_health={},
         result=result,
+        inspector_result=inspector_result,
     )
 
     assert summary["checks"]["inspector_reorder_persisted"] is True
+    continuity = summary["checks"]["inspector_continuity"]
+    assert continuity["local_rating"]["requests"]["counts"]["PATCH /item"] == 20
+    assert "records" not in continuity["local_rating"]["requests"]
+    assert continuity["selection"]["request_window_count"] == 1
+    assert continuity["selection"]["max_requests_per_action"]["/metadata"] == 1
     assert summary["warnings"]
 
 

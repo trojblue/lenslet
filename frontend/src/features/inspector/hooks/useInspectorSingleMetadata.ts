@@ -9,7 +9,6 @@ import type { MetadataRecord, MetadataState } from './useInspectorMetadataTypes'
 
 type UseInspectorSingleMetadataParams = {
   path: string | null
-  sidecarUpdatedAt: string | undefined
   autoloadMetadata: boolean
 }
 
@@ -57,14 +56,13 @@ export function projectSingleMetadataSnapshot(
 
 export function useInspectorSingleMetadata({
   path,
-  sidecarUpdatedAt,
   autoloadMetadata,
 }: UseInspectorSingleMetadataParams): UseInspectorSingleMetadataResult {
   const [metaRaw, setMetaRaw] = useState<MetadataRecord>(null)
   const [metaError, setMetaError] = useState<string | null>(null)
   const [metaState, setMetaState] = useState<MetadataState>('idle')
   const [showPilInfo, setShowPilInfo] = useState(false)
-  const metadataContextKey = buildSingleMetadataContextKey(path, sidecarUpdatedAt)
+  const metadataContextKey = buildSingleMetadataContextKey(path)
   const [metaContextKey, setMetaContextKey] = useState<string | null>(metadataContextKey)
   const metaRequestIdRef = useRef(0)
   const activeMetadataContextKeyRef = useRef<string | null>(metadataContextKey)
@@ -80,7 +78,7 @@ export function useInspectorSingleMetadata({
   }, [metadataContextKey])
 
   const fetchMetadata = useCallback(async () => {
-    const requestContextKey = buildSingleMetadataContextKey(path, sidecarUpdatedAt)
+    const requestContextKey = buildSingleMetadataContextKey(path)
     if (!requestContextKey || !path) return
 
     const requestId = metaRequestIdRef.current + 1
@@ -119,7 +117,7 @@ export function useInspectorSingleMetadata({
       setMetaError(msg)
       setMetaState('error')
     }
-  }, [path, sidecarUpdatedAt])
+  }, [path])
 
   useEffect(() => {
     if (!autoloadMetadata || !path) return

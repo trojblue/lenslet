@@ -5,13 +5,13 @@ describe('projectSingleMetadataSnapshot', () => {
   it('returns the active snapshot when context keys match', () => {
     const projected = projectSingleMetadataSnapshot(
       {
-        contextKey: '/images/a.png::v1',
+        contextKey: '/images/a.png',
         metaRaw: { quick_view_defaults: { prompt: 'sunset' } },
         metaError: null,
         metaState: 'loaded',
         showPilInfo: true,
       },
-      '/images/a.png::v1',
+      '/images/a.png',
     )
 
     expect(projected).toEqual({
@@ -25,13 +25,13 @@ describe('projectSingleMetadataSnapshot', () => {
   it('hides out-of-order completion snapshots when the active context moved on', () => {
     const projected = projectSingleMetadataSnapshot(
       {
-        contextKey: '/images/a.png::v1',
+        contextKey: '/images/a.png',
         metaRaw: { quick_view_defaults: { prompt: 'stale prompt' } },
         metaError: null,
         metaState: 'loaded',
         showPilInfo: true,
       },
-      '/images/b.png::v2',
+      '/images/b.png',
     )
 
     expect(projected).toEqual({

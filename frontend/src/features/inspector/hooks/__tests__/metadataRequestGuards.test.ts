@@ -3,17 +3,15 @@ import {
   MAX_INSPECTOR_COMPARE_PATHS,
   buildCompareMetadataContextKey,
   buildSingleMetadataContextKey,
+  pathConsistentValue,
   resolveCompareMetadataTargets,
   shouldApplyMetadataResponse,
 } from '../metadataRequestGuards'
 
 describe('inspector metadata request guards', () => {
   it('builds single metadata context keys only when a path is active', () => {
-    expect(buildSingleMetadataContextKey(null, undefined)).toBeNull()
-    expect(buildSingleMetadataContextKey('/images/cat.png', undefined)).toBe('/images/cat.png::')
-    expect(buildSingleMetadataContextKey('/images/cat.png', '2026-02-12T00:00:00Z')).toBe(
-      '/images/cat.png::2026-02-12T00:00:00Z',
-    )
+    expect(buildSingleMetadataContextKey(null)).toBeNull()
+    expect(buildSingleMetadataContextKey('/images/cat.png')).toBe('/images/cat.png')
   })
 
   it('builds compare metadata context keys only for ready list-based compare contexts', () => {
@@ -108,8 +106,8 @@ describe('inspector metadata request guards', () => {
   })
 
   it('rejects stale single-metadata responses after rapid selection/context switches', () => {
-    const initialContext = buildSingleMetadataContextKey('/images/a.png', 'v1')
-    const nextContext = buildSingleMetadataContextKey('/images/b.png', 'v2')
+    const initialContext = buildSingleMetadataContextKey('/images/a.png')
+    const nextContext = buildSingleMetadataContextKey('/images/b.png')
     expect(initialContext).not.toBeNull()
     expect(nextContext).not.toBeNull()
 
@@ -129,6 +127,14 @@ describe('inspector metadata request guards', () => {
         responseContextKey: nextContext,
       }),
     ).toBe(true)
+  })
+
+  it('keeps only detail data that belongs to the active selected path', () => {
+    const stale = { path: '/images/a.png', source: 'alpha' }
+    const current = { path: '/images/b.png', source: 'beta' }
+    expect(pathConsistentValue('/images/b.png', stale)).toBeNull()
+    expect(pathConsistentValue('/images/b.png', current)).toBe(current)
+    expect(pathConsistentValue(null, current)).toBeNull()
   })
 
   it('rejects stale compare responses after rapid compare-context toggles', () => {

@@ -5,6 +5,11 @@ export type SidecarDraft = {
   tags: string
 }
 
+export type SidecarDraftDirtyFields = {
+  notes: boolean
+  tags: boolean
+}
+
 export function buildSidecarDraft(sidecar: Pick<Sidecar, 'notes' | 'tags'> | undefined): SidecarDraft {
   return {
     notes: sidecar?.notes ?? '',
@@ -17,6 +22,17 @@ export function parseSidecarTags(value: string): string[] {
     .split(',')
     .map((tag) => tag.trim())
     .filter(Boolean)
+}
+
+export function mergeAuthoritativeSidecarDraft(
+  current: SidecarDraft,
+  authoritative: SidecarDraft,
+  dirty: SidecarDraftDirtyFields,
+): SidecarDraft {
+  return {
+    notes: dirty.notes ? current.notes : authoritative.notes,
+    tags: dirty.tags ? current.tags : authoritative.tags,
+  }
 }
 
 function tagsEqual(a: string[], b: string[]): boolean {

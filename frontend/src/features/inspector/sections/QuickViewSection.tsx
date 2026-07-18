@@ -10,6 +10,7 @@ interface QuickViewSectionProps {
   reservationActive: boolean
   reservationRowCount: number
   metadataLoading: boolean
+  reservationHeightPx?: number
   quickViewCopiedRowId: string | null
   onCopyQuickViewValue: (rowId: string, value: string) => void
   quickViewCustomPathsDraft: string
@@ -27,6 +28,7 @@ function QuickViewSectionComponent({
   reservationActive,
   reservationRowCount,
   metadataLoading,
+  reservationHeightPx,
   quickViewCopiedRowId,
   onCopyQuickViewValue,
   quickViewCustomPathsDraft,
@@ -56,6 +58,7 @@ function QuickViewSectionComponent({
       sortableId={sortableId}
       sortableEnabled={sortableEnabled}
       contentClassName="px-3 pb-3 space-y-2"
+      minHeightPx={reservationActive ? reservationHeightPx : undefined}
     >
       <div className="text-[11px] text-muted">
         {reservationActive && metadataLoading ? 'Loading metadata…' : 'Auto-loaded PNG metadata fields.'}
@@ -63,7 +66,7 @@ function QuickViewSectionComponent({
       <div className="space-y-1.5 text-[12px]">
         {reservationActive && rows.length === 0
           ? placeholderRows.map((placeholderId) => (
-            <div key={placeholderId} className="ui-kv-row min-h-[39px] items-start gap-2" aria-hidden>
+            <div key={placeholderId} className="ui-kv-row min-h-7 items-start gap-2" aria-hidden>
               <span className="ui-kv-label w-20 shrink-0">
                 <span className="block h-3 w-12 rounded bg-surface-inset/80" />
               </span>

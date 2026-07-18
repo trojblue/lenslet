@@ -3,6 +3,7 @@ import {
   buildSidecarDraft,
   hasSemanticNotesChange,
   hasSemanticTagsChange,
+  mergeAuthoritativeSidecarDraft,
   parseSidecarTags,
 } from '../sidecarDraftGuards'
 
@@ -33,5 +34,22 @@ describe('inspector sidecar draft guards', () => {
     expect(hasSemanticTagsChange('a, b', 'a, b, c')).toBe(true)
     expect(hasSemanticTagsChange('a, b', 'b, a')).toBe(true)
     expect(hasSemanticTagsChange('a, b, b', 'a, b')).toBe(true)
+  })
+
+  it('accepts authoritative clean fields while retaining dirty drafts', () => {
+    expect(
+      mergeAuthoritativeSidecarDraft(
+        { notes: 'local notes', tags: 'local-tag' },
+        { notes: 'remote notes', tags: 'remote-tag' },
+        { notes: true, tags: false },
+      ),
+    ).toEqual({ notes: 'local notes', tags: 'remote-tag' })
+    expect(
+      mergeAuthoritativeSidecarDraft(
+        { notes: 'local notes', tags: 'local-tag' },
+        { notes: 'remote notes', tags: 'remote-tag' },
+        { notes: false, tags: true },
+      ),
+    ).toEqual({ notes: 'remote notes', tags: 'local-tag' })
   })
 })

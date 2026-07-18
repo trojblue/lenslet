@@ -11,6 +11,7 @@ interface InspectorSectionProps {
   actions?: React.ReactNode
   children: React.ReactNode
   contentClassName?: string
+  minHeightPx?: number
 }
 
 export function InspectorSection({
@@ -22,6 +23,7 @@ export function InspectorSection({
   actions,
   children,
   contentClassName,
+  minHeightPx,
 }: InspectorSectionProps): JSX.Element {
   const [renderBody, setRenderBody] = useState(open)
   const [bodyState, setBodyState] = useState(open ? 'open' : 'closed')
@@ -39,6 +41,7 @@ export function InspectorSection({
   const sectionStyle: CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
+    minHeight: minHeightPx,
   }
 
   useEffect(() => {

@@ -1,0 +1,8 @@
+{
+  "status": "failed",
+  "base_url": "http://127.0.0.1:48099",
+  "dataset_dir": "/tmp/lenslet-jitter-probe-pwapsj1f",
+  "scenario": "inspector",
+  "max_delta_px": 1.0,
+  "error": "inspector delta 18.219px exceeded threshold 1.000px; local_rating: required nodes were replaced: ['quick_view']; local_rating: anchor delta 128.000px exceeded 1.000px; local_rating: local rating refetched metadata after warmup; local_rating: local rating replaced dirty notes/tags drafts; remote_echo: required nodes were replaced: ['quick_view']; remote_echo: anchor delta 128.000px exceeded 1.000px; remote_echo: remote star echo replaced dirty notes/tags drafts; selection: required nodes were replaced: ['quick_view']; selection: anchor delta 133.281px exceeded 1.000px; selection: stale path sentinel painted in 20 frames; selection: selection issued more than one GET /metadata for uncached path /quick_00_meta.png; selection: selection issued more than one GET /metadata for uncached path /quick_01_meta.png; delayed_rating_switch: required nodes were replaced: ['quick_view']; delayed_rating_switch: anchor delta 133.281px exceeded 1.000px; delayed_rating_switch: stale path sentinel painted in 2 frames"
+}

@@ -21,7 +21,6 @@ export type InspectorSectionKey = 'quickView' | 'overview' | 'compare' | 'basics
 
 type UseInspectorUiStateParams = {
   path: string | null
-  sidecarUpdatedAt: string | undefined
   comparePaths: string[]
   selectedCount: number
   metadataCompareAvailable: boolean
@@ -109,7 +108,6 @@ function clearTimer(timerRef: MutableRefObject<number | null>): void {
 
 export function useInspectorUiState({
   path,
-  sidecarUpdatedAt,
   comparePaths,
   selectedCount,
   metadataCompareAvailable,
@@ -323,7 +321,7 @@ export function useInspectorUiState({
     clearTimer(metaCopiedTimeoutRef)
     clearTimer(metaValueCopyTimeoutRef)
     clearTimer(quickViewCopyTimeoutRef)
-  }, [path, sidecarUpdatedAt])
+  }, [path])
 
   useEffect(
     () => () => {

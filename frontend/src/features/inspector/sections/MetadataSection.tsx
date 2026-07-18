@@ -47,15 +47,14 @@ function MetadataSectionComponent({
 }: MetadataSectionProps): JSX.Element {
   const metadataActions = (
     <div className="flex items-center gap-2 text-xs">
-      {metaLoaded && hasPilInfo && (
-        <button
-          className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors"
-          onClick={onToggleShowPilInfo}
-          disabled={!metaLoaded}
-        >
-          {showPilInfo ? 'Hide PIL info' : 'Show PIL info'}
-        </button>
-      )}
+      <button
+        className={`px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors ${metaLoaded && hasPilInfo ? '' : 'invisible'}`}
+        onClick={onToggleShowPilInfo}
+        disabled={!metaLoaded || !hasPilInfo}
+        aria-hidden={!metaLoaded || !hasPilInfo}
+      >
+        {showPilInfo ? 'Hide PIL info' : 'Show PIL info'}
+      </button>
       <button
         className="px-2 py-1 bg-transparent text-muted border border-border/60 rounded-md disabled:opacity-60 hover:border-border hover:text-text transition-colors min-w-[78px]"
         onClick={onMetadataAction}

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type { CompareOrderMode, BrowseItemPayload } from '../../lib/types'
 import { replaceHash, replaceImageHash, writeImageHash } from '../routing/hash'
+import { browseEntityStore } from '../model/browseEntityStore'
+import { overlayLiveBrowseEntity } from './useGridPresentation'
 
 type UseAppSelectionViewerCompareParams = {
   current: string
@@ -9,6 +11,8 @@ type UseAppSelectionViewerCompareParams = {
   items: BrowseItemPayload[]
   selectionPool: BrowseItemPayload[]
   compareOrderMode: CompareOrderMode
+  membershipSettled: boolean
+  membershipComplete: boolean
   focusGridCell: (path: string | null | undefined) => void
 }
 
@@ -40,7 +44,6 @@ type UseAppSelectionViewerCompareResult = {
   handleNavigate: (delta: number) => void
   resetViewerState: () => void
   resetForScopeBoundary: (explicitViewerPath?: string | null) => void
-  clearViewerForSearch: (scopePath: string) => void
   syncHashImageSelection: (imageTarget: string | null) => void
 }
 
@@ -100,6 +103,52 @@ export function resolveCompareOrderedItems(
   return resolveGalleryOrderedItems(selectedPaths, items)
 }
 
+export function canCommitCompareMembership(
+  selectedPaths: readonly string[],
+  targetItems: readonly BrowseItemPayload[],
+  membershipSettled: boolean,
+  membershipComplete: boolean,
+): boolean {
+  if (!membershipSettled) return false
+  if (membershipComplete) return true
+  const targetPaths = new Set(targetItems.map((item) => item.path))
+  return selectedPaths.every((path) => targetPaths.has(path))
+}
+
+export function reconcileSettledSearchSelection(
+  selectedPaths: string[],
+  membershipPaths: readonly string[],
+  membershipComplete: boolean,
+): string[] {
+  if (!membershipComplete || !selectedPaths.length) return selectedPaths
+  const membership = new Set(membershipPaths)
+  const next = selectedPaths.filter((path) => membership.has(path))
+  return next.length === selectedPaths.length ? selectedPaths : next
+}
+
+export function resolveRetainedSelectedItems(
+  selectedPaths: readonly string[],
+  candidates: readonly BrowseItemPayload[],
+): BrowseItemPayload[] {
+  const candidatesByPath = new Map(candidates.map((item) => [item.path, item]))
+  return selectedPaths.flatMap((path) => {
+    const item = candidatesByPath.get(path)
+    return item ? [item] : []
+  })
+}
+
+export function resolveRetainedCompareItems(
+  selectedPaths: readonly string[],
+  retainedItems: readonly BrowseItemPayload[],
+  selectedItems: readonly BrowseItemPayload[],
+): BrowseItemPayload[] {
+  const selected = new Set(selectedPaths)
+  const liveByPath = new Map(selectedItems.map((item) => [item.path, item]))
+  return retainedItems
+    .filter((item) => selected.has(item.path))
+    .map((item) => liveByPath.get(item.path) ?? item)
+}
+
 export function resolveAdjacentImagePath(
   itemPaths: readonly string[],
   currentPath: string | null | undefined,
@@ -132,6 +181,8 @@ export function useAppSelectionViewerCompare({
   items,
   selectionPool,
   compareOrderMode,
+  membershipSettled,
+  membershipComplete,
   focusGridCell,
 }: UseAppSelectionViewerCompareParams): UseAppSelectionViewerCompareResult {
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
@@ -143,15 +194,66 @@ export function useAppSelectionViewerCompare({
   const viewerHistoryPushedRef = useRef(false)
   const compareHistoryPushedRef = useRef(false)
   const lastFocusedPathRef = useRef<string | null>(null)
+  const selectedOwnerRef = useRef<object>({})
+  const selectedItemsRef = useRef<BrowseItemPayload[]>([])
+  const compareItemsRef = useRef<BrowseItemPayload[]>([])
+  const [selectedEntityVersion, setSelectedEntityVersion] = useState(0)
 
-  const selectedItems = useMemo(
+  const selectedPathKey = selectedPaths.join('\u0000')
+  useLayoutEffect(() => {
+    const owner = selectedOwnerRef.current
+    browseEntityStore.setActivePaths(owner, selectedPaths)
+    const unsubscribers = selectedPaths.map((path) => (
+      browseEntityStore.subscribe(path, () => setSelectedEntityVersion((version) => version + 1))
+    ))
+    setSelectedEntityVersion((version) => version + 1)
+    return () => {
+      for (const unsubscribe of unsubscribers) unsubscribe()
+      browseEntityStore.release(owner)
+    }
+  }, [selectedPathKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const targetSelectedItems = useMemo(
     () => resolveSelectionOrderedItems(selectedPaths, selectionPool, items),
     [selectedPaths, selectionPool, items],
   )
-  const compareItems = useMemo(
+  const selectedMembershipReady = canCommitCompareMembership(
+    selectedPaths,
+    targetSelectedItems,
+    membershipSettled,
+    membershipComplete,
+  )
+  useLayoutEffect(() => {
+    if (selectedMembershipReady) selectedItemsRef.current = targetSelectedItems
+  }, [selectedMembershipReady, targetSelectedItems])
+  const selectedCandidates = selectedMembershipReady
+    ? targetSelectedItems
+    : selectedItemsRef.current
+  const selectedBaseItems = useMemo(
+    () => resolveRetainedSelectedItems(selectedPaths, selectedCandidates),
+    [selectedCandidates, selectedPaths],
+  )
+  const selectedItems = useMemo(() => selectedBaseItems.flatMap((base) => {
+    const item = overlayLiveBrowseEntity(base, browseEntityStore.get(base.path))
+    return item ? [item] : []
+  }), [selectedBaseItems, selectedEntityVersion])
+  const targetCompareItems = useMemo(
     () => resolveCompareOrderedItems(selectedPaths, selectionPool, items, compareOrderMode),
     [selectedPaths, selectionPool, items, compareOrderMode],
   )
+  const compareMembershipReady = canCommitCompareMembership(
+    selectedPaths,
+    targetCompareItems,
+    membershipSettled,
+    membershipComplete,
+  )
+  useLayoutEffect(() => {
+    if (!compareOpen || compareMembershipReady) compareItemsRef.current = targetCompareItems
+  }, [compareMembershipReady, compareOpen, targetCompareItems])
+  const compareItems = useMemo(() => {
+    if (!compareOpen || compareMembershipReady) return targetCompareItems
+    return resolveRetainedCompareItems(selectedPaths, compareItemsRef.current, selectedItems)
+  }, [compareMembershipReady, compareOpen, selectedItems, selectedPaths, targetCompareItems])
   const comparePaths = useMemo(() => compareItems.map((it) => it.path), [compareItems])
   const compareMaxIndex = Math.max(0, compareItems.length - 2)
   const compareIndexClamped = Math.min(compareIndex, compareMaxIndex)
@@ -225,14 +327,6 @@ export function useAppSelectionViewerCompare({
     }
     resetViewerState()
   }, [itemPaths, resetViewerState, restoreGridToPath, selectedPaths, viewer])
-
-  const clearViewerForSearch = useCallback((scopePath: string) => {
-    if (!viewer) return
-    setViewer(null)
-    setViewerNavPaths([])
-    viewerHistoryPushedRef.current = false
-    replaceHash(scopePath)
-  }, [viewer])
 
   const openViewer = useCallback((path: string) => {
     setViewer(path)
@@ -309,7 +403,7 @@ export function useAppSelectionViewerCompare({
     setViewerNavPaths(itemPaths)
   }, [itemPaths, viewer, viewerNavPaths.length])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!shouldCloseCompareForSelectionChange(compareOpen, compareEnabled)) return
     closeCompare()
   }, [compareOpen, compareEnabled, closeCompare])
@@ -361,7 +455,6 @@ export function useAppSelectionViewerCompare({
     handleNavigate,
     resetViewerState,
     resetForScopeBoundary,
-    clearViewerForSearch,
     syncHashImageSelection,
   }
 }

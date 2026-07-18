@@ -4,10 +4,10 @@ import {
   type PersistedAppShellSettings,
 } from '../model/appShellStateSync'
 import {
+  readInitialPersistedAppShellSettings,
   readPersistedSettingsFromStorage,
   writePersistedSettingsToStorage,
 } from '../hooks/usePersistedAppShellSettings'
-import type { DerivedMetricSpec } from '../../lib/types'
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()
@@ -37,24 +37,8 @@ class MemoryStorage implements Storage {
   }
 }
 
-function makeDerivedSpec(overrides: Partial<DerivedMetricSpec> = {}): DerivedMetricSpec {
-  return {
-    version: 1,
-    id: 'rubric_1',
-    name: 'Rubric score',
-    intercept: 0,
-    numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: false }],
-    categoricalTerms: [],
-    ...overrides,
-  }
-}
-
 function makeSettings(overrides: Partial<PersistedAppShellSettings> = {}): PersistedAppShellSettings {
   return {
-    viewState: {
-      sort: { kind: 'builtin', key: 'added', dir: 'desc' },
-      filters: { and: [] },
-    },
     viewMode: 'adaptive',
     gridItemSize: 220,
     leftOpen: true,
@@ -130,17 +114,7 @@ describe('settings persistence view-state contract', () => {
     storage.setItem('filterAst', JSON.stringify({ and: [{ starsIn: { values: [5] } }] }))
     storage.setItem('selectedMetric', 'score')
 
-    const viewState = {
-      sort: { kind: 'metric' as const, key: '@derived/rubric_1', dir: 'desc' as const },
-      filters: {
-        and: [{ metricRange: { key: '@derived/rubric_1', min: 0, max: 10 } }],
-      },
-      selectedMetric: '@derived/rubric_1',
-      derivedMetric: makeDerivedSpec(),
-    }
-
     writePersistedSettingsToStorage(storage, makeSettings({
-      viewState,
       viewMode: 'grid',
       gridItemSize: 260,
       leftOpen: false,
@@ -169,6 +143,27 @@ describe('settings persistence view-state contract', () => {
     storage.setItem('filterAst', JSON.stringify({ and: [{ metricRange: { key: '@derived/rubric_1', min: 0, max: 1 } }] }))
     storage.setItem('selectedMetric', '@derived/rubric_1')
 
-    expect(readPersistedSettingsFromStorage(storage).viewState).toBeUndefined()
+    expect(readPersistedSettingsFromStorage(storage)).toEqual({})
+  })
+
+  it('rejects invalid personal settings while retaining independently valid values', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('viewMode', 'masonry')
+    storage.setItem('gridItemSize', '9999')
+    storage.setItem('leftOpen', 'sometimes')
+    storage.setItem('rightOpen', '0')
+    storage.setItem('autoloadImageMetadata', 'true')
+    storage.setItem('compareOrderMode', 'side-by-side')
+    storage.setItem('proxyHttpOriginals', '1')
+
+    expect(readPersistedSettingsFromStorage(storage)).toEqual({
+      rightOpen: false,
+      autoloadImageMetadata: true,
+      proxyHttpOriginals: true,
+    })
+  })
+
+  it('uses deterministic defaults when no browser storage exists', () => {
+    expect(readInitialPersistedAppShellSettings()).toEqual({})
   })
 })

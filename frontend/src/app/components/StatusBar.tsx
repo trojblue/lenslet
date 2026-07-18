@@ -94,8 +94,17 @@ function deriveStatusBarState({
   }
 }
 
-export function hasStatusBarContent(props: StatusBarProps): boolean {
-  return deriveStatusBarState(props).showAnyBanner
+export function statusBarContentKey(props: StatusBarProps): string {
+  const state = deriveStatusBarState(props)
+  return [
+    state.showReadOnlyWarning && 'read-only',
+    state.showIndexingRunning && 'indexing-running',
+    state.showIndexingError && 'indexing-error',
+    state.showTableSourceWarning && 'table-source',
+    Boolean(props.derivedMetricWarning) && 'derived-metric',
+    state.showZoomWarning && 'browser-zoom',
+    Boolean(props.offViewSummary) && 'off-view',
+  ].filter(Boolean).join('\u0000')
 }
 
 export default function StatusBar({
@@ -138,111 +147,109 @@ export default function StatusBar({
   })
   if (!showAnyBanner) return null
   return (
-    <div className="border-b border-border bg-panel">
-      <div className="px-3 py-2 flex flex-col gap-2">
-        {showReadOnlyWarning && (
-          <div className="ui-banner ui-banner-danger text-xs flex items-center justify-between gap-3">
-            <span>
-              <span className="font-semibold">Not persisted.</span> Workspace is read-only; edits stay in memory until restart.
-            </span>
-            {onDismissPersistenceWarning && (
+    <div className="grid-top-status-list">
+      {showReadOnlyWarning && (
+        <div className="grid-top-context-item ui-banner ui-banner-danger text-xs flex items-center justify-between gap-3">
+          <span>
+            <span className="font-semibold">Not persisted.</span> Workspace is read-only; edits stay in memory until restart.
+          </span>
+          {onDismissPersistenceWarning && (
+            <button
+              type="button"
+              className="text-muted hover:text-text transition-colors text-base leading-none shrink-0"
+              onClick={onDismissPersistenceWarning}
+              aria-label="Dismiss persistence warning"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
+      {showIndexingRunning && (
+        <div className="grid-top-context-item ui-banner ui-banner-accent text-xs">
+          <span className="font-semibold">Indexing in progress{indexingScopeLabel}.</span>
+          {' '}
+          {indexingProgressLabel
+            ? `${indexingProgressLabel} complete.`
+            : 'Preparing searchable index.'}
+        </div>
+      )}
+      {showIndexingError && (
+        <div className="grid-top-context-item ui-banner ui-banner-danger text-xs">
+          <span className="font-semibold">Indexing failed.</span>
+          {' '}
+          {indexing?.error || 'Open server logs for details.'}
+        </div>
+      )}
+      {showTableSourceWarning && (
+        <div className="grid-top-context-item ui-banner ui-banner-accent text-xs flex items-center justify-between gap-3">
+          <span>
+            <span className="font-semibold">Image source warning.</span>
+            {' '}
+            {tableSourceWarning}
+          </span>
+          {onDismissTableSourceWarning && (
+            <button
+              type="button"
+              className="text-muted hover:text-text transition-colors text-base leading-none shrink-0"
+              onClick={onDismissTableSourceWarning}
+              aria-label="Dismiss image source warning"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
+      {derivedMetricWarning && (
+        <div className="grid-top-context-item ui-banner ui-banner-danger text-xs">
+          <span className="font-semibold">Derived score.</span>
+          {' '}
+          {derivedMetricWarning}
+        </div>
+      )}
+      {showZoomWarning && (
+        <div className="grid-top-context-item ui-banner ui-banner-accent text-xs flex items-center justify-between gap-3">
+          <span>
+            <span className="font-semibold">Browser zoom {Math.round(zoomPercent ?? 100)}%.</span> For best results, set it to 100% so UI elements stay in correct proportions.
+          </span>
+          {onDismissBrowserZoomWarning && (
+            <button
+              type="button"
+              className="text-muted hover:text-text transition-colors text-base leading-none shrink-0"
+              onClick={onDismissBrowserZoomWarning}
+              aria-label="Dismiss browser zoom warning"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
+      {offViewSummary && (
+        <div className="grid-top-context-item ui-banner ui-banner-accent text-xs flex items-center justify-between gap-3">
+          <span>
+            Updates outside current view: {offViewSummary.count} item{offViewSummary.count === 1 ? '' : 's'}
+            {offViewLabel}
+          </span>
+          <div className="flex items-center gap-2">
+            {canReveal && (
               <button
-                type="button"
-                className="text-muted hover:text-text transition-colors text-base leading-none shrink-0"
-                onClick={onDismissPersistenceWarning}
-                aria-label="Dismiss persistence warning"
+                className="text-muted hover:text-text transition-colors"
+                onClick={onRevealOffView}
+                aria-label="Reveal off-view updates"
               >
-                ×
+                Reveal
               </button>
             )}
+            <button
+              className="text-muted hover:text-text transition-colors text-base leading-none"
+              onClick={onClearOffView}
+              aria-label="Clear off-view updates"
+            >
+              ×
+            </button>
           </div>
-        )}
-        {showIndexingRunning && (
-          <div className="ui-banner ui-banner-accent text-xs">
-            <span className="font-semibold">Indexing in progress{indexingScopeLabel}.</span>
-            {' '}
-            {indexingProgressLabel
-              ? `${indexingProgressLabel} complete.`
-              : 'Preparing searchable index.'}
-          </div>
-        )}
-        {showIndexingError && (
-          <div className="ui-banner ui-banner-danger text-xs">
-            <span className="font-semibold">Indexing failed.</span>
-            {' '}
-            {indexing?.error || 'Open server logs for details.'}
-          </div>
-        )}
-        {showTableSourceWarning && (
-          <div className="ui-banner ui-banner-accent text-xs flex items-center justify-between gap-3">
-            <span>
-              <span className="font-semibold">Image source warning.</span>
-              {' '}
-              {tableSourceWarning}
-            </span>
-            {onDismissTableSourceWarning && (
-              <button
-                type="button"
-                className="text-muted hover:text-text transition-colors text-base leading-none shrink-0"
-                onClick={onDismissTableSourceWarning}
-                aria-label="Dismiss image source warning"
-              >
-                ×
-              </button>
-            )}
-          </div>
-        )}
-        {derivedMetricWarning && (
-          <div className="ui-banner ui-banner-danger text-xs">
-            <span className="font-semibold">Derived score.</span>
-            {' '}
-            {derivedMetricWarning}
-          </div>
-        )}
-        {showZoomWarning && (
-          <div className="ui-banner ui-banner-accent text-xs flex items-center justify-between gap-3">
-            <span>
-              <span className="font-semibold">Browser zoom {Math.round(zoomPercent ?? 100)}%.</span> For best results, set it to 100% so UI elements stay in correct proportions.
-            </span>
-            {onDismissBrowserZoomWarning && (
-              <button
-                type="button"
-                className="text-muted hover:text-text transition-colors text-base leading-none shrink-0"
-                onClick={onDismissBrowserZoomWarning}
-                aria-label="Dismiss browser zoom warning"
-              >
-                ×
-              </button>
-            )}
-          </div>
-        )}
-        {offViewSummary && (
-          <div className="ui-banner ui-banner-accent text-xs flex items-center justify-between gap-3">
-            <span>
-              Updates outside current view: {offViewSummary.count} item{offViewSummary.count === 1 ? '' : 's'}
-              {offViewLabel}
-            </span>
-            <div className="flex items-center gap-2">
-              {canReveal && (
-                <button
-                  className="text-muted hover:text-text transition-colors"
-                  onClick={onRevealOffView}
-                  aria-label="Reveal off-view updates"
-                >
-                  Reveal
-                </button>
-              )}
-              <button
-                className="text-muted hover:text-text transition-colors text-base leading-none"
-                onClick={onClearOffView}
-                aria-label="Clear off-view updates"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

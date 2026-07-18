@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlencode
 
 from scripts.browser.gui_jitter.grid_dom import (
     open_metrics_panel,
@@ -17,7 +18,6 @@ from scripts.browser.gui_jitter.shared import (
     ProbeResult,
     set_local_storage,
     state_delta,
-    state_delta_nested,
     wait_for_grid,
 )
 from scripts.smoke_harness import SmokeFailure, import_playwright
@@ -57,6 +57,7 @@ class GridProbeSnapshots:
     baseline_counts: dict[str, Any] | None = None
     filtered_counts: dict[str, Any] | None = None
     continuity: dict[str, Any] = field(default_factory=dict)
+    top_rail: dict[str, Any] = field(default_factory=dict)
 
 
 def ensure_sort_trigger(page: Any, browser_timeout_ms: float) -> Any:
@@ -158,10 +159,10 @@ def select_sort_option(page: Any, label: str, browser_timeout_ms: float) -> None
 def wait_for_filters_band(page: Any, *, hidden: bool, browser_timeout_ms: float) -> None:
     page.wait_for_function(
         """(expectedHidden) => {
-          const band = document.querySelector('[data-grid-top-band="filters"]');
-          if (!(band instanceof HTMLElement)) return false;
-          const isHidden = band.getAttribute('aria-hidden') === 'true';
-          return isHidden === expectedHidden;
+          const stack = document.querySelector('[data-grid-top-stack]');
+          if (!(stack instanceof HTMLElement)) return false;
+          const filterCount = Number(stack.getAttribute('data-filter-count') || 0);
+          return (filterCount === 0) === expectedHidden;
         }""",
         arg=hidden,
         timeout=browser_timeout_ms,
@@ -186,7 +187,7 @@ def enable_unrated_filter(
 
 
 def clear_filter_chips(page: Any, browser_timeout_ms: float) -> None:
-    clear_button = page.locator('[data-grid-top-band="filters"] button:has-text("Clear all")').first
+    clear_button = page.locator('[data-grid-top-rail] button:has-text("Clear all")').first
     if clear_button.count() > 0:
         clear_button.click()
     wait_for_filters_band(page, hidden=True, browser_timeout_ms=browser_timeout_ms)
@@ -222,6 +223,130 @@ def verify_metric_options(config: GridProbeConfig, sort_labels: list[str], panel
     if forbidden_panel:
         raise SmokeFailure(f"Forbidden metric filter options found: {forbidden_panel}")
     return expected or sort_labels[0]
+
+
+def exercise_top_rail(
+    page: Any,
+    config: GridProbeConfig,
+) -> dict[str, Any]:
+    long_value = "a-very-long-filter-value-used-to-prove-horizontal-overflow"
+    filters = {
+        "and": [
+            {"nameContains": {"value": long_value}},
+            {"notesContains": {"value": f"notes-{long_value}"}},
+            {"urlContains": {"value": f"url-{long_value}"}},
+            {"widthCompare": {"op": ">=", "value": 48}},
+            {"heightCompare": {"op": "<=", "value": 32}},
+        ]
+    }
+    query = urlencode({"filters": json.dumps(filters, separators=(",", ":"))})
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(f"{config.base_url}?{query}", wait_until="domcontentloaded")
+    page.wait_for_selector('[data-grid-top-rail]', timeout=config.browser_timeout_ms)
+    page.wait_for_function(
+        """() => Number(document.querySelector('[data-grid-top-stack]')
+          ?.getAttribute('data-filter-count') || 0) >= 5""",
+        timeout=config.browser_timeout_ms,
+    )
+    active = snapshot_grid(page)
+    clear_button = page.locator('[data-grid-top-rail] button:has-text("Clear all")').first
+    clear_button.focus()
+    clear_button.evaluate("node => node.scrollIntoView({ block: 'nearest', inline: 'end' })")
+    page.wait_for_function(
+        """() => {
+          const rail = document.querySelector('[data-grid-top-rail]');
+          const active = document.activeElement;
+          if (!(rail instanceof HTMLElement) || !(active instanceof HTMLElement)) return false;
+          const railRect = rail.getBoundingClientRect();
+          const activeRect = active.getBoundingClientRect();
+          return rail.scrollLeft > 0
+            && activeRect.left >= railRect.left - 1
+            && activeRect.right <= railRect.right + 1;
+        }""",
+        timeout=config.browser_timeout_ms,
+    )
+    focused = snapshot_grid(page)
+    cdp_session = page.context.new_cdp_session(page)
+    cdp_session.send(
+        "Emulation.setDeviceMetricsOverride",
+        {
+            "width": 390,
+            "height": 844,
+            "deviceScaleFactor": 1.1,
+            "mobile": False,
+        },
+    )
+    page.evaluate("() => window.dispatchEvent(new Event('resize'))")
+    page.locator('button[aria-label="Dismiss browser zoom warning"]').wait_for(
+        state="visible",
+        timeout=config.browser_timeout_ms,
+    )
+    status_introduced = snapshot_grid(page)
+    clear_button.click()
+    wait_for_filters_band(page, hidden=True, browser_timeout_ms=config.browser_timeout_ms)
+    cleared = snapshot_grid(page)
+
+    wait_for_grid(page, config.browser_timeout_ms)
+    selected_cell = page.locator('[role="gridcell"][id^="cell-"]').first
+    selected_cell.click()
+    page.route(
+        "**/file?*",
+        lambda route: route.fulfill(
+            status=503,
+            json={"detail": "forced download failure for top-rail evidence"},
+        ),
+    )
+    selected_cell.click(button="right")
+    page.get_by_role("menuitem", name="Download", exact=True).click()
+    page.wait_for_selector('[data-grid-top-action]', timeout=config.browser_timeout_ms)
+    action = snapshot_grid(page)
+    page.locator('[data-grid-top-action] button[aria-label="Dismiss action status"]').click()
+    page.wait_for_selector(
+        '[data-grid-top-action]',
+        state="detached",
+        timeout=config.browser_timeout_ms,
+    )
+    action_cleared = snapshot_grid(page)
+    page.unroute("**/file?*")
+
+    selected_cell.click()
+    selected_cell.click(button="right")
+    find_similar = page.get_by_role("menuitem", name="Find similar").first
+    find_similar.wait_for(state="visible", timeout=config.browser_timeout_ms)
+    page.wait_for_function(
+        """() => !Array.from(document.querySelectorAll('button'))
+          .find(button => (button.textContent || '').trim() === 'Find similar')?.disabled""",
+        timeout=config.browser_timeout_ms,
+    )
+    find_similar.click()
+    modal = page.get_by_role("dialog", name="Find similar").first
+    modal.wait_for(state="visible", timeout=config.browser_timeout_ms)
+    modal.get_by_role("button", name="Find similar").click()
+    page.wait_for_selector('[data-grid-top-rail] button:has-text("Exit similarity")', timeout=config.browser_timeout_ms)
+    similarity = snapshot_grid(page)
+    exit_button = page.locator('[data-grid-top-rail] button:has-text("Exit similarity")').first
+    exit_button.focus()
+    exit_button.evaluate("node => node.scrollIntoView({ block: 'nearest', inline: 'end' })")
+    exit_button.click()
+    page.wait_for_selector(
+        '[data-grid-top-rail] button:has-text("Exit similarity")',
+        state="detached",
+        timeout=config.browser_timeout_ms,
+    )
+    similarity_cleared = snapshot_grid(page)
+    cdp_session.detach()
+
+    return {
+        "active": active,
+        "focused": focused,
+        "status_introduced": status_introduced,
+        "cleared": cleared,
+        "action": action,
+        "action_cleared": action_cleared,
+        "similarity": similarity,
+        "similarity_cleared": similarity_cleared,
+        "status_visible": page.locator('.grid-top-status-list').count() > 0,
+    }
 
 
 def apply_metric_filter_if_requested(
@@ -349,8 +474,12 @@ def start_browse_frame_trace(page: Any) -> None:
             const countLabel = document.querySelector('.toolbar-count');
             const rail = document.querySelector('[data-metric-rail-slot]');
             let ratingCounts = {};
+            let selectedPaths = [];
             try {
               ratingCounts = JSON.parse(shell?.getAttribute('data-browse-rating-counts') || '{}');
+            } catch {}
+            try {
+              selectedPaths = JSON.parse(shell?.getAttribute('data-selected-paths') || '[]');
             } catch {}
             const filterDialog = document.querySelector('[role="dialog"][aria-label="Filters"]');
             for (const button of filterDialog?.querySelectorAll('button.dropdown-item') || []) {
@@ -388,6 +517,10 @@ def start_browse_frame_trace(page: Any) -> None:
               railInteractionDisabled:
                 rail?.getAttribute('data-metric-rail-interaction-disabled') === 'true',
               ratingCounts,
+              selectedPaths,
+              inspectorPath: document.querySelector('[data-inspector-panel]')
+                ?.getAttribute('data-inspector-path') || null,
+              compareOpen: Boolean(document.querySelector('[role="dialog"][aria-label="Compare images"]')),
               filteredLabels,
               presentedTarget: shell?.getAttribute('data-browse-presentation-target') || null,
               requestedTarget: shell?.getAttribute('data-browse-requested-target') || null,
@@ -544,6 +677,49 @@ def exercise_atomic_browse_continuity(
     select_sort_option(page, "Date added", timeout_ms)
     wait_for_sort_state(page, "Date added", "desc", timeout_ms)
     search = page.get_by_label("Search filename, tags, notes").first
+
+    matching_term = selected_path.rsplit("/", 1)[-1].split(".", 1)[0]
+    matching_request_count = browse_query_request_count(page)
+    configure_browse_queries(page, textDelays={matching_term: 1_100})
+    start_browse_frame_trace(page)
+    search.fill(matching_term)
+    wait_for_browse_query(page, matching_request_count, timeout_ms)
+    wait_for_steady_presentation(page, timeout_ms)
+    page.wait_for_function(
+        """expectedPath => {
+          const shell = document.querySelector('[data-browse-shell]');
+          const selected = JSON.parse(shell?.getAttribute('data-selected-paths') || '[]');
+          return selected.includes(expectedPath)
+            && document.querySelector('[data-inspector-panel]')
+              ?.getAttribute('data-inspector-path') === expectedPath;
+        }""",
+        arg=selected_path,
+        timeout=timeout_ms,
+    )
+    matching_search_frames = stop_browse_frame_trace(page)
+    search.fill("")
+    wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
+
+    excluding_request_count = browse_query_request_count(page)
+    configure_browse_queries(page, textDelays={"no-terminal-match": 1_100})
+    start_browse_frame_trace(page)
+    search.fill("no-terminal-match")
+    wait_for_browse_query(page, excluding_request_count, timeout_ms)
+    page.wait_for_function(
+        """() => {
+          const gridState = document.querySelector('[data-grid-state]')
+            ?.getAttribute('data-grid-state');
+          const shell = document.querySelector('[data-browse-shell]');
+          const selected = JSON.parse(shell?.getAttribute('data-selected-paths') || '[]');
+          return gridState === 'empty' && selected.length === 0;
+        }""",
+        timeout=timeout_ms,
+    )
+    empty_frames = stop_browse_frame_trace(page)
+    configure_browse_queries(page, textDelays={})
+    search.fill("")
+    wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
+
     configure_browse_queries(
         page,
         textDelays={"sample_00": 900, "quick_0": 650, "sample_010": 100},
@@ -570,17 +746,6 @@ def exercise_atomic_browse_continuity(
     search.fill("")
     wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
 
-    start_browse_frame_trace(page)
-    search.fill("no-terminal-match")
-    page.wait_for_function(
-        """() => document.querySelector('[data-grid-state]')
-          ?.getAttribute('data-grid-state') === 'empty'""",
-        timeout=timeout_ms,
-    )
-    empty_frames = stop_browse_frame_trace(page)
-    search.fill("")
-    wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
-
     configure_browse_queries(page, errorText="forced-error")
     start_browse_frame_trace(page)
     search.fill("forced-error")
@@ -591,6 +756,73 @@ def exercise_atomic_browse_continuity(
     )
     error_frames = stop_browse_frame_trace(page)
     configure_browse_queries(page, errorText=None)
+    search.fill("")
+    wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
+
+    sample_ids = page.locator('[role="gridcell"][id^="cell-"]').evaluate_all(
+        """nodes => nodes
+          .map(node => node.id)
+          .filter(id => id.includes('sample_0'))
+          .slice(0, 2)"""
+    )
+    if not isinstance(sample_ids, list) or len(sample_ids) < 2:
+        raise SmokeFailure("Compare continuity probe could not find two sample images.")
+    page.locator(f'[id="{sample_ids[0]}"]').click()
+    page.locator(f'[id="{sample_ids[1]}"]').click(modifiers=["Control"])
+    compare_button = page.get_by_label("Compare selected images").first
+    compare_button.wait_for(state="visible", timeout=timeout_ms)
+    page.wait_for_function(
+        """() => !document.querySelector('button[aria-label="Compare selected images"]')?.disabled""",
+        timeout=timeout_ms,
+    )
+    compare_request_count = browse_query_request_count(page)
+    configure_browse_queries(page, textDelays={"sample_0": 1_100})
+    start_browse_frame_trace(page)
+    search.fill("sample_0")
+    compare_button.click()
+    page.wait_for_selector(
+        '[role="dialog"][aria-label="Compare images"]',
+        timeout=timeout_ms,
+    )
+    wait_for_browse_query(page, compare_request_count, timeout_ms)
+    wait_for_steady_presentation(page, timeout_ms)
+    page.wait_for_timeout(100)
+    compare_frames = stop_browse_frame_trace(page)
+    page.get_by_role("button", name="Close").first.click()
+    page.wait_for_selector(
+        '[role="dialog"][aria-label="Compare images"]',
+        state="detached",
+        timeout=timeout_ms,
+    )
+
+    page.wait_for_function(
+        """() => !document.querySelector('button[aria-label="Compare selected images"]')?.disabled""",
+        timeout=timeout_ms,
+    )
+    excluding_compare_request_count = browse_query_request_count(page)
+    configure_browse_queries(page, textDelays={"no-compare-terminal-match": 1_100})
+    start_browse_frame_trace(page)
+    search.fill("no-compare-terminal-match")
+    compare_button.click()
+    page.wait_for_selector(
+        '[role="dialog"][aria-label="Compare images"]',
+        timeout=timeout_ms,
+    )
+    wait_for_browse_query(page, excluding_compare_request_count, timeout_ms)
+    page.wait_for_function(
+        """() => {
+          const gridState = document.querySelector('[data-grid-state]')
+            ?.getAttribute('data-grid-state');
+          const compareOpen = Boolean(
+            document.querySelector('[role="dialog"][aria-label="Compare images"]')
+          );
+          return gridState === 'empty' && !compareOpen;
+        }""",
+        timeout=timeout_ms,
+    )
+    wait_for_steady_presentation(page, timeout_ms)
+    excluding_compare_frames = stop_browse_frame_trace(page)
+    configure_browse_queries(page, textDelays={})
     search.fill("")
     wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
 
@@ -645,6 +877,9 @@ def exercise_atomic_browse_continuity(
         "fast_sort_frames": fast_sort_frames,
         "slow_sort_frames": slow_sort_frames,
         "rapid_frames": rapid_frames,
+        "matching_search_frames": matching_search_frames,
+        "compare_frames": compare_frames,
+        "compare_excluding_frames": excluding_compare_frames,
         "empty_frames": empty_frames,
         "error_frames": error_frames,
         "scope_reset_frames": scope_reset_frames,
@@ -706,6 +941,7 @@ def exercise_grid_probe(
         base_payload=payload,
         baseline_counts=baseline_counts,
     )
+    top_rail = exercise_top_rail(page, config)
     return GridProbeSnapshots(
         warmup_filters_active=warmup_filters_active,
         builtin_initial=builtin_initial,
@@ -721,11 +957,12 @@ def exercise_grid_probe(
         baseline_counts=baseline_counts,
         filtered_counts=filtered_counts,
         continuity=continuity,
+        top_rail=top_rail,
     )
 
 
 def grid_top_stack_deltas(snapshots: GridProbeSnapshots) -> dict[str, float]:
-    deltas = {
+    return {
         "baseline_to_filters_top_stack_delta": state_delta(
             snapshots.builtin_initial,
             snapshots.filters_active,
@@ -736,21 +973,27 @@ def grid_top_stack_deltas(snapshots: GridProbeSnapshots) -> dict[str, float]:
             snapshots.filters_cleared,
             "topStackHeight",
         ),
-    }
-    for band_name in ("status", "similarity", "filters"):
-        deltas[f"baseline_to_filters_{band_name}_band_delta"] = state_delta_nested(
+        "baseline_to_filters_top_rail_delta": state_delta(
             snapshots.builtin_initial,
             snapshots.filters_active,
-            "bandHeights",
-            band_name,
-        )
-        deltas[f"baseline_to_restored_{band_name}_band_delta"] = state_delta_nested(
+            "topRailHeight",
+        ),
+        "baseline_to_restored_top_rail_delta": state_delta(
             snapshots.builtin_initial,
             snapshots.filters_cleared,
-            "bandHeights",
-            band_name,
-        )
-    return deltas
+            "topRailHeight",
+        ),
+        "baseline_to_filters_grid_body_top_delta": state_delta(
+            snapshots.builtin_initial,
+            snapshots.filters_active,
+            "gridBodyTop",
+        ),
+        "baseline_to_restored_grid_body_top_delta": state_delta(
+            snapshots.builtin_initial,
+            snapshots.filters_cleared,
+            "gridBodyTop",
+        ),
+    }
 
 
 def grid_width_deltas(snapshots: GridProbeSnapshots) -> dict[str, float]:
@@ -785,10 +1028,12 @@ def snapshot_mount_violations(snapshots: dict[str, dict[str, Any]]) -> list[str]
             violations.append(f"{name}: expected scroll root to avoid scrollbar-hidden mode")
         if snapshot.get("metricRailWidth") is None:
             violations.append(f"{name}: missing metric rail slot width measurement")
-        for band_name in ("status", "similarity", "filters"):
-            band_value = snapshot.get("bandHeights", {}).get(band_name)
-            if band_value is None:
-                violations.append(f"{name}: missing mounted top-stack band '{band_name}'")
+        if snapshot.get("topRailHeight") is None:
+            violations.append(f"{name}: missing top rail measurement")
+        if snapshot.get("topRailTabIndex") != 0:
+            violations.append(f"{name}: top rail is not keyboard reachable")
+        if snapshot.get("topRailAriaLabel") != "Gallery filters and status":
+            violations.append(f"{name}: top rail is missing its accessible label")
     return violations
 
 
@@ -817,6 +1062,40 @@ def grid_state_violations(snapshots: GridProbeSnapshots) -> list[str]:
                 "metric range filter did not produce a filtered count label "
                 f"({snapshots.filtered_counts['label']})"
             )
+    top_rail = snapshots.top_rail
+    if top_rail:
+        active = top_rail["active"]
+        focused = top_rail["focused"]
+        rail_states = [
+            active,
+            focused,
+            top_rail["status_introduced"],
+            top_rail["cleared"],
+            top_rail["action"],
+            top_rail["action_cleared"],
+            top_rail["similarity"],
+            top_rail["similarity_cleared"],
+        ]
+        if float(active.get("topRailScrollWidth") or 0) <= float(active.get("topRailClientWidth") or 0):
+            violations.append("narrow long-filter rail did not create intentional horizontal overflow")
+        if float(focused.get("topRailScrollLeft") or 0) <= 0:
+            violations.append("keyboard-focused off-screen rail action did not scroll into view")
+        if not top_rail.get("status_visible"):
+            violations.append("top rail status fixture was not visible")
+        if not top_rail["status_introduced"].get("contextItemVisible"):
+            violations.append("newly introduced top-rail status stayed outside the viewport")
+        if float(top_rail["status_introduced"].get("topRailScrollLeft") or 0) != 0:
+            violations.append("newly introduced top-rail status did not reset the scrolled rail")
+        if not top_rail["similarity"].get("contextItemVisible"):
+            violations.append("newly introduced top-rail context stayed outside the viewport")
+        if not top_rail["action"].get("actionItemVisible"):
+            violations.append("newly introduced action feedback stayed outside the viewport")
+        if not top_rail["similarity"].get("similarityItemVisible"):
+            violations.append("newly introduced similarity context stayed outside the viewport")
+        if any(snapshot.get("topStackHeight") != rail_states[0].get("topStackHeight") for snapshot in rail_states[1:]):
+            violations.append("filter/status/similarity transitions changed top-stack height")
+        if any(snapshot.get("gridBodyTop") != rail_states[0].get("gridBodyTop") for snapshot in rail_states[1:]):
+            violations.append("filter/status/similarity transitions moved the grid body")
     return violations
 
 
@@ -947,6 +1226,60 @@ def browse_continuity_violations(evidence: dict[str, Any]) -> list[str]:
         elif any(frame.get("cellCount") or frame.get("countLabel") for frame in loading):
             violations.append(f"{name}: loading mixed retained cells or counts into the target")
 
+    matching_frames = evidence["matching_search_frames"]
+    matching_pending = [
+        frame for frame in matching_frames if frame.get("phase") in {"grace", "loading"}
+    ]
+    if not matching_pending:
+        violations.append("matching search never crossed pending presentation")
+    if any(selected_path not in frame.get("selectedPaths", []) for frame in matching_pending):
+        violations.append("matching search cleared selection while pending")
+    if any(frame.get("inspectorPath") != selected_path for frame in matching_pending):
+        violations.append("matching search changed Inspector ownership while pending")
+    matching_final = matching_frames[-1]
+    if selected_path not in matching_final.get("selectedPaths", []):
+        violations.append("matching settled search did not retain selection")
+
+    excluding_frames = evidence["empty_frames"]
+    excluding_pending = [
+        frame for frame in excluding_frames if frame.get("phase") in {"grace", "loading"}
+    ]
+    if not excluding_pending:
+        violations.append("excluding search never crossed pending presentation")
+    if any(selected_path not in frame.get("selectedPaths", []) for frame in excluding_pending):
+        violations.append("excluding search cleared selection before settled membership")
+    if any(frame.get("inspectorPath") != selected_path for frame in excluding_pending):
+        violations.append("excluding search changed Inspector ownership before settlement")
+    if excluding_frames[-1].get("selectedPaths"):
+        violations.append("settled excluding search retained selection")
+
+    compare_frames = evidence["compare_frames"]
+    compare_pending = [
+        frame for frame in compare_frames if frame.get("phase") in {"grace", "loading"}
+    ]
+    if not compare_pending:
+        violations.append("Compare reproduction never crossed pending presentation")
+    if any(not frame.get("compareOpen") for frame in compare_pending):
+        violations.append("Compare auto-closed while its matching search target was pending")
+    if not compare_frames[-1].get("compareOpen"):
+        violations.append("Compare did not remain open after matching search settlement")
+
+    excluding_compare_frames = evidence["compare_excluding_frames"]
+    excluding_compare_pending = [
+        frame
+        for frame in excluding_compare_frames
+        if frame.get("phase") in {"grace", "loading"}
+    ]
+    if not excluding_compare_pending:
+        violations.append("excluding Compare reproduction never crossed pending presentation")
+    if any(not frame.get("compareOpen") for frame in excluding_compare_pending):
+        violations.append("Compare auto-closed before excluding membership settled")
+    excluding_compare_final = excluding_compare_frames[-1]
+    if excluding_compare_final.get("compareOpen"):
+        violations.append("Compare remained open after definitive excluding membership")
+    if excluding_compare_final.get("selectedPaths"):
+        violations.append("definitive excluding Compare membership retained selection")
+
     slow_sort_grace = _phase_frames(transitions["slow_sort"], "grace")
     if not any(frame.get("ratingCounts", {}).get("5") == 1 for frame in slow_sort_grace):
         violations.append("slow_sort: optimistic rating did not update the retained aggregate")
@@ -1028,6 +1361,9 @@ def browse_continuity_summary(evidence: dict[str, Any]) -> dict[str, Any]:
         "fast_sort",
         "slow_sort",
         "rapid",
+        "matching_search",
+        "compare",
+        "compare_excluding",
         "empty",
         "error",
         "scope_reset",
@@ -1074,6 +1410,10 @@ def grid_result(snapshots: GridProbeSnapshots, config: GridProbeConfig) -> Probe
         violations.append(
             f"grid-width delta {max_grid_width_delta:.3f}px exceeded threshold {config.max_delta_px:.3f}px"
         )
+    if max_top_stack_delta > config.max_delta_px:
+        violations.append(
+            f"top-stack delta {max_top_stack_delta:.3f}px exceeded threshold {config.max_delta_px:.3f}px"
+        )
     if violations:
         raise SmokeFailure("; ".join(violations))
     return ProbeResult(
@@ -1097,7 +1437,7 @@ def grid_result(snapshots: GridProbeSnapshots, config: GridProbeConfig) -> Probe
             "baseline_counts": snapshots.baseline_counts,
             "filtered_counts": snapshots.filtered_counts,
             "browse_continuity": browse_continuity_summary(snapshots.continuity),
-            "deferred_top_stack_delta_px": max_top_stack_delta,
+            "top_rail": snapshots.top_rail,
             "violations": violations,
         },
     )
@@ -1108,7 +1448,37 @@ def run_grid_probe(config: GridProbeConfig) -> ProbeResult:
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
-            context = browser.new_context(viewport={"width": 1280, "height": 840})
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 840},
+                device_scale_factor=1.0,
+            )
+            context.route(
+                "**/embeddings/search",
+                lambda route: route.fulfill(
+                    json={
+                        "embedding": "probe_embedding",
+                        "items": [
+                            {"row_index": 0, "path": "/sample_000.jpg", "score": 1.0},
+                            {"row_index": 1, "path": "/sample_001.jpg", "score": 0.9},
+                            {"row_index": 2, "path": "/sample_002.jpg", "score": 0.8},
+                        ],
+                    }
+                ),
+            )
+            context.route(
+                "**/embeddings",
+                lambda route: route.fulfill(
+                    json={
+                        "embeddings": [{
+                            "name": "probe_embedding",
+                            "dimension": 3,
+                            "dtype": "float32",
+                            "metric": "cosine",
+                        }],
+                        "rejected": [],
+                    }
+                ),
+            )
             page = context.new_page()
             page.set_default_timeout(config.browser_timeout_ms)
             snapshots = exercise_grid_probe(page, config, playwright_error)

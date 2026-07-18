@@ -717,13 +717,13 @@ export default function Inspector({
   )
 
   if (!enabled) return (
-    <div className="app-right-panel inspector-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative" data-inspector-panel>
+    <div className="app-right-panel inspector-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative" data-inspector-panel data-inspector-path={path ?? ''}>
       <div className={resizeHandleClass} onPointerDown={onResize} />
     </div>
   )
 
   return (
-    <div className="app-right-panel inspector-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative" data-inspector-panel>
+    <div className="app-right-panel inspector-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative" data-inspector-panel data-inspector-path={path ?? ''}>
       {!multi && (
         <div className="inspector-preview-shell p-3 border-b border-border flex justify-center">
           <div className="inspector-preview-block space-y-2">

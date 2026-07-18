@@ -80,8 +80,7 @@ def _snapshot_shell_layout(page: Any, name: str, state: dict[str, Any]) -> dict[
               shell: rectFor('.app-shell'),
               toolbar: rectFor('.toolbar-shell'),
               gridTopStack: rectFor('[data-grid-top-stack]'),
-              statusBand: rectFor('[data-grid-top-band="status"]'),
-              filtersBand: rectFor('[data-grid-top-band="filters"]'),
+              topRail: rectFor('[data-grid-top-rail]'),
               leftSidebar: rectFor('.app-left-panel'),
               rightSidebar: rectFor('.app-right-panel'),
               gridShell: rectFor('.grid-shell'),
@@ -511,11 +510,11 @@ def assert_mobile_search_reserved(snapshot: dict[str, Any]) -> None:
         raise ResponsiveGeometryFailure(
             f"Grid starts under the mobile search toolbar in {snapshot.get('name')}."
         )
-    status_rect = rects.get("statusBand")
-    if isinstance(status_rect, dict) and float(status_rect.get("height", 0)) > 1:
-        if float(status_rect.get("top", 0)) + 1 < float(toolbar_rect.get("bottom", 0)):
+    top_rail_rect = rects.get("topRail")
+    if isinstance(top_rail_rect, dict) and float(top_rail_rect.get("height", 0)) > 1:
+        if float(top_rail_rect.get("top", 0)) + 1 < float(toolbar_rect.get("bottom", 0)):
             raise ResponsiveGeometryFailure(
-                f"Status band starts under the mobile search toolbar in {snapshot.get('name')}."
+                f"Top rail starts under the mobile search toolbar in {snapshot.get('name')}."
             )
 
 

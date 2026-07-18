@@ -1,16 +1,5 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from 'react'
-import type {
-  CompareOrderMode,
-  ViewMode,
-  ViewState,
-} from '../../lib/types'
+import { useEffect, useMemo, useRef } from 'react'
+import type { CompareOrderMode, ViewMode } from '../../lib/types'
 import { GRID_ITEM_SIZE_CONTRACT } from '../../lib/gridItemSize'
 import {
   createDeferredWriteScheduler,
@@ -37,7 +26,6 @@ const LEGACY_VIEW_STORAGE_KEYS = [
 ] as const
 
 export type RestoredAppShellSettings = {
-  viewState?: ViewState
   viewMode?: ViewMode
   gridItemSize?: number
   leftOpen?: boolean
@@ -48,7 +36,6 @@ export type RestoredAppShellSettings = {
 }
 
 type UsePersistedAppShellSettingsParams = {
-  viewState: ViewState
   viewMode: ViewMode
   gridItemSize: number
   leftOpen: boolean
@@ -56,16 +43,6 @@ type UsePersistedAppShellSettingsParams = {
   autoloadImageMetadata: boolean
   compareOrderMode: CompareOrderMode
   proxyHttpOriginals: boolean
-  setViewState: Dispatch<SetStateAction<ViewState>>
-  setRandomSeed: Dispatch<SetStateAction<number>>
-  setViewMode: Dispatch<SetStateAction<ViewMode>>
-  setGridItemSize: Dispatch<SetStateAction<number>>
-  setLeftOpen: Dispatch<SetStateAction<boolean>>
-  setRightOpen: Dispatch<SetStateAction<boolean>>
-  setAutoloadImageMetadata: Dispatch<SetStateAction<boolean>>
-  setCompareOrderMode: Dispatch<SetStateAction<CompareOrderMode>>
-  setProxyHttpOriginals: Dispatch<SetStateAction<boolean>>
-  restoreViewState?: boolean
 }
 
 export function writePersistedSettingsToStorage(
@@ -140,6 +117,15 @@ export function readPersistedSettingsFromStorage(storage: Storage): RestoredAppS
   return restored
 }
 
+export function readInitialPersistedAppShellSettings(): RestoredAppShellSettings {
+  if (typeof window === 'undefined') return {}
+  try {
+    return readPersistedSettingsFromStorage(window.localStorage)
+  } catch {
+    return {}
+  }
+}
+
 function writePersistedSettings(settings: PersistedAppShellSettings): void {
   if (typeof window === 'undefined') return
   try {
@@ -150,7 +136,6 @@ function writePersistedSettings(settings: PersistedAppShellSettings): void {
 }
 
 export function usePersistedAppShellSettings({
-  viewState,
   viewMode,
   gridItemSize,
   leftOpen,
@@ -158,18 +143,7 @@ export function usePersistedAppShellSettings({
   autoloadImageMetadata,
   compareOrderMode,
   proxyHttpOriginals,
-  setViewState,
-  setRandomSeed,
-  setViewMode,
-  setGridItemSize,
-  setLeftOpen,
-  setRightOpen,
-  setAutoloadImageMetadata,
-  setCompareOrderMode,
-  setProxyHttpOriginals,
-  restoreViewState = true,
 }: UsePersistedAppShellSettingsParams): void {
-  const [persistedSettingsReady, setPersistedSettingsReady] = useState(false)
   const writerRef = useRef(
     createDeferredWriteScheduler<PersistedAppShellSettings>(writePersistedSettings),
   )
@@ -177,9 +151,7 @@ export function usePersistedAppShellSettings({
   useEffect(() => {
     if (typeof window === 'undefined') return
     const writer = writerRef.current
-    const flush = () => {
-      writer.flush()
-    }
+    const flush = () => writer.flush()
     window.addEventListener('pagehide', flush)
     window.addEventListener('beforeunload', flush)
     return () => {
@@ -189,61 +161,7 @@ export function usePersistedAppShellSettings({
     }
   }, [])
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      setPersistedSettingsReady(true)
-      return
-    }
-    try {
-      const storage = window.localStorage
-      const restored = readPersistedSettingsFromStorage(storage)
-      if (restoreViewState && restored.viewState) {
-        if (restored.viewState.sort.kind === 'builtin' && restored.viewState.sort.key === 'random') {
-          setRandomSeed(Date.now())
-        }
-        setViewState(restored.viewState)
-      }
-
-      if (restored.viewMode) {
-        setViewMode(restored.viewMode)
-      }
-      if (restored.gridItemSize !== undefined) {
-        setGridItemSize(restored.gridItemSize)
-      }
-      if (restored.leftOpen !== undefined) {
-        setLeftOpen(restored.leftOpen)
-      }
-      if (restored.rightOpen !== undefined) {
-        setRightOpen(restored.rightOpen)
-      }
-      if (restored.autoloadImageMetadata !== undefined) {
-        setAutoloadImageMetadata(restored.autoloadImageMetadata)
-      }
-      if (restored.compareOrderMode) {
-        setCompareOrderMode(restored.compareOrderMode)
-      }
-      if (restored.proxyHttpOriginals !== undefined) {
-        setProxyHttpOriginals(restored.proxyHttpOriginals)
-      }
-    } catch {
-      // Ignore localStorage errors.
-    }
-    setPersistedSettingsReady(true)
-  }, [
-    setAutoloadImageMetadata,
-    setCompareOrderMode,
-    setGridItemSize,
-    setLeftOpen,
-    setProxyHttpOriginals,
-    setRandomSeed,
-    setRightOpen,
-    setViewMode,
-    setViewState,
-    restoreViewState,
-  ])
-
   const persistedSettings = useMemo<PersistedAppShellSettings>(() => ({
-    viewState,
     viewMode,
     gridItemSize,
     leftOpen,
@@ -259,11 +177,9 @@ export function usePersistedAppShellSettings({
     proxyHttpOriginals,
     rightOpen,
     viewMode,
-    viewState,
   ])
 
   useEffect(() => {
-    if (!persistedSettingsReady) return
     writerRef.current.schedule(persistedSettings)
-  }, [persistedSettings, persistedSettingsReady])
+  }, [persistedSettings])
 }

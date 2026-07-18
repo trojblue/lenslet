@@ -545,23 +545,23 @@
 }
 
 .grid-top-stack {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
+  height: 45px; min-height: 45px;
+  flex: 0 0 45px;
+  border-bottom: 1px solid var(--border); background: var(--panel);
 }
-
-.grid-top-band {
-  position: relative;
+.grid-top-rail {
+  width: 100%; height: 100%;
+  display: flex; align-items: center;
+  gap: 8px; padding: 4px 12px;
+  overflow-x: auto; overflow-y: hidden;
+  overscroll-behavior-inline: contain; white-space: nowrap;
 }
-
-.grid-top-band.is-hidden {
-  pointer-events: none;
-  user-select: none;
-}
-
-.grid-top-band-reserve {
-  width: 100%;
-  height: 0;
+.grid-top-rail::-webkit-scrollbar { height: 6px; }
+.grid-top-status-list { display: contents; }
+.grid-top-context-item,
+.grid-top-filter-label,
+.grid-top-rail .filter-chip {
+  flex: 0 0 auto;
 }
 
 .grid-body {

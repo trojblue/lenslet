@@ -28,3 +28,11 @@ Iteration 3 — 2026-07-18T17:18:51Z
 - Cleanup/review: mandatory code-simplifier made formatting-only JSX edits. Repeated adversarial review findings around empty facets, invalid-definition identity, keyed metric state/stable hosts, editable pointer and active-descendant behavior, and partial-local Derived values were fixed; final review reported no actionable findings.
 - Blockers: none. Residual browser-test risk is a deliberate rapid A-to-B-to-C facet race; reviewed query-key/per-field ownership has no known defect.
 - Next step: Sprint 4, beginning with S4-T1 only.
+
+Iteration 4 — 2026-07-18T18:34:00Z
+- Completed tasks: S4-T1, S4-T2, S4-T3, S4-T4.
+- Files changed: canonical plan/progress; `AppShell`; persisted-settings, media-query, selection/viewer/Compare hooks and focused tests; `GridTopStack`, `StatusBar`, Inspector evidence attributes, and styles; `scripts/browser/gui_jitter/{toolbar,grid,grid_dom}.py`; responsive geometry evidence and browser-helper tests; regenerated `src/lenslet/frontend/` assets.
+- Validation passed: full frontend Vitest (111 files, 624 tests); `npx tsc --noEmit`; painted-frame/browser-helper pytest (62 tests); toolbar probe at `/tmp/lenslet-ui-stability-s4-toolbar.json` (cold 390x844, 820x900, and 1440x920 frames, URL precedence, 0px toolbar/anchor deltas); grid probe at `/tmp/lenslet-ui-stability-s4-grid.json` (0px top-stack/grid-width deltas, delayed matching/excluding selection and Compare, fixed 45px keyboard-scrollable rail, visible introduced status/action/similarity); default GUI acceptance; final `npm run build` plus `rsync`; `python scripts/lint_repo.py`; hard-cut and dependency-scope searches; `git diff --check`.
+- Cleanup/review: mandatory Tier 1 code-simplifier cleanup reduced the slice by eight lines. Repeated adversarial findings on presentation-owned immutable entities, render-phase ref mutation, explicit pending clears, scrolled context visibility, and decisive Compare coverage were fixed; the final fresh review reported no actionable findings.
+- Blockers: none. Sprint 4's fixed one-rail geometry and committed selection/Compare ownership are closed contracts for later work.
+- Next step: Sprint 5, beginning with S5-T1 only.

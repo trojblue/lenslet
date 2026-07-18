@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import StatusBar from '../StatusBar'
+import StatusBar, { statusBarContentKey } from '../StatusBar'
 
 const noop = () => {}
 
@@ -110,5 +110,21 @@ describe('StatusBar indexing banner lifecycle', () => {
     expect(html).toContain('Derived score.')
     expect(html).toContain('inputs unavailable')
     expect(html).toContain('q2')
+  })
+
+  it('distinguishes a new status kind while another warning remains', () => {
+    const base = {
+      persistenceEnabled: true,
+      indexing: null,
+      offViewSummary: null,
+      onClearOffView: noop,
+      browserZoomPercent: 110,
+    }
+
+    expect(statusBarContentKey(base)).toBe('browser-zoom')
+    expect(statusBarContentKey({
+      ...base,
+      indexing: { state: 'error' as const, error: 'failed' },
+    })).toBe('indexing-error\u0000browser-zoom')
   })
 })

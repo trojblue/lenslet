@@ -90,20 +90,24 @@ def snapshot_grid(page: Any) -> dict[str, Any]:
         """() => {
           const topStack = document.querySelector('[data-grid-top-stack]');
           const topStackRect = topStack instanceof HTMLElement ? topStack.getBoundingClientRect() : null;
-          const bandNames = ['status', 'similarity', 'filters'];
-          const bandHeights = {};
-          const bandHidden = {};
-          for (const bandName of bandNames) {
-            const band = document.querySelector(`[data-grid-top-band="${bandName}"]`);
-            if (!(band instanceof HTMLElement)) {
-              bandHeights[bandName] = null;
-              bandHidden[bandName] = null;
-              continue;
-            }
-            const rect = band.getBoundingClientRect();
-            bandHeights[bandName] = rect.height;
-            bandHidden[bandName] = band.getAttribute('aria-hidden') === 'true';
-          }
+          const topRail = document.querySelector('[data-grid-top-rail]');
+          const topRailRect = topRail instanceof HTMLElement ? topRail.getBoundingClientRect() : null;
+          const contextItemRects = Array.from(
+            topRail?.querySelectorAll('.grid-top-context-item') || []
+          ).map(item => item.getBoundingClientRect());
+          const similarityItem = topRail?.querySelector('[data-grid-top-similarity]');
+          const similarityItemRect = similarityItem instanceof HTMLElement
+            ? similarityItem.getBoundingClientRect()
+            : null;
+          const actionItem = topRail?.querySelector('[data-grid-top-action]');
+          const actionItemRect = actionItem instanceof HTMLElement
+            ? actionItem.getBoundingClientRect()
+            : null;
+          const intersectsRail = rect => Boolean(
+            rect && topRailRect
+            && rect.right > topRailRect.left
+            && rect.left < topRailRect.right
+          );
 
           const bodyMain = document.querySelector('[data-grid-body-main]');
           const bodyRect = bodyMain instanceof HTMLElement ? bodyMain.getBoundingClientRect() : null;
@@ -126,8 +130,19 @@ def snapshot_grid(page: Any) -> dict[str, Any]:
           return {
             topStackHeight: topStackRect ? topStackRect.height : null,
             topStackTop: topStackRect ? topStackRect.top : null,
-            bandHeights,
-            bandHidden,
+            topRailHeight: topRailRect ? topRailRect.height : null,
+            topRailClientWidth: topRail instanceof HTMLElement ? topRail.clientWidth : null,
+            topRailScrollWidth: topRail instanceof HTMLElement ? topRail.scrollWidth : null,
+            topRailScrollLeft: topRail instanceof HTMLElement ? topRail.scrollLeft : null,
+            topRailTabIndex: topRail instanceof HTMLElement ? topRail.tabIndex : null,
+            topRailAriaLabel: topRail instanceof HTMLElement ? topRail.getAttribute('aria-label') : null,
+            contextItemVisible: contextItemRects.some(intersectsRail),
+            similarityItemVisible: intersectsRail(similarityItemRect),
+            actionItemVisible: intersectsRail(actionItemRect),
+            filterCount: topStack instanceof HTMLElement
+              ? Number(topStack.getAttribute('data-filter-count') || 0)
+              : null,
+            gridBodyTop: bodyRect ? bodyRect.top : null,
             gridBodyWidth: bodyRect ? bodyRect.width : null,
             gridBodyLeft: bodyRect ? bodyRect.left : null,
             metricRailWidth: railRect ? railRect.width : null,

@@ -28,19 +28,17 @@ function renderGridTopStack(overrides: Partial<Parameters<typeof GridTopStack>[0
   )
 }
 
-describe('GridTopStack bands', () => {
-  it('keeps all top bands mounted when hidden', () => {
+describe('GridTopStack rail', () => {
+  it('always reserves one keyboard-reachable context rail', () => {
     const html = renderGridTopStack()
-    expect(html).toContain('data-grid-top-band="status"')
-    expect(html).toContain('data-grid-top-band="similarity"')
-    expect(html).toContain('data-grid-top-band="filters"')
-    expect(html).toContain('data-grid-top-band="status" aria-hidden="true"')
-    expect(html).toContain('data-grid-top-band="similarity" aria-hidden="true"')
-    expect(html).toContain('data-grid-top-band="filters" aria-hidden="true"')
-    expect(html.match(/class="grid-top-band-reserve"/g) ?? []).toHaveLength(3)
+    expect(html).toContain('data-filter-count="0"')
+    expect(html).toContain('data-grid-top-rail="true"')
+    expect(html).toContain('aria-label="Gallery filters and status"')
+    expect(html).toContain('tabindex="0"')
+    expect(html).toContain('Filters')
   })
 
-  it('shows filter band content when chips are active', () => {
+  it('shows active filters inside the same rail', () => {
     const html = renderGridTopStack({
       filterChips: [
         {
@@ -50,18 +48,16 @@ describe('GridTopStack bands', () => {
         },
       ],
     })
+    expect(html).toContain('data-filter-count="1"')
     expect(html).toContain('Stars: 5')
     expect(html).toContain('Clear all')
-    expect(html).not.toContain('data-grid-top-band="filters" aria-hidden="true"')
-    expect(html.match(/class="grid-top-band-reserve"/g) ?? []).toHaveLength(2)
   })
 
-  it('shows status band for action errors even without status banners', () => {
+  it('shows action errors inside the same rail', () => {
     const html = renderGridTopStack({
       actionFeedback: { kind: 'error', message: 'Upload failed' },
     })
     expect(html).toContain('Upload failed')
-    expect(html).not.toContain('data-grid-top-band="status" aria-hidden="true"')
-    expect(html.match(/class="grid-top-band-reserve"/g) ?? []).toHaveLength(2)
+    expect(html).toContain('role="status"')
   })
 })

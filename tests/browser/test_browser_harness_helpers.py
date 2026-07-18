@@ -329,7 +329,7 @@ def test_responsive_mobile_search_drawer_and_theme_assertions() -> None:
         "rects": {
             "toolbar": {"bottom": 90},
             "gridShell": {"top": 92},
-            "statusBand": {"top": 92, "height": 0},
+            "topRail": {"top": 92, "height": 45},
         },
         "toolbarControls": [_toolbar_control("search-mobile")],
     }

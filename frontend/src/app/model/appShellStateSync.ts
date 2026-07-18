@@ -8,7 +8,6 @@ import type {
   QueryDependencyManifest,
   StarRating,
   ViewMode,
-  ViewState,
 } from '../../lib/types'
 import { applyFilterAst } from '../../features/browse/model/filters'
 
@@ -40,7 +39,6 @@ export type AnnotationProjection = {
 }
 
 export type PersistedAppShellSettings = {
-  viewState: ViewState
   viewMode: ViewMode
   gridItemSize: number
   leftOpen: boolean

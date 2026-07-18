@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canCommitCompareMembership,
+  reconcileSettledSearchSelection,
+  resolveRetainedCompareItems,
+  resolveRetainedSelectedItems,
   resolveCompareOrderedItems,
   resolveAdjacentImagePath,
   resolveGalleryOrderedItems,
@@ -96,6 +100,52 @@ describe('useAppSelectionViewerCompare guards', () => {
     expect(shouldCloseCompareForSelectionChange(false, true)).toBe(false)
     expect(shouldCloseCompareForSelectionChange(true, true)).toBe(false)
     expect(shouldCloseCompareForSelectionChange(true, false)).toBe(true)
+  })
+
+  it('retains Compare membership until a target can prove the selected paths', () => {
+    const selectedPaths = ['/images/a.png', '/images/b.png']
+    const partial = [buildItem('/images/a.png', 'a')]
+    const complete = [
+      buildItem('/images/a.png', 'a'),
+      buildItem('/images/b.png', 'b'),
+    ]
+
+    expect(canCommitCompareMembership(selectedPaths, [], false, false)).toBe(false)
+    expect(canCommitCompareMembership(selectedPaths, partial, true, false)).toBe(false)
+    expect(canCommitCompareMembership(selectedPaths, complete, true, false)).toBe(true)
+    expect(canCommitCompareMembership(selectedPaths, partial, true, true)).toBe(true)
+  })
+
+  it('reconciles selection only against complete settled membership', () => {
+    const selectedPaths = ['/images/a.png', '/images/b.png']
+
+    expect(reconcileSettledSearchSelection(selectedPaths, ['/images/a.png'], false)).toBe(selectedPaths)
+    expect(reconcileSettledSearchSelection(selectedPaths, ['/images/a.png'], true)).toEqual([
+      '/images/a.png',
+    ])
+    expect(reconcileSettledSearchSelection(selectedPaths, [], true)).toEqual([])
+  })
+
+  it('projects retained entities only for paths that remain explicitly selected', () => {
+    const retained = [
+      buildItem('/images/a.png', 'a'),
+      buildItem('/images/b.png', 'b'),
+    ]
+
+    expect(resolveRetainedSelectedItems(['/images/b.png'], retained).map((item) => item.path))
+      .toEqual(['/images/b.png'])
+    expect(resolveRetainedSelectedItems([], retained)).toEqual([])
+  })
+
+  it('drops retained Compare items immediately when selection is explicitly cleared', () => {
+    const retained = [
+      buildItem('/images/a.png', 'a'),
+      buildItem('/images/b.png', 'b'),
+    ]
+
+    expect(resolveRetainedCompareItems([], retained, retained)).toEqual([])
+    expect(resolveRetainedCompareItems(['/images/b.png'], retained, retained).map((item) => item.path))
+      .toEqual(['/images/b.png'])
   })
 
   it('resolves popstate overlays by clearing active viewer/compare overlays only', () => {

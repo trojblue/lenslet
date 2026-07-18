@@ -109,7 +109,10 @@ import {
   useAppDataScope,
   type SimilarityState,
 } from './hooks/useAppDataScope'
-import { useAppSelectionViewerCompare } from './hooks/useAppSelectionViewerCompare'
+import {
+  reconcileSettledSearchSelection,
+  useAppSelectionViewerCompare,
+} from './hooks/useAppSelectionViewerCompare'
 import { useAppPresenceSync } from './hooks/useAppPresenceSync'
 import { useAppActions } from './hooks/useAppActions'
 import { useAppHashRouting } from './hooks/useAppHashRouting'
@@ -119,7 +122,10 @@ import { useFolderRefreshActions } from './hooks/useFolderRefreshActions'
 import { useBrowserZoomWarning } from './hooks/useBrowserZoomWarning'
 import { useGridResizeGestures } from './hooks/useGridResizeGestures'
 import { useGridPresentation } from './hooks/useGridPresentation'
-import { usePersistedAppShellSettings } from './hooks/usePersistedAppShellSettings'
+import {
+  readInitialPersistedAppShellSettings,
+  usePersistedAppShellSettings,
+} from './hooks/usePersistedAppShellSettings'
 import { useSimilaritySearchWorkflow } from './hooks/useSimilaritySearchWorkflow'
 import { useSmartFolders } from './hooks/useSmartFolders'
 import { useViewportSize } from './hooks/useViewportSize'
@@ -250,6 +256,7 @@ export default function AppShell({
 }: AppShellProps) {
   const [current, setCurrent] = useState<string>('/')
   const [initialSharedViewState] = useState(() => readSharedViewStateFromCurrentUrl())
+  const [initialPersistedSettings] = useState(() => readInitialPersistedAppShellSettings())
   const [query, setQuery] = useState(() => initialSharedViewState.query)
   const [similarityOpen, setSimilarityOpen] = useState(false)
   const [storedSimilarityState, setSimilarityState] = useState<SimilarityState | null>(null)
@@ -268,13 +275,17 @@ export default function AppShell({
   
   const [viewState, setViewState] = useState<ViewState>(() => initialSharedViewState.viewState)
   const [randomSeed, setRandomSeed] = useState<number>(() => initialSharedViewState.randomSeed ?? Date.now())
-  const [viewMode, setViewMode] = useState<ViewMode>('adaptive')
-  const [gridItemSize, setGridItemSize] = useState<number>(220)
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    () => initialPersistedSettings.viewMode ?? 'adaptive',
+  )
+  const [gridItemSize, setGridItemSize] = useState<number>(
+    () => initialPersistedSettings.gridItemSize ?? 220,
+  )
   const [mobileSelectMode, setMobileSelectMode] = useState(false)
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(true)
-  const [leftOpen, setLeftOpen] = useState(true)
-  const [rightOpen, setRightOpen] = useState(true)
+  const [leftOpen, setLeftOpen] = useState(() => initialPersistedSettings.leftOpen ?? true)
+  const [rightOpen, setRightOpen] = useState(() => initialPersistedSettings.rightOpen ?? true)
   const { viewportWidth, viewportHeight } = useViewportSize()
   const [leftTool, setLeftTool] = useState<LeftTool>('folders')
   const [metricsFacetFields, setMetricsFacetFields] = useState<BrowseFacetFields>({
@@ -288,9 +299,15 @@ export default function AppShell({
   const [themePreset, setThemePreset] = useState<ThemePresetId>(() => (
     loadWorkspaceThemePreset(themeWorkspaceId, themeHealthMode)
   ))
-  const [autoloadImageMetadata, setAutoloadImageMetadata] = useState(true)
-  const [proxyHttpOriginals, setProxyHttpOriginals] = useState(false)
-  const [compareOrderMode, setCompareOrderMode] = useState<CompareOrderMode>('gallery')
+  const [autoloadImageMetadata, setAutoloadImageMetadata] = useState(
+    () => initialPersistedSettings.autoloadImageMetadata ?? true,
+  )
+  const [proxyHttpOriginals, setProxyHttpOriginals] = useState(
+    () => initialPersistedSettings.proxyHttpOriginals ?? false,
+  )
+  const [compareOrderMode, setCompareOrderMode] = useState<CompareOrderMode>(
+    () => initialPersistedSettings.compareOrderMode ?? 'gallery',
+  )
   const [tableSourceColumns, setTableSourceColumns] = useState<TableSourceColumnsPayload | null>(null)
   const [tableSourceSwitching, setTableSourceSwitching] = useState(false)
   const [urlUnsupportedMetricIntent, setUrlUnsupportedMetricIntent] = useState(
@@ -334,7 +351,6 @@ export default function AppShell({
   )
 
   usePersistedAppShellSettings({
-    viewState,
     viewMode,
     gridItemSize,
     leftOpen,
@@ -342,16 +358,6 @@ export default function AppShell({
     autoloadImageMetadata,
     compareOrderMode,
     proxyHttpOriginals,
-    setViewState,
-    setRandomSeed,
-    setViewMode,
-    setGridItemSize,
-    setLeftOpen,
-    setRightOpen,
-    setAutoloadImageMetadata,
-    setCompareOrderMode,
-    setProxyHttpOriginals,
-    restoreViewState: false,
   })
 
   const queryClient = useQueryClient()
@@ -480,130 +486,7 @@ export default function AppShell({
     scopeSessionResetToken,
   ])
   const starsInFilter = useMemo(() => getStarsInFilter(viewState.filters), [viewState.filters])
-
-  const itemPaths = useMemo(() => items.map((i) => i.path), [items])
-  const selectionPool = similarityState ? similarityItems : poolItems
-  const itemByPath = useMemo(() => {
-    const map = new Map<string, BrowseItemPayload>()
-    for (const item of selectionPool) {
-      map.set(item.path, item)
-    }
-    for (const item of items) {
-      map.set(item.path, item)
-    }
-    return map
-  }, [items, selectionPool])
-  const focusGridCell = useCallback((path: string | null | undefined) => {
-    if (!path) return
-    const focus = () => {
-      const el = document.getElementById(`cell-${encodeURIComponent(path)}`)
-      el?.focus()
-    }
-    requestAnimationFrame(() => requestAnimationFrame(focus))
-  }, [])
-  const {
-    selectedPaths,
-    setSelectedPaths,
-    viewer,
-    compareOpen,
-    restoreGridToSelectionToken,
-    bumpRestoreGridToSelectionToken,
-    compareItems,
-    comparePaths,
-    compareIndexClamped,
-    compareA,
-    compareB,
-    canComparePrev,
-    canCompareNext,
-    compareEnabled,
-    canPrevImage,
-    canNextImage,
-    overlayActive,
-    rememberFocusedPath,
-    openViewer,
-    closeViewer,
-    openCompare,
-    closeCompare,
-    handleCompareNavigate,
-    handleNavigate,
-    resetViewerState,
-    resetForScopeBoundary,
-    clearViewerForSearch,
-    syncHashImageSelection,
-  } = useAppSelectionViewerCompare({
-    current,
-    itemPaths,
-    items,
-    selectionPool,
-    compareOrderMode,
-    focusGridCell,
-  })
-
-  const handleTableSourceColumnChange = useCallback((sourceColumn: string) => {
-    if (!sourceColumn || sourceColumn === tableSourceColumns?.current || tableSourceSwitching) return
-    clearActionFeedback()
-    setTableSourceSwitching(true)
-    api.switchTableSourceColumn(sourceColumn)
-      .then((next) => {
-        setTableSourceColumns(next.enabled ? next : null)
-        setDismissedTableSourceWarning(null)
-        fileCache.clear()
-        thumbCache.clear()
-        thumbnailObjectUrlCache.clear()
-        queryClient.invalidateQueries()
-        setSelectedPaths([])
-        setSimilarityState(null)
-        resetViewerState()
-        setCurrent('/')
-        writeHash('/')
-        setScopeSessionResetToken((token) => token + 1)
-      })
-      .catch((error) => {
-        reportActionError('Image source switch failed', error)
-      })
-      .finally(() => setTableSourceSwitching(false))
-  }, [
-    clearActionFeedback,
-    queryClient,
-    reportActionError,
-    resetViewerState,
-    setSelectedPaths,
-    tableSourceColumns?.current,
-    tableSourceSwitching,
-  ])
-
-  useEffect(() => {
-    const shell = browseShellRef.current
-    if (!shell) return
-    if (compareOpen) {
-      shell.setAttribute('inert', '')
-      shell.setAttribute('aria-hidden', 'true')
-      return
-    }
-    shell.removeAttribute('inert')
-    shell.removeAttribute('aria-hidden')
-  }, [compareOpen])
-
-  useEffect(() => {
-    const toolbar = toolbarRef.current
-    if (!toolbar) return
-    if (compareOpen) {
-      toolbar.setAttribute('inert', '')
-      toolbar.setAttribute('aria-hidden', 'true')
-      return
-    }
-    toolbar.removeAttribute('inert')
-    toolbar.removeAttribute('aria-hidden')
-  }, [compareOpen])
-
-  const leftOpenRef = useLatestRef(leftOpen)
-  const leftToolRef = useLatestRef(leftTool)
-
-  useAppHashRouting({
-    setCurrent,
-    syncHashImageSelection,
-    bumpRestoreGridToSelectionToken,
-  })
+  const targetSelectionPool = similarityState ? similarityItems : poolItems
   const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
   const showFilteredCounts = similarityActive || searching || activeFilterCount > 0
   const targetDisplayItemCount = getDisplayItemCount(
@@ -712,7 +595,7 @@ export default function AppShell({
     targetKey: browseTargetIdentity,
     resetKey: browsePresentationResetKey,
     targetItems: items,
-    targetRatingItems: selectionPool,
+    targetRatingItems: targetSelectionPool,
     targetFilteredCount: filteredCount,
     targetDisplayItemCount,
     targetDisplayTotalCount,
@@ -724,17 +607,163 @@ export default function AppShell({
     targetSettled: browseTargetSettled,
     targetStatus: targetGridStatus,
   })
+
+  const itemPaths = gridPresentation.membershipPaths
+  const focusGridCell = useCallback((path: string | null | undefined) => {
+    if (!path) return
+    const focus = () => {
+      const el = document.getElementById(`cell-${encodeURIComponent(path)}`)
+      el?.focus()
+    }
+    requestAnimationFrame(() => requestAnimationFrame(focus))
+  }, [])
+  const {
+    selectedPaths,
+    setSelectedPaths,
+    viewer,
+    compareOpen,
+    restoreGridToSelectionToken,
+    bumpRestoreGridToSelectionToken,
+    selectedItems,
+    compareItems,
+    comparePaths,
+    compareIndexClamped,
+    compareA,
+    compareB,
+    canComparePrev,
+    canCompareNext,
+    compareEnabled,
+    canPrevImage,
+    canNextImage,
+    overlayActive,
+    rememberFocusedPath,
+    openViewer,
+    closeViewer,
+    openCompare,
+    closeCompare,
+    handleCompareNavigate,
+    handleNavigate,
+    resetViewerState,
+    resetForScopeBoundary,
+    syncHashImageSelection,
+  } = useAppSelectionViewerCompare({
+    current,
+    itemPaths,
+    items: gridPresentation.items,
+    selectionPool: gridPresentation.ratingItems,
+    compareOrderMode,
+    membershipSettled: (
+      gridPresentation.phase === 'steady'
+      && gridPresentation.targetKey === browseTargetIdentity
+    ),
+    membershipComplete: (
+      gridPresentation.filteredCount !== null
+      && gridPresentation.items.length >= gridPresentation.filteredCount
+    ),
+    focusGridCell,
+  })
+  const itemByPath = useMemo(() => {
+    const map = new Map<string, BrowseItemPayload>()
+    for (const item of gridPresentation.ratingItems) map.set(item.path, item)
+    for (const item of gridPresentation.items) map.set(item.path, item)
+    for (const item of selectedItems) map.set(item.path, item)
+    for (const item of compareItems) map.set(item.path, item)
+    return map
+  }, [compareItems, gridPresentation.items, gridPresentation.ratingItems, selectedItems])
+
+  const handleTableSourceColumnChange = useCallback((sourceColumn: string) => {
+    if (!sourceColumn || sourceColumn === tableSourceColumns?.current || tableSourceSwitching) return
+    clearActionFeedback()
+    setTableSourceSwitching(true)
+    api.switchTableSourceColumn(sourceColumn)
+      .then((next) => {
+        setTableSourceColumns(next.enabled ? next : null)
+        setDismissedTableSourceWarning(null)
+        fileCache.clear()
+        thumbCache.clear()
+        thumbnailObjectUrlCache.clear()
+        queryClient.invalidateQueries()
+        setSelectedPaths([])
+        setSimilarityState(null)
+        resetViewerState()
+        setCurrent('/')
+        writeHash('/')
+        setScopeSessionResetToken((token) => token + 1)
+      })
+      .catch((error) => {
+        reportActionError('Image source switch failed', error)
+      })
+      .finally(() => setTableSourceSwitching(false))
+  }, [
+    clearActionFeedback,
+    queryClient,
+    reportActionError,
+    resetViewerState,
+    setSelectedPaths,
+    tableSourceColumns?.current,
+    tableSourceSwitching,
+  ])
+
+  useEffect(() => {
+    const shell = browseShellRef.current
+    if (!shell) return
+    if (compareOpen) {
+      shell.setAttribute('inert', '')
+      shell.setAttribute('aria-hidden', 'true')
+      return
+    }
+    shell.removeAttribute('inert')
+    shell.removeAttribute('aria-hidden')
+  }, [compareOpen])
+
+  useEffect(() => {
+    const toolbar = toolbarRef.current
+    if (!toolbar) return
+    if (compareOpen) {
+      toolbar.setAttribute('inert', '')
+      toolbar.setAttribute('aria-hidden', 'true')
+      return
+    }
+    toolbar.removeAttribute('inert')
+    toolbar.removeAttribute('aria-hidden')
+  }, [compareOpen])
+
+  const leftOpenRef = useLatestRef(leftOpen)
+  const leftToolRef = useLatestRef(leftTool)
+
+  useAppHashRouting({
+    setCurrent,
+    syncHashImageSelection,
+    bumpRestoreGridToSelectionToken,
+  })
   const metricsBaseItems = gridPresentation.ratingItems
   const metricsPopulationItemsComplete = gridPresentation.metricsPopulationItemsComplete
   const metricsFilteredItemsComplete = gridPresentation.metricsFilteredItemsComplete
-  const presentedSelectedItems = useMemo(() => {
-    const byPath = new Map(metricsBaseItems.map((item) => [item.path, item]))
-    for (const item of gridPresentation.items) byPath.set(item.path, item)
-    return selectedPaths.flatMap((path) => {
-      const item = byPath.get(path)
-      return item ? [item] : []
-    })
-  }, [gridPresentation.items, metricsBaseItems, selectedPaths])
+  useLayoutEffect(() => {
+    if (
+      !searching
+      || !browseTargetSettled
+      || gridPresentation.phase !== 'steady'
+      || gridPresentation.targetKey !== browseTargetIdentity
+    ) return
+    const membershipComplete = gridPresentation.filteredCount !== null
+      && gridPresentation.items.length >= gridPresentation.filteredCount
+    setSelectedPaths((currentPaths) => reconcileSettledSearchSelection(
+      currentPaths,
+      gridPresentation.membershipPaths,
+      membershipComplete,
+    ))
+  }, [
+    browseTargetIdentity,
+    browseTargetSettled,
+    gridPresentation.filteredCount,
+    gridPresentation.items.length,
+    gridPresentation.membershipPaths,
+    gridPresentation.phase,
+    gridPresentation.targetKey,
+    searching,
+    setSelectedPaths,
+  ])
   const gridStatus = gridPresentation.retained
     ? {
         kind: 'updating' as const,
@@ -1095,13 +1124,6 @@ export default function AppShell({
   const scopeLabel = useMemo(() => formatScopeLabel(current), [current])
   const derivedRankDisabledReason = getDerivedMetricRankDisabledReason(similarityActive)
 
-  useEffect(() => {
-    if (searching) {
-      setSelectedPaths([])
-      clearViewerForSearch(current)
-    }
-  }, [clearViewerForSearch, current, searching, setSelectedPaths])
-
   const mobileSelectEnabled = viewportWidth <= LAYOUT_BREAKPOINTS.mobileMax
 
   useEffect(() => {
@@ -1265,6 +1287,17 @@ export default function AppShell({
       data-mobile-drawer-open={mobileDrawerOpen ? 'true' : 'false'}
       data-effective-left-width={layoutModel.leftWidth}
       data-effective-right-width={layoutModel.rightWidth}
+      data-view-mode={viewMode}
+      data-grid-item-size={gridItemSize}
+      data-user-left-open={leftOpen ? 'true' : 'false'}
+      data-user-right-open={rightOpen ? 'true' : 'false'}
+      data-autoload-image-metadata={autoloadImageMetadata ? 'true' : 'false'}
+      data-compare-order-mode={compareOrderMode}
+      data-proxy-http-originals={proxyHttpOriginals ? 'true' : 'false'}
+      data-query={query}
+      data-sort-kind={viewState.sort.kind}
+      data-sort-key={viewState.sort.key}
+      data-sort-dir={viewState.sort.dir}
       style={cssVars({
         '--grid-left': leftCol,
         '--grid-right': rightCol,
@@ -1354,6 +1387,7 @@ export default function AppShell({
         data-browse-requested-target={gridPresentation.requestedTargetKey}
         data-browse-presentation-epoch={gridPresentation.epoch}
         data-browse-rating-counts={JSON.stringify(starCounts)}
+        data-selected-paths={JSON.stringify(selectedPaths)}
       >
         {layoutModel.leftRailVisible && (
           <LeftSidebar
@@ -1390,7 +1424,7 @@ export default function AppShell({
             derivedMetric={derivedMetric}
             derivedMetricBackendAuthoritative={!similarityActive}
             derivedRankDisabledReason={derivedRankDisabledReason}
-            selectedItems={presentedSelectedItems}
+            selectedItems={selectedItems}
             selectedMetric={viewState.selectedMetric}
             onSelectMetric={(key) => setViewState((prev) => ({ ...prev, selectedMetric: key }))}
             onApplyDerivedMetric={handleApplyDerivedMetric}
@@ -1532,7 +1566,7 @@ export default function AppShell({
                 path={selectedPaths[0] ?? null}
                 selectedPaths={selectedPaths}
                 comparePaths={comparePaths}
-                items={gridPresentation.items}
+                items={selectedItems}
                 viewerCompareActive={compareOpen}
                 compareA={compareA}
                 compareB={compareB}

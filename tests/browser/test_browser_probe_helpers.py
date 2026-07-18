@@ -698,6 +698,48 @@ def test_jitter_probe_hidden_control_state_reports_accessibility_contract() -> N
     ]
 
 
+def test_toolbar_cold_first_frame_contract_detects_responsive_and_persisted_mismatch() -> None:
+    settings = {
+        "viewMode": "grid",
+        "gridItemSize": 300,
+        "userLeftOpen": "false",
+        "userRightOpen": "false",
+        "autoloadImageMetadata": "false",
+        "compareOrderMode": "selection",
+        "proxyHttpOriginals": "true",
+        "query": "sample",
+        "sortKind": "builtin",
+        "sortKey": "name",
+        "sortDir": "asc",
+    }
+    traces = {
+        "phone": [{
+            **settings,
+            "layoutMode": "phone",
+            "desktopSearchVisible": False,
+            "searchToggleVisible": True,
+        }],
+        "narrow": [{
+            **settings,
+            "layoutMode": "narrow",
+            "desktopSearchVisible": False,
+            "searchToggleVisible": True,
+        }],
+        "desktop": [{
+            **settings,
+            "layoutMode": "desktop",
+            "desktopSearchVisible": True,
+            "searchToggleVisible": False,
+        }],
+    }
+
+    assert jitter_toolbar.cold_first_frame_violations(traces) == []
+    traces["phone"][0]["layoutMode"] = "desktop"
+    assert jitter_toolbar.cold_first_frame_violations(traces) == [
+        "phone cold load painted layout 'desktop'",
+    ]
+
+
 def test_jitter_fixture_builder_creates_parquet_and_label_snapshot(tmp_path: Path) -> None:
     jitter_fixtures.build_fixture_dataset(tmp_path)
 
@@ -719,15 +761,18 @@ def test_jitter_grid_result_helpers_compare_named_snapshots() -> None:
         warmup_filters_active={},
         builtin_initial={
             "topStackHeight": 10,
-            "bandHeights": {"status": 2, "similarity": 3, "filters": 4},
+            "topRailHeight": 10,
+            "gridBodyTop": 20,
         },
         filters_active={
             "topStackHeight": 12,
-            "bandHeights": {"status": 2, "similarity": 5, "filters": 4},
+            "topRailHeight": 12,
+            "gridBodyTop": 22,
         },
         filters_cleared={
             "topStackHeight": 11,
-            "bandHeights": {"status": 2, "similarity": 3, "filters": 7},
+            "topRailHeight": 11,
+            "gridBodyTop": 21,
         },
         metric_mode={"gridBodyWidth": 800, "firstCellLeft": 20, "firstCellWidth": 120, "metricRailWidth": 44},
         builtin_restored={"gridBodyWidth": 790, "firstCellLeft": 22, "firstCellWidth": 118, "metricRailWidth": 40},
@@ -738,7 +783,8 @@ def test_jitter_grid_result_helpers_compare_named_snapshots() -> None:
     widths = jitter_grid.grid_width_deltas(snapshots)
 
     assert top_stack["baseline_to_filters_top_stack_delta"] == 2
-    assert top_stack["baseline_to_restored_filters_band_delta"] == 3
+    assert top_stack["baseline_to_restored_top_rail_delta"] == 1
+    assert top_stack["baseline_to_filters_grid_body_top_delta"] == 2
     assert widths["metric_to_restored_body_width_delta"] == 10
     assert jitter_grid_dom.COUNT_LABEL_RE.match("1,234 / 2,000 items")
 

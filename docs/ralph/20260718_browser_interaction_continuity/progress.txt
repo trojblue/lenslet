@@ -45,3 +45,18 @@ Validations:
 Blocker: the mandatory native Windows 11 Edge visual check for the actual 300-metric dropdown in Original, Teal, and Charcoal cannot run on this host. The plan explicitly forbids substituting Chromium computed-style evidence, and cleanup/review agents start only after the complete Sprint 1 primary scenario passes.
 
 Next step: run the three-theme visual check on Windows 11 Edge and attach the result. On pass, run the blocking Sprint 1 code-simplifier agent, then the blocking code-review agent, resolve findings, rerun affected evidence, add the sprint handoff, and only then begin Sprint 2.
+
+## Iteration 3 — 2026-07-18T05:27:09Z
+
+Completed task IDs: none. Sprint 1 remains the next incomplete sprint; S1-T4 is blocked on its external native-browser acceptance gate.
+
+Files changed: canonical plan and append-only Ralph progress log only. Product code, tests, shipped frontend assets, dependency manifests, and existing untracked Ralph runtime files were unchanged.
+
+Validations:
+- PASS — re-read `AGENTS.md`, the full canonical plan, and the full progress log; S1-T4 remains the next task and Sprint 2 remains dependency-blocked.
+- PASS — repeated host/browser discovery: Linux `6.1.163-186.299.amzn2023.x86_64`, with no `microsoft-edge`, `microsoft-edge-stable`, `msedge`, or matching Edge executable under `/opt` or `/usr/bin`.
+- NOT RUN — Chromium acceptance was not redundantly rerun because its computed-style proxy is already green and the plan explicitly says it cannot close the native Edge gate.
+
+Blocker: the mandatory Windows 11 Edge visual check for the actual 300-metric dropdown in Original, Teal, and Charcoal requires an external Windows 11 Edge environment. No additional in-scope implementation, cleanup, or review task is actionable until that evidence is attached and passes.
+
+Next step: run and attach the three-theme Windows 11 Edge result. If it passes, resume with the blocking Sprint 1 code-simplifier and code-review agents, resolve findings, rerun affected evidence, and close Sprint 1 before starting Sprint 2.

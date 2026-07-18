@@ -3,6 +3,9 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
+import lenslet.browse.query as query_module
+import pytest
+
 from lenslet.browse.query import (
     BrowseFilterAst,
     BrowseFacetFields,
@@ -133,6 +136,105 @@ def test_backend_text_filter_variants() -> None:
     assert not _matches(NameNotContainsFilter("cat"), record)
     assert _matches(NotesContainsFilter("scout"), record)
     assert _matches(NotesNotContainsFilter("missing"), record)
+
+
+def test_date_filter_parses_bounds_once_per_evaluation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str | None, bool]] = []
+    original = query_module.parse_query_date_bound
+
+    def counting_parse(value: str | None, *, as_end: bool) -> float | None:
+        calls.append((value, as_end))
+        return original(value, as_end=as_end)
+
+    monkeypatch.setattr(query_module, "parse_query_date_bound", counting_parse)
+    records = tuple(
+        _record(f"{index}.jpg", added_at=f"2026-06-{index + 10:02d}T12:00:00+00:00")
+        for index in range(3)
+    )
+    spec = BrowseQuerySpec(
+        path="/gallery",
+        recursive=True,
+        offset=0,
+        limit=10,
+        filters=BrowseFilterAst((DateRangeFilter("2026-06-01", "2026-06-30"),)),
+    )
+
+    evaluate_browse_records(records, spec)
+
+    assert calls.count(("2026-06-01", False)) == 1
+    assert calls.count(("2026-06-30", True)) == 1
+
+
+def test_descending_builtin_sorts_use_reverse_tuple_order_for_prefix_names() -> None:
+    records = tuple(
+        _record(name, added_at="2026-06-10T00:00:00+00:00") for name in ("a", "aa", "b")
+    )
+
+    for key in ("name", "added"):
+        result = evaluate_browse_records(
+            records,
+            BrowseQuerySpec(
+                path="/gallery",
+                recursive=True,
+                offset=0,
+                limit=10,
+                sort=BuiltinSortSpec(key=key, direction="desc"),
+            ),
+        )
+        assert [record.name for record in result.window] == ["b", "a", "aa"]
+
+
+def test_descending_builtin_sorts_preserve_unicode_identity_and_missing_date_order() -> None:
+    same_name = (
+        _record("same", path="/gallery/a"),
+        _record("same", path="/gallery/aa"),
+    )
+    name_result = evaluate_browse_records(
+        same_name,
+        BrowseQuerySpec(
+            path="/gallery",
+            recursive=True,
+            offset=0,
+            limit=10,
+            sort=BuiltinSortSpec(key="name", direction="desc"),
+        ),
+    )
+    assert [record.path for record in name_result.window] == ["/gallery/a", "/gallery/aa"]
+
+    dates = (
+        _record("a", added_at="2026-06-10T00:00:00+00:00"),
+        _record("z", added_at="2025-06-10T00:00:00+00:00"),
+        _record("m", added_at=None),
+        _record("é", added_at="invalid"),
+    )
+    added_result = evaluate_browse_records(
+        dates,
+        BrowseQuerySpec(
+            path="/gallery",
+            recursive=True,
+            offset=0,
+            limit=10,
+            sort=BuiltinSortSpec(key="added", direction="desc"),
+        ),
+    )
+    assert [record.name for record in added_result.window] == ["a", "z", "é", "m"]
+
+
+def test_malformed_date_filter_bounds_match_no_records() -> None:
+    result = evaluate_browse_records(
+        (_record("a", added_at="2026-06-10T00:00:00+00:00"),),
+        BrowseQuerySpec(
+            path="/gallery",
+            recursive=True,
+            offset=0,
+            limit=10,
+            filters=BrowseFilterAst((DateRangeFilter("invalid", "2026-06-30"),)),
+        ),
+    )
+
+    assert result.window == ()
 
 
 def test_metric_sort_keeps_invalid_values_after_valid_values_in_both_directions() -> None:

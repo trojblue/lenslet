@@ -1,0 +1,1374 @@
+{
+  "schema_version": 1,
+  "status": "accepted",
+  "fixture": "synthetic-2000x300",
+  "session_id": "d6aef7f5-78e0-41ac-8b80-4be35247fdba",
+  "session_ids": {
+    "session_a": "d6aef7f5-78e0-41ac-8b80-4be35247fdba",
+    "session_b": "e24a6047-eca8-4003-886d-6e7f1c67809b"
+  },
+  "semantic_revisions": {
+    "protocol_present": true,
+    "deliberate_superseded_filter_sequence": {
+      "stale_results": [
+        "rejected",
+        "rejected"
+      ],
+      "fresh_statuses": [
+        200,
+        200
+      ]
+    }
+  },
+  "target_path": "/gallery/item_00300.jpg",
+  "target_paths": [
+    "/gallery/item_00300.jpg",
+    "/gallery/item_00301.jpg"
+  ],
+  "initial_visible_paths": [
+    "/gallery/item_00300.jpg",
+    "/gallery/item_00301.jpg",
+    "/gallery/item_00302.jpg",
+    "/gallery/item_00303.jpg",
+    "/gallery/item_00304.jpg",
+    "/gallery/item_00305.jpg",
+    "/gallery/item_00306.jpg",
+    "/gallery/item_00307.jpg",
+    "/gallery/item_00308.jpg",
+    "/gallery/item_00309.jpg",
+    "/gallery/item_00310.jpg",
+    "/gallery/item_00311.jpg",
+    "/gallery/item_00312.jpg",
+    "/gallery/item_00313.jpg",
+    "/gallery/item_00314.jpg",
+    "/gallery/item_00315.jpg",
+    "/gallery/item_00316.jpg",
+    "/gallery/item_00317.jpg",
+    "/gallery/item_00318.jpg",
+    "/gallery/item_00319.jpg",
+    "/gallery/item_00320.jpg",
+    "/gallery/item_00321.jpg",
+    "/gallery/item_00322.jpg",
+    "/gallery/item_00323.jpg",
+    "/gallery/item_00324.jpg",
+    "/gallery/item_00325.jpg",
+    "/gallery/item_00326.jpg",
+    "/gallery/item_00327.jpg",
+    "/gallery/item_00328.jpg",
+    "/gallery/item_00329.jpg",
+    "/gallery/item_00330.jpg",
+    "/gallery/item_00331.jpg",
+    "/gallery/item_00332.jpg",
+    "/gallery/item_00333.jpg",
+    "/gallery/item_00334.jpg",
+    "/gallery/item_00335.jpg"
+  ],
+  "final_visible_paths": [
+    "/gallery/item_00302.jpg",
+    "/gallery/item_00303.jpg",
+    "/gallery/item_00304.jpg",
+    "/gallery/item_00305.jpg",
+    "/gallery/item_00306.jpg",
+    "/gallery/item_00307.jpg",
+    "/gallery/item_00308.jpg",
+    "/gallery/item_00309.jpg",
+    "/gallery/item_00310.jpg",
+    "/gallery/item_00311.jpg",
+    "/gallery/item_00312.jpg",
+    "/gallery/item_00313.jpg",
+    "/gallery/item_00314.jpg",
+    "/gallery/item_00315.jpg",
+    "/gallery/item_00316.jpg",
+    "/gallery/item_00317.jpg",
+    "/gallery/item_00318.jpg",
+    "/gallery/item_00319.jpg",
+    "/gallery/item_00320.jpg",
+    "/gallery/item_00321.jpg",
+    "/gallery/item_00322.jpg",
+    "/gallery/item_00323.jpg",
+    "/gallery/item_00324.jpg",
+    "/gallery/item_00325.jpg",
+    "/gallery/item_00326.jpg",
+    "/gallery/item_00327.jpg",
+    "/gallery/item_00328.jpg",
+    "/gallery/item_00329.jpg",
+    "/gallery/item_00330.jpg",
+    "/gallery/item_00331.jpg",
+    "/gallery/item_00332.jpg",
+    "/gallery/item_00333.jpg",
+    "/gallery/item_00334.jpg"
+  ],
+  "final_visible_paths_by_session": {
+    "session_a": [
+      "/gallery/item_00302.jpg",
+      "/gallery/item_00303.jpg",
+      "/gallery/item_00304.jpg",
+      "/gallery/item_00305.jpg",
+      "/gallery/item_00306.jpg",
+      "/gallery/item_00307.jpg",
+      "/gallery/item_00308.jpg",
+      "/gallery/item_00309.jpg",
+      "/gallery/item_00310.jpg",
+      "/gallery/item_00311.jpg",
+      "/gallery/item_00312.jpg",
+      "/gallery/item_00313.jpg",
+      "/gallery/item_00314.jpg",
+      "/gallery/item_00315.jpg",
+      "/gallery/item_00316.jpg",
+      "/gallery/item_00317.jpg",
+      "/gallery/item_00318.jpg",
+      "/gallery/item_00319.jpg",
+      "/gallery/item_00320.jpg",
+      "/gallery/item_00321.jpg",
+      "/gallery/item_00322.jpg",
+      "/gallery/item_00323.jpg",
+      "/gallery/item_00324.jpg",
+      "/gallery/item_00325.jpg",
+      "/gallery/item_00326.jpg",
+      "/gallery/item_00327.jpg",
+      "/gallery/item_00328.jpg",
+      "/gallery/item_00329.jpg",
+      "/gallery/item_00330.jpg",
+      "/gallery/item_00331.jpg",
+      "/gallery/item_00332.jpg",
+      "/gallery/item_00333.jpg",
+      "/gallery/item_00334.jpg"
+    ],
+    "session_b": [
+      "/gallery/item_00302.jpg",
+      "/gallery/item_00303.jpg",
+      "/gallery/item_00304.jpg",
+      "/gallery/item_00305.jpg",
+      "/gallery/item_00306.jpg",
+      "/gallery/item_00307.jpg",
+      "/gallery/item_00308.jpg",
+      "/gallery/item_00309.jpg",
+      "/gallery/item_00310.jpg",
+      "/gallery/item_00311.jpg",
+      "/gallery/item_00312.jpg",
+      "/gallery/item_00313.jpg",
+      "/gallery/item_00314.jpg",
+      "/gallery/item_00315.jpg",
+      "/gallery/item_00316.jpg",
+      "/gallery/item_00317.jpg",
+      "/gallery/item_00318.jpg",
+      "/gallery/item_00319.jpg",
+      "/gallery/item_00320.jpg",
+      "/gallery/item_00321.jpg",
+      "/gallery/item_00322.jpg",
+      "/gallery/item_00323.jpg",
+      "/gallery/item_00324.jpg",
+      "/gallery/item_00325.jpg",
+      "/gallery/item_00326.jpg",
+      "/gallery/item_00327.jpg",
+      "/gallery/item_00328.jpg",
+      "/gallery/item_00329.jpg",
+      "/gallery/item_00330.jpg",
+      "/gallery/item_00331.jpg",
+      "/gallery/item_00332.jpg",
+      "/gallery/item_00333.jpg",
+      "/gallery/item_00334.jpg"
+    ]
+  },
+  "annotation_projection_ms": 60.53,
+  "projection_samples": [
+    {
+      "session": "session_a",
+      "role": "owner",
+      "latency_ms": 19.1
+    },
+    {
+      "session": "session_b",
+      "role": "remote",
+      "latency_ms": 62.6
+    },
+    {
+      "session": "session_b",
+      "role": "owner",
+      "latency_ms": 16.1
+    },
+    {
+      "session": "session_a",
+      "role": "remote",
+      "latency_ms": 48.8
+    }
+  ],
+  "gallery_root_replaced": false,
+  "active_loading_state_observed": true,
+  "page_clearing_loading_observed": false,
+  "loading_states": [
+    {
+      "grid_state": "ready",
+      "aria_busy": false,
+      "visible_cell_count": 36
+    },
+    {
+      "grid_state": "updating",
+      "aria_busy": true,
+      "visible_cell_count": 36
+    },
+    {
+      "grid_state": "updating",
+      "aria_busy": true,
+      "visible_cell_count": 33
+    },
+    {
+      "grid_state": "ready",
+      "aria_busy": false,
+      "visible_cell_count": 33
+    },
+    {
+      "grid_state": "ready",
+      "aria_busy": false,
+      "visible_cell_count": 36
+    },
+    {
+      "grid_state": "updating",
+      "aria_busy": true,
+      "visible_cell_count": 36
+    },
+    {
+      "grid_state": "ready",
+      "aria_busy": false,
+      "visible_cell_count": 36
+    },
+    {
+      "grid_state": "ready",
+      "aria_busy": false,
+      "visible_cell_count": 36
+    },
+    {
+      "grid_state": "updating",
+      "aria_busy": true,
+      "visible_cell_count": 36
+    },
+    {
+      "grid_state": "updating",
+      "aria_busy": true,
+      "visible_cell_count": 33
+    },
+    {
+      "grid_state": "ready",
+      "aria_busy": false,
+      "visible_cell_count": 33
+    },
+    {
+      "grid_state": "ready",
+      "aria_busy": false,
+      "visible_cell_count": 33
+    },
+    {
+      "grid_state": "updating",
+      "aria_busy": true,
+      "visible_cell_count": 33
+    },
+    {
+      "grid_state": "ready",
+      "aria_busy": false,
+      "visible_cell_count": 33
+    }
+  ],
+  "scroll_top_before": 0,
+  "scroll_top_after": 0,
+  "target_still_visible": false,
+  "initial_quiescence": {
+    "session_a": {
+      "completed": true,
+      "elapsed_ms": 273.775,
+      "inflight_requests": 0,
+      "gallery_present": true,
+      "aria_busy": false,
+      "visible_cell_count": 36
+    },
+    "session_b": {
+      "completed": true,
+      "elapsed_ms": 270.66,
+      "inflight_requests": 0,
+      "gallery_present": true,
+      "aria_busy": false,
+      "visible_cell_count": 36
+    }
+  },
+  "superseded_filter_quiescence": {
+    "completed": true,
+    "elapsed_ms": 325.744,
+    "inflight_requests": 0,
+    "gallery_present": true,
+    "aria_busy": false,
+    "visible_cell_count": 36
+  },
+  "superseded_filter_evidence": {
+    "query_requests": 2,
+    "facet_requests": 2,
+    "facet_field_counts": [],
+    "mutation_requests": 0,
+    "query_response_bytes": 26233,
+    "facet_response_bytes": 15005,
+    "failed_requests": [
+      {
+        "phase": "superseded_filter",
+        "endpoint": "/folders/query",
+        "failure": "net::ERR_ABORTED"
+      },
+      {
+        "phase": "superseded_filter",
+        "endpoint": "/folders/facets",
+        "failure": "net::ERR_ABORTED"
+      }
+    ],
+    "responses": [
+      {
+        "phase": "superseded_filter",
+        "endpoint": "/folders/facets",
+        "method": "POST",
+        "status": 200,
+        "response_bytes": 15005,
+        "server_timing_ms": {
+          "queue": 0.313,
+          "analysis": 12.201,
+          "facet": 256.475,
+          "serialize": 15.495
+        }
+      },
+      {
+        "phase": "superseded_filter",
+        "endpoint": "/folders/query",
+        "method": "POST",
+        "status": 200,
+        "response_bytes": 26233,
+        "server_timing_ms": {
+          "queue": 0.449,
+          "analysis": 19.993,
+          "ordering": 272.963,
+          "projection": 24.342,
+          "serialize": 13.975
+        }
+      }
+    ],
+    "inflight_requests": 0
+  },
+  "mutation_quiescence": {
+    "mutation_1": {
+      "owner": {
+        "completed": true,
+        "elapsed_ms": 351.561,
+        "inflight_requests": 0,
+        "gallery_present": true,
+        "aria_busy": false,
+        "visible_cell_count": 33
+      },
+      "remote": {
+        "completed": true,
+        "elapsed_ms": 274.724,
+        "inflight_requests": 0,
+        "gallery_present": true,
+        "aria_busy": false,
+        "visible_cell_count": 36
+      }
+    },
+    "mutation_2": {
+      "owner": {
+        "completed": true,
+        "elapsed_ms": 394.245,
+        "inflight_requests": 0,
+        "gallery_present": true,
+        "aria_busy": false,
+        "visible_cell_count": 33
+      },
+      "remote": {
+        "completed": true,
+        "elapsed_ms": 282.541,
+        "inflight_requests": 0,
+        "gallery_present": true,
+        "aria_busy": false,
+        "visible_cell_count": 33
+      }
+    }
+  },
+  "rounds": {
+    "mutation_1": {
+      "target_path": "/gallery/item_00300.jpg",
+      "owner": {
+        "projection": {
+          "input_timestamp_ms": 4427.199999809265,
+          "input_epoch_ms": 1784340847337.5999,
+          "projection_timestamp_ms": 4446.300000190735,
+          "projection_epoch_ms": 1784340847356.7,
+          "projection_latency_ms": 19.100000381469727,
+          "loading_states": [
+            {
+              "grid_state": "ready",
+              "aria_busy": false,
+              "visible_cell_count": 36
+            },
+            {
+              "grid_state": "updating",
+              "aria_busy": true,
+              "visible_cell_count": 36
+            },
+            {
+              "grid_state": "updating",
+              "aria_busy": true,
+              "visible_cell_count": 33
+            },
+            {
+              "grid_state": "ready",
+              "aria_busy": false,
+              "visible_cell_count": 33
+            }
+          ],
+          "gallery_root_replaced": false,
+          "scroll_top_before": 0,
+          "scroll_top_after": 0,
+          "target_still_visible": false
+        },
+        "quiescence": {
+          "completed": true,
+          "elapsed_ms": 351.561,
+          "inflight_requests": 0,
+          "gallery_present": true,
+          "aria_busy": false,
+          "visible_cell_count": 33
+        },
+        "requests": {
+          "query_requests": 1,
+          "facet_requests": 1,
+          "facet_field_counts": [
+            13
+          ],
+          "mutation_requests": 1,
+          "query_response_bytes": 26237,
+          "facet_response_bytes": 1045,
+          "failed_requests": [],
+          "responses": [
+            {
+              "phase": "mutation_1",
+              "endpoint": "/item",
+              "method": "GET",
+              "status": 200,
+              "response_bytes": 202,
+              "server_timing_ms": {}
+            },
+            {
+              "phase": "mutation_1",
+              "endpoint": "/item",
+              "method": "GET",
+              "status": 200,
+              "response_bytes": 202,
+              "server_timing_ms": {}
+            },
+            {
+              "phase": "mutation_1",
+              "endpoint": "/item",
+              "method": "PATCH",
+              "status": 200,
+              "response_bytes": 540,
+              "server_timing_ms": {
+                "queue": 1.672,
+                "serialize": 0.673,
+                "mutation": 0.563,
+                "writer": 0.123
+              }
+            },
+            {
+              "phase": "mutation_1",
+              "endpoint": "/folders/facets",
+              "method": "POST",
+              "status": 200,
+              "response_bytes": 1045,
+              "server_timing_ms": {
+                "queue": 0.238,
+                "analysis": 0.019,
+                "facet": 14.857,
+                "serialize": 2.229
+              }
+            },
+            {
+              "phase": "mutation_1",
+              "endpoint": "/folders/query",
+              "method": "POST",
+              "status": 200,
+              "response_bytes": 26237,
+              "server_timing_ms": {
+                "queue": 0.358,
+                "analysis": 9.964,
+                "ordering": 17.622,
+                "projection": 19.601,
+                "serialize": 22.368
+              }
+            }
+          ],
+          "inflight_requests": 0
+        }
+      },
+      "remote": {
+        "projection": {
+          "input_timestamp_ms": 3809.1000003814697,
+          "input_epoch_ms": 1784340847295.1,
+          "projection_timestamp_ms": 3914.2000007629395,
+          "projection_epoch_ms": 1784340847400.2,
+          "projection_latency_ms": 62.60009765625,
+          "loading_states": [
+            {
+              "grid_state": "ready",
+              "aria_busy": false,
+              "visible_cell_count": 36
+            },
+            {
+              "grid_state": "updating",
+              "aria_busy": true,
+              "visible_cell_count": 36
+            },
+            {
+              "grid_state": "ready",
+              "aria_busy": false,
+              "visible_cell_count": 36
+            }
+          ],
+          "gallery_root_replaced": false,
+          "scroll_top_before": 0,
+          "scroll_top_after": 0,
+          "target_still_visible": false
+        },
+        "quiescence": {
+          "completed": true,
+          "elapsed_ms": 274.724,
+          "inflight_requests": 0,
+          "gallery_present": true,
+          "aria_busy": false,
+          "visible_cell_count": 36
+        },
+        "requests": {
+          "query_requests": 1,
+          "facet_requests": 1,
+          "facet_field_counts": [
+            2
+          ],
+          "mutation_requests": 0,
+          "query_response_bytes": 26237,
+          "facet_response_bytes": 570,
+          "failed_requests": [],
+          "responses": [
+            {
+              "phase": "mutation_1",
+              "endpoint": "/folders/facets",
+              "method": "POST",
+              "status": 200,
+              "response_bytes": 570,
+              "server_timing_ms": {
+                "queue": 0.218,
+                "analysis": 0.015,
+                "facet": 17.033,
+                "serialize": 0.927
+              }
+            },
+            {
+              "phase": "mutation_1",
+              "endpoint": "/folders/query",
+              "method": "POST",
+              "status": 200,
+              "response_bytes": 26237,
+              "server_timing_ms": {
+                "queue": 0.542,
+                "analysis": 1.836,
+                "ordering": 17.479,
+                "projection": 42.408,
+                "serialize": 11.293
+              }
+            }
+          ],
+          "inflight_requests": 0
+        }
+      }
+    },
+    "mutation_2": {
+      "target_path": "/gallery/item_00301.jpg",
+      "owner": {
+        "projection": {
+          "input_timestamp_ms": 4701.700000762939,
+          "input_epoch_ms": 1784340848187.7,
+          "projection_timestamp_ms": 4717.800000190735,
+          "projection_epoch_ms": 1784340848203.8,
+          "projection_latency_ms": 16.09999942779541,
+          "loading_states": [
+            {
+              "grid_state": "ready",
+              "aria_busy": false,
+              "visible_cell_count": 36
+            },
+            {
+              "grid_state": "updating",
+              "aria_busy": true,
+              "visible_cell_count": 36
+            },
+            {
+              "grid_state": "updating",
+              "aria_busy": true,
+              "visible_cell_count": 33
+            },
+            {
+              "grid_state": "ready",
+              "aria_busy": false,
+              "visible_cell_count": 33
+            }
+          ],
+          "gallery_root_replaced": false,
+          "scroll_top_before": 0,
+          "scroll_top_after": 0,
+          "target_still_visible": false
+        },
+        "quiescence": {
+          "completed": true,
+          "elapsed_ms": 394.245,
+          "inflight_requests": 0,
+          "gallery_present": true,
+          "aria_busy": false,
+          "visible_cell_count": 33
+        },
+        "requests": {
+          "query_requests": 1,
+          "facet_requests": 1,
+          "facet_field_counts": [
+            2
+          ],
+          "mutation_requests": 1,
+          "query_response_bytes": 26238,
+          "facet_response_bytes": 572,
+          "failed_requests": [],
+          "responses": [
+            {
+              "phase": "mutation_2",
+              "endpoint": "/item",
+              "method": "GET",
+              "status": 200,
+              "response_bytes": 202,
+              "server_timing_ms": {}
+            },
+            {
+              "phase": "mutation_2",
+              "endpoint": "/item",
+              "method": "GET",
+              "status": 200,
+              "response_bytes": 202,
+              "server_timing_ms": {}
+            },
+            {
+              "phase": "mutation_2",
+              "endpoint": "/item",
+              "method": "PATCH",
+              "status": 200,
+              "response_bytes": 540,
+              "server_timing_ms": {
+                "queue": 0.51,
+                "serialize": 0.47,
+                "mutation": 0.41,
+                "writer": 0.083
+              }
+            },
+            {
+              "phase": "mutation_2",
+              "endpoint": "/folders/facets",
+              "method": "POST",
+              "status": 200,
+              "response_bytes": 572,
+              "server_timing_ms": {
+                "queue": 0.246,
+                "analysis": 10.353,
+                "facet": 2.746,
+                "serialize": 10.715
+              }
+            },
+            {
+              "phase": "mutation_2",
+              "endpoint": "/folders/query",
+              "method": "POST",
+              "status": 200,
+              "response_bytes": 26238,
+              "server_timing_ms": {
+                "queue": 0.36,
+                "analysis": 10.572,
+                "ordering": 1.126,
+                "projection": 48.99,
+                "serialize": 17.434
+              }
+            }
+          ],
+          "inflight_requests": 0
+        }
+      },
+      "remote": {
+        "projection": {
+          "input_timestamp_ms": 5240.300000190735,
+          "input_epoch_ms": 1784340848150.7,
+          "projection_timestamp_ms": 5326.10000038147,
+          "projection_epoch_ms": 1784340848236.5,
+          "projection_latency_ms": 48.800048828125,
+          "loading_states": [
+            {
+              "grid_state": "ready",
+              "aria_busy": false,
+              "visible_cell_count": 33
+            },
+            {
+              "grid_state": "updating",
+              "aria_busy": true,
+              "visible_cell_count": 33
+            },
+            {
+              "grid_state": "ready",
+              "aria_busy": false,
+              "visible_cell_count": 33
+            }
+          ],
+          "gallery_root_replaced": false,
+          "scroll_top_before": 0,
+          "scroll_top_after": 0,
+          "target_still_visible": false
+        },
+        "quiescence": {
+          "completed": true,
+          "elapsed_ms": 282.541,
+          "inflight_requests": 0,
+          "gallery_present": true,
+          "aria_busy": false,
+          "visible_cell_count": 33
+        },
+        "requests": {
+          "query_requests": 1,
+          "facet_requests": 1,
+          "facet_field_counts": [
+            13
+          ],
+          "mutation_requests": 0,
+          "query_response_bytes": 26238,
+          "facet_response_bytes": 1056,
+          "failed_requests": [],
+          "responses": [
+            {
+              "phase": "mutation_2",
+              "endpoint": "/folders/facets",
+              "method": "POST",
+              "status": 200,
+              "response_bytes": 1056,
+              "server_timing_ms": {
+                "queue": 0.228,
+                "analysis": 10.169,
+                "facet": 16.798,
+                "serialize": 22.18
+              }
+            },
+            {
+              "phase": "mutation_2",
+              "endpoint": "/folders/query",
+              "method": "POST",
+              "status": 200,
+              "response_bytes": 26238,
+              "server_timing_ms": {
+                "queue": 0.545,
+                "analysis": 11.273,
+                "ordering": 1.302,
+                "projection": 69.274,
+                "serialize": 15.104
+              }
+            }
+          ],
+          "inflight_requests": 0
+        }
+      }
+    }
+  },
+  "wide_table": {
+    "committed_filter": {
+      "characters": 10,
+      "combined_wall_ms": 627.011,
+      "requests": {
+        "query_requests": 1,
+        "facet_requests": 1,
+        "facet_field_counts": [
+          2
+        ],
+        "mutation_requests": 0,
+        "query_response_bytes": 26226,
+        "facet_response_bytes": 568,
+        "failed_requests": [],
+        "responses": [
+          {
+            "phase": "committed_filter",
+            "endpoint": "/folders/facets",
+            "method": "POST",
+            "status": 200,
+            "response_bytes": 568,
+            "server_timing_ms": {
+              "queue": 0.389,
+              "analysis": 0.426,
+              "facet": 7.637,
+              "serialize": 11.03
+            }
+          },
+          {
+            "phase": "committed_filter",
+            "endpoint": "/folders/query",
+            "method": "POST",
+            "status": 200,
+            "response_bytes": 26226,
+            "server_timing_ms": {
+              "queue": 0.527,
+              "analysis": 8.63,
+              "ordering": 0.881,
+              "projection": 22.473,
+              "serialize": 13.632
+            }
+          }
+        ],
+        "inflight_requests": 0
+      },
+      "quiescence": {
+        "completed": true,
+        "elapsed_ms": 325.647,
+        "inflight_requests": 0,
+        "gallery_present": true,
+        "aria_busy": false,
+        "visible_cell_count": 36
+      },
+      "enter_requests": {
+        "query_requests": 1,
+        "facet_requests": 0,
+        "facet_field_counts": [],
+        "mutation_requests": 0,
+        "query_response_bytes": 26226,
+        "facet_response_bytes": 0,
+        "failed_requests": [],
+        "responses": [
+          {
+            "phase": "filter_reset",
+            "endpoint": "/folders/query",
+            "method": "POST",
+            "status": 200,
+            "response_bytes": 26226,
+            "server_timing_ms": {
+              "queue": 0.556,
+              "analysis": 0.045,
+              "ordering": 0.021,
+              "projection": 24.584,
+              "serialize": 13.161
+            }
+          }
+        ],
+        "inflight_requests": 0
+      },
+      "blur_requests": {
+        "query_requests": 1,
+        "facet_requests": 1,
+        "facet_field_counts": [
+          2
+        ],
+        "mutation_requests": 0,
+        "query_response_bytes": 26224,
+        "facet_response_bytes": 568,
+        "failed_requests": [],
+        "responses": [
+          {
+            "phase": "filter_blur",
+            "endpoint": "/folders/facets",
+            "method": "POST",
+            "status": 200,
+            "response_bytes": 568,
+            "server_timing_ms": {
+              "queue": 0.259,
+              "analysis": 9.763,
+              "facet": 7.795,
+              "serialize": 10.94
+            }
+          },
+          {
+            "phase": "filter_blur",
+            "endpoint": "/folders/query",
+            "method": "POST",
+            "status": 200,
+            "response_bytes": 26224,
+            "server_timing_ms": {
+              "queue": 0.552,
+              "analysis": 10.062,
+              "ordering": 1.034,
+              "projection": 24.223,
+              "serialize": 14.109
+            }
+          }
+        ],
+        "inflight_requests": 0
+      },
+      "apply_requests": {
+        "query_requests": 1,
+        "facet_requests": 0,
+        "facet_field_counts": [],
+        "mutation_requests": 0,
+        "query_response_bytes": 26226,
+        "facet_response_bytes": 0,
+        "failed_requests": [],
+        "responses": [
+          {
+            "phase": "filter_apply",
+            "endpoint": "/folders/query",
+            "method": "POST",
+            "status": 200,
+            "response_bytes": 26226,
+            "server_timing_ms": {
+              "queue": 0.561,
+              "analysis": 0.044,
+              "ordering": 0.016,
+              "projection": 22.138,
+              "serialize": 13.239
+            }
+          }
+        ],
+        "inflight_requests": 0
+      }
+    },
+    "wide_panel": {
+      "field_count": 300,
+      "first_render_ms": 292.229,
+      "mounted_cards_initial": 6,
+      "mounted_cards_after_scroll": 10,
+      "keyboard_end_reached_last_field": true,
+      "requests": {
+        "query_requests": 0,
+        "facet_requests": 3,
+        "facet_field_counts": [
+          24,
+          1,
+          13
+        ],
+        "mutation_requests": 0,
+        "query_response_bytes": 0,
+        "facet_response_bytes": 2850,
+        "failed_requests": [],
+        "responses": [
+          {
+            "phase": "wide_panel",
+            "endpoint": "/folders/facets",
+            "method": "POST",
+            "status": 200,
+            "response_bytes": 1326,
+            "server_timing_ms": {
+              "queue": 0.57,
+              "analysis": 0.04,
+              "facet": 26.656,
+              "serialize": 1.564
+            }
+          },
+          {
+            "phase": "wide_panel",
+            "endpoint": "/folders/facets",
+            "method": "POST",
+            "status": 200,
+            "response_bytes": 484,
+            "server_timing_ms": {
+              "queue": 0.243,
+              "analysis": 0.016,
+              "facet": 27.453,
+              "serialize": 0.475
+            }
+          },
+          {
+            "phase": "wide_panel",
+            "endpoint": "/folders/facets",
+            "method": "POST",
+            "status": 200,
+            "response_bytes": 1040,
+            "server_timing_ms": {
+              "queue": 0.553,
+              "analysis": 0.039,
+              "facet": 12.412,
+              "serialize": 0.846
+            }
+          }
+        ],
+        "inflight_requests": 0
+      },
+      "quiescence": {
+        "completed": true,
+        "elapsed_ms": 341.258,
+        "inflight_requests": 0,
+        "gallery_present": true,
+        "aria_busy": false,
+        "visible_cell_count": 36
+      }
+    }
+  },
+  "count_labels": {
+    "session_a": "Loaded 1000 of 1698. Scroll for more.",
+    "session_b": "Loaded 1000 of 1698. Scroll for more."
+  },
+  "multi_editor_converged": true,
+  "query_requests": 1,
+  "facet_requests": 1,
+  "mutation_requests": 1,
+  "query_response_bytes": 104950,
+  "facet_response_bytes": 3243,
+  "failed_requests": [],
+  "responses": [
+    {
+      "phase": "mutation_1",
+      "endpoint": "/item",
+      "method": "GET",
+      "status": 200,
+      "response_bytes": 202,
+      "server_timing_ms": {}
+    },
+    {
+      "phase": "mutation_1",
+      "endpoint": "/item",
+      "method": "GET",
+      "status": 200,
+      "response_bytes": 202,
+      "server_timing_ms": {}
+    },
+    {
+      "phase": "mutation_1",
+      "endpoint": "/item",
+      "method": "PATCH",
+      "status": 200,
+      "response_bytes": 540,
+      "server_timing_ms": {
+        "queue": 1.672,
+        "serialize": 0.673,
+        "mutation": 0.563,
+        "writer": 0.123
+      }
+    },
+    {
+      "phase": "mutation_1",
+      "endpoint": "/folders/facets",
+      "method": "POST",
+      "status": 200,
+      "response_bytes": 1045,
+      "server_timing_ms": {
+        "queue": 0.238,
+        "analysis": 0.019,
+        "facet": 14.857,
+        "serialize": 2.229
+      }
+    },
+    {
+      "phase": "mutation_1",
+      "endpoint": "/folders/query",
+      "method": "POST",
+      "status": 200,
+      "response_bytes": 26237,
+      "server_timing_ms": {
+        "queue": 0.358,
+        "analysis": 9.964,
+        "ordering": 17.622,
+        "projection": 19.601,
+        "serialize": 22.368
+      }
+    },
+    {
+      "phase": "mutation_1",
+      "endpoint": "/folders/facets",
+      "method": "POST",
+      "status": 200,
+      "response_bytes": 570,
+      "server_timing_ms": {
+        "queue": 0.218,
+        "analysis": 0.015,
+        "facet": 17.033,
+        "serialize": 0.927
+      }
+    },
+    {
+      "phase": "mutation_1",
+      "endpoint": "/folders/query",
+      "method": "POST",
+      "status": 200,
+      "response_bytes": 26237,
+      "server_timing_ms": {
+        "queue": 0.542,
+        "analysis": 1.836,
+        "ordering": 17.479,
+        "projection": 42.408,
+        "serialize": 11.293
+      }
+    },
+    {
+      "phase": "mutation_2",
+      "endpoint": "/item",
+      "method": "GET",
+      "status": 200,
+      "response_bytes": 202,
+      "server_timing_ms": {}
+    },
+    {
+      "phase": "mutation_2",
+      "endpoint": "/item",
+      "method": "GET",
+      "status": 200,
+      "response_bytes": 202,
+      "server_timing_ms": {}
+    },
+    {
+      "phase": "mutation_2",
+      "endpoint": "/item",
+      "method": "PATCH",
+      "status": 200,
+      "response_bytes": 540,
+      "server_timing_ms": {
+        "queue": 0.51,
+        "serialize": 0.47,
+        "mutation": 0.41,
+        "writer": 0.083
+      }
+    },
+    {
+      "phase": "mutation_2",
+      "endpoint": "/folders/facets",
+      "method": "POST",
+      "status": 200,
+      "response_bytes": 572,
+      "server_timing_ms": {
+        "queue": 0.246,
+        "analysis": 10.353,
+        "facet": 2.746,
+        "serialize": 10.715
+      }
+    },
+    {
+      "phase": "mutation_2",
+      "endpoint": "/folders/query",
+      "method": "POST",
+      "status": 200,
+      "response_bytes": 26238,
+      "server_timing_ms": {
+        "queue": 0.36,
+        "analysis": 10.572,
+        "ordering": 1.126,
+        "projection": 48.99,
+        "serialize": 17.434
+      }
+    },
+    {
+      "phase": "mutation_2",
+      "endpoint": "/folders/facets",
+      "method": "POST",
+      "status": 200,
+      "response_bytes": 1056,
+      "server_timing_ms": {
+        "queue": 0.228,
+        "analysis": 10.169,
+        "facet": 16.798,
+        "serialize": 22.18
+      }
+    },
+    {
+      "phase": "mutation_2",
+      "endpoint": "/folders/query",
+      "method": "POST",
+      "status": 200,
+      "response_bytes": 26238,
+      "server_timing_ms": {
+        "queue": 0.545,
+        "analysis": 11.273,
+        "ordering": 1.302,
+        "projection": 69.274,
+        "serialize": 15.104
+      }
+    }
+  ],
+  "acceptance_passed": true,
+  "analysis_diagnostics": {
+    "counters": {
+      "http_request_completed_total": 146,
+      "analysis_started_total": 16,
+      "analysis_completed_total": 16,
+      "http_request_abandoned_total": 7,
+      "folders_recursive_requests_total": 3,
+      "folders_recursive_items_total": 6000,
+      "thumbnail_generated_total": 22,
+      "thumbnail_memory_total": 36,
+      "analysis_joined_total": 9,
+      "s3_client_create_total": 0,
+      "analysis_active_work": 0,
+      "analysis_queued_work": 0,
+      "analysis_filter_cache_entries": 8,
+      "analysis_order_cache_entries": 8,
+      "analysis_session_entries": 3,
+      "thumbnail_workers": 4,
+      "thumbnail_active_work": 0,
+      "thumbnail_queued_work": 0,
+      "thumbnail_inflight_entries": 0,
+      "thumbnail_waiters": 0,
+      "thumbnail_background_dropped_total": 0,
+      "thumbnail_active_background_work": 0
+    },
+    "timers_ms": {
+      "folders_recursive_traversal_ms": {
+        "count": 3,
+        "total_ms": 0.03,
+        "avg_ms": 0.01
+      },
+      "request_phase_analysis": {
+        "count": 25,
+        "total_ms": 127.742,
+        "avg_ms": 5.11
+      },
+      "request_phase_ordering": {
+        "count": 13,
+        "total_ms": 315.083,
+        "avg_ms": 24.237
+      },
+      "request_phase_projection": {
+        "count": 13,
+        "total_ms": 474.778,
+        "avg_ms": 36.521
+      },
+      "request_phase_queue": {
+        "count": 85,
+        "total_ms": 25.527,
+        "avg_ms": 0.3
+      },
+      "request_phase_serialize": {
+        "count": 85,
+        "total_ms": 282.053,
+        "avg_ms": 3.318
+      },
+      "request_phase_thumbnail": {
+        "count": 58,
+        "total_ms": 552.138,
+        "avg_ms": 9.52
+      },
+      "request_phase_facet": {
+        "count": 12,
+        "total_ms": 398.609,
+        "avg_ms": 33.217
+      },
+      "request_phase_writer": {
+        "count": 2,
+        "total_ms": 0.206,
+        "avg_ms": 0.103
+      },
+      "request_phase_mutation": {
+        "count": 2,
+        "total_ms": 0.973,
+        "avg_ms": 0.487
+      }
+    }
+  },
+  "initial_health": {
+    "ok": true,
+    "mode": "table",
+    "can_write": false,
+    "workspace_id": "53d89b18dd2c7cd52b0ea4ff",
+    "storage_origin": "parquet",
+    "total_images": 2000,
+    "refresh": {
+      "enabled": false,
+      "note": "table mode is static"
+    },
+    "browse_cache": {
+      "enabled": true,
+      "persisted": true,
+      "path": "/tmp/lenslet-annotation-latency-8bzt496w/items.parquet.cache/browse-cache",
+      "max_bytes": 209715200,
+      "pending_warms": 0
+    },
+    "compare_export": {
+      "supported_versions": [
+        2
+      ],
+      "max_paths_v2": 12,
+      "max_paths_v2_gif": 24
+    },
+    "labels": {
+      "enabled": false
+    },
+    "indexing": {
+      "state": "ready",
+      "scope": "/",
+      "done": 2000,
+      "total": 2000,
+      "generation": "10f24222c950a27c9b83ac434747fecec65f3e28623e0b3c710f873ea1fb1ab8|0",
+      "started_at": "2026-07-18T02:14:01.802787+00:00",
+      "finished_at": "2026-07-18T02:14:01.802787+00:00"
+    },
+    "presence": {
+      "view_ttl_seconds": 75.0,
+      "edit_ttl_seconds": 60.0,
+      "prune_interval_seconds": 5.0,
+      "active_clients": 0,
+      "active_scopes": 0,
+      "stale_pruned_total": 0,
+      "invalid_lease_total": 0,
+      "replay_miss_total": 0,
+      "replay_buffer_size": 0,
+      "replay_buffer_capacity": 500,
+      "connected_sse_clients": 0
+    },
+    "hotpath": {
+      "counters": {
+        "s3_client_create_total": 0,
+        "analysis_active_work": 0,
+        "analysis_queued_work": 0,
+        "analysis_filter_cache_entries": 0,
+        "analysis_order_cache_entries": 0,
+        "analysis_session_entries": 0,
+        "thumbnail_workers": 4,
+        "thumbnail_active_work": 0,
+        "thumbnail_queued_work": 0,
+        "thumbnail_inflight_entries": 0,
+        "thumbnail_waiters": 0,
+        "thumbnail_background_dropped_total": 0,
+        "thumbnail_active_background_work": 0
+      },
+      "timers_ms": {}
+    },
+    "table_launch_status": {
+      "source_column": "image_path",
+      "path_column": "path",
+      "path_mode": "detected",
+      "root_policy": "base-dir",
+      "base_dir": "[local path]",
+      "workspace_mode": "parquet-sidecar",
+      "source_table_rows": 2000,
+      "gallery_rows": 2000,
+      "skipped_rows": {
+        "total": 0,
+        "local_disabled": 0,
+        "local_outside_root": 0,
+        "local_resolved_outside_root": 0,
+        "local_missing": 0,
+        "other": 0
+      },
+      "media_source_kind": "local",
+      "dimension_coverage": {
+        "known": 2000,
+        "missing": 0,
+        "total": 2000
+      },
+      "dimension_cache_policy": "none",
+      "dimension_write_policy": "none",
+      "original_media_policy": {
+        "mode": "local_streaming",
+        "source_kind": "local",
+        "proxy_available": true,
+        "direct_allowed_reason": "served by backend local file stream",
+        "redacted_origin": "[local path]",
+        "warnings": []
+      },
+      "warnings": []
+    },
+    "launch_session": {
+      "kind": "local_parquet",
+      "loaded_from_label": "Local Parquet",
+      "target_label": ".../items.parquet",
+      "title_label": "items.parquet",
+      "detail_label": "Table \u00b7 writable sidecar \u00b7 2,000 rows"
+    }
+  },
+  "server_log": "/tmp/lenslet-annotation-latency-server-u_y50en3.log",
+  "observations": {
+    "current_duplicate_or_reset_behavior": false,
+    "post_fix_projection_target_met": true,
+    "post_fix_no_page_clear_target_met": true,
+    "multi_editor_target_met": true
+  }
+}

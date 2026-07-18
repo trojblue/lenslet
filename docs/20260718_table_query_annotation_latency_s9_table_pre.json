@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "fixture": "synthetic-2000x30",
+  "input_name": "items.parquet",
+  "input_unchanged": true,
+  "warmups": 5,
+  "repetitions": 20,
+  "query_p50_ms": 34.171,
+  "query_p95_ms": 42.248,
+  "facets_p50_ms": 32.155,
+  "facets_p95_ms": 33.479,
+  "combined_p50_ms": 66.366,
+  "combined_p95_ms": 74.336,
+  "response_bytes_p95": 648302,
+  "analysis_started": 2,
+  "analysis_joined": 0,
+  "analysis_superseded": 0,
+  "analysis_cancelled": 0,
+  "latency_ms": {
+    "query": {
+      "count": 20,
+      "min": 32.387,
+      "p50": 34.171,
+      "p95": 42.248,
+      "max": 72.788
+    },
+    "facets": {
+      "count": 20,
+      "min": 31.476,
+      "p50": 32.155,
+      "p95": 33.479,
+      "max": 34.203
+    },
+    "combined": {
+      "count": 20,
+      "min": 64.669,
+      "p50": 66.366,
+      "p95": 74.336,
+      "max": 104.834
+    }
+  },
+  "response_bytes": {
+    "query": {
+      "count": 20,
+      "min": 631540.0,
+      "p50": 631540.0,
+      "p95": 631540.0,
+      "max": 631540.0
+    },
+    "facets": {
+      "count": 20,
+      "min": 16762.0,
+      "p50": 16762.0,
+      "p95": 16762.0,
+      "max": 16762.0
+    },
+    "combined": {
+      "count": 20,
+      "min": 648302.0,
+      "p50": 648302.0,
+      "p95": 648302.0,
+      "max": 648302.0
+    }
+  },
+  "server_timing_ms": {
+    "query": {
+      "queue": {
+        "count": 20,
+        "min": 0.206,
+        "p50": 0.24,
+        "p95": 0.427,
+        "max": 0.431
+      },
+      "analysis": {
+        "count": 20,
+        "min": 0.017,
+        "p50": 0.018,
+        "p95": 0.04,
+        "max": 0.044
+      },
+      "ordering": {
+        "count": 20,
+        "min": 0.011,
+        "p50": 0.013,
+        "p95": 0.015,
+        "max": 0.016
+      },
+      "projection": {
+        "count": 20,
+        "min": 19.413,
+        "p50": 20.396,
+        "p95": 23.346,
+        "max": 59.236
+      },
+      "serialize": {
+        "count": 20,
+        "min": 11.064,
+        "p50": 11.538,
+        "p95": 17.312,
+        "max": 17.905
+      }
+    },
+    "facets": {
+      "queue": {
+        "count": 20,
+        "min": 0.209,
+        "p50": 0.252,
+        "p95": 0.312,
+        "max": 0.331
+      },
+      "analysis": {
+        "count": 20,
+        "min": 0.018,
+        "p50": 0.021,
+        "p95": 0.023,
+        "max": 0.026
+      },
+      "facet": {
+        "count": 20,
+        "min": 29.046,
+        "p50": 29.987,
+        "p95": 30.692,
+        "max": 30.828
+      },
+      "serialize": {
+        "count": 20,
+        "min": 1.012,
+        "p50": 1.068,
+        "p95": 1.401,
+        "max": 2.266
+      }
+    }
+  },
+  "sidecars": {
+    "rated": 300
+  },
+  "correctness": {
+    "scope_total": 2000,
+    "filtered_total": 1700,
+    "facet_total": 1700,
+    "window_items": 1000,
+    "metric_keys": [
+      "metric_000",
+      "metric_001",
+      "metric_002"
+    ]
+  }
+}

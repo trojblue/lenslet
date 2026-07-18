@@ -26,6 +26,19 @@ T = TypeVar("T")
 
 
 @dataclass(frozen=True, slots=True)
+class DescendingTextSortKey:
+    """Preserve descending text order without constructing complemented strings."""
+
+    value: str
+
+    def __lt__(self, other: DescendingTextSortKey) -> bool:
+        for left, right in zip(self.value, other.value):
+            if left != right:
+                return left > right
+        return len(self.value) < len(other.value)
+
+
+@dataclass(frozen=True, slots=True)
 class StarsInFilter:
     values: tuple[int, ...]
 
@@ -297,12 +310,13 @@ def evaluate_browse_records(
             derived_metric=normalize_derived_metric_spec(spec.derived_metric),
             unsupported_metric_intent=_normalize_text(spec.unsupported_metric_intent),
         )
+        date_bounds = _prepare_date_bounds(normalized.filters)
         searched = [
             record for record in records if _matches_text_query(record, normalized.text_query)
         ]
         base_filters, derived_filters = _split_derived_metric_filters(normalized.filters)
         base_filtered = [
-            record for record in searched if _matches_filter_ast(record, base_filters)
+            record for record in searched if _matches_filter_ast(record, base_filters, date_bounds)
         ]
         derived_metric_status = DerivedMetricStatus()
         if normalized.derived_metric is not None or _query_references_derived_metric(normalized):
@@ -316,7 +330,11 @@ def evaluate_browse_records(
             derived_metric_status = derived_result.status
         else:
             query_records = base_filtered
-        filtered = [record for record in query_records if _matches_filter_ast(record, derived_filters)]
+        filtered = [
+            record
+            for record in query_records
+            if _matches_filter_ast(record, derived_filters, date_bounds)
+        ]
     with request_phase("ordering"):
         ordered = sort_browse_records(filtered, normalized.sort, random_seed=normalized.random_seed)
     with request_phase("projection"):
@@ -728,8 +746,10 @@ def sort_browse_records(
             key=lambda record: (_random_key(seed, record.stable_identity), record.stable_identity),
         )
     if sort.key == "name":
-        return sorted(records, key=lambda record: _name_sort_key(record, sort.direction))
-    return sorted(records, key=lambda record: _added_sort_key(record, sort.direction))
+        key = _descending_name_sort_key if sort.direction == "desc" else _name_sort_key
+        return sorted(records, key=key)
+    key = _descending_added_sort_key if sort.direction == "desc" else _added_sort_key
+    return sorted(records, key=key)
 
 
 def browse_analysis_query_key(
@@ -920,14 +940,28 @@ def _normalize_clause(clause: BrowseFilterClause) -> BrowseFilterClause | None:
     return clause
 
 
-def _matches_filter_ast(record: BrowseQueryRecord[object], filters: BrowseFilterAst) -> bool:
+def _matches_filter_ast(
+    record: BrowseQueryRecord[object],
+    filters: BrowseFilterAst,
+    date_bounds: Mapping[
+        DateRangeFilter,
+        tuple[float | None, float | None] | None,
+    ],
+) -> bool:
     for clause in filters.and_clauses:
-        if not _matches_clause(record, clause):
+        if not _matches_clause(record, clause, date_bounds):
             return False
     return True
 
 
-def _matches_clause(record: BrowseQueryRecord[object], clause: BrowseFilterClause) -> bool:
+def _matches_clause(
+    record: BrowseQueryRecord[object],
+    clause: BrowseFilterClause,
+    date_bounds: Mapping[
+        DateRangeFilter,
+        tuple[float | None, float | None] | None,
+    ],
+) -> bool:
     if isinstance(clause, StarsInFilter):
         value = record.star if record.star is not None else 0
         return value in clause.values
@@ -947,7 +981,7 @@ def _matches_clause(record: BrowseQueryRecord[object], clause: BrowseFilterClaus
     if isinstance(clause, UrlNotContainsFilter):
         return _matches_url_not_contains(record, clause.value)
     if isinstance(clause, DateRangeFilter):
-        return _matches_date_range(record.added_at, clause)
+        return _matches_date_range(record.added_at, date_bounds[clause])
     if isinstance(clause, WidthCompareFilter):
         return _matches_dimension_compare(record.width, clause)
     if isinstance(clause, HeightCompareFilter):
@@ -1001,15 +1035,36 @@ def _matches_text_value(value: str | None, needle: str) -> bool:
     return needle.lower() in (value or "").lower()
 
 
-def _matches_date_range(value: str | None, clause: DateRangeFilter) -> bool:
-    if clause.from_value is None and clause.to_value is None:
+def _prepare_date_bounds(
+    filters: BrowseFilterAst,
+) -> dict[DateRangeFilter, tuple[float | None, float | None] | None]:
+    bounds: dict[DateRangeFilter, tuple[float | None, float | None] | None] = {}
+    for clause in filters.and_clauses:
+        if not isinstance(clause, DateRangeFilter) or clause in bounds:
+            continue
+        try:
+            bounds[clause] = (
+                parse_query_date_bound(clause.from_value, as_end=False),
+                parse_query_date_bound(clause.to_value, as_end=True),
+            )
+        except (TypeError, ValueError):
+            bounds[clause] = None
+    return bounds
+
+
+def _matches_date_range(
+    value: str | None,
+    bounds: tuple[float | None, float | None] | None,
+) -> bool:
+    if bounds is None:
+        return False
+    from_ms, to_ms = bounds
+    if from_ms is None and to_ms is None:
         return True
     if not value:
         return False
     try:
         item_ms = parse_query_date_bound(value, as_end=False)
-        from_ms = parse_query_date_bound(clause.from_value, as_end=False)
-        to_ms = parse_query_date_bound(clause.to_value, as_end=True)
     except (TypeError, ValueError):
         return False
     if item_ms is None:
@@ -1038,23 +1093,32 @@ def _matches_dimension_compare(
     return True
 
 
-def _added_sort_key(
-    record: BrowseQueryRecord[object], direction: SortDirection
-) -> tuple[float, str, str]:
+def _added_sort_key(record: BrowseQueryRecord[object]) -> tuple[float, str, str]:
     added_ms = _added_ms(record.added_at)
-    if direction == "desc":
-        return (
-            -added_ms,
-            _reverse_text_key(record.name),
-            _reverse_text_key(record.stable_identity),
-        )
     return (added_ms, record.name, record.stable_identity)
 
 
-def _name_sort_key(record: BrowseQueryRecord[object], direction: SortDirection) -> tuple[str, str]:
-    if direction == "desc":
-        return (_reverse_text_key(record.name), _reverse_text_key(record.stable_identity))
+def _descending_added_sort_key(
+    record: BrowseQueryRecord[object],
+) -> tuple[float, DescendingTextSortKey, DescendingTextSortKey]:
+    return (
+        -_added_ms(record.added_at),
+        DescendingTextSortKey(record.name),
+        DescendingTextSortKey(record.stable_identity),
+    )
+
+
+def _name_sort_key(record: BrowseQueryRecord[object]) -> tuple[str, str]:
     return (record.name, record.stable_identity)
+
+
+def _descending_name_sort_key(
+    record: BrowseQueryRecord[object],
+) -> tuple[DescendingTextSortKey, DescendingTextSortKey]:
+    return (
+        DescendingTextSortKey(record.name),
+        DescendingTextSortKey(record.stable_identity),
+    )
 
 
 def _metric_sort_key(
@@ -1118,10 +1182,6 @@ def _normalize_categorical_values(values: tuple[str, ...]) -> tuple[str, ...]:
         seen.add(value)
         out.append(value)
     return tuple(out)
-
-
-def _reverse_text_key(value: str) -> str:
-    return "".join(chr(0x10FFFF - ord(char)) for char in value)
 
 
 def _clause_token(clause: BrowseFilterClause) -> dict[str, object]:

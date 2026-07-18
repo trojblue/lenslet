@@ -19,6 +19,7 @@ from ...browse.query import (
     BrowseSortSpec,
     CategoricalInFilter,
     DateRangeFilter,
+    DescendingTextSortKey,
     DerivedMetricSpec,
     DerivedMetricStatus,
     DerivedMetricZStat,
@@ -669,6 +670,7 @@ class TableQueryEngine:
         checkpoint = _CancellationCheckpoint(cancel, self._clock)
         checkpoint.force()
         filters = normalize_filter_ast(spec.filters)
+        date_bounds = _prepare_date_bounds(filters)
         base_filters, derived_filters = _split_derived_filters(filters)
         text_query = _normalize_text(spec.text_query)
         mutable = self._mutable.snapshot(spec)
@@ -678,9 +680,13 @@ class TableQueryEngine:
         base_filtered: list[int] = []
         for row_id in row_ids:
             slot = self.columns.slot_for_row(row_id)
-            if (
-                _matches_text(mutable.search_text[slot], text_query)
-                and self._matches_filters(slot, base_filters, mutable, None, None)
+            if _matches_text(mutable.search_text[slot], text_query) and self._matches_filters(
+                slot,
+                base_filters,
+                mutable,
+                None,
+                None,
+                date_bounds,
             ):
                 base_filtered.append(row_id)
             checkpoint.step()
@@ -706,6 +712,7 @@ class TableQueryEngine:
                 mutable,
                 derived_scores,
                 status_key,
+                date_bounds,
             ):
                 filtered.append(row_id)
             checkpoint.step()
@@ -748,9 +755,17 @@ class TableQueryEngine:
                 ),
             )
         elif sort.key == "name":
-            ordered = sorted(rows, key=lambda row_id: self._name_sort_key(row_id, sort.direction))
+            sort_key = (
+                self._descending_name_sort_key if sort.direction == "desc" else self._name_sort_key
+            )
+            ordered = sorted(rows, key=sort_key)
         else:
-            ordered = sorted(rows, key=lambda row_id: self._added_sort_key(row_id, sort.direction))
+            sort_key = (
+                self._descending_added_sort_key
+                if sort.direction == "desc"
+                else self._added_sort_key
+            )
+            ordered = sorted(rows, key=sort_key)
         checkpoint.force()
         if key is None:
             key = TableOrderKey(
@@ -777,9 +792,20 @@ class TableQueryEngine:
         mutable: _MutableSnapshot,
         derived_scores: Mapping[int, float] | None,
         derived_key: str | None,
+        date_bounds: Mapping[
+            DateRangeFilter,
+            tuple[float | None, float | None] | None,
+        ],
     ) -> bool:
         return all(
-            self._matches_clause(slot, clause, mutable, derived_scores, derived_key)
+            self._matches_clause(
+                slot,
+                clause,
+                mutable,
+                derived_scores,
+                derived_key,
+                date_bounds,
+            )
             for clause in filters.and_clauses
         )
 
@@ -790,6 +816,10 @@ class TableQueryEngine:
         mutable: _MutableSnapshot,
         derived_scores: Mapping[int, float] | None,
         derived_key: str | None,
+        date_bounds: Mapping[
+            DateRangeFilter,
+            tuple[float | None, float | None] | None,
+        ],
     ) -> bool:
         if isinstance(clause, StarsInFilter):
             return (mutable.stars[slot] if mutable.stars[slot] is not None else 0) in clause.values
@@ -812,7 +842,7 @@ class TableQueryEngine:
             contains = clause.value.lower() in value.lower()
             return contains if isinstance(clause, UrlContainsFilter) else not contains
         if isinstance(clause, DateRangeFilter):
-            return _matches_date(self.columns.added_ms.value(slot), clause)
+            return _matches_date(self.columns.added_ms.value(slot), date_bounds[clause])
         if isinstance(clause, WidthCompareFilter):
             value = self._dimension_value(slot, "width", mutable)
             return _matches_dimension(value, clause.op, clause.value)
@@ -990,22 +1020,32 @@ class TableQueryEngine:
     def _identity(self, row_id: int) -> str:
         return self.columns.stable_identities[self.columns.slot_for_row(row_id)]
 
-    def _name_sort_key(self, row_id: int, direction: str) -> tuple[str, str]:
+    def _name_sort_key(self, row_id: int) -> tuple[str, str]:
         slot = self.columns.slot_for_row(row_id)
         name = self.columns.names[slot]
         identity = self.columns.stable_identities[slot]
-        if direction == "desc":
-            return _reverse_text(name), _reverse_text(identity)
         return name, identity
 
-    def _added_sort_key(self, row_id: int, direction: str) -> tuple[float, str, str]:
+    def _descending_name_sort_key(
+        self,
+        row_id: int,
+    ) -> tuple[DescendingTextSortKey, DescendingTextSortKey]:
+        name, identity = self._name_sort_key(row_id)
+        return DescendingTextSortKey(name), DescendingTextSortKey(identity)
+
+    def _added_sort_key(self, row_id: int) -> tuple[float, str, str]:
         slot = self.columns.slot_for_row(row_id)
         added = self.columns.added_ms.value(slot) or 0.0
         name = self.columns.names[slot]
         identity = self.columns.stable_identities[slot]
-        if direction == "desc":
-            return -added, _reverse_text(name), _reverse_text(identity)
         return added, name, identity
+
+    def _descending_added_sort_key(
+        self,
+        row_id: int,
+    ) -> tuple[float, DescendingTextSortKey, DescendingTextSortKey]:
+        added, name, identity = self._added_sort_key(row_id)
+        return -added, DescendingTextSortKey(name), DescendingTextSortKey(identity)
 
     def _metric_sort_key(
         self,
@@ -1162,17 +1202,32 @@ def _matches_text(search_text: str, query: str | None) -> bool:
     return query is None or query.lower() in search_text.lower()
 
 
-def _matches_date(value_ms: float | None, clause: DateRangeFilter) -> bool:
-    if value_ms is None or value_ms <= 0:
+def _prepare_date_bounds(
+    filters: BrowseFilterAst,
+) -> dict[DateRangeFilter, tuple[float | None, float | None] | None]:
+    bounds: dict[DateRangeFilter, tuple[float | None, float | None] | None] = {}
+    for clause in filters.and_clauses:
+        if not isinstance(clause, DateRangeFilter) or clause in bounds:
+            continue
+        try:
+            bounds[clause] = (
+                parse_query_date_bound(clause.from_value, as_end=False),
+                parse_query_date_bound(clause.to_value, as_end=True),
+            )
+        except (TypeError, ValueError):
+            bounds[clause] = None
+    return bounds
+
+
+def _matches_date(
+    value_ms: float | None,
+    bounds: tuple[float | None, float | None] | None,
+) -> bool:
+    if value_ms is None or value_ms <= 0 or bounds is None:
         return False
-    try:
-        from_ms = parse_query_date_bound(clause.from_value, as_end=False)
-        to_ms = parse_query_date_bound(clause.to_value, as_end=True)
-    except (TypeError, ValueError):
-        return False
+    from_ms, to_ms = bounds
     return not (
-        (from_ms is not None and value_ms < from_ms)
-        or (to_ms is not None and value_ms > to_ms)
+        (from_ms is not None and value_ms < from_ms) or (to_ms is not None and value_ms > to_ms)
     )
 
 
@@ -1203,7 +1258,3 @@ def _order_semantic_key(sort: BrowseSortSpec, *, random_seed: str | None) -> str
     )
     raw = repr((sort, active_seed)).encode("utf-8")
     return f"oq_{hashlib.sha256(raw).hexdigest()[:24]}"
-
-
-def _reverse_text(value: str) -> str:
-    return "".join(chr(0x10FFFF - ord(char)) for char in value)

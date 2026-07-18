@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import math
 import random
 
+import lenslet.storage.table.query_engine as query_engine_module
 import pytest
 
 from lenslet.browse.query import (
@@ -210,6 +211,149 @@ def test_filter_order_and_window_keys_invalidate_only_their_semantic_layer() -> 
     sidecar["star"] = 4
     storage.set_sidecar("/gallery/batch-0/image-000.jpg", sidecar)
     assert engine.filter_key(star_spec) != star_key
+
+
+def test_date_filter_parses_bounds_once_per_analysis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = _storage(_parity_rows(80))
+    calls: list[tuple[str | None, bool]] = []
+    original = query_engine_module.parse_query_date_bound
+
+    def counting_parse(value: str | None, *, as_end: bool) -> float | None:
+        calls.append((value, as_end))
+        return original(value, as_end=as_end)
+
+    monkeypatch.setattr(query_engine_module, "parse_query_date_bound", counting_parse)
+    spec = BrowseQuerySpec(
+        "/gallery",
+        True,
+        0,
+        100,
+        BrowseFilterAst((DateRangeFilter("2023-11-20", "2023-12-15"),)),
+    )
+
+    storage.query_engine.analyze_filter(_scope_rows(storage), spec)
+
+    assert calls == [("2023-11-20", False), ("2023-12-15", True)]
+
+
+def test_descending_builtin_sorts_match_prefix_name_semantics() -> None:
+    storage = _storage(
+        [
+            {
+                "source": f"https://example.test/{name}.jpg",
+                "path": f"gallery/{name}",
+                "mtime": 1_700_000_000,
+            }
+            for name in ("a", "aa", "b")
+        ]
+    )
+
+    for key in ("name", "added"):
+        spec = BrowseQuerySpec(
+            "/gallery",
+            True,
+            0,
+            3,
+            sort=BuiltinSortSpec(key, "desc"),
+        )
+        _assert_query_parity(storage, spec)
+        analysis = storage.query_engine.analyze_filter(_scope_rows(storage), spec)
+        expected_key = storage.query_engine.order_key(analysis, spec)
+        ordered = storage.query_engine.order(analysis, spec.sort, key=expected_key)
+        assert ordered.key == expected_key
+        paths = [
+            storage.query_engine.columns.stable_identities[
+                storage.query_engine.columns.slot_for_row(row_id)
+            ]
+            for row_id in ordered.ordered_row_ids
+        ]
+        assert paths == ["/gallery/b", "/gallery/aa", "/gallery/a"]
+
+
+def test_malformed_date_filter_bounds_match_no_table_rows() -> None:
+    storage = _storage(_parity_rows(8))
+    spec = BrowseQuerySpec(
+        "/gallery",
+        True,
+        0,
+        8,
+        BrowseFilterAst((DateRangeFilter("invalid", "2026-06-30"),)),
+    )
+
+    analysis = storage.query_engine.analyze_filter(_scope_rows(storage), spec)
+
+    assert analysis.row_ids == ()
+
+
+def test_descending_table_order_handles_identity_prefix_unicode_and_missing_dates() -> None:
+    storage = _storage(
+        [
+            {
+                "source": "https://example.test/group-a/item.jpg",
+                "path": "gallery/a",
+                "mtime": 0,
+            },
+            {
+                "source": "https://example.test/group-aa/item.jpg",
+                "path": "gallery/aa",
+                "mtime": None,
+            },
+            {
+                "source": "https://example.test/z.jpg",
+                "path": "gallery/unicode-z",
+                "mtime": 0,
+            },
+            {
+                "source": "https://example.test/é.jpg",
+                "path": "gallery/unicode-é",
+                "mtime": None,
+            },
+            {
+                "source": "https://example.test/a.jpg",
+                "path": "gallery/recent",
+                "mtime": 1_700_000_000,
+            },
+        ]
+    )
+    expectations = {
+        "name": [
+            "/gallery/unicode-é",
+            "/gallery/unicode-z",
+            "/gallery/a",
+            "/gallery/aa",
+            "/gallery/recent",
+        ],
+        "added": [
+            "/gallery/recent",
+            "/gallery/unicode-é",
+            "/gallery/unicode-z",
+            "/gallery/a",
+            "/gallery/aa",
+        ],
+    }
+
+    for key, expected_paths in expectations.items():
+        spec = BrowseQuerySpec(
+            "/gallery",
+            True,
+            0,
+            5,
+            sort=BuiltinSortSpec(key, "desc"),
+        )
+        analysis = storage.query_engine.analyze_filter(_scope_rows(storage), spec)
+        expected_key = storage.query_engine.order_key(analysis, spec)
+        ordered = storage.query_engine.order(analysis, spec.sort, key=expected_key)
+        paths = [
+            storage.query_engine.columns.stable_identities[
+                storage.query_engine.columns.slot_for_row(row_id)
+            ]
+            for row_id in ordered.ordered_row_ids
+        ]
+
+        assert ordered.key == expected_key
+        assert paths == expected_paths
 
 
 def test_column_store_normalizes_once_with_stable_rows_and_bounded_buffers() -> None:

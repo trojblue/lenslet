@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "fixture": "scalar-http-2000",
+  "repetitions": 20,
+  "cases": {
+    "date_filter": {
+      "wall_ms": 517.99,
+      "profiler_total_ms": 517.212,
+      "functions": {
+        "query.py:parse_query_date_bound": {
+          "calls": 80000,
+          "self_ms": 82.171,
+          "cumulative_ms": 212.977
+        },
+        "query_engine.py:_matches_date": {
+          "calls": 40000,
+          "self_ms": 26.842,
+          "cumulative_ms": 239.819
+        },
+        "query_engine.py:analyze_filter": {
+          "calls": 20,
+          "self_ms": 72.725,
+          "cumulative_ms": 517.29
+        }
+      }
+    },
+    "name_desc_order": {
+      "wall_ms": 788.11,
+      "profiler_total_ms": 787.843,
+      "functions": {
+        "query_engine.py:_reverse_text": {
+          "calls": 80000,
+          "self_ms": 27.15,
+          "cumulative_ms": 743.614
+        },
+        "query_engine.py:order": {
+          "calls": 20,
+          "self_ms": 0.175,
+          "cumulative_ms": 787.759
+        }
+      }
+    },
+    "added_desc_order": {
+      "wall_ms": 824.484,
+      "profiler_total_ms": 824.154,
+      "functions": {
+        "query_engine.py:_reverse_text": {
+          "calls": 80000,
+          "self_ms": 27.901,
+          "cumulative_ms": 750.25
+        },
+        "query_engine.py:order": {
+          "calls": 20,
+          "self_ms": 0.182,
+          "cumulative_ms": 824.051
+        }
+      }
+    }
+  }
+}

@@ -49,13 +49,13 @@ The snapshot retains the prior settled identity for the existing 800-millisecond
 
 2. **Sprint 2 — Establish atomic browse ownership before count fixes.** Demo: fast/slow filter and sort transitions keep membership, totals, ratings, and metric-rail readiness coherent while live annotations still update.
 
-   1. **S2-T1 — Extract the minimal presented browse snapshot.** Evolve `useGridPresentation`; do not add a second store. Implement the interface and reset boundaries above with pure tests for target epochs, grace expiry, terminal empty/error, and A-to-B-to-C latest-target ownership.
+   1. [x] **S2-T1 — Extract the minimal presented browse snapshot.** Evolve `useGridPresentation`; do not add a second store. Implement the interface and reset boundaries above with pure tests for target epochs, grace expiry, terminal empty/error, and A-to-B-to-C latest-target ownership.
 
-   2. **S2-T2 — Wire query-owned consumers and live entity overlays.** Feed grid membership/window, toolbar totals, rating aggregate inputs, and metric-rail readiness from the snapshot. Keep optimistic annotations/presence live-derived by path and retain browse actions as inert during grace. Include facets only when a focused trace proves a blanking consumer.
+   2. [x] **S2-T2 — Wire query-owned consumers and live entity overlays.** Feed grid membership/window, toolbar totals, rating aggregate inputs, and metric-rail readiness from the snapshot. Keep optimistic annotations/presence live-derived by path and retain browse actions as inert during grace. Include facets only when a focused trace proves a blanking consumer.
 
-   3. **S2-T3 — Make metrics completeness consume settled identity.** Replace `items.length >= filteredCount` as a standalone completeness test with current presentation identity plus terminal query state. Pending must not manufacture `Filtered: 0`; true settled zero remains visible. Keep filter-free population facets outside the snapshot.
+   3. [x] **S2-T3 — Make metrics completeness consume settled identity.** Replace `items.length >= filteredCount` as a standalone completeness test with current presentation identity plus terminal query state. Pending must not manufacture `Filtered: 0`; true settled zero remains visible. Keep filter-free population facets outside the snapshot.
 
-   4. **S2-T4 — Prove transitions, mutations, and resets.** Extend the existing grid probe, not a new framework, with sub-800ms/over-800ms filter/sort responses, A-to-B-to-C, optimistic rating during grace, terminal empty/error, and source/scope reset. No frame may mix prior membership with target totals or freeze same-identity annotation changes.
+   4. [x] **S2-T4 — Prove transitions, mutations, and resets.** Extend the existing grid probe, not a new framework, with sub-800ms/over-800ms filter/sort responses, A-to-B-to-C, optimistic rating during grace, terminal empty/error, and source/scope reset. No frame may mix prior membership with target totals or freeze same-identity annotation changes.
 
 3. **Sprint 3 — Stabilize Derived Score, facets, native selects, and metric shells.** Demo: unsaved Derived edits survive ordinary responses; uncached fields keep target-correct fixed shells; app-owned controls open without card movement or opacity flash.
 
@@ -179,6 +179,8 @@ After cleanup, spawn a fresh best-available subagent with medium reasoning effor
 - **Sprint 1 (2026-07-18):** the 1,585-row/two-value metrics trace recorded 0-pixel categorical-card, histogram-card, and next-control deltas; no `Active:` frame; one invariant Clear slot through apply/clear; and a 16-pixel no-wrap histogram footer through drag, pointer-up/leave, and range clear. The 390x844 secondary structure had zero document overflow and retained an accessible mobile-drawer trigger.
 - **Sprint 1 Metadata:** 22 painted target transitions, including all fast paths and slow-request supersession, recorded zero autoload-on idle/loading-copy violations and 0-pixel Inspector anchor movement. The final deliberate 1,250-millisecond response first painted neutral copy at 1,013.7 milliseconds and then settled target-correct content.
 - **Sprint 1 supporting gates:** 592 frontend tests, TypeScript, 56 painted-frame/browser-helper tests, the default GUI acceptance, repository lint, and `git diff --check` passed. Shipped assets were regenerated from `frontend/dist` into `src/lenslet/frontend/`.
+- **Sprint 2 primary evidence (2026-07-18):** the grid trace covered 350-450-millisecond and 1,100-millisecond sort/filter responses, A-to-B-to-C supersession, an optimistic five-star mutation during retained grace, terminal empty/error, an incompatible scope reset, and a delayed same-query source-column generation reset with zero continuity violations. Retained membership, target identity, epoch, toolbar totals, rating aggregates, and metric-rail inertness stayed atomic; pending/error never manufactured zero counts. The live rating aggregate moved from five-star `1` to `0` when the settled Unrated filter excluded that path.
+- **Sprint 2 supporting gates:** 601 frontend tests across 110 files, TypeScript, 59 painted-frame/browser-helper tests, the default GUI acceptance, repository lint, and `git diff --check` passed. The final source-reset trace recorded 27 target-owned loading frames and zero grace frames; shipped assets were regenerated and synchronized.
 
 ### Secondary acceptance
 
@@ -222,7 +224,7 @@ Stable shells can hide or overflow content if implemented as clipping. Full copy
 
 Media retention can leak object URLs or show old pixels under new labels. Promotion requires target identity, successful decode, latest-request guards, failure retirement, and cache bounds. A failed/superseded target may not strand prior pixels under current labels.
 
-The Sprint 1 metrics trace still observes the known pending `Filtered: 0` state while geometry remains stable. That semantic count issue is intentionally owned by S2-T3 after S2-T1 establishes the atomic presented browse snapshot; it is not treated as resolved by the Sprint 1 shell fix.
+Sprint 2 resolved the pending `Filtered: 0` semantic frame through nullable target-owned snapshot counts, not local text suppression. Recovery remains the path-based presentation snapshot plus explicit reset identity; do not reintroduce count derivation from a pending target.
 
 Shared Dropdown and persistence edits have broad reach. Keep selectors local, preserve URL/shared-view precedence, and revert the individual ticket commit if keyboard behavior, clamping, or persisted ownership regresses. Do not add dependencies as recovery.
 
@@ -246,6 +248,13 @@ Each ticket/sprint is independently committable. Retry is idempotent: recreate t
 - [x] 2026-07-18 UTC — S1-T4 made autoload-enabled Metadata synchronously target-pending, delayed visible loading copy by 1,000 milliseconds, preserved autoload-off idle, and extended fast/slow/superseded painted-frame evidence.
 - [x] 2026-07-18 UTC — Sprint 1 focused probes, full frontend tests/typecheck, browser-helper tests, default GUI acceptance, build/sync, lint, and diff hygiene passed.
 - [x] 2026-07-18 UTC — Mandatory code-simplifier cleanup removed one dead derivation and one duplicate calculation; adversarial review findings were resolved by strengthening fast/superseded timing, range-clear, structural-scope, finding-map, and handoff evidence.
+- [x] 2026-07-18 UTC — Ralph iteration 2 entered Sprint 2. The plan gate fixed the implementation boundary at one path-based `PresentedBrowseSnapshot` inside `useGridPresentation`, explicit scope/session/source resets, live entity overlays, nullable pending counts, and the existing 800-millisecond grace; no facets, store, or state framework will be added without failing trace evidence.
+- [x] 2026-07-18 UTC — S2-T1 added pure target/reset/epoch resolution around one path-based snapshot, with grace expiry, terminal empty/error, incompatible reset, and A-to-B-to-C latest-target coverage.
+- [x] 2026-07-18 UTC — S2-T2 moved grid membership, toolbar totals, ratings, selection projections, and metric-rail readiness onto the presented identity while keeping entity changes live by path and retained interactions inert.
+- [x] 2026-07-18 UTC — S2-T3 made metric completeness require a settled current browse target and exposed nullable pending totals, eliminating manufactured `Filtered: 0` and loading `0 items` while preserving truthful terminal empty.
+- [x] 2026-07-18 UTC — S2-T4 extended the existing grid scenario with fast/slow sort and filter, optimistic annotation, A-to-B-to-C, terminal empty/error, and scope-reset frame traces; `/tmp/lenslet-ui-stability-s2.json` passed with zero violations.
+- [x] 2026-07-18 UTC — Mandatory Tier 1 cleanup made only local formatting changes. Repeated adversarial review closed retained similarity hydration, mutable-only live overlays, presence/population ownership, generation-keyed browse/facet resets, synchronous similarity ownership, stale async selection guards, and stronger ordered frame assertions; the final review reported no actionable findings.
+- [x] 2026-07-18 UTC — Sprint 2 final primary trace, 601-test frontend suite, TypeScript, 59 helper tests, default GUI acceptance, build/sync, repository lint, and diff hygiene passed.
 - [ ] Implementation — Execute Sprints 1-6 with per-sprint cleanup, review, validation, asset regeneration, and handoff evidence.
 
 
@@ -266,4 +275,12 @@ Completed S1-T1 through S1-T4. Product owners changed were the categorical and m
 
 Primary evidence is `/tmp/lenslet-ui-stability-s1-metrics.json` and `/tmp/lenslet-ui-stability-s1-inspector.json`: all named geometry deltas were 0 pixels, fast and superseded metadata transitions painted no idle/loading copy, and the final deliberate slow transition first painted loading copy at 1,013.7 milliseconds. Full frontend, helper, GUI acceptance, lint, and hygiene gates passed.
 
-Residual risk is the deliberately unresolved pending `Filtered: 0` semantic frame captured by the metrics trace. Sprint 2 must fix it through the atomic presented browse identity rather than by hiding the text locally. Next ticket is S2-T1, extracting the minimal presented browse snapshot from `useGridPresentation` with reset/epoch/grace tests.
+At the Sprint 1 handoff, the pending `Filtered: 0` semantic frame remained deliberately unresolved for Sprint 2's atomic browse identity; Sprint 2 has now closed it without local text suppression.
+
+### Sprint 2 handoff — 2026-07-18
+
+Completed S2-T1 through S2-T4. Product owners changed were the browse/facet query generation keys, `AppShell`, the presented browse hook, similarity workflow ownership, the existing entity store, VirtualGrid pending copy, metric-rail inert styling, and focused tests. Evidence owners changed were `scripts/browser/gui_jitter/{fixtures,grid,grid_dom}.py` plus browser-helper tests; the shipped frontend bundle was regenerated and synchronized.
+
+Primary evidence is `/tmp/lenslet-ui-stability-s2.json`: fast filter/sort responses painted no loading, slow responses crossed from inert grace into target-owned loading, A-to-B-to-C settled only C, optimistic rating remained live, empty/error retired membership truthfully, and scope/source resets retained nothing incompatible. Requested/presented identity, epoch, visible membership, totals, ratings, and metric-rail inertness produced zero violations. Full frontend, helper, GUI acceptance, lint, and hygiene gates passed.
+
+Residual risk is the known 45-pixel filter-band top-stack delta, explicitly deferred to Sprint 4's invariant top-stack ticket; Sprint 2 preserved zero grid-width delta and did not claim that geometry fix. Next ticket is S3-T1, resetting Derived Score drafts only on semantic spec/schema changes.

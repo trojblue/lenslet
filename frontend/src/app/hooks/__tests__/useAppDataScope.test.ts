@@ -3,6 +3,7 @@ import {
   browseProjectionForViewState,
   browseProjectionUnavailableReason,
   conclusiveClientFilters,
+  resolveActiveSimilarityState,
   resolveBrowseCapabilityKeys,
   type BrowseCapabilityKeys,
 } from '../useAppDataScope'
@@ -14,7 +15,25 @@ const EMPTY_ROOT_KEYS: BrowseCapabilityKeys = {
   ready: false,
 }
 
+const SIMILARITY_STATE = {
+  scopePath: '/scope-a',
+  sessionResetToken: 2,
+  embedding: 'clip',
+  queryPath: '/scope-a/query.jpg',
+  queryVector: null,
+  topK: 20,
+  minScore: null,
+  items: [],
+  createdAt: 1,
+}
+
 describe('resolveBrowseCapabilityKeys', () => {
+  it('retires similarity synchronously across scope and session reset boundaries', () => {
+    expect(resolveActiveSimilarityState(SIMILARITY_STATE, '/scope-a', 2)).toBe(SIMILARITY_STATE)
+    expect(resolveActiveSimilarityState(SIMILARITY_STATE, '/scope-b', 2)).toBeNull()
+    expect(resolveActiveSimilarityState(SIMILARITY_STATE, '/scope-a', 3)).toBeNull()
+  })
+
   it('projects only active metric and categorical view fields', () => {
     expect(browseProjectionForViewState({
       selectedMetric: 'selected',

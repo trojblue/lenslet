@@ -12,3 +12,11 @@ Iteration 1 — 2026-07-18T13:27:35Z
 - Cleanup/review: code-simplifier removed one dead derivation and one duplicate calculation (-3 LOC). Adversarial review found no high/critical product defect; its evidence and handoff findings were resolved and affected probes rerun green.
 - Blockers: none. Known pending `Filtered: 0` is intentionally deferred to S2-T3 behind S2-T1 atomic browse ownership.
 - Next step: Sprint 2, beginning with S2-T1 only.
+
+Iteration 2 — 2026-07-18T16:06:14Z
+- Completed tasks: S2-T1, S2-T2, S2-T3, S2-T4.
+- Files changed: canonical plan/progress; browse/facet query generation keys and tests; `AppShell`; `useAppDataScope`, `useGridPresentation`, and `useSimilaritySearchWorkflow` plus focused tests; the existing browse entity store plus tests; VirtualGrid pending copy and metric-rail inert styling; `scripts/browser/gui_jitter/{fixtures,grid,grid_dom}.py`; browser-helper tests; regenerated `src/lenslet/frontend/` assets.
+- Validation passed: focused frontend sets up to 75 assertions; full frontend Vitest (110 files, 601 tests); `npx tsc --noEmit`; painted-frame/browser-helper pytest (59 tests); final grid probe at `/tmp/lenslet-ui-stability-s2.json` (zero violations across fast/slow filter/sort, A-to-B-to-C, optimistic rating, terminal empty/error, scope reset, and delayed source reset); default GUI acceptance; `npm run build` plus `rsync`; `python scripts/lint_repo.py`; `git diff --check`.
+- Cleanup/review: mandatory Tier 1 cleanup made only local formatting edits. Adversarial review findings around retained similarity payloads, mutable-only overlays, reset/facet generations, presence/population ownership, stale similarity side effects, and weak frame assertions were fixed; repeated final review reported no actionable findings.
+- Blockers: none. The 45-pixel filter-band top-stack delta remains explicitly deferred to Sprint 4; grid-width delta stayed 0 pixels.
+- Next step: Sprint 3, beginning with S3-T1.

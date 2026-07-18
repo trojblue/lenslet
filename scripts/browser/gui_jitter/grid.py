@@ -25,6 +25,7 @@ from scripts.smoke_harness import SmokeFailure, import_playwright
 SORT_PANEL_SELECTOR = '.dropdown-panel[role="listbox"][aria-label="Sort and layout"]'
 BUILTIN_SORT_OPTIONS = {"Grid", "Justified rows", "Date added", "Filename", "Random"}
 
+
 @dataclass(frozen=True, slots=True)
 class GridProbeConfig:
     base_url: str
@@ -55,6 +56,7 @@ class GridProbeSnapshots:
     metric_asc_visible_paths: list[str] = field(default_factory=list)
     baseline_counts: dict[str, Any] | None = None
     filtered_counts: dict[str, Any] | None = None
+    continuity: dict[str, Any] = field(default_factory=dict)
 
 
 def ensure_sort_trigger(page: Any, browser_timeout_ms: float) -> Any:
@@ -100,21 +102,20 @@ def reload_with_state(page: Any, payload: dict[str, Any], browser_timeout_ms: fl
     wait_for_grid(page, browser_timeout_ms)
 
 
-def wait_for_sort_state(page: Any, kind: str, key: str, direction: str, browser_timeout_ms: float) -> None:
+def wait_for_sort_state(page: Any, label: str, direction: str, browser_timeout_ms: float) -> None:
     page.wait_for_function(
         """(expected) => {
-          try {
-            const rawSortSpec = window.localStorage.getItem('sortSpec');
-            if (!rawSortSpec) return false;
-            const sortSpec = JSON.parse(rawSortSpec);
-            return sortSpec?.kind === expected.kind
-              && sortSpec?.key === expected.key
-              && sortSpec?.dir === expected.dir;
-          } catch {
-            return false;
-          }
+          const trigger = document.querySelector('button[aria-label="Sort and layout"]');
+          const direction = document.querySelector('button[aria-label="Toggle sort direction"]');
+          return trigger instanceof HTMLButtonElement
+            && direction instanceof HTMLButtonElement
+            && (trigger.textContent || '').trim() === expected.label
+            && direction.title === expected.directionTitle;
         }""",
-        arg={"kind": kind, "key": key, "dir": direction},
+        arg={
+            "label": label,
+            "directionTitle": f"Sort {'descending' if direction == 'desc' else 'ascending'}",
+        },
         timeout=browser_timeout_ms,
     )
 
@@ -257,6 +258,400 @@ def apply_metric_filter_if_requested(
     return read_toolbar_counts(page)
 
 
+def install_browse_query_controller(page: Any) -> None:
+    page.evaluate(
+        """() => {
+          if (window.__lensletBrowseQueryController) return;
+          const originalFetch = window.fetch.bind(window);
+          const controller = {
+            nextDelayMs: 0,
+            textDelays: {},
+            pathDelays: {},
+            errorText: null,
+            requests: [],
+          };
+          window.__lensletBrowseQueryController = controller;
+          window.fetch = async (...args) => {
+            const input = args[0];
+            const init = args[1] || {};
+            const rawUrl = input instanceof Request ? input.url : String(input);
+            const pathname = new URL(rawUrl, location.href).pathname;
+            if (pathname !== '/folders/query') return originalFetch(...args);
+            let payload = {};
+            try {
+              const rawBody = input instanceof Request ? await input.clone().text() : init.body;
+              payload = rawBody ? JSON.parse(String(rawBody)) : {};
+            } catch {}
+            const textQuery = payload.text_query || '';
+            const scopePath = payload.path || '/';
+            const delayMs = controller.nextDelayMs
+              || controller.textDelays[textQuery]
+              || controller.pathDelays[scopePath]
+              || 0;
+            controller.nextDelayMs = 0;
+            controller.requests.push({
+              at: performance.now(),
+              textQuery,
+              scopePath,
+              sort: payload.sort || null,
+              filters: payload.filters || null,
+              delayMs,
+            });
+            const response = await originalFetch(...args);
+            if (delayMs > 0) {
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+            if (controller.errorText === textQuery) {
+              return new Response(JSON.stringify({ detail: 'forced browse probe failure' }), {
+                status: 503,
+                headers: { 'Content-Type': 'application/json' },
+              });
+            }
+            return response;
+          };
+        }"""
+    )
+
+
+def configure_browse_queries(page: Any, **updates: Any) -> None:
+    page.evaluate(
+        """updates => {
+          const controller = window.__lensletBrowseQueryController;
+          if (!controller) throw new Error('browse query controller is not installed');
+          Object.assign(controller, updates);
+        }""",
+        updates,
+    )
+
+
+def browse_query_request_count(page: Any) -> int:
+    return int(page.evaluate("() => window.__lensletBrowseQueryController?.requests.length || 0"))
+
+
+def wait_for_browse_query(page: Any, previous_count: int, timeout_ms: float) -> None:
+    page.wait_for_function(
+        """previous => (
+          (window.__lensletBrowseQueryController?.requests.length || 0) > previous
+        )""",
+        arg=previous_count,
+        timeout=timeout_ms,
+    )
+
+
+def start_browse_frame_trace(page: Any) -> None:
+    page.evaluate(
+        """() => {
+          const frames = [];
+          let active = true;
+          const sample = now => {
+            const grid = document.querySelector('[role="grid"][aria-label="Gallery"]');
+            const shell = document.querySelector('[data-browse-shell]');
+            const countLabel = document.querySelector('.toolbar-count');
+            const rail = document.querySelector('[data-metric-rail-slot]');
+            let ratingCounts = {};
+            try {
+              ratingCounts = JSON.parse(shell?.getAttribute('data-browse-rating-counts') || '{}');
+            } catch {}
+            const filterDialog = document.querySelector('[role="dialog"][aria-label="Filters"]');
+            for (const button of filterDialog?.querySelectorAll('button.dropdown-item') || []) {
+              const spans = button.querySelectorAll('span');
+              if (spans.length < 2) continue;
+              const label = (spans[0].textContent || '').trim();
+              const count = Number.parseInt((spans[spans.length - 1].textContent || '').trim(), 10);
+              if (!Number.isFinite(count)) continue;
+              if (label === 'Unrated') ratingCounts['0'] = count;
+              else if (label.includes('★')) ratingCounts[String((label.match(/★/g) || []).length)] = count;
+            }
+            const filteredLabels = [];
+            for (const card of document.querySelectorAll(
+              '[data-metric-histogram-card], [data-categorical-card], [data-metric-category-card]'
+            )) {
+              for (const span of card.querySelectorAll('span')) {
+                const text = (span.textContent || '').trim();
+                if (/^Filtered:\\s*[\\d,]+$/.test(text)) filteredLabels.push(text);
+              }
+            }
+            const paths = Array.from(grid?.querySelectorAll('[role="gridcell"][id^="cell-"]') || [])
+              .map(cell => {
+                try { return decodeURIComponent(cell.id.slice(5)); } catch { return ''; }
+              })
+              .filter(Boolean);
+            frames.push({
+              now,
+              phase: grid?.getAttribute('data-grid-presentation-phase') || null,
+              gridState: document.querySelector('[data-grid-state]')?.getAttribute('data-grid-state') || null,
+              interactionDisabled: grid?.getAttribute('data-grid-interaction-disabled') === 'true',
+              cellCount: paths.length,
+              paths,
+              countLabel: (countLabel?.textContent || '').trim() || null,
+              railActive: rail?.getAttribute('data-metric-rail-active') === 'true',
+              railInteractionDisabled:
+                rail?.getAttribute('data-metric-rail-interaction-disabled') === 'true',
+              ratingCounts,
+              filteredLabels,
+              presentedTarget: shell?.getAttribute('data-browse-presentation-target') || null,
+              requestedTarget: shell?.getAttribute('data-browse-requested-target') || null,
+              epoch: Number(shell?.getAttribute('data-browse-presentation-epoch') || 0),
+            });
+            if (active) requestAnimationFrame(sample);
+          };
+          window.__lensletBrowseFrameTrace = { frames, stop: () => { active = false; } };
+          requestAnimationFrame(sample);
+        }"""
+    )
+
+
+def stop_browse_frame_trace(page: Any) -> list[dict[str, Any]]:
+    page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+    frames = page.evaluate(
+        """() => {
+          const trace = window.__lensletBrowseFrameTrace;
+          trace?.stop();
+          const frames = trace?.frames || [];
+          delete window.__lensletBrowseFrameTrace;
+          return frames;
+        }"""
+    )
+    if not isinstance(frames, list):
+        raise SmokeFailure("Failed to capture browse presentation frames.")
+    return [frame for frame in frames if isinstance(frame, dict)]
+
+
+def wait_for_steady_count(page: Any, current: int, timeout_ms: float) -> None:
+    page.wait_for_function(
+        """expected => {
+          const grid = document.querySelector('[role="grid"][aria-label="Gallery"]');
+          const label = (document.querySelector('.toolbar-count')?.textContent || '').trim();
+          const parsed = Number.parseInt(label.replaceAll(',', ''), 10);
+          return grid?.getAttribute('data-grid-presentation-phase') === 'steady'
+            && grid.getAttribute('aria-busy') !== 'true'
+            && parsed === expected;
+        }""",
+        arg=current,
+        timeout=timeout_ms,
+    )
+
+
+def wait_for_steady_presentation(page: Any, timeout_ms: float) -> None:
+    page.wait_for_function(
+        """() => {
+          const grid = document.querySelector('[role="grid"][aria-label="Gallery"]');
+          return grid?.getAttribute('data-grid-presentation-phase') === 'steady'
+            && grid.getAttribute('aria-busy') !== 'true';
+        }""",
+        timeout=timeout_ms,
+    )
+
+
+def read_filter_rating_counts(page: Any) -> dict[str, int]:
+    result = page.evaluate(
+        """() => {
+          const counts = {};
+          const dialog = document.querySelector('[role="dialog"][aria-label="Filters"]');
+          for (const button of dialog?.querySelectorAll('button.dropdown-item') || []) {
+            const spans = button.querySelectorAll('span');
+            if (spans.length < 2) continue;
+            const label = (spans[0].textContent || '').trim();
+            const count = Number.parseInt((spans[spans.length - 1].textContent || '').trim(), 10);
+            if (!Number.isFinite(count)) continue;
+            if (label === 'Unrated') counts['0'] = count;
+            else if (label.includes('★')) counts[String((label.match(/★/g) || []).length)] = count;
+          }
+          return counts;
+        }"""
+    )
+    return {str(key): int(value) for key, value in result.items()}
+
+
+def exercise_atomic_browse_continuity(
+    page: Any,
+    config: GridProbeConfig,
+    metric_sort_label: str,
+) -> dict[str, Any]:
+    timeout_ms = config.browser_timeout_ms
+    install_browse_query_controller(page)
+    baseline_counts = read_toolbar_counts(page)
+
+    first_cell = page.locator('[role="gridcell"][id^="cell-"]').first
+    selected_path = visible_grid_paths(page, limit=1)[0]
+    first_cell.click()
+    five_star = page.locator('.app-right-panel button[aria-label="5 stars"]').first
+    five_star.wait_for(state="visible", timeout=timeout_ms)
+
+    slow_sort_request_count = browse_query_request_count(page)
+    configure_browse_queries(page, nextDelayMs=1_100)
+    start_browse_frame_trace(page)
+    select_sort_option(page, metric_sort_label, timeout_ms)
+    wait_for_browse_query(page, slow_sort_request_count, timeout_ms)
+    page.wait_for_function(
+        """() => document.querySelector('[role="grid"][aria-label="Gallery"]')
+          ?.getAttribute('data-grid-presentation-phase') === 'grace'""",
+        timeout=timeout_ms,
+    )
+    five_star.click()
+    page.wait_for_function(
+        """() => document.querySelector('.app-right-panel button[aria-label="5 stars"]')
+          ?.getAttribute('aria-pressed') === 'true'""",
+        timeout=timeout_ms,
+    )
+    wait_for_sort_state(page, metric_sort_label, "asc", timeout_ms)
+    wait_for_steady_presentation(page, timeout_ms)
+    wait_for_metric_rail(page, active=True, browser_timeout_ms=timeout_ms)
+    slow_sort_frames = stop_browse_frame_trace(page)
+
+    fast_sort_request_count = browse_query_request_count(page)
+    configure_browse_queries(page, nextDelayMs=350)
+    start_browse_frame_trace(page)
+    page.locator('button[aria-label="Toggle sort direction"]').first.click()
+    wait_for_browse_query(page, fast_sort_request_count, timeout_ms)
+    wait_for_sort_state(page, metric_sort_label, "desc", timeout_ms)
+    wait_for_steady_presentation(page, timeout_ms)
+    fast_sort_frames = stop_browse_frame_trace(page)
+
+    filters_button = page.locator('button[title="Filters"]').first
+    filters_button.click()
+    filter_dialog = page.locator('[role="dialog"][aria-label="Filters"]').first
+    filter_dialog.wait_for(state="visible", timeout=timeout_ms)
+    rating_counts_before = read_filter_rating_counts(page)
+    filter_request_count = browse_query_request_count(page)
+    configure_browse_queries(page, nextDelayMs=450)
+    start_browse_frame_trace(page)
+    filter_dialog.locator('button.dropdown-item', has_text="Unrated").first.click()
+    wait_for_browse_query(page, filter_request_count, timeout_ms)
+    wait_for_steady_count(page, baseline_counts["current"] - 1, timeout_ms)
+    filter_frames = stop_browse_frame_trace(page)
+    filtered_counts = read_toolbar_counts(page)
+    rating_counts_after = read_filter_rating_counts(page)
+
+    slow_filter_request_count = browse_query_request_count(page)
+    configure_browse_queries(page, nextDelayMs=1_100)
+    start_browse_frame_trace(page)
+    filter_dialog.locator('button.dropdown-item').nth(1).click()
+    wait_for_browse_query(page, slow_filter_request_count, timeout_ms)
+    wait_for_steady_count(page, baseline_counts["current"] - 1, timeout_ms)
+    slow_filter_frames = stop_browse_frame_trace(page)
+
+    clear_request_count = browse_query_request_count(page)
+    filter_dialog.locator('button.dropdown-item').nth(1).click()
+    wait_for_browse_query(page, clear_request_count, timeout_ms)
+    wait_for_steady_count(page, baseline_counts["current"] - 1, timeout_ms)
+    clear_request_count = browse_query_request_count(page)
+    filter_dialog.locator('button.dropdown-item', has_text="Unrated").first.click()
+    wait_for_browse_query(page, clear_request_count, timeout_ms)
+    wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
+    filters_button.click()
+
+    select_sort_option(page, "Date added", timeout_ms)
+    wait_for_sort_state(page, "Date added", "desc", timeout_ms)
+    search = page.get_by_label("Search filename, tags, notes").first
+    configure_browse_queries(
+        page,
+        textDelays={"sample_00": 900, "quick_0": 650, "sample_010": 100},
+    )
+    rapid_request_count = browse_query_request_count(page)
+    start_browse_frame_trace(page)
+    for expected_count, term in enumerate(("sample_00", "quick_0", "sample_010"), start=1):
+        search.fill(term)
+        wait_for_browse_query(page, rapid_request_count + expected_count - 1, timeout_ms)
+    page.wait_for_function(
+        """() => {
+          const grid = document.querySelector('[role="grid"][aria-label="Gallery"]');
+          const paths = Array.from(grid?.querySelectorAll('[role="gridcell"][id^="cell-"]') || [])
+            .map(cell => decodeURIComponent(cell.id.slice(5)));
+          return grid?.getAttribute('data-grid-presentation-phase') === 'steady'
+            && paths.length > 0
+            && paths.every(path => path.includes('sample_010'));
+        }""",
+        timeout=timeout_ms,
+    )
+    page.wait_for_timeout(1_000)
+    rapid_frames = stop_browse_frame_trace(page)
+    configure_browse_queries(page, textDelays={})
+    search.fill("")
+    wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
+
+    start_browse_frame_trace(page)
+    search.fill("no-terminal-match")
+    page.wait_for_function(
+        """() => document.querySelector('[data-grid-state]')
+          ?.getAttribute('data-grid-state') === 'empty'""",
+        timeout=timeout_ms,
+    )
+    empty_frames = stop_browse_frame_trace(page)
+    search.fill("")
+    wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
+
+    configure_browse_queries(page, errorText="forced-error")
+    start_browse_frame_trace(page)
+    search.fill("forced-error")
+    page.wait_for_function(
+        """() => document.querySelector('[data-grid-state]')
+          ?.getAttribute('data-grid-state') === 'failed'""",
+        timeout=timeout_ms,
+    )
+    error_frames = stop_browse_frame_trace(page)
+    configure_browse_queries(page, errorText=None)
+    search.fill("")
+    wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
+
+    configure_browse_queries(page, pathDelays={"/scope_a": 450})
+    start_browse_frame_trace(page)
+    page.evaluate("() => { window.location.hash = '#/scope_a'; }")
+    wait_for_steady_count(page, 2, timeout_ms)
+    scope_reset_frames = stop_browse_frame_trace(page)
+    page.evaluate("() => { window.location.hash = '#/'; }")
+    wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
+    configure_browse_queries(page, pathDelays={})
+
+    settings_button = page.get_by_label("Settings").first
+    settings_button.click()
+    source_trigger = page.get_by_label("Image column").first
+    source_trigger.wait_for(state="visible", timeout=timeout_ms)
+    current_source = source_trigger.get_attribute("title")
+    next_source = "source_alt" if current_source != "source_alt" else "source"
+    source_request_count = browse_query_request_count(page)
+    configure_browse_queries(page, pathDelays={"/": 450})
+    start_browse_frame_trace(page)
+    page.wait_for_timeout(50)
+    source_trigger.click()
+    source_panel = page.locator(
+        '.dropdown-panel[role="listbox"][aria-label="Image column"]'
+    ).first
+    source_panel.wait_for(state="visible", timeout=timeout_ms)
+    source_panel.locator("button.dropdown-item", has_text=next_source).first.click()
+    wait_for_browse_query(page, source_request_count, timeout_ms)
+    active_source = page.evaluate(
+        """async () => {
+          const response = await fetch('/table/source-columns');
+          return (await response.json()).current;
+        }"""
+    )
+    if active_source != next_source:
+        raise SmokeFailure(
+            f"Source reset selected {next_source!r}, but backend reported {active_source!r}."
+        )
+    wait_for_steady_count(page, baseline_counts["current"], timeout_ms)
+    source_reset_frames = stop_browse_frame_trace(page)
+    configure_browse_queries(page, pathDelays={})
+
+    return {
+        "baseline_counts": baseline_counts,
+        "selected_path": selected_path,
+        "rating_counts_before_filter": rating_counts_before,
+        "rating_counts_after_filter": rating_counts_after,
+        "filtered_counts": filtered_counts,
+        "fast_filter_frames": filter_frames,
+        "slow_filter_frames": slow_filter_frames,
+        "fast_sort_frames": fast_sort_frames,
+        "slow_sort_frames": slow_sort_frames,
+        "rapid_frames": rapid_frames,
+        "empty_frames": empty_frames,
+        "error_frames": error_frames,
+        "scope_reset_frames": scope_reset_frames,
+        "source_reset_frames": source_reset_frames,
+    }
+
+
 def exercise_grid_probe(
     page: Any,
     config: GridProbeConfig,
@@ -285,20 +680,25 @@ def exercise_grid_probe(
 
     select_sort_option(page, metric_sort_label, config.browser_timeout_ms)
     wait_for_metric_rail(page, active=True, browser_timeout_ms=config.browser_timeout_ms)
-    wait_for_sort_state(page, "metric", metric_sort_label, "desc", config.browser_timeout_ms)
+    wait_for_sort_state(page, metric_sort_label, "desc", config.browser_timeout_ms)
     metric_mode = snapshot_grid(page)
     metric_desc_visible_paths = visible_grid_paths(page)
 
     page.locator('button[aria-label="Toggle sort direction"]').first.click()
-    wait_for_sort_state(page, "metric", metric_sort_label, "asc", config.browser_timeout_ms)
+    wait_for_sort_state(page, metric_sort_label, "asc", config.browser_timeout_ms)
     page.wait_for_timeout(150)
     metric_asc_visible_paths = visible_grid_paths(page)
 
     select_sort_option(page, "Date added", config.browser_timeout_ms)
-    wait_for_sort_state(page, "builtin", "added", "asc", config.browser_timeout_ms)
+    wait_for_sort_state(page, "Date added", "asc", config.browser_timeout_ms)
     wait_for_metric_rail(page, active=False, browser_timeout_ms=config.browser_timeout_ms)
     builtin_restored = snapshot_grid(page)
 
+    continuity_sort_label = next(
+        (label for label in sort_labels if label != metric_sort_label),
+        metric_sort_label,
+    )
+    continuity = exercise_atomic_browse_continuity(page, config, continuity_sort_label)
     filtered_counts = apply_metric_filter_if_requested(
         page,
         config,
@@ -320,6 +720,7 @@ def exercise_grid_probe(
         metric_asc_visible_paths=metric_asc_visible_paths,
         baseline_counts=baseline_counts,
         filtered_counts=filtered_counts,
+        continuity=continuity,
     )
 
 
@@ -395,12 +796,10 @@ def grid_state_violations(snapshots: GridProbeSnapshots) -> list[str]:
     violations: list[str] = []
     if snapshots.metric_mode.get("metricRailActive") is not True:
         violations.append("metric_mode: metric rail did not activate after requesting metric sort")
-    if snapshots.metric_mode.get("persistedSortKind") != "metric":
-        violations.append("metric_mode: expected persisted sort kind to be metric")
-    if snapshots.metric_mode.get("persistedSortKey") != snapshots.metric_sort_label:
-        violations.append(f"metric_mode: expected persisted metric sort key {snapshots.metric_sort_label}")
-    if snapshots.builtin_restored.get("persistedSortKind") != "builtin":
-        violations.append("builtin_restored: expected persisted sort kind to return to builtin")
+    if snapshots.metric_mode.get("sortLabel") != snapshots.metric_sort_label:
+        violations.append(f"metric_mode: expected active metric sort {snapshots.metric_sort_label}")
+    if snapshots.builtin_restored.get("sortLabel") != "Date added":
+        violations.append("builtin_restored: expected active sort to return to Date added")
     if (
         snapshots.metric_desc_visible_paths
         and snapshots.metric_asc_visible_paths
@@ -421,6 +820,240 @@ def grid_state_violations(snapshots: GridProbeSnapshots) -> list[str]:
     return violations
 
 
+def _phase_frames(frames: list[dict[str, Any]], phase: str) -> list[dict[str, Any]]:
+    return [frame for frame in frames if frame.get("phase") == phase]
+
+
+def _false_zero_frames(frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        frame
+        for frame in frames
+        if frame.get("countLabel") in {"0 items", "0 / 0 items"}
+        or "Filtered: 0" in frame.get("filteredLabels", [])
+    ]
+
+
+def _transition_identity_violations(
+    name: str,
+    frames: list[dict[str, Any]],
+) -> list[str]:
+    violations: list[str] = []
+    grace_indexes = [index for index, frame in enumerate(frames) if frame.get("phase") == "grace"]
+    if not grace_indexes:
+        return violations
+    last_transition_index = max(
+        index
+        for index, frame in enumerate(frames)
+        if frame.get("phase") in {"grace", "loading"}
+    )
+    prior = next(
+        (frame for frame in reversed(frames[: grace_indexes[0]]) if frame.get("phase") == "steady"),
+        None,
+    )
+    terminal = next(
+        (
+            frame
+            for frame in frames[last_transition_index + 1 :]
+            if frame.get("phase") == "steady"
+        ),
+        None,
+    )
+    if prior is None:
+        return [f"{name}: missing pre-transition steady identity frame"]
+    grace = [frames[index] for index in grace_indexes]
+    if any(frame.get("paths") != prior.get("paths") for frame in grace):
+        violations.append(f"{name}: grace changed retained visible membership")
+    if any(frame.get("presentedTarget") != prior.get("presentedTarget") for frame in grace):
+        violations.append(f"{name}: grace changed the presented target identity")
+    if any(frame.get("epoch") != prior.get("epoch") for frame in grace):
+        violations.append(f"{name}: grace advanced the presentation epoch")
+    if any(frame.get("requestedTarget") == frame.get("presentedTarget") for frame in grace):
+        violations.append(f"{name}: grace did not distinguish requested and presented targets")
+    if any(frame.get("railActive") and not frame.get("railInteractionDisabled") for frame in grace):
+        violations.append(f"{name}: active metric rail remained interactive during grace")
+    if terminal is None or terminal.get("presentedTarget") != terminal.get("requestedTarget"):
+        violations.append(f"{name}: terminal steady identity did not match the requested target")
+    elif (
+        terminal.get("presentedTarget") != prior.get("presentedTarget")
+        and int(terminal.get("epoch") or 0) <= int(prior.get("epoch") or 0)
+    ):
+        violations.append(f"{name}: terminal target did not advance the presentation epoch")
+    return violations
+
+
+def _reset_transition_violations(
+    name: str,
+    frames: list[dict[str, Any]],
+) -> list[str]:
+    violations: list[str] = []
+    if _phase_frames(frames, "grace"):
+        violations.append(f"{name}: retained incompatible prior membership")
+    loading = _phase_frames(frames, "loading")
+    if not loading:
+        violations.append(f"{name}: never painted target-owned loading")
+    elif any(
+        frame.get("cellCount")
+        or frame.get("countLabel")
+        or frame.get("presentedTarget")
+        for frame in loading
+    ):
+        violations.append(f"{name}: loading mixed prior membership, counts, or identity")
+    last_loading_index = max(
+        (index for index, frame in enumerate(frames) if frame.get("phase") == "loading"),
+        default=-1,
+    )
+    terminal = next(
+        (
+            frame
+            for frame in frames[last_loading_index + 1 :]
+            if frame.get("phase") == "steady"
+        ),
+        None,
+    )
+    if terminal is None or terminal.get("presentedTarget") != terminal.get("requestedTarget"):
+        violations.append(f"{name}: terminal steady identity did not match the requested target")
+    return violations
+
+
+def browse_continuity_violations(evidence: dict[str, Any]) -> list[str]:
+    violations: list[str] = []
+    baseline = evidence["baseline_counts"]
+    filtered = evidence["filtered_counts"]
+    selected_path = evidence["selected_path"]
+    transitions = {
+        name: evidence[f"{name}_frames"]
+        for name in ("fast_filter", "slow_filter", "fast_sort", "slow_sort")
+    }
+
+    for name, frames in transitions.items():
+        grace = _phase_frames(frames, "grace")
+        steady = _phase_frames(frames, "steady")
+        if not grace or not steady:
+            violations.append(f"{name}: missing grace or terminal steady frames")
+        if any(not frame.get("interactionDisabled") for frame in grace):
+            violations.append(f"{name}: retained membership remained interactive")
+        expected_label = filtered["label"] if name == "slow_filter" else baseline["label"]
+        if any(frame.get("countLabel") != expected_label for frame in grace):
+            violations.append(f"{name}: grace mixed target toolbar counts with prior membership")
+        violations.extend(_transition_identity_violations(name, frames))
+
+    for name in ("fast_filter", "fast_sort"):
+        if _phase_frames(transitions[name], "loading"):
+            violations.append(f"{name}: sub-grace response painted loading")
+    for name in ("slow_filter", "slow_sort"):
+        loading = _phase_frames(transitions[name], "loading")
+        if not loading:
+            violations.append(f"{name}: over-grace response never painted loading")
+        elif any(frame.get("cellCount") or frame.get("countLabel") for frame in loading):
+            violations.append(f"{name}: loading mixed retained cells or counts into the target")
+
+    slow_sort_grace = _phase_frames(transitions["slow_sort"], "grace")
+    if not any(frame.get("ratingCounts", {}).get("5") == 1 for frame in slow_sort_grace):
+        violations.append("slow_sort: optimistic rating did not update the retained aggregate")
+    if not any(selected_path in frame.get("paths", []) for frame in slow_sort_grace):
+        violations.append("slow_sort: rated retained membership disappeared during grace")
+    if evidence["rating_counts_before_filter"].get("5") != 1:
+        violations.append("rating aggregate did not preserve the optimistic five-star update")
+    if evidence["rating_counts_after_filter"].get("5") != 0:
+        violations.append("settled unrated filter retained an excluded five-star aggregate")
+    fast_filter_steady = _phase_frames(transitions["fast_filter"], "steady")
+    if fast_filter_steady and selected_path in fast_filter_steady[-1].get("paths", []):
+        violations.append("settled unrated filter retained the rated item")
+
+    rapid_frames = evidence["rapid_frames"]
+    final_rapid_indexes = [
+        index
+        for index, frame in enumerate(rapid_frames)
+        if frame.get("phase") == "steady"
+        and frame.get("paths")
+        and all("sample_010" in path for path in frame["paths"])
+    ]
+    if not final_rapid_indexes:
+        violations.append("rapid A-to-B-to-C transition never settled on C")
+    else:
+        for frame in rapid_frames[final_rapid_indexes[0]:]:
+            if frame.get("phase") != "steady" or not frame.get("paths"):
+                continue
+            if any("sample_010" not in path for path in frame["paths"]):
+                violations.append("rapid A-to-B-to-C transition presented stale A or B after C")
+                break
+
+    error_final = evidence["error_frames"][-1]
+    violations.extend(_transition_identity_violations("terminal error", evidence["error_frames"]))
+    if error_final.get("gridState") != "failed" or error_final.get("cellCount") != 0:
+        violations.append("terminal error did not retire membership into the failed target")
+    if error_final.get("countLabel") is not None:
+        violations.append("terminal error manufactured a toolbar count")
+    if error_final.get("presentedTarget") != error_final.get("requestedTarget"):
+        violations.append("terminal error identity did not match the requested target")
+
+    empty_final = evidence["empty_frames"][-1]
+    violations.extend(_transition_identity_violations("terminal empty", evidence["empty_frames"]))
+    if empty_final.get("gridState") != "empty" or empty_final.get("cellCount") != 0:
+        violations.append("terminal empty query did not retire membership atomically")
+    if not str(empty_final.get("countLabel")).startswith("0"):
+        violations.append("terminal empty query did not expose a truthful settled zero")
+    if empty_final.get("presentedTarget") != empty_final.get("requestedTarget"):
+        violations.append("terminal empty identity did not match the requested target")
+
+    scope_frames = evidence["scope_reset_frames"]
+    violations.extend(_reset_transition_violations("scope reset", scope_frames))
+    scope_final = scope_frames[-1]
+    if scope_final.get("gridState") != "ready" or not str(scope_final.get("countLabel")).startswith("2"):
+        violations.append("scope reset did not settle on the target scope membership and total")
+
+    source_frames = evidence["source_reset_frames"]
+    violations.extend(_reset_transition_violations("source reset", source_frames))
+    source_final = source_frames[-1]
+    if source_final.get("gridState") != "ready" or source_final.get("countLabel") != baseline["label"]:
+        violations.append("source reset did not settle on the new source generation")
+
+    violations.extend(_transition_identity_violations("rapid", rapid_frames))
+
+    for name, frames in {
+        **transitions,
+        "rapid": rapid_frames,
+        "error": evidence["error_frames"],
+        "source_reset": source_frames,
+    }.items():
+        if _false_zero_frames(frames):
+            violations.append(f"{name}: pending/error frames manufactured zero state")
+    return violations
+
+
+def browse_continuity_summary(evidence: dict[str, Any]) -> dict[str, Any]:
+    transition_names = (
+        "fast_filter",
+        "slow_filter",
+        "fast_sort",
+        "slow_sort",
+        "rapid",
+        "empty",
+        "error",
+        "scope_reset",
+        "source_reset",
+    )
+    summaries: dict[str, Any] = {}
+    for name in transition_names:
+        frames = evidence[f"{name}_frames"]
+        summaries[name] = {
+            "frame_count": len(frames),
+            "phases": {
+                phase: len(_phase_frames(frames, phase))
+                for phase in ("steady", "grace", "loading")
+            },
+            "final": frames[-1] if frames else None,
+        }
+    return {
+        "baseline_counts": evidence["baseline_counts"],
+        "filtered_counts": evidence["filtered_counts"],
+        "selected_path": evidence["selected_path"],
+        "rating_counts_before_filter": evidence["rating_counts_before_filter"],
+        "rating_counts_after_filter": evidence["rating_counts_after_filter"],
+        "transitions": summaries,
+    }
+
+
 def grid_result(snapshots: GridProbeSnapshots, config: GridProbeConfig) -> ProbeResult:
     top_deltas = grid_top_stack_deltas(snapshots)
     width_deltas = grid_width_deltas(snapshots)
@@ -436,10 +1069,7 @@ def grid_result(snapshots: GridProbeSnapshots, config: GridProbeConfig) -> Probe
     }
     violations = snapshot_mount_violations(named_snapshots)
     violations.extend(grid_state_violations(snapshots))
-    if max_top_stack_delta > config.max_delta_px:
-        violations.append(
-            f"top-stack delta {max_top_stack_delta:.3f}px exceeded threshold {config.max_delta_px:.3f}px"
-        )
+    violations.extend(browse_continuity_violations(snapshots.continuity))
     if max_grid_width_delta > config.max_delta_px:
         violations.append(
             f"grid-width delta {max_grid_width_delta:.3f}px exceeded threshold {config.max_delta_px:.3f}px"
@@ -466,6 +1096,8 @@ def grid_result(snapshots: GridProbeSnapshots, config: GridProbeConfig) -> Probe
             "metric_asc_visible_paths": snapshots.metric_asc_visible_paths,
             "baseline_counts": snapshots.baseline_counts,
             "filtered_counts": snapshots.filtered_counts,
+            "browse_continuity": browse_continuity_summary(snapshots.continuity),
+            "deferred_top_stack_delta_px": max_top_stack_delta,
             "violations": violations,
         },
     )

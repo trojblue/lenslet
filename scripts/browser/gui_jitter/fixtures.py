@@ -20,6 +20,8 @@ def build_fixture_dataset(root: Path) -> None:
     payload = jpeg_payload()
     for idx in range(12):
         write_image(root / f"sample_{idx:03d}.jpg", payload)
+    for idx in range(2):
+        write_image(root / "scope_a" / f"scope_{idx:02d}.jpg", payload)
     build_inspector_fixture_images(root)
     write_fixture_items_parquet(root)
     write_metrics_fixture_parquet(root)
@@ -71,14 +73,14 @@ def build_inspector_fixture_images(root: Path) -> None:
 
 def fixture_image_paths(root: Path) -> list[Path]:
     allowed = {".jpg", ".jpeg", ".png", ".webp"}
-    paths = [path for path in root.iterdir() if path.is_file() and path.suffix.lower() in allowed]
-    return sorted(paths, key=lambda path: path.name)
+    paths = [path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in allowed]
+    return sorted(paths, key=lambda path: path.relative_to(root).as_posix())
 
 
 def write_fixture_labels_snapshot(root: Path) -> None:
     items: dict[str, Any] = {}
     for idx, image_path in enumerate(fixture_image_paths(root)):
-        path = f"/{image_path.name}"
+        path = f"/{image_path.relative_to(root).as_posix()}"
         score = round((idx % 7) / 7.0, 6)
         sentinel = image_path.stem.replace("quick_", "")
         inspector_fixture = image_path.name.startswith("quick_")
@@ -109,12 +111,13 @@ def write_fixture_labels_snapshot(root: Path) -> None:
 def write_fixture_items_parquet(root: Path) -> None:
     rows: list[dict[str, Any]] = []
     for idx, image_path in enumerate(fixture_image_paths(root)):
-        rel_path = image_path.name
+        rel_path = image_path.relative_to(root).as_posix()
         score = round((idx % 7) / 7.0, 6)
         rows.append(
             {
                 "path": rel_path,
                 "source": str((root / rel_path).resolve()),
+                "source_alt": str((root / rel_path).resolve()),
                 "metrics": {
                     "probe_score": score,
                     "probe_rank": float(idx),
@@ -146,6 +149,7 @@ def jpeg_payload() -> bytes:
 
 
 def write_image(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     write_bytes_atomic(path, payload)
 
 

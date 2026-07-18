@@ -46,6 +46,18 @@ describe('BrowseEntityStore', () => {
     expect(store.get('/a.jpg')?.star).toBe(3)
   })
 
+  it('seeds missing presentation payloads without replacing live entities', () => {
+    const store = new BrowseEntityStore()
+    const onA = vi.fn()
+    store.ingest([item('/a.jpg', 4)])
+    store.subscribe('/a.jpg', onA)
+
+    expect(store.seed([item('/a.jpg', 1), item('/b.jpg', 2)])).toEqual(['/b.jpg'])
+    expect(store.get('/a.jpg')?.star).toBe(4)
+    expect(store.get('/b.jpg')?.star).toBe(2)
+    expect(onA).not.toHaveBeenCalled()
+  })
+
   it('retains fields from cached projection variants while replacing requested keys', () => {
     const store = new BrowseEntityStore()
     const metricA = store.beginRequest({ metric_keys: ['metric_a'], categorical_keys: ['group_a'] })

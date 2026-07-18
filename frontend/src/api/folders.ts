@@ -44,6 +44,7 @@ export type BrowseQueryOptions = {
   unsupportedToken?: string | null
   projection?: BrowseWindowProjection
   facetFields?: BrowseFacetFields
+  generationToken?: string | null
 }
 
 export type AnalysisQueryKey = readonly [
@@ -167,9 +168,10 @@ export const analysisQueryKey = (options: BrowseQueryOptions): AnalysisQueryKey 
 
 export const folderFacetsQueryKey = (options: BrowseQueryOptions) => {
   const analysisKey = analysisQueryKey(options)
+  const generationToken = options.generationToken ?? null
   return options.facetFields
-    ? ['folder-facets', analysisKey, normalizeFacetFields(options.facetFields)] as const
-    : ['folder-facets', analysisKey] as const
+    ? ['folder-facets', analysisKey, normalizeFacetFields(options.facetFields), generationToken] as const
+    : ['folder-facets', analysisKey, null, generationToken] as const
 }
 
 export const windowRequestToken = (
@@ -188,7 +190,9 @@ export const windowRequestToken = (
   ] as const
 }
 
-export const browseQueryKey = (options: BrowseQueryOptions) => windowRequestToken(options, 0)
+export const browseQueryKey = (options: BrowseQueryOptions) => (
+  windowRequestToken(options, 0, options.generationToken ?? null)
+)
 
 type SemanticQueryRevisionState = {
   key: string

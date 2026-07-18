@@ -737,6 +737,7 @@ export default function VirtualGrid({
     if (gridStatus.kind === 'failed') return loadedCount > 0 ? `${countSummary}. Query failed.` : 'Query failed.'
     if (gridStatus.kind === 'unsupported') return loadedCount > 0 ? `${countSummary}. Query unavailable.` : 'Query unavailable.'
     if (gridStatus.kind === 'updating') return `${countSummary}. Updating results...`
+    if (gridStatus.kind === 'loading') return gridStatus.title
     if (isLoadingMore) return `${countSummary}. Loading more...`
     if (hasMore) return `${countSummary}. Scroll for more.`
     if (gridStatus.kind === 'empty') return gridStatus.title

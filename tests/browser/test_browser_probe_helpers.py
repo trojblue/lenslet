@@ -621,11 +621,15 @@ def test_jitter_probe_hidden_control_state_reports_accessibility_contract() -> N
 def test_jitter_fixture_builder_creates_parquet_and_label_snapshot(tmp_path: Path) -> None:
     jitter_fixtures.build_fixture_dataset(tmp_path)
 
-    image_names = [path.name for path in jitter_fixtures.fixture_image_paths(tmp_path)]
+    image_paths = [
+        path.relative_to(tmp_path).as_posix()
+        for path in jitter_fixtures.fixture_image_paths(tmp_path)
+    ]
 
     assert callable(jitter_probe.parse_args)
-    assert "sample_000.jpg" in image_names
-    assert "quick_00_meta.png" in image_names
+    assert "sample_000.jpg" in image_paths
+    assert "quick_00_meta.png" in image_paths
+    assert "scope_a/scope_00.jpg" in image_paths
     assert (tmp_path / "items.parquet").is_file()
     assert (tmp_path / ".lenslet" / "labels.snapshot.json").is_file()
 
@@ -657,3 +661,75 @@ def test_jitter_grid_result_helpers_compare_named_snapshots() -> None:
     assert top_stack["baseline_to_restored_filters_band_delta"] == 3
     assert widths["metric_to_restored_body_width_delta"] == 10
     assert jitter_grid_dom.COUNT_LABEL_RE.match("1,234 / 2,000 items")
+
+
+def test_jitter_grid_state_uses_visible_sort_controls() -> None:
+    snapshots = jitter_grid.GridProbeSnapshots(
+        warmup_filters_active={},
+        builtin_initial={},
+        filters_active={},
+        filters_cleared={},
+        metric_mode={"metricRailActive": True, "sortLabel": "probe_score"},
+        builtin_restored={"sortLabel": "Date added"},
+        metric_sort_label="probe_score",
+        metric_desc_visible_paths=["/b.jpg", "/a.jpg"],
+        metric_asc_visible_paths=["/a.jpg", "/b.jpg"],
+    )
+
+    assert jitter_grid.grid_state_violations(snapshots) == []
+
+
+def test_jitter_grid_false_zero_detection_distinguishes_unknown_from_settled_empty() -> None:
+    pending = {
+        "phase": "loading",
+        "gridState": "loading",
+        "countLabel": "0 items",
+        "filteredLabels": [],
+    }
+    unknown = {
+        "phase": "loading",
+        "gridState": "loading",
+        "countLabel": None,
+        "filteredLabels": [],
+    }
+
+    assert jitter_grid._false_zero_frames([pending, unknown]) == [pending]
+
+
+def test_jitter_grid_identity_trace_requires_atomic_grace_and_inert_rail() -> None:
+    frames = [
+        {
+            "phase": "steady",
+            "paths": ["/a.jpg"],
+            "presentedTarget": "a",
+            "requestedTarget": "a",
+            "epoch": 1,
+        },
+        {
+            "phase": "grace",
+            "paths": ["/a.jpg"],
+            "presentedTarget": "a",
+            "requestedTarget": "b",
+            "epoch": 1,
+            "railActive": True,
+            "railInteractionDisabled": True,
+        },
+        {
+            "phase": "steady",
+            "paths": ["/b.jpg"],
+            "presentedTarget": "b",
+            "requestedTarget": "b",
+            "epoch": 2,
+        },
+    ]
+
+    assert jitter_grid._transition_identity_violations("sort", frames) == []
+
+    frames[1]["railInteractionDisabled"] = False
+    assert jitter_grid._transition_identity_violations("sort", frames) == [
+        "sort: active metric rail remained interactive during grace"
+    ]
+
+    assert jitter_grid._transition_identity_violations("sort", frames[:2])[-1] == (
+        "sort: terminal steady identity did not match the requested target"
+    )

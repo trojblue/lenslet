@@ -586,7 +586,8 @@
   background: color-mix(in oklab, var(--surface-inset) 78%, var(--bg));
 }
 
-.metric-rail-slot.is-inactive {
+.metric-rail-slot.is-inactive,
+.metric-rail-slot.is-inert {
   pointer-events: none;
 }
 

@@ -15,6 +15,7 @@ import { cancelBrowseRequests } from '../../api/client'
 import { useDebounced } from '../../shared/hooks/useDebounced'
 import { applyFilters } from '../../features/browse/model/apply'
 import { FetchError } from '../../lib/fetcher'
+import { sanitizePath } from '../../lib/paths'
 import {
   getBackendBrowseDerivedMetricUnsupportedReason,
   resolveCategoricalKeys,
@@ -49,6 +50,8 @@ import type {
 import { buildFallbackItem } from '../utils/appShellHelpers'
 
 export type SimilarityState = {
+  scopePath: string
+  sessionResetToken: number
   embedding: string
   queryPath: string | null
   queryVector: string | null
@@ -56,6 +59,18 @@ export type SimilarityState = {
   minScore: number | null
   items: EmbeddingSearchItem[]
   createdAt: number
+}
+
+export function resolveActiveSimilarityState(
+  state: SimilarityState | null,
+  scopePath: string,
+  sessionResetToken: number,
+): SimilarityState | null {
+  if (!state) return null
+  return state.scopePath === sanitizePath(scopePath)
+    && state.sessionResetToken === sessionResetToken
+    ? state
+    : null
 }
 
 type UseAppDataScopeParams = {
@@ -101,6 +116,7 @@ type UseAppDataScopeResult = {
   browseQueryUnavailableReason: string | null
   analysisUnsupportedMetricIntent: string | null
   browseTargetIdentity: string
+  browseTargetSettled: boolean
 }
 
 export type BrowseCapabilityKeys = {
@@ -355,12 +371,14 @@ export function useAppDataScope({
     limit: BACKEND_BROWSE_PAGE_SIZE,
     unsupportedToken: analysisUnsupportedMetricIntent,
     projection: browseProjection,
+    generationToken: String(sessionResetToken),
   }), [
     analysisUnsupportedMetricIntent,
     browseProjection,
     current,
     normalizedQ,
     randomSeed,
+    sessionResetToken,
     viewState.derivedMetric,
     viewState.filters,
     viewState.sort,
@@ -589,5 +607,6 @@ export function useAppDataScope({
     browseQueryUnavailableReason,
     analysisUnsupportedMetricIntent,
     browseTargetIdentity,
+    browseTargetSettled: similarityActive || firstBrowsePage !== undefined,
   }
 }

@@ -316,6 +316,9 @@ describe('folder api query helpers', () => {
     expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken(base, 20)))
     expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken({ ...base, limit: 20 }, 0)))
     expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken(base, 0, 'gen-2')))
+    expect(JSON.stringify(browseQueryKey({ ...base, generationToken: 'gen-2' }))).toBe(
+      JSON.stringify(windowRequestToken(base, 0, 'gen-2')),
+    )
     expect(JSON.stringify(windowRequestToken(base, 0))).not.toBe(JSON.stringify(windowRequestToken({
       ...base,
       projection: { metric_keys: ['score'], categorical_keys: [] },
@@ -324,7 +327,12 @@ describe('folder api query helpers', () => {
     expect(JSON.stringify(folderFacetsQueryKey(base))).toBe(JSON.stringify([
       'folder-facets',
       analysisQueryKey(base),
+      null,
+      null,
     ]))
+    expect(folderFacetsQueryKey({ ...base, generationToken: 'gen-2' })).not.toEqual(
+      folderFacetsQueryKey(base),
+    )
   })
 
   it('increments semantic revisions independently from pagination and projection', () => {

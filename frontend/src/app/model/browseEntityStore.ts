@@ -135,6 +135,22 @@ export class BrowseEntityStore {
     return changed
   }
 
+  seed(items: readonly BrowseItemPayload[]): string[] {
+    const byPath = new Map<string, BrowseItemPayload>()
+    for (const item of items) {
+      if (item.path && !this.entities.has(item.path)) byPath.set(item.path, item)
+    }
+    const changed = Array.from(byPath.keys()).sort()
+    const now = this.now()
+    for (const path of changed) {
+      this.entities.set(path, byPath.get(path)!)
+      if (!this.activeRefCounts.has(path)) this.unreferencedAt.set(path, now)
+    }
+    this.prune(now)
+    this.notify(changed)
+    return changed
+  }
+
   patch(patch: BrowseEntityPatch, options: BrowseEntityPatchOptions = {}): boolean {
     const current = this.entities.get(patch.path)
     if (!current) return false

@@ -117,18 +117,8 @@ def snapshot_grid(page: Any) -> dict[str, Any]:
           const scrollRootClasses = scrollRoot instanceof HTMLElement ? Array.from(scrollRoot.classList) : [];
           const usesHiddenScrollbar = scrollRootClasses.includes('scrollbar-hidden');
 
-          let persistedSortSpec = null;
-          try {
-            const rawSortSpec = window.localStorage.getItem('sortSpec');
-            if (rawSortSpec) {
-              const parsedSortSpec = JSON.parse(rawSortSpec);
-              if (parsedSortSpec && typeof parsedSortSpec === 'object') {
-                persistedSortSpec = parsedSortSpec;
-              }
-            }
-          } catch (error) {
-            persistedSortSpec = null;
-          }
+          const sortTrigger = document.querySelector('button[aria-label="Sort and layout"]');
+          const sortDirection = document.querySelector('button[aria-label="Toggle sort direction"]');
 
           const firstCell = document.querySelector('[role="gridcell"][id^="cell-"]');
           const firstCellRect = firstCell instanceof HTMLElement ? firstCell.getBoundingClientRect() : null;
@@ -146,8 +136,12 @@ def snapshot_grid(page: Any) -> dict[str, Any]:
             firstCellWidth: firstCellRect ? firstCellRect.width : null,
             scrollRootClasses,
             scrollRootUsesHiddenScrollbar: usesHiddenScrollbar,
-            persistedSortKind: persistedSortSpec ? persistedSortSpec.kind ?? null : null,
-            persistedSortKey: persistedSortSpec ? persistedSortSpec.key ?? null : null,
+            sortLabel: sortTrigger instanceof HTMLButtonElement
+              ? (sortTrigger.textContent || '').trim()
+              : null,
+            sortDirection: sortDirection instanceof HTMLButtonElement
+              ? sortDirection.title
+              : null,
           };
         }"""
     )

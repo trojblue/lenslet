@@ -402,7 +402,7 @@ export function useFolderFacets(options: UseFolderFacetsOptions) {
 
 export function buildFacetFieldQueryStates(
   batches: readonly (BrowseFacetFields | undefined)[],
-  results: readonly { data?: unknown; isError?: boolean }[],
+  results: readonly { data?: unknown; isError?: boolean; isFetching?: boolean }[],
 ): {
   metrics: Record<string, 'pending' | 'error' | 'settled'>
   categoricals: Record<string, 'pending' | 'error' | 'settled'>
@@ -414,7 +414,13 @@ export function buildFacetFieldQueryStates(
   batches.forEach((fields, index) => {
     if (!fields) return
     const result = results[index]
-    const state = result?.data ? 'settled' : result?.isError ? 'error' : 'pending'
+    const state = result?.data
+      ? 'settled'
+      : result?.isFetching
+        ? 'pending'
+        : result?.isError
+          ? 'error'
+          : 'pending'
     fields.metric_keys.forEach((key) => { states.metrics[key] = state })
     fields.categorical_keys.forEach((key) => { states.categoricals[key] = state })
   })

@@ -9,6 +9,7 @@ import {
   createCategoricalDraftTerm,
   createDerivedMetricDraft,
   derivedMetricDraftResetToken,
+  derivedMetricEditorResetToken,
   evaluateDerivedMetricDraft,
 } from '../derivedMetricDraft'
 import { evaluateBackendDerivedMetric, evaluateDerivedMetric } from '../derivedMetric'
@@ -282,6 +283,25 @@ describe('derived metric drafts', () => {
 
     expect(derivedMetricDraftResetToken(invalid, ['q1'], [])).toBe(
       derivedMetricDraftResetToken(pending, ['q1'], []),
+    )
+  })
+
+  it('shares the presentation hard-reset boundary with the Derived editor owner', () => {
+    const evaluation = evaluateDerivedMetric({
+      items: [],
+      metricKeys: ['q1'],
+      categoricalKeys: [],
+      spec: null,
+    })
+
+    expect(derivedMetricEditorResetToken(evaluation, 'workspace-a')).toBe(
+      derivedMetricEditorResetToken(evaluation, 'workspace-a'),
+    )
+    expect(derivedMetricEditorResetToken(evaluation, 'workspace-a')).not.toBe(
+      derivedMetricEditorResetToken(evaluation, 'workspace-b'),
+    )
+    expect(derivedMetricEditorResetToken(evaluation, 'workspace-a')).toBe(
+      derivedMetricEditorResetToken({ ...evaluation, metricKeys: [] }, 'workspace-a'),
     )
   })
 

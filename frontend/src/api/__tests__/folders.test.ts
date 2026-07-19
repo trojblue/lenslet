@@ -307,6 +307,17 @@ describe('folder api query helpers', () => {
     })
   })
 
+  it('returns an errored facet field to pending while a retry is fetching', () => {
+    const batches = [{ metric_keys: ['q1'], categorical_keys: [] }]
+
+    expect(buildFacetFieldQueryStates(batches, [
+      { isError: true, isFetching: true },
+    ])).toEqual({
+      metrics: { q1: 'pending' },
+      categoricals: {},
+    })
+  })
+
   it('normalizes unsupported metric intent in browse-query request bodies', () => {
     const request = buildBrowseQueryRequest({
       path: '/shots',

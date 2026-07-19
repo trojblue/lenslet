@@ -128,6 +128,7 @@ def start_painted_frame_trace(
                   ariaDisabled: element.getAttribute('aria-disabled'),
                   ariaHidden: element.getAttribute('aria-hidden'),
                   role: element.getAttribute('role'),
+                  inert: element.hasAttribute('inert'),
                   disabled: 'disabled' in element ? Boolean(element.disabled) : false,
                   pointerEvents: style.pointerEvents,
                   data: dataAttributes,

@@ -1,4 +1,5 @@
 import type {
+  BrowseFacetFields,
   BrowseItemPayload,
   DerivedMetricCategoricalTerm,
   DerivedMetricNumericMissingPolicy,
@@ -97,6 +98,16 @@ export function derivedMetricDraftResetToken(
   })
 }
 
+export function derivedMetricEditorResetToken(
+  evaluation: DerivedMetricEvaluation,
+  hardResetKey: string,
+): string {
+  return JSON.stringify([
+    hardResetKey,
+    derivedMetricDraftResetToken(evaluation, [], []),
+  ])
+}
+
 export function createDerivedMetricDraft(
   spec: DerivedMetricSpec | null,
   metricKeys: readonly string[],
@@ -150,6 +161,19 @@ export function createCategoricalDraftTerm(
     value: categoricalValuesByKey.get(key)?.[0] ?? '',
     weight: DEFAULT_WEIGHT,
   }
+}
+
+export function derivedFacetFieldsFromDraft(draft: DerivedMetricDraft): BrowseFacetFields {
+  return {
+    metric_keys: uniqueDraftFieldKeys(draft.numericTerms),
+    categorical_keys: uniqueDraftFieldKeys(draft.categoricalTerms),
+  }
+}
+
+function uniqueDraftFieldKeys(terms: readonly { key: string }[]): string[] {
+  return Array.from(new Set(
+    terms.map((term) => term.key.trim()).filter(Boolean),
+  )).sort()
 }
 
 export function buildDerivedMetricSpecFromDraft(draft: DerivedMetricDraft): DerivedMetricDraftBuild {

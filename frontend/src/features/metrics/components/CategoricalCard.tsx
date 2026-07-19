@@ -50,19 +50,23 @@ export default function CategoricalCard({
       {showTitle && <div className="ui-section-title mb-2">{categoricalKey}</div>}
       <div className="flex h-4 shrink-0 items-center justify-between gap-2 text-[11px] text-muted mb-2 tabular-nums whitespace-nowrap">
         <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-          <span>Population: {displayState === 'ready' ? populationCount : '—'}</span>
-          {showFilteredCounts && <span>Filtered: {displayState === 'ready' ? filteredCount : '—'}</span>}
+          <span data-count-role="population">Population: {displayState === 'ready' ? populationCount : '—'}</span>
+          <span data-count-role="filtered">
+            Filtered: {showFilteredCounts && displayState === 'ready' ? filteredCount : '—'}
+          </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span
-            className={`w-20 truncate text-right text-text ${selectedCount > 0 ? '' : 'invisible'}`}
-            title={selectedCount > 0 ? `Selected: ${selectedCount}` : undefined}
-            aria-hidden={selectedCount > 0 ? undefined : true}
+            className="w-20 truncate text-right text-text"
+            title={`Selected: ${selectedCount}`}
+            data-count-role="selected"
           >
-            Selected: {selectedCount || 0}
+            Selected: {selectedCount}
           </span>
-          <span className="w-14 text-right">
-            {displayState === 'ready' ? `${buckets.length} value${buckets.length === 1 ? '' : 's'}` : ''}
+          <span className="w-20 text-right" data-count-role="values">
+            {displayState === 'ready'
+              ? `${buckets.length} value${buckets.length === 1 ? '' : 's'}`
+              : '— values'}
           </span>
         </div>
       </div>
@@ -86,9 +90,18 @@ export default function CategoricalCard({
                 >
                   <span className="flex items-center justify-between gap-2 min-w-0">
                     <span className="truncate">{bucket.value}</span>
-                    <span className="shrink-0 text-[11px] text-muted tabular-nums">
-                      {bucket.selectedCount > 0 ? `${bucket.selectedCount} sel · ` : ''}
-                      {showFilteredCounts ? `${bucket.filteredCount}/` : ''}{bucket.populationCount}
+                    <span
+                      className="flex w-32 shrink-0 items-center justify-end text-[11px] text-muted tabular-nums"
+                      aria-label={`Selected ${bucket.selectedCount}; filtered ${showFilteredCounts ? bucket.filteredCount : 'not active'}; population ${bucket.populationCount}`}
+                      title={`Selected: ${bucket.selectedCount}; Filtered: ${showFilteredCounts ? bucket.filteredCount : '—'}; Population: ${bucket.populationCount}`}
+                    >
+                      <span className="w-12 text-right" data-count-role="row-selected">
+                        {bucket.selectedCount > 0 ? `${bucket.selectedCount} sel` : '—'}
+                      </span>
+                      <span className="w-4 text-center" aria-hidden="true">·</span>
+                      <span className="w-16 text-right" data-count-role="row-filtered-population">
+                        {showFilteredCounts ? bucket.filteredCount : '—'}/{bucket.populationCount}
+                      </span>
                     </span>
                   </span>
                 </button>

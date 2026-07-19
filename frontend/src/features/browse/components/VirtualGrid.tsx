@@ -778,6 +778,7 @@ export default function VirtualGrid({
       aria-disabled={interactionDisabled || undefined}
       data-grid-presentation-phase={presentationPhase}
       data-grid-interaction-disabled={interactionDisabled ? 'true' : 'false'}
+      data-grid-loaded-count={loadedCount}
       onMouseDown={() => { if (!interactionDisabled) parentRef.current?.focus() }}
       style={cssVars({ '--gap': `${GAP}px` })}
     >

@@ -15,3 +15,14 @@ Plan: /fsx/yada/dev/lenslet/docs/20260719_frontend_ui_continuity_remediation_pla
 - Blockers: none.
 - Commit: `fix: preserve frontend field continuity`.
 - Next step: begin Sprint 2 at `S2-T1`; do not cross into later sprints during that iteration.
+
+## Iteration 2 — 2026-07-19 UTC
+
+- Completed tasks: `S2-T1`, `S2-T2`, `S2-T3`, `S2-T4`; Sprint 2 closed.
+- Files changed: AppShell/left-sidebar Derived demand and reset ownership; Derived numeric/categorical row, histogram, score-preview, and draft model owners/tests; controlled Attribute and metric-bound inputs/tests; invariant metric/categorical count cards; browse presentation and metric-rail model/component/tests; table-backed grid/metrics probes, focused Derived/control/painted-frame helpers and tests; regenerated packaged frontend assets; plan and Ralph handoff records.
+- Validation: canonical table-backed metrics and grid probes passed with zero violations and `0.0 px` anchor movement (`/tmp/lenslet-continuity-s2-metrics.json`, `/tmp/lenslet-continuity-s2-grid.json`); 677 frontend tests passed; TypeScript passed; 72 painted-frame/browser-helper tests passed; repository lint and `git diff --check` passed; packaged-asset dry-run and dependency diff were empty; full GUI acceptance passed with its known non-failing folder-anchor warning.
+- Cleanup/review: one focused `metrics_derived.py` helper replaced an extracted probe branch; conservative cleanup removed a duplicate assertion; successive fresh reviews repaired edit canonicalization, terminal preview state, retry inertness/grace, draft/demand reset identity, focus-only external clears, final-page rail reshaping, categorical whole-row promotion, stale assets, numeric per-frame evidence, and bidirectional scope preservation. The final review reported no actionable findings. Full capability first-frame behavior remains deferred to `S5-T1`.
+- Production/helper accounting: frontend production source +975/-412 lines; one new focused browser helper module; no new dependencies or compatibility owners.
+- Blockers: none.
+- Commit: `fix: make metric presentation atomic`.
+- Next step: begin Sprint 3 at `S3-T1`; do not cross into later sprints during that iteration.

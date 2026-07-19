@@ -11,6 +11,13 @@ export type MetricRailHistogram = MetricRailDomain & {
   count: number
 }
 
+export type MetricRailState = 'pending' | 'ready' | 'empty' | 'error'
+
+export type MetricRailPresentation = {
+  state: MetricRailState
+  histogram: MetricRailHistogram | null
+}
+
 type SortDirection = 'asc' | 'desc'
 
 export function computeMetricRailHistogram(
@@ -30,6 +37,31 @@ export function computeMetricRailHistogram(
     counts[idx] += 1
   }
   return { bins: counts, min, max, count: values.length }
+}
+
+export function resolveMetricRailPresentation({
+  active,
+  localComplete,
+  localHistogram,
+  facetHistogram,
+  facetState,
+}: {
+  active: boolean
+  localComplete: boolean
+  localHistogram: MetricRailHistogram | null
+  facetHistogram: MetricRailHistogram | null
+  facetState: 'pending' | 'settled' | 'error'
+}): MetricRailPresentation {
+  if (!active) return { state: 'empty', histogram: null }
+  if (facetHistogram) return { state: 'ready', histogram: facetHistogram }
+  if (localComplete) {
+    return localHistogram
+      ? { state: 'ready', histogram: localHistogram }
+      : { state: 'empty', histogram: null }
+  }
+  if (facetState === 'error') return { state: 'error', histogram: null }
+  if (facetState === 'settled') return { state: 'empty', histogram: null }
+  return { state: 'pending', histogram: null }
 }
 
 export function metricRailProgressFromValue(

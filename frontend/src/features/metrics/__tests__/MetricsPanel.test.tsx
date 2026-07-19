@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { ComponentProps } from 'react'
 import DerivedScorePanel from '../DerivedScorePanel'
+import { resolveScorePreviewState } from '../components/DerivedScoreCard'
 import MetricsPanel from '../MetricsPanel'
 import type { BrowseFacetsPayload, BrowseItemPayload } from '../../../lib/types'
 import type { DerivedMetricEvaluation } from '../model/derivedMetric'
@@ -246,7 +247,7 @@ describe('MetricsPanel', () => {
     expect(html).toContain('gt')
     expect(html).toContain('synthetic')
     expect(html).toContain('rapidata')
-    expect(html).not.toContain('Filtered:')
+    expect(html).toContain('Filtered: —')
   })
 
   it('does not use loaded-window categorical values when population is incomplete', () => {
@@ -277,7 +278,7 @@ describe('MetricsPanel', () => {
     expect(html).not.toContain('ptv03')
     expect(html).not.toContain('title="gt"')
     expect(html).not.toContain('>gt<')
-    expect(html).not.toContain('Filtered:')
+    expect(html).toContain('Filtered: —')
     expect(html).not.toContain('1/1')
     expect(html).toContain('data-facet-state="pending"')
     expect(html).toContain('Loading values for this field…')
@@ -388,6 +389,52 @@ describe('MetricsPanel', () => {
     expect(empty).toContain('data-derived-categorical-value="0" data-facet-state="empty"')
     expect(error).toContain('data-derived-categorical-value="0" data-facet-state="error"')
     expect(error).not.toContain('partial-only')
+  })
+
+  it('keeps Derived numeric histograms pending until population facets settle', () => {
+    const html = renderToStaticMarkup(
+      <DerivedScorePanel
+        items={[makeItem('/partial.jpg', { q1: 0.5 })]}
+        metricKeys={['q1']}
+        categoricalKeys={[]}
+        facetsState="pending"
+        populationItemsComplete={false}
+        derivedMetric={makeDerivedMetricEvaluation({
+          spec: {
+            version: 1,
+            id: 'score_v1',
+            name: 'new_score',
+            intercept: 0,
+            numericTerms: [{ key: 'q1', weight: 1, missing: 'invalid', zNormalize: false }],
+            categoricalTerms: [],
+          },
+        })}
+        onApplyDerivedMetric={() => {}}
+        onRankByDerivedMetric={() => {}}
+      />,
+    )
+
+    expect(html).toContain('data-derived-metric-histogram="q1" data-facet-state="pending"')
+    expect(html).toContain('Loading values…')
+    expect(html).not.toContain('No finite values')
+  })
+
+  it('makes the Derived score preview terminal on source-facet errors', () => {
+    expect(resolveScorePreviewState({
+      histogram: null,
+      populationItemsComplete: false,
+      requiredStates: [],
+    })).toBe('empty')
+    expect(resolveScorePreviewState({
+      histogram: null,
+      populationItemsComplete: false,
+      requiredStates: ['ready', 'error'],
+    })).toBe('error')
+    expect(resolveScorePreviewState({
+      histogram: null,
+      populationItemsComplete: true,
+      requiredStates: ['error'],
+    })).toBe('empty')
   })
 
   it('allows backend ranking without loading every source metric into card entities', () => {

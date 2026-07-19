@@ -39,6 +39,7 @@ class GridProbeConfig:
     forbidden_metric_keys: tuple[str, ...] = ()
     metric_filter_min: float | None = None
     metric_filter_max: float | None = None
+    fixture_profile: str = "default"
 
     @property
     def uses_metric_filter(self) -> bool:
@@ -477,6 +478,7 @@ def start_browse_frame_trace(page: Any) -> None:
             const shell = document.querySelector('[data-browse-shell]');
             const countLabel = document.querySelector('.toolbar-count');
             const rail = document.querySelector('[data-metric-rail-slot]');
+            const railContent = rail?.querySelector('[data-metric-rail]');
             let ratingCounts = {};
             let selectedPaths = [];
             try {
@@ -514,12 +516,22 @@ def start_browse_frame_trace(page: Any) -> None:
               phase: grid?.getAttribute('data-grid-presentation-phase') || null,
               gridState: document.querySelector('[data-grid-state]')?.getAttribute('data-grid-state') || null,
               interactionDisabled: grid?.getAttribute('data-grid-interaction-disabled') === 'true',
+              loadedCount: Number(grid?.getAttribute('data-grid-loaded-count') || 0),
               cellCount: paths.length,
               paths,
               countLabel: (countLabel?.textContent || '').trim() || null,
               railActive: rail?.getAttribute('data-metric-rail-active') === 'true',
               railInteractionDisabled:
                 rail?.getAttribute('data-metric-rail-interaction-disabled') === 'true',
+              railIdentity: railContent ? {
+                key: railContent.getAttribute('data-metric-rail'),
+                state: railContent.getAttribute('data-metric-rail-state'),
+                count: Number(railContent.getAttribute('data-metric-rail-count') || 0),
+                min: Number(railContent.getAttribute('data-metric-rail-min') || 0),
+                max: Number(railContent.getAttribute('data-metric-rail-max') || 0),
+                bins: railContent.getAttribute('data-metric-rail-bins'),
+                quantiles: railContent.getAttribute('data-metric-rail-quantiles'),
+              } : null,
               ratingCounts,
               selectedPaths,
               inspectorPath: document.querySelector('[data-inspector-panel]')
@@ -1121,8 +1133,10 @@ def _transition_identity_violations(
     frames: list[dict[str, Any]],
 ) -> list[str]:
     violations: list[str] = []
-    grace_indexes = [index for index, frame in enumerate(frames) if frame.get("phase") == "grace"]
-    if not grace_indexes:
+    pending_indexes = [
+        index for index, frame in enumerate(frames) if frame.get("phase") in {"grace", "loading"}
+    ]
+    if not pending_indexes:
         return violations
     last_transition_index = max(
         index
@@ -1130,7 +1144,7 @@ def _transition_identity_violations(
         if frame.get("phase") in {"grace", "loading"}
     )
     prior = next(
-        (frame for frame in reversed(frames[: grace_indexes[0]]) if frame.get("phase") == "steady"),
+        (frame for frame in reversed(frames[: pending_indexes[0]]) if frame.get("phase") == "steady"),
         None,
     )
     terminal = next(
@@ -1143,17 +1157,21 @@ def _transition_identity_violations(
     )
     if prior is None:
         return [f"{name}: missing pre-transition steady identity frame"]
-    grace = [frames[index] for index in grace_indexes]
-    if any(frame.get("paths") != prior.get("paths") for frame in grace):
-        violations.append(f"{name}: grace changed retained visible membership")
-    if any(frame.get("presentedTarget") != prior.get("presentedTarget") for frame in grace):
-        violations.append(f"{name}: grace changed the presented target identity")
-    if any(frame.get("epoch") != prior.get("epoch") for frame in grace):
-        violations.append(f"{name}: grace advanced the presentation epoch")
-    if any(frame.get("requestedTarget") == frame.get("presentedTarget") for frame in grace):
-        violations.append(f"{name}: grace did not distinguish requested and presented targets")
-    if any(frame.get("railActive") and not frame.get("railInteractionDisabled") for frame in grace):
-        violations.append(f"{name}: active metric rail remained interactive during grace")
+    pending = [frames[index] for index in pending_indexes]
+    if any(frame.get("paths") != prior.get("paths") for frame in pending):
+        violations.append(f"{name}: pending changed retained visible membership")
+    if any(frame.get("presentedTarget") != prior.get("presentedTarget") for frame in pending):
+        violations.append(f"{name}: pending changed the presented target identity")
+    if any(frame.get("epoch") != prior.get("epoch") for frame in pending):
+        violations.append(f"{name}: pending advanced the presentation epoch")
+    if any(frame.get("railIdentity") != prior.get("railIdentity") for frame in pending):
+        violations.append(f"{name}: pending reshaped the retained metric rail")
+    if any(frame.get("requestedTarget") == frame.get("presentedTarget") for frame in pending):
+        violations.append(f"{name}: pending did not distinguish requested and presented targets")
+    if any(not frame.get("interactionDisabled") for frame in pending):
+        violations.append(f"{name}: retained membership remained interactive while pending")
+    if any(frame.get("railActive") and not frame.get("railInteractionDisabled") for frame in pending):
+        violations.append(f"{name}: active metric rail remained interactive while pending")
     if terminal is None or terminal.get("presentedTarget") != terminal.get("requestedTarget"):
         violations.append(f"{name}: terminal steady identity did not match the requested target")
     elif (
@@ -1198,6 +1216,12 @@ def _reset_transition_violations(
     return violations
 
 
+def _terminal_error_rail_violations(frame: dict[str, Any]) -> list[str]:
+    if frame.get("railActive") or frame.get("railIdentity") is not None:
+        return ["terminal error retained an active or pending metric rail"]
+    return []
+
+
 def browse_continuity_violations(evidence: dict[str, Any]) -> list[str]:
     violations: list[str] = []
     baseline = evidence["baseline_counts"]
@@ -1227,8 +1251,8 @@ def browse_continuity_violations(evidence: dict[str, Any]) -> list[str]:
         loading = _phase_frames(transitions[name], "loading")
         if not loading:
             violations.append(f"{name}: over-grace response never painted loading")
-        elif any(frame.get("cellCount") or frame.get("countLabel") for frame in loading):
-            violations.append(f"{name}: loading mixed retained cells or counts into the target")
+        elif any(not frame.get("cellCount") or not frame.get("countLabel") for frame in loading):
+            violations.append(f"{name}: delayed status cleared retained cells or counts")
 
     matching_frames = evidence["matching_search_frames"]
     matching_pending = [
@@ -1323,6 +1347,7 @@ def browse_continuity_violations(evidence: dict[str, Any]) -> list[str]:
         violations.append("terminal error manufactured a toolbar count")
     if error_final.get("presentedTarget") != error_final.get("requestedTarget"):
         violations.append("terminal error identity did not match the requested target")
+    violations.extend(_terminal_error_rail_violations(error_final))
 
     empty_final = evidence["empty_frames"][-1]
     violations.extend(_transition_identity_violations("terminal empty", evidence["empty_frames"]))
@@ -1453,7 +1478,372 @@ def grid_result(snapshots: GridProbeSnapshots, config: GridProbeConfig) -> Probe
     )
 
 
+def exercise_table_grid_probe(page: Any, config: GridProbeConfig) -> dict[str, Any]:
+    timeout_ms = config.browser_timeout_ms
+    page.goto(config.base_url, wait_until="domcontentloaded")
+    wait_for_grid(page, timeout_ms)
+    wait_for_steady_presentation(page, timeout_ms)
+    baseline_counts = read_toolbar_counts(page)
+    baseline_paths = visible_grid_paths(page)
+    page.evaluate(
+        """() => {
+          const originalFetch = window.fetch.bind(window);
+          const controller = { configs: {}, requests: [], completions: [] };
+          window.__lensletRailFacetController = controller;
+          window.fetch = async (...args) => {
+            const input = args[0];
+            const init = args[1] || {};
+            const rawUrl = input instanceof Request ? input.url : String(input);
+            if (new URL(rawUrl, location.href).pathname !== '/folders/facets') {
+              return originalFetch(...args);
+            }
+            let payload = {};
+            try {
+              const rawBody = input instanceof Request ? await input.clone().text() : init.body;
+              payload = rawBody ? JSON.parse(String(rawBody)) : {};
+            } catch {}
+            const key = (payload?.facet_fields?.metric_keys || [])[0];
+            const settings = controller.configs[key];
+            if (!settings) return originalFetch(...args);
+            controller.requests.push({ key, ...settings });
+            const response = await originalFetch(...args);
+            await new Promise(resolve => setTimeout(resolve, settings.delayMs || 0));
+            controller.completions.push({ key, ...settings });
+            if (settings.mode === 'error') {
+              return new Response(JSON.stringify({ detail: `forced ${key} rail failure` }), {
+                status: 503,
+                headers: { 'content-type': 'application/json' },
+              });
+            }
+            if (settings.mode !== 'empty') return response;
+            const body = await response.clone().json();
+            if (body.metrics) delete body.metrics[key];
+            return new Response(JSON.stringify(body), {
+              status: response.status,
+              headers: response.headers,
+            });
+          };
+        }"""
+    )
+    sort_labels = list_metric_sort_labels(page, timeout_ms)
+    required_keys = ["quality_score", *[f"zz_probe_metric_{index:02d}" for index in range(7)]]
+    missing = [key for key in required_keys if key not in sort_labels]
+    if missing:
+        raise SmokeFailure(f"table-1585 fixture is missing metric sorts {missing!r}")
+
+    def transition(key: str, delay_ms: int, mode: str, state: str) -> dict[str, Any]:
+        page.evaluate(
+            """settings => {
+              window.__lensletRailFacetController.configs[settings.key] = settings;
+            }""",
+            {"key": key, "delayMs": delay_ms, "mode": mode},
+        )
+        request_count = int(page.evaluate(
+            "() => window.__lensletRailFacetController.requests.length"
+        ))
+        start_browse_frame_trace(page)
+        select_sort_option(page, key, timeout_ms)
+        page.wait_for_function(
+            "count => window.__lensletRailFacetController.requests.length > count",
+            arg=request_count,
+            timeout=timeout_ms,
+        )
+        wait_for_steady_presentation(page, timeout_ms)
+        page.wait_for_function(
+            """expected => {
+              const rail = document.querySelector('[data-metric-rail]');
+              return rail?.getAttribute('data-metric-rail') === expected.key
+                && rail.getAttribute('data-metric-rail-state') === expected.state;
+            }""",
+            arg={"key": key, "state": state},
+            timeout=timeout_ms,
+        )
+        return {
+            "frames": stop_browse_frame_trace(page),
+            "terminal": _table_rail_terminal(page),
+        }
+
+    cases = {
+        "fast": transition("quality_score", 180, "ready", "ready"),
+        "slow": transition("zz_probe_metric_00", 1_100, "ready", "ready"),
+    }
+
+    rapid_keys = ["zz_probe_metric_01", "zz_probe_metric_02", "zz_probe_metric_03"]
+    for key, delay_ms in zip(rapid_keys, (900, 650, 100), strict=True):
+        page.evaluate(
+            """settings => {
+              window.__lensletRailFacetController.configs[settings.key] = settings;
+            }""",
+            {"key": key, "delayMs": delay_ms, "mode": "ready"},
+        )
+    start_browse_frame_trace(page)
+    for key in rapid_keys:
+        request_count = int(page.evaluate(
+            "() => window.__lensletRailFacetController.requests.length"
+        ))
+        select_sort_option(page, key, timeout_ms)
+        page.wait_for_function(
+            "count => window.__lensletRailFacetController.requests.length > count",
+            arg=request_count,
+            timeout=timeout_ms,
+        )
+    wait_for_steady_presentation(page, timeout_ms)
+    page.wait_for_function(
+        """key => document.querySelector('[data-metric-rail]')
+          ?.getAttribute('data-metric-rail') === key""",
+        arg=rapid_keys[-1],
+        timeout=timeout_ms,
+    )
+    cases["rapid"] = {
+        "frames": stop_browse_frame_trace(page),
+        "terminal": _table_rail_terminal(page),
+    }
+    cases["empty"] = transition("zz_probe_metric_04", 180, "empty", "empty")
+    cases["error"] = transition("zz_probe_metric_05", 80, "error", "error")
+
+    def retry_transition(mode: str, expected_state: str, verify_inert: bool) -> dict[str, Any]:
+        page.evaluate(
+            """settings => {
+              window.__lensletRailFacetController.configs[settings.key] = settings;
+            }""",
+            {"key": "zz_probe_metric_05", "delayMs": 1_100, "mode": mode},
+        )
+        request_count = int(page.evaluate(
+            "() => window.__lensletRailFacetController.requests.length"
+        ))
+        completion_count = int(page.evaluate(
+            "() => window.__lensletRailFacetController.completions.length"
+        ))
+        start_browse_frame_trace(page)
+        page.get_by_role(
+            "button", name="Retry zz_probe_metric_05 metric distribution"
+        ).click()
+        page.wait_for_function(
+            "count => window.__lensletRailFacetController.requests.length > count",
+            arg=request_count,
+            timeout=timeout_ms,
+        )
+        page.wait_for_function(
+            """() => document.querySelector('[data-metric-rail-slot]')?.hasAttribute('inert')
+              && document.querySelector('[data-metric-rail-state="error"] button')""",
+            timeout=timeout_ms,
+        )
+        inert_evidence: dict[str, Any] | None = None
+        if verify_inert:
+            request_count_before_key = int(page.evaluate(
+                "() => window.__lensletRailFacetController.requests.length"
+            ))
+            inert_evidence = page.evaluate(
+                """() => {
+                  const slot = document.querySelector('[data-metric-rail-slot]');
+                  const button = slot?.querySelector('button');
+                  button?.focus();
+                  return {
+                    inert: slot?.hasAttribute('inert') === true,
+                    focusAccepted: document.activeElement === button,
+                  };
+                }"""
+            )
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(50)
+            inert_evidence["request_count_before_key"] = request_count_before_key
+            inert_evidence["request_count_after_key"] = int(page.evaluate(
+                "() => window.__lensletRailFacetController.requests.length"
+            ))
+        page.wait_for_function(
+            "count => window.__lensletRailFacetController.completions.length > count",
+            arg=completion_count,
+            timeout=timeout_ms,
+        )
+        wait_for_steady_presentation(page, timeout_ms)
+        page.wait_for_function(
+            """state => document.querySelector('[data-metric-rail]')
+              ?.getAttribute('data-metric-rail-state') === state""",
+            arg=expected_state,
+            timeout=timeout_ms,
+        )
+        return {
+            "frames": stop_browse_frame_trace(page),
+            "terminal": _table_rail_terminal(page),
+            "inert": inert_evidence,
+        }
+
+    cases["retry_error"] = retry_transition("error", "error", True)
+    cases["retry"] = retry_transition("ready", "ready", False)
+
+    pagination_before = _table_rail_terminal(page)
+    start_browse_frame_trace(page)
+    page.get_by_role("grid", name="Gallery").evaluate(
+        "grid => { grid.scrollTop = grid.scrollHeight; }"
+    )
+    page.wait_for_function(
+        """() => document.querySelector('[role="grid"][aria-label="Gallery"]')
+          ?.getAttribute('data-grid-loaded-count') === '1585'""",
+        timeout=timeout_ms,
+    )
+    page.wait_for_function(
+        "() => document.querySelector('[data-has-more]')?.getAttribute('data-has-more') === 'false'",
+        timeout=timeout_ms,
+    )
+    page.wait_for_timeout(80)
+    pagination_completion = {
+        "before": pagination_before,
+        "after": _table_rail_terminal(page),
+        "frames": stop_browse_frame_trace(page),
+    }
+
+    violations: list[str] = []
+    if baseline_counts.get("current") != 1_585:
+        violations.append(f"fixture total was not 1,585: {baseline_counts!r}")
+    for name, case in cases.items():
+        if name not in {"retry", "retry_error"}:
+            violations.extend(_transition_identity_violations(
+                f"table metric rail {name}", case["frames"]
+            ))
+        violations.extend(_table_rail_terminal_violations(name, case["terminal"]))
+    if _phase_frames(cases["fast"]["frames"], "loading"):
+        violations.append("sub-800ms rail response painted loading")
+    if not _phase_frames(cases["slow"]["frames"], "loading"):
+        violations.append("over-800ms rail response never painted loading")
+    rapid_steady_keys = {
+        (frame.get("railIdentity") or {}).get("key")
+        for frame in cases["rapid"]["frames"]
+        if frame.get("phase") == "steady"
+    }
+    if rapid_steady_keys.intersection(rapid_keys[:-1]):
+        violations.append(f"rapid rail transition promoted stale intermediates: {rapid_steady_keys!r}")
+    for retry_name in ("retry_error", "retry"):
+        retry_frames = cases[retry_name]["frames"]
+        retry_pending = [
+            frame for frame in retry_frames
+            if frame.get("phase") in {"grace", "loading"}
+        ]
+        if (
+            not _phase_frames(retry_frames, "grace")
+            or not _phase_frames(retry_frames, "loading")
+            or any(
+                (frame.get("railIdentity") or {}).get("state") != "error"
+                or not frame.get("railInteractionDisabled")
+                for frame in retry_pending
+            )
+        ):
+            violations.append(
+                f"{retry_name} did not retain one inert error bundle through fresh grace"
+            )
+    retry_inert = cases["retry_error"]["inert"] or {}
+    if (
+        not retry_inert.get("inert")
+        or retry_inert.get("focusAccepted")
+        or retry_inert.get("request_count_before_key")
+        != retry_inert.get("request_count_after_key")
+    ):
+        violations.append(f"retained rail retry accepted focus or activation: {retry_inert!r}")
+    before_shape = {
+        key: value for key, value in pagination_completion["before"].items()
+        if key != "loadedCount"
+    }
+    after_shape = {
+        key: value for key, value in pagination_completion["after"].items()
+        if key != "loadedCount"
+    }
+    if (
+        pagination_completion["before"].get("loadedCount") != 1_000
+        or pagination_completion["after"].get("loadedCount") != 1_585
+        or before_shape != after_shape
+    ):
+        violations.append(
+            f"pagination completion reshaped the authoritative rail: {pagination_completion!r}"
+        )
+    return {
+        "fixture": {"profile": "table-1585", "rows": 1_585},
+        "baseline_counts": baseline_counts,
+        "baseline_paths": baseline_paths,
+        "cases": cases,
+        "pagination_completion": pagination_completion,
+        "violations": violations,
+    }
+
+
+def _table_rail_terminal(page: Any) -> dict[str, Any]:
+    return page.evaluate(
+        """() => {
+          const grid = document.querySelector('[role="grid"][aria-label="Gallery"]');
+          const rail = document.querySelector('[data-metric-rail]');
+          return {
+            loadedCount: Number(grid?.getAttribute('data-grid-loaded-count') || 0),
+            railKey: rail?.getAttribute('data-metric-rail') || null,
+            railState: rail?.getAttribute('data-metric-rail-state') || null,
+            railCount: Number(rail?.getAttribute('data-metric-rail-count') || 0),
+            railMin: Number(rail?.getAttribute('data-metric-rail-min') || 0),
+            railMax: Number(rail?.getAttribute('data-metric-rail-max') || 0),
+            railBins: rail?.getAttribute('data-metric-rail-bins') || null,
+            railQuantiles: rail?.getAttribute('data-metric-rail-quantiles') || null,
+          };
+        }"""
+    )
+
+
+def _table_rail_terminal_violations(name: str, terminal: dict[str, Any]) -> list[str]:
+    violations: list[str] = []
+    if int(terminal.get("loadedCount") or 0) >= 1_585:
+        violations.append(f"{name}: fixture did not exercise pagination: {terminal!r}")
+    state = terminal.get("railState")
+    if name in {"fast", "slow", "rapid", "retry"}:
+        bins = [int(value) for value in str(terminal.get("railBins") or "").split(",") if value]
+        quantiles = [
+            float(value)
+            for value in str(terminal.get("railQuantiles") or "").split(",")
+            if value
+        ]
+        if (
+            state != "ready"
+            or terminal.get("railCount") != 1_585
+            or sum(bins) != 1_585
+            or not bins
+            or len(quantiles) != 5
+            or float(terminal.get("railMax") or 0) <= float(terminal.get("railMin") or 0)
+        ):
+            violations.append(f"{name}: incomplete terminal rail identity: {terminal!r}")
+    elif name == "retry_error":
+        if state != "error":
+            violations.append(f"{name}: expected terminal error rail: {terminal!r}")
+    elif state != name:
+        violations.append(f"{name}: expected terminal {name} rail: {terminal!r}")
+    return violations
+
+
+def run_table_grid_probe(config: GridProbeConfig) -> ProbeResult:
+    playwright_error, playwright_timeout_error, sync_playwright = import_playwright()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 840},
+                device_scale_factor=1.0,
+            )
+            try:
+                page = context.new_page()
+                page.set_default_timeout(config.browser_timeout_ms)
+                checks = exercise_table_grid_probe(page, config)
+            finally:
+                context.close()
+                browser.close()
+    except playwright_timeout_error as exc:
+        raise SmokeFailure(f"table grid playwright timeout: {exc}") from exc
+    except playwright_error as exc:
+        raise SmokeFailure(f"table grid playwright probe failed: {exc}") from exc
+    if checks["violations"]:
+        raise SmokeFailure("; ".join(checks["violations"]))
+    return ProbeResult(
+        scenario="grid",
+        max_delta_px=config.max_delta_px,
+        checks=checks,
+    )
+
+
 def run_grid_probe(config: GridProbeConfig) -> ProbeResult:
+    if config.fixture_profile == "table-1585":
+        return run_table_grid_probe(config)
     playwright_error, playwright_timeout_error, sync_playwright = import_playwright()
     try:
         with sync_playwright() as playwright:

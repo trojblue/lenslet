@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import type { FilterAST } from '../../../lib/types'
 import { getMetricRangeFilter } from '../../browse/model/filters'
 import { useMetricHistogramInteraction } from '../hooks/useMetricHistogramInteraction'
@@ -72,9 +72,8 @@ export default function MetricHistogramCard({
     activeRange,
     onChangeRange: (range) => onChangeRange(metricKey, range),
   })
-  const [minInput, setMinInput] = useState('')
-  const [maxInput, setMaxInput] = useState('')
-  const [editingField, setEditingField] = useState<'min' | 'max' | null>(null)
+  const [minDraft, setMinDraft] = useState<string | null>(null)
+  const [maxDraft, setMaxDraft] = useState<string | null>(null)
   const selectedValue = selectedValues.length === 1 ? selectedValues[0] : null
   const displayLabel = metricLabel ?? metricKey
   const selectedHistogram = useMemo(() => {
@@ -83,21 +82,10 @@ export default function MetricHistogramCard({
   }, [selectedValues, population])
   const displayState = population && domain ? 'ready' : state === 'ready' ? 'empty' : state
 
-  useEffect(() => {
-    if (!activeRange || !domain) {
-      if (editingField !== 'min') setMinInput(activeRange ? formatInputValue(activeRange.min) : '')
-      if (editingField !== 'max') setMaxInput(activeRange ? formatInputValue(activeRange.max) : '')
-      return
-    }
-    if (editingField !== 'min') {
-      const nextMin = isApprox(activeRange.min, domain.min) ? '' : formatInputValue(activeRange.min)
-      setMinInput(nextMin)
-    }
-    if (editingField !== 'max') {
-      const nextMax = isApprox(activeRange.max, domain.max) ? '' : formatInputValue(activeRange.max)
-      setMaxInput(nextMax)
-    }
-  }, [activeRange, domain, editingField])
+  const projectedMin = projectRangeInput(activeRange?.min, domain?.min)
+  const projectedMax = projectRangeInput(activeRange?.max, domain?.max)
+  const minInput = minDraft ?? projectedMin
+  const maxInput = maxDraft ?? projectedMax
 
   const commitInputRange = (nextMinRaw: string, nextMaxRaw: string) => {
     if (!domain) return
@@ -105,10 +93,10 @@ export default function MetricHistogramCard({
     const maxParsed = parseNumberInput(nextMaxRaw)
     if (!minParsed.valid || !maxParsed.valid) {
       if (!minParsed.valid) {
-        setMinInput(activeRange ? formatInputValue(activeRange.min) : '')
+        setMinDraft(projectedMin)
       }
       if (!maxParsed.valid) {
-        setMaxInput(activeRange ? formatInputValue(activeRange.max) : '')
+        setMaxDraft(projectedMax)
       }
       return
     }
@@ -147,15 +135,17 @@ export default function MetricHistogramCard({
       )}
       <div className="flex h-4 shrink-0 items-center justify-between gap-2 text-[11px] text-muted mb-2 tabular-nums whitespace-nowrap">
         <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-          <span>Population: {displayState === 'ready' ? population?.count : '—'}</span>
-          {showFilteredCounts && <span>Filtered: {displayState === 'ready' ? filtered?.count ?? 0 : '—'}</span>}
+          <span data-count-role="population">Population: {displayState === 'ready' ? population?.count : '—'}</span>
+          <span data-count-role="filtered">
+            Filtered: {showFilteredCounts && displayState === 'ready' ? filtered?.count ?? 0 : '—'}
+          </span>
         </div>
         <span
-          className={`w-28 shrink-0 truncate text-right text-text ${selectedCount > 0 ? '' : 'invisible'}`}
-          title={selectedCount > 0 ? selectionText : undefined}
-          aria-hidden={selectedCount > 0 ? undefined : true}
+          className="w-28 shrink-0 truncate text-right text-text"
+          title={selectionText}
+          data-count-role="selected"
         >
-          {selectedCount > 0 ? selectionText : 'Selected: 0'}
+          {selectionText}
         </span>
       </div>
       {displayState === 'ready' && population && domain ? (
@@ -214,17 +204,17 @@ export default function MetricHistogramCard({
           <label className="ui-label">Min</label>
           <input
             type="number"
+            aria-label={`${displayLabel} minimum`}
             step="any"
             className="ui-input ui-number w-full"
             value={minInput}
             placeholder={domain ? formatInputValue(domain.min) : ''}
             disabled={!domain}
-            onFocus={() => setEditingField('min')}
             onBlur={() => {
-              setEditingField(null)
-              commitInputRange(minInput, maxInput)
+              if (minDraft !== null) commitInputRange(minDraft, maxInput)
+              setMinDraft(null)
             }}
-            onChange={(e) => setMinInput(e.target.value)}
+            onChange={(e) => setMinDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.currentTarget.blur()
@@ -236,17 +226,17 @@ export default function MetricHistogramCard({
           <label className="ui-label">Max</label>
           <input
             type="number"
+            aria-label={`${displayLabel} maximum`}
             step="any"
             className="ui-input ui-number w-full"
             value={maxInput}
             placeholder={domain ? formatInputValue(domain.max) : ''}
             disabled={!domain}
-            onFocus={() => setEditingField('max')}
             onBlur={() => {
-              setEditingField(null)
-              commitInputRange(minInput, maxInput)
+              if (maxDraft !== null) commitInputRange(minInput, maxDraft)
+              setMaxDraft(null)
             }}
-            onChange={(e) => setMaxInput(e.target.value)}
+            onChange={(e) => setMaxDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.currentTarget.blur()
@@ -266,6 +256,15 @@ export default function MetricHistogramCard({
       </div>
     </div>
   )
+}
+
+export function projectRangeInput(
+  value: number | undefined,
+  boundary: number | undefined,
+): string {
+  if (value == null) return ''
+  if (boundary != null && isApprox(value, boundary)) return ''
+  return formatInputValue(value)
 }
 
 function histogramFooterInfo(

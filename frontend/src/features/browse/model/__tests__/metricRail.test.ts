@@ -6,6 +6,7 @@ import {
   metricRailProgressFromValue,
   metricValueAtProgress,
   metricValueFromRailProgress,
+  resolveMetricRailPresentation,
 } from '../metricRail'
 
 function makeItem(path: string, score: number | null): BrowseItemPayload {
@@ -58,5 +59,47 @@ describe('metric rail model', () => {
       max: 2,
       count: 4,
     })
+  })
+
+  it('treats backend empty and error rail summaries as terminal states', () => {
+    expect(resolveMetricRailPresentation({
+      active: true,
+      localComplete: false,
+      localHistogram: null,
+      facetHistogram: null,
+      facetState: 'settled',
+    })).toEqual({ state: 'empty', histogram: null })
+    expect(resolveMetricRailPresentation({
+      active: true,
+      localComplete: false,
+      localHistogram: null,
+      facetHistogram: null,
+      facetState: 'error',
+    })).toEqual({ state: 'error', histogram: null })
+  })
+
+  it('prefers a complete local population over a failed backend summary', () => {
+    const histogram = computeMetricRailHistogram([1, 2, 3], 3)
+
+    expect(resolveMetricRailPresentation({
+      active: true,
+      localComplete: true,
+      localHistogram: histogram,
+      facetHistogram: null,
+      facetState: 'error',
+    })).toEqual({ state: 'ready', histogram })
+  })
+
+  it('keeps an authoritative backend summary when local pagination completes', () => {
+    const localHistogram = computeMetricRailHistogram([1, 2, 3], 3)
+    const facetHistogram = computeMetricRailHistogram([1, 1, 2, 3], 2)
+
+    expect(resolveMetricRailPresentation({
+      active: true,
+      localComplete: true,
+      localHistogram,
+      facetHistogram,
+      facetState: 'settled',
+    })).toEqual({ state: 'ready', histogram: facetHistogram })
   })
 })

@@ -60,6 +60,7 @@ type LeftSidebarProps = {
   metricsPopulationItemsComplete?: boolean
   metricsFilteredItemsComplete?: boolean
   metricsPresentationResetKey: string
+  derivedDraftResetKey: string
   derivedMetric: DerivedMetricEvaluation
   derivedRankDisabledReason?: string | null
   derivedMetricBackendAuthoritative?: boolean
@@ -134,6 +135,7 @@ export default function LeftSidebar({
   metricsPopulationItemsComplete,
   metricsFilteredItemsComplete,
   metricsPresentationResetKey,
+  derivedDraftResetKey,
   derivedMetric,
   derivedRankDisabledReason,
   derivedMetricBackendAuthoritative = false,
@@ -366,6 +368,8 @@ export default function LeftSidebar({
             facetsState={metricsFacetsState}
             facetFieldStates={metricsFacetFieldStates}
             populationItemsComplete={metricsPopulationItemsComplete}
+            presentationResetKey={derivedDraftResetKey}
+            draftResetKey={derivedDraftResetKey}
             derivedMetric={derivedMetric}
             backendAuthoritative={derivedMetricBackendAuthoritative}
             derivedRankDisabledReason={derivedRankDisabledReason}

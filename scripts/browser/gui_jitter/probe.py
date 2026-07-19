@@ -44,6 +44,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind Lenslet server.")
     parser.add_argument("--port", type=int, default=7070, help="Preferred Lenslet port.")
     parser.add_argument(
+        "--fixture-profile",
+        choices=["default", "table-1585"],
+        default="default",
+        help="Named generated fixture profile. table-1585 uses the paginated table backend.",
+    )
+    parser.add_argument(
         "--dataset-dir",
         type=Path,
         default=None,
@@ -125,9 +131,14 @@ def main() -> int:
 
     port = choose_port(args.host, args.port)
     base_url = _build_base_url(args.host, port)
-    source_path = dataset_dir / "metrics_items.parquet" if args.scenario == "metrics" else dataset_dir
+    table_profile = args.fixture_profile == "table-1585"
+    source_path = (
+        dataset_dir / "metrics_items.parquet"
+        if args.scenario == "metrics" or table_profile
+        else dataset_dir
+    )
     extra_args = ["--verbose"]
-    if args.scenario == "metrics":
+    if args.scenario == "metrics" or table_profile:
         extra_args.extend(["--source-column", "source", "--base-dir", str(dataset_dir)])
     process = launch_lenslet(
         source_path,
@@ -155,6 +166,7 @@ def main() -> int:
                     forbidden_metric_keys=tuple(args.forbid_metric_key),
                     metric_filter_min=args.metric_filter_min,
                     metric_filter_max=args.metric_filter_max,
+                    fixture_profile=args.fixture_profile,
                 )
             )
         elif args.scenario == "inspector":
@@ -167,6 +179,7 @@ def main() -> int:
             "base_url": base_url,
             "dataset_dir": str(dataset_dir),
             "scenario": result.scenario,
+            "fixture_profile": args.fixture_profile,
             "max_delta_px": result.max_delta_px,
             "max_anchor_delta_px": result.max_anchor_delta_px,
             "max_toolbar_delta_px": result.max_toolbar_delta_px,
@@ -184,6 +197,7 @@ def main() -> int:
             "base_url": base_url,
             "dataset_dir": str(dataset_dir),
             "scenario": args.scenario,
+            "fixture_profile": args.fixture_profile,
             "max_delta_px": args.max_delta_px,
             "error": str(exc),
         }

@@ -40,7 +40,8 @@ function target(
     displayTotalCount: 10,
     metricsPopulationItemsComplete: true,
     metricsFilteredItemsComplete: true,
-    metricRailReady: true,
+    metricRailState: 'ready',
+    metricRailHistogram: { bins: [1, 2], min: 0, max: 1, count: 3 },
     metricRailKey: 'score',
     metricRailSortDir: 'desc',
     settled: true,
@@ -79,7 +80,7 @@ describe('presented browse snapshot continuity', () => {
         displayItemCount: 0,
         displayTotalCount: 0,
         metricsFilteredItemsComplete: false,
-        metricRailReady: false,
+        metricRailState: 'pending',
         settled: false,
         statusKind: 'loading',
       }),
@@ -96,14 +97,14 @@ describe('presented browse snapshot continuity', () => {
       displayTotalCount: 10,
       metricsPopulationItemsComplete: true,
       metricsFilteredItemsComplete: true,
-      metricRailReady: true,
+      metricRailState: 'ready',
       phase: 'grace',
       retained: true,
     })
     expect(GRID_PRESENTATION_GRACE_MS).toBe(800)
   })
 
-  it('retires retained values after grace without manufacturing zero counts', () => {
+  it('retains the complete prior bundle after grace while exposing delayed status phase', () => {
     const result = resolvePresentedBrowseSnapshot({
       target: target('b', { settled: false, statusKind: 'loading' }),
       previous: settledA,
@@ -111,18 +112,47 @@ describe('presented browse snapshot continuity', () => {
     })
 
     expect(result).toMatchObject({
-      targetKey: null,
+      targetKey: 'a',
       requestedTargetKey: 'b',
-      membershipPaths: [],
-      ratingPaths: [],
-      filteredCount: null,
-      displayItemCount: null,
-      displayTotalCount: null,
-      metricsPopulationItemsComplete: false,
-      metricsFilteredItemsComplete: false,
-      metricRailReady: false,
+      membershipPaths: ['/a.jpg'],
+      ratingPaths: ['/a.jpg'],
+      filteredCount: 1,
+      displayItemCount: 1,
+      displayTotalCount: 10,
+      metricsPopulationItemsComplete: true,
+      metricsFilteredItemsComplete: true,
+      metricRailState: 'ready',
+      metricRailHistogram: { bins: [1, 2], min: 0, max: 1, count: 3 },
       phase: 'loading',
-      retained: false,
+      retained: true,
+    })
+  })
+
+  it('keeps browse membership pending until the independent metric rail is ready', () => {
+    const pendingRail = resolvePresentedBrowseSnapshot({
+      target: target('b', {
+        settled: false,
+        statusKind: 'ready',
+        metricRailState: 'pending',
+        metricRailHistogram: null,
+      }),
+      previous: settledA,
+      expiredTargetKey: null,
+    })
+    const readyRail = commit(target('b', {
+      metricRailState: 'ready',
+      metricRailHistogram: { bins: [3, 1], min: 10, max: 20, count: 4 },
+    }), settledA)
+
+    expect(pendingRail).toMatchObject({
+      targetKey: 'a',
+      requestedTargetKey: 'b',
+      metricRailHistogram: { bins: [1, 2], min: 0, max: 1, count: 3 },
+      retained: true,
+    })
+    expect(readyRail).toMatchObject({
+      targetKey: 'b',
+      metricRailHistogram: { bins: [3, 1], min: 10, max: 20, count: 4 },
     })
   })
 
@@ -144,7 +174,7 @@ describe('presented browse snapshot continuity', () => {
       filteredCount: 0,
       displayItemCount: 0,
       displayTotalCount: 10,
-      metricRailReady: false,
+      metricRailState: 'empty',
       statusKind: 'empty',
     }), settledA)
     const failed = commit(target('failed', {
@@ -155,7 +185,7 @@ describe('presented browse snapshot continuity', () => {
       displayTotalCount: 0,
       metricsFilteredItemsComplete: false,
       metricsPopulationItemsComplete: false,
-      metricRailReady: false,
+      metricRailState: 'pending',
       settled: false,
       statusKind: 'failed',
     }), empty)
@@ -174,6 +204,9 @@ describe('presented browse snapshot continuity', () => {
       displayItemCount: null,
       displayTotalCount: null,
       metricsFilteredItemsComplete: false,
+      metricRailState: 'error',
+      metricRailHistogram: null,
+      metricRailKey: null,
     })
   })
 

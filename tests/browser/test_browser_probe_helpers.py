@@ -16,6 +16,7 @@ from scripts.browser.gui_jitter import grid as jitter_grid  # noqa: E402
 from scripts.browser.gui_jitter import grid_dom as jitter_grid_dom  # noqa: E402
 from scripts.browser.gui_jitter import inspector as jitter_inspector  # noqa: E402
 from scripts.browser.gui_jitter import metrics as jitter_metrics  # noqa: E402
+from scripts.browser.gui_jitter import metrics_derived as jitter_metrics_derived  # noqa: E402
 from scripts.browser.gui_jitter import metrics_schema as jitter_metrics_schema  # noqa: E402
 from scripts.browser.gui_jitter import probe as jitter_probe  # noqa: E402
 from scripts.browser.gui_jitter import shared as jitter_shared  # noqa: E402
@@ -1151,6 +1152,21 @@ def test_jitter_grid_false_zero_detection_distinguishes_unknown_from_settled_emp
     assert jitter_grid._false_zero_frames([pending, unknown]) == [pending]
 
 
+def test_jitter_grid_terminal_error_requires_an_inactive_metric_rail() -> None:
+    frame = {
+        "railActive": True,
+        "railIdentity": {"key": "score", "state": "pending"},
+    }
+
+    assert jitter_grid._terminal_error_rail_violations(frame) == [
+        "terminal error retained an active or pending metric rail"
+    ]
+    assert jitter_grid._terminal_error_rail_violations({
+        "railActive": False,
+        "railIdentity": None,
+    }) == []
+
+
 def test_jitter_grid_identity_trace_requires_atomic_grace_and_inert_rail() -> None:
     frames = [
         {
@@ -1166,6 +1182,7 @@ def test_jitter_grid_identity_trace_requires_atomic_grace_and_inert_rail() -> No
             "presentedTarget": "a",
             "requestedTarget": "b",
             "epoch": 1,
+            "interactionDisabled": True,
             "railActive": True,
             "railInteractionDisabled": True,
         },
@@ -1182,9 +1199,71 @@ def test_jitter_grid_identity_trace_requires_atomic_grace_and_inert_rail() -> No
 
     frames[1]["railInteractionDisabled"] = False
     assert jitter_grid._transition_identity_violations("sort", frames) == [
-        "sort: active metric rail remained interactive during grace"
+        "sort: active metric rail remained interactive while pending"
     ]
 
     assert jitter_grid._transition_identity_violations("sort", frames[:2])[-1] == (
         "sort: terminal steady identity did not match the requested target"
     )
+
+
+def test_derived_numeric_trace_requires_retained_or_terminal_whole_rows() -> None:
+    def surface(
+        *,
+        data: dict[str, str],
+        text: str = "",
+        inert: bool = False,
+        busy: str | None = None,
+        disabled: str | None = None,
+    ) -> dict:
+        return {
+            "text": text,
+            "attrs": {
+                "data": data,
+                "inert": inert,
+                "ariaBusy": busy,
+                "ariaDisabled": disabled,
+            },
+        }
+
+    retained = {
+        "surfaces": {
+            "numeric_term": surface(
+                data={
+                    "data-facet-requested-field": "q2",
+                    "data-facet-presented-field": "q1",
+                },
+                inert=True,
+                busy="true",
+                disabled="true",
+            ),
+            "numeric_selector": surface(data={}, text="q1"),
+            "numeric_histogram": surface(data={"data-facet-presented-field": "q1"}),
+            "numeric_histogram_content": surface(data={"data-facet-state": "ready"}),
+        },
+    }
+    terminal = {
+        "surfaces": {
+            "numeric_term": surface(
+                data={
+                    "data-facet-requested-field": "q2",
+                    "data-facet-presented-field": "q2",
+                },
+            ),
+            "numeric_selector": surface(data={}, text="q2"),
+            "numeric_histogram": surface(data={"data-facet-presented-field": "q2"}),
+            "numeric_histogram_content": surface(data={"data-facet-state": "ready"}),
+        },
+    }
+
+    trace = {"frames": [retained, terminal]}
+    assert jitter_metrics_derived._identity_violations(trace, "q2", "ready") == []
+
+    retained["surfaces"]["numeric_term"]["attrs"]["inert"] = False
+    terminal["surfaces"]["numeric_histogram_content"]["attrs"]["data"][
+        "data-facet-state"
+    ] = "pending"
+    assert jitter_metrics_derived._identity_violations(trace, "q2", "ready") == [
+        "q2 mixed its pending numeric row with the retained metric",
+        "q2 presented before terminal numeric state ready",
+    ]

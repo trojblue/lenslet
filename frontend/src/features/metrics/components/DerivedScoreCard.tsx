@@ -21,7 +21,8 @@ import {
   createCategoricalDraftTerm,
   createDerivedMetricDraft,
   createNumericDraftTerm,
-  derivedMetricDraftResetToken,
+  derivedFacetFieldsFromDraft,
+  derivedMetricEditorResetToken,
   evaluateDerivedMetricDraft,
   type DerivedMetricFormulaDiagnostics,
   type DerivedMetricCategoricalDraftTerm,
@@ -39,7 +40,9 @@ import DerivedMetricMiniHistogram from './DerivedMetricMiniHistogram'
 import {
   facetFieldQueryState,
   resolveFacetFieldState,
+  useFacetFieldPresentation,
   type FacetFieldQueryStates,
+  type FacetFieldState,
   type FacetQueryState,
 } from '../model/facetPresentation'
 
@@ -53,6 +56,8 @@ interface DerivedScoreCardProps {
   facetsState?: FacetQueryState
   facetFieldStates?: FacetFieldQueryStates
   populationItemsComplete?: boolean
+  presentationResetKey?: string
+  draftResetKey?: string
   derivedMetric: DerivedMetricEvaluation
   backendAuthoritative?: boolean
   rankDisabledReason?: string | null
@@ -70,12 +75,40 @@ const MISSING_VALUE_OPTIONS = [
   { value: 'zero', label: 'Missing = 0' },
 ]
 
+const draftTermIdentityByObject = new WeakMap<object, string>()
+let draftTermIdentitySequence = 0
+
+function draftTermIdentity(term: object, kind: 'numeric' | 'categorical'): string {
+  const existing = draftTermIdentityByObject.get(term)
+  if (existing) return existing
+  draftTermIdentitySequence += 1
+  const identity = `${kind}-${draftTermIdentitySequence}`
+  draftTermIdentityByObject.set(term, identity)
+  return identity
+}
+
+function transferDraftTermIdentity(previous: object, next: object): void {
+  const identity = draftTermIdentityByObject.get(previous)
+  if (identity) draftTermIdentityByObject.set(next, identity)
+}
+
+function transferDraftTermIdentities(
+  previous: object[],
+  next: object[],
+  kind: 'numeric' | 'categorical',
+): void {
+  next.forEach((term, index) => {
+    const previousTerm = previous[index]
+    if (!previousTerm) return
+    draftTermIdentityByObject.set(term, draftTermIdentity(previousTerm, kind))
+  })
+}
+
 export default function DerivedScoreCard(props: DerivedScoreCardProps): JSX.Element {
   const sourceMetricKeys = props.metricKeys.filter((key) => !isDerivedMetricKey(key))
-  const resetToken = derivedMetricDraftResetToken(
+  const resetToken = derivedMetricEditorResetToken(
     props.derivedMetric,
-    sourceMetricKeys,
-    props.categoricalKeys,
+    props.draftResetKey ?? 'default',
   )
   return (
     <DerivedScoreCardEditor
@@ -96,6 +129,7 @@ function DerivedScoreCardEditor({
   facetsState = 'settled',
   facetFieldStates,
   populationItemsComplete = true,
+  presentationResetKey = 'default',
   derivedMetric,
   backendAuthoritative = false,
   rankDisabledReason = null,
@@ -161,29 +195,29 @@ function DerivedScoreCardEditor({
     () => formatFormulaDiagnostics(formulaDiagnostics),
     [formulaDiagnostics],
   )
-  const numericTermKeys = useMemo(
-    () => uniqueTermKeys(draft.numericTerms),
-    [draft.numericTerms],
-  )
-  const categoricalTermKeys = useMemo(
-    () => uniqueTermKeys(draft.categoricalTerms),
-    [draft.categoricalTerms],
-  )
-  useEffect(() => {
-    onFacetFieldsChange?.({
-      metric_keys: numericTermKeys,
-      categorical_keys: categoricalTermKeys,
-    })
-  }, [categoricalTermKeys, numericTermKeys, onFacetFieldsChange])
+  const draftFacetFields = useMemo(() => derivedFacetFieldsFromDraft(draft), [draft])
+  const numericTermKeys = draftFacetFields.metric_keys
+  const categoricalTermKeys = draftFacetFields.categorical_keys
   const histogramsByMetric = useMemo(
     () => active
       ? buildNumericTermHistograms({
           facets,
+          facetsState,
+          facetFieldStates,
           items,
           metricKeys: numericTermKeys,
+          populationItemsComplete,
         })
-      : new Map<string, Histogram | null>(),
-    [active, facets, items, numericTermKeys],
+      : new Map<string, DerivedHistogram>(),
+    [
+      active,
+      facetFieldStates,
+      facets,
+      facetsState,
+      items,
+      numericTermKeys,
+      populationItemsComplete,
+    ],
   )
   const applyDisabledReason = draftBuild.errors[0] ?? null
   const backendSchemaReason = !draftRankState.evaluation
@@ -211,6 +245,32 @@ function DerivedScoreCardEditor({
       histogram: computeHistogramFromValues(getMetricValues(valuesByKey, evaluation.key), 32),
     }
   }, [active, draftRankState.evaluation])
+  const categoricalTermStates = useMemo(() => new Map(categoricalTermKeys.map((key) => {
+    const values = categoricalValuesByKey.get(key) ?? []
+    return [key, resolveCategoricalTermState({
+      key,
+      values,
+      facets,
+      facetsState,
+      facetFieldStates,
+      populationItemsComplete,
+    })]
+  })), [
+    categoricalTermKeys,
+    categoricalValuesByKey,
+    facetFieldStates,
+    facets,
+    facetsState,
+    populationItemsComplete,
+  ])
+  const scorePreviewState = resolveScorePreviewState({
+    histogram: scorePreview?.histogram ?? null,
+    populationItemsComplete,
+    requiredStates: [
+      ...Array.from(histogramsByMetric.values(), (entry) => entry.state),
+      ...categoricalTermKeys.map((key) => categoricalTermStates.get(key) ?? 'pending'),
+    ],
+  })
   const unavailableInputs = draftRankState.evaluation?.status === 'unavailable'
     ? [
       ...draftRankState.evaluation.missingMetricKeys,
@@ -220,22 +280,28 @@ function DerivedScoreCardEditor({
 
   const updateNumericTerm = (index: number, patch: Partial<DerivedMetricNumericDraftTerm>) => {
     setFormulaDiagnostics(null)
-    setDraft((prev) => ({
-      ...prev,
-      numericTerms: prev.numericTerms.map((term, idx) => (
-        idx === index ? { ...term, ...patch } : term
-      )),
-    }))
+    const nextTerms = draft.numericTerms.map((term, idx) => {
+      if (idx !== index) return term
+      const next = { ...term, ...patch }
+      transferDraftTermIdentity(term, next)
+      return next
+    })
+    const nextDraft = { ...draft, numericTerms: nextTerms }
+    if (patch.key !== undefined) onFacetFieldsChange?.(derivedFacetFieldsFromDraft(nextDraft))
+    setDraft(nextDraft)
   }
 
   const updateCategoricalTerm = (index: number, patch: Partial<DerivedMetricCategoricalDraftTerm>) => {
     setFormulaDiagnostics(null)
-    setDraft((prev) => ({
-      ...prev,
-      categoricalTerms: prev.categoricalTerms.map((term, idx) => (
-        idx === index ? { ...term, ...patch } : term
-      )),
-    }))
+    const nextTerms = draft.categoricalTerms.map((term, idx) => {
+      if (idx !== index) return term
+      const next = { ...term, ...patch }
+      transferDraftTermIdentity(term, next)
+      return next
+    })
+    const nextDraft = { ...draft, categoricalTerms: nextTerms }
+    if (patch.key !== undefined) onFacetFieldsChange?.(derivedFacetFieldsFromDraft(nextDraft))
+    setDraft(nextDraft)
   }
 
   const applyDraft = () => {
@@ -256,6 +322,9 @@ function DerivedScoreCardEditor({
     setFormulaDiagnostics(result.diagnostics)
     if (!result.applied) return
     const nextCode = buildDerivedMetricFormulaCode(result.draft)
+    transferDraftTermIdentities(draft.numericTerms, result.draft.numericTerms, 'numeric')
+    transferDraftTermIdentities(draft.categoricalTerms, result.draft.categoricalTerms, 'categorical')
+    onFacetFieldsChange?.(derivedFacetFieldsFromDraft(result.draft))
     setDraft(result.draft)
     setFormulaCode(nextCode)
     setFormulaDirty(false)
@@ -265,6 +334,45 @@ function DerivedScoreCardEditor({
     setFormulaCode(formulaCodeFromDraft)
     setFormulaDirty(false)
     setFormulaDiagnostics(null)
+  }
+
+  const addNumericTerm = () => {
+    const nextDraft = {
+      ...draft,
+      numericTerms: [...draft.numericTerms, createNumericDraftTerm(sourceMetricKeys)],
+    }
+    onFacetFieldsChange?.(derivedFacetFieldsFromDraft(nextDraft))
+    setDraft(nextDraft)
+  }
+
+  const removeNumericTerm = (index: number) => {
+    const nextDraft = {
+      ...draft,
+      numericTerms: draft.numericTerms.filter((_term, idx) => idx !== index),
+    }
+    onFacetFieldsChange?.(derivedFacetFieldsFromDraft(nextDraft))
+    setDraft(nextDraft)
+  }
+
+  const addCategoricalTerm = () => {
+    const nextDraft = {
+      ...draft,
+      categoricalTerms: [
+        ...draft.categoricalTerms,
+        createCategoricalDraftTerm(categoricalKeys, categoricalValuesByKey),
+      ],
+    }
+    onFacetFieldsChange?.(derivedFacetFieldsFromDraft(nextDraft))
+    setDraft(nextDraft)
+  }
+
+  const removeCategoricalTerm = (index: number) => {
+    const nextDraft = {
+      ...draft,
+      categoricalTerms: draft.categoricalTerms.filter((_term, idx) => idx !== index),
+    }
+    onFacetFieldsChange?.(derivedFacetFieldsFromDraft(nextDraft))
+    setDraft(nextDraft)
   }
 
   const hasInputs = sourceMetricKeys.length > 0 || categoricalKeys.length > 0
@@ -311,10 +419,7 @@ function DerivedScoreCardEditor({
             <button
               type="button"
               className="btn btn-xs btn-ghost"
-              onClick={() => setDraft((prev) => ({
-                ...prev,
-                numericTerms: [...prev.numericTerms, createNumericDraftTerm(sourceMetricKeys)],
-              }))}
+              onClick={addNumericTerm}
               disabled={!sourceMetricKeys.length}
               title="Add numeric term"
             >
@@ -325,91 +430,22 @@ function DerivedScoreCardEditor({
           {draft.numericTerms.length ? (
             <div className="space-y-2">
               {draft.numericTerms.map((term, index) => (
-                <div key={`numeric-${index}`} className="rounded-md border border-border/60 bg-surface-inset p-2">
-                  <div className="flex flex-wrap items-end gap-2">
-                    <div className="flex min-w-[14rem] flex-[1_1_16rem] flex-col gap-1">
-                      <span className="ui-label mb-0 text-[10px]">Metric</span>
-                      <div data-derived-numeric-key={index}>
-                        <Dropdown
-                          value={term.key}
-                          onChange={(nextKey) => updateNumericTerm(index, { key: nextKey })}
-                          options={numericMetricOptions}
-                          aria-label={`Numeric metric ${index + 1}`}
-                          title={term.key ? getMetricDisplayName(term.key, metricDisplayNames) : 'Metric'}
-                          triggerClassName="w-full min-w-0 justify-between"
-                          width="trigger"
-                          searchable="auto"
-                          searchPlaceholder="Search metrics..."
-                          emptyMessage="No matching metrics"
-                        />
-                      </div>
-                    </div>
-                    <label className="flex w-24 flex-col gap-1">
-                      <span className="ui-label mb-0 text-[10px]">Weight</span>
-                      <input
-                        className="ui-input ui-number w-full"
-                        value={term.weight}
-                        aria-label={`Numeric weight ${index + 1}`}
-                        data-derived-numeric-weight={index}
-                        type="text"
-                        inputMode="decimal"
-                        autoComplete="off"
-                        spellCheck={false}
-                        onChange={(event) => updateNumericTerm(index, { weight: event.currentTarget.value })}
-                      />
-                    </label>
-                    <div className="flex min-w-[10rem] flex-[0_0_10.5rem] flex-col gap-1">
-                      <span className="ui-label mb-0 text-[10px]">Missing</span>
-                      <div data-derived-numeric-missing={index}>
-                        <Dropdown
-                          value={term.missing}
-                          onChange={(nextValue) => updateNumericTerm(index, {
-                            missing: nextValue === 'zero' ? 'zero' : 'invalid',
-                          })}
-                          options={MISSING_VALUE_OPTIONS}
-                          aria-label={`Numeric missing ${index + 1}`}
-                          title={term.missing === 'zero' ? 'Missing = 0' : 'Require value'}
-                          triggerClassName="w-full justify-between"
-                          width="trigger"
-                        />
-                      </div>
-                    </div>
-                    <div className="ml-auto flex items-center gap-1 self-end">
-                      <button
-                        type="button"
-                        className={`btn btn-xs h-8 px-2 ${term.zNormalize ? 'btn-active' : 'btn-ghost'}`}
-                        aria-label={`Z-normalize numeric term ${index + 1}`}
-                        aria-pressed={term.zNormalize}
-                        title="Z-normalize this metric"
-                        data-derived-numeric-znormalize={index}
-                        onClick={() => updateNumericTerm(index, { zNormalize: !term.zNormalize })}
-                      >
-                        <Sigma size={12} aria-hidden="true" />
-                        <span>Z</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-xs btn-ghost h-8 w-8 px-0"
-                        aria-label={`Remove numeric term ${index + 1}`}
-                        title="Remove numeric term"
-                        onClick={() => setDraft((prev) => ({
-                          ...prev,
-                          numericTerms: prev.numericTerms.filter((_term, idx) => idx !== index),
-                        }))}
-                      >
-                        <Trash2 size={12} aria-hidden="true" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-2">
-                    <DerivedMetricMiniHistogram
-                      metricKey={term.key.trim() || 'Unselected metric'}
-                      histogram={term.key.trim()
-                        ? histogramsByMetric.get(term.key.trim()) ?? null
-                        : null}
-                    />
-                  </div>
-                </div>
+                <DerivedNumericTermRow
+                  key={draftTermIdentity(term, 'numeric')}
+                  index={index}
+                  term={term}
+                  candidate={term.key.trim()
+                    ? histogramsByMetric.get(term.key.trim()) ?? {
+                        histogram: null,
+                        state: 'pending',
+                      }
+                    : { histogram: null, state: 'empty' }}
+                  metricOptions={numericMetricOptions}
+                  metricDisplayNames={metricDisplayNames}
+                  presentationResetKey={presentationResetKey}
+                  onChange={(patch) => updateNumericTerm(index, patch)}
+                  onRemove={() => removeNumericTerm(index)}
+                />
               ))}
             </div>
           ) : (
@@ -423,13 +459,7 @@ function DerivedScoreCardEditor({
             <button
               type="button"
               className="btn btn-xs btn-ghost"
-              onClick={() => setDraft((prev) => ({
-                ...prev,
-                categoricalTerms: [
-                  ...prev.categoricalTerms,
-                  createCategoricalDraftTerm(categoricalKeys, categoricalValuesByKey),
-                ],
-              }))}
+              onClick={addCategoricalTerm}
               disabled={!categoricalKeys.length}
               title="Add categorical bonus"
             >
@@ -439,112 +469,27 @@ function DerivedScoreCardEditor({
           </div>
           {draft.categoricalTerms.length ? (
             <div className="space-y-2">
-              {draft.categoricalTerms.map((term, index) => {
-                const values = categoricalValuesByKey.get(term.key) ?? []
-                const hasFacet = !!term.key && Object.prototype.hasOwnProperty.call(
-                  facets?.categoricals ?? {},
-                  term.key,
-                )
-                const valueState = term.key
-                  ? resolveFacetFieldState({
-                    facetDataState: !hasFacet
-                      ? 'absent'
-                      : values.length > 0
-                        ? 'ready'
-                        : 'empty',
-                    localDataState: hasFacet || !populationItemsComplete
-                      ? 'absent'
-                      : values.length > 0
-                        ? 'ready'
-                        : 'empty',
-                    queryState: facetFieldQueryState(
-                      facetFieldStates,
-                      'categoricals',
-                      term.key,
-                      facetsState,
-                    ),
-                  })
-                  : 'empty'
-                return (
-                  <div key={`categorical-${index}`} className="rounded-md border border-border/60 bg-surface-inset p-2">
-                    <div className="flex flex-wrap items-end gap-2">
-                      <div className="flex min-w-[12rem] flex-[1_1_14rem] flex-col gap-1">
-                        <span className="ui-label mb-0 text-[10px]">Field</span>
-                        <div data-derived-categorical-key={index}>
-                          <Dropdown
-                            value={term.key}
-                            onChange={(nextKey) => {
-                              updateCategoricalTerm(index, {
-                                key: nextKey,
-                                value: categoricalValuesByKey.get(nextKey)?.[0] ?? '',
-                              })
-                            }}
-                            options={categoricalKeyOptions}
-                            aria-label={`Categorical field ${index + 1}`}
-                            title={term.key || 'Field'}
-                            triggerClassName="w-full min-w-0 justify-between"
-                            width="trigger"
-                            searchable="auto"
-                            searchPlaceholder="Search fields..."
-                            emptyMessage="No matching fields"
-                          />
-                        </div>
-                      </div>
-                      <label className="flex min-w-[12rem] flex-[1_1_14rem] flex-col gap-1">
-                        <span className="ui-label mb-0 text-[10px]">Value</span>
-                        <div data-derived-categorical-value={index} data-facet-state={valueState}>
-                          <Dropdown
-                            value={term.value}
-                            onChange={(nextValue) => updateCategoricalTerm(index, { value: nextValue })}
-                            options={values.map((value) => ({
-                              value,
-                              label: value,
-                              keywords: [value],
-                            }))}
-                            aria-label={`Categorical value ${index + 1}`}
-                            title={valueState === 'pending' ? 'Loading known values…' : term.value || 'Value'}
-                            placeholder={valueControlPlaceholder(valueState)}
-                            triggerClassName="w-full min-w-0"
-                            panelClassName="min-w-[12rem]"
-                            width="trigger"
-                            editable
-                            disabled={valueState === 'pending'}
-                            emptyMessage={valueState === 'error'
-                              ? 'Known values could not be loaded; enter a custom value.'
-                              : 'No known values; enter a custom value.'}
-                          />
-                        </div>
-                      </label>
-                      <label className="flex w-24 flex-col gap-1">
-                        <span className="ui-label mb-0 text-[10px]">Bonus</span>
-                        <input
-                          className="ui-input ui-number w-full"
-                          value={term.weight}
-                          aria-label={`Categorical weight ${index + 1}`}
-                          data-derived-categorical-weight={index}
-                          type="text"
-                          inputMode="decimal"
-                          autoComplete="off"
-                          spellCheck={false}
-                          onChange={(event) => updateCategoricalTerm(index, { weight: event.currentTarget.value })}
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        className="btn btn-xs btn-ghost h-8 w-8 px-0"
-                        aria-label={`Remove categorical bonus ${index + 1}`}
-                        title="Remove categorical bonus"
-                        onClick={() => setDraft((prev) => ({
-                          ...prev,
-                          categoricalTerms: prev.categoricalTerms.filter((_term, idx) => idx !== index),
-                        }))}
-                      >
-                        <Trash2 size={12} aria-hidden="true" />
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
+              {draft.categoricalTerms.map((term, index) => (
+                <DerivedCategoricalTermRow
+                  key={draftTermIdentity(term, 'categorical')}
+                  index={index}
+                  term={term}
+                  candidate={{
+                    values: categoricalValuesByKey.get(term.key) ?? [],
+                    state: term.key
+                      ? categoricalTermStates.get(term.key) ?? 'pending'
+                      : 'empty',
+                  }}
+                  fieldOptions={categoricalKeyOptions}
+                  presentationResetKey={presentationResetKey}
+                  onFieldChange={(nextKey) => updateCategoricalTerm(index, {
+                    key: nextKey,
+                    value: categoricalValuesByKey.get(nextKey)?.[0] ?? '',
+                  })}
+                  onChange={(patch) => updateCategoricalTerm(index, patch)}
+                  onRemove={() => removeCategoricalTerm(index)}
+                />
+              ))}
             </div>
           ) : (
             <div className="text-xs text-muted">No categorical bonuses.</div>
@@ -568,9 +513,11 @@ function DerivedScoreCardEditor({
               : applyDisabledReason ?? rankReason ?? activeStatusText ?? 'Score ready.'}
         </div>
         <div data-derived-score-preview-histogram>
-          <DerivedMetricMiniHistogram
+          <DerivedNumericTermHistogram
+            index="score-preview"
             metricKey={scorePreview?.key ?? 'Derived score preview'}
-            histogram={scorePreview?.histogram ?? null}
+            candidate={{ histogram: scorePreview?.histogram ?? null, state: scorePreviewState }}
+            presentationResetKey={presentationResetKey}
           />
         </div>
 
@@ -661,38 +608,380 @@ function valueControlPlaceholder(state: 'pending' | 'error' | 'empty' | 'ready')
   return 'Value'
 }
 
-function uniqueTermKeys(terms: readonly { key: string }[]): string[] {
-  return Array.from(new Set(
-    terms.map((term) => term.key.trim()).filter(Boolean),
-  )).sort()
+type DerivedHistogram = {
+  histogram: Histogram | null
+  state: FacetFieldState
+}
+
+function resolveCategoricalTermState({
+  key,
+  values,
+  facets,
+  facetsState,
+  facetFieldStates,
+  populationItemsComplete,
+}: {
+  key: string
+  values: readonly string[]
+  facets: BrowseFacetsPayload | null
+  facetsState: FacetQueryState
+  facetFieldStates?: FacetFieldQueryStates
+  populationItemsComplete: boolean
+}): FacetFieldState {
+  const hasFacet = Object.prototype.hasOwnProperty.call(facets?.categoricals ?? {}, key)
+  return resolveFacetFieldState({
+    facetDataState: !hasFacet ? 'absent' : values.length > 0 ? 'ready' : 'empty',
+    localDataState: hasFacet || !populationItemsComplete
+      ? 'absent'
+      : values.length > 0
+        ? 'ready'
+        : 'empty',
+    queryState: facetFieldQueryState(
+      facetFieldStates,
+      'categoricals',
+      key,
+      facetsState,
+    ),
+  })
+}
+
+export function resolveScorePreviewState({
+  histogram,
+  populationItemsComplete,
+  requiredStates,
+}: {
+  histogram: Histogram | null
+  populationItemsComplete: boolean
+  requiredStates: readonly FacetFieldState[]
+}): FacetFieldState {
+  if (populationItemsComplete) return histogram ? 'ready' : 'empty'
+  if (requiredStates.length === 0) return 'empty'
+  if (requiredStates.some((state) => state === 'error')) return 'error'
+  return 'pending'
+}
+
+type DerivedNumericMetricOption = {
+  value: string
+  label: string
+  keywords: string[]
+}
+
+type DerivedCategoricalFieldOption = {
+  value: string
+  label: string
+  keywords: string[]
+}
+
+function DerivedCategoricalTermRow({
+  index,
+  term,
+  candidate,
+  fieldOptions,
+  presentationResetKey,
+  onFieldChange,
+  onChange,
+  onRemove,
+}: {
+  index: number
+  term: DerivedMetricCategoricalDraftTerm
+  candidate: { values: string[]; state: FacetFieldState }
+  fieldOptions: DerivedCategoricalFieldOption[]
+  presentationResetKey: string
+  onFieldChange: (key: string) => void
+  onChange: (patch: Partial<DerivedMetricCategoricalDraftTerm>) => void
+  onRemove: () => void
+}): JSX.Element {
+  const requestedKey = term.key.trim() || 'Unselected field'
+  const { presentation, retained } = useFacetFieldPresentation({
+    key: requestedKey,
+    state: candidate.state,
+    value: { term, values: candidate.values },
+  }, presentationResetKey)
+  const presentedTerm = presentation.value.term
+  const presentedValues = presentation.value.values
+  return (
+    <div
+      className="rounded-md border border-border/60 bg-surface-inset p-2"
+      data-derived-categorical-term-slot={index}
+      data-facet-requested-field={requestedKey}
+      data-facet-presented-field={presentation.key}
+      aria-busy={retained || undefined}
+      aria-disabled={retained || undefined}
+      ref={(element) => element?.toggleAttribute('inert', retained)}
+    >
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="flex min-w-[12rem] flex-[1_1_14rem] flex-col gap-1">
+          <span className="ui-label mb-0 text-[10px]">Field</span>
+          <div data-derived-categorical-key={index}>
+            <Dropdown
+              value={presentedTerm.key}
+              onChange={onFieldChange}
+              options={fieldOptions}
+              aria-label={`Categorical field ${index + 1}`}
+              title={presentedTerm.key || 'Field'}
+              triggerClassName="w-full min-w-0 justify-between"
+              width="trigger"
+              searchable="auto"
+              searchPlaceholder="Search fields..."
+              emptyMessage="No matching fields"
+            />
+          </div>
+        </div>
+        <label className="flex min-w-[12rem] flex-[1_1_14rem] flex-col gap-1">
+          <span className="ui-label mb-0 text-[10px]">Value</span>
+          <div
+            data-derived-categorical-value={index}
+            data-facet-state={presentation.state}
+            data-facet-requested-field={requestedKey}
+            data-facet-presented-field={presentation.key}
+          >
+            <Dropdown
+              value={presentedTerm.value}
+              onChange={(nextValue) => onChange({ value: nextValue })}
+              options={presentedValues.map((value) => ({
+                value,
+                label: value,
+                keywords: [value],
+              }))}
+              aria-label={`Categorical value ${index + 1}`}
+              title={presentation.state === 'pending'
+                ? 'Loading known values…'
+                : presentedTerm.value || 'Value'}
+              placeholder={valueControlPlaceholder(presentation.state)}
+              triggerClassName="w-full min-w-0"
+              panelClassName="min-w-[12rem]"
+              width="trigger"
+              editable
+              emptyMessage={presentation.state === 'error'
+                ? 'Known values could not be loaded; enter a custom value.'
+                : 'No known values; enter a custom value.'}
+            />
+          </div>
+        </label>
+        <label className="flex w-24 flex-col gap-1">
+          <span className="ui-label mb-0 text-[10px]">Bonus</span>
+          <input
+            className="ui-input ui-number w-full"
+            value={presentedTerm.weight}
+            aria-label={`Categorical weight ${index + 1}`}
+            data-derived-categorical-weight={index}
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => onChange({ weight: event.currentTarget.value })}
+          />
+        </label>
+        <button
+          type="button"
+          className="btn btn-xs btn-ghost h-8 w-8 px-0"
+          aria-label={`Remove categorical bonus ${index + 1}`}
+          title="Remove categorical bonus"
+          onClick={onRemove}
+        >
+          <Trash2 size={12} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function DerivedNumericTermRow({
+  index,
+  term,
+  candidate,
+  metricOptions,
+  metricDisplayNames,
+  presentationResetKey,
+  onChange,
+  onRemove,
+}: {
+  index: number
+  term: DerivedMetricNumericDraftTerm
+  candidate: DerivedHistogram
+  metricOptions: DerivedNumericMetricOption[]
+  metricDisplayNames?: MetricDisplayNames | null
+  presentationResetKey: string
+  onChange: (patch: Partial<DerivedMetricNumericDraftTerm>) => void
+  onRemove: () => void
+}): JSX.Element {
+  const requestedKey = term.key.trim() || 'Unselected metric'
+  const { presentation, retained } = useFacetFieldPresentation({
+    key: requestedKey,
+    state: candidate.state,
+    value: { term, histogram: candidate.histogram },
+  }, presentationResetKey)
+  const presentedTerm = presentation.value.term
+  return (
+    <div
+      className="rounded-md border border-border/60 bg-surface-inset p-2"
+      data-derived-numeric-term-slot={index}
+      data-facet-requested-field={requestedKey}
+      data-facet-presented-field={presentation.key}
+      aria-busy={retained || undefined}
+      aria-disabled={retained || undefined}
+      ref={(element) => element?.toggleAttribute('inert', retained)}
+    >
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="flex min-w-[14rem] flex-[1_1_16rem] flex-col gap-1">
+          <span className="ui-label mb-0 text-[10px]">Metric</span>
+          <div data-derived-numeric-key={index}>
+            <Dropdown
+              value={presentedTerm.key}
+              onChange={(nextKey) => onChange({ key: nextKey })}
+              options={metricOptions}
+              aria-label={`Numeric metric ${index + 1}`}
+              title={presentedTerm.key
+                ? getMetricDisplayName(presentedTerm.key, metricDisplayNames)
+                : 'Metric'}
+              triggerClassName="w-full min-w-0 justify-between"
+              width="trigger"
+              searchable="auto"
+              searchPlaceholder="Search metrics..."
+              emptyMessage="No matching metrics"
+            />
+          </div>
+        </div>
+        <label className="flex w-24 flex-col gap-1">
+          <span className="ui-label mb-0 text-[10px]">Weight</span>
+          <input
+            className="ui-input ui-number w-full"
+            value={presentedTerm.weight}
+            aria-label={`Numeric weight ${index + 1}`}
+            data-derived-numeric-weight={index}
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => onChange({ weight: event.currentTarget.value })}
+          />
+        </label>
+        <div className="flex min-w-[10rem] flex-[0_0_10.5rem] flex-col gap-1">
+          <span className="ui-label mb-0 text-[10px]">Missing</span>
+          <div data-derived-numeric-missing={index}>
+            <Dropdown
+              value={presentedTerm.missing}
+              onChange={(nextValue) => onChange({
+                missing: nextValue === 'zero' ? 'zero' : 'invalid',
+              })}
+              options={MISSING_VALUE_OPTIONS}
+              aria-label={`Numeric missing ${index + 1}`}
+              title={presentedTerm.missing === 'zero' ? 'Missing = 0' : 'Require value'}
+              triggerClassName="w-full justify-between"
+              width="trigger"
+            />
+          </div>
+        </div>
+        <div className="ml-auto flex items-center gap-1 self-end">
+          <button
+            type="button"
+            className={`btn btn-xs h-8 px-2 ${presentedTerm.zNormalize ? 'btn-active' : 'btn-ghost'}`}
+            aria-label={`Z-normalize numeric term ${index + 1}`}
+            aria-pressed={presentedTerm.zNormalize}
+            title="Z-normalize this metric"
+            data-derived-numeric-znormalize={index}
+            onClick={() => onChange({ zNormalize: !presentedTerm.zNormalize })}
+          >
+            <Sigma size={12} aria-hidden="true" />
+            <span>Z</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-xs btn-ghost h-8 w-8 px-0"
+            aria-label={`Remove numeric term ${index + 1}`}
+            title="Remove numeric term"
+            onClick={onRemove}
+          >
+            <Trash2 size={12} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+      <div
+        className="mt-2"
+        data-derived-numeric-histogram-slot={index}
+        data-facet-requested-field={requestedKey}
+        data-facet-presented-field={presentation.key}
+        aria-busy={retained || undefined}
+      >
+        <DerivedMetricMiniHistogram
+          metricKey={presentation.key}
+          histogram={presentation.value.histogram}
+          state={presentation.state}
+        />
+      </div>
+    </div>
+  )
+}
+
+function DerivedNumericTermHistogram({
+  index,
+  metricKey,
+  candidate,
+  presentationResetKey,
+}: {
+  index: number | 'score-preview'
+  metricKey: string
+  candidate: DerivedHistogram
+  presentationResetKey: string
+}): JSX.Element {
+  const { presentation, retained } = useFacetFieldPresentation({
+    key: metricKey,
+    state: candidate.state,
+    value: candidate.histogram,
+  }, presentationResetKey)
+  return (
+    <div
+      className={index === 'score-preview' ? '' : 'mt-2'}
+      data-derived-numeric-histogram-slot={index}
+      data-facet-requested-field={metricKey}
+      data-facet-presented-field={presentation.key}
+      aria-busy={retained || undefined}
+    >
+      <DerivedMetricMiniHistogram
+        metricKey={presentation.key}
+        histogram={presentation.value}
+        state={presentation.state}
+      />
+    </div>
+  )
 }
 
 function buildNumericTermHistograms({
   facets,
+  facetsState,
+  facetFieldStates,
   items,
   metricKeys,
+  populationItemsComplete,
 }: {
   facets: BrowseFacetsPayload | null
+  facetsState: FacetQueryState
+  facetFieldStates?: FacetFieldQueryStates
   items: BrowseItemPayload[]
   metricKeys: readonly string[]
-}): Map<string, Histogram | null> {
-  const histograms = new Map<string, Histogram | null>()
+  populationItemsComplete: boolean
+}): Map<string, DerivedHistogram> {
+  const histograms = new Map<string, DerivedHistogram>()
   if (!metricKeys.length) return histograms
 
-  const missingKeys: string[] = []
+  const localValues = populationItemsComplete
+    ? collectMetricValuesByKey(items, metricKeys)
+    : new Map<string, number[]>()
   for (const key of metricKeys) {
-    const histogram = metricHistogramFromFacet(facets?.metrics[key]?.histogram)
-    if (histogram) {
-      histograms.set(key, histogram)
-    } else {
-      missingKeys.push(key)
-    }
-  }
-  if (!missingKeys.length) return histograms
-
-  const valuesByKey = collectMetricValuesByKey(items, missingKeys)
-  for (const key of missingKeys) {
-    histograms.set(key, computeHistogramFromValues(getMetricValues(valuesByKey, key), 32))
+    const hasFacet = Object.prototype.hasOwnProperty.call(facets?.metrics ?? {}, key)
+    const facetHistogram = metricHistogramFromFacet(facets?.metrics[key]?.histogram)
+    const localHistogram = populationItemsComplete
+      ? computeHistogramFromValues(getMetricValues(localValues, key), 32)
+      : null
+    const state = resolveFacetFieldState({
+      facetDataState: !hasFacet ? 'absent' : facetHistogram ? 'ready' : 'empty',
+      localDataState: !populationItemsComplete ? 'absent' : localHistogram ? 'ready' : 'empty',
+      queryState: facetFieldQueryState(facetFieldStates, 'metrics', key, facetsState),
+    })
+    histograms.set(key, {
+      histogram: hasFacet ? facetHistogram : localHistogram,
+      state,
+    })
   }
   return histograms
 }

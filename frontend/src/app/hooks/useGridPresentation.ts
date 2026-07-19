@@ -1,5 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { BrowseItemPayload } from '../../lib/types'
+import type {
+  MetricRailHistogram,
+  MetricRailState,
+} from '../../features/browse/model/metricRail'
 import type { GridStatus } from '../model/loadingState'
 import { browseEntityStore } from '../model/browseEntityStore'
 
@@ -21,7 +25,8 @@ export type PresentedBrowseSnapshot = {
   displayTotalCount: number | null
   metricsPopulationItemsComplete: boolean
   metricsFilteredItemsComplete: boolean
-  metricRailReady: boolean
+  metricRailState: MetricRailState
+  metricRailHistogram: MetricRailHistogram | null
   metricRailKey: string | null
   metricRailSortDir: 'asc' | 'desc'
   phase: GridPresentationPhase
@@ -38,7 +43,8 @@ export type BrowseSnapshotTarget = {
   displayTotalCount: number
   metricsPopulationItemsComplete: boolean
   metricsFilteredItemsComplete: boolean
-  metricRailReady: boolean
+  metricRailState: MetricRailState
+  metricRailHistogram: MetricRailHistogram | null
   metricRailKey: string | null
   metricRailSortDir: 'asc' | 'desc'
   settled: boolean
@@ -59,6 +65,8 @@ function targetSnapshot(
   const sameIdentity = previous?.targetKey === target.targetKey
     && previous.resetKey === target.resetKey
   const countsReady = target.settled
+  const browseFailed = target.statusKind === 'failed'
+    || target.statusKind === 'unsupported'
   return {
     targetKey: target.targetKey,
     resetKey: target.resetKey,
@@ -70,8 +78,9 @@ function targetSnapshot(
     displayTotalCount: countsReady ? target.displayTotalCount : null,
     metricsPopulationItemsComplete: countsReady && target.metricsPopulationItemsComplete,
     metricsFilteredItemsComplete: countsReady && target.metricsFilteredItemsComplete,
-    metricRailReady: countsReady && target.metricRailReady,
-    metricRailKey: target.metricRailKey,
+    metricRailState: browseFailed ? 'error' : countsReady ? target.metricRailState : 'pending',
+    metricRailHistogram: countsReady ? target.metricRailHistogram : null,
+    metricRailKey: browseFailed ? null : target.metricRailKey,
     metricRailSortDir: target.metricRailSortDir,
   }
 }
@@ -85,8 +94,9 @@ export function resolvePresentedBrowseSnapshot({
   previous: CommittedBrowseSnapshot | null
   expiredTargetKey: string | null
 }): ResolvedBrowseSnapshot {
-  const pending = target.statusKind === 'loading'
-    || (target.statusKind === 'updating' && !target.settled)
+  const pending = !target.settled
+    && target.statusKind !== 'failed'
+    && target.statusKind !== 'unsupported'
   if (!pending) {
     return {
       ...targetSnapshot(target, previous),
@@ -98,12 +108,11 @@ export function resolvePresentedBrowseSnapshot({
 
   const canRetain = previous?.resetKey === target.resetKey
     && previous.membershipPaths.length > 0
-    && expiredTargetKey !== target.targetKey
   if (canRetain) {
     return {
       ...previous,
       requestedTargetKey: target.targetKey,
-      phase: 'grace',
+      phase: expiredTargetKey === target.targetKey ? 'loading' : 'grace',
       retained: true,
     }
   }
@@ -120,7 +129,8 @@ export function resolvePresentedBrowseSnapshot({
     displayTotalCount: null,
     metricsPopulationItemsComplete: false,
     metricsFilteredItemsComplete: false,
-    metricRailReady: false,
+    metricRailState: 'pending',
+    metricRailHistogram: null,
     metricRailKey: null,
     metricRailSortDir: target.metricRailSortDir,
     phase: 'loading',
@@ -140,7 +150,8 @@ function committedSnapshot(snapshot: ResolvedBrowseSnapshot): CommittedBrowseSna
     displayTotalCount: snapshot.displayTotalCount,
     metricsPopulationItemsComplete: snapshot.metricsPopulationItemsComplete,
     metricsFilteredItemsComplete: snapshot.metricsFilteredItemsComplete,
-    metricRailReady: snapshot.metricRailReady,
+    metricRailState: snapshot.metricRailState,
+    metricRailHistogram: snapshot.metricRailHistogram,
     metricRailKey: snapshot.metricRailKey,
     metricRailSortDir: snapshot.metricRailSortDir,
   }
@@ -234,7 +245,8 @@ export function useGridPresentation({
   targetDisplayTotalCount,
   targetMetricsPopulationItemsComplete,
   targetMetricsFilteredItemsComplete,
-  targetMetricRailReady,
+  targetMetricRailState,
+  targetMetricRailHistogram,
   targetMetricRailKey,
   targetMetricRailSortDir,
   targetSettled,
@@ -249,7 +261,8 @@ export function useGridPresentation({
   targetDisplayTotalCount: number
   targetMetricsPopulationItemsComplete: boolean
   targetMetricsFilteredItemsComplete: boolean
-  targetMetricRailReady: boolean
+  targetMetricRailState: MetricRailState
+  targetMetricRailHistogram: MetricRailHistogram | null
   targetMetricRailKey: string | null
   targetMetricRailSortDir: 'asc' | 'desc'
   targetSettled: boolean
@@ -271,7 +284,8 @@ export function useGridPresentation({
     displayTotalCount: targetDisplayTotalCount,
     metricsPopulationItemsComplete: targetMetricsPopulationItemsComplete,
     metricsFilteredItemsComplete: targetMetricsFilteredItemsComplete,
-    metricRailReady: targetMetricRailReady,
+    metricRailState: targetMetricRailState,
+    metricRailHistogram: targetMetricRailHistogram,
     metricRailKey: targetMetricRailKey,
     metricRailSortDir: targetMetricRailSortDir,
     settled: targetSettled,
@@ -283,7 +297,8 @@ export function useGridPresentation({
     targetFilteredCount,
     targetItems,
     targetKey,
-    targetMetricRailReady,
+    targetMetricRailState,
+    targetMetricRailHistogram,
     targetMetricRailKey,
     targetMetricRailSortDir,
     targetMetricsPopulationItemsComplete,
@@ -304,8 +319,9 @@ export function useGridPresentation({
     targetRatingItems,
     committedItemsRef.current,
   )
-  const targetPending = targetStatus.kind === 'loading'
-    || (targetStatus.kind === 'updating' && !targetSettled)
+  const targetPending = !targetSettled
+    && targetStatus.kind !== 'failed'
+    && targetStatus.kind !== 'unsupported'
   const canRetain = targetPending
     && committedRef.current?.resetKey === resetKey
     && (committedRef.current?.membershipPaths.length ?? 0) > 0
@@ -325,6 +341,7 @@ export function useGridPresentation({
   useLayoutEffect(() => {
     if (resolved.phase !== 'steady') return
     if (latestTargetKeyRef.current !== targetKey) return
+    setExpiredTargetKey((current) => current === targetKey ? null : current)
     committedRef.current = committedSnapshot(resolved)
     const itemsByPath = new Map<string, BrowseItemPayload>()
     for (const item of targetRatingItems) itemsByPath.set(item.path, item)

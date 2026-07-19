@@ -53,16 +53,12 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
   const widthCompare = useMemo(() => getWidthCompareFilter(filters), [filters])
   const heightCompare = useMemo(() => getHeightCompareFilter(filters), [filters])
 
-  const [widthOp, setWidthOp] = useState<CompareOp>(widthCompare?.op ?? '>=')
-  const [heightOp, setHeightOp] = useState<CompareOp>(heightCompare?.op ?? '>=')
-
-  useEffect(() => {
-    if (widthCompare?.op) setWidthOp(widthCompare.op)
-  }, [widthCompare?.op])
-
-  useEffect(() => {
-    if (heightCompare?.op) setHeightOp(heightCompare.op)
-  }, [heightCompare?.op])
+  const widthIdentity = compareIdentity(widthCompare)
+  const heightIdentity = compareIdentity(heightCompare)
+  const [widthOpDraft, setWidthOpDraft] = useState<CompareOperatorDraft | null>(null)
+  const [heightOpDraft, setHeightOpDraft] = useState<CompareOperatorDraft | null>(null)
+  const widthOp = projectCompareOperator(widthCompare?.op, widthIdentity, widthOpDraft)
+  const heightOp = projectCompareOperator(heightCompare?.op, heightIdentity, heightOpDraft)
 
   const toggleStar = (kind: 'include' | 'exclude', value: number) => {
     const includeSet = new Set(starsIn)
@@ -268,9 +264,11 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
                     value={widthOp}
                     onChange={(value) => {
                       const nextOp = value as CompareOp
-                      setWidthOp(nextOp)
                       if (widthCompare) {
                         onChangeFilters(setWidthCompareFilter(filters, { op: nextOp, value: widthCompare.value }))
+                        setWidthOpDraft(null)
+                      } else {
+                        setWidthOpDraft({ filterIdentity: widthIdentity, value: nextOp })
                       }
                     }}
                     options={COMPARE_OPTIONS}
@@ -282,6 +280,7 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
                 </div>
                 <input
                   type="number"
+                  aria-label="Width pixels"
                   className="ui-input ui-number w-full"
                   value={widthCompare ? String(widthCompare.value) : ''}
                   min={0}
@@ -289,11 +288,13 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
                   onChange={(e) => {
                     const raw = e.target.value
                     if (!raw) {
+                      setWidthOpDraft(null)
                       onChangeFilters(setWidthCompareFilter(filters, null))
                       return
                     }
                     const value = Number(raw)
                     if (!Number.isFinite(value)) return
+                    setWidthOpDraft(null)
                     onChangeFilters(setWidthCompareFilter(filters, { op: widthOp, value }))
                   }}
                 />
@@ -307,9 +308,11 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
                     value={heightOp}
                     onChange={(value) => {
                       const nextOp = value as CompareOp
-                      setHeightOp(nextOp)
                       if (heightCompare) {
                         onChangeFilters(setHeightCompareFilter(filters, { op: nextOp, value: heightCompare.value }))
+                        setHeightOpDraft(null)
+                      } else {
+                        setHeightOpDraft({ filterIdentity: heightIdentity, value: nextOp })
                       }
                     }}
                     options={COMPARE_OPTIONS}
@@ -321,6 +324,7 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
                 </div>
                 <input
                   type="number"
+                  aria-label="Height pixels"
                   className="ui-input ui-number w-full"
                   value={heightCompare ? String(heightCompare.value) : ''}
                   min={0}
@@ -328,11 +332,13 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
                   onChange={(e) => {
                     const raw = e.target.value
                     if (!raw) {
+                      setHeightOpDraft(null)
                       onChangeFilters(setHeightCompareFilter(filters, null))
                       return
                     }
                     const value = Number(raw)
                     if (!Number.isFinite(value)) return
+                    setHeightOpDraft(null)
                     onChangeFilters(setHeightCompareFilter(filters, { op: heightOp, value }))
                   }}
                 />
@@ -358,32 +364,52 @@ interface CommittedTextInputProps {
   onCommit: (value: string) => void
 }
 
+type CompareOperatorDraft = {
+  filterIdentity: string
+  value: CompareOp
+}
+
+function compareIdentity(compare: { op: CompareOp; value: number } | null): string {
+  return compare ? `${compare.op}:${compare.value}` : 'none'
+}
+
+export function projectCompareOperator(
+  committed: CompareOp | undefined,
+  filterIdentity: string,
+  draft: CompareOperatorDraft | null,
+): CompareOp {
+  return draft?.filterIdentity === filterIdentity ? draft.value : committed ?? '>='
+}
+
+export function commitTextDraft(
+  activeDraft: string | null,
+  value: string,
+  onCommit: (value: string) => void,
+): null {
+  if (activeDraft !== null && activeDraft !== value) onCommit(activeDraft)
+  return null
+}
+
 function CommittedTextInput({
   label,
   value,
   placeholder,
   onCommit,
 }: CommittedTextInputProps): JSX.Element {
-  const [draft, setDraft] = useState(value)
-  const committedRef = useRef(value)
+  const [activeDraft, setActiveDraft] = useState<string | null>(null)
   const onCommitRef = useRef(onCommit)
   onCommitRef.current = onCommit
-
-  useEffect(() => {
-    committedRef.current = value
-    setDraft(value)
-  }, [value])
+  const displayedValue = activeDraft ?? value
 
   const commit = useCallback(() => {
-    if (draft === committedRef.current) return
-    committedRef.current = draft
-    onCommitRef.current(draft)
-  }, [draft])
+    const nextDraft = commitTextDraft(activeDraft, value, onCommitRef.current)
+    if (nextDraft !== activeDraft) setActiveDraft(nextDraft)
+  }, [activeDraft, value])
 
   useEffect(() => {
-    if (draft === committedRef.current) return
+    if (activeDraft === null || activeDraft === value) return
     return scheduleCommittedText(commit, TEXT_COMMIT_DELAY_MS)
-  }, [commit, draft])
+  }, [activeDraft, commit, value])
 
   return (
     <label className="block">
@@ -392,10 +418,13 @@ function CommittedTextInput({
         <input
           className="ui-input min-w-0 flex-1"
           aria-label={label}
-          value={draft}
+          value={displayedValue}
           placeholder={placeholder}
-          onChange={(event) => setDraft(event.currentTarget.value)}
-          onBlur={commit}
+          onChange={(event) => setActiveDraft(event.currentTarget.value)}
+          onBlur={() => {
+            commit()
+            setActiveDraft(null)
+          }}
           onKeyDown={(event) => {
             if (event.key !== 'Enter') return
             event.preventDefault()
@@ -405,7 +434,7 @@ function CommittedTextInput({
         <button
           type="button"
           className="btn btn-sm btn-ghost px-2 text-[11px]"
-          disabled={draft === committedRef.current}
+          disabled={activeDraft === null || activeDraft === value}
           onClick={commit}
           aria-label={`Apply ${label}`}
         >

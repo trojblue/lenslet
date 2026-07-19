@@ -2,9 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import CategoricalCard from '../CategoricalCard'
 import MetricCategoryCard from '../MetricCategoryCard'
-import MetricHistogramCard from '../MetricHistogramCard'
+import MetricHistogramCard, { projectRangeInput } from '../MetricHistogramCard'
 
 describe('stable metric card regions', () => {
+  it('projects committed histogram bounds without an effect-late mirror', () => {
+    expect(projectRangeInput(0, 0)).toBe('')
+    expect(projectRangeInput(0.25, 0)).toBe('0.25')
+    expect(projectRangeInput(undefined, 0)).toBe('')
+  })
+
   it('keeps categorical Clear in one slot without rendering redundant Active copy', () => {
     const render = (active: boolean) => renderToStaticMarkup(
       <CategoricalCard
@@ -80,5 +86,26 @@ describe('stable metric card regions', () => {
       expect(html).toContain('data-histogram-footer="true"')
       expect(html).toContain('data-card-action="clear"')
     }
+  })
+
+  it('keeps header and row count roles present when filtering and selection are inactive', () => {
+    const html = renderToStaticMarkup(
+      <CategoricalCard
+        categoricalKey="dataset_from"
+        buckets={[
+          { value: 'gt', populationCount: 10, filteredCount: 0, selectedCount: 0 },
+        ]}
+        filters={{ and: [] }}
+        showFilteredCounts={false}
+        onChangeValues={() => {}}
+      />,
+    )
+
+    expect(html).toContain('data-count-role="filtered"')
+    expect(html).toContain('Filtered: —')
+    expect(html).toContain('data-count-role="selected"')
+    expect(html).toContain('Selected: 0')
+    expect(html).toContain('data-count-role="row-selected"')
+    expect(html).toContain('data-count-role="row-filtered-population"')
   })
 })

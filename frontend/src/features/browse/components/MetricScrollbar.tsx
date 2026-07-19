@@ -5,6 +5,7 @@ import {
   clamp01,
   computeMetricRailHistogram,
   type MetricRailHistogram,
+  type MetricRailState,
   metricRailProgressFromValue,
   metricValueAtProgress,
   metricValueFromRailProgress,
@@ -20,9 +21,11 @@ interface MetricScrollbarProps {
   scrollRef: React.RefObject<HTMLDivElement>
   sortDir: 'asc' | 'desc'
   currentPath?: string | null
+  state?: MetricRailState
   histogramOverride?: MetricRailHistogram | null
   populationComplete?: boolean
   onJumpToMetricValue: (value: number) => void
+  onRetry?: () => void
 }
 
 export default function MetricScrollbar({
@@ -32,9 +35,11 @@ export default function MetricScrollbar({
   scrollRef,
   sortDir,
   currentPath = null,
+  state = 'ready',
   histogramOverride = null,
   populationComplete = true,
   onJumpToMetricValue,
+  onRetry,
 }: MetricScrollbarProps) {
   const { orderedValues, numericValues } = useMemo(() => {
     const ordered: Array<number | null> = []
@@ -51,8 +56,8 @@ export default function MetricScrollbar({
   ), [numericValues])
   const histogram = histogramOverride ?? loadedHistogram
   const quantiles = useMemo(
-    () => populationComplete ? computeQuantiles(numericValues, QUANTILES) : [],
-    [numericValues, populationComplete],
+    () => histogram ? computeHistogramQuantiles(histogram, QUANTILES) : [],
+    [histogram],
   )
 
   const [scrollProgress, setScrollProgress] = useState(0)
@@ -100,15 +105,45 @@ export default function MetricScrollbar({
     return metricValueFromRailProgress(hoverProgress, domain, sortDir)
   }, [domain?.max, domain?.min, hoverProgress, sortDir])
 
-  if (!histogram || !domain) return null
+  const label = metricLabel ?? metricKey
+  if (state !== 'ready' || !histogram || !domain) {
+    return (
+      <div
+        className="relative h-full w-full flex items-center justify-center rounded bg-surface-inset border border-border/60"
+        data-metric-rail={metricKey}
+        data-metric-rail-state={state}
+        aria-busy={state === 'pending' || undefined}
+      >
+        {state === 'error' && onRetry ? (
+          <button
+            type="button"
+            className="btn btn-ghost h-full w-full min-w-0 px-0 text-danger"
+            aria-label={`Retry ${label} metric distribution`}
+            title={`Retry ${label} metric distribution`}
+            onClick={onRetry}
+          >
+            !
+          </button>
+        ) : (
+          <span
+            className="text-[10px] text-muted"
+            aria-label={state === 'empty'
+              ? `No finite values for ${label} metric distribution`
+              : `Loading ${label} metric distribution`}
+          >
+            {state === 'empty' ? '—' : ''}
+          </span>
+        )}
+      </div>
+    )
+  }
   const railDomain = domain
 
-  const label = metricLabel ?? metricKey
   const hoverY = hoverProgress != null ? progressToY(hoverProgress) : null
   const isDesc = sortDir === 'desc'
   const jumpEnabled = populationComplete
   const railClassName = `w-full h-full rounded bg-surface-inset border border-border/60 ${
-    jumpEnabled ? 'cursor-crosshair' : 'cursor-default opacity-70'
+    jumpEnabled ? 'cursor-crosshair' : 'cursor-default'
   }`
   const scrollY = scrollValue == null
     ? progressToY(scrollProgress)
@@ -134,7 +169,16 @@ export default function MetricScrollbar({
   }
 
   return (
-    <div className="relative h-full w-full flex items-stretch pointer-events-auto">
+    <div
+      className="relative h-full w-full flex items-stretch pointer-events-auto"
+      data-metric-rail={metricKey}
+      data-metric-rail-state="ready"
+      data-metric-rail-count={histogram.count}
+      data-metric-rail-min={histogram.min}
+      data-metric-rail-max={histogram.max}
+      data-metric-rail-bins={histogram.bins.join(',')}
+      data-metric-rail-quantiles={quantiles.join(',')}
+    >
       <svg
         ref={svgRef}
         viewBox="0 0 10 100"
@@ -185,17 +229,21 @@ export default function MetricScrollbar({
   )
 }
 
-function computeQuantiles(values: number[], quantiles: number[]): number[] {
-  if (!values.length) return []
-  const sorted = [...values].sort((a, b) => a - b)
-  const maxIndex = sorted.length - 1
-  return quantiles.map((q) => {
-    const idx = maxIndex * q
-    const low = Math.floor(idx)
-    const high = Math.ceil(idx)
-    if (low === high) return sorted[low]
-    const t = idx - low
-    return sorted[low] + (sorted[high] - sorted[low]) * t
+function computeHistogramQuantiles(
+  histogram: MetricRailHistogram,
+  quantiles: readonly number[],
+): number[] {
+  const total = histogram.bins.reduce((sum, count) => sum + count, 0)
+  if (!total || !histogram.bins.length) return []
+  const binWidth = (histogram.max - histogram.min) / histogram.bins.length
+  return quantiles.map((quantile) => {
+    const target = clamp01(quantile) * Math.max(0, total - 1)
+    let cumulative = 0
+    for (let index = 0; index < histogram.bins.length; index += 1) {
+      cumulative += histogram.bins[index]
+      if (cumulative > target) return histogram.min + ((index + 0.5) * binWidth)
+    }
+    return histogram.max
   })
 }
 

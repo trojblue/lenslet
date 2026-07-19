@@ -1,23 +1,31 @@
 import React from 'react'
 import { formatNumber, type Histogram } from '../model/histogram'
+import type { FacetFieldState } from '../model/facetPresentation'
 
 interface DerivedMetricMiniHistogramProps {
   histogram: Histogram | null
   metricKey: string
+  state?: FacetFieldState
 }
 
 export default function DerivedMetricMiniHistogram({
   histogram,
   metricKey,
+  state = histogram ? 'ready' : 'empty',
 }: DerivedMetricMiniHistogramProps): JSX.Element {
-  if (!histogram) {
+  if (state !== 'ready' || !histogram) {
     return (
       <div
         className="flex h-[3.25rem] items-center justify-center rounded-sm border border-border/50 bg-surface/60 px-2 py-1 text-[10px] text-muted"
         data-derived-metric-histogram={metricKey}
+        data-facet-state={state}
         role="status"
       >
-        No finite values
+        {state === 'pending'
+          ? 'Loading values…'
+          : state === 'error'
+            ? 'Could not load values'
+            : 'No finite values'}
       </div>
     )
   }
@@ -27,7 +35,11 @@ export default function DerivedMetricMiniHistogram({
   const maxCount = Math.max(1, ...bins)
 
   return (
-    <div className="h-[3.25rem] space-y-0.5" data-derived-metric-histogram={metricKey}>
+    <div
+      className="h-[3.25rem] space-y-0.5"
+      data-derived-metric-histogram={metricKey}
+      data-facet-state="ready"
+    >
       <svg
         viewBox={`0 0 ${width} 32`}
         preserveAspectRatio="none"

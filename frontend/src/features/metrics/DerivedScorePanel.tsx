@@ -22,6 +22,8 @@ interface DerivedScorePanelProps {
   facetsState?: FacetQueryState
   facetFieldStates?: FacetFieldQueryStates
   populationItemsComplete?: boolean
+  presentationResetKey?: string
+  draftResetKey?: string
   derivedMetric: DerivedMetricEvaluation
   backendAuthoritative?: boolean
   derivedRankDisabledReason?: string | null
@@ -40,6 +42,8 @@ export default function DerivedScorePanel({
   facetsState = 'settled',
   facetFieldStates,
   populationItemsComplete = true,
+  presentationResetKey = 'default',
+  draftResetKey = 'default',
   derivedMetric,
   backendAuthoritative = false,
   derivedRankDisabledReason,
@@ -59,6 +63,8 @@ export default function DerivedScorePanel({
         facetsState={facetsState}
         facetFieldStates={facetFieldStates}
         populationItemsComplete={populationItemsComplete}
+        presentationResetKey={presentationResetKey}
+        draftResetKey={draftResetKey}
         derivedMetric={derivedMetric}
         backendAuthoritative={backendAuthoritative}
         rankDisabledReason={derivedRankDisabledReason}

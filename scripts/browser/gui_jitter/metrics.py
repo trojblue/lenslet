@@ -15,6 +15,11 @@ from scripts.browser.gui_jitter.metrics_controller import (
     configure_facets as _configure_facets,
     install_facet_controller as _install_controlled_facets,
 )
+from scripts.browser.gui_jitter.metrics_derived import (
+    categorical_term_identity_violations,
+    exercise_derived_numeric_presentations,
+    wait_for_retained_categorical_term,
+)
 from scripts.browser.gui_jitter.metrics_schema import exercise_metric_schema_transitions
 from scripts.browser.gui_jitter.metrics_trace import (
     requested_field_ownership_violations as _requested_field_ownership_violations,
@@ -1153,14 +1158,29 @@ def _exercise_derived(
             f"equal-schema response reset unsaved Derived values: {retained!r}"
         )
 
+    numeric_histograms = exercise_derived_numeric_presentations(
+        page,
+        max_delta_px,
+        timeout_ms,
+    )
     _configure_facets(page, delays={"derived_group": 450}, emptyFields=[], errorFields=[])
     card.get_by_role("button", name="Add").nth(1).click()
     value_control = card.locator('[data-derived-categorical-value="0"]')
     value_input = value_control.get_by_role("combobox", name="Categorical value 1")
     value_input.wait_for(state="visible", timeout=timeout_ms)
+    page.wait_for_function(
+        """() => document.querySelector('[data-derived-categorical-value="0"]')
+          ?.getAttribute('data-facet-state') !== 'pending'""",
+        timeout=timeout_ms,
+    )
     value_selectors = {
+        "categorical_term": '[data-derived-categorical-term-slot="0"]',
+        "categorical_key": (
+            '[data-derived-categorical-key="0"] button[aria-haspopup="listbox"]'
+        ),
         "value_control": '[data-derived-categorical-value="0"]',
         "value_input": '[data-derived-categorical-value="0"] [role="combobox"]',
+        "weight": '[data-derived-categorical-weight="0"]',
     }
     start_painted_frame_trace(
         page,
@@ -1174,10 +1194,7 @@ def _exercise_derived(
         "Categorical field 1",
         "derived_group",
     )
-    page.wait_for_function(
-        """() => document.querySelector('[data-derived-categorical-value="0"]')?.getAttribute('data-facet-state') === 'pending'""",
-        timeout=timeout_ms,
-    )
+    wait_for_retained_categorical_term(page, "derived_group", timeout_ms)
     page.wait_for_function(
         """() => document.querySelector('[data-derived-categorical-value="0"]')?.getAttribute('data-facet-state') === 'ready'""",
         timeout=timeout_ms,
@@ -1189,6 +1206,9 @@ def _exercise_derived(
         anchor_names=tuple(value_selectors),
         required_names=tuple(value_selectors),
         max_delta_px=max_delta_px,
+    )
+    value_control_summary["violations"].extend(
+        categorical_term_identity_violations(value_trace, "derived_group", "ready")
     )
     value_control_summary["terminal_state"] = _derived_value_state(page)
     value_input.click()
@@ -1233,20 +1253,23 @@ def _exercise_derived(
         "Categorical field 1",
         "explicit_empty_group",
     )
-    page.wait_for_function(
-        """() => document.querySelector('[data-derived-categorical-value="0"]')?.getAttribute('data-facet-state') === 'pending'""",
-        timeout=timeout_ms,
-    )
+    wait_for_retained_categorical_term(page, "explicit_empty_group", timeout_ms)
     page.wait_for_function(
         """() => document.querySelector('[data-derived-categorical-value="0"]')?.getAttribute('data-facet-state') === 'empty'""",
         timeout=timeout_ms,
     )
     _configure_facets(
         page,
-        delays={"error_group": 80},
+        delays={"error_group": 180},
         emptyFields=[],
         explicitEmptyFields=[],
         errorFields=["error_group"],
+    )
+    start_painted_frame_trace(
+        page,
+        page_id="metrics",
+        phase="derived_categorical_error",
+        selectors=value_selectors,
     )
     _select_dropdown_option(
         page,
@@ -1254,10 +1277,24 @@ def _exercise_derived(
         "Categorical field 1",
         "error_group",
     )
+    wait_for_retained_categorical_term(page, "error_group", timeout_ms)
     page.wait_for_function(
         """() => document.querySelector('[data-derived-categorical-value="0"]')?.getAttribute('data-facet-state') === 'error'""",
         timeout=timeout_ms,
     )
+    page.wait_for_timeout(80)
+    error_trace = stop_painted_frame_trace(page)
+    error_summary = _summarize_trace(
+        error_trace,
+        anchor_names=tuple(value_selectors),
+        required_names=tuple(value_selectors),
+        max_delta_px=max_delta_px,
+    )
+    error_summary["violations"].extend(
+        categorical_term_identity_violations(error_trace, "error_group", "error")
+    )
+    value_control_summary["terminal_error_trace"] = error_summary
+    value_control_summary["violations"].extend(error_summary["violations"])
     value_control_summary["partial_local_states"] = {
         "explicit_empty": "empty",
         "terminal_error": _derived_value_state(page),
@@ -1308,8 +1345,15 @@ def _exercise_derived(
         long_name,
     )
     missing_terms = " + ".join(f"1*missing_metric_{index:02d}" for index in range(20))
-    formula.fill(f"broken_score = 0 + {missing_terms}")
-    card.locator("[data-derived-formula-apply]").click()
+    formula.evaluate(
+        """(input, value) => {
+          const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+          setter?.call(input, value);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }""",
+        f"broken_score = 0 + {missing_terms}",
+    )
+    card.locator("[data-derived-formula-apply]").evaluate("button => button.click()")
     page.wait_for_function(
         """() => (document.querySelector('[data-derived-formula-diagnostics]')?.textContent || '').includes('missing_metric_19')""",
         timeout=timeout_ms,
@@ -1367,6 +1411,7 @@ def _exercise_derived(
 
     return {
         "equal_schema_response": continuity,
+        "numeric_histograms": numeric_histograms,
         "categorical_value_control": value_control_summary,
         "long_content": layout,
         "semantic_reset": semantic_reset,

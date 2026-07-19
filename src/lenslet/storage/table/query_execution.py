@@ -7,6 +7,7 @@ from ...browse.query import (
     BrowseQueryResult,
     BrowseQuerySpec,
     browse_query_request_token,
+    resolve_browse_window_offset,
 )
 from ...diagnostics import request_phase
 from ..source.paths import normalize_item_path
@@ -110,6 +111,24 @@ def query_scope_from_analysis(
     categorical_keys = tuple(
         key for key in projected_categorical_keys if key in available_categorical_keys
     )
+    row_store = storage._require_row_store()
+    anchor_row_id = (
+        row_store.row_index_for_path(spec.anchor_path)
+        if spec.offset == 0 and spec.anchor_path is not None
+        else None
+    )
+    anchor_index = None
+    if anchor_row_id is not None:
+        try:
+            anchor_index = ordered.ordered_row_ids.index(anchor_row_id)
+        except ValueError:
+            pass
+    start = resolve_browse_window_offset(
+        len(ordered.ordered_row_ids),
+        spec.offset,
+        spec.limit,
+        anchor_index,
+    )
     storage.query_engine.window_key(
         ordered,
         spec,
@@ -117,7 +136,6 @@ def query_scope_from_analysis(
         categorical_keys=projected_categorical_keys,
     )
     with request_phase("projection"):
-        start = max(0, spec.offset)
         end = start + max(0, spec.limit)
         items = tuple(
             storage._materialize_query_item(
@@ -138,7 +156,7 @@ def query_scope_from_analysis(
         request_token=browse_query_request_token(spec),
         scope_total=len(rows),
         filtered_total=len(analysis.row_ids),
-        offset=spec.offset,
+        offset=start,
         limit=spec.limit,
         items=items,
         folders=folders,

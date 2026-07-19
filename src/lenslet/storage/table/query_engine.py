@@ -457,6 +457,7 @@ class TableWindowKey:
     limit: int
     metric_keys: tuple[str, ...] = ()
     categorical_keys: tuple[str, ...] = ()
+    anchor_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,6 +562,7 @@ class TableQueryEngine:
             limit=max(0, spec.limit),
             metric_keys=_normalized_keys(metric_keys),
             categorical_keys=_normalized_keys(categorical_keys),
+            anchor_path=spec.anchor_path,
         )
 
     def refresh_analysis(

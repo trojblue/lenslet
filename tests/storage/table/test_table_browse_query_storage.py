@@ -72,6 +72,34 @@ def test_table_query_filters_full_scope_and_materializes_only_window() -> None:
     assert result.categorical_keys == ()
 
 
+def test_table_query_centers_a_large_initial_window_on_an_anchor() -> None:
+    storage = _table_storage([
+        {
+            "source": f"https://example.test/gallery/img{index:04}.jpg",
+            "path": f"gallery/img{index:04}.jpg",
+            "width": 8,
+            "height": 6,
+        }
+        for index in range(1_585)
+    ])
+    row_store = storage._require_row_store()
+    row_store.materialized_item_count = 0
+
+    result = storage.query_browse_scope(BrowseQuerySpec(
+        path="/gallery",
+        recursive=True,
+        offset=0,
+        limit=1_000,
+        sort=BuiltinSortSpec("name", "asc"),
+        anchor_path="/gallery/img0792.jpg",
+    ))
+
+    assert result.offset == 292
+    assert len(result.items) == 1_000
+    assert result.items[500].path == "gallery/img0792.jpg"
+    assert row_store.materialized_item_count == 1_000
+
+
 def test_table_query_and_facets_use_columns_and_bound_window_materialization(
     monkeypatch,
 ) -> None:

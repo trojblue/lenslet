@@ -67,6 +67,7 @@ export type BrowseQueryRequest = {
   unsupported_metric_intent?: string | null
   projection: BrowseWindowProjection
   facet_fields?: BrowseFacetFields | null
+  anchor_path?: string | null
 }
 
 export type BrowseWindowProjection = {

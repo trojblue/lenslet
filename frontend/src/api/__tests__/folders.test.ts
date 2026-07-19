@@ -161,6 +161,22 @@ describe('folder api query helpers', () => {
     })
   })
 
+  it('anchors only the initial browse window and keeps analysis identity stable', () => {
+    const base: BrowseQueryOptions = {
+      path: '/shots',
+      recursive: true,
+      filters: { and: [] },
+      sort: { kind: 'builtin', key: 'name', dir: 'asc' },
+    }
+    const anchored = { ...base, anchorPath: '/shots/img0792.jpg' }
+
+    expect(buildBrowseQueryRequest(anchored, 0).anchor_path).toBe('/shots/img0792.jpg')
+    expect(buildBrowseQueryRequest(anchored, 1000).anchor_path).toBeUndefined()
+    expect(analysisQueryKey(anchored)).toEqual(analysisQueryKey(base))
+    expect(folderFacetsQueryKey(anchored)).toEqual(folderFacetsQueryKey(base))
+    expect(windowRequestToken(anchored, 0)).not.toEqual(windowRequestToken(base, 0))
+  })
+
   it('includes valid derived metrics in browse-query request bodies', () => {
     const request = buildBrowseQueryRequest({
       path: '/shots',

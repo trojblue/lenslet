@@ -212,9 +212,7 @@ async def _coordinated_table_query(
     projection_key = (
         "window",
         ordered.key,
-        spec.offset,
-        spec.limit,
-        spec.projection,
+        browse_query_request_token(spec),
         id(analysis),
     )
     try:
@@ -413,6 +411,7 @@ def _query_spec_from_payload(body: BrowseQueryRequest) -> BrowseQuerySpec:
             if body.facet_fields is not None
             else None
         ),
+        anchor_path=canonical_path(body.anchor_path) if body.anchor_path is not None else None,
     )
 
 

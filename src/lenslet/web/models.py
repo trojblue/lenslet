@@ -381,6 +381,16 @@ class BrowseQueryRequest(StrictModel):
     unsupported_metric_intent: str | None = None
     projection: BrowseQueryProjectionPayload = Field(default_factory=BrowseQueryProjectionPayload)
     facet_fields: BrowseFacetFieldsPayload | None = None
+    anchor_path: str | None = None
+
+    @field_validator("anchor_path")
+    @classmethod
+    def validate_anchor_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("anchor path must be non-empty")
+        return value
 
 
 DerivedMetricStatusKindPayload = Literal["none", "applied", "unavailable", "invalid"]

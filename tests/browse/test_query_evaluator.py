@@ -328,6 +328,64 @@ def test_seeded_random_sort_is_stable_across_offset_windows() -> None:
     ]
 
 
+def test_anchor_centers_the_initial_filtered_ordered_window() -> None:
+    records = tuple(_record(f"img{i}.jpg") for i in range(8))
+    result = evaluate_browse_records(
+        records,
+        BrowseQuerySpec(
+            path="/gallery",
+            recursive=True,
+            offset=0,
+            limit=4,
+            sort=BuiltinSortSpec("name", "asc"),
+            anchor_path="/gallery/img6.jpg",
+        ),
+    )
+
+    assert result.offset == 4
+    assert [record.path for record in result.window] == [
+        "/gallery/img4.jpg",
+        "/gallery/img5.jpg",
+        "/gallery/img6.jpg",
+        "/gallery/img7.jpg",
+    ]
+
+
+def test_anchor_falls_back_to_the_requested_window_when_unavailable_or_not_initial() -> None:
+    records = tuple(_record(f"img{i}.jpg") for i in range(8))
+    base = BrowseQuerySpec(
+        path="/gallery",
+        recursive=True,
+        offset=0,
+        limit=3,
+        filters=BrowseFilterAst(
+            and_clauses=(CategoricalInFilter("source_column", ("target",)),)
+        ),
+        sort=BuiltinSortSpec("name", "asc"),
+        anchor_path="/gallery/img6.jpg",
+    )
+    filtered_records = tuple(
+        replace(record, categoricals={"source_column": "target" if index < 4 else "other"})
+        for index, record in enumerate(records)
+    )
+
+    missing = evaluate_browse_records(filtered_records, base)
+    paginated = evaluate_browse_records(filtered_records, replace(base, offset=1))
+
+    assert missing.offset == 0
+    assert [record.path for record in missing.window] == [
+        "/gallery/img0.jpg",
+        "/gallery/img1.jpg",
+        "/gallery/img2.jpg",
+    ]
+    assert paginated.offset == 1
+    assert [record.path for record in paginated.window] == [
+        "/gallery/img1.jpg",
+        "/gallery/img2.jpg",
+        "/gallery/img3.jpg",
+    ]
+
+
 def test_analysis_query_key_excludes_window_fields() -> None:
     base = BrowseQuerySpec(
         path="/gallery",
@@ -345,6 +403,9 @@ def test_analysis_query_key_excludes_window_fields() -> None:
     )
     assert browse_analysis_query_key(base) == browse_analysis_query_key(
         replace(base, projection=BrowseWindowProjection(metric_keys=("score",)))
+    )
+    assert browse_analysis_query_key(base) == browse_analysis_query_key(
+        replace(base, anchor_path="/gallery/img5.jpg")
     )
     assert browse_analysis_query_key(base) != browse_analysis_query_key(
         replace(base, text_query="dog")
@@ -380,6 +441,9 @@ def test_window_request_token_includes_window_fields_and_generation() -> None:
     assert browse_window_request_token(base) != browse_window_request_token(replace(base, limit=20))
     assert browse_window_request_token(base) != browse_window_request_token(
         replace(base, projection=BrowseWindowProjection(metric_keys=("score",)))
+    )
+    assert browse_window_request_token(base) != browse_window_request_token(
+        replace(base, anchor_path="/gallery/img5.jpg")
     )
     assert browse_window_request_token(
         base, generation_token="gen-a"

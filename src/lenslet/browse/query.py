@@ -217,6 +217,7 @@ class BrowseQuerySpec:
     unsupported_metric_intent: str | None = None
     projection: BrowseWindowProjection = field(default_factory=BrowseWindowProjection)
     facet_fields: BrowseFacetFields | None = None
+    anchor_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +262,7 @@ class DerivedMetricApplyResult(Generic[T]):
 class BrowseQueryEvaluation(Generic[T]):
     filtered_total: int
     window: tuple[BrowseQueryRecord[T], ...]
+    offset: int = 0
     derived_metric_status: DerivedMetricStatus = field(default_factory=DerivedMetricStatus)
 
 
@@ -309,6 +311,7 @@ def evaluate_browse_records(
             random_seed=spec.random_seed,
             derived_metric=normalize_derived_metric_spec(spec.derived_metric),
             unsupported_metric_intent=_normalize_text(spec.unsupported_metric_intent),
+            anchor_path=_normalize_text(spec.anchor_path),
         )
         date_bounds = _prepare_date_bounds(normalized.filters)
         searched = [
@@ -338,14 +341,43 @@ def evaluate_browse_records(
     with request_phase("ordering"):
         ordered = sort_browse_records(filtered, normalized.sort, random_seed=normalized.random_seed)
     with request_phase("projection"):
-        start = max(0, normalized.offset)
+        anchor_index = None
+        if normalized.offset == 0 and normalized.anchor_path is not None:
+            anchor_index = next(
+                (
+                    index
+                    for index, record in enumerate(ordered)
+                    if record.path == normalized.anchor_path
+                ),
+                None,
+            )
+        start = resolve_browse_window_offset(
+            len(ordered),
+            normalized.offset,
+            normalized.limit,
+            anchor_index,
+        )
         end = start + max(0, normalized.limit)
         window = tuple(ordered[start:end])
     return BrowseQueryEvaluation(
         filtered_total=len(ordered),
         window=window,
+        offset=start,
         derived_metric_status=derived_metric_status,
     )
+
+
+def resolve_browse_window_offset(
+    filtered_total: int,
+    requested_offset: int,
+    limit: int,
+    anchor_index: int | None,
+) -> int:
+    ordinary_offset = max(0, requested_offset)
+    if ordinary_offset != 0 or limit <= 0 or anchor_index is None:
+        return ordinary_offset
+    centered = max(0, anchor_index - limit // 2)
+    return min(centered, max(0, filtered_total - limit))
 
 
 def evaluate_derived_metric_for_records(
@@ -799,6 +831,7 @@ def browse_window_request_token(
             "metric_keys": sorted(dict.fromkeys(spec.projection.metric_keys)),
             "categorical_keys": sorted(dict.fromkeys(spec.projection.categorical_keys)),
         },
+        "anchor_path": _normalize_text(spec.anchor_path),
     }
     if generation_token is not None:
         payload["generation_token"] = generation_token

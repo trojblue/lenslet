@@ -142,6 +142,28 @@ def test_browse_query_contract_filters_before_windowing(tmp_path: Path) -> None:
     assert projected_payload["categorical_keys"] == ["source_column"]
     assert projected_payload["field_capabilities"]["display_metrics"] == ["score"]
 
+    unanchored = client.post(
+        "/folders/query",
+        json={
+            **body,
+            "filters": {"and": []},
+            "text_query": None,
+        },
+    ).json()
+    anchored = client.post(
+        "/folders/query",
+        json={
+            **body,
+            "filters": {"and": []},
+            "text_query": None,
+            "anchor_path": "gallery/img4.jpg",
+        },
+    ).json()
+    assert anchored["offset"] == 3
+    assert [item["name"] for item in anchored["items"]] == ["img3.jpg", "img4.jpg"]
+    assert anchored["analysis_query_key"] == unanchored["analysis_query_key"]
+    assert anchored["request_token"] != unanchored["request_token"]
+
 
 def test_table_query_builds_one_lean_payload_per_returned_row(
     tmp_path: Path,

@@ -45,6 +45,7 @@ export type BrowseQueryOptions = {
   projection?: BrowseWindowProjection
   facetFields?: BrowseFacetFields
   generationToken?: string | null
+  anchorPath?: string | null
 }
 
 export type AnalysisQueryKey = readonly [
@@ -65,6 +66,7 @@ export type WindowRequestToken = readonly [
   number,
   number,
   string,
+  string | null,
   string | null,
 ]
 
@@ -121,6 +123,7 @@ export function buildBrowseQueryRequest(
   const textQuery = normalizeSearchQuery(options.textQuery ?? '')
   const derivedMetric = normalizeDerivedMetricSpec(options.derivedMetric ?? null)
   const facetFields = options.facetFields ? normalizeFacetFields(options.facetFields) : null
+  const anchorPath = offset === 0 ? normalizeSearchScopePath(options.anchorPath ?? '') : null
   return {
     path: normalizeSearchScopePath(options.path),
     recursive: options.recursive ?? true,
@@ -134,6 +137,7 @@ export function buildBrowseQueryRequest(
     unsupported_metric_intent: normalizeUnsupportedToken(options.unsupportedToken),
     projection: normalizeProjection(options.projection),
     ...(facetFields ? { facet_fields: facetFields } : {}),
+    ...(anchorPath && anchorPath !== '/' ? { anchor_path: anchorPath } : {}),
   }
 }
 
@@ -186,6 +190,7 @@ export const windowRequestToken = (
     request.offset,
     request.limit,
     JSON.stringify(request.projection),
+    request.anchor_path ?? null,
     generationToken,
   ] as const
 }

@@ -1258,7 +1258,7 @@ def _fallback_browse_query_result(
         request_token=browse_query_request_token(spec),
         scope_total=scope_total,
         filtered_total=evaluation.filtered_total,
-        offset=spec.offset,
+        offset=evaluation.offset,
         limit=spec.limit,
         items=tuple(
             _project_query_payload(record, spec)

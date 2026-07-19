@@ -21,14 +21,20 @@ def drag_viewer_image(page: Any, dx: int, dy: int) -> dict[str, Any]:
         return {"before": before, "after": before, "changed": False, "error": "missing viewer image"}
     image_rect = before["imageRect"]
     dialog_rect = before["dialogRect"]
-    start_x = min(
-        max(float(image_rect["left"]) + float(image_rect["width"]) / 2, float(dialog_rect["left"]) + 8),
-        float(dialog_rect["right"]) - 8,
-    )
-    start_y = min(
-        max(float(image_rect["top"]) + float(image_rect["height"]) / 2, float(dialog_rect["top"]) + 8),
-        float(dialog_rect["bottom"]) - 8,
-    )
+    matrix = before.get("matrix")
+    scale = float(matrix.get("a", 1)) if isinstance(matrix, dict) else 1
+    if scale > 1:
+        start_x = float(dialog_rect["left"]) + float(dialog_rect["width"]) / 2
+        start_y = float(dialog_rect["top"]) + float(dialog_rect["height"]) / 2
+    else:
+        start_x = min(
+            max(float(image_rect["left"]) + float(image_rect["width"]) / 2, float(dialog_rect["left"]) + 8),
+            float(dialog_rect["right"]) - 8,
+        )
+        start_y = min(
+            max(float(image_rect["top"]) + float(image_rect["height"]) / 2, float(dialog_rect["top"]) + 8),
+            float(dialog_rect["bottom"]) - 8,
+        )
     page.mouse.move(start_x, start_y)
     page.mouse.down()
     page.mouse.move(start_x + dx, start_y + dy, steps=10)

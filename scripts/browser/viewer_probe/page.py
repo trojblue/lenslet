@@ -229,6 +229,7 @@ def read_viewer_state(page: Any) -> dict[str, Any]:
             dialogPath: dialog.getAttribute('data-current-path'),
             loadingState: dialog.getAttribute('data-viewer-loading-state'),
             imagePath: image.getAttribute('data-current-path'),
+            imageCount: dialog.querySelectorAll('img').length,
             complete: image.complete,
             naturalWidth: image.naturalWidth,
             naturalHeight: image.naturalHeight,

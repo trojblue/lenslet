@@ -37,3 +37,14 @@ Plan: /fsx/yada/dev/lenslet/docs/20260719_frontend_ui_continuity_remediation_pla
 - Blockers: none for Sprint 3.
 - Commit: `fix: make inspector presentation atomic`.
 - Next step: begin Sprint 4 at `S4-T1`; do not cross into later sprints during that iteration.
+
+## Iteration 4 — 2026-07-19 UTC
+
+- Completed tasks: `S4-T1`, `S4-T2`; Sprint 4 closed.
+- Files changed: Viewer requested/presented resource and transform-promotion owners; identity-scoped blob state; hover-preview direct/proxy decode, exact-node callback, terminal-error, and exit ownership; Viewer and grid painted-frame probes/oracles; focused browser-helper tests; regenerated packaged frontend assets; plan and Ralph handoff records.
+- Validation: exact Viewer probe passed all baseline acceptance checks (`/tmp/lenslet-continuity-s4-viewer.json`); exact grid artifact has zero Sprint 4 hover violations across normal/reduced/direct/fallback/rapid/corrupt/cancel/leave cases (`/tmp/lenslet-continuity-s4-grid.json`) and remains aggregate-red only for the pre-existing Sprint 6 Compare pixel gate; 688 frontend tests passed; TypeScript passed; 80 browser-helper tests passed; repository lint, file-size guardrails, `git diff --check`, packaged-asset parity, and dependency-manifest checks passed; full GUI acceptance passed with its known non-failing folder-anchor warning.
+- Cleanup/review: one focused 376-line hover evidence helper kept the grid owner below the hard guardrail; conservative cleanup removed redundant identity/render/setup paths. Successive fresh reviews repaired aggregate gate suppression, terminal Viewer restaging, stale same-URL hover rejection, weak RGB/error/orphan oracles, React mouseleave force coercion, terminal hover hit-testing/exit ownership, and document-exit/hidden-node gaps. The final review reported no actionable findings.
+- Production/helper accounting: frontend production source +256/-116 lines; one new focused browser helper module; no new dependencies or compatibility owners.
+- Blockers: none for Sprint 4. The enforced aggregate grid failure remains assigned to `S6-T1` and was not suppressed or fixed out of sprint order.
+- Commit: `fix: make viewer media presentation atomic`.
+- Next step: begin Sprint 5 at `S5-T1`; preserve the completed Viewer/hover ownership model and do not cross into Sprint 6 Compare/ranking behavior.

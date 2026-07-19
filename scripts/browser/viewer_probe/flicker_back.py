@@ -114,11 +114,11 @@ def run_browser_checks(base_url: str, args: argparse.Namespace) -> dict[str, Any
 
 def acceptance_failures_for_mode(mode: str, scenarios: dict[str, Any]) -> list[str]:
     failures: list[str] = []
-    if mode in ("viewer", "all"):
+    if mode in ("baseline", "viewer", "all"):
         failures.extend(viewer_acceptance_failures(scenarios.get("viewerOpen")))
-    if mode in ("back", "all"):
+    if mode in ("baseline", "back", "all"):
         failures.extend(back_acceptance_failures(scenarios.get("backHitTarget")))
-    if mode in ("interactions", "all"):
+    if mode in ("baseline", "interactions", "all"):
         failures.extend(interactions_acceptance_failures(scenarios.get("interactions")))
     return failures
 
@@ -152,7 +152,7 @@ def main() -> int:
             dataset_dir,
             host=args.host,
             port=port,
-            extra_args=["--verbose", "--no-skip-indexing"],
+            extra_args=["--verbose"],
             cwd=Path(__file__).resolve().parents[1],
             log_prefix="lenslet-viewer-probe-server-",
         ) as server:

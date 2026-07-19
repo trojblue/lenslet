@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.browser.gui_jitter import fixtures as jitter_fixtures  # noqa: E402
 from scripts.browser.gui_jitter import grid as jitter_grid  # noqa: E402
+from scripts.browser.gui_jitter import grid_hover_preview  # noqa: E402
 from scripts.browser.gui_jitter import grid_dom as jitter_grid_dom  # noqa: E402
 from scripts.browser.gui_jitter import inspector as jitter_inspector  # noqa: E402
 from scripts.browser.gui_jitter import metrics as jitter_metrics  # noqa: E402
@@ -30,6 +31,7 @@ from scripts.browser.overall_cleanup import screenshots as cleanup_screenshots  
 from scripts.browser.overall_cleanup import surfaces as cleanup_surfaces  # noqa: E402
 from scripts.browser.overall_cleanup import transforms as cleanup_transforms  # noqa: E402
 from scripts.browser.viewer_probe import back as back_probe  # noqa: E402
+from scripts.browser.viewer_probe import flicker_back as viewer_probe_entrypoint  # noqa: E402
 from scripts.browser.viewer_probe import open as open_probe  # noqa: E402
 from scripts.browser.viewer_probe import open_checks as open_checks  # noqa: E402
 from scripts.browser.viewer_probe.config import BACK_CLICK_POINTS, BACK_SAMPLE_X_FRACS, BACK_SAMPLE_Y_FRACS  # noqa: E402
@@ -531,7 +533,16 @@ def _viewer_frame(
         "elapsedMs": elapsed_ms,
         "loadingState": loading_state,
         "neutralLoaderVisible": neutral_loader_visible,
-        "visibleImages": [{"viewerImage": "full", "currentPath": path}],
+        "visibleImageCount": 1,
+        "visibleImages": [{
+            "viewerImage": "full",
+            "currentPath": path,
+            "alt": f"Image viewer: {path.rsplit('/', 1)[-1]}",
+            "complete": True,
+            "naturalWidth": 48,
+            "opacity": 1.0,
+            "rgb": [20, 30, 40],
+        }],
         "imageLikeElements": {
             "canvasCount": 0,
             "pictureCount": 0,
@@ -557,6 +568,7 @@ def test_viewer_open_acceptance_accepts_settled_full_image() -> None:
         "settled": {
             "dialogPath": "/sample.jpg",
             "imagePath": "/sample.jpg",
+            "imageCount": 1,
             "opacity": 1.0,
             "loadingState": "ready",
             "neutralLoaderVisible": False,
@@ -593,6 +605,7 @@ def test_viewer_open_acceptance_reports_loader_and_wrong_image() -> None:
         "settled": {
             "dialogPath": "/expected.jpg",
             "imagePath": "/expected.jpg",
+            "imageCount": 1,
             "opacity": 1.0,
             "loadingState": "ready",
             "neutralLoaderVisible": False,
@@ -603,7 +616,139 @@ def test_viewer_open_acceptance_reports_loader_and_wrong_image() -> None:
 
     assert any("thumbObserved is still true" in failure for failure in failures)
     assert any("neutral loader appeared" in failure for failure in failures)
-    assert any("visible non-active image" in failure for failure in failures)
+    assert any("visible non-presented image" in failure for failure in failures)
+
+
+def test_viewer_navigation_acceptance_rejects_zero_visible_images() -> None:
+    frame = _viewer_frame(path="/a.jpg", loading_state="pending")
+    frame["visibleImages"] = []
+    frame["visibleImageCount"] = 0
+    scenario = {
+        "name": "next",
+        "openedPath": "/b.jpg",
+        "navigation": {"from": "/a.jpg", "to": "/b.jpg", "direction": "next"},
+        "loaderExpected": False,
+        "loaderForbidden": False,
+        "riskSummary": {
+            "thumbObserved": False,
+            "fallbackObserved": False,
+            "fullImageCrossfadeObserved": False,
+            "duplicateVisibleImageObserved": False,
+            "openFadeClassObserved": False,
+        },
+        "samples": {"samples": [frame]},
+        "settled": {
+            "dialogPath": "/b.jpg",
+            "imagePath": "/b.jpg",
+            "imageCount": 1,
+            "opacity": 1.0,
+            "loadingState": "ready",
+            "neutralLoaderVisible": False,
+        },
+    }
+
+    failures = open_checks.viewer_acceptance_failures([scenario])
+
+    assert any("navigation painted zero visible images" in failure for failure in failures)
+
+
+def test_hover_preview_oracle_rejects_visible_loading_or_undecoded_portal() -> None:
+    frames = [
+        {"surfaceVisible": True, "path": "/a.jpg", "state": "loading", "image": None},
+        {
+            "surfaceVisible": True,
+            "path": "/a.jpg",
+            "state": "ready",
+            "image": {"complete": True, "naturalWidth": 0, "visible": True, "rgb": None},
+        },
+    ]
+
+    violations = grid_hover_preview.hover_preview_case_violations(
+        "proxy", frames, expected_path="/a.jpg", expected_rgb=[32, 72, 144],
+    )
+
+    assert violations == ["hover proxy: visible portal did not own decoded target pixels"]
+
+
+def test_hover_preview_oracle_accepts_first_visible_decoded_target() -> None:
+    frames = [
+        {"surfaceVisible": False, "path": "/a.jpg", "state": "decoding", "image": None},
+        {
+            "surfaceVisible": True,
+            "path": "/a.jpg",
+            "state": "ready",
+            "image": {
+                "complete": True,
+                "naturalWidth": 48,
+                "visible": True,
+                "rgb": [32, 72, 144],
+            },
+        },
+    ]
+
+    assert grid_hover_preview.hover_preview_case_violations(
+        "proxy", frames, expected_path="/a.jpg", expected_rgb=[32, 72, 144],
+    ) == []
+
+
+def test_hover_preview_oracle_rejects_mixed_pixels_and_visible_decode() -> None:
+    mixed = [{
+        "surfaceVisible": True,
+        "path": "/scope_a/scope_01.jpg",
+        "state": "ready",
+        "image": {
+            "complete": True,
+            "naturalWidth": 48,
+            "visible": True,
+            "rgb": [160, 64, 48],
+        },
+    }]
+    corrupt = [{
+        "surfaceVisible": True,
+        "path": "/sample_011.jpg",
+        "state": "decoding",
+        "image": None,
+    }]
+
+    assert grid_hover_preview.hover_preview_case_violations(
+        "mixed",
+        mixed,
+        expected_path="/scope_a/scope_01.jpg",
+        expected_rgb=[190, 64, 88],
+    ) == ["hover mixed: visible pixels did not match '/scope_a/scope_01.jpg'"]
+    assert grid_hover_preview.hover_preview_case_violations(
+        "corrupt", corrupt, expected_path="/sample_011.jpg", outcome="error",
+    ) == [
+        "hover corrupt: invalid resource became visible before terminal error",
+        "hover corrupt: corrupt target did not remain a terminal error",
+    ]
+
+
+def test_hover_preview_error_oracle_rejects_stale_visible_pixels() -> None:
+    frames = [{
+        "surfaceVisible": True,
+        "path": "/sample_011.jpg",
+        "state": "error",
+        "image": {"visible": True, "rgb": [190, 64, 88]},
+    }]
+
+    assert grid_hover_preview.hover_preview_case_violations(
+        "corrupt", frames, expected_path="/sample_011.jpg", outcome="error",
+    ) == [
+        "hover corrupt: terminal error retained a media node",
+        "hover corrupt: corrupt target did not remain a terminal error",
+    ]
+    assert grid_hover_preview.fixture_rgb("/quick_03_meta.png") == [38, 96, 154]
+
+    hidden_orphan = [{
+        "surfaceVisible": False,
+        "path": "/sample_011.jpg",
+        "state": "decoding",
+        "image": {"visible": False},
+    }]
+    assert grid_hover_preview.hover_preview_case_violations(
+        "cancelled", hidden_orphan, expected_path="/sample_011.jpg", outcome="cancelled",
+    ) == ["hover cancelled: orphan preview node remained"]
 
 
 def test_viewer_open_sample_summary_tracks_transient_risks() -> None:
@@ -647,6 +792,7 @@ def test_viewer_open_probe_config_and_navigation_payloads() -> None:
         via_paths=("/b.jpg", "/c.jpg"),
         to_path="/d.jpg",
         direction="next",
+        retained_transform="matrix(2, 0, 0, 2, 10, 20)",
     )
 
     assert config.viewport_size() == {"width": 1200, "height": 820}
@@ -655,7 +801,16 @@ def test_viewer_open_probe_config_and_navigation_payloads() -> None:
         "via": ["/b.jpg", "/c.jpg"],
         "to": "/d.jpg",
         "direction": "next",
+        "retainedTransform": "matrix(2, 0, 0, 2, 10, 20)",
     }
+
+
+def test_viewer_baseline_mode_enforces_every_collected_scenario() -> None:
+    failures = viewer_probe_entrypoint.acceptance_failures_for_mode("baseline", {})
+
+    assert any(failure.startswith("viewer:") for failure in failures)
+    assert any(failure.startswith("back:") for failure in failures)
+    assert any(failure.startswith("interactions:") for failure in failures)
 
 
 def test_back_acceptance_accepts_all_sampled_points_and_clicks() -> None:

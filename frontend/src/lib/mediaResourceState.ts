@@ -22,12 +22,13 @@ export type MediaResourceError = {
   retryable: boolean
 }
 
-export type BlobMediaResourceState =
+export type BlobMediaResourceState = { identity?: string } & (
   | { status: 'idle' }
   | { status: 'loading'; requestId: number; source: MediaResourceSource }
   | { status: 'ready'; requestId: number; source: MediaResourceSource; url: string }
   | { status: 'error'; requestId: number; error: MediaResourceError; retry: () => void }
   | { status: 'unsupported'; reason: string }
+)
 
 export function browserDecodeMediaError(): MediaResourceError {
   return {

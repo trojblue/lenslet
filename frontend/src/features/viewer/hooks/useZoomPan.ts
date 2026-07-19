@@ -178,6 +178,20 @@ export function useZoomPan() {
     markGeometryReady()
   }, [applyTransform, markGeometryReady])
 
+  const prepareImagePromotion = useCallback((imageElement: HTMLImageElement): boolean => {
+    const container = readElementSize(containerRef.current)
+    const image = readImageSize(imageElement)
+    if (!container || !image) return false
+    const next = fitImageToContainer(container, image)
+    transformFrameSchedulerRef.current?.cancel()
+    pendingTransformRef.current = null
+    centerRef.current = { x: 0.5, y: 0.5 }
+    transformRef.current = next
+    setTransformState(next)
+    markGeometryReady()
+    return true
+  }, [markGeometryReady])
+
   const preserveCenterAfterResize = useCallback(() => {
     const container = readElementSize(containerRef.current)
     const image = readImageSize(imgRef.current)
@@ -388,6 +402,6 @@ export function useZoomPan() {
   return {
     scale, tx, ty, base, ready, setReady, dragging, setDragging, geometryVersion,
     containerRef, imgRef,
-    resetView, zoomToPercent, handleWheel, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, shouldSuppressSurfaceClick,
+    resetView, prepareImagePromotion, zoomToPercent, handleWheel, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, shouldSuppressSurfaceClick,
   }
 }

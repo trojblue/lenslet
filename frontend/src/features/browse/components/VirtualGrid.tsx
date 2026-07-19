@@ -29,10 +29,22 @@ import {
 import { LongPressController } from '../../../lib/touch'
 import { shouldOpenOnTap, toggleSelectedPath } from '../../../lib/mobileSelection'
 import { directOriginalImageUrl } from '../../media/originalImageResource'
-import { mediaErrorSummary, type MediaResourceError } from '../../../lib/mediaResourceState'
+import {
+  browserDecodeMediaError,
+  mediaErrorSummary,
+  type MediaResourceError,
+} from '../../../lib/mediaResourceState'
+import { decodeThumbnailBeforeReveal } from '../model/thumbnailReveal'
 
 const GAP = 16
 const CAPTION_H = 56
+
+function isHoverPreviewOwner(element: Element): boolean {
+  return Boolean(
+    element.closest('.grid-hover-preview')
+    || element.closest('.grid-item-preview-hotspot')
+  )
+}
 const DEFAULT_ASPECT = { w: 4, h: 3 }
 const PREVIEW_DELAY_MS = 350
 const SCROLL_IDLE_MS = 120
@@ -131,11 +143,18 @@ export default function VirtualGrid({
   const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number } | null>(null)
   const [previewSize, setPreviewSize] = useState<HoverPreviewSurfaceSize | null>(null)
   const [delayPassed, setDelayPassed] = useState<boolean>(false)
+  const [previewDecoded, setPreviewDecoded] = useState(false)
   const [directPreviewFailures, setDirectPreviewFailures] = useState<Set<string>>(() => new Set())
   const [active, setActive] = useState<string | null>(null)
   const [focused, setFocused] = useState<string | null>(null)
   const previewTimerRef = useRef<number | null>(null)
   const previewControllerRef = useRef<HoverPreviewRequestController | null>(null)
+  const previewErrorRef = useRef<MediaResourceError | null>(null)
+  const previewCandidateRef = useRef<{
+    path: string
+    url: string
+    image: HTMLImageElement | null
+  } | null>(null)
   const internalRef = useRef<HTMLDivElement | null>(null)
   const parentRef = scrollRef ?? internalRef
   const anchorRef = useRef<string | null>(null)
@@ -163,17 +182,23 @@ export default function VirtualGrid({
       },
       {
         onReady: ({ path, url }) => {
+          previewCandidateRef.current = { path, url, image: null }
+          previewErrorRef.current = null
           setPreviewFor(path)
           setPreviewUrl(url)
           setPreviewDirectPath(null)
           setPreviewError(null)
+          setPreviewDecoded(false)
           setDelayPassed(true)
         },
         onError: ({ path, error }) => {
+          previewCandidateRef.current = null
+          previewErrorRef.current = error
           setPreviewFor(path)
           setPreviewUrl(null)
           setPreviewDirectPath(null)
           setPreviewError(error)
+          setPreviewDecoded(false)
           setDelayPassed(true)
         },
       },
@@ -314,17 +339,40 @@ export default function VirtualGrid({
   }
 
   function clearPreview(force = false): void {
-    if (previewError && !force) return
+    if (previewErrorRef.current && !force) return
     cancelPreviewTimer()
     previewControllerRef.current?.clear()
     setDelayPassed(false)
     setPreviewFor(null)
     setPreviewUrl(null)
     setPreviewDirectPath(null)
+    previewErrorRef.current = null
     setPreviewError(null)
+    setPreviewDecoded(false)
+    previewCandidateRef.current = null
     setPreviewPosition(null)
     setPreviewSize(null)
   }
+
+  useEffect(() => {
+    if (!previewError) return
+    const clearAfterOwnedHover = (event: MouseEvent) => {
+      const target = event.target
+      if (target instanceof Element && isHoverPreviewOwner(target)) return
+      const priorTarget = event.relatedTarget
+      if (!(priorTarget instanceof Element) || !isHoverPreviewOwner(priorTarget)) return
+      clearPreview(true)
+    }
+    const clearAfterDocumentExit = (event: MouseEvent) => {
+      if (event.relatedTarget === null) clearPreview(true)
+    }
+    window.addEventListener('mouseover', clearAfterOwnedHover)
+    window.addEventListener('mouseout', clearAfterDocumentExit)
+    return () => {
+      window.removeEventListener('mouseover', clearAfterOwnedHover)
+      window.removeEventListener('mouseout', clearAfterDocumentExit)
+    }
+  }, [previewError])
 
   useLayoutEffect(() => {
     if (!interactionDisabled) return
@@ -348,28 +396,52 @@ export default function VirtualGrid({
     setPreviewFor(path)
     setPreviewUrl(null)
     setPreviewDirectPath(null)
+    previewErrorRef.current = null
     setPreviewError(null)
+    setPreviewDecoded(false)
+    previewCandidateRef.current = null
     setPreviewPosition(position)
     setPreviewSize(surfaceSize)
     setDelayPassed(false)
     previewTimerRef.current = window.setTimeout(() => {
       previewTimerRef.current = null
       if (directUrl) {
+        previewCandidateRef.current = { path, url: directUrl, image: null }
         setPreviewFor(path)
         setPreviewUrl(directUrl)
         setPreviewDirectPath(path)
+        setPreviewDecoded(false)
         setDelayPassed(true)
         return
       }
       setPreviewDirectPath(null)
+      previewErrorRef.current = null
       setPreviewError(null)
       setDelayPassed(true)
       previewControllerRef.current?.begin(path)
     }, PREVIEW_DELAY_MS)
   }
 
-  const handlePreviewImageError = () => {
-    if (!previewDirectPath || previewDirectPath !== previewFor) return
+  const handlePreviewImageError = (image: HTMLImageElement) => {
+    const candidate = previewCandidateRef.current
+    if (
+      !candidate
+      || candidate.path !== previewFor
+      || candidate.url !== previewUrl
+      || (candidate.image !== null && candidate.image !== image)
+      || !image.isConnected
+      || (image.currentSrc || image.src) !== candidate.url
+    ) return
+    previewCandidateRef.current = null
+    setPreviewDecoded(false)
+    if (!previewDirectPath || previewDirectPath !== previewFor) {
+      previewControllerRef.current?.clear()
+      setPreviewUrl(null)
+      const error = browserDecodeMediaError()
+      previewErrorRef.current = error
+      setPreviewError(error)
+      return
+    }
     const failedPath = previewDirectPath
     setDirectPreviewFailures((prev) => {
       if (prev.has(failedPath)) return prev
@@ -379,16 +451,36 @@ export default function VirtualGrid({
     })
     setPreviewDirectPath(null)
     setPreviewUrl(null)
+    previewErrorRef.current = null
     setPreviewError(null)
     setDelayPassed(true)
     previewControllerRef.current?.begin(failedPath)
+  }
+
+  const decodePreviewImage = (image: HTMLImageElement) => {
+    const candidate = previewCandidateRef.current
+    if (!candidate || (image.currentSrc || image.src) !== candidate.url) return
+    previewCandidateRef.current = { ...candidate, image }
+    void decodeThumbnailBeforeReveal(image).then(() => {
+      if (
+        previewCandidateRef.current?.path !== candidate.path
+        || previewCandidateRef.current.url !== candidate.url
+        || previewCandidateRef.current.image !== image
+        || !image.isConnected
+        || (image.currentSrc || image.src) !== candidate.url
+      ) return
+      setPreviewDecoded(true)
+    }).catch(() => handlePreviewImageError(image))
   }
 
   const retryHoverPreview = () => {
     if (!previewFor) return
     setPreviewUrl(null)
     setPreviewDirectPath(null)
+    previewErrorRef.current = null
     setPreviewError(null)
+    setPreviewDecoded(false)
+    previewCandidateRef.current = null
     setDelayPassed(true)
     previewControllerRef.current?.begin(previewFor)
   }
@@ -669,7 +761,7 @@ export default function VirtualGrid({
     }
     return order
   }, [selected])
-  const hasPreview = !!(previewFor && delayPassed && (previewUrl || previewError))
+  const hasPreview = !!(previewFor && delayPassed && (previewDecoded || previewError))
   const adjacentThumbPrefetchPaths = useMemo(
     () => getAdjacentThumbPrefetchPaths(virtualRows, layout, items),
     [items, layout, virtualRows],
@@ -806,31 +898,32 @@ export default function VirtualGrid({
           onContextMenuItem={interactionDisabled ? undefined : onContextMenuItem}
           onOpenItemActions={openActionsForPath}
           onOpenViewer={(path) => { if (!interactionDisabled) onOpenViewer(path) }}
-          onClearPreview={clearPreview}
+          onClearPreview={() => clearPreview()}
           onSchedulePreview={schedulePreview}
           onItemClick={handleItemClick}
           demandThumbPaths={demandThumbPaths}
         />
-        {previewFor && delayPassed && previewPosition && previewSize && createPortal(
+        {previewFor && delayPassed && previewPosition && previewSize && (previewUrl || previewError) && createPortal(
           <div
             className={`grid-hover-preview fixed z-[999] overflow-hidden rounded-lg border border-border bg-panel/95 shadow-lg ${previewError ? 'pointer-events-auto' : 'pointer-events-none'}`}
             data-preview-path={previewFor}
-            data-media-state={previewError ? 'error' : previewUrl ? 'ready' : 'loading'}
+            data-media-state={previewError ? 'error' : previewDecoded ? 'ready' : 'decoding'}
             aria-hidden={previewError ? undefined : true}
-            onMouseLeave={previewError ? () => clearPreview(true) : undefined}
             style={{
               left: previewPosition.x,
               top: previewPosition.y,
               width: previewSize.width,
               height: previewSize.height,
+              visibility: previewError || previewDecoded ? 'visible' : 'hidden',
             }}
           >
             {previewUrl ? (
               <img
                 src={previewUrl}
                 alt="preview"
-                className="block h-full w-full object-contain opacity-[0.98]"
-                onError={handlePreviewImageError}
+                className="block h-full w-full object-contain"
+                onLoad={(event) => decodePreviewImage(event.currentTarget)}
+                onError={(event) => handlePreviewImageError(event.currentTarget)}
               />
             ) : previewError ? (
               <div className="media-error-overlay media-error-overlay-preview">
@@ -842,11 +935,7 @@ export default function VirtualGrid({
                   </button>
                 )}
               </div>
-            ) : (
-              <div className="media-loading-overlay">
-                <div className="h-7 w-7 rounded-full border border-border border-t-accent animate-spin" />
-              </div>
-            )}
+            ) : null}
           </div>,
           document.body
         )}

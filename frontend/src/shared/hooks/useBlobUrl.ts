@@ -145,10 +145,15 @@ export function useBlobUrl(fetcher: (() => Promise<Blob>) | null, deps: Dependen
 export function useBlobResource(
   fetcher: (() => Promise<Blob>) | null,
   deps: DependencyList,
-  options: { source?: MediaResourceSource; unsupportedReason?: string | null } = {},
+  options: {
+    source?: MediaResourceSource
+    unsupportedReason?: string | null
+    identity?: string
+  } = {},
 ): BlobMediaResourceState {
   const source = options.source ?? 'blob'
   const unsupportedReason = options.unsupportedReason ?? null
+  const identity = options.identity
   const [state, setState] = useState<BlobMediaResourceState>({ status: 'idle' })
   const requestIdRef = useRef(0)
   const urlRef = useRef<string | null>(null)
@@ -161,33 +166,34 @@ export function useBlobResource(
   useEffect(() => {
     if (unsupportedReason) {
       clearObjectUrls(urlRef, pendingRevokesRef)
-      setState({ status: 'unsupported', reason: unsupportedReason })
+      setState({ status: 'unsupported', reason: unsupportedReason, identity })
       return
     }
 
     if (!fetcher) {
       clearObjectUrls(urlRef, pendingRevokesRef)
-      setState({ status: 'idle' })
+      setState({ status: 'idle', identity })
       return
     }
 
     let alive = true
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
-    setState({ status: 'loading', requestId, source })
+    setState({ status: 'loading', requestId, source, identity })
 
     let promise: Promise<Blob>
     try {
       promise = fetcher()
     } catch (error) {
       if (isAbortMediaError(error)) {
-        setState({ status: 'idle' })
+        setState({ status: 'idle', identity })
       } else {
         setState({
           status: 'error',
           requestId,
           error: mediaErrorFromUnknown(error),
           retry,
+          identity,
         })
       }
       return
@@ -199,7 +205,7 @@ export function useBlobResource(
         const next = URL.createObjectURL(blob)
         const previous = urlRef.current
         urlRef.current = next
-        setState({ status: 'ready', requestId, source, url: next })
+        setState({ status: 'ready', requestId, source, url: next, identity })
         if (previous) {
           queueObjectUrlRevoke(previous, pendingRevokesRef)
         }
@@ -207,7 +213,7 @@ export function useBlobResource(
       .catch((error) => {
         if (!alive || requestIdRef.current !== requestId) return
         if (isAbortMediaError(error)) {
-          setState({ status: 'idle' })
+          setState({ status: 'idle', identity })
           return
         }
         setState({
@@ -215,6 +221,7 @@ export function useBlobResource(
           requestId,
           error: mediaErrorFromUnknown(error),
           retry,
+          identity,
         })
       })
 
@@ -222,7 +229,7 @@ export function useBlobResource(
       alive = false
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, retryToken, source, unsupportedReason])
+  }, [...deps, retryToken, source, unsupportedReason, identity])
 
   useEffect(() => {
     return () => {

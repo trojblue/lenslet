@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from scripts.browser.viewer_probe.config import ViewerProbeFailure
 from scripts.browser.viewer_probe.open_checks import summarize_open_samples
@@ -44,6 +44,7 @@ class ViewerNavigationTrace:
     to_path: str
     direction: str
     via_paths: tuple[str, ...] = ()
+    retained_transform: str | None = None
 
     def as_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -53,6 +54,8 @@ class ViewerNavigationTrace:
         }
         if self.via_paths:
             payload["via"] = list(self.via_paths)
+        if self.retained_transform:
+            payload["retainedTransform"] = self.retained_transform
         return payload
 
 
@@ -113,12 +116,38 @@ def collect_viewer_open_samples(
             && payload.rect.width > 0
             && payload.rect.height > 0
           );
+          const imageTokens = new WeakMap();
+          let nextImageToken = 1;
+          const imageToken = image => {
+            let token = imageTokens.get(image);
+            if (!token) {
+              token = `viewer-image-${nextImageToken}`;
+              nextImageToken += 1;
+              imageTokens.set(image, token);
+            }
+            return token;
+          };
+          const samplePixel = image => {
+            if (!(image instanceof HTMLImageElement) || !image.complete || image.naturalWidth <= 0) return null;
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = 1;
+              canvas.height = 1;
+              const context = canvas.getContext('2d', { willReadFrequently: true });
+              context?.drawImage(image, image.naturalWidth / 2, image.naturalHeight / 2, 1, 1, 0, 0, 1, 1);
+              const pixel = context?.getImageData(0, 0, 1, 1).data;
+              return pixel ? [pixel[0], pixel[1], pixel[2]] : null;
+            } catch {
+              return null;
+            }
+          };
           const imagePayload = (el) => {
             if (!(el instanceof HTMLImageElement)) return null;
             const rect = el.getBoundingClientRect();
             const style = getComputedStyle(el);
             return {
               tag: el.tagName,
+              token: imageToken(el),
               alt: el.getAttribute('alt'),
               viewerImage: el.getAttribute('data-viewer-image'),
               src: el.currentSrc || el.src || null,
@@ -126,6 +155,7 @@ def collect_viewer_open_samples(
               complete: el.complete,
               naturalWidth: el.naturalWidth,
               naturalHeight: el.naturalHeight,
+              rgb: samplePixel(el),
               opacity: Number(style.opacity || '0'),
               display: style.display,
               visibility: style.visibility,
@@ -254,10 +284,20 @@ def _new_probe_page(
     config: ViewerOpenProbeConfig,
     *,
     file_delay_ms: int,
+    corrupt_path: str | None = None,
 ) -> tuple[Any, list[str]]:
     page = context.new_page()
     page.set_default_timeout(config.timeout_ms)
     requests = _tracked_media_requests(page)
+    if corrupt_path:
+        def corrupt_file(route: Any) -> None:
+            path = parse_qs(urlparse(route.request.url).query).get("path", [None])[0]
+            if path == corrupt_path:
+                route.fulfill(status=200, content_type="image/jpeg", body=b"not-an-image")
+                return
+            route.continue_()
+
+        page.route("**/file?*", corrupt_file)
     install_file_delay_route(page, file_delay_ms)
     page.add_init_script(seed_storage_script())
     page.set_viewport_size(config.viewport_size())
@@ -313,7 +353,21 @@ def run_viewer_open_probe(
             config=config,
         )
     )
+    results.extend(run_reduced_motion_probe(context, base_url, config=config))
+    results.append(run_corrupt_navigation_probe(context, base_url, config=config))
     return results
+
+
+def zoom_presented_viewer(page: Any) -> str | None:
+    dialog = page.locator('[role="dialog"][aria-label="Image viewer"]')
+    box = dialog.bounding_box()
+    if not box:
+        return None
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.wheel(0, -700)
+    page.wait_for_timeout(80)
+    transform = read_viewer_state(page).get("transform")
+    return transform if isinstance(transform, str) else None
 
 
 def run_rapid_navigation_probe(
@@ -332,6 +386,7 @@ def run_rapid_navigation_probe(
     paths = [path_from_cell_id(cell_id) for cell_id in cell_ids[:4]]
     opened_path, _ = open_first_viewer(page, config.timeout_ms)
     wait_for_viewer_ready(page, opened_path, config.timeout_ms)
+    retained_transform = zoom_presented_viewer(page)
 
     results: list[dict[str, Any]] = []
     page.keyboard.press("ArrowRight")
@@ -353,12 +408,14 @@ def run_rapid_navigation_probe(
                     via_paths=(paths[1], paths[2]),
                     to_path=paths[3],
                     direction="next",
+                    retained_transform=retained_transform,
                 ),
             ),
             config=config,
             requests=requests,
         )
     )
+    retained_transform = zoom_presented_viewer(page)
     page.keyboard.press("ArrowLeft")
     results.append(
         collect_navigation_samples(
@@ -373,6 +430,7 @@ def run_rapid_navigation_probe(
                     from_path=paths[3],
                     to_path=paths[2],
                     direction="previous",
+                    retained_transform=retained_transform,
                 ),
             ),
             config=config,
@@ -383,6 +441,120 @@ def run_rapid_navigation_probe(
         close_viewer(page, config.timeout_ms)
     page.close()
     return results
+
+
+def run_reduced_motion_probe(
+    context: Any,
+    base_url: str,
+    *,
+    config: ViewerOpenProbeConfig,
+) -> list[dict[str, Any]]:
+    page, requests = _new_probe_page(
+        context,
+        base_url,
+        config,
+        file_delay_ms=config.delayed_file_route_ms,
+    )
+    page.emulate_media(reduced_motion="reduce")
+    cell_ids = wait_for_visible_grid_cell_ids(page, 2, config.timeout_ms)
+    paths = [path_from_cell_id(cell_id) for cell_id in cell_ids[:2]]
+    opened_path, _ = open_first_viewer(page, config.timeout_ms)
+    wait_for_viewer_ready(page, opened_path, config.timeout_ms)
+    page.keyboard.press("ArrowRight")
+    result = collect_navigation_samples(
+        page,
+        ViewerNavigationSample(
+            name="reduced-motion-next",
+            expected_path=paths[1],
+            opened_cell_id=cell_ids[1],
+            loader_expected=False,
+            loader_forbidden=False,
+            trace=ViewerNavigationTrace(
+                from_path=opened_path,
+                to_path=paths[1],
+                direction="next",
+            ),
+        ),
+        config=config,
+        requests=requests,
+    )
+    result["reducedMotion"] = True
+    if is_viewer_open(page):
+        close_viewer(page, config.timeout_ms)
+    page.close()
+    return [result]
+
+
+def run_corrupt_navigation_probe(
+    context: Any,
+    base_url: str,
+    *,
+    config: ViewerOpenProbeConfig,
+) -> dict[str, Any]:
+    corrupt_path = "/alpha/alpha_00_wide.jpg"
+    page, requests = _new_probe_page(
+        context,
+        base_url,
+        config,
+        file_delay_ms=config.delayed_file_route_ms,
+        corrupt_path=corrupt_path,
+    )
+    cell_ids = wait_for_visible_grid_cell_ids(page, 6, config.timeout_ms)
+    paths = [path_from_cell_id(cell_id) for cell_id in cell_ids]
+    if corrupt_path not in paths:
+        raise ViewerProbeFailure(f"Corrupt Viewer target was not visible: {paths!r}")
+    opened_path, _ = open_first_viewer(page, config.timeout_ms)
+    wait_for_viewer_ready(page, opened_path, config.timeout_ms)
+    corrupt_index = paths.index(corrupt_path)
+    for _ in range(corrupt_index):
+        page.keyboard.press("ArrowRight")
+    wait_for_viewer_path(page, corrupt_path, config.timeout_ms)
+    samples = collect_viewer_open_samples(
+        page,
+        name="corrupt-target",
+        frames=config.frames,
+        interval_ms=config.interval_ms,
+    )
+    page.wait_for_function(
+        """() => document.querySelector('[role="dialog"][aria-label="Image viewer"]')
+          ?.getAttribute('data-viewer-loading-state') === 'error'""",
+        timeout=config.timeout_ms,
+    )
+    settled = page.evaluate(
+        """() => {
+          const dialog = document.querySelector('[role="dialog"][aria-label="Image viewer"]');
+          return {
+            missing: !(dialog instanceof HTMLElement),
+            dialogPath: dialog?.getAttribute('data-current-path') || null,
+            imagePath: dialog?.querySelector('img[data-viewer-image="full"]')?.getAttribute('data-current-path') || null,
+            imageCount: dialog?.querySelectorAll('img').length || 0,
+            loadingState: dialog?.getAttribute('data-viewer-loading-state') || null,
+            neutralLoaderVisible: Boolean(dialog?.querySelector('[data-viewer-loader="neutral"]')),
+          };
+        }"""
+    )
+    result = {
+        "name": "corrupt-target",
+        "openedPath": corrupt_path,
+        "openedCellId": cell_ids[corrupt_index],
+        "loaderExpected": True,
+        "loaderForbidden": False,
+        "terminalExpected": "error",
+        "samples": samples,
+        "settled": settled,
+        "requests": requests,
+        "navigation": ViewerNavigationTrace(
+            from_path=opened_path,
+            via_paths=tuple(paths[1:corrupt_index]),
+            to_path=corrupt_path,
+            direction="next",
+        ).as_payload(),
+        "riskSummary": summarize_open_samples(samples),
+    }
+    if is_viewer_open(page):
+        close_viewer(page, config.timeout_ms)
+    page.close()
+    return result
 
 
 def collect_navigation_samples(

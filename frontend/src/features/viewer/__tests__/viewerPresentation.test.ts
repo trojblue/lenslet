@@ -3,25 +3,22 @@ import { getViewerImagePresentation, shouldRenderViewerImageResource } from '../
 
 describe('viewer image presentation', () => {
   it('keeps the previous resource visible as transitional while a new path loads', () => {
-    expect(getViewerImagePresentation('/set/a.jpg', '/set/b.jpg', false)).toEqual({
-      isCurrent: false,
-      isTransitioning: true,
-      opacity: 0.42,
+    expect(getViewerImagePresentation('/set/a.jpg', '/set/a.jpg')).toEqual({
+      isPresented: true,
+      opacity: 1,
     })
   })
 
   it('hides a current resource until it has decoded for the active path', () => {
-    expect(getViewerImagePresentation('/set/b.jpg', '/set/b.jpg', false)).toEqual({
-      isCurrent: true,
-      isTransitioning: false,
+    expect(getViewerImagePresentation('/set/b.jpg', '/set/a.jpg')).toEqual({
+      isPresented: false,
       opacity: 0,
     })
   })
 
   it('shows the current resource after decode', () => {
-    expect(getViewerImagePresentation('/set/b.jpg', '/set/b.jpg', true)).toEqual({
-      isCurrent: true,
-      isTransitioning: false,
+    expect(getViewerImagePresentation('/set/b.jpg', '/set/b.jpg')).toEqual({
+      isPresented: true,
       opacity: 1,
     })
   })

@@ -14,8 +14,10 @@ import type { BrowseItemPayload } from '../../lib/types'
 const VIEWER_LOADER_DELAY_MS = 150
 
 type ViewerImageResource = {
+  key: string
   path: string
   url: string
+  source: 'direct' | 'proxy'
 }
 
 function isViewerControlTarget(target: EventTarget | null): boolean {
@@ -29,16 +31,13 @@ function getImageLabel(path: string): string {
 }
 
 export function getViewerImagePresentation(
-  resourcePath: string | null | undefined,
-  currentPath: string,
-  imageReady: boolean,
-): { isCurrent: boolean; isTransitioning: boolean; opacity: number } {
-  const isCurrent = resourcePath === currentPath
-  const isTransitioning = Boolean(resourcePath && !isCurrent)
+  resourceKey: string | null | undefined,
+  presentedKey: string | null | undefined,
+): { isPresented: boolean; opacity: number } {
+  const isPresented = Boolean(resourceKey && resourceKey === presentedKey)
   return {
-    isCurrent,
-    isTransitioning,
-    opacity: imageReady ? 1 : (isTransitioning ? 0.42 : 0),
+    isPresented,
+    opacity: isPresented ? 1 : 0,
   }
 }
 
@@ -85,7 +84,7 @@ export default function Viewer({
     dragging,
     containerRef,
     imgRef,
-    resetView,
+    prepareImagePromotion,
     zoomToPercent,
     handleWheel,
     handlePointerDown,
@@ -100,28 +99,40 @@ export default function Viewer({
   const blobResource = useBlobResource(
     directUrl || unsupportedReason ? null : () => api.getFile(path),
     [path, directUrl, unsupportedReason],
-    { source: 'proxy', unsupportedReason },
+    { source: 'proxy', unsupportedReason, identity: path },
   )
-  const blobUrl = blobResource.status === 'ready' ? blobResource.url : null
+  const blobStateIsCurrent = blobResource.identity === path
+  const blobUrl = blobStateIsCurrent && blobResource.status === 'ready' ? blobResource.url : null
   const url = directUrl ?? blobUrl
-  const resourceIdentity = directUrl ? `${path}\n${directUrl}` : url
-  const [elementError, setElementError] = useState<MediaResourceError | null>(null)
-  const [imageResource, setImageResource] = useState<ViewerImageResource | null>(null)
+  const resourceIdentity = url ? `${path}\n${url}` : null
+  const [elementError, setElementError] = useState<{ path: string; error: MediaResourceError } | null>(null)
+  const [presentedResource, setPresentedResource] = useState<ViewerImageResource | null>(null)
+  const [candidateResource, setCandidateResource] = useState<ViewerImageResource | null>(null)
   const [readyPath, setReadyPath] = useState<string | null>(null)
   const [showDelayedLoader, setShowDelayedLoader] = useState(false)
+  const requestedPathRef = useRef(path)
+  const candidateResourceRef = useRef<ViewerImageResource | null>(null)
   const readyPathRef = useRef<string | null>(null)
-  const activeResource = imageResource?.path === path ? imageResource : null
-  const loadError = elementError ?? (blobResource.status === 'error' ? blobResource.error : null)
-  const retryLoad = blobResource.status === 'error' ? blobResource.retry : null
-  const unsupported = blobResource.status === 'unsupported' ? blobResource.reason : null
-  const imageReady = ready && readyPath === path && activeResource !== null && !loadError && !unsupported
-  const imagePresentation = getViewerImagePresentation(imageResource?.path, path, imageReady)
+  requestedPathRef.current = path
+  const targetElementError = elementError?.path === path ? elementError.error : null
+  const loadError = targetElementError
+    ?? (blobStateIsCurrent && blobResource.status === 'error' ? blobResource.error : null)
+  const retryLoad = blobStateIsCurrent && blobResource.status === 'error' ? blobResource.retry : null
+  const unsupported = blobStateIsCurrent && blobResource.status === 'unsupported'
+    ? blobResource.reason
+    : unsupportedReason
+  const imageReady = ready && readyPath === path && presentedResource?.path === path && !loadError && !unsupported
   const showDisplayedResource = shouldRenderViewerImageResource(
-    imageResource?.path,
+    presentedResource?.path,
     Boolean(loadError || unsupported),
   )
-  const imageLabel = getImageLabel(path)
   const viewerLoadingState = unsupported ? 'unsupported' : loadError ? 'error' : imageReady ? 'ready' : showDelayedLoader ? 'loading' : 'pending'
+  const imageResources = presentedResource
+    ? [
+        presentedResource,
+        ...(candidateResource && candidateResource.key !== presentedResource.key ? [candidateResource] : []),
+      ]
+    : candidateResource ? [candidateResource] : []
   const closeViewer = useCallback(() => {
     onClose()
   }, [onClose])
@@ -150,32 +161,41 @@ export default function Viewer({
       return next
     })
   }, [directUrl, path])
-  const handleImageError = useCallback(() => {
-    const resource = activeResource
-    const image = imgRef.current
-    if (!resource || !image || (image.currentSrc || image.src) !== resource.url) return
-    if (directUrl) {
+  const handleImageError = useCallback((resource: ViewerImageResource) => {
+    if (candidateResourceRef.current?.key !== resource.key || requestedPathRef.current !== resource.path) return
+    candidateResourceRef.current = null
+    setCandidateResource(null)
+    if (resource.source === 'direct') {
       markDirectImageFailed()
       return
     }
-    setElementError(browserDecodeMediaError())
+    setElementError({ path: resource.path, error: browserDecodeMediaError() })
     setShowDelayedLoader(false)
-  }, [activeResource, directUrl, imgRef, markDirectImageFailed])
+  }, [markDirectImageFailed])
   const retryFailedLoad = useCallback(() => {
     setElementError(null)
     retryLoad?.()
   }, [retryLoad])
-  const markImageReady = useCallback(() => {
-    const resource = activeResource
-    const image = imgRef.current
-    if (!resource || resource.path !== path || !image || (image.currentSrc || image.src) !== resource.url) return
-    if (readyPathRef.current === resource.path) return
-    resetView()
-    readyPathRef.current = resource.path
-    setReadyPath(resource.path)
-    setReady(true)
-    setShowDelayedLoader(false)
-  }, [activeResource, imgRef, path, resetView, setReady])
+  const decodeAndPromote = useCallback((image: HTMLImageElement, resource: ViewerImageResource) => {
+    void image.decode().then(() => {
+      if (
+        candidateResourceRef.current?.key !== resource.key
+        || requestedPathRef.current !== resource.path
+        || !image.isConnected
+        || (image.currentSrc || image.src) !== resource.url
+      ) return
+      if (!prepareImagePromotion(image)) return
+      candidateResourceRef.current = null
+      readyPathRef.current = resource.path
+      imgRef.current = image
+      setCandidateResource(null)
+      setPresentedResource(resource)
+      setReadyPath(resource.path)
+      setReady(true)
+      setElementError(null)
+      setShowDelayedLoader(false)
+    }).catch(() => handleImageError(resource))
+  }, [handleImageError, imgRef, prepareImagePromotion, setReady])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -200,11 +220,10 @@ export default function Viewer({
   }, [canNext, canPrev, closeViewer, onNavigate])
 
   useEffect(() => {
-    readyPathRef.current = null
-    setReady(false)
-    setReadyPath(null)
     setElementError(null)
     setShowDelayedLoader(false)
+    candidateResourceRef.current = null
+    setCandidateResource(null)
 
     let active = true
     const timeoutId = window.setTimeout(() => {
@@ -217,34 +236,33 @@ export default function Viewer({
       active = false
       window.clearTimeout(timeoutId)
     }
-  }, [path, setReady])
+  }, [path])
 
-  // useBlobUrl preserves the previous URL while the next path fetch is in
-  // flight. Only a URL change may bind a blob URL to the current viewer path.
+  // Stage only a URL tagged with the current request identity. The previously
+  // presented node remains independently owned until this candidate decodes.
   useEffect(() => {
-    if (!url) {
-      readyPathRef.current = null
-      setReady(false)
-      setReadyPath(null)
-      return
+    if (!url || !resourceIdentity || targetElementError) return
+    const resource: ViewerImageResource = {
+      key: resourceIdentity,
+      path,
+      url,
+      source: directUrl ? 'direct' : 'proxy',
     }
-    setImageResource({ path, url })
-    readyPathRef.current = null
+    if (presentedResource?.key === resource.key) return
+    candidateResourceRef.current = resource
+    setCandidateResource(resource)
     setElementError(null)
-    setReady(false)
-    setReadyPath(null)
-  // URL changes bind the blob URL to the current path; path-only renders with
-  // the previous URL must not rebind or render that stale resource.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resourceIdentity])
+  }, [directUrl, path, presentedResource?.key, resourceIdentity, targetElementError, url])
 
   useEffect(() => {
-    if (!activeResource) return
-    const image = imgRef.current
-    if (image?.complete && image.naturalWidth > 0) {
-      markImageReady()
-    }
-  }, [activeResource, markImageReady])
+    if (!loadError && !unsupported) return
+    candidateResourceRef.current = null
+    readyPathRef.current = null
+    setCandidateResource(null)
+    setPresentedResource(null)
+    setReadyPath(null)
+    setReady(false)
+  }, [loadError, setReady, unsupported])
 
   useEffect(() => { if (onZoomChange) onZoomChange((base * scale) * 100) }, [base, scale, onZoomChange])
 
@@ -263,6 +281,7 @@ export default function Viewer({
       aria-modal={false}
       aria-label="Image viewer"
       data-current-path={path}
+      data-presented-path={presentedResource?.path ?? ''}
       data-viewer-loading-state={viewerLoadingState}
       aria-busy={imageReady ? undefined : true}
       tabIndex={-1}
@@ -307,30 +326,40 @@ export default function Viewer({
           )}
         </div>
       )}
-      {showDisplayedResource && imageResource && (
-        <img
-          ref={imgRef}
-          src={imageResource.url}
-          alt={`Image viewer: ${imageLabel}`}
-          data-viewer-image="full"
-          data-current-path={imageResource.path}
-          data-viewer-image-current={imagePresentation.isCurrent ? 'true' : 'false'}
-          className="max-w-none max-h-none object-contain will-change-transform select-none"
-          draggable={false}
-          onDragStart={(e)=>{ e.preventDefault() }}
-          onLoad={markImageReady}
-          onError={handleImageError}
-          onClick={(e)=> e.stopPropagation()}
-          style={{
-            transform: `translate(${tx}px, ${ty}px) scale(${base * scale})`,
-            transformOrigin: `0 0`,
-            opacity: imagePresentation.opacity,
-            filter: imagePresentation.isTransitioning ? 'saturate(0.72)' : undefined,
-            transition: 'opacity 120ms ease',
-            WebkitUserDrag: 'none',
-          } as React.CSSProperties}
-        />
-      )}
+      {imageResources.map((resource) => {
+        const presentation = getViewerImagePresentation(resource.key, presentedResource?.key)
+        const displayed = presentation.isPresented && showDisplayedResource
+        return (
+          <img
+            key={resource.key}
+            ref={(node) => {
+              if (displayed) imgRef.current = node
+              else if (!node && imgRef.current?.getAttribute('data-resource-key') === resource.key) {
+                imgRef.current = null
+              }
+            }}
+            src={resource.url}
+            alt={`Image viewer: ${getImageLabel(resource.path)}`}
+            data-viewer-image={displayed ? 'full' : 'candidate'}
+            data-current-path={resource.path}
+            data-resource-key={resource.key}
+            data-viewer-image-current={resource.path === path ? 'true' : 'false'}
+            aria-hidden={displayed ? undefined : true}
+            className={`${displayed ? '' : 'absolute left-0 top-0 invisible pointer-events-none'} max-w-none max-h-none object-contain will-change-transform select-none`}
+            draggable={false}
+            onDragStart={(e)=>{ e.preventDefault() }}
+            onLoad={(event) => decodeAndPromote(event.currentTarget, resource)}
+            onError={() => handleImageError(resource)}
+            onClick={(e)=> e.stopPropagation()}
+            style={{
+              transform: displayed ? `translate(${tx}px, ${ty}px) scale(${base * scale})` : undefined,
+              transformOrigin: `0 0`,
+              opacity: displayed ? presentation.opacity : 0,
+              WebkitUserDrag: 'none',
+            } as React.CSSProperties}
+          />
+        )
+      })}
       {onNavigate && (
         <div className="viewer-mobile-nav" onClick={(e) => e.stopPropagation()}>
           <button

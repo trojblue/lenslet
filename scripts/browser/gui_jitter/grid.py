@@ -14,6 +14,7 @@ from scripts.browser.gui_jitter.grid_dom import (
     snapshot_grid,
     visible_grid_paths,
 )
+from scripts.browser.gui_jitter.grid_hover_preview import exercise_hover_preview_continuity
 from scripts.browser.gui_jitter.shared import (
     ProbeResult,
     set_local_storage,
@@ -28,6 +29,14 @@ from scripts.smoke_harness import SmokeFailure, import_playwright
 
 SORT_PANEL_SELECTOR = '.dropdown-panel[role="listbox"][aria-label="Sort and layout"]'
 BUILTIN_SORT_OPTIONS = {"Grid", "Justified rows", "Date added", "Filename", "Random"}
+
+
+class GridProbeFailure(SmokeFailure):
+    """Grid failure carrying bounded scenario evidence for JSON output."""
+
+    def __init__(self, message: str, evidence: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.evidence = evidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -1437,6 +1446,8 @@ def grid_result(snapshots: GridProbeSnapshots, config: GridProbeConfig) -> Probe
     violations.extend(browse_continuity_violations(snapshots.continuity))
     media_stability = snapshots.continuity.get("sprint6_media", {})
     violations.extend(media_stability.get("violations", []))
+    hover_preview = snapshots.continuity.get("hover_preview", {})
+    violations.extend(hover_preview.get("violations", []))
     ranking_stability = snapshots.continuity.get("sprint6_ranking", {})
     violations.extend(ranking_stability.get("violations", []))
     if max_grid_width_delta > config.max_delta_px:
@@ -1447,34 +1458,36 @@ def grid_result(snapshots: GridProbeSnapshots, config: GridProbeConfig) -> Probe
         violations.append(
             f"top-stack delta {max_top_stack_delta:.3f}px exceeded threshold {config.max_delta_px:.3f}px"
         )
+    checks = {
+        "top_stack_deltas_px": top_deltas,
+        "grid_width_deltas_px": width_deltas,
+        "builtin_initial_snapshot": snapshots.builtin_initial,
+        "filters_active_snapshot": snapshots.filters_active,
+        "filters_cleared_snapshot": snapshots.filters_cleared,
+        "metric_mode_snapshot": snapshots.metric_mode,
+        "builtin_restored_snapshot": snapshots.builtin_restored,
+        "metric_sort_label": snapshots.metric_sort_label,
+        "metric_sort_labels": snapshots.metric_sort_labels,
+        "metric_panel_keys": snapshots.metric_panel_keys,
+        "metric_desc_visible_paths": snapshots.metric_desc_visible_paths,
+        "metric_asc_visible_paths": snapshots.metric_asc_visible_paths,
+        "baseline_counts": snapshots.baseline_counts,
+        "filtered_counts": snapshots.filtered_counts,
+        "browse_continuity": browse_continuity_summary(snapshots.continuity),
+        "media_stability": media_stability,
+        "hover_preview": hover_preview,
+        "ranking_stability": ranking_stability,
+        "top_rail": snapshots.top_rail,
+        "violations": violations,
+    }
     if violations:
-        raise SmokeFailure("; ".join(violations))
+        raise GridProbeFailure("; ".join(violations), checks)
     return ProbeResult(
         scenario="grid",
         max_delta_px=config.max_delta_px,
         max_top_stack_delta_px=max_top_stack_delta,
         max_grid_width_delta_px=max_grid_width_delta,
-        checks={
-            "top_stack_deltas_px": top_deltas,
-            "grid_width_deltas_px": width_deltas,
-            "builtin_initial_snapshot": snapshots.builtin_initial,
-            "filters_active_snapshot": snapshots.filters_active,
-            "filters_cleared_snapshot": snapshots.filters_cleared,
-            "metric_mode_snapshot": snapshots.metric_mode,
-            "builtin_restored_snapshot": snapshots.builtin_restored,
-            "metric_sort_label": snapshots.metric_sort_label,
-            "metric_sort_labels": snapshots.metric_sort_labels,
-            "metric_panel_keys": snapshots.metric_panel_keys,
-            "metric_desc_visible_paths": snapshots.metric_desc_visible_paths,
-            "metric_asc_visible_paths": snapshots.metric_asc_visible_paths,
-            "baseline_counts": snapshots.baseline_counts,
-            "filtered_counts": snapshots.filtered_counts,
-            "browse_continuity": browse_continuity_summary(snapshots.continuity),
-            "media_stability": media_stability,
-            "ranking_stability": ranking_stability,
-            "top_rail": snapshots.top_rail,
-            "violations": violations,
-        },
+        checks=checks,
     )
 
 
@@ -1883,6 +1896,11 @@ def run_grid_probe(config: GridProbeConfig) -> ProbeResult:
             page.set_default_timeout(config.browser_timeout_ms)
             snapshots = exercise_grid_probe(page, config, playwright_error)
             context.close()
+            snapshots.continuity["hover_preview"] = exercise_hover_preview_continuity(
+                browser,
+                config.base_url,
+                config.browser_timeout_ms,
+            )
             snapshots.continuity["sprint6_media"] = exercise_sprint6_browse_media(
                 browser,
                 config.base_url,

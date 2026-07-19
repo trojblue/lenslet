@@ -7,6 +7,16 @@ from scripts.browser.viewer_probe.config import VIEWER_LOADER_DELAY_MS
 LOADER_DELAY_TOLERANCE_MS = 10
 VISIBLE_OPACITY_THRESHOLD = 0.01
 READY_OPACITY_THRESHOLD = 0.5
+OPAQUE_OPACITY_THRESHOLD = 0.99
+PIXEL_TOLERANCE = 18
+FIXTURE_RGB = {
+    "alpha_00_wide.jpg": (48, 90, 140),
+    "alpha_01_tall.jpg": (122, 74, 150),
+    "alpha_02_square.jpg": (65, 128, 104),
+    "beta_00_wide.jpg": (154, 91, 62),
+    "beta_01_tall.jpg": (70, 118, 165),
+    "beta_02_square.jpg": (143, 116, 50),
+}
 
 
 def summarize_open_samples(samples: dict[str, Any]) -> dict[str, Any]:
@@ -37,7 +47,13 @@ def viewer_image_like_failures(name: str, scenario: dict[str, Any], opened_path:
     failures: list[str] = []
     for frame in samples:
         if isinstance(frame, dict):
-            failures.extend(_frame_image_like_failures(name, frame, opened_path))
+            failures.extend(_frame_image_like_failures(
+                name,
+                frame,
+                opened_path,
+                scenario.get("navigation"),
+                bool(scenario.get("reducedMotion")),
+            ))
     return failures
 
 
@@ -148,6 +164,13 @@ def _settled_state_failures(name: str, scenario: dict[str, Any]) -> list[str]:
     opened_path = scenario.get("openedPath")
     if not isinstance(settled, dict) or settled.get("missing"):
         return [f"viewer:{name}: settled full image is missing"]
+    if scenario.get("terminalExpected") == "error":
+        failures: list[str] = []
+        if settled.get("dialogPath") != opened_path or settled.get("loadingState") != "error":
+            failures.append(f"viewer:{name}: corrupt target did not settle to its own error")
+        if settled.get("imagePath") is not None or int(settled.get("imageCount") or 0) > 1:
+            failures.append(f"viewer:{name}: corrupt target retained visible or unbounded media")
+        return failures
     failures = _settled_path_failures(name, settled, opened_path)
     if float(settled.get("opacity") or 0) <= READY_OPACITY_THRESHOLD:
         failures.append(f"viewer:{name}: settled full image is not visibly ready")
@@ -155,6 +178,8 @@ def _settled_state_failures(name: str, scenario: dict[str, Any]) -> list[str]:
         failures.append(f"viewer:{name}: settled loading state is not ready")
     if settled.get("neutralLoaderVisible"):
         failures.append(f"viewer:{name}: neutral loader remained visible after readiness")
+    if int(settled.get("imageCount") or 0) != 1:
+        failures.append(f"viewer:{name}: settled Viewer did not retire to one media node")
     return failures
 
 
@@ -172,10 +197,24 @@ def _scenario_frames(scenario: dict[str, Any]) -> list[Any]:
     return samples if isinstance(samples, list) else []
 
 
-def _frame_image_like_failures(name: str, frame: dict[str, Any], opened_path: Any) -> list[str]:
+def _frame_image_like_failures(
+    name: str,
+    frame: dict[str, Any],
+    opened_path: Any,
+    navigation: Any,
+    reduced_motion: bool,
+) -> list[str]:
     frame_id = frame.get("frame")
     failures = _frame_loader_failures(name, frame)
-    failures.extend(_visible_image_failures(name, frame, opened_path, frame_id))
+    if (
+        isinstance(navigation, dict)
+        and int(frame.get("visibleImageCount") or 0) == 0
+        and frame.get("loadingState") not in {"error", "unsupported"}
+    ):
+        failures.append(f"viewer:{name}: frame {frame_id}: navigation painted zero visible images")
+    failures.extend(_visible_image_failures(
+        name, frame, opened_path, frame_id, navigation, reduced_motion,
+    ))
     failures.extend(_image_like_scan_failures(name, frame, frame_id))
     return failures
 
@@ -191,25 +230,74 @@ def _frame_loader_failures(name: str, frame: dict[str, Any]) -> list[str]:
     return failures
 
 
-def _visible_image_failures(name: str, frame: dict[str, Any], opened_path: Any, frame_id: Any) -> list[str]:
+def _visible_image_failures(
+    name: str,
+    frame: dict[str, Any],
+    opened_path: Any,
+    frame_id: Any,
+    navigation: Any,
+    reduced_motion: bool,
+) -> list[str]:
     visible_images = frame.get("visibleImages")
     if not isinstance(visible_images, list):
         return [f"viewer:{name}: frame {frame_id}: missing visible image list"]
+    allowed_paths = {opened_path}
+    if isinstance(navigation, dict):
+        allowed_paths.add(navigation.get("from"))
+    if len(visible_images) > 1:
+        return [f"viewer:{name}: frame {frame_id}: multiple viewer images were visible"]
     failures: list[str] = []
     for image in visible_images:
-        failures.extend(_visible_image_payload_failures(name, image, opened_path, frame_id))
+        failures.extend(_visible_image_payload_failures(
+            name, image, allowed_paths, frame_id, navigation, reduced_motion,
+        ))
     return failures
 
 
-def _visible_image_payload_failures(name: str, image: Any, opened_path: Any, frame_id: Any) -> list[str]:
+def _visible_image_payload_failures(
+    name: str,
+    image: Any,
+    allowed_paths: set[Any],
+    frame_id: Any,
+    navigation: Any,
+    reduced_motion: bool,
+) -> list[str]:
     if not isinstance(image, dict):
         return [f"viewer:{name}: frame {frame_id}: malformed visible image"]
-    if image.get("viewerImage") == "full" and image.get("currentPath") == opened_path:
-        return []
-    return [
-        f"viewer:{name}: frame {frame_id}: visible non-active image "
-        f"viewerImage={image.get('viewerImage')!r} path={image.get('currentPath')!r}"
-    ]
+    path = image.get("currentPath")
+    failures: list[str] = []
+    if image.get("viewerImage") != "full" or path not in allowed_paths:
+        failures.append(
+            f"viewer:{name}: frame {frame_id}: visible non-presented image "
+            f"viewerImage={image.get('viewerImage')!r} path={path!r}"
+        )
+    if (
+        not image.get("complete")
+        or int(image.get("naturalWidth") or 0) <= 0
+        or float(image.get("opacity") or 0) < OPAQUE_OPACITY_THRESHOLD
+        or not isinstance(image.get("rgb"), list)
+    ):
+        failures.append(f"viewer:{name}: frame {frame_id}: visible image was not decoded and opaque")
+    expected_label = f"Image viewer: {str(path).rsplit('/', 1)[-1]}"
+    if image.get("alt") != expected_label:
+        failures.append(f"viewer:{name}: frame {frame_id}: label did not match presented pixels")
+    if isinstance(navigation, dict):
+        retained_transform = navigation.get("retainedTransform")
+        if path == navigation.get("from") and retained_transform and image.get("transform") != retained_transform:
+            failures.append(f"viewer:{name}: frame {frame_id}: retained pixels lost their transform")
+        if path == navigation.get("to") and retained_transform and image.get("transform") == retained_transform:
+            failures.append(f"viewer:{name}: frame {frame_id}: target pixels inherited the prior transform")
+    if reduced_motion and image.get("transitionDuration") not in {None, "0s", "0ms"}:
+        failures.append(f"viewer:{name}: frame {frame_id}: reduced-motion image retained a transition")
+    expected_rgb = FIXTURE_RGB.get(str(path).rsplit("/", 1)[-1])
+    rgb = image.get("rgb")
+    if expected_rgb and (
+        not isinstance(rgb, list)
+        or len(rgb) < 3
+        or max(abs(int(rgb[index]) - expected_rgb[index]) for index in range(3)) > PIXEL_TOLERANCE
+    ):
+        failures.append(f"viewer:{name}: frame {frame_id}: pixels did not match presented path")
+    return failures
 
 
 def _image_like_scan_failures(name: str, frame: dict[str, Any], frame_id: Any) -> list[str]:

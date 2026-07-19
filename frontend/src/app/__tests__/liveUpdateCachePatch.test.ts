@@ -1,6 +1,17 @@
 import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
-import type { BrowseFolderPayload, BrowseItemPayload, BrowseSearchResultsPayload } from '../../lib/types'
+import {
+  itemDetailQueryKey,
+  setSidecarQueryDataForPath,
+  sidecarQueryKey,
+  updateItemDetailQueryDataForPath,
+} from '../../api/items'
+import type {
+  BrowseFolderPayload,
+  BrowseItemPayload,
+  BrowseSearchResultsPayload,
+  Sidecar,
+} from '../../lib/types'
 import {
   ItemQueryPathIndex,
   patchIndexedItemQueries,
@@ -64,6 +75,42 @@ function makeBrowseQueryPages(items: BrowseItemPayload[]) {
 }
 
 describe('live update cache patching', () => {
+  it('updates every scoped Inspector cache for one path', () => {
+    const queryClient = new QueryClient()
+    const path = '/shots/a.jpg'
+    const item = makeItem(path, { notes: 'old note' })
+    const sidecar: Sidecar = {
+      v: 1,
+      tags: ['live'],
+      notes: 'live note',
+      version: 2,
+      updated_at: '2026-07-19T00:00:00Z',
+      updated_by: 'remote',
+    }
+    const tableFields = { source_alt: '/shots/a.jpg' }
+    for (const scope of ['scope-a', 'scope-b']) {
+      queryClient.setQueryData(itemDetailQueryKey(path, scope), item)
+      queryClient.setQueryData(sidecarQueryKey(path, scope), {
+        ...sidecar,
+        notes: 'old note',
+        table_fields: tableFields,
+      })
+    }
+
+    updateItemDetailQueryDataForPath(queryClient, path, (current) => (
+      current ? { ...current, notes: sidecar.notes } : current
+    ))
+    setSidecarQueryDataForPath(queryClient, path, sidecar)
+
+    for (const scope of ['scope-a', 'scope-b']) {
+      expect(queryClient.getQueryData<BrowseItemPayload>(itemDetailQueryKey(path, scope))?.notes)
+        .toBe('live note')
+      expect(queryClient.getQueryData<Sidecar>(sidecarQueryKey(path, scope))).toMatchObject(sidecar)
+      expect(queryClient.getQueryData<Sidecar>(sidecarQueryKey(path, scope))?.table_fields)
+        .toEqual(tableFields)
+    }
+  })
+
   it('patches only folder/search queries that already contain the item path', () => {
     const queryClient = new QueryClient()
     const itemA = makeItem('/shots/a.jpg', { star: 1 })

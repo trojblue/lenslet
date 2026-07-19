@@ -1,10 +1,9 @@
-import React, { Fragment, useEffect, useMemo, useCallback, useLayoutEffect, useRef, useState } from 'react'
+import React, { Fragment, useEffect, useMemo, useCallback, useLayoutEffect, useRef } from 'react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQueryClient } from '@tanstack/react-query'
-import { useItemDetail, useSidecar, useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, sidecarQueryKey, useSidecarConflict } from '../../api/items'
-import { api, makeIdempotencyKey } from '../../api/client'
-import { useBlobUrl } from '../../shared/hooks/useBlobUrl'
+import { useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict } from '../../api/items'
+import { makeIdempotencyKey } from '../../api/client'
 import type { BrowseItemPayload, MetricDisplayNames, SortSpec, StarRating } from '../../lib/types'
 import { isInputElement } from '../../lib/keyboard'
 import {
@@ -25,30 +24,20 @@ import {
 } from './model/quickViewFields'
 import { resolveFindSimilarAvailability } from './model/findSimilarAvailability'
 import { INSPECTOR_WIDGETS, type InspectorWidgetContext } from './inspectorWidgets'
-import { pathConsistentValue, resolveCompareMetadataTargets } from './hooks/metadataRequestGuards'
+import { resolveCompareMetadataTargets } from './hooks/metadataRequestGuards'
 import { useInspectorCompareExport } from './hooks/useInspectorCompareExport'
 import { useInspectorCompareMetadata } from './hooks/useInspectorCompareMetadata'
 import { useInspectorSidecarWorkflow } from './hooks/useInspectorSidecarWorkflow'
-import { useInspectorSingleMetadata } from './hooks/useInspectorSingleMetadata'
+import { useInspectorPresentation } from './hooks/useInspectorPresentation'
 import { useInspectorUiState } from './hooks/useInspectorUiState'
-
-interface InspectorItem {
-  path: string
-  size: number
-  width: number
-  height: number
-  mime: string
-  source?: string | null
-  star?: StarRating | null
-  metrics?: Record<string, number | null> | null
-  metric_labels?: Record<string, string> | null
-}
 
 interface InspectorProps {
   path: string | null
   selectedPaths?: string[]
   comparePaths?: string[]
-  items?: InspectorItem[]
+  items?: BrowseItemPayload[]
+  presentationResetKey?: string
+  visible?: boolean
   viewerCompareActive?: boolean
   compareA?: BrowseItemPayload | null
   compareB?: BrowseItemPayload | null
@@ -70,22 +59,22 @@ const METRICS_PREVIEW_LIMIT = 12
 const COMPARE_MATRIX_LIMIT = 120
 const COMPARE_MATRIX_MAX_DEPTH = 8
 const COMPARE_MATRIX_MAX_ARRAY = 80
-const QUICK_VIEW_FALLBACK_ROW_COUNT = 3
+const QUICK_VIEW_ERROR_ROWS = [
+  { id: 'default:prompt', label: 'Prompt', value: '', sourcePath: 'prompt' },
+  { id: 'default:model', label: 'Model', value: '', sourcePath: 'model' },
+  { id: 'default:lora', label: 'LoRA', value: '', sourcePath: 'lora' },
+]
 const INSPECTOR_WIDGET_MAP = new Map(
   INSPECTOR_WIDGETS.map((widget) => [widget.id, widget] as const),
 )
-
-function InspectorPreviewImage({ path }: { path: string }): JSX.Element | null {
-  const thumbUrl = useBlobUrl(() => api.getThumb(path), [path])
-  if (!thumbUrl) return null
-  return <img src={thumbUrl} alt="thumb" className="inspector-preview-image block" />
-}
 
 export default function Inspector({
   path,
   selectedPaths = [],
   comparePaths,
   items = [],
+  presentationResetKey = 'default',
+  visible = true,
   viewerCompareActive = false,
   compareA = null,
   compareB = null,
@@ -102,18 +91,45 @@ export default function Inspector({
   onActionStart,
   onActionError,
 }: InspectorProps) {
-  const enabled = !!path
   const qc = useQueryClient()
-  const { data: queriedSidecar } = useSidecar(path ?? '')
-  const { data: itemDetail } = useItemDetail(path ?? '')
-  const mut = useUpdateSidecar(path ?? '')
-  const data = path && qc.getQueryData(sidecarQueryKey(path)) === queriedSidecar
-    ? queriedSidecar
-    : undefined
-
-  const selectedCount = selectedPaths.length
+  const {
+    presentation,
+    requestedIdentity,
+    transitioning,
+    showMetadataLoadingCopy,
+    previewStage,
+    decodeTargetPreview,
+    failTargetPreview,
+    setTargetMetadataError,
+    setTargetShowPilInfo,
+    fetchTargetMetadata,
+  } = useInspectorPresentation({
+    path,
+    selectedPaths,
+    comparePaths: comparePaths ?? selectedPaths,
+    items,
+    resetKey: presentationResetKey,
+    visible,
+    autoloadMetadata: autoloadImageMetadata,
+  })
+  const presentedPath = presentation?.path ?? null
+  const presentedSelectedPaths = presentation?.selectedPaths ?? []
+  const presentedComparePaths = presentation?.comparePaths ?? presentedSelectedPaths
+  const presentedItems = presentation?.items ?? []
+  const data = presentation?.sidecar ?? undefined
+  const enabled = !!presentedPath
+  const selectedCount = presentedSelectedPaths.length
+  const activePresentationIdentityRef = useRef<string | null>(presentation?.identity ?? null)
+  const activeRequestedIdentityRef = useRef<string | null>(requestedIdentity)
+  activePresentationIdentityRef.current = presentation?.identity ?? null
+  activeRequestedIdentityRef.current = requestedIdentity
+  const copyContextIsCurrent = useCallback((context: string | null) => (
+    context !== null
+    && activePresentationIdentityRef.current === context
+    && activeRequestedIdentityRef.current === context
+  ), [])
   const multi = selectedCount > 1
-  const comparisonPaths = comparePaths ?? selectedPaths
+  const comparisonPathsKey = JSON.stringify(presentedComparePaths)
 
   const { canFindSimilar, disabledReason: findSimilarDisabledReason } = useMemo(
     () => resolveFindSimilarAvailability({
@@ -127,16 +143,16 @@ export default function Inspector({
 
   // Get star from item list (optimistic local value) or sidecar
   const itemStarFromList = useMemo((): StarRating | null => {
-    const star = items.find((i) => i.path === path)?.star
+    const star = presentedItems.find((i) => i.path === presentedPath)?.star
     return star ?? null
-  }, [items, path])
+  }, [presentedItems, presentedPath])
 
   const star = itemStarFromList ?? data?.star ?? null
-  const conflict = useSidecarConflict(!multi ? path : null)
+  const conflict = useSidecarConflict(!multi ? presentedPath : null)
 
   const compareTargets = useMemo(
-    () => resolveCompareMetadataTargets(selectedCount >= 2, comparisonPaths),
-    [selectedCount, comparisonPaths],
+    () => resolveCompareMetadataTargets(selectedCount >= 2, presentedComparePaths),
+    [selectedCount, comparisonPathsKey],
   )
   const compareTargetPaths = compareTargets.paths
   const metadataCompareAvailable = compareTargetPaths.length >= 2
@@ -169,7 +185,10 @@ export default function Inspector({
     metaValueCopiedPath,
     markMetadataValueCopied,
   } = useInspectorUiState({
-    path,
+    path: presentedPath,
+    feedbackContextKey: presentation
+      ? `${presentationResetKey}\n${presentation.identity}`
+      : null,
     comparePaths: compareTargetPaths,
     selectedCount,
     metadataCompareAvailable,
@@ -177,6 +196,7 @@ export default function Inspector({
   })
   const compareSectionOpen = metadataCompareReady && openSections.compare
   const metadataSectionOpen = !multi && openSections.metadata
+  const mut = useUpdateSidecar(presentedPath ?? '', presentationResetKey)
 
   const mutateSidecar = useCallback(
     (patch: { notes?: string; tags?: string[]; star?: StarRating | null }, baseVersion: number) => {
@@ -197,8 +217,9 @@ export default function Inspector({
     handleTagsChange,
     handleTagsBlur,
   } = useInspectorSidecarWorkflow({
-    path,
-    selectedPaths,
+    path: presentedPath,
+    selectedPaths: presentedSelectedPaths,
+    resetKey: presentationResetKey,
     multi,
     sidecar: data,
     conflict,
@@ -209,19 +230,10 @@ export default function Inspector({
     onLocalTypingChange,
   })
 
-  const {
-    metaRaw,
-    metaError,
-    metaState,
-    showMetadataLoadingCopy,
-    showPilInfo,
-    setMetaError,
-    setShowPilInfo,
-    fetchMetadata,
-  } = useInspectorSingleMetadata({
-    path,
-    autoloadMetadata: autoloadImageMetadata && !multi,
-  })
+  const metaRaw = presentation?.metadata.raw ?? null
+  const metaError = presentation?.metadata.error ?? null
+  const metaState = presentation?.metadata.state ?? 'idle'
+  const showPilInfo = presentation?.metadata.showPilInfo ?? false
 
   const {
     compareMetaState,
@@ -233,6 +245,7 @@ export default function Inspector({
   } = useInspectorCompareMetadata({
     compareReady: metadataCompareReady,
     comparePaths: compareTargetPaths,
+    enabled: visible,
   })
 
   const {
@@ -255,9 +268,9 @@ export default function Inspector({
   })
 
   const selectedItems = useMemo(() => {
-    const selectedPathSet = new Set(selectedPaths)
-    return items.filter((i) => selectedPathSet.has(i.path))
-  }, [items, selectedPaths])
+    const selectedPathSet = new Set(presentedSelectedPaths)
+    return presentedItems.filter((i) => selectedPathSet.has(i.path))
+  }, [presentedItems, presentedSelectedPaths])
 
   const totalSize = useMemo(
     () => selectedItems.reduce((acc, it) => acc + (it.size || 0), 0),
@@ -265,7 +278,7 @@ export default function Inspector({
   )
 
   useEffect(() => {
-    if (!path) return
+    if (!presentedPath || transitioning || !visible) return
 
     const onKey = (e: KeyboardEvent) => {
       if (isInputElement(e.target)) return
@@ -278,46 +291,42 @@ export default function Inspector({
 
       if (multi) {
         commitSidecar({ star: val })
-        onStarChanged?.(selectedPaths, val)
+        onStarChanged?.(presentedSelectedPaths, val)
         return
       }
       commitSidecar({ star: val })
-      onStarChanged?.([path], val)
+      onStarChanged?.([presentedPath], val)
     }
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [path, multi, selectedPaths, commitSidecar, onStarChanged])
+  }, [
+    commitSidecar,
+    multi,
+    onStarChanged,
+    presentedPath,
+    presentedSelectedPaths,
+    transitioning,
+    visible,
+  ])
 
-  const filename = path ? path.split('/').pop() || path : ''
+  const filename = presentedPath ? presentedPath.split('/').pop() || presentedPath : ''
   const ext = useMemo(() => {
     if (filename.includes('.')) {
       return filename.slice(filename.lastIndexOf('.') + 1).toUpperCase()
     }
-    const it = items.find((i) => i.path === path)
+    const it = presentedItems.find((i) => i.path === presentedPath)
     if (it?.mime?.includes('/')) {
       return it.mime.split('/')[1].toUpperCase()
     }
     return ''
-  }, [filename, items, path])
-  
-  const currentDetail = pathConsistentValue(path, itemDetail)
-  const currentItem = useMemo(
-    () => currentDetail ?? items.find((i) => i.path === path),
-    [currentDetail, items, path]
-  )
-  const previousBasicsHeightRef = useRef(0)
-  useLayoutEffect(() => {
-    if (!currentDetail) return
-    const basicsSection = document.querySelector('[data-inspector-section-id="basics"]')
-    if (basicsSection instanceof HTMLElement) {
-      previousBasicsHeightRef.current = basicsSection.getBoundingClientRect().height
-    }
-  }, [currentDetail])
+  }, [filename, presentedItems, presentedPath])
+
+  const currentItem = presentation?.item ?? presentedItems.find((i) => i.path === presentedPath) ?? null
   const sourceValue = useMemo(() => {
-    if (!path) return ''
-    return currentItem?.source ?? path
-  }, [currentItem, path])
+    if (!presentedPath) return ''
+    return currentItem?.source ?? presentedPath
+  }, [currentItem, presentedPath])
 
   const metaRawText = useMemo(() => {
     if (!metaRaw) return ''
@@ -335,8 +344,10 @@ export default function Inspector({
     [normalizedMetaRaw, showPilInfo],
   )
   const quickViewRows = useMemo(
-    () => buildQuickViewRows(metaRaw, quickViewCustomPaths),
-    [metaRaw, quickViewCustomPaths],
+    () => (metaState === 'error'
+      ? QUICK_VIEW_ERROR_ROWS
+      : buildQuickViewRows(metaRaw, quickViewCustomPaths)),
+    [metaRaw, metaState, quickViewCustomPaths],
   )
   const quickViewVisible = useMemo(
     () => shouldShowQuickViewSection({
@@ -346,92 +357,7 @@ export default function Inspector({
     }),
     [autoloadImageMetadata, metaRaw, multi],
   )
-  const [quickViewReservationActive, setQuickViewReservationActive] = useState(false)
-  const [quickViewReservationRowCount, setQuickViewReservationRowCount] = useState(
-    QUICK_VIEW_FALLBACK_ROW_COUNT,
-  )
-  const previousSelectionKeyRef = useRef<string | null>(null)
-  const previousQuickViewRowsRef = useRef(0)
-  const previousQuickViewHeightRef = useRef(0)
-  const selectionKey = path ?? ''
-  const selectionPendingQuickViewReservation = (
-    previousSelectionKeyRef.current !== null
-    && previousSelectionKeyRef.current !== selectionKey
-    && autoloadImageMetadata
-    && !multi
-    && !!path
-    && previousQuickViewRowsRef.current > 0
-  )
-
-  useLayoutEffect(() => {
-    const previousSelectionKey = previousSelectionKeyRef.current
-    const selectionChanged = previousSelectionKey !== null && previousSelectionKey !== selectionKey
-    if (selectionChanged) {
-      if (
-        autoloadImageMetadata
-        && !multi
-        && !!path
-        && previousQuickViewRowsRef.current > 0
-      ) {
-        const reservedRows = Math.max(previousQuickViewRowsRef.current, QUICK_VIEW_FALLBACK_ROW_COUNT)
-        setQuickViewReservationRowCount(reservedRows)
-        setQuickViewReservationActive(true)
-      } else {
-        setQuickViewReservationActive(false)
-      }
-    }
-
-    if (quickViewVisible) {
-      const measuredRows = Math.max(quickViewRows.length, QUICK_VIEW_FALLBACK_ROW_COUNT)
-      previousQuickViewRowsRef.current = measuredRows
-      const quickViewSection = document.querySelector('[data-inspector-section-id="quickView"]')
-      if (quickViewSection instanceof HTMLElement) {
-        previousQuickViewHeightRef.current = quickViewSection.getBoundingClientRect().height
-      }
-      setQuickViewReservationRowCount(measuredRows)
-    }
-
-    previousSelectionKeyRef.current = selectionKey
-  }, [
-    autoloadImageMetadata,
-    multi,
-    path,
-    quickViewRows.length,
-    quickViewVisible,
-    selectionKey,
-  ])
-
-  useEffect(() => {
-    if (!quickViewReservationActive) return
-    if (quickViewVisible) {
-      setQuickViewReservationActive(false)
-      return
-    }
-    if (!autoloadImageMetadata || multi || !path) {
-      setQuickViewReservationActive(false)
-      previousQuickViewRowsRef.current = 0
-      return
-    }
-    const metadataSettled = metaRaw !== null || metaError !== null || metaState === 'error'
-    if (metadataSettled) {
-      setQuickViewReservationActive(false)
-      if (!quickViewVisible) {
-        previousQuickViewRowsRef.current = 0
-      }
-    }
-  }, [
-    autoloadImageMetadata,
-    metaError,
-    metaRaw,
-    metaState,
-    multi,
-    path,
-    quickViewReservationActive,
-    quickViewVisible,
-  ])
-  const quickViewReserved = (
-    quickViewReservationActive || selectionPendingQuickViewReservation
-  ) && !quickViewVisible
+  const quickViewReserved = !multi && metaState === 'error'
 
   const compareColumns = useMemo(
     () => compareTargetPaths.map((comparePath) => ({
@@ -452,15 +378,26 @@ export default function Inspector({
 
   const copyMetadata = useCallback(() => {
     if (!metaRawText) return
+    const context = presentation?.identity ?? null
     onActionStart?.()
     navigator.clipboard?.writeText(metaRawText).then(() => {
+      if (!copyContextIsCurrent(context)) return
       markMetadataCopied()
     }).catch((err) => {
+      if (!copyContextIsCurrent(context)) return
       const msg = err instanceof Error ? err.message : 'Copy failed'
-      setMetaError(msg)
+      setTargetMetadataError(msg)
       onActionError?.('Copy metadata failed', err)
     })
-  }, [markMetadataCopied, metaRawText, onActionError, onActionStart, setMetaError])
+  }, [
+    copyContextIsCurrent,
+    markMetadataCopied,
+    metaRawText,
+    onActionError,
+    onActionStart,
+    presentation?.identity,
+    setTargetMetadataError,
+  ])
 
   const metaDisplayNode = useMemo(() => {
     if (!metadataSectionOpen || !metaDisplayValue) return null
@@ -468,23 +405,41 @@ export default function Inspector({
   }, [metadataSectionOpen, metaDisplayValue])
 
   const copyMetadataValue = useCallback((pathLabel: string, copyText: string) => {
+    const context = presentation?.identity ?? null
     onActionStart?.()
     navigator.clipboard?.writeText(copyText).then(() => {
+      if (!copyContextIsCurrent(context)) return
       markMetadataValueCopied(pathLabel)
     }).catch((err) => {
+      if (!copyContextIsCurrent(context)) return
       onActionError?.('Copy metadata value failed', err)
     })
-  }, [markMetadataValueCopied, onActionError, onActionStart])
+  }, [
+    copyContextIsCurrent,
+    markMetadataValueCopied,
+    onActionError,
+    onActionStart,
+    presentation?.identity,
+  ])
 
   const handleCopyQuickViewValue = useCallback((rowId: string, value: string) => {
     if (!value) return
+    const context = presentation?.identity ?? null
     onActionStart?.()
     navigator.clipboard?.writeText(value).then(() => {
+      if (!copyContextIsCurrent(context)) return
       markQuickViewValueCopied(rowId)
     }).catch((err) => {
+      if (!copyContextIsCurrent(context)) return
       onActionError?.('Copy quick view value failed', err)
     })
-  }, [markQuickViewValueCopied, onActionError, onActionStart])
+  }, [
+    copyContextIsCurrent,
+    markQuickViewValueCopied,
+    onActionError,
+    onActionStart,
+    presentation?.identity,
+  ])
 
   const handleMetaPathCopy = useCallback((path: Array<string | number>) => {
     if (!metaDisplayValue) return
@@ -500,7 +455,7 @@ export default function Inspector({
   }
   const metadataLoading = metaState === 'loading'
   const metaLoaded = metaState === 'loaded' && !!metaRawText
-  const metaHeightClass = path && autoloadImageMetadata ? 'h-48' : (metaLoaded ? 'h-48' : 'h-24')
+  const metaHeightClass = presentedPath && autoloadImageMetadata ? 'h-48' : (metaLoaded ? 'h-48' : 'h-24')
   let metadataActionLabel = 'Load meta'
   if (metadataLoading) {
     metadataActionLabel = showMetadataLoadingCopy ? 'Loading…' : '\u00a0'
@@ -508,7 +463,7 @@ export default function Inspector({
     metadataActionLabel = metaCopied ? 'Copied' : 'Copy'
   }
   const metadataActionAriaLabel = metadataLoading ? 'Loading metadata' : metadataActionLabel
-  const handleMetadataAction = metaLoaded ? copyMetadata : fetchMetadata
+  const handleMetadataAction = metaLoaded ? copyMetadata : fetchTargetMetadata
 
   const hasPilInfo = hasPilInfoMetadata(metaRaw)
 
@@ -524,33 +479,49 @@ export default function Inspector({
 
   const copyInfo = useCallback((key: string, text: string) => {
     if (!text) return
+    const context = presentation?.identity ?? null
     onActionStart?.()
     navigator.clipboard?.writeText(text).then(() => {
+      if (!copyContextIsCurrent(context)) return
       markInfoCopied(key)
     }).catch((err) => {
+      if (!copyContextIsCurrent(context)) return
       onActionError?.('Copy item info failed', err)
     })
-  }, [markInfoCopied, onActionError, onActionStart])
+  }, [
+    copyContextIsCurrent,
+    markInfoCopied,
+    onActionError,
+    onActionStart,
+    presentation?.identity,
+  ])
 
   const handleSelectStar = useCallback((value: StarRating) => {
     onActionStart?.()
     if (multi) {
-      onStarChanged?.(selectedPaths, value)
-      void bulkUpdateSidecars(selectedPaths, { star: value }).catch((error) => {
+      onStarChanged?.(presentedSelectedPaths, value)
+      void bulkUpdateSidecars(presentedSelectedPaths, { star: value }).catch((error) => {
         onActionError?.('Bulk rating update failed', error)
       })
       return
     }
-    if (!path) return
-    onStarChanged?.([path], value)
-    void queueSidecarUpdate(path, { star: value }).catch((error) => {
+    if (!presentedPath) return
+    onStarChanged?.([presentedPath], value)
+    void queueSidecarUpdate(presentedPath, { star: value }).catch((error) => {
       onActionError?.('Rating update failed', error)
     })
-  }, [multi, onActionError, onActionStart, onStarChanged, path, selectedPaths])
+  }, [
+    multi,
+    onActionError,
+    onActionStart,
+    onStarChanged,
+    presentedPath,
+    presentedSelectedPaths,
+  ])
 
   const handleToggleShowPilInfo = useCallback(() => {
-    setShowPilInfo((prev) => !prev)
-  }, [setShowPilInfo])
+    setTargetShowPilInfo((prev) => !prev)
+  }, [setTargetShowPilInfo])
   const handleToggleCompareIncludePilInfo = useCallback(() => {
     setCompareIncludePilInfo((prev) => !prev)
   }, [setCompareIncludePilInfo])
@@ -586,16 +557,13 @@ export default function Inspector({
       sortableId: 'quickView',
       sortableEnabled: true,
       rows: quickViewRows,
-      reservationActive: quickViewReserved,
-      reservationRowCount: quickViewReservationRowCount,
-      metadataLoading,
-      reservationHeightPx: previousQuickViewHeightRef.current || undefined,
       quickViewCopiedRowId,
       onCopyQuickViewValue: handleCopyQuickViewValue,
       quickViewCustomPathsDraft,
       onQuickViewCustomPathsDraftChange: setQuickViewCustomPathsDraft,
       onSaveQuickViewCustomPaths: saveQuickViewCustomPaths,
       quickViewCustomPathsError,
+      statusMessage: metaState === 'error' ? (metaError ?? 'Metadata unavailable.') : null,
     },
     overviewProps: {
       open: openSections.overview,
@@ -649,7 +617,7 @@ export default function Inspector({
       hasStarConflict,
       onApplyConflict: applyConflict,
       onKeepTheirs: keepTheirs,
-      currentItem: currentItem ?? null,
+      currentItem,
       sourceValue,
       sortSpec,
       metricDisplayNames,
@@ -659,9 +627,8 @@ export default function Inspector({
       onToggleMetricsExpanded: toggleMetricsExpanded,
       metricsPreviewLimit: METRICS_PREVIEW_LIMIT,
       tableFields: data?.table_fields ?? null,
-      reservationHeightPx: path && !currentDetail
-        ? previousBasicsHeightRef.current || undefined
-        : undefined,
+      statusMessage: presentation?.itemError ?? null,
+      controlsDisabled: transitioning,
       onFindSimilar,
       canFindSimilar,
       findSimilarDisabledReason,
@@ -675,7 +642,7 @@ export default function Inspector({
       metadataActionLabel,
       metadataActionAriaLabel,
       onMetadataAction: handleMetadataAction,
-      metadataActionDisabled: !path,
+      metadataActionDisabled: !presentedPath || transitioning,
       hasPilInfo,
       showPilInfo,
       onToggleShowPilInfo: handleToggleShowPilInfo,
@@ -686,6 +653,7 @@ export default function Inspector({
       metaContent,
       metaError,
       onMetaPathCopy: handleMetaPathCopy,
+      transitionStatusVisible: showMetadataLoadingCopy,
     },
     notesProps: {
       open: openSections.notes,
@@ -702,6 +670,8 @@ export default function Inspector({
       tags,
       onTagsChange: handleTagsChange,
       onTagsBlur: handleTagsBlur,
+      disabled: transitioning || !!presentation?.sidecarError,
+      statusMessage: presentation?.sidecarError ?? null,
     },
   }
   const orderedVisibleWidgets = useMemo(() => {
@@ -716,41 +686,104 @@ export default function Inspector({
     [orderedVisibleWidgets],
   )
 
-  if (!enabled) return (
-    <div className="app-right-panel inspector-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative" data-inspector-panel data-inspector-path={path ?? ''}>
-      <div className={resizeHandleClass} onPointerDown={onResize} />
-    </div>
-  )
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    const panel = panelRef.current
+    panel?.toggleAttribute('inert', transitioning || !visible)
+    if (!transitioning && visible) return
+    const activeElement = document.activeElement
+    if (activeElement instanceof HTMLElement && panel?.contains(activeElement)) activeElement.blur()
+  }, [transitioning, visible])
+
+  const panelProps = {
+    ref: panelRef,
+    hidden: !visible,
+    'aria-hidden': !visible || undefined,
+    'aria-busy': transitioning || undefined,
+    'data-inspector-panel': true,
+    'data-inspector-path': presentedPath ?? '',
+    'data-inspector-requested-path': path ?? '',
+    'data-inspector-presented-path': presentedPath ?? '',
+    'data-inspector-requested-identity': requestedIdentity ?? '',
+    'data-inspector-presented-identity': presentation?.identity ?? '',
+    'data-inspector-requested-reset-key': presentationResetKey,
+    'data-inspector-presented-reset-key': presentation?.resetKey ?? '',
+    'data-inspector-item-notes': presentation?.item?.notes ?? '',
+    'data-inspector-transitioning': transitioning ? 'true' : 'false',
+    'data-inspector-metadata-state': metaState,
+    'data-inspector-item-state': presentation?.itemError ? 'error' : 'ready',
+    'data-inspector-sidecar-state': presentation?.sidecarError ? 'error' : 'ready',
+    'data-inspector-section-order': JSON.stringify(sectionOrder),
+    'data-inspector-quick-view-paths': JSON.stringify(quickViewCustomPaths),
+    'data-inspector-export-reverse': compareExportReverseOrder ? 'true' : 'false',
+    'data-inspector-export-high-quality': compareExportHighQualityGif ? 'true' : 'false',
+  } as const
 
   return (
-    <div className="app-right-panel inspector-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative" data-inspector-panel data-inspector-path={path ?? ''}>
-      {!multi && (
-        <div className="inspector-preview-shell p-3 border-b border-border flex justify-center">
-          <div className="inspector-preview-block space-y-2">
-            <div className="inspector-preview-card relative rounded-lg overflow-hidden border border-border bg-panel select-none">
-              {path && <InspectorPreviewImage key={path} path={path} />}
+    <div className="app-right-panel inspector-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative" {...panelProps}>
+      <div
+        className={`inspector-preview-shell p-3 border-b border-border justify-center ${enabled && !multi ? 'flex' : 'hidden'}`}
+        aria-hidden={!enabled || multi || undefined}
+      >
+        <div className="inspector-preview-block space-y-2">
+          <div
+            className="inspector-preview-card relative rounded-lg overflow-hidden border border-border bg-panel select-none"
+            data-preview-state={presentation?.preview.status ?? 'idle'}
+          >
+              {presentation?.preview.status === 'ready' && (
+                <img
+                  key={presentation.preview.url}
+                  src={presentation.preview.url}
+                  alt="thumb"
+                  className="inspector-preview-image block"
+                  data-preview-path={presentedPath ?? ''}
+                />
+              )}
+              {previewStage && previewStage.url !== (
+                presentation?.preview.status === 'ready' ? presentation.preview.url : null
+              ) && (
+                <img
+                  key={previewStage.url}
+                  src={previewStage.url}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 invisible h-full w-full"
+                  data-preview-candidate-path={previewStage.path}
+                  onLoad={(event) => decodeTargetPreview(event.currentTarget, previewStage)}
+                  onError={() => failTargetPreview(previewStage)}
+                />
+              )}
+              {presentation?.preview.status === 'error' && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center text-[11px] text-danger">
+                  <span>{presentation.preview.message}</span>
+                  <button type="button" className="btn btn-sm" onClick={presentation.preview.retry}>
+                    Retry preview
+                  </button>
+                </div>
+              )}
               {!!ext && <div className="absolute top-1.5 left-1.5 bg-surface border border-border text-text text-xs px-1.5 py-0.5 rounded-md select-none">{ext}</div>}
-            </div>
-            <div className="space-y-0.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted">Filename</div>
-              <div className="text-[12px] leading-relaxed break-all" title={filename || undefined}>
-                {filename || '—'}
-              </div>
+          </div>
+          <div className="space-y-0.5">
+            <div className="text-[10px] uppercase tracking-wide text-muted">Filename</div>
+            <div className="inspector-value-clamp h-9 [overflow-wrap:anywhere] text-[12px] leading-relaxed" title={filename || undefined}>
+              {filename || '—'}
             </div>
           </div>
         </div>
+      </div>
+      {enabled && (
+        <DndContext
+          sensors={sectionOrderSensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleSectionDragEnd}
+        >
+          <SortableContext items={visibleWidgetIds} strategy={verticalListSortingStrategy}>
+            {orderedVisibleWidgets.map((widget) => (
+              <Fragment key={widget.id}>{widget.render(widgetContext)}</Fragment>
+            ))}
+          </SortableContext>
+        </DndContext>
       )}
-      <DndContext
-        sensors={sectionOrderSensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleSectionDragEnd}
-      >
-        <SortableContext items={visibleWidgetIds} strategy={verticalListSortingStrategy}>
-          {orderedVisibleWidgets.map((widget) => (
-            <Fragment key={widget.id}>{widget.render(widgetContext)}</Fragment>
-          ))}
-        </SortableContext>
-      </DndContext>
       <div className={resizeHandleClass} onPointerDown={onResize} />
     </div>
   )

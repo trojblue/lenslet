@@ -66,11 +66,40 @@ def wait_for_section_precedence(
 
 
 def set_right_panel_open(page: Page, open_state: bool, timeout_ms: float) -> None:
+    def panel_state() -> dict[str, bool]:
+        raw = page.evaluate(
+            """() => {
+              const panel = document.querySelector('.app-right-panel');
+              if (!(panel instanceof HTMLElement)) {
+                return { present: false, visible: false, hidden: false, inert: false };
+              }
+              const rect = panel.getBoundingClientRect();
+              const style = getComputedStyle(panel);
+              return {
+                present: true,
+                visible: !panel.hidden
+                  && rect.width > 0
+                  && rect.height > 0
+                  && style.display !== 'none'
+                  && style.visibility !== 'hidden',
+                hidden: panel.hidden,
+                inert: panel.hasAttribute('inert'),
+              };
+            }"""
+        )
+        return raw if isinstance(raw, dict) else {}
+
     deadline = time.monotonic() + (timeout_ms / 1000.0)
+    current: dict[str, bool] = {}
     while time.monotonic() < deadline:
-        is_open = page.locator(".app-right-panel").count() > 0
-        if is_open == open_state:
+        current = panel_state()
+        if open_state and current.get("visible") is True:
             return
+        if not open_state and current.get("visible") is False:
+            if current.get("present") is False or (
+                current.get("hidden") is True and current.get("inert") is True
+            ):
+                return
         toggle_button = page.locator("button[aria-label='Toggle right panel']").first
         if toggle_button.count() == 0:
             page.wait_for_timeout(120)
@@ -79,7 +108,7 @@ def set_right_panel_open(page: Page, open_state: bool, timeout_ms: float) -> Non
         wait_for_ui_settled(page, min(timeout_ms, 5_000))
     raise SmokeFailure(
         f"Timed out setting right panel open state to {open_state}. "
-        f"Current count={page.locator('.app-right-panel').count()}."
+        f"Current state={current!r}."
     )
 
 

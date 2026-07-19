@@ -7,17 +7,32 @@ import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs, quote, urlsplit
-
 from scripts.browser.gui_jitter.painted_frames import (
     mark_painted_frame_action,
     start_painted_frame_trace,
     stop_painted_frame_trace,
     summarize_painted_frame_trace,
 )
+from scripts.browser.gui_jitter.inspector_frames import (
+    INSPECTOR_EXPECTED_CONTENT,
+    exercise_inspector_hard_reset,
+    inspector_input_values,
+    inspector_status_geometry,
+    quick_view_delta,
+    set_dirty_inspector_drafts,
+    snapshot_quick_view_section,
+    summarize_first_visible_inspector_frame,
+    summarize_inspector_identity_trace,
+)
+from scripts.browser.gui_jitter.inspector_requests import (
+    RequestEvidence, exercise_inspector_conflict_regions,
+    exercise_remote_inspector_cache_sync,
+    request_attribution_violations,
+    summarize_requests,
+    wait_for_request_count,
+)
 from scripts.browser.gui_jitter.shared import (
-    MILLISECONDS_PER_SECOND,
     ProbeResult,
-    require_dict_snapshot,
     set_local_storage,
     wait_for_grid,
 )
@@ -27,7 +42,6 @@ QUICK_ZERO_PATH = "/quick_00_meta.png"
 QUICK_ONE_PATH = "/quick_01_meta.png"
 PLAIN_PATH = "/quick_02_plain.png"
 QUICK_THREE_PATH = "/quick_03_meta.png"
-
 INSPECTOR_TRACE_SELECTORS = {
     "panel": "[data-inspector-panel]",
     "preview_shell": ".inspector-preview-shell",
@@ -60,8 +74,12 @@ INSPECTOR_SENTINELS = {
     QUICK_ONE_PATH: ("quick_01_meta.png", "beta prompt", "notes-01_meta", "tag-01_meta"),
     QUICK_THREE_PATH: ("quick_03_meta.png", "gamma prompt", "notes-03_meta", "tag-03_meta"),
 }
-TRACKED_REQUEST_PATHS = {"/item", "/item/detail", "/metadata"}
-RequestIdentity = tuple[str, str, str]
+INSPECTOR_RGB = {
+    QUICK_ZERO_PATH: (72, 36, 120),
+    QUICK_ONE_PATH: (36, 126, 74),
+    PLAIN_PATH: (148, 72, 34),
+    QUICK_THREE_PATH: (38, 96, 154),
+}
 
 LAZY_SURFACE_FRAME_INIT_SCRIPT = r"""
 (() => {
@@ -101,101 +119,6 @@ class InspectorSnapshots:
     quick_three_loaded: dict[str, Any]
     pending_plain: dict[str, Any]
     plain_resolved: dict[str, Any]
-
-
-class RequestEvidence:
-    def __init__(self, page: Any, page_id: str) -> None:
-        self.page_id = page_id
-        self.phase = "setup"
-        self.records: list[dict[str, str]] = []
-        page.on("request", self._record)
-
-    def _record(self, request: Any) -> None:
-        parsed = urlsplit(request.url)
-        if parsed.path not in TRACKED_REQUEST_PATHS:
-            return
-        query = parse_qs(parsed.query)
-        request_path = query.get("path", [""])[0]
-        self.records.append(
-            {
-                "page_id": self.page_id,
-                "phase": self.phase,
-                "method": request.method.upper(),
-                "pathname": parsed.path,
-                "path": request_path,
-            }
-        )
-
-    def set_phase(self, phase: str) -> None:
-        self.phase = phase
-
-    def phase_records(self, phase: str) -> list[dict[str, str]]:
-        return [record for record in self.records if record["phase"] == phase]
-
-    def count(self, phase: str, *, method: str, pathname: str, path: str | None = None) -> int:
-        return sum(
-            1
-            for record in self.phase_records(phase)
-            if record["method"] == method
-            and record["pathname"] == pathname
-            and (path is None or record["path"] == path)
-        )
-
-
-def snapshot_quick_view_section(page: Any) -> dict[str, Any]:
-    snapshot = page.evaluate(
-        """() => {
-          const section = document.querySelector('[data-inspector-section-id="quickView"]');
-          if (!(section instanceof HTMLElement)) {
-            return {
-              present: false,
-              top: null,
-              height: null,
-              rowCount: 0,
-              placeholderRowCount: 0,
-              loading: false,
-              promptValue: null,
-            };
-          }
-
-          const rect = section.getBoundingClientRect();
-          const rows = Array.from(section.querySelectorAll('.ui-kv-row'));
-          const visibleRows = rows.filter((row) => row.getAttribute('aria-hidden') !== 'true');
-          const placeholderRows = rows.filter((row) => row.getAttribute('aria-hidden') === 'true');
-          let promptValue = null;
-
-          for (const row of visibleRows) {
-            const label = row.querySelector('.ui-kv-label');
-            const value = row.querySelector('.ui-kv-value');
-            if (!(label instanceof HTMLElement) || !(value instanceof HTMLElement)) continue;
-            if ((label.textContent || '').trim() !== 'Prompt') continue;
-            promptValue = (value.textContent || '').trim();
-            break;
-          }
-
-          return {
-            present: true,
-            top: rect.top,
-            height: rect.height,
-            rowCount: visibleRows.length,
-            placeholderRowCount: placeholderRows.length,
-            loading: (section.textContent || '').includes('Loading metadata…'),
-            promptValue,
-          };
-        }"""
-    )
-    return require_dict_snapshot(snapshot, "Failed to capture Quick View snapshot.")
-
-
-def quick_view_delta(lhs: dict[str, Any], rhs: dict[str, Any]) -> float:
-    if not bool(lhs.get("present")) or not bool(rhs.get("present")):
-        return 0.0
-    try:
-        top_delta = abs(float(lhs.get("top")) - float(rhs.get("top")))
-        height_delta = abs(float(lhs.get("height")) - float(rhs.get("height")))
-    except (TypeError, ValueError):
-        return 0.0
-    return max(top_delta, height_delta)
 
 
 def select_grid_path(page: Any, path: str, browser_timeout_ms: float) -> None:
@@ -242,128 +165,28 @@ def inspector_storage_payload() -> dict[str, str | None]:
 
 
 def prepare_inspector_page(page: Any, base_url: str, browser_timeout_ms: float) -> None:
+    payload = json.dumps(inspector_storage_payload())
+    page.add_init_script(
+        script=f"""(() => {{
+          for (const [key, value] of Object.entries({payload})) {{
+            if (value === null) localStorage.removeItem(key);
+            else localStorage.setItem(key, value);
+          }}
+        }})()"""
+    )
     page.goto(base_url, wait_until="domcontentloaded")
     wait_for_grid(page, browser_timeout_ms)
-    set_local_storage(page, inspector_storage_payload())
     page.reload(wait_until="domcontentloaded")
     wait_for_grid(page, browser_timeout_ms)
 
 
-def set_dirty_drafts(page: Any, notes: str, tags: str) -> None:
-    page.evaluate(
-        """({ notes, tags }) => {
-          const update = (selector, value, prototype) => {
-            const element = document.querySelector(selector);
-            if (!(element instanceof HTMLElement)) throw new Error(`Missing ${selector}`);
-            const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-            if (!setter) throw new Error(`Missing value setter for ${selector}`);
-            setter.call(element, value);
-            element.dispatchEvent(new Event('input', { bubbles: true }));
-          };
-          update('textarea[aria-label="Notes"]', notes, HTMLTextAreaElement.prototype);
-          update('input[aria-label="Tags"]', tags, HTMLInputElement.prototype);
-        }""",
-        {"notes": notes, "tags": tags},
-    )
-
-
-def input_values(page: Any) -> dict[str, str]:
-    values = page.evaluate(
-        """() => ({
-          notes: document.querySelector('textarea[aria-label="Notes"]')?.value ?? '',
-          tags: document.querySelector('input[aria-label="Tags"]')?.value ?? '',
-        })"""
-    )
-    if not isinstance(values, dict):
-        raise SmokeFailure("Failed to read inspector notes/tags drafts.")
-    return {"notes": str(values.get("notes") or ""), "tags": str(values.get("tags") or "")}
-
-
-def wait_for_request_count(
-    page: Any,
-    evidence: RequestEvidence,
-    phase: str,
+def summarize_inspector_trace(
+    trace: dict[str, Any],
+    max_delta_px: float,
     *,
-    method: str,
-    pathname: str,
-    expected: int,
-    browser_timeout_ms: float,
-) -> None:
-    deadline = time.monotonic() + (browser_timeout_ms / MILLISECONDS_PER_SECOND)
-    while time.monotonic() < deadline:
-        if evidence.count(phase, method=method, pathname=pathname) >= expected:
-            return
-        page.wait_for_timeout(20)
-    raise SmokeFailure(
-        f"Timed out waiting for {expected} {method} {pathname} requests in {phase}; "
-        f"observed {evidence.count(phase, method=method, pathname=pathname)}."
-    )
-
-
-def summarize_requests(evidence: RequestEvidence, phase: str) -> dict[str, Any]:
-    records = evidence.phase_records(phase)
-    counts: dict[str, int] = {}
-    by_path: dict[str, dict[str, int]] = {}
-    for record in records:
-        key = f"{record['method']} {record['pathname']}"
-        counts[key] = counts.get(key, 0) + 1
-        path_counts = by_path.setdefault(record["path"], {})
-        path_counts[key] = path_counts.get(key, 0) + 1
-    return {
-        "page_id": evidence.page_id,
-        "phase": phase,
-        "counts": counts,
-        "by_path": by_path,
-        "records": records,
-    }
-
-
-def request_attribution_violations(
-    records: list[dict[str, str]],
-    *,
-    page_id: str,
-    phase: str,
-    allowed: set[RequestIdentity],
-    exact_counts: dict[RequestIdentity, int] | None = None,
-    max_counts: dict[RequestIdentity, int] | None = None,
-) -> list[str]:
-    """Fail closed when tracked requests cannot be assigned to the intended action."""
-
-    violations: list[str] = []
-    observed: dict[RequestIdentity, int] = {}
-    for index, record in enumerate(records):
-        if record.get("page_id") != page_id or record.get("phase") != phase:
-            violations.append(
-                f"request {index} has attribution {(record.get('page_id'), record.get('phase'))!r}; "
-                f"expected {(page_id, phase)!r}"
-            )
-            continue
-        identity = (
-            str(record.get("method") or ""),
-            str(record.get("pathname") or ""),
-            str(record.get("path") or ""),
-        )
-        observed[identity] = observed.get(identity, 0) + 1
-        if identity not in allowed:
-            violations.append(f"request {index} has unexpected identity {identity!r}")
-
-    for identity, expected in (exact_counts or {}).items():
-        actual = observed.get(identity, 0)
-        if actual != expected:
-            violations.append(
-                f"request identity {identity!r} occurred {actual} times instead of {expected}"
-            )
-    for identity, maximum in (max_counts or {}).items():
-        actual = observed.get(identity, 0)
-        if actual > maximum:
-            violations.append(
-                f"request identity {identity!r} occurred {actual} times; maximum is {maximum}"
-            )
-    return violations
-
-
-def summarize_inspector_trace(trace: dict[str, Any], max_delta_px: float) -> dict[str, Any]:
-    return summarize_painted_frame_trace(
+    require_expected_content: bool = False,
+) -> dict[str, Any]:
+    summary = summarize_painted_frame_trace(
         trace,
         required_surfaces=REQUIRED_INSPECTOR_SURFACES,
         sentinels_by_path=INSPECTOR_SENTINELS,
@@ -374,7 +197,17 @@ def summarize_inspector_trace(trace: dict[str, Any], max_delta_px: float) -> dic
             "PNG metadata not loaded yet.",
             "Load meta",
         ),
+        allow_retained_complete=True,
     )
+    identity = summarize_inspector_identity_trace(
+        trace,
+        sentinels_by_path=INSPECTOR_SENTINELS,
+        rgb_by_path=INSPECTOR_RGB,
+        expected_content_by_path=INSPECTOR_EXPECTED_CONTENT if require_expected_content else None,
+    )
+    summary["identity"] = identity
+    summary["violations"].extend(identity["violations"])
+    return summary
 
 
 def summarize_metadata_loading_timing(
@@ -572,7 +405,7 @@ def wait_for_inspector_hydrated(page: Any, path: str, browser_timeout_ms: float)
             timeout=browser_timeout_ms,
         )
     except Exception as exc:
-        current = input_values(page)
+        current = inspector_input_values(page)
         raise SmokeFailure(
             f"Timed out waiting for sidecar draft hydration for {path}: "
             f"expected notes={expected_notes!r}, current={current!r}."
@@ -588,20 +421,27 @@ def mark_and_click(
     expected_star: int | None = None,
     enforce_star_invariant: bool = False,
     required_texts: tuple[str, ...] = (),
+    require_expected_paint: bool = True,
+    dispatch_on_target: bool = False,
+    copied_feedback_owner_path: str | None = None,
 ) -> None:
     page.evaluate(
-        """({ actionId, expectedPath, expectedStar, enforceStarInvariant, requiredTexts, selector }) => {
+        """({ actionId, expectedPath, expectedStar, enforceStarInvariant, requiredTexts, requireExpectedPaint, copiedFeedbackOwnerPath, selector }) => {
           const state = window.__lensletPaintedFrameTrace;
           if (!state || !state.running) throw new Error('painted-frame trace is not running');
           const target = document.querySelector(selector);
           if (!(target instanceof HTMLElement)) throw new Error(`Missing click target ${selector}`);
           target.addEventListener('click', () => {
+            const panel = document.querySelector('[data-inspector-panel]');
             const marker = {
               actionId,
               expectedPath,
               expectedStar,
               enforceStarInvariant,
               requiredTexts,
+              requireExpectedPaint,
+              copiedFeedbackOwnerPath,
+              previousPresentedPath: panel?.getAttribute('data-inspector-presented-path') || '',
               startedAt: performance.now(),
             };
             state.marker = marker;
@@ -614,10 +454,15 @@ def mark_and_click(
             "expectedStar": expected_star,
             "enforceStarInvariant": enforce_star_invariant,
             "requiredTexts": list(required_texts),
+            "requireExpectedPaint": require_expected_paint,
+            "copiedFeedbackOwnerPath": copied_feedback_owner_path,
             "selector": selector,
         },
     )
-    page.locator(selector).click()
+    if dispatch_on_target:
+        page.locator(selector).locator("[data-media-state]").dispatch_event("click")
+    else:
+        page.locator(selector).click()
 
 
 def trace_violations(summary: dict[str, Any]) -> list[str]:
@@ -651,8 +496,8 @@ def exercise_rating_continuity(
 
         owner_notes = "owner dirty notes"
         owner_tags = "owner-dirty-tag"
-        set_dirty_drafts(owner, owner_notes, owner_tags)
-        if input_values(owner) != {"notes": owner_notes, "tags": owner_tags}:
+        set_dirty_inspector_drafts(owner, owner_notes, owner_tags)
+        if inspector_input_values(owner) != {"notes": owner_notes, "tags": owner_tags}:
             raise SmokeFailure("Failed to establish owner dirty drafts before rating.")
 
         owner_requests.set_phase("local_rating")
@@ -705,7 +550,7 @@ def exercise_rating_continuity(
                 "patch_item_requests": local_requests["counts"].get("PATCH /item", 0),
                 "metadata_gets_after_warmup": local_requests["counts"].get("GET /metadata", 0),
                 "detail_gets_after_warmup": local_requests["counts"].get("GET /item/detail", 0),
-                "dirty_drafts_preserved": input_values(owner)
+                "dirty_drafts_preserved": inspector_input_values(owner)
                 == {"notes": owner_notes, "tags": owner_tags},
                 "requests": local_requests,
             }
@@ -738,7 +583,7 @@ def exercise_rating_continuity(
 
         remote_notes = "remote dirty notes"
         remote_tags = "remote-dirty-tag"
-        set_dirty_drafts(remote, remote_notes, remote_tags)
+        set_dirty_inspector_drafts(remote, remote_notes, remote_tags)
         remote_requests.set_phase("remote_echo")
         owner_requests.set_phase("remote_echo")
         start_painted_frame_trace(
@@ -781,7 +626,7 @@ def exercise_rating_continuity(
         owner_page_requests = summarize_requests(owner_requests, "remote_echo")
         remote_summary.update(
             {
-                "dirty_drafts_preserved": input_values(remote)
+                "dirty_drafts_preserved": inspector_input_values(remote)
                 == {"notes": remote_notes, "tags": remote_tags},
                 "requests": remote_page_requests,
                 "originating_page_requests": owner_page_requests,
@@ -810,6 +655,20 @@ def exercise_rating_continuity(
         )
         if not remote_summary["dirty_drafts_preserved"]:
             remote_summary["violations"].append("remote star echo replaced dirty notes/tags drafts")
+        cache_sync = exercise_remote_inspector_cache_sync(
+            owner,
+            remote,
+            owner_requests,
+            remote_requests,
+            path=QUICK_ONE_PATH,
+            live_notes="remote cache notes",
+            live_tags="remote-cache-tag",
+            restore_notes="notes-01_meta",
+            restore_tags="tag-01_meta",
+            browser_timeout_ms=browser_timeout_ms,
+        )
+        remote_summary["cache_sync"] = cache_sync
+        remote_summary["violations"].extend(cache_sync["violations"])
         return local_summary, remote_summary
     finally:
         owner_context.close()
@@ -824,6 +683,7 @@ def exercise_selection_continuity(
 ) -> dict[str, Any]:
     context = browser.new_context(viewport={"width": 1280, "height": 900})
     context.add_init_script(FETCH_DELAY_INIT_SCRIPT)
+    context.grant_permissions(["clipboard-read", "clipboard-write"], origin=base_url)
     try:
         page = context.new_page()
         page.set_default_timeout(browser_timeout_ms)
@@ -843,9 +703,11 @@ def exercise_selection_continuity(
             action_id="selection-superseded-slow",
             expected_path=QUICK_THREE_PATH,
             selector=f'[id="cell-{quote(QUICK_THREE_PATH, safe="")}"]',
+            require_expected_paint=False,
         )
         page.wait_for_function(
-            """() => (document.querySelector('.inspector-preview-block [title]')?.textContent || '').includes('quick_03_meta.png')""",
+            """() => document.querySelector('[data-inspector-panel]')
+              ?.getAttribute('data-inspector-requested-path') === '/quick_03_meta.png'""",
             timeout=browser_timeout_ms,
         )
         wait_for_request_count(
@@ -866,6 +728,47 @@ def exercise_selection_continuity(
         )
         wait_for_inspector_hydrated(page, QUICK_ONE_PATH, browser_timeout_ms)
         page.wait_for_timeout(1_150)
+        page.evaluate(
+            """() => {
+              window.__lensletResolveClipboardWrite = null;
+              window.__lensletClipboardWritePending = false;
+              Object.defineProperty(navigator.clipboard, 'writeText', {
+                configurable: true,
+                value: () => new Promise((resolve) => {
+                  window.__lensletClipboardWritePending = true;
+                  window.__lensletResolveClipboardWrite = resolve;
+                }),
+              });
+            }"""
+        )
+        copy_prompt = page.get_by_role("button", name="Copy Prompt")
+        copy_prompt.click()
+        page.wait_for_function(
+            "() => window.__lensletClipboardWritePending === true",
+            timeout=browser_timeout_ms,
+        )
+        mark_and_click(
+            page,
+            action_id="selection-copy-feedback",
+            expected_path=QUICK_ZERO_PATH,
+            selector=f'[id="cell-{quote(QUICK_ZERO_PATH, safe="")}"]',
+            copied_feedback_owner_path=QUICK_ONE_PATH,
+        )
+        page.wait_for_function(
+            """() => document.querySelector('[data-inspector-panel]')
+              ?.getAttribute('data-inspector-requested-path') === '/quick_00_meta.png'""",
+            timeout=browser_timeout_ms,
+        )
+        page.evaluate(
+            """() => {
+              window.__lensletResolveClipboardWrite?.();
+              window.__lensletResolveClipboardWrite = null;
+            }"""
+        )
+        wait_for_inspector_hydrated(page, QUICK_ZERO_PATH, browser_timeout_ms)
+        page.wait_for_timeout(40)
+        if page.locator('[title="Prompt copied"]').count() > 0:
+            raise SmokeFailure("Copied Quick View feedback leaked into the target Inspector.")
         request_windows: list[dict[str, Any]] = []
         paths = [QUICK_THREE_PATH] + [
             QUICK_ZERO_PATH if index % 2 == 0 else QUICK_ONE_PATH
@@ -926,7 +829,11 @@ def exercise_selection_continuity(
                 }
             )
         trace = stop_painted_frame_trace(page)
-        summary = summarize_inspector_trace(trace, max_delta_px)
+        summary = summarize_inspector_trace(
+            trace,
+            max_delta_px,
+            require_expected_content=True,
+        )
         metadata_loading_timings = [
             summarize_metadata_loading_timing(
                 trace,
@@ -937,6 +844,12 @@ def exercise_selection_continuity(
             summarize_metadata_loading_timing(
                 trace,
                 action_id="selection-superseding-fast",
+                minimum_delay_ms=1_000.0,
+                expect_delayed_copy=False,
+            ),
+            summarize_metadata_loading_timing(
+                trace,
+                action_id="selection-copy-feedback",
                 minimum_delay_ms=1_000.0,
                 expect_delayed_copy=False,
             ),
@@ -1045,7 +958,11 @@ def exercise_delayed_response_switch(
         wait_for_inspector_hydrated(page, QUICK_ZERO_PATH, browser_timeout_ms)
         page.wait_for_timeout(400)
         trace = stop_painted_frame_trace(page)
-        summary = summarize_inspector_trace(trace, max_delta_px)
+        summary = summarize_inspector_trace(
+            trace,
+            max_delta_px,
+            require_expected_content=True,
+        )
         request_summary = summarize_requests(requests, "delayed_rating_switch")
         summary["requests"] = request_summary
         allowed = {
@@ -1077,6 +994,623 @@ def exercise_delayed_response_switch(
         return summary
     finally:
         context.close()
+
+
+def exercise_inspector_lifecycle(
+    browser: Any,
+    base_url: str,
+    browser_timeout_ms: float,
+) -> dict[str, Any]:
+    context = browser.new_context(viewport={"width": 1280, "height": 900})
+    stage = "open"
+    try:
+        page = context.new_page()
+        page.set_default_timeout(browser_timeout_ms)
+        expected_order = ["notes", "quickView", "metadata", "basics", "overview", "compareMetadata"]
+        expected_paths = ["persisted.first.frame"]
+        payload = inspector_storage_payload()
+        payload["lenslet.inspector.sections"] = json.dumps(
+            {
+                "quickView": True,
+                "overview": True,
+                "compare": True,
+                "metadata": True,
+                "basics": False,
+                "notes": True,
+            },
+            separators=(",", ":"),
+        )
+        payload["lenslet.inspector.sectionOrder.v2"] = json.dumps(
+            expected_order,
+            separators=(",", ":"),
+        )
+        payload["lenslet.inspector.quickView.paths.v1"] = json.dumps(
+            expected_paths,
+            separators=(",", ":"),
+        )
+        payload["lenslet.inspector.metricsExpanded"] = "1"
+        payload["lenslet.inspector.export.reverseOrder"] = "1"
+        payload["lenslet.inspector.export.highQualityGif"] = "1"
+        page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_grid(page, browser_timeout_ms)
+        set_local_storage(page, payload)
+        page.reload(wait_until="domcontentloaded")
+        wait_for_grid(page, browser_timeout_ms)
+        stage = "select"
+        start_painted_frame_trace(
+            page,
+            page_id="lifecycle-cold",
+            phase="lifecycle-cold",
+            selectors=INSPECTOR_TRACE_SELECTORS,
+        )
+        mark_and_click(
+            page,
+            action_id="lifecycle-cold-select",
+            expected_path=QUICK_ONE_PATH,
+            selector=f'[id="cell-{quote(QUICK_ONE_PATH, safe="")}"]',
+        )
+        wait_for_inspector_hydrated(page, QUICK_ONE_PATH, browser_timeout_ms)
+        page.wait_for_timeout(34)
+        cold_trace = stop_painted_frame_trace(page)
+        cold_frame = summarize_first_visible_inspector_frame(
+            cold_trace,
+            expected_section_order=expected_order,
+            expected_quick_view_paths=expected_paths,
+            expected_inputs={},
+        )
+        violations = [f"cold: {value}" for value in cold_frame["violations"]]
+        root_token = cold_frame.get("frame", {}).get("token")
+        stage = "edit drafts"
+        page.evaluate("window.__lensletInspectorNode = document.querySelector('[data-inspector-panel]')")
+        page.get_by_label("Toggle custom JSON paths").click()
+        custom_paths = page.get_by_label("Quick View custom JSON paths")
+        custom_paths.fill("unsaved.lifecycle.path")
+        notes = page.locator('textarea[aria-label="Notes"]')
+        notes.fill("unsaved lifecycle notes")
+        notes.focus()
+        stage = "visibility cycles"
+        toggle = page.get_by_label("Toggle right panel").first
+        reopen_frames: list[dict[str, Any]] = []
+
+        for cycle in range(20):
+            toggle.click()
+            page.wait_for_function(
+                """() => {
+                  const panel = document.querySelector('[data-inspector-panel]');
+                  return panel instanceof HTMLElement && panel.hidden && panel.hasAttribute('inert');
+                }""",
+                timeout=browser_timeout_ms,
+            )
+            if page.evaluate("() => document.querySelector('[data-inspector-panel]')?.contains(document.activeElement)"):
+                violations.append(f"cycle {cycle + 1} retained focus inside hidden Inspector")
+            start_painted_frame_trace(
+                page,
+                page_id=f"lifecycle-reopen-{cycle + 1}",
+                phase="lifecycle-reopen",
+                selectors=INSPECTOR_TRACE_SELECTORS,
+            )
+            mark_and_click(
+                page,
+                action_id=f"lifecycle-reopen-{cycle + 1}",
+                expected_path=QUICK_ONE_PATH,
+                selector='button[aria-label="Toggle right panel"]',
+            )
+            page.wait_for_function(
+                """() => !document.querySelector('[data-inspector-panel]')?.hasAttribute('hidden')""",
+                timeout=browser_timeout_ms,
+            )
+            page.wait_for_timeout(34)
+            reopen = summarize_first_visible_inspector_frame(
+                stop_painted_frame_trace(page),
+                expected_section_order=expected_order,
+                expected_quick_view_paths=expected_paths,
+                expected_inputs={
+                    "Notes": "unsaved lifecycle notes",
+                    "Quick View custom JSON paths": "unsaved.lifecycle.path",
+                },
+                expected_token=str(root_token),
+            )
+            reopen_frames.append(reopen)
+            violations.extend(
+                f"cycle {cycle + 1}: {value}" for value in reopen["violations"]
+            )
+
+        start_painted_frame_trace(
+            page,
+            page_id="lifecycle-narrow",
+            phase="lifecycle-narrow",
+            selectors=INSPECTOR_TRACE_SELECTORS,
+        )
+        mark_painted_frame_action(
+            page,
+            action_id="lifecycle-narrow",
+            expected_path=QUICK_ONE_PATH,
+        )
+        page.set_viewport_size({"width": 900, "height": 900})
+        page.wait_for_function(
+            """() => !document.querySelector('[data-inspector-panel]')?.hasAttribute('hidden')""",
+            timeout=browser_timeout_ms,
+        )
+        page.wait_for_timeout(34)
+        narrow_frame = summarize_first_visible_inspector_frame(
+            stop_painted_frame_trace(page),
+            expected_section_order=expected_order,
+            expected_quick_view_paths=expected_paths,
+            expected_inputs={"Notes": "unsaved lifecycle notes"},
+            expected_token=str(root_token),
+        )
+        violations.extend(f"narrow: {value}" for value in narrow_frame["violations"])
+        narrow_geometry = inspector_status_geometry(page)
+        if not isinstance(narrow_geometry, dict) or not narrow_geometry.get("filenameClamped"):
+            violations.append("narrow Inspector filename escaped its two-line clamp")
+        if not isinstance(narrow_geometry, dict) or not narrow_geometry.get("boundedStatuses"):
+            violations.append("narrow Inspector status regions escaped the panel")
+        page.set_viewport_size({"width": 480, "height": 900})
+        page.wait_for_function(
+            """() => {
+              const panel = document.querySelector('[data-inspector-panel]');
+              return panel instanceof HTMLElement && panel.hidden && panel.hasAttribute('inert');
+            }""",
+            timeout=browser_timeout_ms,
+        )
+        page.set_viewport_size({"width": 1280, "height": 900})
+        page.wait_for_function(
+            """() => !document.querySelector('[data-inspector-panel]')?.hasAttribute('hidden')""",
+            timeout=browser_timeout_ms,
+        )
+        state = page.evaluate(
+            """() => {
+              const panel = document.querySelector('[data-inspector-panel]');
+              const notes = document.querySelector('textarea[aria-label="Notes"]');
+              const custom = document.querySelector('textarea[aria-label="Quick View custom JSON paths"]');
+              const basics = document.querySelector('[data-inspector-section-id="basics"]');
+              return {
+                sameNode: panel === window.__lensletInspectorNode,
+                notes: notes?.value || '',
+                custom: custom?.value || '',
+                basicsOpen: basics?.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded'),
+                path: panel?.getAttribute('data-inspector-presented-path') || '',
+              };
+            }"""
+        )
+        if not state.get("sameNode"):
+            violations.append("Inspector root node changed across close/responsive cycles")
+        if state.get("notes") != "unsaved lifecycle notes":
+            violations.append("Inspector Notes draft changed across close/responsive cycles")
+        if state.get("custom") != "unsaved.lifecycle.path":
+            violations.append("Inspector custom-path draft changed across close/responsive cycles")
+        if state.get("basicsOpen") != "false":
+            violations.append("Inspector disclosure state changed across close/responsive cycles")
+        if state.get("path") != QUICK_ONE_PATH:
+            violations.append("Inspector presentation identity changed across visibility cycles")
+        persisted = page.evaluate(
+            """(keys) => Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)]))""",
+            [
+                "lenslet.inspector.sections",
+                "lenslet.inspector.sectionOrder.v2",
+                "lenslet.inspector.quickView.paths.v1",
+                "lenslet.inspector.metricsExpanded",
+                "lenslet.inspector.export.reverseOrder",
+                "lenslet.inspector.export.highQualityGif",
+            ],
+        )
+        json_storage_keys = {
+            "lenslet.inspector.sections",
+            "lenslet.inspector.sectionOrder.v2",
+            "lenslet.inspector.quickView.paths.v1",
+        }
+        persisted_normalized = {
+            key: json.loads(value) if key in json_storage_keys and value is not None else value
+            for key, value in persisted.items()
+        }
+        expected_persisted = {
+            key: json.loads(payload[key]) if key in json_storage_keys else payload[key]
+            for key in persisted
+        }
+        if persisted_normalized != expected_persisted:
+            violations.append(
+                f"Inspector lifecycle overwrote persisted state: {persisted!r}"
+            )
+        page.locator('textarea[aria-label="Notes"]').fill("notes-01_meta")
+        page.locator('textarea[aria-label="Notes"]').blur()
+        page.wait_for_timeout(500)
+        hard_reset = exercise_inspector_hard_reset(
+            page,
+            trace_selectors=INSPECTOR_TRACE_SELECTORS,
+            target_path=QUICK_ONE_PATH,
+            target_rgb=(188, 42, 116),
+            target_selector=f'[id="cell-{quote(QUICK_ONE_PATH, safe="")}"]',
+            browser_timeout_ms=browser_timeout_ms,
+        )
+        violations.extend(f"hard reset: {value}" for value in hard_reset["violations"])
+        return {
+            "cycles": 20,
+            "cold_frame": cold_frame,
+            "reopen_frame_count": len(reopen_frames),
+            "narrow_frame": narrow_frame,
+            "narrow_geometry": narrow_geometry,
+            "persisted": persisted,
+            "state": state,
+            "hard_reset": hard_reset,
+            "violations": violations,
+        }
+    except Exception as exc:
+        raise SmokeFailure(f"Inspector lifecycle stage {stage!r} failed: {exc}") from exc
+    finally:
+        context.close()
+
+
+def exercise_hidden_inspector_compare(
+    browser: Any,
+    base_url: str,
+    browser_timeout_ms: float,
+) -> dict[str, Any]:
+    context = browser.new_context(viewport={"width": 1280, "height": 900})
+    try:
+        page = context.new_page()
+        page.set_default_timeout(browser_timeout_ms)
+        requests = RequestEvidence(page, "hidden-compare")
+        prepare_inspector_page(page, base_url, browser_timeout_ms)
+        select_grid_path(page, QUICK_ONE_PATH, browser_timeout_ms)
+        wait_for_inspector_hydrated(page, QUICK_ONE_PATH, browser_timeout_ms)
+        page.get_by_role("button", name="Toggle right panel").click()
+        page.wait_for_function(
+            """() => {
+              const panel = document.querySelector('[data-inspector-panel]');
+              return panel instanceof HTMLElement && panel.hidden && panel.hasAttribute('inert');
+            }""",
+            timeout=browser_timeout_ms,
+        )
+        requests.set_phase("hidden-compare")
+        page.locator(f'[id="cell-{quote(QUICK_ZERO_PATH, safe="")}"]').click(
+            modifiers=["Control"]
+        )
+        page.wait_for_function(
+            """() => {
+              const raw = document.querySelector('[data-inspector-panel]')
+                ?.getAttribute('data-inspector-requested-identity');
+              if (!raw) return false;
+              const identity = JSON.parse(raw);
+              return Array.isArray(identity?.[2]) && identity[2].length === 2;
+            }""",
+            timeout=browser_timeout_ms,
+        )
+        page.wait_for_timeout(350)
+        hidden_requests = summarize_requests(requests, "hidden-compare")
+        violations = request_attribution_violations(
+            hidden_requests["records"],
+            page_id="hidden-compare",
+            phase="hidden-compare",
+            allowed=set(),
+        )
+
+        requests.set_phase("hidden-compare-reopen")
+        page.get_by_role("button", name="Toggle right panel").click()
+        page.wait_for_function(
+            """() => {
+              const panel = document.querySelector('[data-inspector-panel]');
+              return panel instanceof HTMLElement && !panel.hidden && !panel.hasAttribute('inert');
+            }""",
+            timeout=browser_timeout_ms,
+        )
+        wait_for_request_count(
+            page,
+            requests,
+            "hidden-compare-reopen",
+            method="GET",
+            pathname="/metadata",
+            expected=2,
+            browser_timeout_ms=browser_timeout_ms,
+        )
+        page.get_by_role("button", name="Reload").wait_for(state="visible")
+        reopen_requests = summarize_requests(requests, "hidden-compare-reopen")
+        violations.extend(
+            request_attribution_violations(
+                reopen_requests["records"],
+                page_id="hidden-compare",
+                phase="hidden-compare-reopen",
+                allowed={
+                    ("GET", "/metadata", QUICK_ONE_PATH),
+                    ("GET", "/metadata", QUICK_ZERO_PATH),
+                },
+                exact_counts={
+                    ("GET", "/metadata", QUICK_ONE_PATH): 1,
+                    ("GET", "/metadata", QUICK_ZERO_PATH): 1,
+                },
+            )
+        )
+        requests.set_phase("hidden-compare-unchanged")
+        page.get_by_role("button", name="Toggle right panel").click()
+        page.wait_for_function(
+            """() => document.querySelector('[data-inspector-panel]')?.hasAttribute('inert')""",
+            timeout=browser_timeout_ms,
+        )
+        page.get_by_role("button", name="Toggle right panel").click()
+        page.wait_for_function(
+            """() => !document.querySelector('[data-inspector-panel]')?.hasAttribute('inert')""",
+            timeout=browser_timeout_ms,
+        )
+        page.wait_for_timeout(350)
+        unchanged_requests = summarize_requests(requests, "hidden-compare-unchanged")
+        violations.extend(
+            request_attribution_violations(
+                unchanged_requests["records"],
+                page_id="hidden-compare",
+                phase="hidden-compare-unchanged",
+                allowed=set(),
+            )
+        )
+        return {
+            "hidden_requests": hidden_requests,
+            "reopen_requests": reopen_requests,
+            "unchanged_reopen_requests": unchanged_requests,
+            "violations": violations,
+        }
+    finally:
+        context.close()
+
+
+def exercise_dirty_selection_routing(
+    browser: Any,
+    base_url: str,
+    browser_timeout_ms: float,
+) -> dict[str, Any]:
+    results: dict[str, Any] = {}
+    for mode, owner_path, target_path, modifiers, expected_inputs in (
+        (
+            "single-to-single",
+            QUICK_ONE_PATH,
+            QUICK_ZERO_PATH,
+            [],
+            {"notes": "notes-00_meta", "tags": "tag-00_meta"},
+        ),
+        (
+            "single-to-multi",
+            QUICK_THREE_PATH,
+            QUICK_ZERO_PATH,
+            ["Control"],
+            {"notes": "", "tags": ""},
+        ),
+    ):
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        try:
+            page = context.new_page()
+            page.set_default_timeout(browser_timeout_ms)
+            requests = RequestEvidence(page, mode)
+            prepare_inspector_page(page, base_url, browser_timeout_ms)
+            select_grid_path(page, owner_path, browser_timeout_ms)
+            wait_for_inspector_hydrated(page, owner_path, browser_timeout_ms)
+            set_dirty_inspector_drafts(page, f"dirty notes {mode}", f"dirty-tag-{mode}")
+            page.locator('textarea[aria-label="Notes"]').focus()
+            requests.set_phase(mode)
+            page.locator(f'[id="cell-{quote(target_path, safe="")}"]').click(
+                modifiers=modifiers
+            )
+            if modifiers:
+                page.wait_for_function(
+                    """() => {
+                      const raw = document.querySelector('[data-inspector-panel]')
+                        ?.getAttribute('data-inspector-presented-identity');
+                      if (!raw) return false;
+                      const identity = JSON.parse(raw);
+                      return Array.isArray(identity?.[2]) && identity[2].length === 2;
+                    }""",
+                    timeout=browser_timeout_ms,
+                )
+                labels = ("Notes for selected items", "Tags for selected items")
+            else:
+                wait_for_inspector_hydrated(page, target_path, browser_timeout_ms)
+                labels = ("Notes", "Tags")
+            wait_for_request_count(
+                page,
+                requests,
+                mode,
+                method="PATCH",
+                pathname="/item",
+                expected=1,
+                browser_timeout_ms=browser_timeout_ms,
+            )
+            page.wait_for_timeout(200)
+            request_summary = summarize_requests(requests, mode)
+            patch_paths = [
+                record["path"]
+                for record in request_summary["records"]
+                if record["method"] == "PATCH" and record["pathname"] == "/item"
+            ]
+            target_inputs = page.evaluate(
+                """([notesLabel, tagsLabel]) => ({
+                  notes: document.querySelector(`textarea[aria-label="${notesLabel}"]`)?.value,
+                  tags: document.querySelector(`input[aria-label="${tagsLabel}"]`)?.value,
+                })""",
+                list(labels),
+            )
+            violations: list[str] = []
+            if patch_paths != [owner_path]:
+                violations.append(f"dirty owner patch paths were {patch_paths!r}")
+            if target_inputs != expected_inputs:
+                violations.append(f"dirty A leaked into target inputs: {target_inputs!r}")
+            results[mode] = {
+                "patch_paths": patch_paths,
+                "target_inputs": target_inputs,
+                "requests": request_summary,
+                "violations": violations,
+            }
+        finally:
+            context.close()
+    results["violations"] = [
+        f"{mode}: {violation}"
+        for mode, result in results.items()
+        if mode != "violations"
+        for violation in result["violations"]
+    ]
+    return results
+
+
+def exercise_inspector_autoload_off(
+    browser: Any,
+    base_url: str,
+    browser_timeout_ms: float,
+) -> dict[str, Any]:
+    context = browser.new_context(viewport={"width": 1280, "height": 900})
+    try:
+        payload = inspector_storage_payload()
+        payload["autoloadImageMetadata"] = "0"
+        context.add_init_script(
+            script=f"""
+            (() => {{
+              const payload = {json.dumps(payload)};
+              for (const [key, value] of Object.entries(payload)) {{
+                if (value === null) localStorage.removeItem(key);
+                else localStorage.setItem(key, value);
+              }}
+            }})();
+            """
+        )
+        page = context.new_page()
+        page.set_default_timeout(browser_timeout_ms)
+        metadata_requests: list[str] = []
+        page.on(
+            "request",
+            lambda request: metadata_requests.append(request.url)
+            if urlsplit(request.url).path == "/metadata"
+            else None,
+        )
+        page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_grid(page, browser_timeout_ms)
+        select_grid_path(page, QUICK_ONE_PATH, browser_timeout_ms)
+        page.wait_for_function(
+            """() => {
+              const panel = document.querySelector('[data-inspector-panel]');
+              const image = document.querySelector('.inspector-preview-image');
+              return panel?.getAttribute('data-inspector-presented-path') === '/quick_01_meta.png'
+                && image instanceof HTMLImageElement
+                && image.complete
+                && image.naturalWidth > 0;
+            }""",
+            timeout=browser_timeout_ms,
+        )
+        panel_text = page.locator("[data-inspector-panel]").inner_text()
+        violations: list[str] = []
+        if "PNG metadata not loaded yet." not in panel_text or "Load meta" not in panel_text:
+            violations.append("autoload-off Inspector did not settle in explicit idle metadata state")
+        if metadata_requests:
+            violations.append("autoload-off Inspector issued a metadata request")
+        return {"metadata_requests": metadata_requests, "violations": violations}
+    finally:
+        context.close()
+
+
+def exercise_inspector_dependency_failures(
+    browser: Any,
+    base_url: str,
+    browser_timeout_ms: float,
+) -> dict[str, Any]:
+    results: dict[str, Any] = {}
+    endpoint_by_name = {
+        "detail": "/item/detail",
+        "sidecar": "/item",
+        "metadata": "/metadata",
+        "preview": "/thumb",
+    }
+    for name, endpoint in endpoint_by_name.items():
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+
+        failed_endpoint = endpoint
+        failure_label = name
+
+        def fail_target(route: Any) -> None:
+            parsed = urlsplit(route.request.url)
+            request_path = parse_qs(parsed.query).get("path", [""])[0]
+            if (
+                route.request.method.upper() == "GET"
+                and parsed.path == failed_endpoint
+                and request_path == QUICK_ZERO_PATH
+            ):
+                route.fulfill(
+                    status=500,
+                    content_type="application/json",
+                    body=json.dumps({"detail": f"forced {failure_label} failure"}),
+                )
+                return
+            route.continue_()
+
+        stage = "prepare"
+        try:
+            page = context.new_page()
+            page.set_default_timeout(max(browser_timeout_ms, 12_000))
+            if name == "preview":
+                page.route(f"**{failed_endpoint}?*", fail_target)
+            prepare_inspector_page(page, base_url, max(browser_timeout_ms, 12_000))
+            select_grid_path(page, QUICK_ONE_PATH, max(browser_timeout_ms, 12_000))
+            wait_for_inspector_hydrated(page, QUICK_ONE_PATH, max(browser_timeout_ms, 12_000))
+            if name != "preview":
+                page.route(f"**{failed_endpoint}?*", fail_target)
+            stage = "target failure"
+            start_painted_frame_trace(
+                page,
+                page_id=f"failure-{name}",
+                phase=f"failure-{name}",
+                selectors=INSPECTOR_TRACE_SELECTORS,
+            )
+            mark_and_click(
+                page,
+                action_id=f"failure-{name}",
+                expected_path=QUICK_ZERO_PATH,
+                selector=f'[id="cell-{quote(QUICK_ZERO_PATH, safe="")}"]',
+                dispatch_on_target=name == "preview",
+            )
+            page.set_viewport_size({"width": 900, "height": 900})
+            page.wait_for_function(
+                """() => document.querySelector('[data-inspector-panel]')
+                  ?.getAttribute('data-inspector-presented-path') === '/quick_00_meta.png'""",
+                timeout=max(browser_timeout_ms, 12_000),
+            )
+            page.wait_for_timeout(80)
+            trace = stop_painted_frame_trace(page)
+            identity = summarize_inspector_identity_trace(
+                trace,
+                sentinels_by_path=INSPECTOR_SENTINELS,
+                rgb_by_path=INSPECTOR_RGB,
+                expected_content_by_path=INSPECTOR_EXPECTED_CONTENT,
+            )
+            panel_text = page.locator("[data-inspector-panel]").inner_text()
+            violations = list(identity["violations"])
+            status_geometry = inspector_status_geometry(page)
+            if name != "preview" and f"forced {name} failure" not in panel_text:
+                violations.append(f"{name} failure did not expose a bounded target-owned error")
+            if not status_geometry.get("boundedStatuses"):
+                violations.append(f"{name} failure status escaped the narrow Inspector")
+            if name == "preview" and "Retry preview" not in panel_text:
+                violations.append("preview failure did not expose retry")
+            results[name] = {
+                "identity": identity, "status_geometry": status_geometry, "violations": violations}
+        except Exception as exc:
+            snapshot = page.evaluate(
+                """() => {
+                  const panel = document.querySelector('[data-inspector-panel]');
+                  return {
+                    requested: panel?.getAttribute('data-inspector-requested-path') || '',
+                    presented: panel?.getAttribute('data-inspector-presented-path') || '',
+                    text: (panel?.textContent || '').slice(0, 500),
+                  };
+                }"""
+            )
+            raise SmokeFailure(
+                f"Inspector {name} failure stage {stage!r} failed: {exc}; snapshot={snapshot!r}"
+            ) from exc
+        finally:
+            context.close()
+    results["conflict_regions"] = exercise_inspector_conflict_regions(
+        browser, base_url, path=QUICK_ONE_PATH, browser_timeout_ms=browser_timeout_ms,
+        multi_paths=(QUICK_ZERO_PATH, QUICK_THREE_PATH),
+        prepare_page=prepare_inspector_page)
+    results["violations"] = [
+        f"{name}: {violation}"
+        for name, summary in results.items()
+        if name != "violations"
+        for violation in summary["violations"]
+    ]
+    return results
 
 
 def exercise_inspector_continuity(
@@ -1112,6 +1646,34 @@ def exercise_inspector_continuity(
         )
     except Exception as exc:
         raise SmokeFailure(f"Inspector delayed-response continuity phase failed: {exc}") from exc
+    try:
+        autoload_off = exercise_inspector_autoload_off(browser, base_url, browser_timeout_ms)
+    except Exception as exc:
+        raise SmokeFailure(f"Inspector autoload-off phase failed: {exc}") from exc
+    try:
+        dependency_failures = exercise_inspector_dependency_failures(
+            browser,
+            base_url,
+            browser_timeout_ms,
+        )
+    except Exception as exc:
+        raise SmokeFailure(f"Inspector dependency-failure phase failed: {exc}") from exc
+    try:
+        lifecycle = exercise_inspector_lifecycle(browser, base_url, browser_timeout_ms)
+    except Exception as exc:
+        raise SmokeFailure(f"Inspector lifecycle continuity phase failed: {exc}") from exc
+    try:
+        hidden_compare = exercise_hidden_inspector_compare(browser, base_url, browser_timeout_ms)
+    except Exception as exc:
+        raise SmokeFailure(f"Inspector hidden-compare phase failed: {exc}") from exc
+    try:
+        dirty_selection_routing = exercise_dirty_selection_routing(
+            browser,
+            base_url,
+            browser_timeout_ms,
+        )
+    except Exception as exc:
+        raise SmokeFailure(f"Inspector dirty selection-routing phase failed: {exc}") from exc
     violations = [
         f"{phase}: {violation}"
         for phase, summary in (
@@ -1119,6 +1681,11 @@ def exercise_inspector_continuity(
             ("remote_echo", remote_echo),
             ("selection", selection),
             ("delayed_rating_switch", delayed),
+            ("lifecycle", lifecycle),
+            ("autoload_off", autoload_off),
+            ("dependency_failures", dependency_failures),
+            ("hidden_compare", hidden_compare),
+            ("dirty_selection_routing", dirty_selection_routing),
         )
         for violation in trace_violations(summary)
     ]
@@ -1127,6 +1694,11 @@ def exercise_inspector_continuity(
         "remote_echo": remote_echo,
         "selection": selection,
         "delayed_rating_switch": delayed,
+        "lifecycle": lifecycle,
+        "autoload_off": autoload_off,
+        "dependency_failures": dependency_failures,
+        "hidden_compare": hidden_compare,
+        "dirty_selection_routing": dirty_selection_routing,
         "workaround_used": False,
         "violations": violations,
     }
@@ -1146,7 +1718,13 @@ def exercise_inspector_probe(page: Any, browser_timeout_ms: float) -> InspectorS
     quick_one_loaded = snapshot_quick_view_section(page)
     page.wait_for_timeout(120)
 
-    select_grid_path(page, QUICK_THREE_PATH, browser_timeout_ms)
+    page.locator(f'[id="cell-{quote(QUICK_THREE_PATH, safe="")}"]').click()
+    page.wait_for_function(
+        """(path) => document.querySelector('[data-inspector-panel]')
+          ?.getAttribute('data-inspector-requested-path') === path""",
+        arg=QUICK_THREE_PATH,
+        timeout=browser_timeout_ms,
+    )
     pending_quick = snapshot_quick_view_section(page)
     wait_for_prompt(
         page,
@@ -1157,7 +1735,13 @@ def exercise_inspector_probe(page: Any, browser_timeout_ms: float) -> InspectorS
     quick_three_loaded = snapshot_quick_view_section(page)
     page.wait_for_timeout(120)
 
-    select_grid_path(page, PLAIN_PATH, browser_timeout_ms)
+    page.locator(f'[id="cell-{quote(PLAIN_PATH, safe="")}"]').click()
+    page.wait_for_function(
+        """(path) => document.querySelector('[data-inspector-panel]')
+          ?.getAttribute('data-inspector-requested-path') === path""",
+        arg=PLAIN_PATH,
+        timeout=browser_timeout_ms,
+    )
     pending_plain = snapshot_quick_view_section(page)
     wait_for_quick_view_absent(page, browser_timeout_ms)
     plain_resolved = snapshot_quick_view_section(page)

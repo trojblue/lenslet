@@ -40,7 +40,8 @@ interface BasicsSectionProps {
   onToggleMetricsExpanded: () => void
   metricsPreviewLimit: number
   tableFields?: Record<string, unknown> | null
-  reservationHeightPx?: number
+  statusMessage?: string | null
+  controlsDisabled?: boolean
   sortableId?: InspectorWidgetId
   sortableEnabled?: boolean
 }
@@ -112,7 +113,8 @@ export function BasicsSection({
   onToggleMetricsExpanded,
   metricsPreviewLimit,
   tableFields,
-  reservationHeightPx,
+  statusMessage = null,
+  controlsDisabled = false,
   sortableId,
   sortableEnabled = false,
 }: BasicsSectionProps): JSX.Element {
@@ -123,13 +125,12 @@ export function BasicsSection({
       onToggle={onToggle}
       sortableId={sortableId}
       sortableEnabled={sortableEnabled}
-      minHeightPx={reservationHeightPx}
       actions={onFindSimilar && (
         <button
           type="button"
           className="btn btn-sm"
           onClick={onFindSimilar}
-          disabled={!canFindSimilar}
+          disabled={controlsDisabled || !canFindSimilar}
           title={findSimilarDisabledReason ?? 'Find similar'}
         >
           Find similar
@@ -149,6 +150,7 @@ export function BasicsSection({
                   const value: StarRating = star === v && !multi ? null : (v as 1 | 2 | 3 | 4 | 5)
                   onSelectStar(value)
                 }}
+                disabled={controlsDisabled}
                 title={`${v} star${v > 1 ? 's' : ''} (key ${v})`}
                 aria-label={`${v} star${v > 1 ? 's' : ''}`}
                 aria-pressed={star === v}
@@ -159,27 +161,33 @@ export function BasicsSection({
           })}
         </div>
       </div>
-      {findSimilarDisabledReason && (
-        <div className="text-[11px] text-muted mb-2">{findSimilarDisabledReason}</div>
-      )}
-
-      {hasStarConflict && (
-        <div className="ui-banner ui-banner-danger mt-2 text-[11px] flex flex-wrap items-center justify-between gap-2">
-          <span>Rating conflict.</span>
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="btn btn-sm" onClick={onApplyConflict}>
-              Apply again
-            </button>
-            <button className="btn btn-sm btn-ghost" onClick={onKeepTheirs}>
-              Keep theirs
-            </button>
+      <div className="mb-2 h-12 min-w-0 overflow-hidden" data-inspector-conflict-slot="rating">
+        {hasStarConflict ? (
+          <div className="ui-banner ui-banner-danger h-full text-[11px] flex flex-wrap items-center justify-between gap-1">
+            <span>Rating conflict.</span>
+            <div className="flex items-center gap-1">
+              <button className="btn btn-sm" aria-label="Apply rating again" onClick={onApplyConflict}>
+                Retry
+              </button>
+              <button className="btn btn-sm btn-ghost" aria-label="Keep theirs" onClick={onKeepTheirs}>
+                Keep
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div
+            className={`min-w-0 truncate text-[11px] ${statusMessage ? 'text-danger' : 'text-muted'}`}
+            role="status"
+            title={statusMessage ?? findSimilarDisabledReason ?? undefined}
+          >
+            {statusMessage ?? findSimilarDisabledReason ?? ''}
+          </div>
+        )}
+      </div>
 
       {!multi && currentItem && (
         <div className="text-[12px] space-y-1.5 leading-relaxed">
-          <div className="ui-kv-row justify-start">
+          <div className="ui-kv-row justify-start" data-inspector-row-id="basic:dimensions">
             <span
               className="ui-kv-label ui-kv-label-action w-24 shrink-0"
               onClick={() => onCopyInfo('dimensions', `${currentItem.width}×${currentItem.height}`)}
@@ -188,7 +196,7 @@ export function BasicsSection({
             </span>
             <CopyableInfoValue copied={copiedField === 'dimensions'} value={`${currentItem.width}×${currentItem.height}`} />
           </div>
-          <div className="ui-kv-row justify-start">
+          <div className="ui-kv-row justify-start" data-inspector-row-id="basic:size">
             <span
               className="ui-kv-label ui-kv-label-action w-24 shrink-0"
               onClick={() => onCopyInfo('size', formatBytes(currentItem.size))}
@@ -197,7 +205,7 @@ export function BasicsSection({
             </span>
             <CopyableInfoValue copied={copiedField === 'size'} value={formatBytes(currentItem.size)} />
           </div>
-          <div className="ui-kv-row justify-start">
+          <div className="ui-kv-row justify-start" data-inspector-row-id="basic:type">
             <span
               className="ui-kv-label ui-kv-label-action w-24 shrink-0"
               onClick={() => onCopyInfo('type', currentItem.mime)}
@@ -206,7 +214,7 @@ export function BasicsSection({
             </span>
             <CopyableInfoValue copied={copiedField === 'type'} value={currentItem.mime} className="break-all" />
           </div>
-          <div className="ui-kv-row justify-start">
+          <div className="ui-kv-row justify-start" data-inspector-row-id="basic:source">
             <span
               className="ui-kv-label ui-kv-label-action w-24 shrink-0"
               onClick={() => sourceValue && onCopyInfo('source', sourceValue)}
@@ -248,7 +256,7 @@ export function BasicsSection({
                   {show.map(([key, val]) => {
                     const isHighlighted = highlightKey === key
                     return (
-                      <div key={key} className="ui-kv-row justify-start">
+                      <div key={key} className="ui-kv-row justify-start" data-inspector-row-id={`metric:${key}`}>
                         <span className={`w-24 shrink-0 ${isHighlighted ? 'text-accent font-medium' : 'ui-kv-label'}`}>
                           {getMetricDisplayName(key, metricDisplayNames)}
                         </span>
@@ -287,7 +295,7 @@ export function BasicsSection({
                       : (typeof value === 'number' || typeof value === 'boolean')
                     if (inlineValue) {
                       return (
-                        <div key={key} className="ui-kv-row justify-start">
+                        <div key={key} className="ui-kv-row justify-start" data-inspector-row-id={`table:${key}`}>
                           <span className="w-24 shrink-0 ui-kv-label">{key}</span>
                           {renderTableFieldValue(value)}
                         </div>

@@ -140,12 +140,12 @@ export function SelectionExportSection({
           </button>
         </span>
       </div>
-      {disabledReason && (
-        <div className="text-[11px] text-muted">{disabledReason}</div>
-      )}
-      {compareExportError && (
-        <div className="text-danger break-words">{compareExportError}</div>
-      )}
+      <div className="h-4 min-w-0 truncate text-[11px] text-muted" role="status" title={disabledReason ?? undefined}>
+        {disabledReason ?? ''}
+      </div>
+      <div className="h-4 min-w-0 truncate text-[11px] text-danger" role="status" title={compareExportError ?? undefined}>
+        {compareExportError ?? ''}
+      </div>
     </div>
   )
 }

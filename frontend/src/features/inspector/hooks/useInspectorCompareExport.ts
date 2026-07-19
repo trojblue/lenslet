@@ -74,16 +74,15 @@ export function useInspectorCompareExport({
   const [compareExportEmbedMetadata, setCompareExportEmbedMetadata] = useState(
     DEFAULT_EXPORT_COMPARISON_EMBED_METADATA,
   )
-  const [compareExportReverseOrder, setCompareExportReverseOrder] = useState(false)
-  const [compareExportHighQualityGif, setCompareExportHighQualityGif] = useState(false)
+  const [compareExportReverseOrder, setCompareExportReverseOrder] = useState(
+    () => readInspectorStoredBool(INSPECTOR_EXPORT_REVERSE_ORDER_KEY, false),
+  )
+  const [compareExportHighQualityGif, setCompareExportHighQualityGif] = useState(
+    () => readInspectorStoredBool(INSPECTOR_EXPORT_HIGH_QUALITY_GIF_KEY, false),
+  )
   const [compareExportMode, setCompareExportMode] = useState<'png' | 'gif' | null>(null)
   const [compareExportError, setCompareExportError] = useState<string | null>(null)
   const compareExportBusy = compareExportMode !== null
-
-  useEffect(() => {
-    setCompareExportReverseOrder(readInspectorStoredBool(INSPECTOR_EXPORT_REVERSE_ORDER_KEY, false))
-    setCompareExportHighQualityGif(readInspectorStoredBool(INSPECTOR_EXPORT_HIGH_QUALITY_GIF_KEY, false))
-  }, [])
 
   useEffect(() => {
     writeInspectorStoredBool(INSPECTOR_EXPORT_REVERSE_ORDER_KEY, compareExportReverseOrder)

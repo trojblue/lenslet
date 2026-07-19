@@ -15,6 +15,10 @@ from scripts.browser.gui_jitter.painted_frames import (
     summarize_painted_frame_trace,
 )
 from scripts.browser.gui_jitter.inspector import request_attribution_violations
+from scripts.browser.gui_jitter.inspector_frames import (
+    summarize_inspector_hard_reset_trace,
+    summarize_inspector_identity_trace,
+)
 from scripts.smoke_harness import SmokeFailure
 
 
@@ -173,6 +177,92 @@ def test_expected_state_failure_retains_a_failing_frame() -> None:
     )
 
 
+def test_inspector_identity_summary_allows_complete_retained_a_and_rejects_mixed_pixels() -> None:
+    marker = {
+        "actionId": "select-beta",
+        "expectedPath": "/beta.png",
+        "previousPresentedPath": "/alpha.png",
+    }
+    panel = _surface("panel", text="alpha.png alpha prompt alpha notes")
+    panel["attrs"]["data"] = {
+        "data-inspector-requested-path": "/beta.png",
+        "data-inspector-presented-path": "/alpha.png",
+    }
+    panel["inspectorRows"] = [{"id": "quick:prompt", "placeholder": False}]
+    panel["inspectorInputs"] = [
+        {"label": "Notes", "value": "alpha notes"},
+        {"label": "Tags", "value": "alpha tag"},
+    ]
+    panel["inspectorActions"] = [
+        {"label": f"{star} star{'s' if star > 1 else ''}", "visible": True}
+        for star in range(1, 6)
+    ]
+    preview = _surface("preview_card")
+    preview["attrs"]["data"] = {"data-preview-state": "ready"}
+    preview["image"] = {
+        "path": "/alpha.png",
+        "complete": True,
+        "naturalWidth": 48,
+        "naturalHeight": 32,
+        "opacity": "1",
+        "rgb": [10, 20, 30],
+    }
+    frame = {
+        "marker": marker,
+        "surfaces": {
+            "panel": panel,
+            "filename": _surface("filename", text="alpha.png"),
+            "preview_card": preview,
+        },
+    }
+    summary = summarize_inspector_identity_trace(
+        {"frames": [frame]},
+        sentinels_by_path={
+            "/alpha.png": ("alpha.png", "alpha prompt", "alpha notes"),
+            "/beta.png": ("beta.png", "beta prompt", "beta notes"),
+        },
+        rgb_by_path={"/alpha.png": (10, 20, 30), "/beta.png": (40, 50, 60)},
+    )
+    assert summary["violations"] == []
+    assert summary["coherent_retained_frames"] == 1
+
+    frame["surfaces"]["preview_card"]["image"]["rgb"] = [40, 50, 60]
+    summary = summarize_inspector_identity_trace(
+        {"frames": [frame]},
+        sentinels_by_path={"/alpha.png": ("alpha.png",), "/beta.png": ("beta.png",)},
+        rgb_by_path={"/alpha.png": (10, 20, 30), "/beta.png": (40, 50, 60)},
+    )
+    assert any("pixels" in value for value in summary["violations"])
+
+    frame["surfaces"]["preview_card"]["image"]["rgb"] = [10, 20, 30]
+    panel["inspectorInputs"] = [
+        {"label": "Notes", "value": "", "disabled": True, "terminalError": True},
+        {"label": "Tags", "value": "", "disabled": True, "terminalError": True},
+    ]
+    panel["attrs"]["data"]["data-inspector-sidecar-state"] = "error"
+    summary = summarize_inspector_identity_trace(
+        {"frames": [frame]},
+        sentinels_by_path={"/alpha.png": ("alpha.png",), "/beta.png": ("beta.png",)},
+        rgb_by_path={"/alpha.png": (10, 20, 30), "/beta.png": (40, 50, 60)},
+    )
+    assert summary["violations"] == []
+
+    summary = summarize_inspector_identity_trace(
+        {"frames": [frame]},
+        sentinels_by_path={"/alpha.png": ("alpha.png",), "/beta.png": ("beta.png",)},
+        rgb_by_path={"/alpha.png": (10, 20, 30), "/beta.png": (40, 50, 60)},
+        expected_content_by_path={
+            "/alpha.png": {
+                "rows": {"metric:score": "score0.500"},
+                "inputs": {"Notes": "alpha notes", "Tags": "alpha tag"},
+                "actions": ("Find similar",),
+            }
+        },
+    )
+    assert any("required row" in value for value in summary["violations"])
+    assert any("required action" in value for value in summary["violations"])
+
+
 def test_request_attribution_rejects_wrong_owner_phase_and_identity() -> None:
     allowed = {("GET", "/item", "/alpha.png")}
     records = [
@@ -199,6 +289,60 @@ def test_request_attribution_rejects_wrong_owner_phase_and_identity() -> None:
     )
     assert any("attribution" in value for value in violations)
     assert any("unexpected identity" in value for value in violations)
+
+
+def test_inspector_hard_reset_summary_allows_neutral_then_decoded_target_only() -> None:
+    marker = {"actionId": "hard-reset", "expectedPath": "/beta.png"}
+    neutral_panel = _surface("panel")
+    neutral_panel["attrs"]["data"] = {
+        "data-inspector-requested-reset-key": "scope-b",
+        "data-inspector-presented-reset-key": "",
+        "data-inspector-presented-path": "",
+    }
+    target_panel = _surface("panel")
+    target_panel["attrs"]["data"] = {
+        "data-inspector-requested-reset-key": "scope-b",
+        "data-inspector-presented-reset-key": "scope-b",
+        "data-inspector-presented-path": "/beta.png",
+    }
+    preview = _surface("preview_card")
+    preview["image"] = {
+        "token": "node-preview",
+        "complete": True,
+        "naturalWidth": 48,
+        "naturalHeight": 32,
+        "rgb": [40, 50, 60],
+    }
+    staged_preview = _surface("preview_card")
+    staged_preview["candidateImage"] = {
+        "token": "node-preview",
+        "path": "/beta.png",
+    }
+    trace = {"staged_preview_tokens": [{"token": "node-preview", "path": "/beta.png"}], "frames": [
+        {
+            "marker": marker,
+            "surfaces": {"panel": neutral_panel, "preview_card": staged_preview},
+        },
+        {"marker": marker, "surfaces": {"panel": target_panel, "preview_card": preview}},
+    ]}
+    summary = summarize_inspector_hard_reset_trace(
+        trace,
+        previous_reset_key="scope-a",
+        expected_path="/beta.png",
+        expected_rgb=(40, 50, 60),
+    )
+    assert summary["neutral_frames"] == 1
+    assert summary["target_frames"] == 1
+    assert summary["violations"] == []
+
+    target_panel["attrs"]["data"]["data-inspector-presented-reset-key"] = "scope-a"
+    summary = summarize_inspector_hard_reset_trace(
+        trace,
+        previous_reset_key="scope-a",
+        expected_path="/beta.png",
+        expected_rgb=(40, 50, 60),
+    )
+    assert any("mixed requested/presented scopes" in value for value in summary["violations"])
 
 
 def test_request_attribution_enforces_exact_and_max_counts() -> None:

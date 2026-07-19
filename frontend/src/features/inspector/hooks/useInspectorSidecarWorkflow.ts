@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
-import { bulkUpdateSidecars, clearConflict, sidecarQueryKey } from '../../../api/items'
+import {
+  bulkUpdateSidecars,
+  clearConflict,
+  queueSidecarUpdate,
+  setSidecarQueryDataForPath,
+} from '../../../api/items'
 import type { ConflictEntry } from '../../../api/items'
 import type { Sidecar, StarRating } from '../../../lib/types'
 import {
   buildSidecarDraft,
-  hasSemanticNotesChange,
-  hasSemanticTagsChange,
+  buildDirtySidecarDraftPatch,
   mergeAuthoritativeSidecarDraft,
   parseSidecarTags,
   type SidecarDraft,
@@ -21,6 +25,7 @@ type SidecarPatch = {
 type UseInspectorSidecarWorkflowParams = {
   path: string | null
   selectedPaths: string[]
+  resetKey: string
   multi: boolean
   sidecar: Sidecar | undefined
   conflict: ConflictEntry | null
@@ -47,6 +52,7 @@ type UseInspectorSidecarWorkflowResult = {
 export function useInspectorSidecarWorkflow({
   path,
   selectedPaths,
+  resetKey,
   multi,
   sidecar,
   conflict,
@@ -56,14 +62,28 @@ export function useInspectorSidecarWorkflow({
   onStarChanged,
   onLocalTypingChange,
 }: UseInspectorSidecarWorkflowParams): UseInspectorSidecarWorkflowResult {
-  const [tags, setTags] = useState('')
-  const [notes, setNotes] = useState('')
-  const [draftPath, setDraftPath] = useState<string | null>(path)
+  const draftIdentity = useMemo(
+    () => (path ? JSON.stringify([resetKey, path, selectedPaths]) : null),
+    [path, resetKey, selectedPaths],
+  )
+  const authoritativeDraft = useMemo(
+    () => buildSidecarDraft(path && !multi ? sidecar : undefined),
+    [multi, path, sidecar],
+  )
+  const [tags, setTags] = useState(() => authoritativeDraft.tags)
+  const [notes, setNotes] = useState(() => authoritativeDraft.notes)
+  const [draftOwnerIdentity, setDraftOwnerIdentity] = useState<string | null>(draftIdentity)
   const localTypingActiveRef = useRef(false)
   const notesDirtyRef = useRef(false)
   const tagsDirtyRef = useRef(false)
-  const draftPathRef = useRef<string | null>(path)
-  const baselineDraftRef = useRef<SidecarDraft>(buildSidecarDraft(undefined))
+  const draftOwnerRef = useRef({
+    identity: draftIdentity,
+    path,
+    selectedPaths: [...selectedPaths],
+    multi,
+    resetKey,
+  })
+  const baselineDraftRef = useRef<SidecarDraft>(authoritativeDraft)
 
   const notifyLocalTyping = useCallback(
     (active: boolean) => {
@@ -87,22 +107,54 @@ export function useInspectorSidecarWorkflow({
   )
 
   useEffect(() => {
-    const nextDraft = buildSidecarDraft(path ? sidecar : undefined)
-    if (draftPathRef.current !== path) {
-      draftPathRef.current = path
-      setDraftPath(path)
-      resetDraftState(nextDraft)
+    if (draftOwnerRef.current.identity !== draftIdentity) {
+      const previousOwner = draftOwnerRef.current
+      const pendingPatch = buildDirtySidecarDraftPatch(
+        { notes, tags },
+        baselineDraftRef.current,
+        { notes: notesDirtyRef.current, tags: tagsDirtyRef.current },
+      )
+      if (
+        previousOwner.resetKey === resetKey
+        && previousOwner.path
+        && Object.keys(pendingPatch).length > 0
+      ) {
+        if (previousOwner.multi && previousOwner.selectedPaths.length > 0) {
+          void bulkUpdateSidecars(previousOwner.selectedPaths, pendingPatch)
+        } else {
+          void queueSidecarUpdate(previousOwner.path, pendingPatch)
+        }
+      }
+      draftOwnerRef.current = {
+        identity: draftIdentity,
+        path,
+        selectedPaths: [...selectedPaths],
+        multi,
+        resetKey,
+      }
+      setDraftOwnerIdentity(draftIdentity)
+      resetDraftState(authoritativeDraft)
       return
     }
-    baselineDraftRef.current = nextDraft
+    baselineDraftRef.current = authoritativeDraft
     const mergedDraft = mergeAuthoritativeSidecarDraft(
       { notes, tags },
-      nextDraft,
+      authoritativeDraft,
       { notes: notesDirtyRef.current, tags: tagsDirtyRef.current },
     )
     if (!notesDirtyRef.current) setNotes(mergedDraft.notes)
     if (!tagsDirtyRef.current) setTags(mergedDraft.tags)
-  }, [notes, path, resetDraftState, sidecar?.notes, sidecar?.tags, tags])
+  }, [
+    authoritativeDraft,
+    draftIdentity,
+    multi,
+    notes,
+    path,
+    resetDraftState,
+    resetKey,
+    selectedPaths,
+    tags,
+  ])
 
   useEffect(
     () => () => {
@@ -141,15 +193,25 @@ export function useInspectorSidecarWorkflow({
     [notifyLocalTyping],
   )
 
-  const handleNotesBlur = useCallback(() => {
-    const wasDirty = notesDirtyRef.current
+  const commitDirtyDraft = useCallback(() => {
+    const pendingPatch = buildDirtySidecarDraftPatch(
+      { notes, tags },
+      baselineDraftRef.current,
+      { notes: notesDirtyRef.current, tags: tagsDirtyRef.current },
+    )
     notesDirtyRef.current = false
-    if (wasDirty && hasSemanticNotesChange(notes, baselineDraftRef.current.notes)) {
-      commitSidecar({ notes })
-      baselineDraftRef.current = { ...baselineDraftRef.current, notes }
+    tagsDirtyRef.current = false
+    if (Object.keys(pendingPatch).length > 0) {
+      commitSidecar(pendingPatch)
+      baselineDraftRef.current = {
+        notes: pendingPatch.notes !== undefined ? notes : baselineDraftRef.current.notes,
+        tags: pendingPatch.tags !== undefined ? tags : baselineDraftRef.current.tags,
+      }
     }
     notifyLocalTyping(false)
-  }, [commitSidecar, notes, notifyLocalTyping])
+  }, [commitSidecar, notes, notifyLocalTyping, tags])
+
+  const handleNotesBlur = commitDirtyDraft
 
   const handleTagsChange = useCallback(
     (value: string) => {
@@ -160,15 +222,7 @@ export function useInspectorSidecarWorkflow({
     [notifyLocalTyping],
   )
 
-  const handleTagsBlur = useCallback(() => {
-    const wasDirty = tagsDirtyRef.current
-    tagsDirtyRef.current = false
-    if (wasDirty && hasSemanticTagsChange(tags, baselineDraftRef.current.tags)) {
-      commitSidecar({ tags: parseSidecarTags(tags) })
-      baselineDraftRef.current = { ...baselineDraftRef.current, tags }
-    }
-    notifyLocalTyping(false)
-  }, [commitSidecar, notifyLocalTyping, tags])
+  const handleTagsBlur = commitDirtyDraft
 
   const applyConflict = useCallback(() => {
     if (!conflict || !path) return
@@ -195,14 +249,18 @@ export function useInspectorSidecarWorkflow({
     setTags(currentDraft.tags)
     setNotes(currentDraft.notes)
     notifyLocalTyping(false)
-    queryClient.setQueryData(sidecarQueryKey(path), current)
+    setSidecarQueryDataForPath(queryClient, path, current)
     clearConflict(path)
     onStarChanged?.([path], current.star ?? null)
   }, [conflict, notifyLocalTyping, onStarChanged, path, queryClient])
 
+  const projectedDraft = draftOwnerIdentity === draftIdentity
+    ? { notes, tags }
+    : authoritativeDraft
+
   return {
-    tags: draftPath === path ? tags : '',
-    notes: draftPath === path ? notes : '',
+    tags: projectedDraft.tags,
+    notes: projectedDraft.notes,
     conflictFields,
     commitSidecar,
     applyConflict,

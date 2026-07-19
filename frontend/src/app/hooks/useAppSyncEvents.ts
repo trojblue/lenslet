@@ -16,6 +16,8 @@ import {
   subscribeLabelPersistenceRefresh,
 } from '../../api/labelPersistence'
 import {
+  itemDetailQueryKey,
+  setSidecarQueryDataForPath,
   sidecarQueryKey,
   subscribeAnnotationMutationResponses,
   updateConflictFromServer,
@@ -163,12 +165,10 @@ export function useAppSyncEvents({
       const invalidations = repairs.flatMap(({ path }) => [
         queryClient.invalidateQueries({
           queryKey: sidecarQueryKey(path),
-          exact: true,
           refetchType: 'active',
         }, { throwOnError: true }),
         queryClient.invalidateQueries({
-          queryKey: ['item-detail', path],
-          exact: true,
+          queryKey: itemDetailQueryKey(path),
           refetchType: 'active',
         }, { throwOnError: true }),
       ])
@@ -245,7 +245,7 @@ export function useAppSyncEvents({
         updated_at: payload.updated_at ?? '',
         updated_by: payload.updated_by ?? 'server',
       }
-      queryClient.setQueryData(sidecarQueryKey(payload.path), sidecar)
+      setSidecarQueryDataForPath(queryClient, payload.path, sidecar)
       updateConflictFromServer(payload.path, sidecar)
       markRecentActivity(payload.path, 'item-updated', eventId)
       markRecentTouch(payload.path, 'item-updated', payload.updated_at)

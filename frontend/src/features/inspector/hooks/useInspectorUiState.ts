@@ -21,6 +21,7 @@ export type InspectorSectionKey = 'quickView' | 'overview' | 'compare' | 'basics
 
 type UseInspectorUiStateParams = {
   path: string | null
+  feedbackContextKey?: string | null
   comparePaths: string[]
   selectedCount: number
   metadataCompareAvailable: boolean
@@ -78,6 +79,54 @@ const DEFAULT_SECTION_STATE: Record<InspectorSectionKey, boolean> = {
   notes: true,
 }
 
+function readStoredSectionOrder(): InspectorWidgetId[] {
+  return readInspectorStoredValue(
+    INSPECTOR_SECTION_ORDER_STORAGE_KEY,
+    (raw) => {
+      const parsed = parseStoredInspectorWidgetOrder(raw)
+      return {
+        value: parsed.order,
+        rewriteValue: parsed.shouldRewrite ? JSON.stringify(parsed.order) : undefined,
+      }
+    },
+    [...INSPECTOR_WIDGET_DEFAULT_ORDER],
+  )
+}
+
+function readStoredQuickViewPaths(): string[] {
+  return readInspectorStoredValue(
+    INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY,
+    (raw) => {
+      const stored = parseStoredQuickViewCustomPaths(raw)
+      return {
+        value: stored.paths,
+        rewriteValue: stored.shouldRewrite ? JSON.stringify(stored.paths) : undefined,
+      }
+    },
+    [],
+  )
+}
+
+function readStoredOpenSections(): Record<InspectorSectionKey, boolean> {
+  const stored = readInspectorStoredValue(
+    INSPECTOR_SECTION_STORAGE_KEY,
+    (raw) => {
+      if (!raw) return { value: {} as Partial<Record<InspectorSectionKey, boolean>> }
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+      if (!parsed || typeof parsed !== 'object') {
+        return { value: {} as Partial<Record<InspectorSectionKey, boolean>> }
+      }
+      const next: Partial<Record<InspectorSectionKey, boolean>> = {}
+      for (const key of INSPECTOR_SECTION_KEYS) {
+        if (typeof parsed[key] === 'boolean') next[key] = parsed[key]
+      }
+      return { value: next }
+    },
+    {},
+  )
+  return { ...DEFAULT_SECTION_STATE, ...stored }
+}
+
 export function toggleInspectorSectionState(
   sections: Record<InspectorSectionKey, boolean>,
   key: InspectorSectionKey,
@@ -108,27 +157,59 @@ function clearTimer(timerRef: MutableRefObject<number | null>): void {
 
 export function useInspectorUiState({
   path,
+  feedbackContextKey = path,
   comparePaths,
   selectedCount,
   metadataCompareAvailable,
   autoloadMetadataCompare,
 }: UseInspectorUiStateParams): UseInspectorUiStateResult {
-  const [sectionOrder, setSectionOrder] = useState<InspectorWidgetId[]>([
-    ...INSPECTOR_WIDGET_DEFAULT_ORDER,
-  ])
-  const [metadataCompareActive, setMetadataCompareActive] = useState(false)
-  const [openSections, setOpenSections] = useState<Record<InspectorSectionKey, boolean>>(DEFAULT_SECTION_STATE)
-  const [quickViewCustomPaths, setQuickViewCustomPaths] = useState<string[]>([])
-  const [quickViewCustomPathsDraft, setQuickViewCustomPathsDraft] = useState('')
+  const [sectionOrder, setSectionOrder] = useState<InspectorWidgetId[]>(readStoredSectionOrder)
+  const [metadataCompareActive, setMetadataCompareActive] = useState(() => (
+    shouldAutoActivateMetadataCompare(
+      autoloadMetadataCompare,
+      selectedCount,
+      metadataCompareAvailable,
+    )
+  ))
+  const [openSections, setOpenSections] = useState<Record<InspectorSectionKey, boolean>>(
+    readStoredOpenSections,
+  )
+  const [quickViewCustomPaths, setQuickViewCustomPaths] = useState<string[]>(readStoredQuickViewPaths)
+  const [quickViewCustomPathsDraft, setQuickViewCustomPathsDraft] = useState(
+    () => quickViewCustomPaths.join('\n'),
+  )
   const [quickViewCustomPathsError, setQuickViewCustomPathsError] = useState<string | null>(null)
-  const [quickViewCopiedRowId, setQuickViewCopiedRowId] = useState<string | null>(null)
-  const [metricsExpanded, setMetricsExpanded] = useState(false)
+  const [quickViewCopyFeedback, setQuickViewCopyFeedback] = useState<{
+    contextKey: string | null
+    value: string
+  } | null>(null)
+  const [metricsExpanded, setMetricsExpanded] = useState(
+    () => readInspectorStoredBool(INSPECTOR_METRICS_EXPANDED_KEY, false),
+  )
   const metadataCompareReady = metadataCompareActive && comparePaths.length >= 2
   const previousMetadataCompareActiveRef = useRef(metadataCompareActive)
 
-  const [copiedField, setCopiedField] = useState<string | null>(null)
-  const [metaCopied, setMetaCopied] = useState(false)
-  const [metaValueCopiedPath, setMetaValueCopiedPath] = useState<string | null>(null)
+  const [infoCopyFeedback, setInfoCopyFeedback] = useState<{
+    contextKey: string | null
+    value: string
+  } | null>(null)
+  const [metadataCopyFeedback, setMetadataCopyFeedback] = useState<{
+    contextKey: string | null
+  } | null>(null)
+  const [metadataValueCopyFeedback, setMetadataValueCopyFeedback] = useState<{
+    contextKey: string | null
+    value: string
+  } | null>(null)
+  const copiedField = infoCopyFeedback?.contextKey === feedbackContextKey
+    ? infoCopyFeedback.value
+    : null
+  const metaCopied = metadataCopyFeedback?.contextKey === feedbackContextKey
+  const metaValueCopiedPath = metadataValueCopyFeedback?.contextKey === feedbackContextKey
+    ? metadataValueCopyFeedback.value
+    : null
+  const quickViewCopiedRowId = quickViewCopyFeedback?.contextKey === feedbackContextKey
+    ? quickViewCopyFeedback.value
+    : null
 
   const infoCopyTimeoutRef = useRef<number | null>(null)
   const metaCopiedTimeoutRef = useRef<number | null>(null)
@@ -179,114 +260,56 @@ export function useInspectorUiState({
   )
 
   const markInfoCopied = useCallback((key: string) => {
-    setCopiedField(key)
+    const feedback = { contextKey: feedbackContextKey, value: key }
+    setInfoCopyFeedback(feedback)
     clearTimer(infoCopyTimeoutRef)
     infoCopyTimeoutRef.current = window.setTimeout(() => {
-      setCopiedField((curr) => (curr === key ? null : curr))
+      setInfoCopyFeedback((current) => (current === feedback ? null : current))
       infoCopyTimeoutRef.current = null
     }, 1000)
-  }, [])
+  }, [feedbackContextKey])
 
   const markMetadataCopied = useCallback(() => {
-    setMetaCopied(true)
+    const feedback = { contextKey: feedbackContextKey }
+    setMetadataCopyFeedback(feedback)
     clearTimer(metaCopiedTimeoutRef)
     metaCopiedTimeoutRef.current = window.setTimeout(() => {
-      setMetaCopied(false)
+      setMetadataCopyFeedback((current) => (current === feedback ? null : current))
       metaCopiedTimeoutRef.current = null
     }, 1200)
-  }, [])
+  }, [feedbackContextKey])
 
   const markMetadataValueCopied = useCallback((pathLabel: string) => {
-    setMetaValueCopiedPath(pathLabel)
+    const feedback = { contextKey: feedbackContextKey, value: pathLabel }
+    setMetadataValueCopyFeedback(feedback)
     clearTimer(metaValueCopyTimeoutRef)
     metaValueCopyTimeoutRef.current = window.setTimeout(() => {
-      setMetaValueCopiedPath(null)
+      setMetadataValueCopyFeedback((current) => (current === feedback ? null : current))
       metaValueCopyTimeoutRef.current = null
     }, 900)
-  }, [])
+  }, [feedbackContextKey])
 
   const markQuickViewValueCopied = useCallback((rowId: string) => {
-    setQuickViewCopiedRowId(rowId)
+    const feedback = { contextKey: feedbackContextKey, value: rowId }
+    setQuickViewCopyFeedback(feedback)
     clearTimer(quickViewCopyTimeoutRef)
     quickViewCopyTimeoutRef.current = window.setTimeout(() => {
-      setQuickViewCopiedRowId(null)
+      setQuickViewCopyFeedback((current) => (current === feedback ? null : current))
       quickViewCopyTimeoutRef.current = null
     }, 900)
-  }, [])
-
-  useEffect(() => {
-    setSectionOrder(
-      readInspectorStoredValue(
-        INSPECTOR_SECTION_ORDER_STORAGE_KEY,
-        (raw) => {
-          const parsed = parseStoredInspectorWidgetOrder(raw)
-          return {
-            value: parsed.order,
-            rewriteValue: parsed.shouldRewrite ? JSON.stringify(parsed.order) : undefined,
-          }
-        },
-        [...INSPECTOR_WIDGET_DEFAULT_ORDER],
-      ),
-    )
-  }, [])
+  }, [feedbackContextKey])
 
   useEffect(() => {
     writeInspectorStoredJson(INSPECTOR_SECTION_ORDER_STORAGE_KEY, sectionOrder)
   }, [sectionOrder])
 
   useEffect(() => {
-    const parsed = readInspectorStoredValue(
-      INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY,
-      (raw) => {
-        const stored = parseStoredQuickViewCustomPaths(raw)
-        return {
-          value: stored,
-          rewriteValue: stored.shouldRewrite ? JSON.stringify(stored.paths) : undefined,
-        }
-      },
-      { paths: [], shouldRewrite: false },
-    )
-    setQuickViewCustomPaths(parsed.paths)
-    setQuickViewCustomPathsDraft(parsed.paths.join('\n'))
-  }, [])
-
-  useEffect(() => {
     writeInspectorStoredJson(INSPECTOR_QUICK_VIEW_PATHS_STORAGE_KEY, quickViewCustomPaths)
   }, [quickViewCustomPaths])
 
   useEffect(() => {
-    const restored = readInspectorStoredValue(
-      INSPECTOR_SECTION_STORAGE_KEY,
-      (raw) => {
-        if (!raw) {
-          return { value: {} as Partial<Record<InspectorSectionKey, boolean>> }
-        }
-        const parsed = JSON.parse(raw) as Record<string, unknown>
-        if (!parsed || typeof parsed !== 'object') {
-          return { value: {} as Partial<Record<InspectorSectionKey, boolean>> }
-        }
-        const next: Partial<Record<InspectorSectionKey, boolean>> = {}
-        for (const key of INSPECTOR_SECTION_KEYS) {
-          if (typeof parsed[key] === 'boolean') {
-            next[key] = parsed[key]
-          }
-        }
-        return { value: next }
-      },
-      {},
-    )
-    if (Object.keys(restored).length > 0) {
-      setOpenSections((prev) => ({ ...prev, ...restored }))
-    }
-  }, [])
-
-  useEffect(() => {
     writeInspectorStoredJson(INSPECTOR_SECTION_STORAGE_KEY, openSections)
   }, [openSections])
-
-  useEffect(() => {
-    setMetricsExpanded(readInspectorStoredBool(INSPECTOR_METRICS_EXPANDED_KEY, false))
-  }, [])
 
   useEffect(() => {
     writeInspectorStoredBool(INSPECTOR_METRICS_EXPANDED_KEY, metricsExpanded)
@@ -313,15 +336,6 @@ export function useInspectorUiState({
     }
     previousMetadataCompareActiveRef.current = metadataCompareActive
   }, [metadataCompareActive])
-
-  useEffect(() => {
-    setMetaCopied(false)
-    setMetaValueCopiedPath(null)
-    setQuickViewCopiedRowId(null)
-    clearTimer(metaCopiedTimeoutRef)
-    clearTimer(metaValueCopyTimeoutRef)
-    clearTimer(quickViewCopyTimeoutRef)
-  }, [path])
 
   useEffect(
     () => () => {

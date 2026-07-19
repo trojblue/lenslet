@@ -275,9 +275,6 @@ describe('inspector metadata section rendering', () => {
             sourcePath: 'quick_fields.parameters',
           },
         ]}
-        reservationActive={false}
-        reservationRowCount={3}
-        metadataLoading={false}
         quickViewCopiedRowId="default:prompt"
         onCopyQuickViewValue={noop}
         quickViewCustomPathsDraft={'quick_fields.parameters\nfound_text_chunks[0].keyword'}
@@ -300,15 +297,12 @@ describe('inspector metadata section rendering', () => {
     expect(html).not.toContain('Supported syntax: dot paths and [index].')
   })
 
-  it('keeps quick view footprint reserved while metadata is loading for a new selection', () => {
+  it('does not synthesize placeholder rows for an empty settled quick view', () => {
     const html = renderToStaticMarkup(
       <QuickViewSection
         open
         onToggle={noop}
         rows={[]}
-        reservationActive
-        reservationRowCount={2}
-        metadataLoading
         quickViewCopiedRowId={null}
         onCopyQuickViewValue={noop}
         quickViewCustomPathsDraft=""
@@ -318,8 +312,8 @@ describe('inspector metadata section rendering', () => {
       />,
     )
 
-    expect(html).toContain('Loading metadata…')
-    expect((html.match(/aria-hidden=\"true\"/g) ?? []).length).toBeGreaterThanOrEqual(2)
+    expect(html).toContain('Auto-loaded PNG metadata fields.')
+    expect(html).not.toContain('quick-view-placeholder')
   })
 
   it('renders table-oriented compare metadata with summary and over-cap messaging', () => {

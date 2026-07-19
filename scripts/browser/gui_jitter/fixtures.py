@@ -62,6 +62,19 @@ def build_inspector_fixture_images(root: Path) -> None:
         color=(36, 126, 74),
     )
     write_png_with_metadata(
+        root / ".lenslet" / "probe_source_alt" / "quick_01_meta.asset",
+        itxt_chunks={
+            "qfty_meta": json.dumps(
+                {
+                    "prompt": "beta prompt",
+                    "model": "beta-model",
+                    "lora": {"beta-lora.safetensors": 1.2},
+                }
+            )
+        },
+        color=(188, 42, 116),
+    )
+    write_png_with_metadata(
         root / "quick_02_plain.png",
         text_chunks={"comment": "no quick-view defaults"},
         color=(148, 72, 34),
@@ -123,11 +136,14 @@ def write_fixture_items_parquet(root: Path) -> None:
     for idx, image_path in enumerate(fixture_image_paths(root)):
         rel_path = image_path.relative_to(root).as_posix()
         score = round((idx % 7) / 7.0, 6)
+        source_alt = root / rel_path
+        if image_path.name == "quick_01_meta.png":
+            source_alt = root / ".lenslet" / "probe_source_alt" / "quick_01_meta.asset"
         rows.append(
             {
                 "path": rel_path,
                 "source": str((root / rel_path).resolve()),
-                "source_alt": str((root / rel_path).resolve()),
+                "source_alt": str(source_alt.resolve()),
                 "metrics": {
                     "probe_score": score,
                     "probe_rank": float(idx),

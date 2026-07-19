@@ -123,7 +123,7 @@ export function InspectorSection({
       </div>
       {renderBody && (
         <div className="inspector-section-body" data-state={bodyState} aria-hidden={!open}>
-          <div className={contentClassName ?? 'px-3 pb-3'}>
+          <div className={`relative ${contentClassName ?? 'px-3 pb-3'}`}>
             {children}
           </div>
         </div>

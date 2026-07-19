@@ -18,7 +18,11 @@ import Viewer from '../features/viewer/Viewer'
 import { api, cancelBrowseRequests } from '../api/client'
 import type { FullFilePrefetchContext } from '../api/client'
 import { useFolderFacets } from '../api/folders'
-import { useOldestInflightAgeMs, useSyncStatus } from '../api/items'
+import {
+  updateItemDetailQueryDataForPath,
+  useOldestInflightAgeMs,
+  useSyncStatus,
+} from '../api/items'
 import { usePollingEnabled } from '../api/polling'
 import { readHash, resolveHashTargets, writeHash } from './routing/hash'
 import {
@@ -248,9 +252,15 @@ type InspectorFallbackProps = {
   message: string
   onClose: () => void
   busy?: boolean
+  visible?: boolean
 }
 
-function InspectorFallback({ message, onClose, busy = false }: InspectorFallbackProps): JSX.Element {
+function InspectorFallback({
+  message,
+  onClose,
+  busy = false,
+  visible = true,
+}: InspectorFallbackProps): JSX.Element {
   const showLoadingCopy = useDelayedVisibility(busy, LAZY_SURFACE_LOADING_COPY_DELAY_MS)
   const visibleMessage = lazySurfaceMessage(message, busy, showLoadingCopy)
   return (
@@ -258,6 +268,8 @@ function InspectorFallback({ message, onClose, busy = false }: InspectorFallback
       className="app-right-panel inspector-panel col-start-3 row-start-2 border-l border-border bg-panel overflow-auto scrollbar-thin relative"
       data-inspector-panel
       aria-busy={busy ? 'true' : undefined}
+      aria-hidden={!visible || undefined}
+      hidden={!visible}
     >
       <div
         className="p-3 flex items-center justify-between gap-3 text-sm text-muted"
@@ -552,6 +564,7 @@ export default function AppShell({
     themeWorkspaceId,
     tableSourceColumns?.current ?? null,
   ])
+  const inspectorPresentationResetKey = browsePresentationResetKey
   const derivedSourceMetricKeys = useMemo(
     () => metricKeys.filter((key) => !isDerivedMetricKey(key)),
     [metricKeys],
@@ -908,7 +921,7 @@ export default function AppShell({
     browseEntityStore.patch(payload, {
       replaceMutableMetrics: options?.replaceMutableMetrics,
     })
-    queryClient.setQueryData<BrowseItemPayload>(['item-detail', payload.path], (current) => (
+    updateItemDetailQueryDataForPath(queryClient, payload.path, (current) => (
       current
         ? patchBrowseEntity(current, payload, {
           replaceMutableMetrics: options?.replaceMutableMetrics,
@@ -1393,6 +1406,8 @@ export default function AppShell({
     mobileSearchOpen,
     mobileDrawerOpen,
   ])
+  const inspectorMountedRef = useRef(layoutModel.effectiveRightOpen)
+  if (layoutModel.effectiveRightOpen) inspectorMountedRef.current = true
 
   const metricsPopulationFacetObserverEnabled = (
     layoutModel.leftRailVisible
@@ -1745,19 +1760,34 @@ export default function AppShell({
           </div>
           {/* Bottom selection bar removed intentionally */}
         </div>
-        {layoutModel.effectiveRightOpen && (
+        {inspectorMountedRef.current && (
           <LazySurfaceBoundary
-            resetKey={`inspector:${layoutModel.effectiveRightOpen}`}
-            fallback={<InspectorFallback message="Inspector could not load." onClose={closeRightPanel} />}
+            resetKey={`inspector:${layoutModel.effectiveRightOpen ? 'open' : 'closed'}`}
+            fallback={(
+              <InspectorFallback
+                message="Inspector could not load."
+                onClose={closeRightPanel}
+                visible={layoutModel.effectiveRightOpen}
+              />
+            )}
           >
             <Suspense
-              fallback={<InspectorFallback message="Loading inspector..." onClose={closeRightPanel} busy />}
+              fallback={(
+                <InspectorFallback
+                  message="Loading inspector..."
+                  onClose={closeRightPanel}
+                  busy
+                  visible={layoutModel.effectiveRightOpen}
+                />
+              )}
             >
               <Inspector
                 path={selectedPaths[0] ?? null}
                 selectedPaths={selectedPaths}
                 comparePaths={comparePaths}
                 items={selectedItems}
+                presentationResetKey={inspectorPresentationResetKey}
+                visible={layoutModel.effectiveRightOpen}
                 viewerCompareActive={compareOpen}
                 compareA={compareA}
                 compareB={compareB}

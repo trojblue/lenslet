@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildSidecarDraft,
+  buildDirtySidecarDraftPatch,
   hasSemanticNotesChange,
   hasSemanticTagsChange,
   mergeAuthoritativeSidecarDraft,
@@ -51,5 +52,22 @@ describe('inspector sidecar draft guards', () => {
         { notes: false, tags: true },
       ),
     ).toEqual({ notes: 'remote notes', tags: 'local-tag' })
+  })
+
+  it('builds a minimal patch for dirty fields owned by a superseded selection', () => {
+    expect(
+      buildDirtySidecarDraftPatch(
+        { notes: 'draft A', tags: 'a, b' },
+        { notes: 'settled A', tags: 'a' },
+        { notes: true, tags: true },
+      ),
+    ).toEqual({ notes: 'draft A', tags: ['a', 'b'] })
+    expect(
+      buildDirtySidecarDraftPatch(
+        { notes: 'settled A', tags: 'a' },
+        { notes: 'settled A', tags: 'a' },
+        { notes: true, tags: true },
+      ),
+    ).toEqual({})
   })
 })

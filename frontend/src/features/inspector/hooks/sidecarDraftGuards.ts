@@ -10,6 +10,11 @@ export type SidecarDraftDirtyFields = {
   tags: boolean
 }
 
+export type SidecarDraftPatch = {
+  notes?: string
+  tags?: string[]
+}
+
 export function buildSidecarDraft(sidecar: Pick<Sidecar, 'notes' | 'tags'> | undefined): SidecarDraft {
   return {
     notes: sidecar?.notes ?? '',
@@ -49,4 +54,19 @@ export function hasSemanticNotesChange(currentNotes: string, baselineNotes: stri
 
 export function hasSemanticTagsChange(currentTags: string, baselineTags: string): boolean {
   return !tagsEqual(parseSidecarTags(currentTags), parseSidecarTags(baselineTags))
+}
+
+export function buildDirtySidecarDraftPatch(
+  current: SidecarDraft,
+  baseline: SidecarDraft,
+  dirty: SidecarDraftDirtyFields,
+): SidecarDraftPatch {
+  const patch: SidecarDraftPatch = {}
+  if (dirty.notes && hasSemanticNotesChange(current.notes, baseline.notes)) {
+    patch.notes = current.notes
+  }
+  if (dirty.tags && hasSemanticTagsChange(current.tags, baseline.tags)) {
+    patch.tags = parseSidecarTags(current.tags)
+  }
+  return patch
 }

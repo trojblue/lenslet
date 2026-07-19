@@ -31,9 +31,10 @@ def start_painted_frame_trace(
     page.evaluate(
         """(config) => {
           const existing = window.__lensletPaintedFrameTrace;
-          if (existing && existing.running) {
+          if (existing) {
             cancelAnimationFrame(existing.rafId);
             existing.armedObserver?.disconnect();
+            existing.stagedPreviewObserver?.disconnect();
             if (existing.armedClickListener) {
               document.removeEventListener('click', existing.armedClickListener, true);
             }
@@ -51,6 +52,8 @@ def start_painted_frame_trace(
             marker: null,
             armedClickListener: null,
             armedObserver: null,
+            stagedPreviewObserver: null,
+            stagedPreviewTokens: [],
             rafId: 0,
           };
           const tokenFor = (element) => {
@@ -62,6 +65,24 @@ def start_painted_frame_trace(
             }
             return token;
           };
+          const recordStagedPreviews = (root) => {
+            if (!(root instanceof Element)) return;
+            const candidates = root.matches('[data-preview-candidate-path]')
+              ? [root]
+              : Array.from(root.querySelectorAll('[data-preview-candidate-path]'));
+            for (const candidate of candidates) {
+              state.stagedPreviewTokens.push({
+                token: tokenFor(candidate),
+                path: candidate.getAttribute('data-preview-candidate-path'),
+              });
+            }
+          };
+          state.stagedPreviewObserver = new MutationObserver((records) => {
+            for (const record of records) {
+              for (const node of record.addedNodes) recordStagedPreviews(node);
+            }
+          });
+          state.stagedPreviewObserver.observe(document.documentElement, { childList: true, subtree: true });
           const capture = () => {
             if (!state.running) return;
             const surfaces = {};
@@ -106,6 +127,89 @@ def start_painted_frame_trace(
                   inert: owner.hasAttribute('inert'),
                 };
               }).filter(Boolean);
+              const inspectorRows = element.hasAttribute('data-inspector-panel')
+                ? Array.from(element.querySelectorAll('[data-inspector-row-id]')).map((row) => ({
+                  id: row.getAttribute('data-inspector-row-id'),
+                  text: (row.textContent || '').replace(/\\s+/g, ' ').trim(),
+                  placeholder: row.getAttribute('aria-hidden') === 'true',
+                }))
+                : [];
+              const inspectorInputs = element.hasAttribute('data-inspector-panel')
+                ? Array.from(element.querySelectorAll('input, textarea')).map((input) => ({
+                  label: input.getAttribute('aria-label'),
+                  value: input.value,
+                  disabled: input.disabled,
+                  terminalError: Boolean(input.closest('[data-inspector-terminal-error="true"]')),
+                }))
+                : [];
+              const inspectorSections = element.hasAttribute('data-inspector-panel')
+                ? Array.from(element.querySelectorAll('[data-inspector-section-id]')).map((section) => ({
+                  id: section.getAttribute('data-inspector-section-id'),
+                  open: section.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded'),
+                }))
+                : [];
+              const inspectorActions = element.hasAttribute('data-inspector-panel')
+                ? Array.from(element.querySelectorAll('button')).map((button) => {
+                  const buttonRect = button.getBoundingClientRect();
+                  const buttonStyle = window.getComputedStyle(button);
+                  return {
+                    label: button.getAttribute('aria-label') || (button.textContent || '').replace(/\\s+/g, ' ').trim(),
+                    title: button.getAttribute('title'),
+                    ariaExpanded: button.getAttribute('aria-expanded'),
+                    visible: button.getClientRects().length > 0
+                      && buttonRect.width > 0
+                      && buttonRect.height > 0
+                      && buttonStyle.visibility !== 'hidden'
+                      && buttonStyle.display !== 'none',
+                    disabled: button.disabled,
+                  };
+                })
+                : [];
+              const image = element.matches('.inspector-preview-card')
+                ? element.querySelector('.inspector-preview-image')
+                : null;
+              let imageState = null;
+              if (image instanceof HTMLImageElement) {
+                let rgb = null;
+                if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+                  try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 1;
+                    canvas.height = 1;
+                    const context = canvas.getContext('2d', { willReadFrequently: true });
+                    context?.drawImage(image, 0, 0, 1, 1);
+                    const pixel = context?.getImageData(0, 0, 1, 1).data;
+                    if (pixel) rgb = [pixel[0], pixel[1], pixel[2]];
+                  } catch {
+                    rgb = null;
+                  }
+                }
+                imageState = {
+                  token: tokenFor(image),
+                  path: image.getAttribute('data-preview-path'),
+                  src: image.getAttribute('src'),
+                  currentSrc: image.currentSrc,
+                  complete: image.complete,
+                  naturalWidth: image.naturalWidth,
+                  naturalHeight: image.naturalHeight,
+                  opacity: window.getComputedStyle(image).opacity,
+                  rgb,
+                };
+              }
+              const candidateImage = element.matches('.inspector-preview-card')
+                ? element.querySelector('[data-preview-candidate-path]')
+                : null;
+              const candidateImageState = candidateImage instanceof HTMLImageElement
+                ? {
+                  token: tokenFor(candidateImage),
+                  path: candidateImage.getAttribute('data-preview-candidate-path'),
+                  src: candidateImage.getAttribute('src'),
+                  currentSrc: candidateImage.currentSrc,
+                  complete: candidateImage.complete,
+                  naturalWidth: candidateImage.naturalWidth,
+                  naturalHeight: candidateImage.naturalHeight,
+                }
+                : null;
               surfaces[name] = {
                 token: tokenFor(element),
                 tag: element.tagName.toLowerCase(),
@@ -122,6 +226,12 @@ def start_painted_frame_trace(
                 scrollHeight: element.scrollHeight,
                 clientHeight: element.clientHeight,
                 facetCards,
+                inspectorRows,
+                inspectorInputs,
+                inspectorSections,
+                inspectorActions,
+                image: imageState,
+                candidateImage: candidateImageState,
                 attrs: {
                   ariaPressed: element.getAttribute('aria-pressed'),
                   ariaBusy: element.getAttribute('aria-busy'),
@@ -270,6 +380,7 @@ def stop_painted_frame_trace(page: Any) -> dict[str, Any]:
           state.running = false;
           cancelAnimationFrame(state.rafId);
           state.armedObserver?.disconnect();
+          state.stagedPreviewObserver?.disconnect();
           if (state.armedClickListener) {
             document.removeEventListener('click', state.armedClickListener, true);
           }
@@ -278,6 +389,7 @@ def stop_painted_frame_trace(page: Any) -> dict[str, Any]:
             phase: state.phase,
             frames: state.frames,
             markers: state.markers,
+            staged_preview_tokens: state.stagedPreviewTokens,
           };
         }"""
     )
@@ -324,6 +436,7 @@ def summarize_painted_frame_trace(
     sentinels_by_path: dict[str, tuple[str, ...]],
     max_delta_px: float,
     fallback_texts: tuple[str, ...] = ("Loading inspector...", "Inspector could not load."),
+    allow_retained_complete: bool = False,
 ) -> dict[str, Any]:
     violations: list[str] = []
     if not isinstance(trace, dict):
@@ -408,7 +521,7 @@ def summarize_painted_frame_trace(
         if isinstance(marker, dict):
             expected_path = marker.get("expectedPath")
             all_surface_text = " ".join(_surface_text(surface) for surface in surfaces.values())
-            if isinstance(expected_path, str):
+            if isinstance(expected_path, str) and not allow_retained_complete:
                 stale_sentinels = (
                     sentinel
                     for path, sentinels in sentinels_by_path.items()
@@ -479,23 +592,24 @@ def summarize_painted_frame_trace(
                     matching_frame = frame
                     break
         if matching_frame is None:
-            violations.append(f"action {action_id!r} never painted its expected state")
-            for frame_index in range(len(frames) - 1, -1, -1):
-                candidate = frames[frame_index]
-                if (
-                    isinstance(candidate, dict)
-                    and isinstance(candidate.get("marker"), dict)
-                    and candidate["marker"].get("actionId") == action_id
-                ):
-                    if len(failing_frames) < 20:
-                        failing_frames.append(
-                            {
-                                "frame_index": frame_index,
-                                "reason": "expected state was never painted",
-                                "frame": candidate,
-                            }
-                        )
-                    break
+            if marker.get("requireExpectedPaint") is not False:
+                violations.append(f"action {action_id!r} never painted its expected state")
+                for frame_index in range(len(frames) - 1, -1, -1):
+                    candidate = frames[frame_index]
+                    if (
+                        isinstance(candidate, dict)
+                        and isinstance(candidate.get("marker"), dict)
+                        and candidate["marker"].get("actionId") == action_id
+                    ):
+                        if len(failing_frames) < 20:
+                            failing_frames.append(
+                                {
+                                    "frame_index": frame_index,
+                                    "reason": "expected state was never painted",
+                                    "frame": candidate,
+                                }
+                            )
+                        break
         else:
             try:
                 first_paint_ms.append(float(matching_frame["timestamp"]) - float(started_at))

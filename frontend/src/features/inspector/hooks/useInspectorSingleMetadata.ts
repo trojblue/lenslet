@@ -10,6 +10,7 @@ import type { MetadataRecord, MetadataState } from './useInspectorMetadataTypes'
 type UseInspectorSingleMetadataParams = {
   path: string | null
   autoloadMetadata: boolean
+  scopeKey?: string
 }
 
 type UseInspectorSingleMetadataResult = {
@@ -67,13 +68,14 @@ export function projectSingleMetadataSnapshot(
 export function useInspectorSingleMetadata({
   path,
   autoloadMetadata,
+  scopeKey = 'default',
 }: UseInspectorSingleMetadataParams): UseInspectorSingleMetadataResult {
   const [metaRaw, setMetaRaw] = useState<MetadataRecord>(null)
   const [metaError, setMetaError] = useState<string | null>(null)
   const [metaState, setMetaState] = useState<MetadataState>('idle')
   const [showPilInfo, setShowPilInfo] = useState(false)
   const [loadingCopyContextKey, setLoadingCopyContextKey] = useState<string | null>(null)
-  const metadataContextKey = buildSingleMetadataContextKey(path)
+  const metadataContextKey = path ? JSON.stringify([scopeKey, path]) : null
   const [metaContextKey, setMetaContextKey] = useState<string | null>(metadataContextKey)
   const metaRequestIdRef = useRef(0)
   const activeMetadataContextKeyRef = useRef<string | null>(metadataContextKey)
@@ -89,7 +91,7 @@ export function useInspectorSingleMetadata({
   }, [metadataContextKey])
 
   const fetchMetadata = useCallback(async () => {
-    const requestContextKey = buildSingleMetadataContextKey(path)
+    const requestContextKey = path ? JSON.stringify([scopeKey, path]) : null
     if (!requestContextKey || !path) return
 
     const requestId = metaRequestIdRef.current + 1
@@ -128,7 +130,7 @@ export function useInspectorSingleMetadata({
       setMetaError(msg)
       setMetaState('error')
     }
-  }, [path])
+  }, [path, scopeKey])
 
   useEffect(() => {
     if (!autoloadMetadata || !path) return

@@ -1,15 +1,48 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { api, makeIdempotencyKey } from './client'
 import { usePollingEnabled } from './polling'
 import { FetchError } from '../lib/fetcher'
-import type { Sidecar, SidecarMutationResponse, SidecarPatch } from '../lib/types'
+import type { BrowseItemPayload, Sidecar, SidecarMutationResponse, SidecarPatch } from '../lib/types'
 import {
   labelPersistenceTracker,
   requestLabelPersistenceRefresh,
 } from './labelPersistence'
 
-export const sidecarQueryKey = (path: string) => ['item', path] as const
+export const sidecarQueryKey = (path: string, scopeKey?: string) => (
+  scopeKey ? ['item', path, scopeKey] as const : ['item', path] as const
+)
+
+export const itemDetailQueryKey = (path: string, scopeKey?: string) => (
+  scopeKey ? ['item-detail', path, scopeKey] as const : ['item-detail', path] as const
+)
+
+export function setSidecarQueryDataForPath(
+  queryClient: QueryClient,
+  path: string,
+  sidecar: Sidecar,
+): void {
+  const mergeSidecar = (current: Sidecar | undefined): Sidecar => ({
+    ...current,
+    ...sidecar,
+    table_fields: sidecar.table_fields === undefined ? current?.table_fields : sidecar.table_fields,
+  })
+  const existing = queryClient.getQueriesData<Sidecar>({ queryKey: sidecarQueryKey(path) })
+    .find((entry): entry is [readonly unknown[], Sidecar] => entry[1] !== undefined)?.[1]
+  queryClient.setQueryData(sidecarQueryKey(path), mergeSidecar(existing))
+  queryClient.setQueriesData<Sidecar>(
+    { queryKey: sidecarQueryKey(path) },
+    (current) => mergeSidecar(current),
+  )
+}
+
+export function updateItemDetailQueryDataForPath(
+  queryClient: QueryClient,
+  path: string,
+  updater: (current: BrowseItemPayload | undefined) => BrowseItemPayload | undefined,
+): void {
+  queryClient.setQueriesData<BrowseItemPayload>({ queryKey: itemDetailQueryKey(path) }, updater)
+}
 
 type UpdateFields = Partial<Omit<Sidecar, 'v' | 'version' | 'updated_at' | 'updated_by'>>
 
@@ -382,25 +415,25 @@ export function updateConflictFromServer(path: string, current: Sidecar): void {
   updateSyncState()
 }
 
-export function useSidecar(path: string) {
+export function useSidecar(path: string, enabled = true, scopeKey?: string) {
   const pollingEnabled = usePollingEnabled()
   return useQuery({
-    queryKey: sidecarQueryKey(path),
+    queryKey: sidecarQueryKey(path, scopeKey),
     queryFn: () => api.getSidecar(path),
-    enabled: !!path,
+    enabled: !!path && enabled,
     staleTime: 30_000, // Sidecar data doesn't change often
     gcTime: 5 * 60_000,
     retry: 2,
-    refetchInterval: pollingEnabled ? FALLBACK_SIDECAR_INTERVAL : false,
-    refetchIntervalInBackground: pollingEnabled,
+    refetchInterval: enabled && pollingEnabled ? FALLBACK_SIDECAR_INTERVAL : false,
+    refetchIntervalInBackground: enabled && pollingEnabled,
   })
 }
 
-export function useItemDetail(path: string) {
+export function useItemDetail(path: string, enabled = true, scopeKey?: string) {
   return useQuery({
-    queryKey: ['item-detail', path] as const,
+    queryKey: itemDetailQueryKey(path, scopeKey),
     queryFn: () => api.getItemDetail(path),
-    enabled: !!path,
+    enabled: !!path && enabled,
     staleTime: 30_000,
     gcTime: 5 * 60_000,
     retry: 2,
@@ -409,7 +442,7 @@ export function useItemDetail(path: string) {
 
 // Direct edits use patch semantics so optimistic cache updates can surface
 // version conflicts instead of overwriting a newer server value.
-export function useUpdateSidecar(path: string) {
+export function useUpdateSidecar(path: string, scopeKey?: string) {
   const qc = useQueryClient()
 
   return useMutation({
@@ -417,7 +450,7 @@ export function useUpdateSidecar(path: string) {
       const body = buildPatch(patch)
       if (!hasPatchFields(body)) {
         return {
-          sidecar: qc.getQueryData<Sidecar>(sidecarQueryKey(path)) ?? DEFAULT_SIDECAR,
+          sidecar: qc.getQueryData<Sidecar>(sidecarQueryKey(path, scopeKey)) ?? DEFAULT_SIDECAR,
           mutation_id: idempotencyKey,
           accepted_event: null,
           persistence: 'saved' as const,
@@ -448,7 +481,7 @@ export function useUpdateSidecar(path: string) {
     },
     onSuccess: (data, variables) => {
       clearConflict(path)
-      qc.setQueryData(sidecarQueryKey(path), data.sidecar)
+      setSidecarQueryDataForPath(qc, path, data.sidecar)
       if (data.durable_watermark.boot_epoch !== 'client-noop') {
         observeMutationPersistence(path, data)
       }

@@ -22,6 +22,7 @@ interface MetadataSectionProps {
   metaContent: string
   metaError: string | null
   onMetaPathCopy: (path: MetadataPathSegment[]) => void
+  transitionStatusVisible?: boolean
   sortableId?: InspectorWidgetId
   sortableEnabled?: boolean
 }
@@ -44,6 +45,7 @@ function MetadataSectionComponent({
   metaContent,
   metaError,
   onMetaPathCopy,
+  transitionStatusVisible = false,
   sortableId,
   sortableEnabled = false,
 }: MetadataSectionProps): JSX.Element {
@@ -78,6 +80,12 @@ function MetadataSectionComponent({
       actions={metadataActions}
     >
       <div className="relative">
+        <div
+          className={`absolute right-2 top-2 z-10 rounded bg-surface px-1.5 py-0.5 text-[11px] text-muted ${transitionStatusVisible ? '' : 'invisible'}`}
+          role="status"
+        >
+          {transitionStatusVisible ? 'Loading metadata…' : ''}
+        </div>
         {metaValueCopiedPath && (
           <div className="ui-json-key-toast">
             Copied value:
@@ -94,8 +102,14 @@ function MetadataSectionComponent({
             ) : <span className="font-sans text-[12px]">{metaContent}</span>
           ) : <span className="font-sans text-[12px]">{metaContent}</span>}
         </pre>
+        <div
+          className={`pointer-events-none absolute bottom-1 left-2 right-2 truncate rounded bg-surface px-1 text-[11px] text-danger ${metaError ? '' : 'invisible'}`}
+          role="status"
+          title={metaError ?? undefined}
+        >
+          {metaError ?? ''}
+        </div>
       </div>
-      {metaError && <div className="text-[11px] text-danger mt-1 break-words">{metaError}</div>}
     </InspectorSection>
   )
 }

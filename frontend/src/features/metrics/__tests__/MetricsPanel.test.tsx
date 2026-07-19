@@ -6,6 +6,16 @@ import MetricsPanel from '../MetricsPanel'
 import type { BrowseFacetsPayload, BrowseItemPayload } from '../../../lib/types'
 import type { DerivedMetricEvaluation } from '../model/derivedMetric'
 
+const SINGLE_FIELD_DEMAND = {
+  metric: { showAll: false, schemaRevision: 0, visibleKeys: [] },
+  categorical: {
+    showAll: false,
+    schemaRevision: 0,
+    selectedKey: null,
+    visibleKeys: [],
+  },
+}
+
 function makeItem(path: string, metrics?: BrowseItemPayload['metrics']): BrowseItemPayload {
   return {
     path,
@@ -43,6 +53,21 @@ function makeCategoricalFacets(key: string, values: string[]): BrowseFacetsPaylo
   }
 }
 
+function makeScanPoisonItems(): BrowseItemPayload[] {
+  return new Proxy(
+    [{
+      ...makeItem('/poison.jpg', { q1: 1 }),
+      categoricals: { group: 'poison' },
+    }],
+    {
+      get(target, property, receiver) {
+        if (property === Symbol.iterator) throw new Error('inactive panel scanned item rows')
+        return Reflect.get(target, property, receiver)
+      },
+    },
+  )
+}
+
 function makeDerivedMetricEvaluation(
   overrides: Partial<DerivedMetricEvaluation> = {},
 ): DerivedMetricEvaluation {
@@ -69,6 +94,48 @@ function makeDerivedMetricEvaluation(
 }
 
 describe('MetricsPanel', () => {
+  it('does not scan item rows while mounted inactive', () => {
+    const items = makeScanPoisonItems()
+    const demand = {
+      metric: { showAll: true, schemaRevision: 0, visibleKeys: ['q1'] },
+      categorical: {
+        showAll: true,
+        schemaRevision: 0,
+        selectedKey: 'group',
+        visibleKeys: ['group'],
+      },
+    }
+
+    expect(() => renderToStaticMarkup(
+      <MetricsPanel
+        active={false}
+        items={items}
+        filteredItems={items}
+        metricKeys={['q1']}
+        categoricalKeys={['group']}
+        facetDemand={demand}
+        onSelectMetric={() => {}}
+        onFacetDemandAction={() => {}}
+        filters={{ and: [] }}
+        onChangeRange={() => {}}
+        onChangeCategoricalValues={() => {}}
+        onChangeFilters={() => {}}
+      />,
+    )).not.toThrow()
+
+    expect(() => renderToStaticMarkup(
+      <DerivedScorePanel
+        active={false}
+        items={items}
+        metricKeys={['q1']}
+        categoricalKeys={['group']}
+        derivedMetric={makeDerivedMetricEvaluation()}
+        onApplyDerivedMetric={() => {}}
+        onRankByDerivedMetric={() => {}}
+      />,
+    )).not.toThrow()
+  })
+
   it('renders metric filter options from the provided metric key schema', () => {
     const items = [
       makeItem('/a.jpg', { quality_score: 0.2 }),
@@ -82,7 +149,9 @@ describe('MetricsPanel', () => {
         metricKeys={['quality_score']}
         categoricalKeys={[]}
         selectedMetric="quality_score"
+        facetDemand={SINGLE_FIELD_DEMAND}
         onSelectMetric={() => {}}
+        onFacetDemandAction={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}
@@ -107,7 +176,9 @@ describe('MetricsPanel', () => {
         filteredItems={items.slice(0, 1)}
         metricKeys={[]}
         categoricalKeys={['l0r_viewpoint_family']}
+        facetDemand={SINGLE_FIELD_DEMAND}
         onSelectMetric={() => {}}
+        onFacetDemandAction={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}
@@ -161,7 +232,9 @@ describe('MetricsPanel', () => {
         }}
         populationItemsComplete={false}
         filteredItemsComplete={false}
+        facetDemand={SINGLE_FIELD_DEMAND}
         onSelectMetric={() => {}}
+        onFacetDemandAction={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}
@@ -191,7 +264,9 @@ describe('MetricsPanel', () => {
         facetsState="pending"
         populationItemsComplete={false}
         filteredItemsComplete={false}
+        facetDemand={SINGLE_FIELD_DEMAND}
         onSelectMetric={() => {}}
+        onFacetDemandAction={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}
@@ -237,7 +312,9 @@ describe('MetricsPanel', () => {
         categoricalKeys={[]}
         selectedItems={items}
         selectedMetric="quality_score"
+        facetDemand={SINGLE_FIELD_DEMAND}
         onSelectMetric={() => {}}
+        onFacetDemandAction={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}
@@ -373,7 +450,9 @@ describe('MetricsPanel', () => {
         categoricalKeys={[]}
         metricDisplayNames={{ '@derived/rubric_1': 'Rubric score' }}
         selectedMetric="@derived/rubric_1"
+        facetDemand={SINGLE_FIELD_DEMAND}
         onSelectMetric={() => {}}
+        onFacetDemandAction={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
         onChangeCategoricalValues={() => {}}

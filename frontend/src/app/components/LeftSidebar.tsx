@@ -22,11 +22,16 @@ import type {
   FacetFieldQueryStates,
   FacetQueryState,
 } from '../../features/metrics/model/facetPresentation'
+import type {
+  MetricsFacetDemand,
+  MetricsFacetDemandAction,
+} from '../../features/metrics/model/facetDemand'
 import type { ThemePresetId } from '../../theme/runtime'
 import ThemeSettingsMenu from '../../shared/ui/ThemeSettingsMenu'
 import type { LeftTool } from '../layout/sidebarLayout'
 
 type LeftSidebarProps = {
+  visible: boolean
   leftTool: LeftTool
   contentOpen: boolean
   onToolChange: (tool: LeftTool) => void
@@ -54,11 +59,13 @@ type LeftSidebarProps = {
   metricsFacetFieldStates?: FacetFieldQueryStates
   metricsPopulationItemsComplete?: boolean
   metricsFilteredItemsComplete?: boolean
+  metricsPresentationResetKey: string
   derivedMetric: DerivedMetricEvaluation
   derivedRankDisabledReason?: string | null
   derivedMetricBackendAuthoritative?: boolean
   selectedItems?: BrowseItemPayload[]
   selectedMetric?: string
+  metricsFacetDemand: MetricsFacetDemand
   onSelectMetric: (key: string) => void
   onApplyDerivedMetric: (spec: DerivedMetricSpec | null) => void
   onRankByDerivedMetric: (spec: DerivedMetricSpec) => void
@@ -66,7 +73,7 @@ type LeftSidebarProps = {
   onChangeRange: (key: string, range: { min: number; max: number } | null) => void
   onChangeCategoricalValues: (key: string, values: string[] | null) => void
   onChangeFilters: (filters: FilterAST) => void
-  onMetricsFacetFieldsChange?: (fields: BrowseFacetFields) => void
+  onMetricsFacetDemandAction: (action: MetricsFacetDemandAction) => void
   onDerivedFacetFieldsChange?: (fields: BrowseFacetFields) => void
   onResize: (event: PointerEvent<HTMLDivElement>) => void
   themePreset: ThemePresetId
@@ -93,7 +100,12 @@ function getSidebarIconButtonClass(active: boolean): string {
   return `${SIDEBAR_ICON_BUTTON_BASE} ${active ? SIDEBAR_ICON_BUTTON_ACTIVE : SIDEBAR_ICON_BUTTON_INACTIVE}`
 }
 
+function setInert(element: HTMLDivElement | null, inert: boolean): void {
+  element?.toggleAttribute('inert', inert)
+}
+
 export default function LeftSidebar({
+  visible,
   leftTool,
   contentOpen,
   onToolChange,
@@ -121,11 +133,13 @@ export default function LeftSidebar({
   metricsFacetFieldStates,
   metricsPopulationItemsComplete,
   metricsFilteredItemsComplete,
+  metricsPresentationResetKey,
   derivedMetric,
   derivedRankDisabledReason,
   derivedMetricBackendAuthoritative = false,
   selectedItems,
   selectedMetric,
+  metricsFacetDemand,
   onSelectMetric,
   onApplyDerivedMetric,
   onRankByDerivedMetric,
@@ -133,7 +147,7 @@ export default function LeftSidebar({
   onChangeRange,
   onChangeCategoricalValues,
   onChangeFilters,
-  onMetricsFacetFieldsChange,
+  onMetricsFacetDemandAction,
   onDerivedFacetFieldsChange,
   onResize,
   themePreset,
@@ -150,6 +164,8 @@ export default function LeftSidebar({
   tableSourceSwitching,
   onTableSourceColumnChange,
 }: LeftSidebarProps): JSX.Element {
+  const metricsActive = visible && contentOpen && leftTool === 'metrics'
+  const derivedActive = visible && contentOpen && leftTool === 'derived'
   const folderButtonClass = getSidebarIconButtonClass(leftTool === 'folders')
   const metricsButtonClass = getSidebarIconButtonClass(leftTool === 'metrics')
   const derivedButtonClass = getSidebarIconButtonClass(leftTool === 'derived')
@@ -160,6 +176,10 @@ export default function LeftSidebar({
     <div
       className="app-left-panel col-start-1 row-start-2 relative border-r border-border bg-panel overflow-visible"
       data-left-content-open={contentOpen ? 'true' : 'false'}
+      data-left-rail-visible={visible ? 'true' : 'false'}
+      hidden={!visible}
+      aria-hidden={!visible || undefined}
+      ref={(element) => setInert(element, !visible)}
     >
       <div className="absolute inset-y-0 left-0 w-12 border-r border-border flex flex-col items-center gap-2 py-3 bg-surface-overlay">
         <button
@@ -241,99 +261,125 @@ export default function LeftSidebar({
           onSourceColumnChange={onTableSourceColumnChange}
         />
       </div>
-      {contentOpen && (
-        <>
-          <div className="ml-12 h-full overflow-hidden">
-            {leftTool === 'folders' ? (
-              <div className="h-full flex flex-col">
-                <div className="px-2 py-2 border-b border-border">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[11px] uppercase tracking-wide text-muted">Smart Folders</div>
+      <div
+        className="ml-12 h-full overflow-hidden"
+        hidden={!contentOpen}
+        aria-hidden={!contentOpen || undefined}
+        ref={(element) => setInert(element, !contentOpen)}
+      >
+        <div
+          className="h-full flex flex-col"
+          hidden={leftTool !== 'folders'}
+          aria-hidden={leftTool !== 'folders' || undefined}
+          ref={(element) => setInert(element, leftTool !== 'folders')}
+          data-left-tool-panel="folders"
+        >
+          <div className="px-2 py-2 border-b border-border">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[11px] uppercase tracking-wide text-muted">Smart Folders</div>
+              <button
+                className="btn btn-sm btn-ghost text-xs"
+                onClick={onSaveView}
+                title="Save current view as Smart Folder"
+              >
+                + New
+              </button>
+            </div>
+            {views.length ? (
+              <div className="flex flex-col gap-1">
+                {views.map((view) => {
+                  const active = view.id === activeViewId
+                  return (
                     <button
-                      className="btn btn-sm btn-ghost text-xs"
-                      onClick={onSaveView}
-                      title="Save current view as Smart Folder"
+                      key={view.id}
+                      className={`text-left px-2 py-2 rounded-md text-sm ${active ? 'bg-accent-muted text-accent' : 'hover:bg-hover text-text'}`}
+                      onClick={() => onActivateView(view)}
                     >
-                      + New
+                      {view.name}
                     </button>
-                  </div>
-                  {views.length ? (
-                    <div className="flex flex-col gap-1">
-                      {views.map((view) => {
-                        const active = view.id === activeViewId
-                        return (
-                          <button
-                            key={view.id}
-                            className={`text-left px-2 py-2 rounded-md text-sm ${active ? 'bg-accent-muted text-accent' : 'hover:bg-hover text-text'}`}
-                            onClick={() => onActivateView(view)}
-                          >
-                            {view.name}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-xs text-muted px-1 py-1.5">No saved Smart Folders yet.</div>
-                  )}
-                </div>
-                <FolderTree
-                  current={current}
-                  roots={ROOTS}
-                  data={data}
-                  onOpen={onOpenFolder}
-                  onPullRefresh={onPullRefreshFolders}
-                  onContextMenu={onContextMenu}
-                  onOpenActions={onOpenFolderActions}
-                  countVersion={countVersion}
-                  className="flex-1 min-h-0 overflow-auto scrollbar-thin"
-                  showResizeHandle={false}
-                />
+                  )
+                })}
               </div>
-            ) : leftTool === 'metrics' ? (
-              <MetricsPanel
-                items={items}
-                filteredItems={filteredItems}
-                metricKeys={metricKeys}
-                categoricalKeys={categoricalKeys}
-                metricDisplayNames={metricDisplayNames}
-                facets={metricsFacets}
-                facetsState={metricsFacetsState}
-                facetFieldStates={metricsFacetFieldStates}
-                populationItemsComplete={metricsPopulationItemsComplete}
-                filteredItemsComplete={metricsFilteredItemsComplete}
-                selectedItems={selectedItems}
-                selectedMetric={selectedMetric}
-                onSelectMetric={onSelectMetric}
-                filters={filters}
-                onChangeRange={onChangeRange}
-                onChangeCategoricalValues={onChangeCategoricalValues}
-                onChangeFilters={onChangeFilters}
-                onFacetFieldsChange={onMetricsFacetFieldsChange}
-              />
             ) : (
-              <DerivedScorePanel
-                items={items}
-                metricKeys={metricKeys}
-                categoricalKeys={categoricalKeys}
-                metricDisplayNames={metricDisplayNames}
-                facets={metricsFacets}
-                facetsState={metricsFacetsState}
-                facetFieldStates={metricsFacetFieldStates}
-                populationItemsComplete={metricsPopulationItemsComplete}
-                derivedMetric={derivedMetric}
-                backendAuthoritative={derivedMetricBackendAuthoritative}
-                derivedRankDisabledReason={derivedRankDisabledReason}
-                onApplyDerivedMetric={onApplyDerivedMetric}
-                onRankByDerivedMetric={onRankByDerivedMetric}
-                onFacetFieldsChange={onDerivedFacetFieldsChange}
-              />
+              <div className="text-xs text-muted px-1 py-1.5">No saved Smart Folders yet.</div>
             )}
           </div>
-          <div
-            className="toolbar-offset sidebar-resize-handle sidebar-resize-handle-left absolute bottom-0"
-            onPointerDown={onResize}
+          <FolderTree
+            active={visible && contentOpen && leftTool === 'folders'}
+            current={current}
+            roots={ROOTS}
+            data={data}
+            onOpen={onOpenFolder}
+            onPullRefresh={onPullRefreshFolders}
+            onContextMenu={onContextMenu}
+            onOpenActions={onOpenFolderActions}
+            countVersion={countVersion}
+            className="flex-1 min-h-0 overflow-auto scrollbar-thin"
+            showResizeHandle={false}
           />
-        </>
+        </div>
+        <div
+          className="h-full"
+          hidden={leftTool !== 'metrics'}
+          aria-hidden={leftTool !== 'metrics' || undefined}
+          ref={(element) => setInert(element, leftTool !== 'metrics')}
+          data-left-tool-panel="metrics"
+        >
+          <MetricsPanel
+            active={metricsActive}
+            items={items}
+            filteredItems={filteredItems}
+            metricKeys={metricKeys}
+            categoricalKeys={categoricalKeys}
+            metricDisplayNames={metricDisplayNames}
+            facets={metricsFacets}
+            facetsState={metricsFacetsState}
+            facetFieldStates={metricsFacetFieldStates}
+            populationItemsComplete={metricsPopulationItemsComplete}
+            filteredItemsComplete={metricsFilteredItemsComplete}
+            selectedItems={selectedItems}
+            selectedMetric={selectedMetric}
+            facetDemand={metricsFacetDemand}
+            presentationResetKey={metricsPresentationResetKey}
+            onSelectMetric={onSelectMetric}
+            filters={filters}
+            onChangeRange={onChangeRange}
+            onChangeCategoricalValues={onChangeCategoricalValues}
+            onChangeFilters={onChangeFilters}
+            onFacetDemandAction={onMetricsFacetDemandAction}
+          />
+        </div>
+        <div
+          className="h-full"
+          hidden={leftTool !== 'derived'}
+          aria-hidden={leftTool !== 'derived' || undefined}
+          ref={(element) => setInert(element, leftTool !== 'derived')}
+          data-left-tool-panel="derived"
+        >
+          <DerivedScorePanel
+            active={derivedActive}
+            items={items}
+            metricKeys={metricKeys}
+            categoricalKeys={categoricalKeys}
+            metricDisplayNames={metricDisplayNames}
+            facets={metricsFacets}
+            facetsState={metricsFacetsState}
+            facetFieldStates={metricsFacetFieldStates}
+            populationItemsComplete={metricsPopulationItemsComplete}
+            derivedMetric={derivedMetric}
+            backendAuthoritative={derivedMetricBackendAuthoritative}
+            derivedRankDisabledReason={derivedRankDisabledReason}
+            onApplyDerivedMetric={onApplyDerivedMetric}
+            onRankByDerivedMetric={onRankByDerivedMetric}
+            onFacetFieldsChange={onDerivedFacetFieldsChange}
+          />
+        </div>
+      </div>
+      {contentOpen && (
+        <div
+          className="toolbar-offset sidebar-resize-handle sidebar-resize-handle-left absolute bottom-0"
+          onPointerDown={onResize}
+        />
       )}
     </div>
   )

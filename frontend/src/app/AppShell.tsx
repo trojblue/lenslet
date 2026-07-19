@@ -78,6 +78,14 @@ import { getCompareFilePrefetchPaths, getViewerFilePrefetchPaths } from '../feat
 import { closestMetricPathForValue } from '../features/browse/model/metricRail'
 import { isDerivedMetricKey } from '../features/metrics/model/derivedMetric'
 import { metricHistogramFromFacet } from '../features/metrics/model/metricValues'
+import {
+  INITIAL_METRICS_FACET_DEMAND_OWNER,
+  facetSchemaKey,
+  resolveMetricsFacetDemand,
+  resolveMetricsFacetFields,
+  updateMetricsFacetDemandOwner,
+  type MetricsFacetDemandAction,
+} from '../features/metrics/model/facetDemand'
 import { directOriginalImageUrl } from '../features/media/originalImageResource'
 import { LAYOUT_BREAKPOINTS } from '../lib/breakpoints'
 import AppContextMenuItems from './menu/AppContextMenuItems'
@@ -152,7 +160,6 @@ const loadCompareViewer = () => import('../features/compare/CompareViewer')
 const loadInspector = () => import('../features/inspector/Inspector')
 const CompareViewer = lazy(loadCompareViewer)
 const Inspector = lazy(loadInspector)
-
 function scheduleLazySurfacePrefetch(): () => void {
   const prefetch = () => {
     void loadInspector().catch(() => undefined)
@@ -169,6 +176,17 @@ function scheduleLazySurfacePrefetch(): () => void {
 type AppShellProps = {
   themeHealthMode: HealthMode | null
   themeWorkspaceId: string | null
+}
+
+function useRenderSchemaRevision(schemaKey: string): number {
+  const ownerRef = useRef({ key: schemaKey, revision: 0 })
+  if (ownerRef.current.key !== schemaKey) {
+    ownerRef.current = {
+      key: schemaKey,
+      revision: ownerRef.current.revision + 1,
+    }
+  }
+  return ownerRef.current.revision
 }
 
 function prefetchFilesAndThumbs(
@@ -319,10 +337,9 @@ export default function AppShell({
   const [rightOpen, setRightOpen] = useState(() => initialPersistedSettings.rightOpen ?? true)
   const { viewportWidth, viewportHeight } = useViewportSize()
   const [leftTool, setLeftTool] = useState<LeftTool>('folders')
-  const [metricsFacetFields, setMetricsFacetFields] = useState<BrowseFacetFields>({
-    metric_keys: [],
-    categorical_keys: [],
-  })
+  const [metricsFacetDemandOwner, setMetricsFacetDemandOwner] = useState(
+    INITIAL_METRICS_FACET_DEMAND_OWNER,
+  )
   const [derivedFacetFields, setDerivedFacetFields] = useState<BrowseFacetFields>({
     metric_keys: [],
     categorical_keys: [],
@@ -516,6 +533,25 @@ export default function AppShell({
     tableSourceColumns?.current ?? null,
     scopeSessionResetToken,
   ])
+  const metricSchemaRevision = useRenderSchemaRevision(facetSchemaKey(metricKeys))
+  const categoricalSchemaRevision = useRenderSchemaRevision(facetSchemaKey(categoricalKeys))
+  const metricsFacetDemand = useMemo(() => resolveMetricsFacetDemand(
+    metricsFacetDemandOwner,
+    browsePresentationResetKey,
+    metricKeys,
+    categoricalKeys,
+    {
+      metric: metricSchemaRevision,
+      categorical: categoricalSchemaRevision,
+    },
+  ), [
+    browsePresentationResetKey,
+    categoricalKeys,
+    categoricalSchemaRevision,
+    metricKeys,
+    metricSchemaRevision,
+    metricsFacetDemandOwner,
+  ])
   const starsInFilter = useMemo(() => getStarsInFilter(viewState.filters), [viewState.filters])
   const targetSelectionPool = similarityState ? similarityItems : poolItems
   const activeFilterCount = useMemo(() => countActiveFilters(viewState.filters), [viewState.filters])
@@ -535,11 +571,16 @@ export default function AppShell({
     current,
   )
   const metricSortKey = similarityState ? null : (viewState.sort.kind === 'metric' ? viewState.sort.key : null)
-  const metricsPanelActive = leftOpen && (leftTool === 'metrics' || leftTool === 'derived')
   const needsBackendMetricRailSummary = metricSortKey !== null && isDerivedMetricKey(metricSortKey)
+  const metricsPanelFacetFields = useMemo(() => resolveMetricsFacetFields(
+    metricsFacetDemand,
+    viewState.selectedMetric,
+    metricKeys,
+    categoricalKeys,
+  ), [categoricalKeys, metricKeys, metricsFacetDemand, viewState.selectedMetric])
   const panelFacetFields = useMemo(() => {
     const fields = leftTool === 'metrics'
-      ? metricsFacetFields
+      ? metricsPanelFacetFields
       : leftTool === 'derived'
         ? derivedFacetFields
         : { metric_keys: [], categorical_keys: [] }
@@ -547,30 +588,10 @@ export default function AppShell({
       metric_keys: Array.from(new Set(fields.metric_keys)).sort(),
       categorical_keys: Array.from(new Set(fields.categorical_keys)).sort(),
     }
-  }, [derivedFacetFields, leftTool, metricsFacetFields])
+  }, [derivedFacetFields, leftTool, metricsPanelFacetFields])
   const hasPanelFacetFields = (
     panelFacetFields.metric_keys.length + panelFacetFields.categorical_keys.length > 0
   )
-  const metricsPopulationFacetsQuery = useFolderFacets({
-    ...metricsPopulationFacetOptions({
-      path: current,
-      derivedMetric: viewState.derivedMetric ?? null,
-      facetFields: panelFacetFields,
-    }),
-    generationToken: String(scopeSessionResetToken),
-    analysisChannel: 'metrics-population',
-    enabled: metricsPanelActive && hasPanelFacetFields && !similarityState,
-  })
-  const metricsPopulationFacets = (
-    metricsPopulationFacetsQuery.data?.path === (data?.path ?? current)
-      ? metricsPopulationFacetsQuery.data
-      : null
-  )
-  const metricsPopulationFacetsState = metricsPopulationFacetsQuery.isError
-    ? 'error'
-    : metricsPopulationFacetsQuery.isLoading
-      ? 'pending'
-      : 'settled'
   const metricRailFacetsQuery = useFolderFacets({
     path: current,
     recursive: true,
@@ -1128,6 +1149,13 @@ export default function AppShell({
     setLeftTool(nextState.nextTool)
     setLeftOpen(nextState.contentOpen)
   }, [leftOpenRef, leftToolRef])
+  const handleMetricsFacetDemandAction = useCallback((action: MetricsFacetDemandAction) => {
+    setMetricsFacetDemandOwner((owner) => updateMetricsFacetDemandOwner(
+      owner,
+      action,
+      browsePresentationResetKey,
+    ))
+  }, [browsePresentationResetKey])
 
   const handleSortChange = useCallback((next: SortSpec) => {
     requestGridContextRestore()
@@ -1299,6 +1327,61 @@ export default function AppShell({
     mobileDrawerOpen,
   ])
 
+  const metricsPopulationFacetObserverEnabled = (
+    layoutModel.leftRailVisible
+    && layoutModel.effectiveLeftOpen
+    && (leftTool === 'metrics' || leftTool === 'derived')
+    && hasPanelFacetFields
+    && !similarityState
+  )
+  const metricsPopulationFacetsQuery = useFolderFacets({
+    ...metricsPopulationFacetOptions({
+      path: current,
+      derivedMetric: viewState.derivedMetric ?? null,
+      facetFields: panelFacetFields,
+    }),
+    generationToken: String(scopeSessionResetToken),
+    analysisChannel: 'metrics-population',
+    enabled: metricsPopulationFacetObserverEnabled,
+  })
+  const metricsPopulationFacets = (
+    metricsPopulationFacetsQuery.data?.path === (data?.path ?? current)
+      ? metricsPopulationFacetsQuery.data
+      : null
+  )
+  const metricsPopulationFacetsState = metricsPopulationFacetsQuery.isError
+    ? 'error'
+    : metricsPopulationFacetsQuery.isLoading
+      ? 'pending'
+      : 'settled'
+
+  const foldersSurfaceVisible = (
+    layoutModel.leftRailVisible
+    && layoutModel.effectiveLeftOpen
+    && leftTool === 'folders'
+  )
+  useLayoutEffect(() => {
+    if (!foldersSurfaceVisible && ctx?.kind === 'tree') setCtx(null)
+    const activeElement = document.activeElement
+    const leftPanel = document.querySelector('.app-left-panel')
+    if (!(activeElement instanceof HTMLElement) || !leftPanel?.contains(activeElement)) return
+    const activeToolPanel = activeElement.closest('[data-left-tool-panel]')
+    const toolPanelHidden = activeToolPanel instanceof HTMLElement
+      && activeToolPanel.dataset.leftToolPanel !== leftTool
+    if (
+      !layoutModel.leftRailVisible
+      || !layoutModel.effectiveLeftOpen
+      || toolPanelHidden
+    ) activeElement.blur()
+  }, [
+    ctx?.kind,
+    foldersSurfaceVisible,
+    layoutModel.effectiveLeftOpen,
+    layoutModel.leftRailVisible,
+    leftTool,
+    setCtx,
+  ])
+
   const leftCol = `${layoutModel.gridInsets.left}px`
   const rightCol = `${layoutModel.gridInsets.right}px`
   const overlayLeft = `${layoutModel.overlayInsets.left}px`
@@ -1321,6 +1404,7 @@ export default function AppShell({
       data-overlay-mode={overlayMode}
       data-mobile-search-open={mobileSearchOpen ? 'true' : 'false'}
       data-mobile-drawer-open={mobileDrawerOpen ? 'true' : 'false'}
+      data-metrics-facet-observer-enabled={metricsPopulationFacetObserverEnabled ? 'true' : 'false'}
       data-effective-left-width={layoutModel.leftWidth}
       data-effective-right-width={layoutModel.rightWidth}
       data-view-mode={viewMode}
@@ -1425,8 +1509,8 @@ export default function AppShell({
         data-browse-rating-counts={JSON.stringify(starCounts)}
         data-selected-paths={JSON.stringify(selectedPaths)}
       >
-        {layoutModel.leftRailVisible && (
           <LeftSidebar
+            visible={layoutModel.leftRailVisible}
             leftTool={leftTool}
             contentOpen={layoutModel.effectiveLeftOpen}
             onToolChange={handleLeftToolChange}
@@ -1457,11 +1541,13 @@ export default function AppShell({
             metricsFacetFieldStates={metricsPopulationFacetsQuery.fieldStates}
             metricsPopulationItemsComplete={metricsPopulationItemsComplete}
             metricsFilteredItemsComplete={metricsFilteredItemsComplete}
+            metricsPresentationResetKey={browsePresentationResetKey}
             derivedMetric={derivedMetric}
             derivedMetricBackendAuthoritative={!similarityActive}
             derivedRankDisabledReason={derivedRankDisabledReason}
             selectedItems={selectedItems}
             selectedMetric={viewState.selectedMetric}
+            metricsFacetDemand={metricsFacetDemand}
             onSelectMetric={(key) => setViewState((prev) => ({ ...prev, selectedMetric: key }))}
             onApplyDerivedMetric={handleApplyDerivedMetric}
             onRankByDerivedMetric={handleRankByDerivedMetric}
@@ -1469,7 +1555,7 @@ export default function AppShell({
             onChangeRange={handleMetricRange}
             onChangeCategoricalValues={handleCategoricalValues}
             onChangeFilters={handleFiltersChange}
-            onMetricsFacetFieldsChange={setMetricsFacetFields}
+            onMetricsFacetDemandAction={handleMetricsFacetDemandAction}
             onDerivedFacetFieldsChange={setDerivedFacetFields}
             onResize={onResizeLeft}
             themePreset={themePreset}
@@ -1486,7 +1572,6 @@ export default function AppShell({
             tableSourceSwitching={tableSourceSwitching}
             onTableSourceColumnChange={handleTableSourceColumnChange}
           />
-        )}
         <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col">
           <div aria-live="polite" className="sr-only">
             {selectedPaths.length ? `${selectedPaths.length} selected` : ''}

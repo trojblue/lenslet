@@ -1,10 +1,20 @@
-import { useVirtualizer } from '@tanstack/react-virtual'
-import React, { useEffect, useMemo, useRef } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
+import { alignedFacetBatchKeys, facetSchemaKey } from '../model/facetDemand'
+import { usePrepaintEffect } from '../model/facetPresentation'
+
+export {
+  alignedFacetBatchKeys,
+  initialFacetBatchKeys,
+  resolveVisibleFacetBatch,
+} from '../model/facetDemand'
 
 interface VirtualFieldListProps {
   keys: readonly string[]
   estimateSize: number
   kind: 'metric' | 'categorical'
+  schemaRevision: number
+  active?: boolean
   onVisibleKeysChange?: (keys: string[]) => void
   renderCard: (key: string) => React.ReactNode
 }
@@ -13,32 +23,76 @@ export default function VirtualFieldList({
   keys,
   estimateSize,
   kind,
+  schemaRevision,
+  active = true,
   onVisibleKeysChange,
   renderCard,
 }: VirtualFieldListProps): JSX.Element {
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const virtualizer = useVirtualizer({
-    count: keys.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => estimateSize,
-    gap: 12,
-    overscan: 4,
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const schemaKey = facetSchemaKey(keys)
+  const [ownedRange, setOwnedRange] = useState(() => ({
+    schemaKey,
+    schemaRevision,
+    indices: virtualFieldViewportIndices(0, estimateSize, keys.length, estimateSize),
+  }))
+  const rangeCompatible = ownedRange.schemaKey === schemaKey
+    && ownedRange.schemaRevision === schemaRevision
+  const visibleIndices = useMemo(() => resolveVirtualFieldIndices(
+    ownedRange.schemaKey,
+    ownedRange.schemaRevision,
+    ownedRange.indices,
+    schemaKey,
+    schemaRevision,
+    keys.length,
+    estimateSize,
+  ), [
+    estimateSize,
+    keys.length,
+    ownedRange.indices,
+    ownedRange.schemaKey,
+    ownedRange.schemaRevision,
+    schemaKey,
+    schemaRevision,
+  ])
+  usePrepaintEffect(() => {
+    if (!rangeCompatible && scrollRef.current) scrollRef.current.scrollTop = 0
   })
-  const virtualItems = virtualizer.getVirtualItems()
-  const visibleKeys = useMemo(
-    () => alignedFacetBatchKeys(keys, virtualItems.map((item) => item.index)),
-    [keys, virtualItems],
-  )
-  const visibleToken = visibleKeys.join('\u0000')
+  const stride = estimateSize + 12
+  const totalSize = keys.length ? keys.length * stride - 12 : 0
+  const renderedKeys = active ? visibleIndices.map((index) => keys[index]) : []
 
-  useEffect(() => {
-    onVisibleKeysChange?.(visibleKeys)
-  }, [onVisibleKeysChange, visibleToken]) // eslint-disable-line react-hooks/exhaustive-deps
+  const publishVisibleIndices = (indices: readonly number[]) => {
+    flushSync(() => {
+      const nextKeys = alignedFacetBatchKeys(keys, indices)
+      if (nextKeys.length) onVisibleKeysChange?.(nextKeys)
+      setOwnedRange((current) => (
+        current.schemaKey === schemaKey
+        && current.schemaRevision === schemaRevision
+        && current.indices.length === indices.length
+        && current.indices.every((index, offset) => index === indices[offset])
+          ? current
+          : { schemaKey, schemaRevision, indices: [...indices] }
+      ))
+    })
+  }
+
+  const handleScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    if (!active) return
+    publishVisibleIndices(virtualFieldViewportIndices(
+      event.currentTarget.scrollTop,
+      event.currentTarget.clientHeight,
+      keys.length,
+      estimateSize,
+    ))
+  }
 
   const handleKeyboardScroll = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return
     const scrollTop = scrollRef.current?.scrollTop ?? 0
-    const currentIndex = virtualItems.find((item) => item.end > scrollTop)?.index ?? 0
+    const currentIndex = Math.min(
+      keys.length - 1,
+      Math.max(0, Math.floor(scrollTop / stride)),
+    )
     const pageSize = Math.max(
       1,
       Math.floor((scrollRef.current?.clientHeight ?? estimateSize) / estimateSize),
@@ -51,9 +105,17 @@ export default function VirtualFieldList({
     )
     if (targetIndex == null) return
     event.preventDefault()
-    virtualizer.scrollToIndex(targetIndex, {
-      align: event.key === 'End' ? 'end' : 'start',
-    })
+    const clientHeight = scrollRef.current?.clientHeight ?? estimateSize
+    const targetScrollTop = event.key === 'End'
+      ? Math.max(0, (targetIndex + 1) * stride - clientHeight)
+      : targetIndex * stride
+    publishVisibleIndices(virtualFieldViewportIndices(
+      targetScrollTop,
+      clientHeight,
+      keys.length,
+      estimateSize,
+    ))
+    if (scrollRef.current) scrollRef.current.scrollTop = targetScrollTop
   }
 
   return (
@@ -61,25 +123,27 @@ export default function VirtualFieldList({
       ref={scrollRef}
       className="h-[min(55vh,36rem)] shrink-0 overflow-auto scrollbar-thin"
       data-virtual-field-list={kind}
+      data-rendered-field-keys={JSON.stringify(renderedKeys)}
       role="region"
       aria-label={`All ${kind} fields`}
       tabIndex={0}
       onKeyDown={handleKeyboardScroll}
+      onScroll={handleScroll}
     >
       <div
         className="relative w-full"
-        style={{ height: `${virtualizer.getTotalSize()}px` }}
+        style={{ height: `${totalSize}px` }}
       >
-        {virtualItems.map((virtualItem) => {
-          const key = keys[virtualItem.index]
+        {active && visibleIndices.map((index) => {
+          const key = keys[index]
           return (
             <div
               key={key}
-              data-index={virtualItem.index}
+              data-index={index}
               data-virtual-field-card={kind}
               data-field-key={key}
               className="absolute left-0 top-0 w-full"
-              style={{ transform: `translateY(${virtualItem.start}px)` }}
+              style={{ transform: `translateY(${index * stride}px)` }}
             >
               {renderCard(key)}
             </div>
@@ -107,17 +171,34 @@ export function virtualFieldKeyboardTarget(
   return null
 }
 
-export function alignedFacetBatchKeys(
-  keys: readonly string[],
-  visibleIndices: readonly number[],
-  batchSize = 24,
-): string[] {
-  if (!visibleIndices.length) return []
-  const safeBatchSize = Math.max(1, Math.floor(batchSize))
-  const batches = new Set(visibleIndices.map((index) => (
-    Math.floor(index / safeBatchSize) * safeBatchSize
-  )))
-  return Array.from(batches)
-    .sort((a, b) => a - b)
-    .flatMap((start) => keys.slice(start, start + safeBatchSize))
+export function virtualFieldViewportIndices(
+  scrollTop: number,
+  clientHeight: number,
+  count: number,
+  estimateSize: number,
+  overscan = 4,
+): number[] {
+  if (count <= 0) return []
+  const stride = estimateSize + 12
+  const first = Math.max(0, Math.floor(scrollTop / stride) - overscan)
+  const viewportBottom = scrollTop + Math.max(clientHeight, estimateSize)
+  const last = Math.min(count - 1, Math.ceil(viewportBottom / stride) + overscan)
+  return Array.from({ length: last - first + 1 }, (_, offset) => first + offset)
+}
+
+export function resolveVirtualFieldIndices(
+  ownedSchemaKey: string,
+  ownedSchemaRevision: number,
+  ownedIndices: readonly number[],
+  schemaKey: string,
+  schemaRevision: number,
+  count: number,
+  estimateSize: number,
+): number[] {
+  const retained = ownedSchemaKey === schemaKey && ownedSchemaRevision === schemaRevision
+    ? ownedIndices.filter((index) => index < count)
+    : []
+  return retained.length
+    ? retained
+    : virtualFieldViewportIndices(0, estimateSize, count, estimateSize)
 }

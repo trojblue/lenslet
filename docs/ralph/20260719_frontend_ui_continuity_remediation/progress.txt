@@ -1,0 +1,17 @@
+# Ralph Progress Log
+Started: 2026-07-19T01:11:56Z
+Mode: plan
+Tool: codex
+Repo: /fsx/yada/dev/lenslet
+Plan: /fsx/yada/dev/lenslet/docs/20260719_frontend_ui_continuity_remediation_plan.md
+---
+
+## Iteration 1 — 2026-07-19 UTC
+
+- Completed tasks: `S1-T1`, `S1-T2`, `S1-T3`, `S1-T4`; Sprint 1 closed.
+- Files changed: AppShell/left-sidebar and FolderTree lifecycle owners; Metric, Categorical, Derived, virtualization, facet-demand, and facet-presentation owners/tests; Dropdown and theme portal closure; metrics painted-frame fixtures/oracles/helpers/tests; regenerated packaged frontend assets; plan and Ralph handoff records.
+- Validation: metrics painted-frame probe passed with zero violations and `0.0 px` anchor movement (`/tmp/lenslet-continuity-s1-schema-live-metrics-11.json`); 665 frontend tests passed; TypeScript passed; 70 browser-helper tests passed; repository lint and `git diff --check` passed; dependency diff and packaged-asset dry-run were empty; full GUI acceptance passed with its known non-failing folder-anchor warning.
+- Cleanup/review: extracted focused metrics probe helpers to stay below the hard file-size guardrail, introduced no dependencies or compatibility owners, and completed successive fresh reviews; the final review reported no actionable findings.
+- Blockers: none.
+- Commit: `fix: preserve frontend field continuity`.
+- Next step: begin Sprint 2 at `S2-T1`; do not cross into later sprints during that iteration.

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import type { FilterAST, BrowseFacetsPayload, BrowseItemPayload } from '../../../lib/types'
 import {
   collectCategoricalBucketsByKey,
@@ -8,14 +8,23 @@ import {
 import {
   facetFieldQueryState,
   resolveFacetFieldState,
+  useFacetFieldPresentation,
+  useFacetFieldPresentations,
   type FacetFieldQueryStates,
+  type FacetFieldState,
   type FacetQueryState,
 } from '../model/facetPresentation'
+import {
+  facetSchemaKey,
+  type MetricsFacetDemand,
+  type MetricsFacetDemandAction,
+} from '../model/facetDemand'
 import Dropdown from '../../../shared/ui/Dropdown'
 import CategoricalCard from './CategoricalCard'
 import VirtualFieldList from './VirtualFieldList'
 
 interface CategoricalPanelProps {
+  active?: boolean
   items: BrowseItemPayload[]
   filteredItems: BrowseItemPayload[]
   categoricalKeys: string[]
@@ -26,11 +35,19 @@ interface CategoricalPanelProps {
   filteredItemsComplete?: boolean
   selectedItems?: BrowseItemPayload[]
   filters: FilterAST
+  demand: MetricsFacetDemand['categorical']
+  presentationResetKey?: string
   onChangeValues: (key: string, values: string[] | null) => void
-  onFacetFieldsChange?: (keys: string[]) => void
+  onDemandAction: (action: MetricsFacetDemandAction) => void
+}
+
+type CategoricalFieldValue = {
+  buckets: ReturnType<typeof getCategoricalBuckets>
+  showFilteredCounts: boolean
 }
 
 export default function CategoricalPanel({
+  active = true,
   items,
   filteredItems,
   categoricalKeys,
@@ -41,20 +58,20 @@ export default function CategoricalPanel({
   filteredItemsComplete = true,
   selectedItems,
   filters,
+  demand,
+  presentationResetKey = 'default',
   onChangeValues,
-  onFacetFieldsChange,
+  onDemandAction,
 }: CategoricalPanelProps) {
-  const [showAll, setShowAll] = useState(false)
-  const [visibleCategoricalKeys, setVisibleCategoricalKeys] = useState<string[]>([])
-  const [selectedCategorical, setSelectedCategorical] = useState<string | null>(null)
-  const activeCategorical = selectedCategorical && categoricalKeys.includes(selectedCategorical)
-    ? selectedCategorical
+  const activeCategorical = demand.selectedKey && categoricalKeys.includes(demand.selectedKey)
+    ? demand.selectedKey
     : categoricalKeys[0]
   const scopedCategoricalKeys = useMemo(() => (
-    showAll ? visibleCategoricalKeys : activeCategorical ? [activeCategorical] : []
-  ), [showAll, visibleCategoricalKeys, activeCategorical])
+    !active ? [] : demand.showAll ? demand.visibleKeys : activeCategorical ? [activeCategorical] : []
+  ), [active, activeCategorical, demand.showAll, demand.visibleKeys])
   const bucketsByKey = useMemo(
     () => {
+      if (!active) return new Map()
       if (facets) {
         return collectCategoricalBucketsFromFacets(
           facets,
@@ -67,13 +84,13 @@ export default function CategoricalPanel({
       if (!populationItemsComplete) return new Map()
       return collectCategoricalBucketsByKey(items, filteredItems, selectedItems, scopedCategoricalKeys)
     },
-    [facets, filteredItems, filteredItemsComplete, items, populationItemsComplete, selectedItems, scopedCategoricalKeys]
+    [active, facets, filteredItems, filteredItemsComplete, items, populationItemsComplete, selectedItems, scopedCategoricalKeys]
   )
   const localBucketsByKey = useMemo(
-    () => populationItemsComplete
+    () => active && populationItemsComplete
       ? collectCategoricalBucketsByKey(items, filteredItems, selectedItems, scopedCategoricalKeys)
       : new Map(),
-    [filteredItems, items, populationItemsComplete, scopedCategoricalKeys, selectedItems],
+    [active, filteredItems, items, populationItemsComplete, scopedCategoricalKeys, selectedItems],
   )
   const categoricalOptions = useMemo(() => (
     categoricalKeys.map((key) => ({
@@ -83,44 +100,126 @@ export default function CategoricalPanel({
     }))
   ), [categoricalKeys])
 
-  useEffect(() => {
-    if (!showAll) onFacetFieldsChange?.(activeCategorical ? [activeCategorical] : [])
-  }, [activeCategorical, onFacetFieldsChange, showAll])
-
-  const handleVisibleKeysChange = useCallback((keys: string[]) => {
-    setVisibleCategoricalKeys(keys)
-    onFacetFieldsChange?.(keys)
-  }, [onFacetFieldsChange])
-
-  if (!categoricalKeys.length) return null
-
-  const renderCategoricalCard = (key: string, showTitle = false) => {
+  const categoricalFieldValue = useCallback((key: string): {
+    state: FacetFieldState
+    value: CategoricalFieldValue
+  } => {
+    if (!active) {
+      return {
+        state: 'pending',
+        value: { buckets: [], showFilteredCounts: false },
+      }
+    }
     const hasFacet = Object.prototype.hasOwnProperty.call(facets?.categoricals ?? {}, key)
     const facetBuckets = getCategoricalBuckets(bucketsByKey, key)
     const localBuckets = getCategoricalBuckets(localBucketsByKey, key)
+    return {
+      state: resolveFacetFieldState({
+        facetDataState: !hasFacet
+          ? 'absent'
+          : facetBuckets.length > 0
+            ? 'ready'
+            : 'empty',
+        localDataState: !populationItemsComplete
+          ? 'absent'
+          : localBuckets.length > 0
+            ? 'ready'
+            : 'empty',
+        queryState: facetFieldQueryState(facetFieldStates, 'categoricals', key, facetsState),
+      }),
+      value: {
+        buckets: hasFacet ? facetBuckets : localBuckets,
+        showFilteredCounts: filteredItemsComplete,
+      },
+    }
+  }, [
+    active,
+    bucketsByKey,
+    facetFieldStates,
+    facets,
+    facetsState,
+    filteredItemsComplete,
+    localBucketsByKey,
+    populationItemsComplete,
+  ])
+  const requestedField = useMemo(() => {
+    const key = activeCategorical ?? ''
+    const field = key
+      ? categoricalFieldValue(key)
+      : { state: 'empty' as const, value: { buckets: [], showFilteredCounts: false } }
+    return { key, ...field }
+  }, [activeCategorical, categoricalFieldValue])
+  const { presentation: presentedField, retained } = useFacetFieldPresentation(
+    requestedField,
+    presentationResetKey,
+  )
+  const cachedCategoricalKeys = useMemo(() => Array.from(new Set([
+    ...scopedCategoricalKeys,
+    ...(activeCategorical ? [activeCategorical] : []),
+  ])), [activeCategorical, scopedCategoricalKeys])
+  const cachedCategoricalCandidates = useMemo(() => cachedCategoricalKeys.map((key) => ({
+    key,
+    ...categoricalFieldValue(key),
+  })), [cachedCategoricalKeys, categoricalFieldValue])
+  const cachedCategoricalPresentations = useFacetFieldPresentations(
+    cachedCategoricalCandidates,
+    categoricalKeys,
+    presentationResetKey,
+  )
+
+  const handleVisibleKeysChange = useCallback((keys: string[]) => {
+    if (!keys.length) return
+    onDemandAction({
+      type: 'set-visible-keys',
+      kind: 'categorical',
+      schemaKey: facetSchemaKey(categoricalKeys),
+      schemaRevision: demand.schemaRevision,
+      keys,
+    })
+  }, [categoricalKeys, demand.schemaRevision, onDemandAction])
+
+  if (!categoricalKeys.length) return null
+
+  const renderCategoricalCard = (
+    key: string,
+    showTitle = false,
+    field = categoricalFieldValue(key),
+    fieldRetained = false,
+    requestedKey = fieldRetained ? activeCategorical : key,
+  ) => {
     return (
-      <CategoricalCard
-        categoricalKey={key}
-        buckets={hasFacet ? facetBuckets : localBuckets}
-        filters={filters}
-        onChangeValues={onChangeValues}
-        showTitle={showTitle}
-        showFilteredCounts={filteredItemsComplete}
-        state={resolveFacetFieldState({
-          facetDataState: !hasFacet
-            ? 'absent'
-            : facetBuckets.length > 0
-              ? 'ready'
-              : 'empty',
-          localDataState: !populationItemsComplete
-            ? 'absent'
-            : localBuckets.length > 0
-              ? 'ready'
-              : 'empty',
-          queryState: facetFieldQueryState(facetFieldStates, 'categoricals', key, facetsState),
-        })}
-      />
+      <div
+        aria-busy={fieldRetained || undefined}
+        aria-disabled={fieldRetained || undefined}
+        data-facet-requested-field={requestedKey}
+        data-facet-presented-field={key}
+        ref={(element) => {
+          if (fieldRetained) element?.setAttribute('inert', '')
+          else element?.removeAttribute('inert')
+        }}
+      >
+        <CategoricalCard
+          categoricalKey={key}
+          buckets={field.value.buckets}
+          filters={filters}
+          onChangeValues={onChangeValues}
+          showTitle={showTitle}
+          showFilteredCounts={field.value.showFilteredCounts}
+          state={field.state}
+        />
+      </div>
     )
+  }
+
+  const handleCategoricalChange = (key: string) => {
+    onDemandAction({ type: 'select-categorical', key })
+  }
+  const handleShowAllChange = () => {
+    onDemandAction({
+      type: 'set-show-all',
+      kind: 'categorical',
+      showAll: !demand.showAll,
+    })
   }
 
   return (
@@ -130,25 +229,30 @@ export default function CategoricalPanel({
           <label className="ui-label">Categorical</label>
           <button
             className="btn btn-sm btn-ghost text-[11px]"
-            onClick={() => setShowAll((v) => !v)}
-            aria-pressed={showAll}
+            onClick={handleShowAllChange}
+            aria-pressed={demand.showAll}
             data-categorical-show-all
           >
-            {showAll ? 'Show one' : 'Show all'}
+            {demand.showAll ? 'Show one' : 'Show all'}
           </button>
         </div>
-        {showAll ? (
+        {demand.showAll ? (
           <div className="ui-input ui-input-readonly w-full flex items-center text-xs">
             All categoricals
           </div>
         ) : (
-          <div data-categorical-selector>
+          <div
+            data-categorical-selector
+            data-facet-requested-field={activeCategorical ?? ''}
+            data-facet-presented-field={presentedField.key}
+            aria-busy={retained || undefined}
+          >
             <Dropdown
-              value={activeCategorical ?? ''}
-              onChange={setSelectedCategorical}
+              value={presentedField.key}
+              onChange={handleCategoricalChange}
               options={categoricalOptions}
               aria-label="Categorical"
-              title={activeCategorical ?? 'Categorical'}
+              title={presentedField.key || 'Categorical'}
               triggerClassName="w-full justify-between"
               width="trigger"
               searchable="auto"
@@ -159,17 +263,41 @@ export default function CategoricalPanel({
         )}
       </div>
 
-      {showAll ? (
+      <div
+        hidden={!demand.showAll}
+        aria-hidden={!demand.showAll || undefined}
+        ref={(element) => element?.toggleAttribute('inert', !demand.showAll)}
+      >
         <VirtualFieldList
+          key={presentationResetKey}
           keys={categoricalKeys}
           estimateSize={384}
           kind="categorical"
+          schemaRevision={demand.schemaRevision}
+          active={active && demand.showAll}
           onVisibleKeysChange={handleVisibleKeysChange}
-          renderCard={(key) => renderCategoricalCard(key, true)}
+          renderCard={(key) => {
+            const cached = cachedCategoricalPresentations.get(key)
+            return renderCategoricalCard(
+              key,
+              true,
+              cached
+                ? { state: cached.presentation.state, value: cached.presentation.value }
+                : categoricalFieldValue(key),
+              cached?.retained ?? false,
+              key,
+            )
+          }}
         />
-      ) : (
-        activeCategorical ? (
-          renderCategoricalCard(activeCategorical)
+      </div>
+      {!demand.showAll && (
+        presentedField.key ? (
+          renderCategoricalCard(
+            presentedField.key,
+            false,
+            { state: presentedField.state, value: presentedField.value },
+            retained,
+          )
         ) : (
           <div className="text-sm text-muted">No values found for this field.</div>
         )

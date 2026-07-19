@@ -33,6 +33,10 @@ def start_painted_frame_trace(
           const existing = window.__lensletPaintedFrameTrace;
           if (existing && existing.running) {
             cancelAnimationFrame(existing.rafId);
+            existing.armedObserver?.disconnect();
+            if (existing.armedClickListener) {
+              document.removeEventListener('click', existing.armedClickListener, true);
+            }
           }
           const tokens = new WeakMap();
           let nextToken = 1;
@@ -45,6 +49,8 @@ def start_painted_frame_trace(
             frames: [],
             markers: [],
             marker: null,
+            armedClickListener: null,
+            armedObserver: null,
             rafId: 0,
           };
           const tokenFor = (element) => {
@@ -76,8 +82,33 @@ def start_painted_frame_trace(
               const value = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
                 ? element.value
                 : null;
+              const dataAttributes = {};
+              for (const attributeName of element.getAttributeNames()) {
+                if (!attributeName.startsWith('data-')) continue;
+                dataAttributes[attributeName] = element.getAttribute(attributeName);
+              }
+              const facetCards = Array.from(
+                element.querySelectorAll('[data-virtual-field-card]')
+              ).map((virtualCard) => {
+                const card = virtualCard.querySelector(
+                  '[data-metric-card-host], [data-categorical-card]'
+                );
+                const owner = card?.closest('[data-facet-presented-field]');
+                if (!(card instanceof HTMLElement) || !(owner instanceof HTMLElement)) return null;
+                return {
+                  key: virtualCard.getAttribute('data-field-key'),
+                  requested: owner.getAttribute('data-facet-requested-field'),
+                  presented: owner.getAttribute('data-facet-presented-field'),
+                  state: card.getAttribute('data-facet-state'),
+                  text: (card.textContent || '').replace(/\\s+/g, ' ').trim(),
+                  ariaBusy: owner.getAttribute('aria-busy'),
+                  ariaDisabled: owner.getAttribute('aria-disabled'),
+                  inert: owner.hasAttribute('inert'),
+                };
+              }).filter(Boolean);
               surfaces[name] = {
                 token: tokenFor(element),
+                tag: element.tagName.toLowerCase(),
                 rect: {
                   top: rect.top,
                   left: rect.left,
@@ -87,9 +118,19 @@ def start_painted_frame_trace(
                 text: (element.textContent || '').replace(/\\s+/g, ' ').trim(),
                 value,
                 visible,
+                scrollTop: element.scrollTop,
+                scrollHeight: element.scrollHeight,
+                clientHeight: element.clientHeight,
+                facetCards,
                 attrs: {
                   ariaPressed: element.getAttribute('aria-pressed'),
                   ariaBusy: element.getAttribute('aria-busy'),
+                  ariaDisabled: element.getAttribute('aria-disabled'),
+                  ariaHidden: element.getAttribute('aria-hidden'),
+                  role: element.getAttribute('role'),
+                  disabled: 'disabled' in element ? Boolean(element.disabled) : false,
+                  pointerEvents: style.pointerEvents,
+                  data: dataAttributes,
                 },
               };
             }
@@ -140,6 +181,86 @@ def mark_painted_frame_action(
     )
 
 
+def arm_painted_frame_click_action(
+    page: Any,
+    *,
+    action_id: str,
+    expected_path: str,
+) -> None:
+    """Begin a marker in the click event turn so no pre-action frame is attributed to it."""
+    page.evaluate(
+        """(marker) => {
+          const state = window.__lensletPaintedFrameTrace;
+          if (!state || !state.running) throw new Error('painted-frame trace is not running');
+          if (state.armedClickListener) {
+            document.removeEventListener('click', state.armedClickListener, true);
+          }
+          const listener = () => {
+            const next = { ...marker, startedAt: performance.now() };
+            state.marker = next;
+            state.markers.push(next);
+            state.armedClickListener = null;
+          };
+          state.armedClickListener = listener;
+          document.addEventListener('click', listener, { capture: true, once: true });
+        }""",
+        {
+            "actionId": action_id,
+            "expectedPath": expected_path,
+            "expectedStar": None,
+            "enforceStarInvariant": False,
+            "requiredTexts": [],
+        },
+    )
+
+
+def arm_painted_frame_attribute_change(
+    page: Any,
+    *,
+    action_id: str,
+    expected_path: str,
+    selector: str,
+    attribute: str,
+) -> None:
+    """Begin a marker when a target attribute first commits a different value."""
+    page.evaluate(
+        """(config) => {
+          const state = window.__lensletPaintedFrameTrace;
+          if (!state || !state.running) throw new Error('painted-frame trace is not running');
+          const element = document.querySelector(config.selector);
+          if (!(element instanceof HTMLElement)) throw new Error('painted-frame target is absent');
+          const previous = element.getAttribute(config.attribute);
+          state.armedObserver?.disconnect();
+          const observer = new MutationObserver(() => {
+            if (element.getAttribute(config.attribute) === previous) return;
+            const next = {
+              actionId: config.actionId,
+              expectedPath: config.expectedPath,
+              expectedStar: null,
+              enforceStarInvariant: false,
+              requiredTexts: [],
+              startedAt: performance.now(),
+            };
+            state.marker = next;
+            state.markers.push(next);
+            observer.disconnect();
+            state.armedObserver = null;
+          });
+          state.armedObserver = observer;
+          observer.observe(element, {
+            attributes: true,
+            attributeFilter: [config.attribute],
+          });
+        }""",
+        {
+            "actionId": action_id,
+            "expectedPath": expected_path,
+            "selector": selector,
+            "attribute": attribute,
+        },
+    )
+
+
 def stop_painted_frame_trace(page: Any) -> dict[str, Any]:
     result = page.evaluate(
         """() => {
@@ -147,6 +268,10 @@ def stop_painted_frame_trace(page: Any) -> dict[str, Any]:
           if (!state) return null;
           state.running = false;
           cancelAnimationFrame(state.rafId);
+          state.armedObserver?.disconnect();
+          if (state.armedClickListener) {
+            document.removeEventListener('click', state.armedClickListener, true);
+          }
           return {
             page_id: state.pageId,
             phase: state.phase,

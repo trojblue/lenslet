@@ -169,6 +169,11 @@ export default function Dropdown({
     }
   }, [])
 
+  useIsomorphicLayoutEffect(() => {
+    if (!open) return
+    if (containerRef.current?.closest('[hidden], [inert]')) setOpen(false)
+  })
+
   const openDropdown = useCallback((seedQuery?: string) => {
     if (disabled) return
     if (seedQuery !== undefined) setSearchQuery(seedQuery)

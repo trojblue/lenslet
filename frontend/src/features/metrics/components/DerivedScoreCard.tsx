@@ -44,6 +44,7 @@ import {
 } from '../model/facetPresentation'
 
 interface DerivedScoreCardProps {
+  active?: boolean
   items: BrowseItemPayload[]
   metricKeys: string[]
   categoricalKeys: string[]
@@ -86,6 +87,7 @@ export default function DerivedScoreCard(props: DerivedScoreCardProps): JSX.Elem
 }
 
 function DerivedScoreCardEditor({
+  active = true,
   items,
   sourceMetricKeys,
   categoricalKeys,
@@ -102,6 +104,7 @@ function DerivedScoreCardEditor({
   onFacetFieldsChange,
 }: DerivedScoreCardEditorProps): JSX.Element {
   const categoricalValuesByKey = useMemo(() => {
+    if (!active) return new Map<string, string[]>()
     const values = populationItemsComplete
       ? collectCategoricalValuesByKey(items, categoricalKeys)
       : new Map<string, string[]>()
@@ -111,7 +114,7 @@ function DerivedScoreCardEditor({
     })
     return values
   },
-    [categoricalKeys, facets, items, populationItemsComplete],
+    [active, categoricalKeys, facets, items, populationItemsComplete],
   )
   const [draft, setDraft] = useState<DerivedMetricDraft>(() => (
     createDerivedMetricDraft(derivedMetric.spec, sourceMetricKeys)
@@ -141,12 +144,15 @@ function DerivedScoreCardEditor({
   }, [formulaCodeFromDraft, formulaDirty])
 
   const draftBuild = useMemo(() => buildDerivedMetricSpecFromDraft(draft), [draft])
-  const draftRankState = useMemo(() => evaluateDerivedMetricDraft(draft, {
-    items,
-    metricKeys: sourceMetricKeys,
-    categoricalKeys,
-    rankDisabledReason,
-  }), [categoricalKeys, draft, items, rankDisabledReason, sourceMetricKeys])
+  const draftRankState = useMemo(() => active
+    ? evaluateDerivedMetricDraft(draft, {
+        items,
+        metricKeys: sourceMetricKeys,
+        categoricalKeys,
+        rankDisabledReason,
+      })
+    : { disabledReason: rankDisabledReason, evaluation: null },
+  [active, categoricalKeys, draft, items, rankDisabledReason, sourceMetricKeys])
   const formulaPreview = useMemo(
     () => buildDerivedMetricFormulaPreview(draft, metricDisplayNames),
     [draft, metricDisplayNames],
@@ -170,12 +176,14 @@ function DerivedScoreCardEditor({
     })
   }, [categoricalTermKeys, numericTermKeys, onFacetFieldsChange])
   const histogramsByMetric = useMemo(
-    () => buildNumericTermHistograms({
-      facets,
-      items,
-      metricKeys: numericTermKeys,
-    }),
-    [facets, items, numericTermKeys],
+    () => active
+      ? buildNumericTermHistograms({
+          facets,
+          items,
+          metricKeys: numericTermKeys,
+        })
+      : new Map<string, Histogram | null>(),
+    [active, facets, items, numericTermKeys],
   )
   const applyDisabledReason = draftBuild.errors[0] ?? null
   const backendSchemaReason = !draftRankState.evaluation
@@ -194,6 +202,7 @@ function DerivedScoreCardEditor({
     [derivedMetric],
   )
   const scorePreview = useMemo(() => {
+    if (!active) return null
     const evaluation = draftRankState.evaluation
     if (!evaluation?.key || evaluation.status !== 'valid') return null
     const valuesByKey = collectMetricValuesByKey(evaluation.items, [evaluation.key])
@@ -201,7 +210,7 @@ function DerivedScoreCardEditor({
       key: evaluation.key,
       histogram: computeHistogramFromValues(getMetricValues(valuesByKey, evaluation.key), 32),
     }
-  }, [draftRankState.evaluation])
+  }, [active, draftRankState.evaluation])
   const unavailableInputs = draftRankState.evaluation?.status === 'unavailable'
     ? [
       ...draftRankState.evaluation.missingMetricKeys,

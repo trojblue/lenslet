@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import type { BrowseFacetFields, FilterAST, BrowseFacetsPayload, BrowseItemPayload, MetricDisplayNames } from '../../lib/types'
+import React, { useMemo } from 'react'
+import type { FilterAST, BrowseFacetsPayload, BrowseItemPayload, MetricDisplayNames } from '../../lib/types'
 import AttributesPanel from './components/AttributesPanel'
 import CategoricalPanel from './components/CategoricalPanel'
 import MetricRangePanel from './components/MetricRangePanel'
@@ -12,8 +12,14 @@ import type {
   FacetFieldQueryStates,
   FacetQueryState,
 } from './model/facetPresentation'
+import type {
+  MetricsFacetDemand,
+  MetricsFacetDemandAction,
+} from './model/facetDemand'
+import { resolveMetricsFacetFields } from './model/facetDemand'
 
 interface MetricsPanelProps {
+  active?: boolean
   items: BrowseItemPayload[]
   filteredItems: BrowseItemPayload[]
   metricKeys: string[]
@@ -26,15 +32,18 @@ interface MetricsPanelProps {
   filteredItemsComplete?: boolean
   selectedItems?: BrowseItemPayload[]
   selectedMetric?: string
+  facetDemand: MetricsFacetDemand
+  presentationResetKey?: string
   onSelectMetric: (key: string) => void
   filters: FilterAST
   onChangeRange: (key: string, range: Range | null) => void
   onChangeCategoricalValues: (key: string, values: string[] | null) => void
   onChangeFilters: (filters: FilterAST) => void
-  onFacetFieldsChange?: (fields: BrowseFacetFields) => void
+  onFacetDemandAction: (action: MetricsFacetDemandAction) => void
 }
 
 export default function MetricsPanel({
+  active = true,
   items,
   filteredItems,
   metricKeys,
@@ -47,24 +56,24 @@ export default function MetricsPanel({
   filteredItemsComplete = true,
   selectedItems,
   selectedMetric,
+  facetDemand,
+  presentationResetKey = 'default',
   onSelectMetric,
   filters,
   onChangeRange,
   onChangeCategoricalValues,
   onChangeFilters,
-  onFacetFieldsChange,
+  onFacetDemandAction,
 }: MetricsPanelProps) {
-  const [metricFacetKeys, setMetricFacetKeys] = useState<string[]>([])
-  const [categoricalFacetKeys, setCategoricalFacetKeys] = useState<string[]>([])
-  useEffect(() => {
-    onFacetFieldsChange?.({
-      metric_keys: metricFacetKeys,
-      categorical_keys: categoricalFacetKeys,
-    })
-  }, [categoricalFacetKeys, metricFacetKeys, onFacetFieldsChange])
   const selectedValuesByKey = useMemo(() => (
-    selectedItems?.length ? collectMetricValuesByKey(selectedItems, metricKeys) : null
-  ), [selectedItems, metricKeys])
+    active && selectedItems?.length ? collectMetricValuesByKey(selectedItems, metricKeys) : null
+  ), [active, selectedItems, metricKeys])
+  const requestedFacetFields = useMemo(() => resolveMetricsFacetFields(
+    facetDemand,
+    selectedMetric,
+    metricKeys,
+    categoricalKeys,
+  ), [categoricalKeys, facetDemand, metricKeys, selectedMetric])
   const attributesPanel = (
     <AttributesPanel
       filters={filters}
@@ -73,6 +82,7 @@ export default function MetricsPanel({
   )
   const categoricalPanel = (
     <CategoricalPanel
+      active={active}
       items={items}
       filteredItems={filteredItems}
       categoricalKeys={categoricalKeys}
@@ -83,14 +93,22 @@ export default function MetricsPanel({
       filteredItemsComplete={filteredItemsComplete}
       selectedItems={selectedItems}
       filters={filters}
+      demand={facetDemand.categorical}
+      presentationResetKey={presentationResetKey}
       onChangeValues={onChangeCategoricalValues}
-      onFacetFieldsChange={setCategoricalFacetKeys}
+      onDemandAction={onFacetDemandAction}
     />
   )
 
   if (!metricKeys.length && !categoricalKeys.length) {
     return (
-      <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
+      <div
+        className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin"
+        data-metrics-panel
+        data-presentation-reset-key={presentationResetKey}
+        data-requested-metric-fields={JSON.stringify(requestedFacetFields.metric_keys)}
+        data-requested-categorical-fields={JSON.stringify(requestedFacetFields.categorical_keys)}
+      >
         {attributesPanel}
         <div className="p-4 text-sm text-muted">
           No metrics or categoricals found in this dataset.
@@ -100,9 +118,18 @@ export default function MetricsPanel({
   }
 
   return (
-    <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
+    <div
+      className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin"
+      data-metrics-panel
+      data-presentation-reset-key={presentationResetKey}
+      data-metric-field-schema={JSON.stringify(metricKeys)}
+      data-categorical-field-schema={JSON.stringify(categoricalKeys)}
+      data-requested-metric-fields={JSON.stringify(requestedFacetFields.metric_keys)}
+      data-requested-categorical-fields={JSON.stringify(requestedFacetFields.categorical_keys)}
+    >
       {metricKeys.length > 0 && (
         <MetricRangePanel
+          active={active}
           items={items}
           filteredItems={filteredItems}
           metricKeys={metricKeys}
@@ -115,10 +142,12 @@ export default function MetricsPanel({
           selectedItems={selectedItems}
           selectedValuesByKey={selectedValuesByKey}
           selectedMetric={selectedMetric}
+          demand={facetDemand.metric}
+          presentationResetKey={presentationResetKey}
           onSelectMetric={onSelectMetric}
           filters={filters}
           onChangeRange={onChangeRange}
-          onFacetFieldsChange={setMetricFacetKeys}
+          onDemandAction={onFacetDemandAction}
         />
       )}
       {categoricalPanel}

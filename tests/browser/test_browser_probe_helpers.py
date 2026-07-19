@@ -16,6 +16,7 @@ from scripts.browser.gui_jitter import grid as jitter_grid  # noqa: E402
 from scripts.browser.gui_jitter import grid_dom as jitter_grid_dom  # noqa: E402
 from scripts.browser.gui_jitter import inspector as jitter_inspector  # noqa: E402
 from scripts.browser.gui_jitter import metrics as jitter_metrics  # noqa: E402
+from scripts.browser.gui_jitter import metrics_schema as jitter_metrics_schema  # noqa: E402
 from scripts.browser.gui_jitter import probe as jitter_probe  # noqa: E402
 from scripts.browser.gui_jitter import shared as jitter_shared  # noqa: E402
 from scripts.browser.gui_jitter import toolbar as jitter_toolbar  # noqa: E402
@@ -110,14 +111,30 @@ class _FakeRoute:
         self.continued += 1
 
 
-def _metrics_surface(token: str, text: str) -> dict:
+def _metrics_surface(
+    token: str,
+    text: str,
+    *,
+    field: str | None = None,
+    state: str | None = None,
+) -> dict:
     return {
         "token": token,
         "rect": {"top": 0, "left": 0, "width": 100, "height": 40},
         "text": text,
         "value": None,
         "visible": True,
+        "attrs": {
+            "data": {
+                **({"data-categorical-card": field} if field else {}),
+                **({"data-facet-state": state} if state else {}),
+            },
+        },
     }
+
+
+def _metrics_marker(field: str) -> dict:
+    return {"actionId": f"select-{field}", "expectedPath": field, "startedAt": 1.0}
 
 
 def test_metrics_facet_summary_rejects_previous_field_data_under_target_label() -> None:
@@ -131,8 +148,11 @@ def test_metrics_facet_summary_rejects_previous_field_data_under_target_label() 
                 }
             },
             {
+                "marker": _metrics_marker("review_group"),
                 "surfaces": {
-                    "categorical_card": _metrics_surface("card", "Population: 10 synthetic"),
+                    "categorical_card": _metrics_surface(
+                        "card", "Population: 10 synthetic", field="review_group", state="ready",
+                    ),
                     "categorical_selector": _metrics_surface("selector", "review_group"),
                     "next_control": _metrics_surface("next", "Attributes"),
                 }
@@ -142,7 +162,9 @@ def test_metrics_facet_summary_rejects_previous_field_data_under_target_label() 
 
     summary = jitter_metrics._target_facet_trace_summary(
         trace,
+        previous_field="dataset_from",
         field="review_group",
+        terminal_state="ready",
         forbidden_texts=("synthetic",),
         expected_text="Population: 10",
         max_delta_px=1.0,
@@ -151,7 +173,266 @@ def test_metrics_facet_summary_rejects_previous_field_data_under_target_label() 
     assert any("previous field" in violation for violation in summary["violations"])
 
 
-def test_metrics_facet_summary_accepts_pending_to_target_ready_in_one_shell() -> None:
+def test_metrics_field_ownership_rejects_rendered_keys_missing_from_request() -> None:
+    surfaces = {
+        "metrics_panel": {
+            "attrs": {
+                "data": {
+                    "data-requested-metric-fields": json.dumps(["quality_score"]),
+                    "data-requested-categorical-fields": json.dumps(["review_group"]),
+                }
+            }
+        },
+        "metric_virtual_list": {
+            "visible": True,
+            "attrs": {
+                "data": {
+                    "data-rendered-field-keys": json.dumps(
+                        ["contrast_score", "quality_score"]
+                    )
+                }
+            },
+        },
+    }
+
+    assert jitter_metrics._requested_field_ownership_violations(surfaces) == [
+        "rendered metric fields lacked first-frame query ownership: ['contrast_score']"
+    ]
+
+    surfaces["metrics_panel"]["attrs"]["data"]["data-requested-metric-fields"] = json.dumps(
+        ["contrast_score", "quality_score"]
+    )
+    assert jitter_metrics._requested_field_ownership_violations(surfaces) == []
+
+
+def _metrics_reset_frame(metric_state: str, metric_text: str, categorical_state: str, categorical_text: str) -> dict:
+    def surface(text: str, data: dict[str, str]) -> dict:
+        value = _metrics_surface(text, text)
+        value["attrs"]["data"] = data
+        return value
+
+    return {
+        "surfaces": {
+            "metrics_panel": surface("panel", {"data-presentation-reset-key": "reset-b"}),
+            "metric_selector": surface("quality_score", {}),
+            "metric_card": surface(metric_text, {
+                "data-metric-card-host": "quality_score",
+                "data-facet-state": metric_state,
+            }),
+            "categorical_selector": surface("review_group", {}),
+            "categorical_card": surface(categorical_text, {
+                "data-categorical-card": "review_group",
+                "data-facet-state": categorical_state,
+            }),
+        }
+    }
+
+
+def test_metrics_single_field_reset_accepts_neutral_then_distinct_terminal_target() -> None:
+    trace = {"frames": [
+        _metrics_reset_frame(
+            "pending",
+            "Population: — Loading values for this metric…",
+            "pending",
+            "Population: — Loading values for this field…",
+        ),
+        _metrics_reset_frame(
+            "ready",
+            "Population: 1585 10.00 20.00",
+            "empty",
+            "Population: — No values found for this field.",
+        ),
+    ]}
+
+    summary = jitter_metrics._single_field_reset_summary(
+        trace,
+        previous_reset_key="reset-a",
+    )
+
+    assert summary["violations"] == []
+
+
+def test_metrics_single_field_reset_rejects_retained_previous_snapshot() -> None:
+    trace = {"frames": [_metrics_reset_frame(
+        "ready",
+        "Population: 1585 0.000 1.000",
+        "ready",
+        "Population: 1585 review-0 review-1",
+    )]}
+
+    summary = jitter_metrics._single_field_reset_summary(
+        trace,
+        previous_reset_key="reset-a",
+    )
+
+    assert any("retained or mixed" in violation for violation in summary["violations"])
+
+
+def _metrics_virtual_surface(cards: list[dict]) -> dict:
+    surface = _metrics_surface("virtual-list", "cards")
+    surface["attrs"]["data"]["data-rendered-field-keys"] = json.dumps(
+        [card["key"] for card in cards]
+    )
+    surface["facetCards"] = cards
+    return surface
+
+
+def _metrics_virtual_card(
+    key: str,
+    state: str,
+    text: str,
+    *,
+    retained: bool = False,
+) -> dict:
+    return {
+        "key": key,
+        "requested": key,
+        "presented": key,
+        "state": state,
+        "text": text,
+        "ariaBusy": "true" if retained else None,
+        "ariaDisabled": "true" if retained else None,
+        "inert": retained,
+    }
+
+
+def test_metrics_virtual_card_continuity_allows_neutral_cold_and_inert_retained_cards() -> None:
+    trace = [{"surfaces": {"metric_virtual_list": _metrics_virtual_surface([
+        _metrics_virtual_card("known", "ready", "Population: 10"),
+        _metrics_virtual_card("cold", "pending", "Loading values for this metric…"),
+    ])}}, {"surfaces": {"metric_virtual_list": _metrics_virtual_surface([
+        _metrics_virtual_card("known", "ready", "Population: 10", retained=True),
+        _metrics_virtual_card("cold", "ready", "Population: 12"),
+    ])}}]
+
+    assert jitter_metrics._virtual_card_continuity_violations(
+        trace,
+        surface_names=("metric_virtual_list",),
+        initially_settled=frozenset(),
+    ) == []
+
+    trace[1]["surfaces"]["metric_virtual_list"]["facetCards"][0]["inert"] = False
+    assert jitter_metrics._virtual_card_continuity_violations(
+        trace,
+        surface_names=("metric_virtual_list",),
+        initially_settled=frozenset(),
+    ) == ["retained Show-all field 'known' was not disabled and inert"]
+
+
+def test_metrics_virtual_field_reset_requires_neutral_first_frame_and_terminal_card() -> None:
+    pending = _metrics_virtual_card(
+        "contrast_score", "pending", "Loading values for this metric…"
+    )
+    ready = _metrics_virtual_card("contrast_score", "ready", "Population: 1585")
+    trace = {"frames": [
+        {"surfaces": {
+            "metrics_panel": {
+                "attrs": {"data": {"data-presentation-reset-key": "reset-b"}}
+            },
+            "metric_virtual_list": _metrics_virtual_surface([pending]),
+        }},
+        {"surfaces": {
+            "metrics_panel": {
+                "attrs": {"data": {"data-presentation-reset-key": "reset-b"}}
+            },
+            "metric_virtual_list": _metrics_virtual_surface([ready]),
+        }},
+    ]}
+
+    summary = jitter_metrics._virtual_field_reset_summary(
+        trace,
+        previous_reset_key="reset-a",
+        expectations=(("metric_virtual_list", "contrast_score", "Population: 1585"),),
+    )
+
+    assert summary["violations"] == []
+
+
+def _metrics_schema_frame(
+    schema: list[str],
+    *,
+    requested: list[str],
+    rendered: list[str],
+    scroll_top: int = 0,
+    visible: bool = True,
+    action_id: str = "schema-test",
+) -> dict:
+    return {
+        "marker": {"actionId": action_id},
+        "surfaces": {
+            "metrics_panel": {
+                "attrs": {"data": {
+                    "data-metric-field-schema": json.dumps(schema, separators=(",", ":")),
+                    "data-requested-metric-fields": json.dumps(requested),
+                }},
+            },
+            "metric_virtual_list": {
+                "visible": visible,
+                "scrollTop": scroll_top,
+                "attrs": {"data": {
+                    "data-rendered-field-keys": json.dumps(rendered),
+                }},
+            },
+        },
+    }
+
+
+def test_metrics_schema_transition_requires_top_owned_earliest_frame() -> None:
+    schema = [f"metric_{index:02d}" for index in range(30)]
+    expected_batch = schema[:24]
+    frame = _metrics_schema_frame(
+        schema,
+        requested=expected_batch,
+        rendered=expected_batch[:6],
+    )
+
+    summary = jitter_metrics_schema._schema_transition_summary(
+        {"frames": [frame]},
+        schema,
+        True,
+    )
+
+    assert summary["violations"] == []
+
+    frame["surfaces"]["metric_virtual_list"]["scrollTop"] = 120
+    frame["surfaces"]["metric_virtual_list"]["attrs"]["data"][
+        "data-rendered-field-keys"
+    ] = json.dumps([schema[-1]])
+    summary = jitter_metrics_schema._schema_transition_summary(
+        {"frames": [frame]},
+        schema,
+        True,
+    )
+
+    assert any("retained scrollTop" in violation for violation in summary["violations"])
+    assert any("rendered unowned fields" in violation for violation in summary["violations"])
+
+
+def test_metrics_schema_transition_rejects_stale_first_post_action_frame() -> None:
+    schema_a = [f"old_{index:02d}" for index in range(30)]
+    schema_b = [f"new_{index:02d}" for index in range(30)]
+    stale = _metrics_schema_frame(
+        schema_a,
+        requested=schema_a[-24:],
+        rendered=schema_a[-6:],
+        scroll_top=120,
+    )
+    settled = _metrics_schema_frame(
+        schema_b,
+        requested=schema_b[:24],
+        rendered=schema_b[:6],
+    )
+
+    summary = jitter_metrics_schema._schema_transition_summary(
+        {"frames": [stale, settled]},
+        schema_b,
+        True,
+    )
+
+    assert any("earliest post-action frame painted schema" in value for value in summary["violations"])
+
+
+def test_metrics_facet_summary_rejects_pending_to_target_ready_in_one_shell() -> None:
     trace = {
         "frames": [
             {
@@ -162,15 +443,21 @@ def test_metrics_facet_summary_accepts_pending_to_target_ready_in_one_shell() ->
                 }
             },
             {
+                "marker": _metrics_marker("review_group"),
                 "surfaces": {
-                    "categorical_card": _metrics_surface("card", "Loading values for this field…"),
+                    "categorical_card": _metrics_surface(
+                        "card", "Loading values for this field…", field="review_group", state="pending",
+                    ),
                     "categorical_selector": _metrics_surface("selector", "review_group"),
                     "next_control": _metrics_surface("next", "Attributes"),
                 }
             },
             {
+                "marker": _metrics_marker("review_group"),
                 "surfaces": {
-                    "categorical_card": _metrics_surface("card", "Population: 10 review-0"),
+                    "categorical_card": _metrics_surface(
+                        "card", "Population: 10 review-0", field="review_group", state="ready",
+                    ),
                     "categorical_selector": _metrics_surface("selector", "review_group"),
                     "next_control": _metrics_surface("next", "Attributes"),
                 }
@@ -180,7 +467,49 @@ def test_metrics_facet_summary_accepts_pending_to_target_ready_in_one_shell() ->
 
     summary = jitter_metrics._target_facet_trace_summary(
         trace,
+        previous_field="dataset_from",
         field="review_group",
+        terminal_state="ready",
+        forbidden_texts=("synthetic",),
+        expected_text="Population: 10",
+        max_delta_px=1.0,
+    )
+
+    assert any("incomplete or mixed field frame" in value for value in summary["violations"])
+
+
+def test_metrics_facet_summary_accepts_complete_previous_then_complete_target() -> None:
+    marker = _metrics_marker("review_group")
+    trace = {
+        "frames": [
+            {
+                "marker": marker,
+                "surfaces": {
+                    "categorical_card": _metrics_surface(
+                        "card", "Population: 10 synthetic", field="dataset_from", state="ready",
+                    ),
+                    "categorical_selector": _metrics_surface("selector", "dataset_from"),
+                    "next_control": _metrics_surface("next", "Attributes"),
+                },
+            },
+            {
+                "marker": marker,
+                "surfaces": {
+                    "categorical_card": _metrics_surface(
+                        "card", "Population: 10 review-0", field="review_group", state="ready",
+                    ),
+                    "categorical_selector": _metrics_surface("selector", "review_group"),
+                    "next_control": _metrics_surface("next", "Attributes"),
+                },
+            },
+        ],
+    }
+
+    summary = jitter_metrics._target_facet_trace_summary(
+        trace,
+        previous_field="dataset_from",
+        field="review_group",
+        terminal_state="ready",
         forbidden_texts=("synthetic",),
         expected_text="Population: 10",
         max_delta_px=1.0,

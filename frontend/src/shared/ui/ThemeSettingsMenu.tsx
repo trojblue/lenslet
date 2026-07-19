@@ -303,6 +303,12 @@ export default function ThemeSettingsMenu({
   const showSourceSection = supportsSourceColumnSetting || tableLaunchStatus !== null
   const sourceRefreshLabel = tableLaunchStatus ? formatSourceRefresh(tableLaunchStatus) : null
   const { selectedSourceColumn, selectedSourceStatus } = sourceColumnState
+
+  useIsomorphicLayoutEffect(() => {
+    if (!open) return
+    if (rootRef.current?.closest('[hidden], [inert]')) setOpen(false)
+  })
+
   const sourceColumnOptions = useMemo(() => (
     sourceColumns?.columns.map((column) => ({
       value: column.name,

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { BrowseFolderPayload } from '../../../lib/types'
-import FolderTree from '../FolderTree'
+import FolderTree, { shouldObserveFolderNode } from '../FolderTree'
 
 const ROOT_DATA: BrowseFolderPayload = {
   version: 1,
@@ -24,6 +24,12 @@ function renderTree(data?: BrowseFolderPayload): string {
 }
 
 describe('FolderTree stable rows', () => {
+  it('does not observe expanded folder queries while its surface is hidden', () => {
+    expect(shouldObserveFolderNode(false, '/', true, true)).toBe(false)
+    expect(shouldObserveFolderNode(false, '/shots', true, false)).toBe(false)
+    expect(shouldObserveFolderNode(true, '/shots', true, false)).toBe(true)
+  })
+
   it('renders one reserved pending child row and stable columns', () => {
     const html = renderTree()
 

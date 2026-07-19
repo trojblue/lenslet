@@ -13,6 +13,7 @@ interface Root {
 }
 
 interface FolderTreeProps {
+  active?: boolean
   current: string
   roots: Root[]
   data?: BrowseFolderPayload
@@ -41,6 +42,7 @@ function getExpandedAncestorPaths(path: string): string[] {
 }
 
 export default function FolderTree({
+  active = true,
   current,
   roots,
   data,
@@ -208,6 +210,7 @@ export default function FolderTree({
       <div className="p-1" role="tree" aria-label="Folders">
         {roots.map(r => (
           <TreeNode
+            active={active}
             key={r.path}
             path={r.path}
             label={r.label}
@@ -235,6 +238,7 @@ export default function FolderTree({
 }
 
 interface TreeNodeProps {
+  active: boolean
   path: string
   label: string
   depth: number
@@ -250,6 +254,7 @@ interface TreeNodeProps {
 }
 
 function TreeNode({
+  active,
   path,
   label,
   depth,
@@ -265,7 +270,7 @@ function TreeNode({
 }: TreeNodeProps) {
   const isExpanded = expanded.has(path)
   const isActive = current === path
-  const shouldFetchFolder = path === '/' || isExpanded || isActive
+  const shouldFetchFolder = shouldObserveFolderNode(active, path, isExpanded, isActive)
   const { data, isError } = useFolder(path, { enabled: shouldFetchFolder })
   const folderPayload = initial && path === initial.path ? initial : data
   const hasFolderData = !!folderPayload
@@ -305,6 +310,7 @@ function TreeNode({
 
   useEffect(() => {
     let cancelled = false
+    if (!active) return
     if (!folderPayload) {
       setSubtreeCount(null)
       return
@@ -324,7 +330,7 @@ function TreeNode({
     return () => {
       cancelled = true
     }
-  }, [folderPayload, path, getSubtreeCount, countVersion, isExpanded, depth, isActive])
+  }, [active, folderPayload, path, getSubtreeCount, countVersion, isExpanded, depth, isActive])
 
   return (
     <div>
@@ -393,6 +399,7 @@ function TreeNode({
       )}
       {isExpanded && folderPayload?.folders?.map(d => (
         <TreeNode
+          active={active}
           key={d.name}
           path={joinPath(path, d.name)}
           label={d.name}
@@ -409,4 +416,13 @@ function TreeNode({
       ))}
     </div>
   )
+}
+
+export function shouldObserveFolderNode(
+  active: boolean,
+  path: string,
+  expanded: boolean,
+  current: boolean,
+): boolean {
+  return active && (path === '/' || expanded || current)
 }

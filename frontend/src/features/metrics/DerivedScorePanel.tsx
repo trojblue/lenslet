@@ -13,6 +13,7 @@ import type {
 } from './model/facetPresentation'
 
 interface DerivedScorePanelProps {
+  active?: boolean
   items: BrowseItemPayload[]
   metricKeys: string[]
   categoricalKeys: string[]
@@ -30,6 +31,7 @@ interface DerivedScorePanelProps {
 }
 
 export default function DerivedScorePanel({
+  active = true,
   items,
   metricKeys,
   categoricalKeys,
@@ -48,6 +50,7 @@ export default function DerivedScorePanel({
   return (
     <div className="h-full flex flex-col gap-3 p-3 overflow-auto scrollbar-thin">
       <DerivedScoreCard
+        active={active}
         items={items}
         metricKeys={metricKeys}
         categoricalKeys={categoricalKeys}

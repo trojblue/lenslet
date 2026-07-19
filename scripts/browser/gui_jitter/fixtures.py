@@ -14,6 +14,7 @@ from PIL import Image, PngImagePlugin
 from scripts.browser.gui_jitter.shared import write_bytes_atomic, write_json_atomic
 
 METRICS_FIXTURE_ROW_COUNT = 1_585
+METRICS_LATE_GROUP_COUNT = 100
 
 
 def build_fixture_dataset(root: Path) -> None:
@@ -143,14 +144,27 @@ def write_metrics_fixture_parquet(root: Path) -> None:
         {
             "path": f"metrics/item_{idx:04d}.jpg",
             "source": source,
+            "source_alt": source,
             "quality_score": idx / (METRICS_FIXTURE_ROW_COUNT - 1),
             "contrast_score": 1 - (idx / (METRICS_FIXTURE_ROW_COUNT - 1)),
+            **{
+                f"zz_probe_metric_{field_index:02d}": (
+                    (idx + field_index) % METRICS_FIXTURE_ROW_COUNT
+                )
+                / (METRICS_FIXTURE_ROW_COUNT - 1)
+                for field_index in range(30)
+            },
             "dataset_from": "gt" if idx % 2 == 0 else "synthetic",
             "review_group": f"review-{idx % 3}",
             "empty_group": "placeholder",
             "explicit_empty_group": f"explicit-{idx % 2}",
             "error_group": f"error-{idx % 2}",
             "custom_group": f"known-{idx % 4}",
+            "late_group": (
+                f"late-{idx % 2}"
+                if idx >= METRICS_FIXTURE_ROW_COUNT - METRICS_LATE_GROUP_COUNT
+                else None
+            ),
             "derived_group": f"derived-{idx % 5}",
         }
         for idx in range(METRICS_FIXTURE_ROW_COUNT)

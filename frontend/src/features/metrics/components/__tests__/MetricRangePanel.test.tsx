@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { BrowseItemPayload } from '../../../../lib/types'
 import MetricRangePanel from '../MetricRangePanel'
 
+const SINGLE_METRIC_DEMAND = { showAll: false, schemaRevision: 0, visibleKeys: [] }
+
 function makeItem(
   path: string,
   metrics?: BrowseItemPayload['metrics'],
@@ -36,7 +38,9 @@ describe('MetricRangePanel', () => {
         ]}
         metricKeys={['quality_score']}
         selectedMetric="quality_score"
+        demand={SINGLE_METRIC_DEMAND}
         onSelectMetric={() => {}}
+        onDemandAction={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
       />,
@@ -60,7 +64,9 @@ describe('MetricRangePanel', () => {
         ]}
         metricKeys={['l0p_style_family']}
         selectedMetric="l0p_style_family"
+        demand={SINGLE_METRIC_DEMAND}
         onSelectMetric={() => {}}
+        onDemandAction={() => {}}
         filters={{ and: [] }}
         onChangeRange={() => {}}
       />,
@@ -107,7 +113,9 @@ describe('MetricRangePanel', () => {
         populationItemsComplete={false}
         filteredItemsComplete={false}
         selectedMetric="quality_score"
+        demand={SINGLE_METRIC_DEMAND}
         onSelectMetric={() => {}}
+        onDemandAction={() => {}}
         filters={{ and: [{ metricRange: { key: 'quality_score', min: 40, max: 60 } }] }}
         onChangeRange={() => {}}
       />,
@@ -133,7 +141,9 @@ describe('MetricRangePanel', () => {
         filteredItemsComplete
         facetsState="pending"
         selectedMetric="quality_score"
+        demand={SINGLE_METRIC_DEMAND}
         onSelectMetric={() => {}}
+        onDemandAction={() => {}}
         filters={{ and: [{ metricRange: { key: 'quality_score', min: 0.4, max: 0.6 } }] }}
         onChangeRange={() => {}}
       />,

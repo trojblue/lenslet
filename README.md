@@ -2,12 +2,15 @@
 
 A lightweight image gallery server for fast visual triage. Point it at a directory or a Parquet table and browse instantly in your browser. Lenslet keeps the source images read-only and stores workspace state separately.
 
+![](scorecard.png)
+
 ## Introduction
 
-<img width="2148" height="1207" alt="image" src="https://github.com/user-attachments/assets/920463b1-3a91-44eb-bf90-85e426cf7357" />
-<img width="2148" height="1207" alt="image" src="https://github.com/user-attachments/assets/c2a743ea-72d1-4b32-bc4a-ef7146f88ddf" />
-
 Lenslet is a self-contained image gallery server designed for simplicity and speed. It indexes directories on-the-fly, generates thumbnails on demand, and serves everything through a clean web interface. Perfect for quickly browsing local image collections or large Parquet-backed datasets without modifying the source images.
+
+
+![](https://github.com/user-attachments/assets/920463b1-3a91-44eb-bf90-85e426cf7357)
+![](https://github.com/user-attachments/assets/c2a743ea-72d1-4b32-bc4a-ef7146f88ddf)
 
 ## Features
 

@@ -203,3 +203,34 @@ def test_standalone_parquet_auto_detects_safe_absolute_source_root(tmp_path: Pat
     health = client.get("/health")
     assert health.status_code == 200
     assert health.json()["total_images"] == 2
+
+
+def test_standalone_parquet_source_detection_ignores_nested_leaf_names(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    dataset = tmp_path / "dataset"
+    outputs.mkdir(parents=True)
+
+    image_paths = [dataset / "a.jpg", dataset / "b.jpg"]
+    for image_path in image_paths:
+        _make_image(image_path)
+    parquet_path = outputs / "items.parquet"
+    _write_parquet(parquet_path, {
+        "payload": [{
+            "options": [{"label": "Yes", "value": "yes"}],
+            "question": "Keep this image?",
+        }] * 2,
+        "path": [str(path) for path in image_paths],
+        "label": ["accepted", "rejected"],
+    })
+
+    storage = _prepare_table_cache(
+        parquet_path=parquet_path,
+        base_dir=None,
+        source_column=None,
+        cache_wh=False,
+        skip_indexing=True,
+        auto_detect_root=True,
+    )
+
+    assert storage.root == str(dataset)
+    assert len(storage._items) == 2

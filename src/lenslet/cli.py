@@ -1310,15 +1310,18 @@ def _detect_source_column(parquet_path: str, base_dir: str | None, sample_size: 
     if pf.metadata is not None and pf.metadata.num_rows == 0:
         return None
 
-    columns = pf.schema.names
-    if not columns:
-        return None
-
     batch = None
     for candidate in pf.iter_batches(batch_size=sample_size):
         batch = candidate
         break
     if batch is None or batch.num_rows == 0:
+        return None
+
+    # ParquetFile.schema exposes physical leaf names, so nested fields such as
+    # payload.options[].value appear as if they were top-level columns. Source
+    # detection operates on the logical record batch and must use its schema.
+    columns = batch.schema.names
+    if not columns:
         return None
 
     best_score = 0.0

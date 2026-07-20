@@ -58,6 +58,28 @@ def test_writable_workspace_without_trusted_origins_is_read_only(
     assert item.json()["notes"] == ""
 
 
+def test_allow_remote_writes_enables_health_and_view_persistence_from_public_origin(
+    tmp_path: Path,
+) -> None:
+    _make_image(tmp_path / "sample.jpg")
+    app = create_app(
+        str(tmp_path),
+        options=LocalAppOptions(allow_remote_writes=True),
+    )
+    payload = {"version": 1, "views": []}
+
+    with TestClient(app, base_url="https://public.trycloudflare.com") as client:
+        health = client.get("/health")
+        saved = client.put("/views", json=payload)
+
+    assert health.status_code == 200
+    assert health.json()["can_write"] is True
+    assert health.json()["labels"]["enabled"] is True
+    assert saved.status_code == 200
+    assert saved.json() == payload
+    assert (tmp_path / ".lenslet" / "views.json").is_file()
+
+
 def test_default_local_app_does_not_trust_default_port_origin(tmp_path: Path) -> None:
     _make_image(tmp_path / "sample.jpg")
     app = create_app(str(tmp_path))

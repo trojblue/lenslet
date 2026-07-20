@@ -5,13 +5,16 @@ from fastapi.testclient import TestClient
 
 from lenslet.web.auth import (
     MutationPolicy,
+    PUBLIC_WRITE_MUTATION_POLICY,
     READ_ONLY_MUTATION_POLICY,
     mutation_denial_payload,
     set_mutation_policy,
     trusted_local_mutation_policy,
     trusted_write_origins_for_host,
 )
+from lenslet.web.app.shared import mutation_policy_for_workspace
 from lenslet.web.permissions import deny_if_mutation_forbidden
+from lenslet.workspace import Workspace
 
 LOCAL_ORIGIN = "http://localhost:7070"
 
@@ -41,6 +44,54 @@ def test_deny_if_mutation_forbidden_allows_local_mutations_when_writes_enabled()
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_public_write_policy_allows_mutation_from_any_origin() -> None:
+    app = FastAPI()
+    set_mutation_policy(app, PUBLIC_WRITE_MUTATION_POLICY)
+
+    @app.post("/mutate")
+    def mutate(request: Request):
+        if denied := deny_if_mutation_forbidden(request, writes_enabled=True):
+            return denied
+        return {"ok": True}
+
+    with TestClient(app, base_url="https://public.trycloudflare.com") as client:
+        response = client.post("/mutate")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
+def test_public_write_policy_does_not_override_read_only_workspace() -> None:
+    app = FastAPI()
+    set_mutation_policy(app, PUBLIC_WRITE_MUTATION_POLICY)
+
+    @app.post("/mutate")
+    def mutate(request: Request):
+        if denied := deny_if_mutation_forbidden(request, writes_enabled=False):
+            return denied
+        return {"ok": True}
+
+    with TestClient(app, base_url="https://public.trycloudflare.com") as client:
+        response = client.post("/mutate")
+
+    assert response.status_code == 403
+    assert response.json() == mutation_denial_payload(READ_ONLY_MUTATION_POLICY)
+
+
+def test_workspace_policy_selects_public_writes_only_for_writable_workspace(tmp_path) -> None:
+    writable = Workspace.for_dataset(tmp_path, can_write=True)
+    read_only = Workspace.for_dataset(tmp_path, can_write=False)
+
+    assert mutation_policy_for_workspace(
+        writable,
+        allow_remote_writes=True,
+    ) == PUBLIC_WRITE_MUTATION_POLICY
+    assert mutation_policy_for_workspace(
+        read_only,
+        allow_remote_writes=True,
+    ) == READ_ONLY_MUTATION_POLICY
 
 
 def test_deny_if_mutation_forbidden_rejects_missing_browser_origin() -> None:

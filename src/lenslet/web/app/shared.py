@@ -18,7 +18,12 @@ from ...embeddings.index import EmbeddingManager
 from ...storage.base import BrowseAppStorage, SidecarState
 from ...storage.table.storage import TableStorage, load_parquet_schema
 from ...workspace import Workspace
-from ..auth import MutationPolicy, READ_ONLY_MUTATION_POLICY, trusted_local_mutation_policy
+from ..auth import (
+    MutationPolicy,
+    PUBLIC_WRITE_MUTATION_POLICY,
+    READ_ONLY_MUTATION_POLICY,
+    trusted_local_mutation_policy,
+)
 from ..cache.thumbs import ThumbCache
 from ..context import get_app_context
 from ..hotpath import build_hotpath_metrics
@@ -56,8 +61,13 @@ def mutation_policy_for_workspace(
     workspace: Workspace,
     *,
     trusted_write_origins: tuple[str, ...] = (),
+    allow_remote_writes: bool = False,
 ) -> MutationPolicy:
-    if not workspace.can_write or not trusted_write_origins:
+    if not workspace.can_write:
+        return READ_ONLY_MUTATION_POLICY
+    if allow_remote_writes:
+        return PUBLIC_WRITE_MUTATION_POLICY
+    if not trusted_write_origins:
         return READ_ONLY_MUTATION_POLICY
     return trusted_local_mutation_policy(trusted_write_origins)
 

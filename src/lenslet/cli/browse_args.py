@@ -36,6 +36,7 @@ class BrowseCliArgs:
     embedding_cache_dir: str | None
     verbose: bool
     share: bool
+    allow_remote_writes: bool
 
     @classmethod
     def from_namespace(cls, args: argparse.Namespace) -> "BrowseCliArgs":
@@ -67,6 +68,7 @@ class BrowseCliArgs:
             embedding_cache_dir=args.embedding_cache_dir,
             verbose=bool(args.verbose),
             share=bool(args.share),
+            allow_remote_writes=bool(args.allow_remote_writes),
         )
 
 
@@ -246,6 +248,11 @@ def _build_browse_parser() -> argparse.ArgumentParser:
         "--share",
         action="store_true",
         help="Create a public share URL via cloudflared",
+    )
+    parser.add_argument(
+        "--allow-remote-writes",
+        action="store_true",
+        help="Allow anyone who can reach the server to modify workspace data",
     )
     parser.add_argument(
         "-v", "--version",

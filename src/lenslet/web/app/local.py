@@ -447,6 +447,7 @@ def create_local_app(
         mutation_policy_for_workspace(
             workspace,
             trusted_write_origins=options.trusted_write_origins,
+            allow_remote_writes=options.allow_remote_writes,
         ),
     )
     startup = resolve_local_storage_startup(

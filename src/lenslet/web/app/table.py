@@ -53,5 +53,6 @@ def create_table_app(
             storage_origin="table",
             refresh="static",
             trusted_write_origins=options.trusted_write_origins,
+            allow_remote_writes=options.allow_remote_writes,
         ),
     )

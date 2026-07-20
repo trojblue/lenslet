@@ -74,6 +74,7 @@ def create_storage_app(
         mutation_policy_for_workspace(
             workspace,
             trusted_write_origins=options.trusted_write_origins,
+            allow_remote_writes=options.allow_remote_writes,
         ),
     )
     runtime = initialize_runtime(

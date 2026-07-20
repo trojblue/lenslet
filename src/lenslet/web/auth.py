@@ -35,7 +35,7 @@ class RequestOrigin:
 
 @dataclass(frozen=True, slots=True)
 class MutationPolicy:
-    mode: Literal["read_only", "trusted_local"]
+    mode: Literal["read_only", "trusted_local", "public_write"]
     denial_error: str
     denial_message: str
     trusted_origins: frozenset[RequestOrigin] = frozenset()
@@ -45,6 +45,12 @@ READ_ONLY_MUTATION_POLICY = MutationPolicy(
     mode="read_only",
     denial_error="read_only_workspace",
     denial_message="workspace is read-only",
+)
+
+PUBLIC_WRITE_MUTATION_POLICY = MutationPolicy(
+    mode="public_write",
+    denial_error="write_forbidden",
+    denial_message="workspace writes are forbidden",
 )
 
 TRUSTED_LOCAL_MUTATION_DENIAL_ERROR = "local_origin_required"
@@ -172,6 +178,8 @@ def request_can_mutate(request: Request, *, writes_enabled: bool) -> bool:
     policy = get_mutation_policy(request.app)
     if policy.mode == "read_only":
         return False
+    if policy.mode == "public_write":
+        return True
     if policy.mode == "trusted_local":
         return request_has_trusted_write_origin(request, policy)
     return False

@@ -45,6 +45,7 @@ class LocalAppOptions:
     path_column: str | None = None
     launch_session: LaunchSessionPayload | None = None
     trusted_write_origins: tuple[str, ...] = ()
+    allow_remote_writes: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +71,7 @@ class TableAppOptions:
     launch_session: LaunchSessionPayload | None = None
     source_refresh: TableSourceRefreshMode = "untracked"
     trusted_write_origins: tuple[str, ...] = ()
+    allow_remote_writes: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,3 +87,4 @@ class StorageAppOptions:
     refresh: StorageRefreshMode | None = None
     launch_session: LaunchSessionPayload | None = None
     trusted_write_origins: tuple[str, ...] = ()
+    allow_remote_writes: bool = False

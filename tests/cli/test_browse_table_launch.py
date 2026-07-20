@@ -44,6 +44,7 @@ def _browse_args(**overrides: Any) -> cli_browse.BrowseCliArgs:
         "embedding_cache_dir": None,
         "verbose": False,
         "share": False,
+        "allow_remote_writes": False,
     }
     base.update(overrides)
     return cli_browse.BrowseCliArgs(**base)
@@ -60,6 +61,27 @@ def test_share_banner_and_launch_are_read_only() -> None:
 
     assert cli_browse._workspace_label_for_banner(args, target) == "shared read-only"
     assert cli_browse._trusted_write_origins_for_browse_launch(args, 7070) == ()
+
+
+def test_share_banner_reports_explicit_public_write_override(tmp_path: Path, capsys) -> None:
+    root = tmp_path / "gallery"
+    root.mkdir()
+    args = _browse_args(directory=str(root), share=True, allow_remote_writes=True)
+    target = cli_browse.BrowseTarget(
+        raw_target=str(root),
+        target=root,
+        is_table_file=False,
+        is_remote_table=False,
+    )
+
+    assert cli_browse._workspace_label_for_banner(args, target) == "publicly writable"
+
+    cli_browse._print_browse_banner(args, target, 7070)
+
+    output = capsys.readouterr().out
+    assert "Workspace: publicly writable" in output
+    assert "WARNING: Remote writes enabled." in output
+    assert "Anyone with the server URL can modify workspace data." in output
 
 
 def test_share_banner_server_row_stays_aligned(tmp_path: Path, capsys) -> None:
@@ -220,7 +242,7 @@ def test_local_parquet_launch_supplies_session(monkeypatch, tmp_path: Path) -> N
     monkeypatch.setattr(cli_browse.server_api, "create_app_from_storage", _fake_create_app_from_storage)
 
     plan = cli_browse.BrowseLaunchPlan(
-        args=_browse_args(directory=str(table_path)),
+        args=_browse_args(directory=str(table_path), allow_remote_writes=True),
         target_info=cli_browse.BrowseTarget(
             raw_target=str(table_path),
             target=table_path.resolve(),
@@ -239,6 +261,7 @@ def test_local_parquet_launch_supplies_session(monkeypatch, tmp_path: Path) -> N
     app = cli_browse._create_browse_app_or_exit(plan)
 
     assert app is sentinel_app
+    assert captured["options"].allow_remote_writes is True
     launch_session = captured["options"].launch_session
     assert launch_session.kind == "local_parquet"
     assert launch_session.loaded_from_label == "Local Parquet"

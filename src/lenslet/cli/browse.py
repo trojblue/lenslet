@@ -378,6 +378,8 @@ def _storage_label_for_banner(target_info: BrowseTarget) -> str:
 def _workspace_label_for_banner(args: BrowseCliArgs, target_info: BrowseTarget) -> str:
     if target_info.is_remote_table:
         return "read-only (remote table)"
+    if args.allow_remote_writes:
+        return "publicly writable"
     if args.share:
         return "shared read-only"
     if args.no_write:
@@ -411,6 +413,11 @@ def _print_browse_banner(args: BrowseCliArgs, target_info: BrowseTarget, port: i
         ]
     )
     print("\n".join(banner_lines))
+    if workspace_label == "publicly writable":
+        print(
+            "WARNING: Remote writes enabled. "
+            "Anyone with the server URL can modify workspace data.\n"
+        )
 
 
 def _warn_multi_worker_mode() -> None:
@@ -531,6 +538,7 @@ def _create_remote_table_app_or_exit(plan: BrowseLaunchPlan) -> object:
             ),
             source_refresh="restart-required",
             trusted_write_origins=plan.trusted_write_origins,
+            allow_remote_writes=args.allow_remote_writes,
         ),
     )
 
@@ -577,6 +585,7 @@ def _create_table_file_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> obje
             storage_origin="parquet",
             refresh="static",
             trusted_write_origins=plan.trusted_write_origins,
+            allow_remote_writes=args.allow_remote_writes,
         ),
     )
 
@@ -623,6 +632,7 @@ def _create_directory_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> objec
             else _local_folder_launch_session(target, plan.dataset_workspace)
         ),
         trusted_write_origins=plan.trusted_write_origins,
+        allow_remote_writes=args.allow_remote_writes,
     )
     if table_launch is None:
         return server_api.create_app(root_path=str(target), options=options)

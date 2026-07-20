@@ -111,6 +111,7 @@ Options:
   --num-workers N              Parallel image loading workers (used with --embed)
   --reload                     Enable auto-reload for development
   --share                      Create a public share URL via cloudflared
+  --allow-remote-writes        Allow anyone who can reach the server to modify workspace data
   --verbose                    Show detailed server logs
   -v, --version                Show version and exit
 ```
@@ -129,6 +130,9 @@ lenslet ~/Images --host 0.0.0.0 --port 7070
 
 # Create a public share URL (prints a trycloudflare.com link)
 lenslet ~/Images --share
+
+# Explicitly allow anyone with the public URL to edit workspace data
+lenslet ~/Images --share --allow-remote-writes
 
 # Start from a Parquet workspace (paths can be local, s3://, or https://)
 lenslet /data/items.parquet --source-column image_path --base-dir /data
@@ -444,6 +448,7 @@ The following items are intentionally deferred from the hotpath sprint:
 - **Read-only sources**: The server never writes into your image directories or S3 buckets
 - **Labels**: Tags/notes/ratings are editable in the UI (session-only) and exportable as JSON/CSV
 - **No-write mode**: Pass `--no-write` to keep the dataset read-only; caches and views are stored under `/tmp/lenslet/<dataset-hash>/` (thumbnail cache capped at 200 MB)
+- **Remote writes**: `--share` is read-only by default. Adding `--allow-remote-writes` lets anyone who can reach the server modify labels, Smart Folders, and other workspace state; use it only with trusted viewers.
 - **Formats**: Supports JPEG, PNG, and WebP
 - **Hidden files**: Files/folders starting with `.` are ignored
 

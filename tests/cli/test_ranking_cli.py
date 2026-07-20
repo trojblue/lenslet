@@ -65,6 +65,7 @@ def _browse_args(**overrides: Any) -> cli_browse.BrowseCliArgs:
         "embedding_cache_dir": None,
         "verbose": False,
         "share": False,
+        "allow_remote_writes": False,
     }
     base.update(overrides)
     return cli_browse.BrowseCliArgs(**base)

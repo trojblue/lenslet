@@ -357,6 +357,11 @@ def run_left_panel_scenario(page: Page) -> LeftPanelScenarioResult:
     if active_tab_collapsed_state["contentOpen"]:
         raise SmokeFailure("Clicking active Folder tab did not collapse left content.")
 
+    page.keyboard.press("Control+Shift+B")
+    shifted_hotkey_state = wait_for_left_panel_content_open(page, False, 5_000)
+    if shifted_hotkey_state["contentOpen"]:
+        raise SmokeFailure("Ctrl+Shift+B unexpectedly toggled the left content panel.")
+
     page.keyboard.press("Control+B")
     hotkey_reopen_state = wait_for_left_panel_content_open(page, True, 5_000)
     left_hotkey_reopen_width_px = float(hotkey_reopen_state["width"])

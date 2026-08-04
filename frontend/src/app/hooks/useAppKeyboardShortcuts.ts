@@ -15,6 +15,7 @@ export type AppKeyboardShortcutEvent = {
   altKey: boolean
   ctrlKey: boolean
   metaKey: boolean
+  shiftKey: boolean
   targetIsInput: boolean
   targetIsKeyboardControl: boolean
   activeModalOpen: boolean
@@ -73,7 +74,12 @@ export function resolveAppKeyboardShortcut(
   const hasPlatformShortcutModifier = event.ctrlKey || event.metaKey
   const hasPlainPlatformShortcut = hasPlatformShortcutModifier && !event.altKey
 
-  if (hasPlatformShortcutModifier && normalizedKey === 'b' && !event.targetIsInput) {
+  if (
+    hasPlatformShortcutModifier
+    && !event.shiftKey
+    && normalizedKey === 'b'
+    && !event.targetIsInput
+  ) {
     const next = resolveSidebarHotkeyToggle({
       leftContentOpen: context.leftOpen,
       rightOpen: context.rightOpen,
@@ -117,6 +123,7 @@ function keyboardEventSnapshot(event: KeyboardEvent): AppKeyboardShortcutEvent {
     altKey: event.altKey,
     ctrlKey: event.ctrlKey,
     metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
     targetIsInput: isInputElement(event.target),
     targetIsKeyboardControl: isKeyboardControlTarget(event.target),
     activeModalOpen: hasActiveModalDialog(),

@@ -11,6 +11,7 @@ function shortcutEvent(overrides: Partial<AppKeyboardShortcutEvent> = {}): AppKe
     altKey: false,
     ctrlKey: false,
     metaKey: false,
+    shiftKey: false,
     targetIsInput: false,
     targetIsKeyboardControl: false,
     activeModalOpen: false,
@@ -67,6 +68,18 @@ describe('app keyboard shortcut policy', () => {
       leftOpen: true,
       rightOpen: false,
     })
+  })
+
+  it('leaves platform-Shift-B to the browser', () => {
+    expect(resolveAppKeyboardShortcut(
+      shortcutEvent({ key: 'B', ctrlKey: true, shiftKey: true }),
+      shortcutContext({ leftOpen: true, rightOpen: true }),
+    )).toEqual({ kind: 'none' })
+
+    expect(resolveAppKeyboardShortcut(
+      shortcutEvent({ key: 'B', metaKey: true, shiftKey: true }),
+      shortcutContext({ leftOpen: true, rightOpen: true }),
+    )).toEqual({ kind: 'none' })
   })
 
   it('keeps text input shortcuts with the focused input', () => {

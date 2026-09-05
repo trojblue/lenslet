@@ -37,7 +37,6 @@ class TableIndexData:
     mtime_column: str | None
     metrics_column: str | None
     categorical_columns: tuple[str, ...]
-    reserved_columns: set[str]
     local_prefix: str | None
     s3_prefixes: dict[str, str]
     s3_use_bucket: bool

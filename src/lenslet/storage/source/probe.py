@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Callable, TypeAlias
 
+from ...media_errors import RemoteMediaNotFoundError, RemoteMediaReadError
 from .state import SourceBackedIndexState, SourceRowIndexState
 from .probe_headers import (
     get_remote_header_bytes,
@@ -16,7 +17,6 @@ from .probe_headers import (
 
 
 RemoteDimensionTask: TypeAlias = tuple[str, Any, str, str]
-PRESIGN_ERRORS: tuple[type[BaseException], ...] = (ImportError, RuntimeError, ValueError)
 
 __all__ = [
     "RemoteDimensionProbeContext",
@@ -33,8 +33,8 @@ __all__ = [
 class RemoteDimensionProbeContext:
     effective_remote_workers: Callable[[int], int]
     is_s3_uri: Callable[[str], bool]
-    get_presigned_url: Callable[[str], str]
     get_remote_header_info: Callable[[str, str], tuple[tuple[int, int] | None, int | None]]
+    get_s3_header_info: Callable[[str, str, str], tuple[tuple[int, int] | None, int | None]]
     progress: Callable[[int, int, str], None]
 
 
@@ -75,11 +75,21 @@ def probe_remote_dimensions(
     if workers <= 0:
         return
 
-    done = 0
+    first, *remaining = tasks
+    _apply_remote_probe_result(
+        index_state,
+        row_index_state,
+        _probe_remote_task(context, first),
+    )
+    done = 1
     last_print = 0.0
     progress_label = "remote headers"
+    last_print = _maybe_emit_probe_progress(context, done, total, progress_label, last_print)
+    if not remaining:
+        return
+
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(_probe_remote_task, context, task) for task in tasks]
+        futures = [executor.submit(_probe_remote_task, context, task) for task in remaining]
         for future in as_completed(futures):
             _apply_remote_probe_result(index_state, row_index_state, future.result())
             done += 1
@@ -91,20 +101,18 @@ def _probe_remote_task(
     task: RemoteDimensionTask,
 ) -> RemoteProbeResult:
     logical_path, item, source_path, name = task
-    url = _remote_probe_url(context, source_path)
-    if not url:
-        return RemoteProbeResult(logical_path, item, None, None)
-    dims, total_size = context.get_remote_header_info(url, name)
+    if context.is_s3_uri(source_path):
+        try:
+            dims, total_size = context.get_s3_header_info(logical_path, source_path, name)
+        except RemoteMediaReadError as exc:
+            if exc.category == "permission":
+                raise
+            dims, total_size = None, None
+        except RemoteMediaNotFoundError:
+            dims, total_size = None, None
+    else:
+        dims, total_size = context.get_remote_header_info(source_path, name)
     return RemoteProbeResult(logical_path, item, dims, total_size)
-
-
-def _remote_probe_url(context: RemoteDimensionProbeContext, source_path: str) -> str | None:
-    if not context.is_s3_uri(source_path):
-        return source_path
-    try:
-        return context.get_presigned_url(source_path)
-    except PRESIGN_ERRORS:
-        return None
 
 
 def _apply_remote_probe_result(

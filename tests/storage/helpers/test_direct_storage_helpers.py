@@ -12,6 +12,7 @@ from typing import get_type_hints
 
 import pytest
 from PIL import Image
+import httpx
 
 from lenslet.media_errors import RemoteMediaNotFoundError, RemoteMediaReadError
 import lenslet.http_safety as http_safety
@@ -95,7 +96,6 @@ def _table_index_context() -> table_index.TableIndexInput:
         mtime_column=None,
         metrics_column="metrics",
         categorical_columns=(),
-        reserved_columns={"source", "path", "metrics"},
         local_prefix=None,
         s3_prefixes={},
         s3_use_bucket=False,
@@ -369,6 +369,42 @@ def test_source_media_service_presigns_and_classifies_remote_errors(tmp_path: Pa
             default_category="s3",
         )
     assert permission_error.value.category == "permission"
+    assert permission_error.value.error_code == "AccessDenied"
+
+    wrapped_error = RuntimeError("failed to presign")
+    wrapped_error.__cause__ = _RemoteException("InvalidAccessKeyId")
+    with pytest.raises(RemoteMediaReadError) as wrapped_permission_error:
+        service._raise_remote_read_error(
+            "/cat.jpg",
+            "s3://bucket/cat.jpg",
+            wrapped_error,
+            default_category="s3",
+        )
+    assert wrapped_permission_error.value.category == "permission"
+    assert wrapped_permission_error.value.error_code == "InvalidAccessKeyId"
+
+    def invalid_key_response(url: str) -> httpx.Response:
+        return httpx.Response(
+            403,
+            content=b"<Error><Code>InvalidAccessKeyId</Code><Message>unsafe detail</Message></Error>",
+            request=httpx.Request("GET", url),
+        )
+
+    service._http_get = invalid_key_response
+    with pytest.raises(RemoteMediaReadError) as http_permission_error:
+        service.read_bytes("/cat.jpg", "s3://bucket/cat.jpg")
+    assert http_permission_error.value.category == "permission"
+    assert http_permission_error.value.error_code == "InvalidAccessKeyId"
+
+    service._http_stream = lambda url, **_kwargs: invalid_key_response(url)
+    with pytest.raises(RemoteMediaReadError) as probe_permission_error:
+        service.remote_header_info(
+            "s3://bucket/cat.jpg",
+            "cat.jpg",
+            path="/cat.jpg",
+        )
+    assert probe_permission_error.value.category == "permission"
+    assert probe_permission_error.value.error_code == "InvalidAccessKeyId"
 
     with pytest.raises(RemoteMediaNotFoundError):
         service._raise_remote_read_error(

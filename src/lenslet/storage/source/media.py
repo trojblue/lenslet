@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+import re
 import socket
 from threading import Lock
 from typing import Any, Callable
@@ -43,6 +44,8 @@ _S3_PERMISSION_CODES = frozenset(
 _HTTPX_MODULE: Any | None = None
 HTTP_STREAM_MAX_BYTES = 512 * 1024 * 1024
 HTTP_STREAM_CHUNK_SIZE = 64 * 1024
+_REMOTE_ERROR_BODY_MAX_BYTES = 64 * 1024
+_S3_ERROR_CODE_PATTERN = re.compile(rb"<Code>\s*([A-Za-z0-9]+)\s*</Code>")
 
 
 def _require_httpx() -> Any:
@@ -60,18 +63,48 @@ def _exception_detail(exc: BaseException) -> str:
 
 
 def _remote_error_code(exc: BaseException) -> str | None:
-    response = getattr(exc, "response", None)
-    if not isinstance(response, dict):
-        return None
-    error = response.get("Error")
-    if not isinstance(error, dict):
-        return None
-    return str(error.get("Code") or "").strip() or None
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        response = getattr(current, "response", None)
+        if isinstance(response, dict):
+            error = response.get("Error")
+            if isinstance(error, dict):
+                code = str(error.get("Code") or "").strip()
+                if code:
+                    return code
+        current = current.__cause__ or current.__context__
+    return None
 
 
 def _remote_timeout_reason(exc: BaseException) -> bool:
     reason = getattr(exc, "reason", None)
     return isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout))
+
+
+def _s3_http_error_code(response: Any) -> str | None:
+    if response is None:
+        return None
+    header_code = str(getattr(response, "headers", {}).get("x-amz-error-code", "")).strip()
+    if header_code:
+        return header_code.split(":", 1)[0]
+
+    try:
+        body = response.content
+    except RuntimeError:
+        chunks: list[bytes] = []
+        size = 0
+        for chunk in response.iter_bytes(chunk_size=4096):
+            size += len(chunk)
+            if size > _REMOTE_ERROR_BODY_MAX_BYTES:
+                return None
+            chunks.append(chunk)
+        body = b"".join(chunks)
+    if len(body) > _REMOTE_ERROR_BODY_MAX_BYTES:
+        return None
+    match = _S3_ERROR_CODE_PATTERN.search(body)
+    return match.group(1).decode("ascii") if match else None
 
 
 def _safe_range_header(value: str | None) -> str | None:
@@ -83,6 +116,18 @@ def _safe_range_header(value: str | None) -> str | None:
     if "\r" in raw or "\n" in raw:
         return None
     return raw
+
+
+def _response_total_size(headers: Any) -> int | None:
+    content_range = headers.get("Content-Range")
+    if content_range:
+        total = parse_content_range(content_range)
+        if total is not None:
+            return total
+    try:
+        return int(headers.get("Content-Length"))
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass(slots=True)
@@ -250,11 +295,58 @@ class MediaReadService:
         self,
         source: str,
         name: str,
+        *,
+        path: str | None = None,
     ) -> tuple[tuple[int, int] | None, int | None]:
+        if self.is_s3_uri(source):
+            return self._s3_header_info(path or source, source, name)
         url = self.remote_access_url(source)
         if url is None:
             return None, None
         return self.get_remote_header_info(url, name)
+
+    def _s3_header_info(
+        self,
+        path: str,
+        source: str,
+        name: str,
+    ) -> tuple[tuple[int, int] | None, int | None]:
+        try:
+            url = self.get_presigned_url(source)
+        except (ImportError, RuntimeError, ValueError, OSError, urllib.error.URLError) as exc:
+            self._raise_remote_read_error(path, source, exc, default_category="s3")
+
+        response = None
+        httpx = _require_httpx()
+        try:
+            response = self._http_stream(
+                url,
+                range_header=f"bytes=0-{self.remote_header_bytes - 1}",
+            )
+            response.raise_for_status()
+            header = bytearray()
+            for chunk in response.iter_bytes(chunk_size=self.remote_header_bytes):
+                header.extend(chunk[: self.remote_header_bytes - len(header)])
+                if len(header) >= self.remote_header_bytes:
+                    break
+            total_size = _response_total_size(response.headers)
+            ext = name.rsplit(".", 1)[-1].lower() if "." in name else None
+            return self.read_dimensions_from_bytes(bytes(header), ext), total_size
+        except httpx.HTTPStatusError as exc:
+            self._raise_http_status_read_error(
+                path,
+                source,
+                exc.response.status_code,
+                cause=exc,
+                error_code=_s3_http_error_code(exc.response),
+            )
+        except httpx.TimeoutException as exc:
+            raise RemoteMediaReadError(path, source, "timeout", _exception_detail(exc)) from exc
+        except (httpx.HTTPError, ValueError, OSError) as exc:
+            self._raise_remote_read_error(path, source, exc, default_category="s3")
+        finally:
+            if response is not None:
+                response.close()
 
     def _raise_http_read_error(
         self,
@@ -271,8 +363,19 @@ class MediaReadService:
         status_code: int,
         *,
         cause: BaseException | None = None,
+        error_code: str | None = None,
     ) -> None:
-        reason = f"HTTP {status_code}"
+        reason = error_code or f"HTTP {status_code}"
+        if error_code in _S3_NOT_FOUND_CODES:
+            raise RemoteMediaNotFoundError(path, source, reason) from cause
+        if error_code in _S3_PERMISSION_CODES:
+            raise RemoteMediaReadError(
+                path,
+                source,
+                "permission",
+                reason,
+                error_code=error_code,
+            ) from cause
         if status_code == _HTTP_NOT_FOUND:
             raise RemoteMediaNotFoundError(path, source, reason) from cause
         if status_code in _HTTP_PERMISSION_CODES:
@@ -297,7 +400,13 @@ class MediaReadService:
         if error_code in _S3_NOT_FOUND_CODES:
             raise RemoteMediaNotFoundError(path, source, error_code) from exc
         if error_code in _S3_PERMISSION_CODES or "credential" in lower_detail:
-            raise RemoteMediaReadError(path, source, "permission", detail) from exc
+            raise RemoteMediaReadError(
+                path,
+                source,
+                "permission",
+                detail,
+                error_code=error_code,
+            ) from exc
         if _remote_timeout_reason(exc):
             raise RemoteMediaReadError(path, source, "timeout", detail) from exc
         raise RemoteMediaReadError(path, source, default_category, detail) from exc
@@ -316,7 +425,14 @@ class MediaReadService:
             response.raise_for_status()
             return response.content
         except httpx.HTTPStatusError as exc:
-            self._raise_http_status_read_error(path, source, exc.response.status_code, cause=exc)
+            error_code = _s3_http_error_code(exc.response) if default_category == "s3" else None
+            self._raise_http_status_read_error(
+                path,
+                source,
+                exc.response.status_code,
+                cause=exc,
+                error_code=error_code,
+            )
         except httpx.TimeoutException as exc:
             raise RemoteMediaReadError(path, source, "timeout", _exception_detail(exc)) from exc
         except (httpx.HTTPError, ValueError, OSError) as exc:
@@ -326,14 +442,14 @@ class MediaReadService:
         if self.is_s3_uri(source):
             try:
                 url = self.get_presigned_url(source)
-                return self._read_http_bytes(
-                    path=path,
-                    source=source,
-                    url=url,
-                    default_category="s3",
-                )
             except (ImportError, RuntimeError, ValueError, OSError, urllib.error.URLError) as exc:
                 self._raise_remote_read_error(path, source, exc, default_category="s3")
+            return self._read_http_bytes(
+                path=path,
+                source=source,
+                url=url,
+                default_category="s3",
+            )
 
         if self.is_http_url(source):
             return self._read_http_bytes(
@@ -373,9 +489,16 @@ class MediaReadService:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             response = getattr(exc, "response", None)
+            error_code = _s3_http_error_code(response) if self.is_s3_uri(source) else None
             if response is not None:
                 response.close()
-            self._raise_http_status_read_error(path, source, exc.response.status_code, cause=exc)
+            self._raise_http_status_read_error(
+                path,
+                source,
+                exc.response.status_code,
+                cause=exc,
+                error_code=error_code,
+            )
         except httpx.TimeoutException as exc:
             raise RemoteMediaReadError(path, source, "timeout", _exception_detail(exc)) from exc
         except (httpx.HTTPError, ValueError, OSError) as exc:

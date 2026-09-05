@@ -51,7 +51,6 @@ def _context(
             mtime_column="mtime" if "mtime" in values else None,
             metrics_column=None,
             categorical_columns=(),
-            reserved_columns={source_column, "path", "name", "mime", "width", "height", "size", "mtime"},
             local_prefix=None,
             s3_prefixes={},
             s3_use_bucket=False,

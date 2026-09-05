@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import socket
 
+import pytest
+
 from lenslet.storage.image_media import read_dimensions_from_bytes
 from lenslet.storage.source import probe_headers
 from lenslet.storage.source.state import SourceBackedIndexState, SourceRowIndexState
@@ -126,8 +128,8 @@ def test_probe_remote_dimensions_updates_index_and_row_state() -> None:
     context = RemoteDimensionProbeContext(
         effective_remote_workers=lambda total: 1,
         is_s3_uri=lambda source: False,
-        get_presigned_url=lambda source: source,
         get_remote_header_info=lambda _url, _name: ((12, 9), 123),
+        get_s3_header_info=lambda _path, _source, _name: ((12, 9), 123),
         progress=lambda done, total, label: progress.append((done, total, label)),
     )
 
@@ -146,33 +148,33 @@ def test_probe_remote_dimensions_updates_index_and_row_state() -> None:
     assert progress == [(1, 1, "remote headers")]
 
 
-def test_probe_remote_dimensions_skips_failed_s3_presign() -> None:
+def test_probe_remote_dimensions_surfaces_failed_s3_probe() -> None:
     item = _Item()
     progress: list[tuple[int, int, str]] = []
 
-    def fail_presign(_source: str) -> str:
-        raise RuntimeError("no credentials")
+    attempted_paths: list[str] = []
 
-    def fail_header_probe(_url: str, _name: str):
-        raise AssertionError("header probe should not run without a presigned URL")
+    def fail_s3_probe(path: str, _source: str, _name: str):
+        attempted_paths.append(path)
+        raise RuntimeError("no credentials")
 
     context = RemoteDimensionProbeContext(
         effective_remote_workers=lambda total: 1,
         is_s3_uri=lambda source: source.startswith("s3://"),
-        get_presigned_url=fail_presign,
-        get_remote_header_info=fail_header_probe,
+        get_remote_header_info=lambda _url, _name: ((12, 9), 123),
+        get_s3_header_info=fail_s3_probe,
         progress=lambda done, total, label: progress.append((done, total, label)),
     )
     index_state = SourceBackedIndexState()
 
-    probe_remote_dimensions(
-        context,
-        index_state,
-        None,
-        [("/cat.jpg", item, "s3://bucket/cat.jpg", "cat.jpg")],
-    )
-
-    assert index_state.dimensions == {}
-    assert item.width == 0
-    assert item.height == 0
-    assert progress == [(1, 1, "remote headers")]
+    with pytest.raises(RuntimeError, match="no credentials"):
+        probe_remote_dimensions(
+            context,
+            index_state,
+            None,
+            [
+                ("/cat.jpg", item, "s3://bucket/cat.jpg", "cat.jpg"),
+                ("/dog.jpg", _Item(), "s3://bucket/dog.jpg", "dog.jpg"),
+            ],
+        )
+    assert attempted_paths == ["/cat.jpg"]

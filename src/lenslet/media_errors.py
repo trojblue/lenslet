@@ -40,9 +40,18 @@ class RemoteMediaNotFoundError(FileNotFoundError):
 class RemoteMediaReadError(MediaReadError):
     """Raised when a remote source cannot be read for a typed non-404 reason."""
 
-    def __init__(self, path: str, source: str, category: str, reason: str) -> None:
+    def __init__(
+        self,
+        path: str,
+        source: str,
+        category: str,
+        reason: str,
+        *,
+        error_code: str | None = None,
+    ) -> None:
         self.source = source
         self.category = category
+        self.error_code = error_code
         super().__init__(path, f"{category}: {reason}")
 
 

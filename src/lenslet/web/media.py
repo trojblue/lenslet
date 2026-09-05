@@ -29,6 +29,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_REMOTE_PERMISSION_DETAILS = {
+    "AccessDenied": "S3 access denied (AccessDenied); check IAM permissions and the bucket policy.",
+    "InvalidAccessKeyId": (
+        "S3 authentication failed (InvalidAccessKeyId); "
+        "the configured AWS access key ID is not recognized."
+    ),
+    "SignatureDoesNotMatch": (
+        "S3 authentication failed (SignatureDoesNotMatch); check the configured AWS secret and region."
+    ),
+}
+
 
 class _ClientDisconnected(Exception):
     pass
@@ -148,7 +159,8 @@ def media_failure_to_http_error(exc: Exception) -> HTTPException:
         return HTTPException(422, "failed to decode source image")
     if isinstance(exc, RemoteMediaReadError):
         if exc.category == "permission":
-            return HTTPException(403, "remote source access denied")
+            detail = _REMOTE_PERMISSION_DETAILS.get(exc.error_code, "remote source access denied")
+            return HTTPException(403, detail)
         if exc.category == "timeout":
             return HTTPException(504, "remote source timed out")
         return HTTPException(502, "failed to read remote source")

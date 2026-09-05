@@ -120,7 +120,7 @@ def test_nonfinite_table_metrics_are_omitted_from_items_and_fields(tmp_path: Pat
     }
 
 
-def test_table_metric_candidates_ignore_ids_and_bookkeeping_fields(tmp_path: Path) -> None:
+def test_table_metric_candidates_use_numeric_type_instead_of_column_name(tmp_path: Path) -> None:
     image_path = tmp_path / "one.jpg"
     _make_image(image_path)
 
@@ -143,16 +143,16 @@ def test_table_metric_candidates_ignore_ids_and_bookkeeping_fields(tmp_path: Pat
         "hamming_distance": 2.0,
         "quality_score": 0.42,
         "q1_form_structural_quality__confidence": 0.91,
+        "q1_form_structural_quality__pending_gpt_q4_value_view": 1.0,
     }
     assert storage.sidecar_enrichment_for_path("/one.jpg") == {
         "table_fields": {
             "left_image_id": "123",
-            "q1_form_structural_quality__pending_gpt_q4_value_view": 1,
         }
     }
 
 
-def test_q_style_formula_columns_are_metrics_not_table_fields(tmp_path: Path) -> None:
+def test_untyped_columns_require_numeric_values_to_be_metrics(tmp_path: Path) -> None:
     image_path = tmp_path / "one.jpg"
     _make_image(image_path)
 
@@ -170,10 +170,11 @@ def test_q_style_formula_columns_are_metrics_not_table_fields(tmp_path: Path) ->
     storage = _table_storage(rows, skip_dimension_probe=True)
     item = _root_items(storage)[0]
 
-    assert item.metrics == {"q1": 0.42, "q10": 0.91}
-    assert storage.metric_keys() == ["q1", "q10", "q2"]
+    assert item.metrics == {"q1": 0.42}
+    assert storage.metric_keys() == ["q1"]
     assert storage.sidecar_enrichment_for_path("/one.jpg") == {
         "table_fields": {
+            "q10": "0.91",
             "q3": True,
         }
     }

@@ -24,7 +24,12 @@ from ...browse.query import (
     BrowseQueryResult,
     BrowseQuerySpec,
 )
-from ...media_errors import MediaDecodeError, MediaReadError
+from ...media_errors import (
+    MediaDecodeError,
+    MediaReadError,
+    RemoteMediaNotFoundError,
+    RemoteMediaReadError,
+)
 from ...media_policy import OriginalMediaPolicy, build_original_media_policy
 from ...metrics import coerce_finite_metric_value
 from ..base import SidecarState, join_storage_path
@@ -340,45 +345,6 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         "modified",
         "modified_at",
     )
-
-    RESERVED_COLUMNS = {
-        "image_id",
-        "source",
-        "src",
-        "url",
-        "s3",
-        "s3_uri",
-        "s3uri",
-        "path",
-        "logical_path",
-        "rel_path",
-        "relative_path",
-        "display_path",
-        "local_path",
-        "image_path",
-        "name",
-        "filename",
-        "file_name",
-        "mime",
-        "mime_type",
-        "width",
-        "w",
-        "height",
-        "h",
-        "size",
-        "bytes",
-        "mtime",
-        "modified",
-        "modified_at",
-        "star",
-        "tags",
-        "notes",
-        "comment",
-        "comments",
-        "dataset",
-        "collection",
-        "metrics",
-    }
 
     def __init__(
         self,
@@ -860,7 +826,6 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
                 mtime_column=self._mtime_column,
                 metrics_column=self._metrics_column,
                 categorical_columns=self._categorical_columns,
-                reserved_columns=self.RESERVED_COLUMNS,
                 local_prefix=self._local_prefix,
                 s3_prefixes=self._s3_prefixes,
                 s3_use_bucket=self._s3_use_bucket,
@@ -956,10 +921,15 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         workers = self._effective_remote_workers(total)
         if workers <= 0:
             return
-        done = 0
+        first, *remaining = tasks
+        self._apply_row_remote_probe_result(self._probe_row_remote_dimension(first))
+        done = 1
         last_print = 0.0
+        self._progress(done, total, "remote headers")
+        if not remaining:
+            return
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [executor.submit(self._probe_row_remote_dimension, task) for task in tasks]
+            futures = [executor.submit(self._probe_row_remote_dimension, task) for task in remaining]
             for future in as_completed(futures):
                 self._apply_row_remote_probe_result(future.result())
                 done += 1
@@ -972,9 +942,18 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         source = task.source
         if is_s3_uri(source):
             try:
-                source = self._get_presigned_url(source)
-            except (ImportError, RuntimeError, ValueError):
+                dims, total_size = self._media_reads.remote_header_info(
+                    source,
+                    task.name,
+                    path=task.path,
+                )
+            except RemoteMediaReadError as exc:
+                if exc.category == "permission":
+                    raise
                 return _RowRemoteProbeResult(task.row_idx, task.path, None, None)
+            except RemoteMediaNotFoundError:
+                return _RowRemoteProbeResult(task.row_idx, task.path, None, None)
+            return _RowRemoteProbeResult(task.row_idx, task.path, dims, total_size)
         dims, total_size = self._get_remote_header_info(source, task.name)
         return _RowRemoteProbeResult(task.row_idx, task.path, dims, total_size)
 

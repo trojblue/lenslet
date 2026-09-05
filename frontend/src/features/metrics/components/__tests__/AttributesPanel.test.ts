@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import AttributesPanel, {
   commitTextDraft,
+  parseDimensionDraft,
   projectCompareOperator,
   scheduleCommittedText,
 } from '../AttributesPanel'
@@ -60,6 +61,21 @@ describe('committed attribute text', () => {
   })
 })
 
+describe('committed dimension inputs', () => {
+  it('accepts complete non-negative values and treats empty as clear', () => {
+    expect(parseDimensionDraft('900')).toBe(900)
+    expect(parseDimensionDraft(' 0 ')).toBe(0)
+    expect(parseDimensionDraft('')).toBeNull()
+    expect(parseDimensionDraft('   ')).toBeNull()
+  })
+
+  it('rejects invalid drafts instead of applying them', () => {
+    expect(parseDimensionDraft('-1')).toBeUndefined()
+    expect(parseDimensionDraft('pixels')).toBeUndefined()
+    expect(parseDimensionDraft('Infinity')).toBeUndefined()
+  })
+})
+
 describe('attribute operator controls', () => {
   it('projects external filter identity synchronously while preserving same-identity drafts', () => {
     expect(projectCompareOperator('<', '<:10', null)).toBe('<')
@@ -81,6 +97,8 @@ describe('attribute operator controls', () => {
 
     expect(html).toContain('aria-label="Width operator"')
     expect(html).toContain('aria-label="Height operator"')
+    expect(html).toContain('aria-label="Width pixels"')
+    expect(html).toContain('aria-label="Height pixels"')
     expect(html).not.toContain('<select')
     expect(html.match(/type="date"/g)).toHaveLength(2)
   })

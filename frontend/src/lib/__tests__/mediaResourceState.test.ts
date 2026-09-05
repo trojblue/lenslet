@@ -42,5 +42,10 @@ describe('media resource error state', () => {
       message: 'file not found',
       retryable: true,
     })).toBe('Remote source not found.')
+    expect(mediaErrorSummary({
+      category: 'permission',
+      message: 'S3 authentication failed (InvalidAccessKeyId); the configured AWS access key ID is not recognized.',
+      retryable: true,
+    })).toContain('InvalidAccessKeyId')
   })
 })

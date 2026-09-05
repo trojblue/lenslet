@@ -150,8 +150,12 @@ class SourceBackedStorageBase(SidecarStateMixin, StorageProgressMixin, Generic[I
         return RemoteDimensionProbeContext(
             effective_remote_workers=self._effective_remote_workers,
             is_s3_uri=self._source_is_s3_uri,
-            get_presigned_url=self._get_presigned_url,
             get_remote_header_info=self._get_remote_header_info,
+            get_s3_header_info=lambda path, source, name: self._media_reads.remote_header_info(
+                source,
+                name,
+                path=path,
+            ),
             progress=self._source_services.progress,
         )
 

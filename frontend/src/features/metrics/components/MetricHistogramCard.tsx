@@ -218,6 +218,9 @@ export default function MetricHistogramCard({
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.currentTarget.blur()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                setMinDraft(null)
               }
             }}
           />
@@ -240,6 +243,9 @@ export default function MetricHistogramCard({
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.currentTarget.blur()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                setMaxDraft(null)
               }
             }}
           />

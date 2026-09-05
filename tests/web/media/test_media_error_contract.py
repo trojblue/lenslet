@@ -210,6 +210,36 @@ def test_file_response_maps_remote_permission_failure_to_403() -> None:
     assert exc_info.value.detail == "remote source access denied"
 
 
+def test_file_response_exposes_safe_s3_authentication_diagnostic() -> None:
+    class Storage:
+        @staticmethod
+        def guess_mime(_path: str) -> str:
+            return "image/jpeg"
+
+        @staticmethod
+        def resolve_local_file_path(_path: str) -> None:
+            return None
+
+        @staticmethod
+        def read_bytes(path: str) -> bytes:
+            raise RemoteMediaReadError(
+                path,
+                "s3://bucket/a.jpg",
+                "permission",
+                "untrusted upstream detail",
+                error_code="InvalidAccessKeyId",
+            )
+
+    with pytest.raises(HTTPException) as exc_info:
+        file_response(Storage(), "/remote/a.jpg")
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == (
+        "S3 authentication failed (InvalidAccessKeyId); "
+        "the configured AWS access key ID is not recognized."
+    )
+
+
 def test_file_response_maps_remote_not_found_separately_from_local_missing() -> None:
     class Storage:
         @staticmethod

@@ -20,88 +20,6 @@ from .index_types import (
 from ...metrics import coerce_finite_metric_value
 from .schema import coerce_float
 
-FORMULA_METRIC_EXACT_EXCLUSIONS = frozenset(
-    {
-        "bytes",
-        "created",
-        "created_at",
-        "date",
-        "display_path",
-        "file_name",
-        "filename",
-        "h",
-        "height",
-        "id",
-        "idx",
-        "image_id",
-        "image_path",
-        "index",
-        "local_path",
-        "logical_path",
-        "mime",
-        "mime_type",
-        "modified",
-        "modified_at",
-        "mtime",
-        "name",
-        "path",
-        "pending_gpt_q4_value_view",
-        "rel_path",
-        "relative_path",
-        "row_id",
-        "row_idx",
-        "row_index",
-        "row_number",
-        "s3",
-        "s3_uri",
-        "s3uri",
-        "size",
-        "source",
-        "src",
-        "time",
-        "timestamp",
-        "updated",
-        "updated_at",
-        "uri",
-        "url",
-        "w",
-        "width",
-    }
-)
-FORMULA_METRIC_BOOKKEEPING_SUFFIXES = (
-    "_bytes",
-    "_count",
-    "_date",
-    "_filename",
-    "_height",
-    "_id",
-    "_idx",
-    "_index",
-    "_mime",
-    "_mime_type",
-    "_name",
-    "_num",
-    "_number",
-    "_path",
-    "_size",
-    "_source",
-    "_src",
-    "_time",
-    "_timestamp",
-    "_total",
-    "_uri",
-    "_url",
-    "_width",
-)
-FORMULA_METRIC_BOOKKEEPING_PREFIXES = (
-    "count_",
-    "has_",
-    "is_",
-    "num_",
-    "total_",
-    "was_",
-)
-
 __all__ = [
     "IndexColumns",
     "ProgressCallback",
@@ -114,8 +32,6 @@ __all__ = [
     "extract_row_display_fields",
     "extract_row_metrics",
     "extract_row_metrics_map",
-    "is_formula_metric_column_name",
-    "is_metric_column_name",
 ]
 
 
@@ -160,48 +76,13 @@ def _metric_candidate_columns(context: TableIndexInput) -> list[str]:
     for column in table.columns:
         if column in used_columns:
             continue
-        if column.lower() in table.reserved_columns:
-            continue
         if is_internal_metric_key(column):
             continue
-        if not is_formula_metric_column_name(column):
-            continue
         values = table.column_values.get(column)
-        if not _column_values_are_numeric_metric(
-            values
-        ) and not _q_style_metric_values_are_numeric_or_missing(column, values):
+        if not _column_values_are_numeric_metric(values):
             continue
         candidates.append(column)
     return candidates
-
-
-def _metric_column_leaf(column: str) -> str:
-    return column.rsplit("__", 1)[-1].strip().lower()
-
-
-def is_metric_column_name(column: str) -> bool:
-    return is_formula_metric_column_name(column)
-
-
-def is_formula_metric_column_name(column: str) -> bool:
-    normalized = column.strip().lower()
-    leaf = _metric_column_leaf(column)
-    if is_internal_metric_key(column):
-        return False
-    if normalized in FORMULA_METRIC_EXACT_EXCLUSIONS or leaf in FORMULA_METRIC_EXACT_EXCLUSIONS:
-        return False
-    if normalized.startswith("__") and normalized.endswith("__"):
-        return False
-    if leaf.startswith(FORMULA_METRIC_BOOKKEEPING_PREFIXES):
-        return False
-    if leaf.endswith(FORMULA_METRIC_BOOKKEEPING_SUFFIXES):
-        return False
-    return True
-
-
-def _is_q_style_metric_column_name(column: str) -> bool:
-    leaf = _metric_column_leaf(column)
-    return len(leaf) > 1 and leaf.startswith("q") and leaf[1].isdigit()
 
 
 def _coerce_scalar(value: object) -> object:
@@ -246,31 +127,6 @@ def _column_values_are_numeric_metric(values: Any, *, sample_size: int = 256) ->
         if checked >= sample_size:
             break
     return saw_numeric
-
-
-def _q_style_metric_values_are_numeric_or_missing(
-    column: str,
-    values: Any,
-    *,
-    sample_size: int = 256,
-) -> bool:
-    if values is None or not _is_q_style_metric_column_name(column):
-        return False
-    saw_value = False
-    checked = 0
-    try:
-        iterator = iter(values)
-    except TypeError:
-        return False
-    for raw_value in iterator:
-        saw_value = True
-        value = _coerce_scalar(raw_value)
-        if value is not None and coerce_finite_metric_value(value) is None:
-            return False
-        checked += 1
-        if checked >= sample_size:
-            break
-    return saw_value
 
 
 def _typed_values_are_numeric_metric(values: Any) -> bool | None:

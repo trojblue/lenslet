@@ -100,7 +100,7 @@ export function mediaErrorFromUnknown(
 }
 
 export function mediaErrorSummary(error: MediaResourceError): string {
-  if (error.category === 'permission') return 'Permission denied.'
+  if (error.category === 'permission') return error.message || 'Permission denied.'
   if (error.category === 'timeout') return 'Remote source timed out.'
   if (error.category === 'decode') return 'Could not decode this image.'
   if (error.category === 'local_not_found') return 'File not found.'

@@ -22,7 +22,6 @@ from .dimension_cache import (
     table_dimension_cache_identity,
     write_dimension_cache,
 )
-from .index import is_formula_metric_column_name
 from .launch_sources import (
     detect_source_column,
     is_safe_auto_root,
@@ -421,7 +420,7 @@ def select_browse_columns(
     for column in schema_names:
         if column not in readable:
             continue
-        if not is_formula_metric_browse_column(schema, column):
+        if not is_numeric_metric_candidate(schema, column):
             continue
         add(column)
 
@@ -543,8 +542,8 @@ def is_boolean_browse_column(schema: Any, column: str) -> bool:
         return False
 
 
-def is_formula_metric_browse_column(schema: Any, column: str) -> bool:
-    if not is_formula_metric_column_name(column):
+def is_numeric_metric_candidate(schema: Any, column: str) -> bool:
+    if is_internal_metric_key(column):
         return False
     if not is_numeric_browse_column(schema, column):
         return False
@@ -610,7 +609,7 @@ def select_table_field_columns(
             continue
         if is_internal_metric_key(column):
             continue
-        if column.lower() != "metrics" and is_formula_metric_browse_column(schema, column):
+        if column.lower() != "metrics" and is_numeric_metric_candidate(schema, column):
             continue
         if not is_browse_scalar_column(schema, column):
             continue

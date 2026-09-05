@@ -94,7 +94,7 @@ def test_table_source_column_route_switches_read_only_table_source(
     assert folder.status_code == 200
     folder_payload = folder.json()
     assert len(folder_payload["items"]) == 2
-    assert folder_payload["metric_keys"] == ["q1", "q2"]
+    assert folder_payload["metric_keys"] == ["q1"]
     assert folder_payload["items"][0]["metrics"] == {"q1": 0.25}
     assert folder_payload["items"][1]["metrics"] == {"q1": 0.75}
 

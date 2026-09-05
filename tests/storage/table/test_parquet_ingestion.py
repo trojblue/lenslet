@@ -5,10 +5,12 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
 import lenslet.web.app.local as local_app
+from lenslet.media_errors import RemoteMediaReadError
 from lenslet.server import (
     LocalAppOptions,
     TableAppOptions,
@@ -19,6 +21,7 @@ from lenslet.server import (
 from lenslet.storage.table import TableStorage, TableStorageOptions
 from lenslet.storage.table.launch import ParquetRowFieldProvider, TableLaunchRequest, prepare_table_launch
 from lenslet.storage.table.launch_sources import detect_source_column
+from lenslet.storage.source.media import MediaReadService
 from lenslet.web.context import get_app_context
 
 LOCAL_ORIGIN = "http://localhost:7070"
@@ -127,17 +130,23 @@ def test_parquet_q_formula_columns_are_metrics_not_table_fields(tmp_path: Path):
 
     payload = client.get("/folders", params={"path": "/"}).json()
 
-    assert payload["metric_keys"] == ["q1", "q2", "q3"]
+    assert payload["metric_keys"] == ["image_id", "q1", "q2", "q3"]
     assert payload["categorical_keys"] == ["dataset_from"]
-    assert payload["items"][0]["metrics"] == {"q1": 0.75, "q2": 0.1, "q3": 1.0}
-    assert payload["items"][1]["metrics"] == {"q1": 0.25, "q3": 0.0}
+    assert payload["items"][0]["metrics"] == {
+        "q1": 0.75,
+        "q2": 0.1,
+        "q3": 1.0,
+        "image_id": 101.0,
+    }
+    assert payload["items"][1]["metrics"] == {
+        "q1": 0.25,
+        "q3": 0.0,
+        "image_id": 102.0,
+    }
     assert payload["items"][0]["categoricals"] == {"dataset_from": "gt"}
 
     item_payload = client.get("/item", params={"path": "/a.jpg"}).json()
-    assert item_payload["table_fields"] == {
-        "dataset_from": "gt",
-        "image_id": 101,
-    }
+    assert item_payload["table_fields"] == {"dataset_from": "gt"}
 
 
 def test_parquet_numeric_scalar_columns_are_metrics_without_name_whitelist(tmp_path: Path):
@@ -149,27 +158,56 @@ def test_parquet_numeric_scalar_columns_are_metrics_without_name_whitelist(tmp_p
 
     _write_parquet(root / "items.parquet", {
         "path": ["a.jpg", "b.jpg"],
+        "width": [8, 8],
+        "height": [6, 6],
         "fresh_value": [7.0, 4.0],
         "manual_pick": [0.25, 0.75],
         "anatomy_pose": [3, 2],
         "row_number": [1, 2],
+        "majority_label_count": [2, 1],
+        "no_problem_count": [2, 1],
+        "minor_problem_count": [2, 0],
+        "major_problem_count": [1, 0],
+        "skipCount": [1, 0],
         "is_selected": [True, False],
         "string_number": ["0.5", "0.6"],
     })
 
     client = TestClient(create_app(str(root)))
     payload = client.get("/folders", params={"path": "/"}).json()
+    fields = client.get("/folders/fields", params={"path": "/"}).json()
 
-    assert payload["metric_keys"] == ["anatomy_pose", "fresh_value", "manual_pick"]
+    assert payload["metric_keys"] == [
+        "anatomy_pose",
+        "fresh_value",
+        "major_problem_count",
+        "majority_label_count",
+        "manual_pick",
+        "minor_problem_count",
+        "no_problem_count",
+        "row_number",
+        "skipCount",
+    ]
+    assert fields["metric_keys"] == payload["metric_keys"]
+    assert fields["field_capabilities"]["filterable_metrics"] == payload["metric_keys"]
+    assert fields["field_capabilities"]["numeric_formula_inputs"] == payload["metric_keys"]
+    assert "width" not in payload["metric_keys"]
+    assert "height" not in payload["metric_keys"]
     assert payload["items"][0]["metrics"] == {
         "fresh_value": 7.0,
         "manual_pick": 0.25,
         "anatomy_pose": 3.0,
+        "row_number": 1.0,
+        "majority_label_count": 2.0,
+        "no_problem_count": 2.0,
+        "minor_problem_count": 2.0,
+        "major_problem_count": 1.0,
+        "skipCount": 1.0,
     }
 
     item_payload = client.get("/item", params={"path": "/a.jpg"}).json()
     assert "fresh_value" not in item_payload["table_fields"]
-    assert item_payload["table_fields"]["row_number"] == 1
+    assert "row_number" not in item_payload["table_fields"]
     assert item_payload["table_fields"]["is_selected"] is True
     assert item_payload["table_fields"]["string_number"] == "0.5"
 
@@ -364,10 +402,15 @@ def test_parquet_item_payload_exposes_non_metric_row_fields(tmp_path: Path):
 
     client = TestClient(create_app(str(root)))
 
+    folder_payload = client.get("/folders", params={"path": "/"}).json()
     payload = client.get("/item", params={"path": "/a.jpg"}).json()
 
+    assert folder_payload["metric_keys"] == ["image_id", "quality_score"]
+    assert folder_payload["items"][0]["metrics"] == {
+        "quality_score": 0.75,
+        "image_id": 123.0,
+    }
     assert payload["table_fields"] == {
-        "image_id": 123,
         "score_reasoning": "high detail and consistent composition",
     }
 
@@ -958,3 +1001,44 @@ def test_explicit_remote_source_column_does_not_report_default_root_as_auto_dete
 
     assert all(notice.kind != "auto_detected_root" for notice in launch_result.notices)
     assert "Auto-detected local source root" not in capsys.readouterr().out
+
+
+def test_table_launch_fails_on_first_s3_authentication_probe(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    parquet_path = tmp_path / "items.parquet"
+    sources = ["s3://bucket/a.jpg", "s3://bucket/b.jpg"]
+    _write_parquet(parquet_path, {"s3_uri": sources})
+    attempted_sources: list[str] = []
+
+    def fail_authentication(
+        _self: MediaReadService,
+        source: str,
+        _name: str,
+        *,
+        path: str | None = None,
+    ) -> tuple[tuple[int, int] | None, int | None]:
+        attempted_sources.append(source)
+        raise RemoteMediaReadError(
+            path or source,
+            source,
+            "permission",
+            "InvalidAccessKeyId",
+            error_code="InvalidAccessKeyId",
+        )
+
+    monkeypatch.setattr(MediaReadService, "remote_header_info", fail_authentication)
+
+    with pytest.raises(RemoteMediaReadError, match="InvalidAccessKeyId"):
+        prepare_table_launch(
+            TableLaunchRequest(
+                parquet_path=parquet_path,
+                base_dir=None,
+                source_column="s3_uri",
+                cache_dimensions=False,
+                skip_dimension_probe=False,
+            )
+        )
+
+    assert attempted_sources == [sources[0]]

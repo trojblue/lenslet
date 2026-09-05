@@ -278,24 +278,18 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
                     width="trigger"
                   />
                 </div>
-                <input
-                  type="number"
-                  aria-label="Width pixels"
-                  className="ui-input ui-number w-full"
+                <CommittedNumberInput
+                  label="Width pixels"
                   value={widthCompare ? String(widthCompare.value) : ''}
-                  min={0}
                   placeholder="px"
-                  onChange={(e) => {
-                    const raw = e.target.value
-                    if (!raw) {
-                      setWidthOpDraft(null)
-                      onChangeFilters(setWidthCompareFilter(filters, null))
-                      return
-                    }
-                    const value = Number(raw)
-                    if (!Number.isFinite(value)) return
+                  onCommit={(raw) => {
+                    const value = parseDimensionDraft(raw)
+                    if (value === undefined) return
                     setWidthOpDraft(null)
-                    onChangeFilters(setWidthCompareFilter(filters, { op: widthOp, value }))
+                    onChangeFilters(setWidthCompareFilter(
+                      filters,
+                      value === null ? null : { op: widthOp, value },
+                    ))
                   }}
                 />
               </div>
@@ -322,24 +316,18 @@ export default function AttributesPanel({ filters, onChangeFilters }: Attributes
                     width="trigger"
                   />
                 </div>
-                <input
-                  type="number"
-                  aria-label="Height pixels"
-                  className="ui-input ui-number w-full"
+                <CommittedNumberInput
+                  label="Height pixels"
                   value={heightCompare ? String(heightCompare.value) : ''}
-                  min={0}
                   placeholder="px"
-                  onChange={(e) => {
-                    const raw = e.target.value
-                    if (!raw) {
-                      setHeightOpDraft(null)
-                      onChangeFilters(setHeightCompareFilter(filters, null))
-                      return
-                    }
-                    const value = Number(raw)
-                    if (!Number.isFinite(value)) return
+                  onCommit={(raw) => {
+                    const value = parseDimensionDraft(raw)
+                    if (value === undefined) return
                     setHeightOpDraft(null)
-                    onChangeFilters(setHeightCompareFilter(filters, { op: heightOp, value }))
+                    onChangeFilters(setHeightCompareFilter(
+                      filters,
+                      value === null ? null : { op: heightOp, value },
+                    ))
                   }}
                 />
               </div>
@@ -363,6 +351,8 @@ interface CommittedTextInputProps {
   placeholder: string
   onCommit: (value: string) => void
 }
+
+type CommittedNumberInputProps = CommittedTextInputProps
 
 type CompareOperatorDraft = {
   filterIdentity: string
@@ -388,6 +378,12 @@ export function commitTextDraft(
 ): null {
   if (activeDraft !== null && activeDraft !== value) onCommit(activeDraft)
   return null
+}
+
+export function parseDimensionDraft(raw: string): number | null | undefined {
+  if (!raw.trim()) return null
+  const value = Number(raw)
+  return Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
 function CommittedTextInput({
@@ -442,6 +438,47 @@ function CommittedTextInput({
         </button>
       </div>
     </label>
+  )
+}
+
+function CommittedNumberInput({
+  label,
+  value,
+  placeholder,
+  onCommit,
+}: CommittedNumberInputProps): JSX.Element {
+  const [activeDraft, setActiveDraft] = useState<string | null>(null)
+  const onCommitRef = useRef(onCommit)
+  onCommitRef.current = onCommit
+  const displayedValue = activeDraft ?? value
+
+  const commit = useCallback(() => {
+    if (activeDraft !== null && activeDraft !== value) onCommitRef.current(activeDraft)
+    setActiveDraft(null)
+  }, [activeDraft, value])
+
+  return (
+    <div className="flex min-w-0 flex-1">
+      <input
+        type="number"
+        aria-label={label}
+        className="ui-input ui-number w-full"
+        value={displayedValue}
+        min={0}
+        placeholder={placeholder}
+        onChange={(event) => setActiveDraft(event.currentTarget.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            commit()
+          } else if (event.key === 'Escape') {
+            event.preventDefault()
+            setActiveDraft(null)
+          }
+        }}
+      />
+    </div>
   )
 }
 

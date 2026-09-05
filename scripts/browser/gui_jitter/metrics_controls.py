@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit
 
 
 def collapse_left_panel_with_focus_check(page: Any, timeout_ms: float) -> dict[str, Any]:
@@ -191,6 +192,35 @@ def _exercise_external_filter_projection(page: Any, timeout_ms: float) -> dict[s
     )
     settled_clear = _filter_control_values(page)
 
+    page.wait_for_timeout(300)
+    draft_requests: list[str] = []
+
+    def record_filter_request(request: Any) -> None:
+        path = urlsplit(request.url).path
+        if path in {"/folders", "/folders/query", "/folders/facets"}:
+            draft_requests.append(path)
+
+    page.on("request", record_filter_request)
+    width.focus()
+    width.press_sequentially("900")
+    page.wait_for_timeout(300)
+    requests_while_typing_900 = list(draft_requests)
+    width.press("Home")
+    width.press("Delete")
+    width.press_sequentially("8")
+    page.wait_for_timeout(300)
+    edited_width = width.input_value()
+    requests_while_typing_800 = list(draft_requests)
+    width.press("Enter")
+    page.wait_for_timeout(300)
+    requests_after_commit = list(draft_requests)
+    clear.click()
+    page.wait_for_function(
+        """() => (document.querySelector('[aria-label="Width pixels"]')?.value || '') === ''""",
+        timeout=timeout_ms,
+    )
+    page.remove_listener("request", record_filter_request)
+
     _select_operator(page, "width", "<=", timeout_ms)
     width.fill("777")
     minimum.fill(range_min)
@@ -259,6 +289,15 @@ def _exercise_external_filter_projection(page: Any, timeout_ms: float) -> dict[s
     }
     if settled_clear != {**expected_active_clear, "filename": ""}:
         violations.append(f"settled Clear all left stale controlled values: {settled_clear!r}")
+    if requests_while_typing_900 or requests_while_typing_800:
+        violations.append(
+            "dimension draft issued filter requests before commit: "
+            f"900={requests_while_typing_900!r}, 800={requests_while_typing_800!r}"
+        )
+    if edited_width != "800":
+        violations.append(f"dimension draft could not replace 900 with 800: {edited_width!r}")
+    if not requests_after_commit:
+        violations.append("committed dimension draft did not issue a filter request")
     if smart_folder != expected_projection:
         violations.append(f"Smart Folder activation projected stale controls: {smart_folder!r}")
     if restored != expected_projection:
@@ -270,6 +309,12 @@ def _exercise_external_filter_projection(page: Any, timeout_ms: float) -> dict[s
         "focus_only_text": focus_only_text,
         "focus_only_range": focus_only_range,
         "settled_clear": settled_clear,
+        "dimension_draft": {
+            "edited_width": edited_width,
+            "requests_while_typing_900": requests_while_typing_900,
+            "requests_while_typing_800": requests_while_typing_800,
+            "requests_after_commit": requests_after_commit,
+        },
         "smart_folder": smart_folder,
         "restored": restored,
         "shared_url": shared_url,

@@ -1,0 +1,103 @@
+# Frontend motion audit and refresh
+
+Date: 2026-09-28. Branch: `feat/frontend-motion-refresh`.
+Baseline: `d11142a`. This is an implementation record and maintained backlog;
+[DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) remains the presentation contract.
+
+## Guidance and scope
+
+The installed `npx transitions-dev add --free` material is a collection of 32
+Markdown recipes in `/fsx/yada/dev/transitions/`, installed beside this repository,
+not a `SKILL.md` package inside it. The audit uses those local recipes, particularly
+`accordion.md`, `toggle.md`, `menu-dropdown.md`, and `card-resize.md`.
+No runtime animation dependency or second `t-*` styling system is needed.
+
+Reviewed the shared stylesheet, Tailwind utilities, Dropdown, Toolbar,
+ThemeSettingsMenu, folder tree, thumbnail cards, Inspector sections, Metrics,
+Viewer, Compare, ranking, and the existing browser continuity gates. Source
+findings below are distinguished from browser evidence in the validation log.
+This is a motion and interaction audit, not a claim of exhaustive screen-reader,
+contrast, or cross-browser certification.
+
+The refresh should make frequent actions feel consistent and reversible. It
+must preserve immediate menu readability, decoded media identity, fixed status
+slots, keyboard behavior, and user drafts. Recipe durations are examples, not
+requirements: reuse Lenslet's short interaction durations and one shared easing
+curve. Do not copy decorative blur, particles, counter reels, or entrance delays
+into a data-review tool merely because a recipe exists.
+
+## Findings and work queue
+
+| ID | Priority / status | Evidence and affected owner | Change and reason |
+| --- | --- | --- | --- |
+| M01 | High / planned | `styles.css` uses unrelated 100/120/140/160/200ms transitions; Tailwind utilities use their own defaults. Toolbar search adds `transition-all duration-200` over the common input. | Define one shared motion vocabulary and replace existing declarations/utilities at their owners. Explicit properties keep layout and focus feedback predictable. |
+| M02 | High / planned | `InspectorSection.tsx` defers opening through an effect and rAF, removes children after 140ms; CSS interpolates `max-height: 0 → 9999px` plus opacity and translation. | Replace with the recipe's intrinsic CSS-grid disclosure in this common section component. Keep descendants mounted, opaque, and inert when closed. Preserve drafts, local expansion, and scroll; reverse directly on rapid toggles. |
+| M03 | Medium / planned | `ranking.css` has three `transition: all` rules. SortableRankingCard sets inline `transition: none`, defeating the card's visual feedback as well as movement. Hover movement is not limited to fine pointers. | Explicitly transition surface feedback while leaving drag transforms immediate; use the shared easing/timing. Gate decorative hover movement and keep fullscreen actions available on touch. |
+| M04 | Medium / planned | Global reduced-motion rule covers `*` but not pseudo-elements; slider-thumb feedback lives on a pseudo-element. Sync-card entrance is declared then canceled in `utilitySurfaces.css`; three entrance keyframes remain. | Put reduced-motion coverage in the common motion layer, include pseudo-elements, remove superseded entrance declarations/keyframes, and test the built CSS. |
+| M05 | Medium / investigate | ThumbCard uses a 160ms decoded-image fade, while Viewer/Compare use atomic promotion. Recycled cards also maintain local `loaded` state. | Trace cold/warm scrolling and recycled identities before changing thumbnail reveal ownership. Preserve the existing decode gate; do not add a skeleton crossfade. This has data/pixel-identity risk beyond a styling refresh. |
+| M06 | Medium / candidate | Sidebar tabs and attribute segments change active backgrounds without a shared segmented-control component. | A shared sliding indicator could clarify selection. First consolidate the component and verify variable-width labels, overflow, hidden tabs, first paint, and reduced motion. Never slide or fade the async tab body. |
+| M07 | Low / candidate | Modals and transient confirmations have separate shells/lifetimes across Similarity, export, Viewer, and ranking. | Consider a shared dialog/presence owner only after focus, Escape, exit interruption, and media continuity are specified. A mount-only zoom patch would create another motion style. |
+| M08 | Low / retain | ThemeSettingsMenu already has track/knob transitions and state-driven transforms. | Use common timing/easing without the recipe's keyframe bounce; this keeps interruption continuous and avoids mount animations. |
+| M09 | Low / retain | Frequent Dropdown/context/theme/sync panels already use opaque first frames and stable shells. | Preserve R5. Improve trigger feedback through shared tokens, not recipe entrance fades. |
+| M10 | Low / investigate | Permanent `will-change: transform` occurs on virtual rows and media; ranking fullscreen uses an 80ms linear transform transition. | Measure compositor memory and pointer-follow latency before changing these performance-sensitive paths. Do not infer a problem from the declaration alone. |
+
+## Coverage of all installed recipes
+
+“Candidate” means an improvement worth revisiting, not an observed defect or a
+commit promised by this low-risk pass. “Keep” means retain Lenslet's current
+behavior. “Skip” means the pattern does not suit the present product or contract.
+
+| Recipe | Lenslet surface / disposition | Reason or next step |
+| --- | --- | --- |
+| accordion | Inspector sections — implement M02 | Intrinsic height and retained children replace the existing common disclosure. Omit blur/fade. |
+| avatar-group-hover | Presence/filter chips — skip | Neighbor lift and bounce distract from dense controls and can move targets. |
+| banner-stacking | StatusBar/banners — candidate M07 | Requires a shared notification queue; preserve reserved status rows. |
+| card-resize | Inspector — adapt M02; grid — keep | Intrinsic disclosure sizing fits; animating virtualized card dimensions would interfere with layout/scroll anchoring. |
+| card-tilt | Gallery/ranking cards — skip | Keep image pixels undistorted and drag targets stable; M03 improves surface feedback instead. |
+| checkbox-check | Attribute filters/multi-select — keep | Checked state should be immediately legible. A delayed stroke offers little benefit for repeated classification. |
+| error-state-shake | Inputs/errors — skip | Persistent actionable error copy matters; shake and timed auto-reversion could obscure unresolved errors. |
+| icon-swap | Sidebar/menu triggers — candidate | If adopted, share one icon slot and preserve accessible names; avoid blurred interim icons. |
+| input-clear-dissolve | Toolbar search — skip | Clear immediately; per-word rAF effects and a 1s dissolve delay repeated filtering. Narrow common input transitions under M01. |
+| learn-more-hover | Links — keep | No important matching CTA; do not introduce a one-off arrow style. |
+| like-button | Rating stars — skip | Ratings are annotation controls, not celebrations; retain immediate color/state feedback. |
+| matrix-loader | Loading status — keep | Existing reserved status copy suffices. Never imply activity without an actual pending request. |
+| menu-dropdown | Shared Dropdown/context/theme menus — keep M09 | Recipe opacity-zero entrance conflicts with R5. Reuse easing only. |
+| modal | Dialogs/overlays — candidate M07 | Needs shared lifecycle/focus ownership before animation. |
+| notification-badge | Selection/presence badges — keep | Stable, immediately readable counts are more useful than a sliding/blurred badge. |
+| number-pop-in | Counts/metric values — skip | No partial digits or staggered query-owned values during atomic promotion. |
+| page-side-by-side | Browse/Viewer/Compare — skip | Sliding or blurring media conflicts with presentation-owned pixels and transforms. |
+| panel-reveal | Sidebars/mobile drawer — candidate | Requires layout/scroll/focus validation; preserve mounted state and opaque content. |
+| plus-menu-morph | Add-field controls — skip | Trigger and popup are separate; morphing the trigger changes useful anchor geometry. |
+| reasoning-stream | No agent transcript — skip | No matching product surface. |
+| shimmer-text | Pending metadata/status — skip | Avoid continuous decorative movement and duplicate text in dense review UI. |
+| skeleton-reveal | Async Inspector/Metrics/media — skip | R7/R9 require settled content retention, not skeleton replacement or blur. |
+| spinning-counter | Counts — skip | Reel fanfare obscures values and adds latency to frequent filtering. |
+| streaming-text | Metadata/notes — skip | These are complete editable values, not streamed generated paragraphs. |
+| success-check | Copy/export feedback — candidate M07 | A common fixed icon/status slot could help; preserve text confirmation and immediate truth. |
+| tabs-sliding | Sidebar/attribute tabs — candidate M06 | Move a shared selection indicator only, not tab content or query-owned values. |
+| text-states-swap | StatusBar/save labels — keep | Fixed slots already avoid reflow; blurred outgoing/incoming labels can mix target identities. |
+| texts-reveal | Empty/error/help text — skip | Readable first frames are preferable to staggered reveal in a utility app. |
+| thinking-states | No agent execution stream — skip | Do not synthesize narration for ordinary network requests. |
+| toast | Confirmations — candidate M07 | Consolidate lifecycle first; no isolated entrance patch. |
+| toggle | ThemeSettingsMenu — adapt M08 | Common state-driven transition, no load-time or repeated bounce keyframes. |
+| tooltip | Native titles/hover preview — candidate | A future accessible tooltip owner must support keyboard, touch, clamping, and dismissal. Preview media continues to decode before display. |
+
+## Implementation and validation log
+
+- Audit commit: record the inventory, contract decisions, and prioritized queue.
+- M01/M04: shared motion tokens, property-specific transitions, reduced-motion
+  coverage; validate full Vitest, TypeScript, build, toolbar painted frames.
+- M02: common disclosure replacement; validate browser frames from the click
+  onward, short/long sections, first open, rapid reversal, persisted closed
+  state, retained input/scroll, focus exclusion, and reduced motion. Run the
+  existing Inspector continuity probe with cold targets and decoded media.
+- M03: ranking feedback cleanup; validate real ranking controls, resizing,
+  dragging, touch action visibility, and reduced motion.
+- Finish with rebuilt/mirrored packaged assets, acceptance, relevant jitter
+  scenarios, repository lint, and recorded outcomes here.
+
+Browser evidence belongs under `docs/20260928_motion_evidence/`; bulky raw traces
+may stay in `/tmp/lenslet-motion-audit/`. Before modifying a browser harness,
+record the owning defect and expected reduction here. The proposed focused
+motion probe addresses M02's unmount/snap and M03/M04's pointer/motion-policy
+gaps; it must exercise actual components rather than only assert stylesheet text.

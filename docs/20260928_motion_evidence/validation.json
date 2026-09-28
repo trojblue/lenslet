@@ -1,0 +1,134 @@
+{
+  "code_commit": "01d422b",
+  "baseline_commit": "d11142a",
+  "unit_tests": {
+    "files": 121,
+    "tests": 692,
+    "status": "passed"
+  },
+  "typescript": "passed",
+  "build": "passed",
+  "packaged_assets": "byte-identical to frontend/dist (rsync checksum dry run)",
+  "lint": "passed with existing file-size warnings",
+  "acceptance": {
+    "status": "passed"
+  },
+  "inspector": {
+    "status": "passed"
+  },
+  "metrics": {
+    "status": "passed"
+  },
+  "disclosure_probe": "passed in normal and reduced motion; see disclosures.json",
+  "ranking_controls": "passed in desktop, reduced motion, and touch; see ranking.json",
+  "toolbar": {
+    "status": "failed",
+    "baseline_status": "failed",
+    "error": "Sprint 5 surface stage folder_and_context failed: Missing geometry target: .context-menu-panel",
+    "focused_dropdown_theme_presence": "passed"
+  },
+  "grid": {
+    "status": "failed",
+    "error": "Compare painted wrong or blank pixels",
+    "compare": {
+      "frame_count": 102,
+      "mixed_identity_frame_count": 0,
+      "mixed_pixel_frame_count": 95,
+      "sample": {
+        "presentedA": "/quick_01_meta.png",
+        "presentedB": "/quick_00_meta.png",
+        "pixels": [
+          [
+            188,
+            42,
+            117
+          ],
+          [
+            72,
+            35,
+            120
+          ]
+        ]
+      }
+    },
+    "hover_violations": [],
+    "ranking_violations": [],
+    "ranking_fullscreen": {
+      "frame_count": 81,
+      "retained_frame_count": 80,
+      "mixed_identity_frame_count": 0,
+      "mixed_pixel_frame_count": 0,
+      "failed_target": {
+        "target": "2",
+        "presented": "1",
+        "error": "2"
+      }
+    },
+    "top_stack_deltas_px": {
+      "baseline_to_filters_top_stack_delta": 0.0,
+      "baseline_to_restored_top_stack_delta": 0.0,
+      "baseline_to_filters_top_rail_delta": 0.0,
+      "baseline_to_restored_top_rail_delta": 0.0,
+      "baseline_to_filters_grid_body_top_delta": 0.0,
+      "baseline_to_restored_grid_body_top_delta": 0.0
+    },
+    "grid_width_deltas_px": {
+      "metric_to_restored_body_width_delta": 0.0,
+      "metric_to_restored_first_cell_left_delta": 0.0,
+      "metric_to_restored_first_cell_width_delta": 0.0,
+      "metric_to_restored_rail_width_delta": 0.0
+    }
+  },
+  "baseline_grid": {
+    "status": "failed",
+    "error": "Compare painted wrong or blank pixels",
+    "compare": {
+      "frame_count": 101,
+      "mixed_identity_frame_count": 0,
+      "mixed_pixel_frame_count": 95,
+      "sample": {
+        "presentedA": "/quick_01_meta.png",
+        "presentedB": "/quick_00_meta.png",
+        "pixels": [
+          [
+            188,
+            42,
+            117
+          ],
+          [
+            72,
+            35,
+            120
+          ]
+        ]
+      }
+    },
+    "hover_violations": [],
+    "ranking_violations": [],
+    "ranking_fullscreen": {
+      "frame_count": 80,
+      "retained_frame_count": 79,
+      "mixed_identity_frame_count": 0,
+      "mixed_pixel_frame_count": 0,
+      "failed_target": {
+        "target": "2",
+        "presented": "1",
+        "error": "2"
+      }
+    },
+    "top_stack_deltas_px": {
+      "baseline_to_filters_top_stack_delta": 0.0,
+      "baseline_to_restored_top_stack_delta": 0.0,
+      "baseline_to_filters_top_rail_delta": 0.0,
+      "baseline_to_restored_top_rail_delta": 0.0,
+      "baseline_to_filters_grid_body_top_delta": 0.0,
+      "baseline_to_restored_grid_body_top_delta": 0.0
+    },
+    "grid_width_deltas_px": {
+      "metric_to_restored_body_width_delta": 0.0,
+      "metric_to_restored_first_cell_left_delta": 0.0,
+      "metric_to_restored_first_cell_width_delta": 0.0,
+      "metric_to_restored_rail_width_delta": 0.0
+    }
+  }
+}

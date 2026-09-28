@@ -112,8 +112,8 @@ Validation: 121 Vitest files / 692 tests passed, TypeScript passed, build passed
 repository lint passed (existing size warnings). Live Dropdown, theme settings,
 and presence/count painted-frame checks passed, including opaque first frames;
 computed buttons use 120ms and the shared curve, and reduced motion yields 0s.
-The complete toolbar probe reached an export-menu disappearance; baseline
-comparison is pending before classifying it. Initial browser setup required
+The complete toolbar probe reached an export-menu disappearance, subsequently
+reproduced against the untouched baseline (details below). Initial browser setup required
 installing Chromium and its system libraries; no product workaround was added.
 
 ### Intrinsic Inspector disclosures
@@ -169,3 +169,46 @@ touch viewport and reduced motion. All validation used generated fixture images.
 Full Vitest (692 tests), TypeScript, build, and repository lint passed; packaged
 assets regenerated for this commit. Full acceptance and remaining continuity
 results follow below.
+
+## Final result and remaining validation debt
+
+Completed M01–M04 and M08's token alignment, in separate implementation commits:
+
+- `15fbc90` — shared motion vocabulary and reduced-motion policy.
+- `efd970e` — intrinsic Inspector disclosures and retained parsed presentations.
+- `01d422b` — ranking feedback, immediate drag transforms, and touch actions.
+
+No runtime dependency was added. Every implementation commit rebuilds and mirrors
+`src/lenslet/frontend/`. A final checksum dry run of `rsync` found no differences
+from `frontend/dist/`. The audit/backlog above is the place to record future
+motion work; candidate items need their stated evidence before implementation.
+
+| Validation on final code | Result |
+| --- | --- |
+| `npm --prefix frontend test -- --run` | 121 files, 692 tests passed |
+| `frontend/node_modules/.bin/tsc --noEmit -p frontend/tsconfig.json` | Passed |
+| `npm --prefix frontend run build` + bundle mirror | Passed |
+| `python scripts/lint_repo.py` | Passed; existing size warnings remain |
+| `python -m scripts.browser.gui_smoke.acceptance` | Passed |
+| `python -m scripts.browser.gui_jitter.probe --scenario inspector` | Passed |
+| `python -m scripts.browser.gui_jitter.probe --scenario metrics` | Passed |
+| `python -m scripts.browser.motion_refresh` | Passed normal/reduced motion, reversal, retained descendants/drafts/scroll/pixels, focus exclusion, and persisted closed first frame |
+| Ranking interaction checks | Passed desktop, touch, reduced motion, drag/drop, resize, keyboard fullscreen, decoded fullscreen |
+| `gui_jitter --scenario toolbar` | Existing export-menu disappearance; reproduced on baseline. Focused Dropdown/theme/presence checks passed |
+| `gui_jitter --scenario grid` | Existing Compare color assertion failure; reproduced on baseline. Other reported grid/media/hover/ranking checks passed |
+
+The grid failure is a fixture-state mismatch: `exercise_browse_continuity`
+switches the backend to `source_alt`, then the later Compare probe still uses
+`COMPARE_EXPECTED_RGB` for the original `source`. For `quick_01_meta.png`, it
+expects approximately `(36,126,74)` but receives the alternate fixture's
+`(188,42,117)`. Baseline and refreshed bundles have the same mismatch; both
+report zero mixed-identity frames. This does not constitute a successful complete
+grid gate. Restore fixture source state or make the expected palette source-aware
+in a dedicated harness change. Similarly, make the toolbar export/viewport probe
+own its pending-export lifetime before relying on its geometry assertions.
+Neither probe was weakened or bypassed in the repository.
+
+[Validation summary](20260928_motion_evidence/validation.json) preserves the
+outcomes and baseline comparison. Full raw logs/traces are in
+`/tmp/lenslet-motion-audit/` for this session. Verification used Chromium;
+Firefox/WebKit and physical touch-device performance remain unverified.

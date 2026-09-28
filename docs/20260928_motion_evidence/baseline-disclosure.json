@@ -1,0 +1,117 @@
+{
+  "samples": [
+    {
+      "t": 3.0999999046325684,
+      "h": 214.5625,
+      "opacity": "1",
+      "connected": true,
+      "inert": false
+    },
+    {
+      "t": 19.199999809265137,
+      "h": 214.5626220703125,
+      "opacity": "0.873272",
+      "connected": true,
+      "inert": false
+    },
+    {
+      "t": 36,
+      "h": 214.5626220703125,
+      "opacity": "0.618452",
+      "connected": true,
+      "inert": false
+    },
+    {
+      "t": 52.59999990463257,
+      "h": 214.5625,
+      "opacity": "0.383208",
+      "connected": true,
+      "inert": false
+    },
+    {
+      "t": 69.2999997138977,
+      "h": 214.5626220703125,
+      "opacity": "0.22203",
+      "connected": true,
+      "inert": false
+    },
+    {
+      "t": 86.09999990463257,
+      "h": 214.5625,
+      "opacity": "0.118168",
+      "connected": true,
+      "inert": false
+    },
+    {
+      "t": 103,
+      "h": 214.5625,
+      "opacity": "0.0530953",
+      "connected": true,
+      "inert": false
+    },
+    {
+      "t": 119.2999997138977,
+      "h": 166.140625,
+      "opacity": "0.016617",
+      "connected": true,
+      "inert": false
+    },
+    {
+      "t": 136.09999990463257,
+      "h": 12.546875,
+      "opacity": "0.00125609",
+      "connected": true,
+      "inert": false
+    },
+    {
+      "t": 152.7999997138977,
+      "h": 0,
+      "opacity": "",
+      "connected": false,
+      "inert": false
+    },
+    {
+      "t": 169.19999980926514,
+      "h": 0,
+      "opacity": "",
+      "connected": false,
+      "inert": false
+    },
+    {
+      "t": 185.90000009536743,
+      "h": 0,
+      "opacity": "",
+      "connected": false,
+      "inert": false
+    },
+    {
+      "t": 202.59999990463257,
+      "h": 0,
+      "opacity": "",
+      "connected": false,
+      "inert": false
+    },
+    {
+      "t": 219.19999980926514,
+      "h": 0,
+      "opacity": "",
+      "connected": false,
+      "inert": false
+    },
+    {
+      "t": 235.7999997138977,
+      "h": 0,
+      "opacity": "",
+      "connected": false,
+      "inert": false
+    },
+    {
+      "t": 252.5,
+      "h": 0,
+      "opacity": "",
+      "connected": false,
+      "inert": false
+    }
+  ],
+  "retained": false
+}

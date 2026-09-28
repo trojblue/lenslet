@@ -1,4 +1,4 @@
-import React, { useEffect, useState, type CSSProperties } from 'react'
+import React, { useId, useRef, type CSSProperties } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
@@ -25,8 +25,8 @@ export function InspectorSection({
   contentClassName,
   minHeightPx,
 }: InspectorSectionProps): JSX.Element {
-  const [renderBody, setRenderBody] = useState(open)
-  const [bodyState, setBodyState] = useState(open ? 'open' : 'closed')
+  const bodyId = useId()
+  const toggleRef = useRef<HTMLButtonElement>(null)
   const {
     attributes,
     listeners,
@@ -43,20 +43,6 @@ export function InspectorSection({
     transition,
     minHeight: minHeightPx,
   }
-
-  useEffect(() => {
-    if (open) {
-      setRenderBody(true)
-      const id = window.requestAnimationFrame(() => setBodyState('open'))
-      return () => window.cancelAnimationFrame(id)
-    }
-    setBodyState('closing')
-    const timeoutId = window.setTimeout(() => {
-      setRenderBody(false)
-      setBodyState('closed')
-    }, 140)
-    return () => window.clearTimeout(timeoutId)
-  }, [open])
 
   return (
     <div
@@ -97,9 +83,11 @@ export function InspectorSection({
             </button>
           )}
           <button
+            ref={toggleRef}
             type="button"
             onClick={onToggle}
             aria-expanded={open}
+            aria-controls={bodyId}
             className="flex min-w-0 items-center gap-2 inspector-section-title hover:text-text transition-colors"
           >
             <svg
@@ -111,7 +99,7 @@ export function InspectorSection({
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className={`transition-transform ${open ? 'rotate-90' : ''}`}
+              className={`inspector-section-chevron ${open ? 'rotate-90' : ''}`}
               aria-hidden="true"
             >
               <path d="m9 18 6-6-6-6" />
@@ -121,13 +109,23 @@ export function InspectorSection({
         </div>
         {actions && <div className="inspector-section-actions shrink-0">{actions}</div>}
       </div>
-      {renderBody && (
-        <div className="inspector-section-body" data-state={bodyState} aria-hidden={!open}>
+      <div
+        id={bodyId}
+        className="inspector-section-body"
+        data-state={open ? 'open' : 'closed'}
+        aria-hidden={!open}
+        ref={(element) => {
+          if (!element) return
+          if (!open && element.contains(document.activeElement)) toggleRef.current?.focus()
+          element.toggleAttribute('inert', !open)
+        }}
+      >
+        <div className="inspector-section-body-clip">
           <div className={`relative ${contentClassName ?? 'px-3 pb-3'}`}>
             {children}
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

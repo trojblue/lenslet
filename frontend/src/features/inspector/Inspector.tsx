@@ -194,8 +194,6 @@ export default function Inspector({
     metadataCompareAvailable,
     autoloadMetadataCompare: autoloadImageMetadata,
   })
-  const compareSectionOpen = metadataCompareReady && openSections.compare
-  const metadataSectionOpen = !multi && openSections.metadata
   const mut = useUpdateSidecar(presentedPath ?? '', presentationResetKey)
 
   const mutateSidecar = useCallback(
@@ -400,9 +398,9 @@ export default function Inspector({
   ])
 
   const metaDisplayNode = useMemo(() => {
-    if (!metadataSectionOpen || !metaDisplayValue) return null
+    if (!metaDisplayValue) return null
     return buildJsonRenderNode(metaDisplayValue)
-  }, [metadataSectionOpen, metaDisplayValue])
+  }, [metaDisplayValue])
 
   const copyMetadataValue = useCallback((pathLabel: string, copyText: string) => {
     const context = presentation?.identity ?? null
@@ -468,14 +466,14 @@ export default function Inspector({
   const hasPilInfo = hasPilInfoMetadata(metaRaw)
 
   const compareMatrix = useMemo(() => {
-    if (!compareSectionOpen) return null
+    if (!metadataCompareReady) return null
     return buildCompareMetadataMatrixFromNormalized(normalizedCompareMatrixInputs, {
       includePilInfo: compareIncludePilInfo,
       limit: COMPARE_MATRIX_LIMIT,
       maxDepth: COMPARE_MATRIX_MAX_DEPTH,
       maxArray: COMPARE_MATRIX_MAX_ARRAY,
     })
-  }, [compareSectionOpen, normalizedCompareMatrixInputs, compareIncludePilInfo])
+  }, [metadataCompareReady, normalizedCompareMatrixInputs, compareIncludePilInfo])
 
   const copyInfo = useCallback((key: string, text: string) => {
     if (!text) return

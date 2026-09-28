@@ -1963,22 +1963,23 @@
   border-color: var(--border-strong);
 }
 
+/* Intrinsic height keeps short and long sections on the same clock. The clip
+   wrapper has no padding so the closed grid track can reach exactly zero. */
 .inspector-section-body {
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-  transform: translateY(-4px);
-  transition: max-height 140ms ease, opacity 140ms ease, transform 140ms ease;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-duration-disclosure) var(--motion-ease-out);
 }
 
 .inspector-section-body[data-state="open"] {
-  max-height: 9999px;
-  opacity: 1;
-  transform: translateY(0);
+  grid-template-rows: 1fr;
 }
 
-.inspector-section-body[data-state="closing"] {
-  max-height: 0;
-  opacity: 0;
-  transform: translateY(-4px);
+.inspector-section-body-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.inspector-section-chevron {
+  transition: rotate var(--motion-duration-disclosure) var(--motion-ease-out);
 }

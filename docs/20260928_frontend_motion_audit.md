@@ -31,7 +31,7 @@ into a data-review tool merely because a recipe exists.
 | ID | Priority / status | Evidence and affected owner | Change and reason |
 | --- | --- | --- | --- |
 | M01 | High / implemented | `styles.css` uses unrelated 100/120/140/160/200ms transitions; Tailwind utilities use their own defaults. Toolbar search adds `transition-all duration-200` over the common input. | Define one shared motion vocabulary and replace existing declarations/utilities at their owners. Explicit properties keep layout and focus feedback predictable. |
-| M02 | High / planned | `InspectorSection.tsx` defers opening through an effect and rAF, removes children after 140ms; CSS interpolates `max-height: 0 → 9999px` plus opacity and translation. | Replace with the recipe's intrinsic CSS-grid disclosure in this common section component. Keep descendants mounted, opaque, and inert when closed. Preserve drafts, local expansion, and scroll; reverse directly on rapid toggles. |
+| M02 | High / implemented | `InspectorSection.tsx` defers opening through an effect and rAF, removes children after 140ms; CSS interpolates `max-height: 0 → 9999px` plus opacity and translation. | Replace with the recipe's intrinsic CSS-grid disclosure in this common section component. Keep descendants mounted, opaque, and inert when closed. Preserve drafts, local expansion, and scroll; reverse directly on rapid toggles. |
 | M03 | Medium / planned | `ranking.css` has three `transition: all` rules. SortableRankingCard sets inline `transition: none`, defeating the card's visual feedback as well as movement. Hover movement is not limited to fine pointers. | Explicitly transition surface feedback while leaving drag transforms immediate; use the shared easing/timing. Gate decorative hover movement and keep fullscreen actions available on touch. |
 | M04 | Medium / implemented | Global reduced-motion rule covers `*` but not pseudo-elements; slider-thumb feedback lives on a pseudo-element. Sync-card entrance is declared then canceled in `utilitySurfaces.css`; three entrance keyframes remain. | Put reduced-motion coverage in the common motion layer, include pseudo-elements, remove superseded entrance declarations/keyframes, and test the built CSS. |
 | M05 | Medium / investigate | ThumbCard uses a 160ms decoded-image fade, while Viewer/Compare use atomic promotion. Recycled cards also maintain local `loaded` state. | Trace cold/warm scrolling and recycled identities before changing thumbnail reveal ownership. Preserve the existing decode gate; do not add a skeleton crossfade. This has data/pixel-identity risk beyond a styling refresh. |
@@ -115,3 +115,31 @@ computed buttons use 120ms and the shared curve, and reduced motion yields 0s.
 The complete toolbar probe reached an export-menu disappearance; baseline
 comparison is pending before classifying it. Initial browser setup required
 installing Chromium and its system libraries; no product workaround was added.
+
+### Intrinsic Inspector disclosures
+
+M02 is implemented in the common section component. The focused frame test also
+exposed visibility-gated parsed metadata and comparison matrices in `Inspector`;
+those presentations now follow data identity rather than disclosure visibility.
+Closed descendants stay inert, section buttons link to their bodies, and focus
+returns to the trigger when a closing body contains it.
+
+The baseline Notes body stayed near 215px for roughly 100ms while fading, then
+collapsed and detached its textarea. The replacement has multiple intermediate
+height frames, stays opaque, and keeps the same textarea, draft, scroll, rows,
+actions, and decoded preview pixels. Short/long sections, reverse-at-50ms,
+comparison rows, persisted closed first frames, and reduced motion passed.
+See [baseline trace](20260928_motion_evidence/baseline-disclosure.json) and
+[verified frame summaries](20260928_motion_evidence/disclosures.json).
+Reproduce with `python -m scripts.browser.motion_refresh` after rebuilding.
+
+The complete Inspector jitter probe passed, including cold unvisited targets,
+rapid selection, delayed/failed responses, hidden/tab lifecycle, and media
+identity checks. Full Vitest (692 tests), TypeScript, build, and lint passed.
+Packaged assets were regenerated for this commit.
+
+The toolbar export-menu failure also reproduces with the untouched `d11142a`
+bundle served separately: `_capture_folder_and_context_surfaces` loses
+`.context-menu-panel` during its export/viewport sequence. This is recorded as
+an existing gate failure, not a successful full-toolbar result. The focused
+Dropdown/theme/presence checks pass with the refreshed bundle.

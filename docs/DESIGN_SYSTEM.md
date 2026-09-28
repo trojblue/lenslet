@@ -188,6 +188,16 @@ Menus remain opaque on their first frame, and media promotion remains decoded
 and atomic. Reduced motion disables transitions/animations on elements and
 pseudo-elements without resetting functional media/drag transforms.
 
+Inspector disclosures use intrinsic grid-track height transitions. An explicit
+expand/collapse action intentionally changes the body and following headers'
+geometry; it does not fade, blur, translate, or clear their contents. Descendants
+and their parsed presentation stay mounted. Closed bodies are inert and hidden
+from assistive technology immediately, with focus returned to the disclosure
+button when needed. A persisted closed body starts closed before paint. Rapid
+reversal uses the current CSS position, without timers or delayed unmounting.
+Async refreshes inside a settled section still obey the one-pixel continuity
+gate; the disclosure exception applies only to explicit visibility actions.
+
 ### Continuity checks
 
 Stable presentation must preserve keyboard operation, focus continuity,

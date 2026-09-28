@@ -580,7 +580,7 @@ export default function Toolbar({
                 aria-label="Search filename, tags, notes"
                 placeholder={searchDisabled ? (searchPlaceholder ?? 'Search disabled') : 'Search...'}
                 onChange={(e) => onSearch(e.target.value)}
-                className="toolbar-search-input input w-full focus:w-full transition-all duration-200 select-text"
+                className="toolbar-search-input input w-full focus:w-full select-text"
                 disabled={!showDesktopSearch || searchDisabled}
                 tabIndex={showDesktopSearch ? 0 : -1}
                 aria-hidden={!showDesktopSearch}

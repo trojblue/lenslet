@@ -1,0 +1,28 @@
+/* Shared interaction motion. Status/loading delays belong to their data owners. */
+:root {
+  --motion-duration-fast: 120ms;
+  --motion-duration-feedback: 160ms;
+  --motion-duration-disclosure: 200ms;
+  --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Includes pseudo-element controls such as range thumbs and status decorations.
+   Do not reset transforms: media pan/zoom and drag positions are functional. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  input::-webkit-slider-thumb {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  input::-moz-range-thumb {
+    transition: none !important;
+    animation: none !important;
+  }
+}

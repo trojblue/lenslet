@@ -1,6 +1,7 @@
 /* Keep render path local on mobile; avoid external font CSS blocking first paint. */
 @import "tailwindcss";
 @import './theme.css' layer(base);
+@import './motion.css';
 
 ::selection {
   background: var(--accent-strong);
@@ -14,6 +15,9 @@
 
 /* Custom design tokens - Tailwind v4 @theme */
 @theme {
+  --default-transition-duration: var(--motion-duration-fast);
+  --default-transition-timing-function: var(--motion-ease-out);
+
   /* Core colors mapped from theme.css variables */
   --color-bg: var(--bg);
   --color-panel: var(--panel);
@@ -190,7 +194,7 @@
   box-shadow:
     inset 0 0 0 1px color-mix(in oklab, var(--accent) 70%, transparent),
     0 0 0 2px color-mix(in oklab, var(--accent) 40%, transparent);
-  transition: box-shadow 160ms ease, border-color 160ms ease;
+  transition: box-shadow var(--motion-duration-feedback) var(--motion-ease-out), border-color var(--motion-duration-feedback) var(--motion-ease-out);
 }
 
 .media-error-overlay, .media-loading-overlay {
@@ -242,7 +246,7 @@
   justify-content: center;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-out), background-color var(--motion-duration-fast) var(--motion-ease-out), border-color var(--motion-duration-fast) var(--motion-ease-out);
   z-index: 4;
 }
 
@@ -279,7 +283,7 @@
 
 .grid-item-preview-corner {
   opacity: 0;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .group:hover .grid-item-preview-corner,
@@ -329,7 +333,7 @@
   cursor: pointer;
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-out), background-color var(--motion-duration-fast) var(--motion-ease-out), border-color var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .tree-row:hover .tree-row-action-btn,
@@ -648,7 +652,7 @@
   background: var(--surface);
   color: var(--text);
   font-size: 13px;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-out), border-color var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .input::placeholder,
@@ -687,7 +691,7 @@
   color: var(--text);
   font-size: 13px;
   resize: vertical;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-out), border-color var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .ui-textarea::placeholder {
@@ -723,7 +727,7 @@
 
 .ui-kv-label-action {
   cursor: pointer;
-  transition: color 0.1s;
+  transition: color var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .ui-kv-label-action:hover {
@@ -814,7 +818,7 @@
   color: var(--text);
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-out), border-color var(--motion-duration-fast) var(--motion-ease-out);
   white-space: nowrap;
 }
 
@@ -828,7 +832,7 @@
   height: 8px;
   border-radius: 999px;
   box-shadow: 0 0 0 1px var(--surface);
-  transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  transition: background-color var(--motion-duration-disclosure) var(--motion-ease-out), box-shadow var(--motion-duration-disclosure) var(--motion-ease-out), transform var(--motion-duration-disclosure) var(--motion-ease-out);
 }
 
 .sync-indicator-count {
@@ -879,7 +883,6 @@
   background: var(--surface);
   box-shadow: var(--shadow-md);
   z-index: var(--z-menu);
-  animation: slideDown 0.12s ease-out;
   user-select: text;
 }
 
@@ -1362,9 +1365,6 @@
 }
 
 /* Animations */
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-@keyframes slideDown { from { transform: translateY(-4px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @keyframes syncPulse {
   0% { box-shadow: 0 0 0 0 var(--sync-dot-glow); transform: scale(1); }
   70% { box-shadow: 0 0 0 6px transparent; transform: scale(1.06); }
@@ -1374,13 +1374,6 @@
   0% { box-shadow: 0 0 0 0 var(--sync-dot-glow); }
   50% { box-shadow: 0 0 0 2px var(--sync-dot-glow); }
   100% { box-shadow: 0 0 0 0 var(--sync-dot-glow); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sync-dot-recent,
-  .sync-dot-editing {
-    animation: none;
-  }
 }
 
 /* Screen reader only */
@@ -1412,7 +1405,7 @@
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-out), border-color var(--motion-duration-fast) var(--motion-ease-out);
   white-space: nowrap;
 }
 
@@ -1484,7 +1477,7 @@
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-out), border-color var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .dropdown-trigger:hover {
@@ -1548,7 +1541,7 @@
   border-radius: 6px;
   cursor: pointer;
   text-align: left;
-  transition: background 0.1s;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .dropdown-item:hover {
@@ -1726,7 +1719,7 @@
   background: var(--surface);
   position: relative;
   flex-shrink: 0;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  transition: background-color var(--motion-duration-feedback) var(--motion-ease-out), border-color var(--motion-duration-feedback) var(--motion-ease-out);
 }
 
 .theme-settings-menu-toggle-knob {
@@ -1737,7 +1730,7 @@
   height: 12px;
   border-radius: 999px;
   background: color-mix(in oklab, var(--text) 92%, white 8%);
-  transition: transform 140ms ease;
+  transition: transform var(--motion-duration-feedback) var(--motion-ease-out);
 }
 
 .theme-settings-menu-toggle.is-active {
@@ -1780,7 +1773,7 @@
   border-radius: 50%;
   color: var(--text);
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .filter-chip-remove:hover {
@@ -1988,12 +1981,4 @@
   max-height: 0;
   opacity: 0;
   transform: translateY(-4px);
-}
-
-/* Reduced motion preference */
-@media (prefers-reduced-motion: reduce) {
-  * { 
-    animation: none !important; 
-    transition: none !important; 
-  }
 }

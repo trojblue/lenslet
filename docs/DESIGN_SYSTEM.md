@@ -176,6 +176,20 @@ effect.
 
 ## Accessibility and verification
 
+### Shared interaction motion
+
+`frontend/src/motion.css` owns cosmetic motion tokens: 120ms for frequent
+control feedback, 160ms for state emphasis, and 200ms for disclosures. Existing
+CSS owners and Tailwind's default transition utilities share
+`cubic-bezier(0.22, 1, 0.36, 1)`. These are interaction durations, not new loading
+or fallback thresholds; the approved async timing contracts above are unchanged.
+Transition explicit properties, never `all`. Keep focus indication immediate.
+Menus remain opaque on their first frame, and media promotion remains decoded
+and atomic. Reduced motion disables transitions/animations on elements and
+pseudo-elements without resetting functional media/drag transforms.
+
+### Continuity checks
+
 Stable presentation must preserve keyboard operation, focus continuity,
 programmatic names, ARIA state, and accessible full text. Color or opacity alone
 must not communicate state. Reduced-motion users receive no essential motion,

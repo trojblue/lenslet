@@ -118,7 +118,7 @@ export default function ThumbCard({
     'border border-border-subtle shadow-sm',
     selected
       ? 'ring-2 ring-accent border-transparent'
-      : 'transition-[border-color,box-shadow] duration-150 hover:border-border-strong hover:shadow-md',
+      : 'transition-[border-color,box-shadow] duration-(--motion-duration-feedback) hover:border-border-strong hover:shadow-md',
     highlighted ? 'thumb-updated-ring' : '',
   ].filter(Boolean).join(' ')
 

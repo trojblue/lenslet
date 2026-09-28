@@ -30,10 +30,10 @@ into a data-review tool merely because a recipe exists.
 
 | ID | Priority / status | Evidence and affected owner | Change and reason |
 | --- | --- | --- | --- |
-| M01 | High / planned | `styles.css` uses unrelated 100/120/140/160/200ms transitions; Tailwind utilities use their own defaults. Toolbar search adds `transition-all duration-200` over the common input. | Define one shared motion vocabulary and replace existing declarations/utilities at their owners. Explicit properties keep layout and focus feedback predictable. |
+| M01 | High / implemented | `styles.css` uses unrelated 100/120/140/160/200ms transitions; Tailwind utilities use their own defaults. Toolbar search adds `transition-all duration-200` over the common input. | Define one shared motion vocabulary and replace existing declarations/utilities at their owners. Explicit properties keep layout and focus feedback predictable. |
 | M02 | High / planned | `InspectorSection.tsx` defers opening through an effect and rAF, removes children after 140ms; CSS interpolates `max-height: 0 → 9999px` plus opacity and translation. | Replace with the recipe's intrinsic CSS-grid disclosure in this common section component. Keep descendants mounted, opaque, and inert when closed. Preserve drafts, local expansion, and scroll; reverse directly on rapid toggles. |
 | M03 | Medium / planned | `ranking.css` has three `transition: all` rules. SortableRankingCard sets inline `transition: none`, defeating the card's visual feedback as well as movement. Hover movement is not limited to fine pointers. | Explicitly transition surface feedback while leaving drag transforms immediate; use the shared easing/timing. Gate decorative hover movement and keep fullscreen actions available on touch. |
-| M04 | Medium / planned | Global reduced-motion rule covers `*` but not pseudo-elements; slider-thumb feedback lives on a pseudo-element. Sync-card entrance is declared then canceled in `utilitySurfaces.css`; three entrance keyframes remain. | Put reduced-motion coverage in the common motion layer, include pseudo-elements, remove superseded entrance declarations/keyframes, and test the built CSS. |
+| M04 | Medium / implemented | Global reduced-motion rule covers `*` but not pseudo-elements; slider-thumb feedback lives on a pseudo-element. Sync-card entrance is declared then canceled in `utilitySurfaces.css`; three entrance keyframes remain. | Put reduced-motion coverage in the common motion layer, include pseudo-elements, remove superseded entrance declarations/keyframes, and test the built CSS. |
 | M05 | Medium / investigate | ThumbCard uses a 160ms decoded-image fade, while Viewer/Compare use atomic promotion. Recycled cards also maintain local `loaded` state. | Trace cold/warm scrolling and recycled identities before changing thumbnail reveal ownership. Preserve the existing decode gate; do not add a skeleton crossfade. This has data/pixel-identity risk beyond a styling refresh. |
 | M06 | Medium / candidate | Sidebar tabs and attribute segments change active backgrounds without a shared segmented-control component. | A shared sliding indicator could clarify selection. First consolidate the component and verify variable-width labels, overflow, hidden tabs, first paint, and reduced motion. Never slide or fade the async tab body. |
 | M07 | Low / candidate | Modals and transient confirmations have separate shells/lifetimes across Similarity, export, Viewer, and ranking. | Consider a shared dialog/presence owner only after focus, Escape, exit interruption, and media continuity are specified. A mount-only zoom patch would create another motion style. |
@@ -101,3 +101,17 @@ may stay in `/tmp/lenslet-motion-audit/`. Before modifying a browser harness,
 record the owning defect and expected reduction here. The proposed focused
 motion probe addresses M02's unmount/snap and M03/M04's pointer/motion-policy
 gaps; it must exercise actual components rather than only assert stylesheet text.
+
+### Shared motion foundation
+
+Implemented M01/M04 at the existing CSS/Tailwind owners; M08 now shares the
+feedback tokens. Removed search's all-property override and the dead menu
+entrance rules. Packaged assets rebuilt and mirrored.
+
+Validation: 121 Vitest files / 692 tests passed, TypeScript passed, build passed,
+repository lint passed (existing size warnings). Live Dropdown, theme settings,
+and presence/count painted-frame checks passed, including opaque first frames;
+computed buttons use 120ms and the shared curve, and reduced motion yields 0s.
+The complete toolbar probe reached an export-menu disappearance; baseline
+comparison is pending before classifying it. Initial browser setup required
+installing Chromium and its system libraries; no product workaround was added.

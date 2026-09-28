@@ -45,7 +45,6 @@
   width: min(260px, calc(100vw - 24px));
   min-width: 0;
   max-width: none;
-  animation: none;
 }
 
 .sync-indicator-item-time {

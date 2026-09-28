@@ -171,7 +171,6 @@ function SortableRankingCard({
   })
   const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
-    transition: 'none',
   }
   const className = [
     'ranking-card',

@@ -284,11 +284,7 @@
   border-radius: 50%;
   background: var(--text);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-  transition: transform 0.1s;
-}
-
-.ranking-thumb-size-control input[type='range']::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
+  transition: transform var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .ranking-thumb-size-value {
@@ -326,12 +322,12 @@
   cursor: row-resize;
   padding: 0;
   touch-action: none;
-  transition: all 0.2s ease;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-out),
+    transform var(--motion-duration-feedback) var(--motion-ease-out);
 }
 
 .ranking-unranked-resize-handle:hover {
   background: rgba(255, 255, 255, 0.1);
-  transform: scale(1.1);
 }
 
 .ranking-unranked-resize-handle::before,
@@ -434,7 +430,8 @@
   background: rgba(0, 0, 0, 0.15);
   box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.2);
   overflow: hidden;
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color var(--motion-duration-feedback) var(--motion-ease-out),
+    background-color var(--motion-duration-feedback) var(--motion-ease-out);
 }
 
 .ranking-column-rank .ranking-column-header {
@@ -484,11 +481,12 @@
   cursor: grab;
   touch-action: none;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s, opacity 0.15s;
+  /* Sortable owns transform; feedback must never tween a drag position. */
+  transition: box-shadow var(--motion-duration-feedback) var(--motion-ease-out),
+    border-color var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .ranking-card:hover {
-  transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   border-color: rgba(255, 255, 255, 0.16);
 }
@@ -534,7 +532,10 @@
   place-items: center;
   line-height: 0;
   opacity: 0;
-  transition: all 0.2s ease;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-out),
+    background-color var(--motion-duration-fast) var(--motion-ease-out),
+    border-color var(--motion-duration-fast) var(--motion-ease-out),
+    transform var(--motion-duration-feedback) var(--motion-ease-out);
 }
 
 .ranking-card-fullscreen svg {
@@ -551,7 +552,6 @@
 .ranking-card-fullscreen:hover {
   background: rgba(0, 0, 0, 0.8);
   border-color: rgba(255, 255, 255, 0.2);
-  transform: scale(1.05);
 }
 
 .ranking-card-image-shell {
@@ -626,13 +626,15 @@
   letter-spacing: 0.02em;
   text-decoration: none;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-out),
+    border-color var(--motion-duration-fast) var(--motion-ease-out),
+    box-shadow var(--motion-duration-feedback) var(--motion-ease-out),
+    transform var(--motion-duration-feedback) var(--motion-ease-out);
 }
 
 .ranking-button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.16);
-  transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
@@ -846,5 +848,30 @@
   .ranking-fullscreen-hint {
     width: 100%;
     text-align: left;
+  }
+}
+
+/* Hover-only movement is decorative; touch and reduced motion keep stable targets. */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .ranking-thumb-size-control input[type='range']::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+  }
+
+  .ranking-unranked-resize-handle:hover {
+    transform: scale(1.1);
+  }
+
+  .ranking-card-fullscreen:hover {
+    transform: scale(1.05);
+  }
+
+  .ranking-button:hover:not(:disabled):not(:active) {
+    transform: translateY(-1px);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .ranking-card-fullscreen {
+    opacity: 1;
   }
 }

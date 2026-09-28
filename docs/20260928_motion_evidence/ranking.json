@@ -1,0 +1,39 @@
+{
+  "desktop": {
+    "properties": "box-shadow, border-color",
+    "duration": "0.16s, 0.12s",
+    "transform": "none",
+    "fullscreen": {
+      "complete": true,
+      "width": 48,
+      "opacity": "1"
+    },
+    "resize": [
+      480,
+      525
+    ],
+    "drag_properties": "box-shadow, border-color",
+    "dragged_label": "quick_00_meta.png"
+  },
+  "reduced": {
+    "properties": "none",
+    "duration": "0s",
+    "transform": "none",
+    "fullscreen": {
+      "complete": true,
+      "width": 48,
+      "opacity": "1"
+    },
+    "slider_pseudo_duration": "0s"
+  },
+  "touch": {
+    "properties": "box-shadow, border-color",
+    "duration": "0.16s, 0.12s",
+    "transform": "none",
+    "fullscreen": {
+      "complete": true,
+      "width": 48,
+      "opacity": "1"
+    }
+  }
+}

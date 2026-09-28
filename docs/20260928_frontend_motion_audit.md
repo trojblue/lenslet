@@ -32,7 +32,7 @@ into a data-review tool merely because a recipe exists.
 | --- | --- | --- | --- |
 | M01 | High / implemented | `styles.css` uses unrelated 100/120/140/160/200ms transitions; Tailwind utilities use their own defaults. Toolbar search adds `transition-all duration-200` over the common input. | Define one shared motion vocabulary and replace existing declarations/utilities at their owners. Explicit properties keep layout and focus feedback predictable. |
 | M02 | High / implemented | `InspectorSection.tsx` defers opening through an effect and rAF, removes children after 140ms; CSS interpolates `max-height: 0 → 9999px` plus opacity and translation. | Replace with the recipe's intrinsic CSS-grid disclosure in this common section component. Keep descendants mounted, opaque, and inert when closed. Preserve drafts, local expansion, and scroll; reverse directly on rapid toggles. |
-| M03 | Medium / planned | `ranking.css` has three `transition: all` rules. SortableRankingCard sets inline `transition: none`, defeating the card's visual feedback as well as movement. Hover movement is not limited to fine pointers. | Explicitly transition surface feedback while leaving drag transforms immediate; use the shared easing/timing. Gate decorative hover movement and keep fullscreen actions available on touch. |
+| M03 | Medium / implemented | `ranking.css` has three `transition: all` rules. SortableRankingCard sets inline `transition: none`, defeating the card's visual feedback as well as movement. Hover movement is not limited to fine pointers. | Explicitly transition surface feedback while leaving drag transforms immediate; use the shared easing/timing. Gate decorative hover movement and keep fullscreen actions available on touch. |
 | M04 | Medium / implemented | Global reduced-motion rule covers `*` but not pseudo-elements; slider-thumb feedback lives on a pseudo-element. Sync-card entrance is declared then canceled in `utilitySurfaces.css`; three entrance keyframes remain. | Put reduced-motion coverage in the common motion layer, include pseudo-elements, remove superseded entrance declarations/keyframes, and test the built CSS. |
 | M05 | Medium / investigate | ThumbCard uses a 160ms decoded-image fade, while Viewer/Compare use atomic promotion. Recycled cards also maintain local `loaded` state. | Trace cold/warm scrolling and recycled identities before changing thumbnail reveal ownership. Preserve the existing decode gate; do not add a skeleton crossfade. This has data/pixel-identity risk beyond a styling refresh. |
 | M06 | Medium / candidate | Sidebar tabs and attribute segments change active backgrounds without a shared segmented-control component. | A shared sliding indicator could clarify selection. First consolidate the component and verify variable-width labels, overflow, hidden tabs, first paint, and reduced motion. Never slide or fade the async tab body. |
@@ -143,3 +143,29 @@ bundle served separately: `_capture_folder_and_context_surfaces` loses
 `.context-menu-panel` during its export/viewport sequence. This is recorded as
 an existing gate failure, not a successful full-toolbar result. The focused
 Dropdown/theme/presence checks pass with the refreshed bundle.
+
+### Ranking feedback
+
+M03 is implemented at `ranking.css` and the common sortable card. Card feedback
+now transitions border/shadow only, so drag transforms stay immediate; the old
+inline blanket suppression is gone. Explicit property lists replace all three
+`transition: all` declarations. Decorative button/resize/slider movement applies
+only to fine hover pointers without reduced motion. Touch users can see and tap
+fullscreen actions without a hover gesture.
+
+Live Chromium checks passed at desktop 1440×960 and touch 390×844, plus reduced
+motion: hover did not move card rectangles, keyboard focus revealed fullscreen,
+decoded fullscreen pixels were opaque, drag placed a card into rank 1, and tray
+resize changed its height from 480 to 525px. Reduced-motion card and slider-thumb
+transitions resolved to 0s. See [ranking results](20260928_motion_evidence/ranking.json)
+and [touch screenshot](20260928_motion_evidence/ranking-touch.png).
+The retained Inspector presentation is shown in
+[this screenshot](20260928_motion_evidence/inspector.png); static images illustrate
+layout only, while the frame traces establish motion behavior.
+
+To review manually, launch `lenslet rank` with a small local fixture, hover/select
+and drag a card, resize the unassigned tray, then repeat fullscreen entry with a
+touch viewport and reduced motion. All validation used generated fixture images.
+Full Vitest (692 tests), TypeScript, build, and repository lint passed; packaged
+assets regenerated for this commit. Full acceptance and remaining continuity
+results follow below.

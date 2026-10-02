@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Copy } from 'lucide-react'
 import { THEME_PRESETS, resolveThemePresetId, type ThemePresetId } from '../../theme/runtime'
@@ -10,6 +10,7 @@ import type {
   TableSourceColumnsPayload,
 } from '../../lib/types'
 import Dropdown from './Dropdown'
+import { useMenuKeyboard } from '../hooks/useMenuKeyboard'
 import {
   clampMenuPosition,
   getVisibleViewportBounds,
@@ -289,10 +290,17 @@ export default function ThemeSettingsMenu({
   sourceColumnSwitching = false,
   onSourceColumnChange,
 }: ThemeSettingsMenuProps): JSX.Element {
+  const panelId = useId()
   const [open, setOpen] = useState(false)
+  const [menuEntry, setMenuEntry] = useState<'first' | 'last'>('first')
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const [panelPosition, setPanelPosition] = useState<ThemeMenuPanelPosition>(getInitialPanelPosition)
+  const handleMenuKeyDown = useMenuKeyboard(panelRef, {
+    enabled: open && panelPosition.ready,
+    initialFocus: menuEntry,
+    onClose: () => setOpen(false),
+  })
   const selectedThemeId = resolveThemeMenuSelection(value)
   const selectedTheme = THEME_PRESETS[selectedThemeId]
   const supportsInspectorAutoloadSetting = typeof onAutoloadImageMetadataChange === 'function'
@@ -368,7 +376,7 @@ export default function ThemeSettingsMenu({
     }
 
     const onWindowKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      if (event.defaultPrevented || event.key !== 'Escape') return
       setOpen((current) => reduceThemeSettingsMenuOpenState(current, 'escape'))
     }
 
@@ -395,8 +403,10 @@ export default function ThemeSettingsMenu({
   const panelNode = open ? (
     <div
       ref={panelRef}
+      id={panelId}
       className="theme-settings-menu-panel scrollbar-thin"
       role="menu"
+      onKeyDown={handleMenuKeyDown}
       aria-label="Settings"
       style={panelStyle}
     >
@@ -584,8 +594,18 @@ export default function ThemeSettingsMenu({
         aria-label={triggerTitle}
         title={triggerTitle}
         aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+          event.preventDefault()
+          setMenuEntry(event.key === 'ArrowUp' ? 'last' : 'first')
+          setOpen(true)
+        }}
         aria-haspopup="menu"
-        onClick={() => setOpen((current) => reduceThemeSettingsMenuOpenState(current, 'toggle'))}
+        onClick={() => {
+          if (!open) setMenuEntry('first')
+          setOpen((current) => reduceThemeSettingsMenuOpenState(current, 'toggle'))
+        }}
       >
         {placement === 'sidebar' ? (
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

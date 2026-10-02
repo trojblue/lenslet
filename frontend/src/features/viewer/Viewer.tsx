@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useCallback, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { useBlobResource } from '../../shared/hooks/useBlobUrl'
 import {
@@ -133,6 +133,14 @@ export default function Viewer({
         ...(candidateResource && candidateResource.key !== presentedResource.key ? [candidateResource] : []),
       ]
     : candidateResource ? [candidateResource] : []
+  // This viewer is nonmodal: its toolbar and Inspector remain available.
+  useLayoutEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    containerRef.current?.focus({ preventScroll: true })
+    return () => {
+      if (previous?.isConnected && !previous.closest('[hidden], [inert]')) previous.focus({ preventScroll: true })
+    }
+  }, [containerRef])
   const closeViewer = useCallback(() => {
     onClose()
   }, [onClose])
@@ -199,6 +207,7 @@ export default function Viewer({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
       if (e.key === 'Escape' && !isInputElement(e.target)) {
         e.preventDefault()
         closeViewer()

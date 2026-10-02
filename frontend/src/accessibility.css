@@ -1,0 +1,20 @@
+/* Keep keyboard focus visible after component-level outline resets. The native
+   indicator follows platform colors, including forced-colors environments. */
+:root :focus-visible:focus {
+  outline: auto 2px;
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  :root :focus-visible:focus {
+    outline: 2px solid Highlight;
+  }
+}
+
+[aria-modal="true"] {
+  overscroll-behavior: contain;
+}
+
+.compare-divider-hit:focus-visible .compare-divider-handle {
+  background: var(--accent);
+}

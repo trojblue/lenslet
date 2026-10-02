@@ -2,6 +2,7 @@
 @import "tailwindcss";
 @import './theme.css' layer(base);
 @import './motion.css';
+@import './accessibility.css';
 
 ::selection {
   background: var(--accent-strong);

@@ -614,6 +614,26 @@ export default function CompareViewer({
                 className="compare-divider-hit"
                 style={{ left: `${splitPct}%` }}
                 onPointerDown={handleDividerPointerDown}
+                role="slider"
+                tabIndex={0}
+                aria-label="Comparison split"
+                aria-valuemin={5}
+                aria-valuemax={95}
+                aria-valuenow={Math.round(splitPct)}
+                aria-valuetext={`${Math.round(splitPct)} percent left image`}
+                onKeyDown={(event) => {
+                  const step = event.shiftKey ? 10 : 1
+                  const value = event.key === 'Home' ? 5
+                    : event.key === 'End' ? 95
+                      : event.key === 'ArrowLeft' || event.key === 'ArrowDown' ? splitPct - step
+                        : event.key === 'ArrowRight' || event.key === 'ArrowUp' ? splitPct + step
+                          : null
+                  if (value == null) return
+                  event.preventDefault()
+                  event.stopPropagation()
+                  markCompareUserInteraction()
+                  setSplitPct(Math.min(95, Math.max(5, value)))
+                }}
               >
                 <div className="compare-divider-line" />
                 <div className="compare-divider-handle" />

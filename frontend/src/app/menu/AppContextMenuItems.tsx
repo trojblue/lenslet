@@ -269,7 +269,7 @@ export default function AppContextMenuItems({
         onExportJson: handleSelectionExport('json'),
       })
 
-  return <ContextMenu x={ctx.x} y={ctx.y} items={menuItems} />
+  return <ContextMenu onClose={() => setCtx(null)} x={ctx.x} y={ctx.y} items={menuItems} />
 }
 
 interface BuildItemMenuItemsArgs {

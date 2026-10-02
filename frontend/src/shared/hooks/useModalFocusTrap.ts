@@ -3,8 +3,12 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
 } from 'react'
+import { getModalRoots, registerModalScope, registerModalPopup } from './modalFocusScope'
+
+const useBrowserLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -47,7 +51,7 @@ function isFocusableElementEnabled(element: HTMLElement): boolean {
   return isModalFocusTargetEnabled({
     disabled: 'disabled' in element && Boolean(element.disabled),
     tabIndex: element.tabIndex,
-    ariaHidden: element.getAttribute('aria-hidden') === 'true',
+    ariaHidden: Boolean(element.closest('[aria-hidden="true"], [inert], [hidden]')),
     rendered: element.getClientRects().length > 0,
     visible: style.display !== 'none' && style.visibility !== 'hidden',
   })
@@ -108,106 +112,65 @@ function restoreModalFocus(target: HTMLElement | null, fallback: HTMLElement | n
   focusElement(chooseRestoreFocusTarget(target, fallback))
 }
 
-type ModalKeyboardEvent = {
-  key: string
-  shiftKey: boolean
-  preventDefault: () => void
-  stopPropagation: () => void
-}
-
-function handleModalKeyboardEvent(
-  event: ModalKeyboardEvent,
-  dialog: HTMLElement | null,
-  onEscape: () => void,
-): void {
-  if (isModalEscapeKey(event.key)) {
-    event.preventDefault()
-    event.stopPropagation()
-    onEscape()
-    return
-  }
-  if (event.key !== 'Tab' || !dialog || typeof document === 'undefined') return
-
-  const target = resolveModalTabTarget(
-    getFocusableElements(dialog),
-    document.activeElement instanceof HTMLElement ? document.activeElement : null,
-    event.shiftKey,
-  )
-  if (!target) return
-  event.preventDefault()
-  event.stopPropagation()
-  focusElement(target)
-}
-
 export function useModalFocusTrap<T extends HTMLElement>(
   dialogRef: RefObject<T>,
-  options: {
-    enabled?: boolean
-    onEscape: () => void
-  },
+  options: { enabled?: boolean; onEscape: () => void },
 ): (event: ReactKeyboardEvent<T>) => void {
   const { enabled = true, onEscape } = options
-  const previousFocusRef = useRef<HTMLElement | null>(null)
+  const escapeRef = useRef(onEscape)
+  escapeRef.current = onEscape
+  const handleRef = useRef<(event: KeyboardEvent | ReactKeyboardEvent<T>) => void>(() => {})
 
-  useEffect(() => {
-    if (!enabled || typeof document === 'undefined') return undefined
-    previousFocusRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null
-
-    let frameId = 0
-    let focusOutTimer = 0
-    const focusEntry = () => {
-      const dialog = dialogRef.current
-      if (dialog) focusModalEntry(dialog)
-    }
-    try {
-      frameId = window.requestAnimationFrame(focusEntry)
-    } catch {
-      focusEntry()
-    }
+  useBrowserLayoutEffect(() => {
+    const dialog = dialogRef.current
+    if (!enabled || !dialog) return
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const scope = registerModalScope(dialog)
+    const roots = () => getModalRoots(dialog)
+    const contains = (target: Node) => roots().some((root) => root.contains(target))
+    const enter = () => focusModalEntry(dialog)
+    enter()
 
     const onFocusIn = (event: FocusEvent) => {
-      const dialog = dialogRef.current
-      const target = event.target
-      if (!dialog || !(target instanceof Node) || dialog.contains(target)) return
-      focusEntry()
+      if (scope.isTop() && event.target instanceof Node && !contains(event.target)) enter()
     }
-    const scheduleFocusReturn = () => {
-      if (focusOutTimer) window.clearTimeout(focusOutTimer)
-      focusOutTimer = window.setTimeout(() => {
-        const dialog = dialogRef.current
-        const active = document.activeElement
-        if (!dialog || (active instanceof Node && dialog.contains(active))) return
-        focusEntry()
-      }, 0)
-    }
-    const onDocumentKeyDown = (event: KeyboardEvent) => {
-      handleModalKeyboardEvent(event, dialogRef.current, onEscape)
-    }
-    document.addEventListener('focusin', onFocusIn)
-    document.addEventListener('focusout', scheduleFocusReturn, true)
-    document.addEventListener('keydown', onDocumentKeyDown, true)
-
-    return () => {
-      if (focusOutTimer) window.clearTimeout(focusOutTimer)
-      if (frameId) {
-        try {
-          window.cancelAnimationFrame(frameId)
-        } catch {
-          // Ignore environments without cancellable animation frames.
+    const onKeyDown = (event: KeyboardEvent | ReactKeyboardEvent<T>) => {
+      if (!scope.isTop() || event.defaultPrevented) return
+      if (event.key === 'Escape') {
+        // The innermost Dropdown receives Escape first, including its body portal.
+        if (roots().length > 1) return
+        event.preventDefault()
+        event.stopPropagation()
+        escapeRef.current()
+      } else if (event.key === 'Tab') {
+        const targets = roots().flatMap(getFocusableElements)
+        const target = resolveModalTabTarget(targets, document.activeElement as HTMLElement, event.shiftKey)
+        if (target || targets.length === 0) {
+          event.preventDefault()
+          focusElement(target ?? dialog)
         }
       }
-      document.removeEventListener('focusin', onFocusIn)
-      document.removeEventListener('focusout', scheduleFocusReturn, true)
-      document.removeEventListener('keydown', onDocumentKeyDown, true)
-      const fallback = document.body instanceof HTMLElement ? document.body : null
-      restoreModalFocus(previousFocusRef.current, fallback)
     }
-  }, [dialogRef, enabled, onEscape])
+    handleRef.current = onKeyDown
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      const restore = scope.isTop()
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('keydown', onKeyDown)
+      handleRef.current = () => {}
+      scope.release()
+      if (restore) restoreModalFocus(previous, document.querySelector<HTMLElement>('main, [role="main"]'))
+    }
+  }, [dialogRef, enabled])
 
-  return useCallback((event: ReactKeyboardEvent<T>) => {
-    if (!enabled) return
-    handleModalKeyboardEvent(event, dialogRef.current, onEscape)
-  }, [dialogRef, enabled, onEscape])
+  return useCallback((event: ReactKeyboardEvent<T>) => handleRef.current(event), [])
+}
+
+/** Attach an explicitly opened context menu to the active sheet/modal lifetime. */
+export function useModalOwnedPopup<T extends HTMLElement>(popupRef: RefObject<T>): void {
+  useBrowserLayoutEffect(() => {
+    const popup = popupRef.current
+    if (popup) return registerModalPopup(popup)
+  }, [popupRef])
 }

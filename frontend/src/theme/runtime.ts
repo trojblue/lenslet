@@ -20,9 +20,10 @@ const DEFAULT_THEME_TOKENS: ThemeTokenMap = {
   '--surface-inset': '#0f0e0c',
   '--text': '#e9e5df',
   '--text-secondary': '#d3cec6',
-  '--muted': '#918b82',
+  '--muted': '#aba49b',
   '--accent': '#3b82f6',
   '--accent-hover': '#5a9bff',
+  '--accent-text': 'var(--accent-hover)',
   '--accent-muted': 'rgba(59, 130, 246, 0.18)',
   '--accent-strong': 'rgba(59, 130, 246, 0.32)',
   '--highlight': '#e6a23c',
@@ -41,6 +42,7 @@ const TEAL_THEME_TOKENS: ThemeTokenMap = {
   ...DEFAULT_THEME_TOKENS,
   '--accent': '#2dd4bf',
   '--accent-hover': '#5eead4',
+  '--accent-text': 'var(--accent)',
   '--accent-muted': 'rgba(45, 212, 191, 0.18)',
   '--accent-strong': 'rgba(45, 212, 191, 0.32)',
   '--bg-gradient': 'radial-gradient(1200px 600px at 10% -10%, rgba(255, 175, 110, 0.05), transparent 60%), radial-gradient(900px 500px at 100% -20%, rgba(45, 212, 191, 0.08), transparent 55%), var(--bg)',
@@ -59,9 +61,10 @@ const CHARCOAL_THEME_TOKENS: ThemeTokenMap = {
   '--surface-inset': '#0e0f12',
   '--text': '#f1f5f9',
   '--text-secondary': '#cbd5e1',
-  '--muted': '#94a3b8',
+  '--muted': '#a4b2c5',
   '--accent': '#86b7ff',
   '--accent-hover': '#a5cbff',
+  '--accent-text': 'var(--accent)',
   '--accent-muted': 'rgba(134, 183, 255, 0.18)',
   '--accent-strong': 'rgba(134, 183, 255, 0.32)',
   '--border-subtle': 'rgba(255, 255, 255, 0.06)',
@@ -149,16 +152,44 @@ export function upsertThemedFavicon(color: string, doc?: Document | null): strin
   return href
 }
 
+const themeSwaps = new WeakMap<Document, { style: HTMLStyleElement; frame: number }>()
+
+function suppressThemeTransitions(doc: Document): (() => void) | null {
+  const view = doc.defaultView
+  if (!view) return null
+  const previous = themeSwaps.get(doc)
+  if (previous) view.cancelAnimationFrame(previous.frame)
+  const style = previous?.style ?? doc.createElement('style')
+  if (!previous) {
+    style.textContent = '*,*::before,*::after{transition:none !important}'
+    doc.head.appendChild(style)
+  }
+  return () => {
+    // Resolve the final theme with transitions disabled before restoring feedback.
+    void doc.documentElement.offsetHeight
+    const frame = view.requestAnimationFrame(() => {
+      style.remove()
+      themeSwaps.delete(doc)
+    })
+    themeSwaps.set(doc, { style, frame })
+  }
+}
+
 export function applyThemePreset(themeId: string | null | undefined, doc?: Document | null): ThemePresetId {
   const resolvedThemeId = resolveThemePresetId(themeId)
   const preset = THEME_PRESETS[resolvedThemeId]
   const activeDocument = getDocument(doc)
   if (!activeDocument) return resolvedThemeId
   const root = activeDocument.documentElement
+  const finishThemeSwap = activeDocument.defaultView
+    && root.getAttribute('data-lenslet-theme') !== resolvedThemeId
+    ? suppressThemeTransitions(activeDocument)
+    : null
   for (const [token, value] of Object.entries(preset.tokens)) {
     root.style.setProperty(token, value)
   }
   root.setAttribute('data-lenslet-theme', resolvedThemeId)
   upsertThemedFavicon(preset.tokens['--accent'], activeDocument)
+  finishThemeSwap?.()
   return resolvedThemeId
 }

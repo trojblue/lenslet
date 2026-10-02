@@ -17,11 +17,12 @@
   /* Text colors */
   --text: #e9e5df;
   --text-secondary: #d3cec6;
-  --muted: #918b82;
+  --muted: #aba49b;
   
   /* Accent colors (Cool violet/indigo) */
   --accent: #3b82f6;
   --accent-hover: #5a9bff;
+  --accent-text: var(--accent-hover);
   --accent-muted: rgba(59, 130, 246, 0.18);
   --accent-strong: rgba(59, 130, 246, 0.32);
   --highlight: #e6a23c;

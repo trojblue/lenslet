@@ -257,10 +257,10 @@ export function BasicsSection({
                     const isHighlighted = highlightKey === key
                     return (
                       <div key={key} className="ui-kv-row justify-start" data-inspector-row-id={`metric:${key}`}>
-                        <span className={`w-24 shrink-0 ${isHighlighted ? 'text-accent font-medium' : 'ui-kv-label'}`}>
+                        <span className={`w-24 shrink-0 ${isHighlighted ? 'text-accent-text font-medium' : 'ui-kv-label'}`}>
                           {getMetricDisplayName(key, metricDisplayNames)}
                         </span>
-                        <span className={`ui-kv-value flex-1 text-left ${isHighlighted ? 'text-accent font-medium' : ''}`}>
+                        <span className={`ui-kv-value flex-1 text-left ${isHighlighted ? 'text-accent-text font-medium' : ''}`}>
                           {metricLabels[key] ?? formatMetricNumber(val)}
                         </span>
                       </div>

@@ -371,7 +371,7 @@ export default function Dropdown({
         <span className="flex-1 truncate">{opt.label}</span>
         <span className="dropdown-item-check" aria-hidden="true">
           {opt.value === value && (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-accent-text">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           )}

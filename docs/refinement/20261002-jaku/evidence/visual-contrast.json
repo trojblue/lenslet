@@ -1,0 +1,152 @@
+{
+  "Original": {
+    "sort": {
+      "text": "Date added",
+      "tag": "SPAN",
+      "class": "flex-1 truncate",
+      "foreground": [
+        90,
+        155,
+        255,
+        1
+      ],
+      "background": [
+        34.91764705882353,
+        42.470588235294116,
+        55.28235294117647,
+        1
+      ],
+      "opacity": 1,
+      "ratio": 5.166116291108402,
+      "font": "13px / 18.85px \"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif",
+      "fontVariantNumeric": "normal",
+      "lineHeight": "18.85px",
+      "title": "",
+      "images": []
+    },
+    "selectedSubtitle": {
+      "text": "Load PNG metadata when selecting an image",
+      "tag": "SPAN",
+      "class": "theme-settings-menu-option-subtitle",
+      "foreground": [
+        171,
+        164,
+        155,
+        1
+      ],
+      "background": [
+        33.95294117647059,
+        44.4,
+        62.86666666666667,
+        1
+      ],
+      "opacity": 1,
+      "ratio": 5.655617349303756,
+      "font": "11px / 15.4px \"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif",
+      "fontVariantNumeric": "normal",
+      "lineHeight": "15.4px",
+      "title": "",
+      "images": []
+    }
+  },
+  "Teal": {
+    "sort": {
+      "text": "Date added",
+      "tag": "SPAN",
+      "class": "flex-1 truncate",
+      "foreground": [
+        45,
+        212,
+        191,
+        1
+      ],
+      "background": [
+        36.89411764705882,
+        53.34117647058824,
+        47.37647058823529,
+        1
+      ],
+      "opacity": 1,
+      "ratio": 6.898124306223169,
+      "font": "13px / 18.85px \"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif",
+      "fontVariantNumeric": "normal",
+      "lineHeight": "18.85px",
+      "title": "",
+      "images": []
+    },
+    "selectedSubtitle": {
+      "text": "Load PNG metadata when selecting an image",
+      "tag": "SPAN",
+      "class": "theme-settings-menu-option-subtitle",
+      "foreground": [
+        171,
+        164,
+        155,
+        1
+      ],
+      "background": [
+        30.886274509803922,
+        59.372549019607845,
+        52.76470588235294,
+        1
+      ],
+      "opacity": 1,
+      "ratio": 4.887663199647729,
+      "font": "11px / 15.4px \"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif",
+      "fontVariantNumeric": "normal",
+      "lineHeight": "15.4px",
+      "title": "",
+      "images": []
+    }
+  },
+  "Charcoal": {
+    "sort": {
+      "text": "Date added",
+      "tag": "SPAN",
+      "class": "flex-1 truncate",
+      "foreground": [
+        134,
+        183,
+        255,
+        1
+      ],
+      "background": [
+        46.49411764705883,
+        56.76470588235294,
+        73.32941176470588,
+        1
+      ],
+      "opacity": 1,
+      "ratio": 5.696044345412035,
+      "font": "13px / 18.85px \"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif",
+      "fontVariantNumeric": "normal",
+      "lineHeight": "18.85px",
+      "title": "",
+      "images": []
+    },
+    "selectedSubtitle": {
+      "text": "Load PNG metadata when selecting an image",
+      "tag": "SPAN",
+      "class": "theme-settings-menu-option-subtitle",
+      "foreground": [
+        164,
+        178,
+        197,
+        1
+      ],
+      "background": [
+        50.219607843137254,
+        63.337254901960776,
+        82.88235294117646,
+        1
+      ],
+      "opacity": 1,
+      "ratio": 4.926252226283448,
+      "font": "11px / 15.4px \"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif",
+      "fontVariantNumeric": "normal",
+      "lineHeight": "15.4px",
+      "title": "",
+      "images": []
+    }
+  }
+}

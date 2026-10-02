@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { BrowseFolderPayload } from '../../lib/types'
 import { folderQueryKey, useFolder } from '../../api/folders'
 import { api } from '../../api/client'
 import { middleTruncate } from '../../lib/util'
 import { joinPath, sanitizePath } from '../../lib/paths'
+import { useLatestRef } from '../../shared/hooks/useLatestRef'
 import { useFolderTreeKeyboardNav } from './hooks/useFolderTreeKeyboardNav'
 
 interface Root {
@@ -55,6 +56,14 @@ export default function FolderTree({
   className,
   showResizeHandle = true,
 }: FolderTreeProps) {
+  const handlers = useLatestRef({ onOpen, onContextMenu, onOpenActions })
+  const openFolder = useCallback((path: string) => handlers.current.onOpen(path), [handlers])
+  const openContextMenu = useCallback((event: React.MouseEvent, path: string) => {
+    handlers.current.onContextMenu?.(event, path)
+  }, [handlers])
+  const openActions = useCallback((path: string, anchor: { x: number; y: number }) => {
+    handlers.current.onOpenActions?.(path, anchor)
+  }, [handlers])
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['/']))
   const countCacheRef = useRef<Map<string, number>>(new Map())
   const inflightRef = useRef<Map<string, Promise<number>>>(new Map())
@@ -218,9 +227,9 @@ export default function FolderTree({
             current={current}
             expanded={expanded}
             setExpanded={setExpanded}
-            onOpen={onOpen}
-            onContextMenu={onContextMenu}
-            onOpenActions={onOpenActions}
+            onOpen={openFolder}
+            onContextMenu={onContextMenu ? openContextMenu : undefined}
+            onOpenActions={onOpenActions ? openActions : undefined}
             initial={data}
             getSubtreeCount={getSubtreeCount}
             countVersion={countVersion}
@@ -253,7 +262,7 @@ interface TreeNodeProps {
   countVersion?: number
 }
 
-function TreeNode({
+const TreeNode = memo(function TreeNode({
   active,
   path,
   label,
@@ -416,7 +425,7 @@ function TreeNode({
       ))}
     </div>
   )
-}
+})
 
 export function shouldObserveFolderNode(
   active: boolean,

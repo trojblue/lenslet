@@ -55,6 +55,7 @@ interface DerivedScoreCardProps {
   facets?: BrowseFacetsPayload | null
   facetsState?: FacetQueryState
   facetFieldStates?: FacetFieldQueryStates
+  onRetryFacets?: () => void
   populationItemsComplete?: boolean
   presentationResetKey?: string
   draftResetKey?: string
@@ -128,6 +129,7 @@ function DerivedScoreCardEditor({
   facets = null,
   facetsState = 'settled',
   facetFieldStates,
+  onRetryFacets,
   populationItemsComplete = true,
   presentationResetKey = 'default',
   derivedMetric,
@@ -376,6 +378,16 @@ function DerivedScoreCardEditor({
   }
 
   const hasInputs = sourceMetricKeys.length > 0 || categoricalKeys.length > 0
+  const fieldStates = facetFieldStates
+    ? [...Object.values(facetFieldStates.metrics), ...Object.values(facetFieldStates.categoricals)]
+    : [facetsState]
+  const facetRecovery = useFacetFieldPresentation({
+    key: 'facet-recovery',
+    state: fieldStates.includes('error') ? 'error'
+      : fieldStates.includes('pending') ? 'pending' : 'ready',
+    value: null,
+  }, presentationResetKey)
+  const facetsFailed = facetRecovery.presentation.state === 'error'
 
   return (
     <div className="ui-card" data-derived-score-card>
@@ -506,7 +518,20 @@ function DerivedScoreCardEditor({
         </div>
 
         <div className="h-10 overflow-auto scrollbar-thin text-[11px] text-muted" data-derived-score-status tabIndex={0}>
-          {!hasInputs
+          {facetsFailed && onRetryFacets ? (
+            <div className="flex items-center justify-between gap-2">
+              <span>Some values could not load.</span>
+              <button
+                type="button"
+                className="btn btn-xs shrink-0"
+                disabled={facetRecovery.retained}
+                aria-busy={facetRecovery.retained || undefined}
+                onClick={onRetryFacets}
+              >
+                Retry values
+              </button>
+            </div>
+          ) : !hasInputs
             ? 'No score inputs in this view.'
             : unavailableInputs.length
               ? `Unavailable inputs: ${unavailableInputs.join(', ')}.`

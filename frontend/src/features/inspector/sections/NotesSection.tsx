@@ -53,13 +53,13 @@ export function NotesSection({
           {showConflictBanner ? (
             <div className="ui-banner ui-banner-danger h-full text-xs">
               <div className="font-semibold">Conflicting edits detected.</div>
-              <div className="text-[11px] text-muted mt-0.5">Notes or tags changed elsewhere.</div>
+              <div className="text-[11px] text-muted mt-0.5">Use latest discards your edits.</div>
               <div className="flex items-center gap-2 mt-1">
-                <button className="btn btn-sm" onClick={onApplyConflict}>
-                  Apply again
+                <button className="btn btn-sm" title="Replace conflicting fields with your edits" onClick={onApplyConflict}>
+                  Save mine
                 </button>
                 <button className="btn btn-sm btn-ghost" onClick={onKeepTheirs}>
-                  Keep theirs
+                  Use latest
                 </button>
               </div>
             </div>

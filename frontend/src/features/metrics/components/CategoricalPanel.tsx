@@ -31,6 +31,7 @@ interface CategoricalPanelProps {
   facets?: BrowseFacetsPayload | null
   facetsState?: FacetQueryState
   facetFieldStates?: FacetFieldQueryStates
+  onRetryFacets?: () => void
   populationItemsComplete?: boolean
   filteredItemsComplete?: boolean
   selectedItems?: BrowseItemPayload[]
@@ -54,6 +55,7 @@ export default function CategoricalPanel({
   facets = null,
   facetsState = 'settled',
   facetFieldStates,
+  onRetryFacets,
   populationItemsComplete = true,
   filteredItemsComplete = true,
   selectedItems,
@@ -206,6 +208,7 @@ export default function CategoricalPanel({
           showTitle={showTitle}
           showFilteredCounts={field.value.showFilteredCounts}
           state={field.state}
+          onRetry={onRetryFacets}
         />
       </div>
     )

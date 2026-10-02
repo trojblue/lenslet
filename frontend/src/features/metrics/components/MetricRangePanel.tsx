@@ -39,6 +39,7 @@ interface MetricRangePanelProps {
   facets?: BrowseFacetsPayload | null
   facetsState?: FacetQueryState
   facetFieldStates?: FacetFieldQueryStates
+  onRetryFacets?: () => void
   populationItemsComplete?: boolean
   filteredItemsComplete?: boolean
   selectedItems?: BrowseItemPayload[]
@@ -73,6 +74,7 @@ export default function MetricRangePanel({
   facets = null,
   facetsState = 'settled',
   facetFieldStates,
+  onRetryFacets,
   populationItemsComplete = true,
   filteredItemsComplete = true,
   selectedItems,
@@ -273,6 +275,7 @@ export default function MetricRangePanel({
             showTitle={showTitle}
             showFilteredCounts={field.value.showFilteredCounts}
             state={field.state}
+            onRetry={onRetryFacets}
             embedded
           />
         ) : (
@@ -289,6 +292,7 @@ export default function MetricRangePanel({
             showTitle={showTitle}
             showFilteredCounts={field.value.showFilteredCounts}
             state={field.state}
+            onRetry={onRetryFacets}
             embedded
           />
         )}

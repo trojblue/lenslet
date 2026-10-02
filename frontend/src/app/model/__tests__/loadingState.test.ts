@@ -86,7 +86,23 @@ describe('grid status state', () => {
       filteredCount: 0,
     })).toMatchObject({
       kind: 'empty',
-      message: 'No filenames, tags, or notes match this search.',
+      message: 'No filenames, tags, or notes match this search. Change or clear the search.',
+    })
+  })
+
+  it('distinguishes an empty folder from filtered or similarity results', () => {
+    const base = { similarityActive: false, searching: false, itemCount: 0, isLoading: false }
+    expect(resolveGridStatus(base)).toMatchObject({
+      title: 'This folder has no images',
+      message: 'Choose another folder to browse images.',
+    })
+    expect(resolveGridStatus({ ...base, filtersActive: true })).toMatchObject({
+      title: 'No matching images',
+      message: 'No images match these filters. Clear filters to see all images.',
+    })
+    expect(resolveGridStatus({ ...base, similarityActive: true })).toMatchObject({
+      title: 'No matching images',
+      message: 'No images match this similarity query. Adjust the query or exit similarity.',
     })
   })
 

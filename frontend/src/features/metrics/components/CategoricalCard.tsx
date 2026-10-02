@@ -1,3 +1,4 @@
+import FacetStatus from './FacetStatus'
 import React from 'react'
 import type { FilterAST } from '../../../lib/types'
 import { getCategoricalInFilter } from '../../browse/model/filters'
@@ -12,6 +13,7 @@ interface CategoricalCardProps {
   showTitle?: boolean
   showFilteredCounts?: boolean
   state?: FacetFieldState
+  onRetry?: () => void
 }
 
 export default function CategoricalCard({
@@ -22,6 +24,7 @@ export default function CategoricalCard({
   showTitle = false,
   showFilteredCounts = true,
   state = 'ready',
+  onRetry,
 }: CategoricalCardProps) {
   const activeValues = getCategoricalInFilter(filters, categoricalKey)
   const activeSet = new Set(activeValues)
@@ -110,7 +113,7 @@ export default function CategoricalCard({
           </div>
         ) : (
           <div className="flex h-full items-center justify-center px-3 text-center text-sm text-muted" role="status">
-            {facetStateMessage(displayState, 'field')}
+            <FacetStatus state={displayState} subject="field" onRetry={onRetry} />
           </div>
         )}
       </div>
@@ -125,10 +128,4 @@ export default function CategoricalCard({
       </button>
     </div>
   )
-}
-
-function facetStateMessage(state: Exclude<FacetFieldState, 'ready'>, subject: string): string {
-  if (state === 'pending') return `Loading values for this ${subject}…`
-  if (state === 'error') return `Could not load values for this ${subject}.`
-  return `No values found for this ${subject}.`
 }

@@ -54,6 +54,7 @@ type LeftSidebarProps = {
   metricKeys: string[]
   categoricalKeys: string[]
   metricDisplayNames?: MetricDisplayNames | null
+  onRetryMetricsFacets?: () => void
   metricsFacets?: BrowseFacetsPayload | null
   metricsFacetsState?: FacetQueryState
   metricsFacetFieldStates?: FacetFieldQueryStates
@@ -129,6 +130,7 @@ export default function LeftSidebar({
   metricKeys,
   categoricalKeys,
   metricDisplayNames,
+  onRetryMetricsFacets,
   metricsFacets,
   metricsFacetsState = 'settled',
   metricsFacetFieldStates,
@@ -334,6 +336,7 @@ export default function LeftSidebar({
             metricKeys={metricKeys}
             categoricalKeys={categoricalKeys}
             metricDisplayNames={metricDisplayNames}
+            onRetryFacets={onRetryMetricsFacets}
             facets={metricsFacets}
             facetsState={metricsFacetsState}
             facetFieldStates={metricsFacetFieldStates}
@@ -364,6 +367,7 @@ export default function LeftSidebar({
             metricKeys={metricKeys}
             categoricalKeys={categoricalKeys}
             metricDisplayNames={metricDisplayNames}
+            onRetryFacets={onRetryMetricsFacets}
             facets={metricsFacets}
             facetsState={metricsFacetsState}
             facetFieldStates={metricsFacetFieldStates}

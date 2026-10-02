@@ -1,3 +1,4 @@
+import FacetStatus from './FacetStatus'
 import React from 'react'
 import type { FilterAST } from '../../../lib/types'
 import { getMetricRangeFilter } from '../../browse/model/filters'
@@ -14,6 +15,7 @@ interface MetricCategoryCardProps {
   showTitle?: boolean
   showFilteredCounts?: boolean
   state?: FacetFieldState
+  onRetry?: () => void
   embedded?: boolean
 }
 
@@ -26,6 +28,7 @@ export default function MetricCategoryCard({
   showTitle = false,
   showFilteredCounts = true,
   state = 'ready',
+  onRetry,
   embedded = false,
 }: MetricCategoryCardProps) {
   const activeRange = getMetricRangeFilter(filters, metricKey)
@@ -107,11 +110,7 @@ export default function MetricCategoryCard({
           </div>
         ) : (
           <div className="flex h-full items-center justify-center px-3 text-center text-sm text-muted" role="status">
-            {displayState === 'pending'
-              ? 'Loading values for this metric…'
-              : displayState === 'error'
-                ? 'Could not load values for this metric.'
-                : 'No values found for this metric.'}
+            <FacetStatus state={displayState} subject="metric" onRetry={onRetry} />
           </div>
         )}
       </div>

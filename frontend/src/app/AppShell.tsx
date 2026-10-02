@@ -713,6 +713,7 @@ export default function AppShell({
     facetState: metricRailFacetState,
   })
   const targetGridStatus = resolveGridStatus({
+    filtersActive: activeFilterCount > 0,
     similarityActive,
     searching,
     itemCount: items.length,
@@ -1619,6 +1620,7 @@ export default function AppShell({
             metricKeys={metricKeys}
             categoricalKeys={categoricalKeys}
             metricDisplayNames={metricDisplayNames}
+            onRetryMetricsFacets={() => { void metricsPopulationFacetsQuery.refetch() }}
             metricsFacets={metricsPopulationFacets}
             metricsFacetsState={metricsPopulationFacetsState}
             metricsFacetFieldStates={metricsPopulationFacetsQuery.fieldStates}

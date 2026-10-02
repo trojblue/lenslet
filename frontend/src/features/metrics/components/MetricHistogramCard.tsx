@@ -1,3 +1,4 @@
+import FacetStatus from './FacetStatus'
 import React, { useMemo, useState } from 'react'
 import type { FilterAST } from '../../../lib/types'
 import { getMetricRangeFilter } from '../../browse/model/filters'
@@ -30,6 +31,7 @@ export interface MetricHistogramCardProps {
   showTitle?: boolean
   showFilteredCounts?: boolean
   state?: FacetFieldState
+  onRetry?: () => void
   embedded?: boolean
 }
 
@@ -47,6 +49,7 @@ export default function MetricHistogramCard({
   showTitle = false,
   showFilteredCounts = true,
   state = 'ready',
+  onRetry,
   embedded = false,
 }: MetricHistogramCardProps) {
   const population = useMemo(() => (
@@ -178,11 +181,7 @@ export default function MetricHistogramCard({
         </svg>
       ) : (
         <div className="flex h-28 shrink-0 items-center justify-center rounded-md bg-surface-inset px-3 text-center text-sm text-muted" role="status">
-          {displayState === 'pending'
-            ? 'Loading values for this metric…'
-            : displayState === 'error'
-              ? 'Could not load values for this metric.'
-              : 'No values found for this metric.'}
+          <FacetStatus state={displayState} subject="metric" onRetry={onRetry} />
         </div>
       )}
       <div

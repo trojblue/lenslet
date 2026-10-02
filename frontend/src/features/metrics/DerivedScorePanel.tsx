@@ -21,6 +21,7 @@ interface DerivedScorePanelProps {
   facets?: BrowseFacetsPayload | null
   facetsState?: FacetQueryState
   facetFieldStates?: FacetFieldQueryStates
+  onRetryFacets?: () => void
   populationItemsComplete?: boolean
   presentationResetKey?: string
   draftResetKey?: string
@@ -41,6 +42,7 @@ export default function DerivedScorePanel({
   facets = null,
   facetsState = 'settled',
   facetFieldStates,
+  onRetryFacets,
   populationItemsComplete = true,
   presentationResetKey = 'default',
   draftResetKey = 'default',
@@ -62,6 +64,7 @@ export default function DerivedScorePanel({
         facets={facets}
         facetsState={facetsState}
         facetFieldStates={facetFieldStates}
+        onRetryFacets={onRetryFacets}
         populationItemsComplete={populationItemsComplete}
         presentationResetKey={presentationResetKey}
         draftResetKey={draftResetKey}

@@ -163,14 +163,14 @@ export function BasicsSection({
       </div>
       <div className="mb-2 h-12 min-w-0 overflow-hidden" data-inspector-conflict-slot="rating">
         {hasStarConflict ? (
-          <div className="ui-banner ui-banner-danger h-full text-[11px] flex flex-wrap items-center justify-between gap-1">
-            <span>Rating conflict.</span>
+          <div className="ui-banner ui-banner-danger h-full text-[11px] grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
+            <span className="min-w-0 leading-tight">Rating conflict.</span>
             <div className="flex items-center gap-1">
-              <button className="btn btn-sm" aria-label="Apply rating again" onClick={onApplyConflict}>
-                Retry
+              <button className="btn btn-sm" title="Replace conflicting fields with your edits" onClick={onApplyConflict}>
+                Save mine
               </button>
-              <button className="btn btn-sm btn-ghost" aria-label="Keep theirs" onClick={onKeepTheirs}>
-                Keep
+              <button className="btn btn-sm btn-ghost" title="Discard your edits and use the latest saved values" onClick={onKeepTheirs}>
+                Use latest
               </button>
             </div>
           </div>

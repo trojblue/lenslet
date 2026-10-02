@@ -1,0 +1,115 @@
+{
+  "width": 280,
+  "baseline": {
+    "sections": {
+      "metadata": {
+        "top": 246,
+        "bottom": 529,
+        "height": 283
+      },
+      "basics": {
+        "top": 529,
+        "bottom": 922,
+        "height": 393
+      },
+      "notes": {
+        "top": 921,
+        "bottom": 1181,
+        "height": 260
+      }
+    },
+    "slots": {
+      "rating": {
+        "top": 676.5,
+        "bottom": 724.5,
+        "height": 48,
+        "controlsBounded": true,
+        "contentBounded": true
+      },
+      "notes": {
+        "top": 1013.375,
+        "bottom": 1093.375,
+        "height": 80,
+        "controlsBounded": true,
+        "contentBounded": true
+      }
+    }
+  },
+  "rating": {
+    "sections": {
+      "metadata": {
+        "top": 246,
+        "bottom": 529,
+        "height": 283
+      },
+      "basics": {
+        "top": 529,
+        "bottom": 922,
+        "height": 393
+      },
+      "notes": {
+        "top": 921,
+        "bottom": 1181,
+        "height": 260
+      }
+    },
+    "slots": {
+      "rating": {
+        "top": 676.5,
+        "bottom": 724.5,
+        "height": 48,
+        "controlsBounded": true,
+        "contentBounded": true
+      },
+      "notes": {
+        "top": 1013.375,
+        "bottom": 1093.375,
+        "height": 80,
+        "controlsBounded": true,
+        "contentBounded": true
+      }
+    }
+  },
+  "notes": {
+    "sections": {
+      "metadata": {
+        "top": 246,
+        "bottom": 529,
+        "height": 283
+      },
+      "basics": {
+        "top": 529,
+        "bottom": 922,
+        "height": 393
+      },
+      "notes": {
+        "top": 921,
+        "bottom": 1181,
+        "height": 260
+      }
+    },
+    "slots": {
+      "rating": {
+        "top": 451.5,
+        "bottom": 499.5,
+        "height": 48,
+        "controlsBounded": true,
+        "contentBounded": true
+      },
+      "notes": {
+        "top": 788.375,
+        "bottom": 868.375,
+        "height": 80,
+        "controlsBounded": true,
+        "contentBounded": true
+      }
+    }
+  },
+  "multi_sidecar": {
+    "failed_paths": [
+      "/quick_00_meta.png"
+    ],
+    "notes_enabled": true
+  },
+  "violations": []
+}

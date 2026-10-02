@@ -36,7 +36,7 @@ describe('media resource error state', () => {
   })
 
   it('formats concise media messages for user-facing overlays', () => {
-    expect(mediaErrorSummary(browserDecodeMediaError())).toBe('Could not decode this image.')
+    expect(mediaErrorSummary(browserDecodeMediaError())).toBe('The browser could not read this image. Open another image, or check the source file.')
     expect(mediaErrorSummary({
       category: 'remote_not_found',
       message: 'file not found',

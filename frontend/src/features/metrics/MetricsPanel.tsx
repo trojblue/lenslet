@@ -28,6 +28,7 @@ interface MetricsPanelProps {
   facets?: BrowseFacetsPayload | null
   facetsState?: FacetQueryState
   facetFieldStates?: FacetFieldQueryStates
+  onRetryFacets?: () => void
   populationItemsComplete?: boolean
   filteredItemsComplete?: boolean
   selectedItems?: BrowseItemPayload[]
@@ -52,6 +53,7 @@ export default function MetricsPanel({
   facets = null,
   facetsState = 'settled',
   facetFieldStates,
+  onRetryFacets,
   populationItemsComplete = true,
   filteredItemsComplete = true,
   selectedItems,
@@ -89,6 +91,7 @@ export default function MetricsPanel({
       facets={facets}
       facetsState={facetsState}
       facetFieldStates={facetFieldStates}
+      onRetryFacets={onRetryFacets}
       populationItemsComplete={populationItemsComplete}
       filteredItemsComplete={filteredItemsComplete}
       selectedItems={selectedItems}
@@ -111,7 +114,7 @@ export default function MetricsPanel({
       >
         {attributesPanel}
         <div className="p-4 text-sm text-muted">
-          No metrics or categoricals found in this dataset.
+          No numeric or categorical fields found in this dataset.
         </div>
       </div>
     )
@@ -137,6 +140,7 @@ export default function MetricsPanel({
           facets={facets}
           facetsState={facetsState}
           facetFieldStates={facetFieldStates}
+          onRetryFacets={onRetryFacets}
           populationItemsComplete={populationItemsComplete}
           filteredItemsComplete={filteredItemsComplete}
           selectedItems={selectedItems}

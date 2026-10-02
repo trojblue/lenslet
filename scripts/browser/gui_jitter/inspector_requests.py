@@ -328,7 +328,7 @@ def exercise_inspector_conflict_regions(
         page.get_by_role("button", name="1 star", exact=True).click()
         page.get_by_text("Rating conflict.", exact=True).wait_for()
         rating_conflict = geometry()
-        page.get_by_role("button", name="Keep theirs", exact=True).click()
+        page.get_by_role("button", name="Use latest", exact=True).click()
         page.locator('textarea[aria-label="Notes"]').fill("local conflicting notes")
         page.locator('textarea[aria-label="Notes"]').blur()
         page.get_by_text("Conflicting edits detected.", exact=True).wait_for()
@@ -340,7 +340,7 @@ def exercise_inspector_conflict_regions(
             for name, slot in snapshot["slots"].items():
                 if not slot["controlsBounded"] or not slot["contentBounded"]:
                     violations.append(f"{phase} conflict overflowed the {name} slot")
-        page.get_by_role("button", name="Keep theirs", exact=True).click()
+        page.get_by_role("button", name="Use latest", exact=True).click()
         page.unroute("**/item?*", reject_patch)
         page.route("**/item?*", reject_multi_sidecar)
         page.set_viewport_size({"width": 1280, "height": 900})

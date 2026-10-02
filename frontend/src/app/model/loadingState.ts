@@ -10,6 +10,7 @@ export type GridStatusInput = GridLoadingState & {
   isError?: boolean
   unavailableReason?: string | null
   filteredCount?: number
+  filtersActive?: boolean
 }
 
 export type GridStatusKind =
@@ -68,19 +69,28 @@ export function resolveGridStatus(state: GridStatusInput): GridStatus {
     return {
       kind: 'updating',
       title: 'Updating results...',
-      message: 'Showing the previous window until the backend response arrives.',
+      message: 'Your current view stays visible while results update.',
       showCentered: false,
     }
   }
 
   if (state.itemCount === 0) {
     const filteredCount = state.filteredCount ?? 0
+    const hasQuery = state.searching || state.filtersActive || state.similarityActive
+    const title = filteredCount > 0
+      ? 'No items loaded'
+      : hasQuery ? 'No matching images' : 'This folder has no images'
+    const message = state.similarityActive
+      ? 'No images match this similarity query. Adjust the query or exit similarity.'
+      : state.searching
+        ? 'No filenames, tags, or notes match this search. Change or clear the search.'
+        : state.filtersActive
+          ? 'No images match these filters. Clear filters to see all images.'
+          : 'Choose another folder to browse images.'
     return {
       kind: 'empty',
-      title: filteredCount === 0 ? 'No matching items' : 'No items loaded',
-      message: state.searching
-        ? 'No filenames, tags, or notes match this search.'
-        : 'No images match the current filters.',
+      title,
+      message,
       showCentered: true,
     }
   }

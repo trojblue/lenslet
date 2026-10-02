@@ -454,7 +454,7 @@ export default function Inspector({
   const metadataLoading = metaState === 'loading'
   const metaLoaded = metaState === 'loaded' && !!metaRawText
   const metaHeightClass = presentedPath && autoloadImageMetadata ? 'h-48' : (metaLoaded ? 'h-48' : 'h-24')
-  let metadataActionLabel = 'Load meta'
+  let metadataActionLabel = 'Load metadata'
   if (metadataLoading) {
     metadataActionLabel = showMetadataLoadingCopy ? 'Loading…' : '\u00a0'
   } else if (metaLoaded) {

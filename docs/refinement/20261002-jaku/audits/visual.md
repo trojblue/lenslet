@@ -38,4 +38,13 @@ All exceed4.5:1. Exact measured colors, fonts and backgrounds: `../evidence/visu
 
 Inspector with selected `quick_01_meta.png` was inspected: filename, Quick View, JSON metadata and numeric rows readable; native full-text title/copy/scroll mechanisms preserved. Inactive star shapes measured3.59:1 and meet the non-text3:1 threshold; disabled Find similar is exempt from normal control contrast. No change made for either.
 
-Verdict for implemented color/typography scope: **Approve**. FolderTree contrast remains a tracked dependency until performance integration; this does not approve untouched mobile/Compare error states or claim general WCAG conformance.
+Verdict for implemented color/typography scope: **Approve**. Final build5 FolderTree integration is verified below. This does not approve untouched Compare error states or claim general WCAG conformance.
+
+
+### Final packaged integration
+
+Build5 selected FolderTree count initially exposed a missed layered background: Teal muted count on a5%white badge over the20%accent row measured4.20:1. The performance owner switched the count to the existing secondary foreground. Final production7095 measurements: Original7.73:1, Teal6.62:1, Charcoal6.58:1. Exact counts are appended to `visual-contrast.json`; selected labels also pass in every preset. Added a meaningful3-theme regression for that layered count badge;6 contrast tests pass.
+
+Final desktop gallery and Inspector, plus390×844 phone Inspector screenshots are stored in `../evidence/`. Phone Inspector has an explicit close control, decoded preview, readable Quick View and metadata, and internal scrolling. Its dialog fills the viewport without horizontal overflow. The earlier mobile verification gap is narrowed to native Safari autozoom and broader error/long-content variants, which remain unverified here.
+
+Final standard `gui_jitter --scenario inspector --port 7143` passed on build5, including the corrected rating-conflict slot at280px and all identity/descendant checks. Existing `motion_refresh` passed normal/reduced modes on build4; build5 conflict/tree fixes do not alter disclosure motion. Compact status is in `../evidence/visual-integration.json`; raw traces remain under `/tmp/lenslet-jaku-final-visual/`.

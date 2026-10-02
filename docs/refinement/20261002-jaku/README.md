@@ -62,6 +62,14 @@ excluded at the user's request.
 
 ## Status
 
-Initial investigations are running in six delegated workstreams. Implementation
-assignments and results are tracked in [execution.md](execution.md). Final review
-and coverage will be consolidated in [review.md](review.md).
+Completed on 2026-10-02. The main-gallery implementation, independent review,
+production build and required acceptance/continuity gates passed. Ranking was not
+changed intentionally; its generated chunk was regenerated with shared dependencies.
+
+The 40,000-image / 10,000-folder paired benchmark reduced median first-grid time
+from 4.576s to 0.477s and mean scrolling frame gap from 295.36ms to 18.11ms.
+See [performance evidence](audits/performance.md) for cache conditions and limits.
+
+[execution.md](execution.md) records implementation batches and the final validation
+matrix. [review.md](review.md) consolidates findings, remedies and coverage limits.
+The reports remain a dated evidence record; `docs/DESIGN_SYSTEM.md` governs behavior.

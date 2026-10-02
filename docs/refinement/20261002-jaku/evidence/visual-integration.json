@@ -1,0 +1,49 @@
+{
+  "build": "integration5",
+  "motion_refresh": {
+    "status": "pass",
+    "modes": [
+      "normal",
+      "reduced"
+    ],
+    "checks": [
+      "intrinsic-height frames",
+      "rapid reversal",
+      "retained descendants",
+      "editor draft and scroll",
+      "decoded image identity",
+      "focus exclusion",
+      "persisted disclosure state"
+    ]
+  },
+  "inspector_jitter": {
+    "status": "pass",
+    "violations": [],
+    "raw": "/tmp/lenslet-jaku-final-visual/inspector-build5.json",
+    "previousFailure": "Build4 rating conflict overflow corrected by stable 48px two-column grid. Build5 gate passed unchanged."
+  },
+  "screenshots": {
+    "server": "synthetic demo7095",
+    "theme": "Original",
+    "desktop": [
+      1440,
+      1000
+    ],
+    "phone": [
+      390,
+      844
+    ],
+    "phoneDialog": [
+      0,
+      0,
+      390,
+      844
+    ],
+    "previewDecoded": true
+  },
+  "folderCountContrast": {
+    "Original": 7.73,
+    "Teal": 6.62,
+    "Charcoal": 6.58
+  }
+}

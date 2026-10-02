@@ -47,6 +47,32 @@
       "lineHeight": "15.4px",
       "title": "",
       "images": []
+    },
+    "selectedFolderCount": {
+      "text": "18",
+      "tag": "SPAN",
+      "class": "tree-row-count text-[10px] text-text-secondary tabular-nums bg-white/5 border border-white/5 rounded px-1.5 text-center",
+      "foreground": [
+        211,
+        206,
+        198,
+        1
+      ],
+      "background": [
+        42.60941176470588,
+        54.37725490196078,
+        73.92705882352942,
+        1
+      ],
+      "opacity": 1,
+      "ratio": 7.73375583050223,
+      "font": "",
+      "fontVariantNumeric": "tabular-nums",
+      "lineHeight": "14.5px",
+      "title": "18 items",
+      "images": [
+        "radial-gradient(1200px 600px at 10% -10%, rgba(255, 175, 110, 0.05), rgba(0, 0, 0, 0) 60%), radial-gradient(900px 500px at 100% -20%, rgba(59, 130, 246, 0.08), rgba(0, 0, 0, 0) 55%), none"
+      ]
     }
   },
   "Teal": {
@@ -97,6 +123,32 @@
       "lineHeight": "15.4px",
       "title": "",
       "images": []
+    },
+    "selectedFolderCount": {
+      "text": "18",
+      "tag": "SPAN",
+      "class": "tree-row-count text-[10px] text-text-secondary tabular-nums bg-white/5 border border-white/5 rounded px-1.5 text-center",
+      "foreground": [
+        211,
+        206,
+        198,
+        1
+      ],
+      "background": [
+        39.762352941176474,
+        69.56156862745098,
+        63.487843137254906,
+        1
+      ],
+      "opacity": 1,
+      "ratio": 6.616625349001167,
+      "font": "",
+      "fontVariantNumeric": "tabular-nums",
+      "lineHeight": "14.5px",
+      "title": "18 items",
+      "images": [
+        "radial-gradient(1200px 600px at 10% -10%, rgba(255, 175, 110, 0.05), rgba(0, 0, 0, 0) 60%), radial-gradient(900px 500px at 100% -20%, rgba(45, 212, 191, 0.08), rgba(0, 0, 0, 0) 55%), none"
+      ]
     }
   },
   "Charcoal": {
@@ -147,6 +199,32 @@
       "lineHeight": "15.4px",
       "title": "",
       "images": []
+    },
+    "selectedFolderCount": {
+      "text": "18",
+      "tag": "SPAN",
+      "class": "tree-row-count text-[10px] text-text-secondary tabular-nums bg-white/5 border border-white/5 rounded px-1.5 text-center",
+      "foreground": [
+        203,
+        213,
+        225,
+        1
+      ],
+      "background": [
+        56.84470588235294,
+        68.61254901960784,
+        85.6949019607843,
+        1
+      ],
+      "opacity": 1,
+      "ratio": 6.5842295801572766,
+      "font": "",
+      "fontVariantNumeric": "tabular-nums",
+      "lineHeight": "14.5px",
+      "title": "18 items",
+      "images": [
+        "radial-gradient(1200px 600px at 10% -10%, rgba(255, 175, 110, 0.04), rgba(0, 0, 0, 0) 60%), radial-gradient(900px 500px at 100% -20%, rgba(134, 183, 255, 0.06), rgba(0, 0, 0, 0) 55%), none"
+      ]
     }
   }
 }

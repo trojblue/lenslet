@@ -30,7 +30,7 @@ Local evidence: `/tmp/lenslet-jaku-performance/{baseline.json,profile.json,cpu.j
 
 ## P01 — prevent unrelated gallery updates from rebuilding the folder tree
 
-**Implemented, awaiting integrated validation.** AppShell supplies changing callback closures through LeftSidebar; visible-window updates therefore traversed all 10,001 TreeNode components. FolderTree now forwards actions through stable callbacks backed by the existing latest-ref primitive, and TreeNode uses React's ordinary shallow memoization. The callbacks still read the latest parent behavior; data, expansion, current path, activity and count invalidation remain explicit inputs.
+**Implemented and validated; P02 extends it.** AppShell supplies changing callback closures through LeftSidebar; visible-window updates therefore traversed all 10,001 TreeNode components. FolderTree now forwards actions through stable callbacks backed by the existing latest-ref primitive, and TreeNode uses React's ordinary shallow memoization. The callbacks still read the latest parent behavior; data, expansion, current path, activity and count invalidation remain explicit inputs.
 
 With isolated rebuilt assets and the same fixture/browser, five seconds of scrolling improved from 19 sampled frames to 100, mean frame gap 278.69→50.84 ms, maximum gap 500→83.4 ms, and scripting duration 4.62→1.11 seconds. Measurements are individual samples, not statistical distributions. The large DOM remains, so cold startup and paint cost still warrant virtualization.
 
@@ -38,7 +38,7 @@ Focused FolderTree tests: 3 passed. Evidence: `/tmp/lenslet-jaku-performance/mem
 
 ## Additional findings and assignments
 
-- **P02 — folder virtualization:** Root expansion mounts 10,000 child components/queries. Flatten visible logical rows and virtualize them, while query ownership and retained expansion stay outside virtual row lifetime. Keyboard navigation must use logical rows (including offscreen Home/End targets), not only mounted DOM nodes. Preserve counts, actions, scroll and accessibility semantics. Investigation/implementation follows P01.
+- **P02 — folder virtualization:** Root expansion mounts 10,000 child components/queries. Flatten visible logical rows and virtualize them, while query ownership and retained expansion stay outside virtual row lifetime. Keyboard navigation must use logical rows (including offscreen Home/End targets), not only mounted DOM nodes. Preserve counts, actions, scroll and accessibility semantics. Implemented and validated below.
 - **P03 — stale blob request ownership:** BlobLRUCache completion/finally handlers can repopulate a cleared cache and remove a replacement request after cancellation. Reported to root for separate owner-guard fix and adversarial deferred-promise tests.
 - **P04 — large histogram argument overflow:** `Math.min(...values)` / `Math.max(...values)` fail with 200,000 entries (`RangeError` reproduced in Node). Reported to root for bounded-loop implementation and realistic population tests.
 - **P05 — startup bundle reach:** Non-default Viewer, similarity, metrics/derived UI imports are in the entry graph; bundle agent owns measured import-graph investigation. Do not add loading-first frames or delay persisted panel presentation merely to shrink a chunk.
@@ -74,8 +74,7 @@ The first isolated production sample reduced DOM elements **101,487→1,760**
 and mounted folder rows **10,001→29**. Over five seconds it sampled **275 frames**
 (mean gap **18.37 ms**, maximum **50.1 ms**) compared with the baseline 19 frames
 (mean **278.69 ms**, maximum **500 ms**). This is a measured synthetic workload,
-not a guarantee of sustained 60 Hz across devices. Final packaged repetitions
-will be recorded after concurrent browser work finishes.
+not a guarantee of sustained 60 Hz across devices. Final packaged repetitions are recorded below.
 
 New gate:
 
@@ -100,3 +99,41 @@ initial hidden-tab gate failed (first frame mounted zero rows), drove the
 viewport-owner fix, and was rerun successfully. Raw evidence stays under
 `/tmp/lenslet-jaku-performance/`; do not count intermediate failing builds as
 passing final validation.
+
+
+## Final production measurements
+
+Evidence: [performance.json](../evidence/performance.json). Three interleaved
+baseline/update pairs used the same warm backend and 1440×960 viewport, a fresh
+browser context per run, identical local asset interception for both builds,
+a 500 ms settle interval, and the existing five-second scroll probe. Baseline
+assets are the untouched previous motion-refresh bundle. All six runs had no
+page errors.
+
+| Paired measurement | Baseline | Updated |
+|---|---:|---:|
+| Median first visible grid | 4.576 s | 0.477 s |
+| Median first thumbnail telemetry | 4,443 ms | 355 ms |
+| Median of each run's mean frame gap | 295.36 ms | 18.11 ms |
+| Median sampled frames / five seconds | 19 | 278 |
+| Worst observed frame gap | 549.9 ms | 50.1 ms |
+| Mounted folder rows | 10,001 | 29 |
+| DOM elements (first pair) | 101,478 | 1,752 |
+
+The independent existing primary large-tree gate at 1680×980 also passed with
+a fresh server and browser: first grid **0.62 s**, first thumbnail **489 ms**,
+maximum frame gap **66.6 ms**, and **232** sampled frames. Folder/thumbnail/file
+request peaks stayed **2/6/0**, within the existing limits.
+
+Direct packaged-browser reloads then reused one browser context and backend.
+The initial fresh-browser visit took 0.976 s to first grid; two warm visits took
+0.400 s and 0.425 s. Their mean frame gaps were 18.11, 19.16 and 19.07 ms,
+with no page errors. These separate protocols are recorded individually, not
+combined into a misleading aggregate.
+
+The focused virtual-tree gate passed twice on packaged build 5. It confirms
+visible logical End navigation, bounded rows, exact settled descendant content
+on the first return frame, and a deliberately delayed unvisited-folder response
+completing while hidden. The source/workspace reset remains the explicit release
+boundary for retained branch presentation. Performance audit servers were stopped after
+measurements; user-requested tmux demos were left running.

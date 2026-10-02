@@ -1895,6 +1895,13 @@ def run_grid_probe(config: GridProbeConfig) -> ProbeResult:
             page = context.new_page()
             page.set_default_timeout(config.browser_timeout_ms)
             snapshots = exercise_grid_probe(page, config, playwright_error)
+            # Source switching changes server state, not just this browser context.
+            # Independent media probes use the fixture's original pixel oracle.
+            source_response = context.request.post(
+                f"{config.base_url}/table/source-column", data={"source_column": "source"}
+            )
+            if not source_response.ok or source_response.json().get("current") != "source":
+                raise SmokeFailure("Failed to restore fixture source before media continuity probes")
             context.close()
             snapshots.continuity["hover_preview"] = exercise_hover_preview_continuity(
                 browser,

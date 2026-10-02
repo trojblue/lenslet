@@ -845,12 +845,27 @@ def _capture_folder_and_context_surfaces(page: Any, timeout_ms: float) -> dict[s
     menu.wait_for(state="visible", timeout=timeout_ms)
     context_samples = _stop_utility_paint_trace(page)
     menu_before = _rect(page, ".context-menu-panel")
-    menu.get_by_role("menuitem", name="Export metadata (CSV)").click()
-    menu.get_by_role("menuitem", name="Exporting CSV…").wait_for(state="visible", timeout=timeout_ms)
-    menu_after = _rect(page, ".context-menu-panel")
+    with page.expect_download(timeout=timeout_ms):
+        menu.get_by_role("menuitem", name="Export metadata (CSV)").click()
+        menu.get_by_role("menuitem", name="Exporting CSV…").wait_for(state="visible", timeout=timeout_ms)
+        menu_after = _rect(page, ".context-menu-panel")
     context_delta = _rect_delta(menu_before, menu_after, "left", "top", "width", "height")
+    menu.wait_for(state="detached", timeout=timeout_ms)
+    # A tree menu closes when its responsive owner disappears. Test that contract
+    # separately from viewport clamping, which needs a still-visible grid owner.
+    row.evaluate("""node => node.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, clientX: 1438, clientY: 918,
+    }))""")
+    menu.wait_for(state="visible", timeout=timeout_ms)
     page.set_viewport_size({"width": 160, "height": 920})
-    page.wait_for_timeout(100)
+    menu.wait_for(state="detached", timeout=timeout_ms)
+    grid_cell = page.locator('[role="gridcell"][id^="cell-"]').first
+    _start_utility_paint_trace(page, ".context-menu-panel")
+    grid_cell.evaluate("""node => node.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, clientX: 158, clientY: 918,
+    }))""")
+    menu.wait_for(state="visible", timeout=timeout_ms)
+    grid_context_samples = _stop_utility_paint_trace(page)
     narrow_menu = _rect(page, ".context-menu-panel")
     narrow_overflow = max(
         0.0,
@@ -902,6 +917,7 @@ def _capture_folder_and_context_surfaces(page: Any, timeout_ms: float) -> dict[s
         float(visual_menu["bottom"]) - (float(visual_bounds["bottom"]) - 8.0),
     )
     violations = _first_paint_violations("ContextMenu", context_samples)
+    violations.extend(_first_paint_violations("Grid ContextMenu", grid_context_samples))
     if folder_delta > 1.0:
         violations.append(f"FolderTree parent anchors moved {folder_delta:.3f}px during hydration")
     if context_delta > 1.0:
@@ -924,6 +940,8 @@ def _capture_folder_and_context_surfaces(page: Any, timeout_ms: float) -> dict[s
         "context_visual_menu": visual_menu,
         "context_visual_overflow_px": visual_overflow,
         "context_samples": context_samples,
+        "grid_context_samples": grid_context_samples,
+        "hidden_tree_owner_dismissed_menu": True,
         "violations": violations,
     }
 

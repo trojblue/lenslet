@@ -45,6 +45,64 @@ describe('file prefetch api contract', () => {
     expect(fileCache.has('/b.jpg')).toBe(true)
   })
 
+  it('shares a pending file prefetch with another prefetch and foreground load', async () => {
+    let resolve!: (response: Response) => void
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      new Promise<Response>((yes) => { resolve = yes }),
+    )
+    const prefetch = api.prefetchFile('/shared.jpg', 'viewer')
+    await api.prefetchFile('/shared.jpg', 'compare')
+    const foreground = api.getFile('/shared.jpg')
+    const blob = new Blob(['shared image'])
+    resolve(new Response(blob))
+    await prefetch
+    expect(await foreground).toBe(fileCache.get('/shared.jpg'))
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not repopulate a cleared file cache when prefetch completes late', async () => {
+    let resolve!: (response: Response) => void
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      new Promise<Response>((yes) => { resolve = yes }),
+    )
+    const prefetch = api.prefetchFile('/stale.jpg', 'viewer')
+    fileCache.clear()
+    resolve(new Response(new Blob(['stale image'])))
+    await prefetch
+    expect(fileCache.has('/stale.jpg')).toBe(false)
+  })
+
+  it('cancels file prefetch through its request-budget abort signal', async () => {
+    let signal: AbortSignal | undefined
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+      signal = init?.signal as AbortSignal
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      })
+    })
+    const prefetch = api.prefetchFile('/cancel.jpg', 'viewer')
+    api.cancelPrefetch('/cancel.jpg')
+    await prefetch
+    expect(signal?.aborted).toBe(true)
+    expect(fileCache.isInflight('/cancel.jpg')).toBe(false)
+    expect(fileCache.has('/cancel.jpg')).toBe(false)
+  })
+
+  it('keeps the 40MB prefetch cap while allowing foreground delivery', async () => {
+    const oversized = new Blob(['large image'])
+    Object.defineProperty(oversized, 'size', { value: 40 * 1024 * 1024 + 1 })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      blob: async () => oversized,
+    } as Response)
+    const prefetch = api.prefetchFile('/large.jpg', 'viewer')
+    const foreground = api.getFile('/large.jpg')
+    await prefetch
+    await expect(foreground).resolves.toBe(oversized)
+    expect(fileCache.has('/large.jpg')).toBe(false)
+    expect(fileCache.getTotalBytes()).toBe(0)
+  })
+
   it('does not refetch when file is already cached', async () => {
     fileCache.set('/c.jpg', new Blob([new Uint8Array([9])]))
     const fetchSpy = vi.spyOn(globalThis, 'fetch')

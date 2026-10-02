@@ -758,14 +758,14 @@ export const api = {
     if (fileCache.has(path) || fileCache.isInflight(path)) return
 
     try {
-      const blob = await runWithRequestBudget('file', () =>
-        fetchBlob(fileUrl(path), {
-          headers: { 'x-lenslet-prefetch': context },
-        }),
-      ).promise
-      if (blob.size <= MAX_PREFETCH_SIZE) {
-        fileCache.set(path, blob)
-      }
+      await fileCache.getOrFetch(path, () =>
+        runWithRequestBudget('file', () =>
+          fetchBlob(fileUrl(path), {
+            headers: { 'x-lenslet-prefetch': context },
+          }),
+        ),
+        MAX_PREFETCH_SIZE,
+      )
     } catch {
       // Silently ignore prefetch errors
     }

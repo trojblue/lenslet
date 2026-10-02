@@ -101,7 +101,8 @@ export class BlobLRUCache {
 
   getOrFetch(
     key: string,
-    fetcher: BlobFetcher
+    fetcher: BlobFetcher,
+    maxCacheEntryBytes = this.maxBytes,
   ): Promise<Blob> {
     const cached = this.get(key)
     if (cached) return Promise.resolve(cached)
@@ -117,16 +118,20 @@ export class BlobLRUCache {
     }
     const { promise, abort } = inflightEntryFromFetchResult(fetchResult)
 
+    const entry: InflightEntry = { promise, abort }
     const wrappedPromise = promise
       .then((blob: Blob) => {
-        this.set(key, blob)
+        if (this.inflight.get(key) === entry && blob.size <= maxCacheEntryBytes) {
+          this.set(key, blob)
+        }
         return blob
       })
       .finally(() => {
-        this.inflight.delete(key)
+        if (this.inflight.get(key) === entry) this.inflight.delete(key)
       })
 
-    this.inflight.set(key, { promise: wrappedPromise, abort })
+    entry.promise = wrappedPromise
+    this.inflight.set(key, entry)
     return wrappedPromise
   }
 
@@ -136,50 +141,31 @@ export class BlobLRUCache {
   ): void {
     if (this.store.has(key) || this.inflight.has(key)) return
 
-    const fetchResult = fetcher()
-    const { promise, abort } = inflightEntryFromFetchResult(fetchResult)
+    // Handle background errors without replacing the shared result with a
+    // successful empty Blob for foreground callers joining this request.
+    void this.getOrFetch(key, fetcher).catch(() => {})
+  }
 
-    const wrappedPromise = promise
-      .then((blob: Blob) => {
-        this.set(key, blob)
-        return blob
-      })
-      .catch(() => {
-        // Silently ignore prefetch errors - they're non-critical
-        return new Blob()
-      })
-      .finally(() => {
-        this.inflight.delete(key)
-      })
-
-    this.inflight.set(key, { promise: wrappedPromise, abort })
+  private abortEntry(entry: InflightEntry): void {
+    try {
+      entry.abort?.()
+    } catch {
+      // Cancellation remains best-effort; ownership was already invalidated.
+    }
   }
 
   cancelPrefetch(key: string): void {
     const entry = this.inflight.get(key)
-    if (entry?.abort) {
-      try {
-        entry.abort()
-      } catch {
-        // Ignore abort errors
-      }
-    }
     this.inflight.delete(key)
+    if (entry) this.abortEntry(entry)
   }
 
   clear(): void {
-    for (const [key, entry] of this.inflight) {
-      if (entry.abort) {
-        try {
-          entry.abort()
-        } catch {
-          // Ignore abort errors
-        }
-      }
-    }
+    const entries = Array.from(this.inflight.values())
     this.inflight.clear()
     this.store.clear()
     this.totalBytes = 0
+    for (const entry of entries) this.abortEntry(entry)
   }
 
   evictPrefix(prefix: string): void {
@@ -202,18 +188,14 @@ export class BlobLRUCache {
       }
     }
 
-    for (const [key, entry] of Array.from(this.inflight.entries())) {
+    const canceled: InflightEntry[] = []
+    for (const [key, entry] of this.inflight) {
       if (matches(key)) {
-        if (entry.abort) {
-          try {
-            entry.abort()
-          } catch {
-            /* ignore abort errors */
-          }
-        }
         this.inflight.delete(key)
+        canceled.push(entry)
       }
     }
+    for (const entry of canceled) this.abortEntry(entry)
 
     if (this.totalBytes < 0) {
       this.totalBytes = 0

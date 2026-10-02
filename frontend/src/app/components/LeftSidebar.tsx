@@ -309,6 +309,7 @@ export default function LeftSidebar({
             )}
           </div>
           <FolderTree
+            key={derivedDraftResetKey}
             active={visible && contentOpen && leftTool === 'folders'}
             current={current}
             roots={ROOTS}

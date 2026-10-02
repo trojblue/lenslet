@@ -47,3 +47,56 @@ Focused FolderTree tests: 3 passed. Evidence: `/tmp/lenslet-jaku-performance/mem
 ## Measurement limits
 
 Synthetic images are deliberately cheap to decode and do not characterize real photographic decode cost, remote latency, or huge table metrics. Large-tree performance numbers must be rerun after final packaged assets are built. Existing acceptance thresholds are not evidence of 60 Hz smoothness; report frame distributions and script cost alongside pass/fail.
+
+## P02 implementation and verification
+
+The folder tree now builds a logical row model and virtualizes large trees using
+its existing TanStack dependency. Small trees keep ordinary flow. Tree-level
+query owners observe root, expanded and current paths, independently of row
+mounting; collapsed branches retain settled payload/count records without
+keeping an ever-growing set of inactive observers. Workspace/source identity
+keys the tree and releases this state on a hard reset. Counts use the common
+React Query owner instead of a second async cache, keeping settled counts during
+refresh and preventing stale canceled work from repopulating a private cache.
+Unknown closed-folder counts use a neutral dash; only real pending loads say
+loading. Active text/count contrast and scoped folder Retry were integrated with
+the parallel visual/writing findings.
+
+Logical keyboard navigation covers offscreen Home/End and neighboring rows,
+skips status rows, and keeps a mounted roving tab stop. `aria-level`,
+`aria-posinset`, and `aria-setsize` describe the complete logical hierarchy.
+Hidden tools keep their last nonzero viewport and measured row sizes. A callback
+ref publishes actual scroll-container attachment before paint, including a warm
+source-key remount where cached queries do not otherwise rerender the child.
+There is no invented fixed viewport fallback.
+
+The first isolated production sample reduced DOM elements **101,487→1,760**
+and mounted folder rows **10,001→29**. Over five seconds it sampled **275 frames**
+(mean gap **18.37 ms**, maximum **50.1 ms**) compared with the baseline 19 frames
+(mean **278.69 ms**, maximum **500 ms**). This is a measured synthetic workload,
+not a guarantee of sustained 60 Hz across devices. Final packaged repetitions
+will be recorded after concurrent browser work finishes.
+
+New gate:
+
+```sh
+python -m scripts.browser.folder_tree --base-url http://127.0.0.1:7115 \
+  --output-json /tmp/lenslet-jaku-performance/folder-tree-gate.json
+```
+
+It reuses the existing large-tree fixture rather than generating a second
+fixture family. It checks a bounded rendered row window, truly visible
+Home/End targets across 10,000 folders, expansion/open selection, collapse/reopen,
+and the earliest post-return painted frame including visible descendant text,
+actions, expansion state and scroll position. A second scenario deliberately
+finishes an unvisited folder request while Metrics is visible, then returns to
+Folders. This catches both the virtualizer render loop found during development
+and hidden zero-viewport frames that static markup/unit tests cannot detect.
+
+Focused model/markup tests: five passed; TypeScript passed. The production
+browser gate passed against both isolated assets and packaged build 5, including
+an explicit assertion that the delayed cold request completed while hidden. The
+initial hidden-tab gate failed (first frame mounted zero rows), drove the
+viewport-owner fix, and was rerun successfully. Raw evidence stays under
+`/tmp/lenslet-jaku-performance/`; do not count intermediate failing builds as
+passing final validation.

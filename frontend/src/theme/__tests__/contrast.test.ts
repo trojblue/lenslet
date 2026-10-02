@@ -29,6 +29,16 @@ function contrast(first: Rgb, second: Rgb): number {
 
 describe('theme text contrast', () => {
   for (const preset of Object.values(THEME_PRESETS)) {
+    it(`${preset.label} keeps folder counts legible on selected translucent badges`, () => {
+      const tokens = preset.tokens
+      const panel = resolveRgb(tokens['--panel'], tokens)
+      const accent = resolveRgb(tokens['--accent'], tokens)
+      const selected = composite(`rgba(${accent.join(',')},0.2)`, panel)
+      const badge = composite('rgba(255,255,255,0.05)', selected)
+      const foreground = resolveRgb(tokens['--text-secondary'], tokens)
+      expect(contrast(foreground, badge)).toBeGreaterThanOrEqual(4.5)
+    })
+
     it(`${preset.label} keeps control and quiet text legible on resting and selected surfaces`, () => {
       const tokens = preset.tokens
       for (const surface of ['--panel', '--surface']) {

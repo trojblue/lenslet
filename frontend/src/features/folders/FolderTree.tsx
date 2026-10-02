@@ -1,12 +1,8 @@
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import React, { useCallback, useRef, useState } from 'react'
 import type { BrowseFolderPayload } from '../../lib/types'
-import { folderQueryKey, useFolder } from '../../api/folders'
-import { api } from '../../api/client'
-import { middleTruncate } from '../../lib/util'
-import { joinPath, sanitizePath } from '../../lib/paths'
 import { useLatestRef } from '../../shared/hooks/useLatestRef'
-import { useFolderTreeKeyboardNav } from './hooks/useFolderTreeKeyboardNav'
+import FolderTreeRows from './FolderTreeRows'
+import { expandedAncestorPaths } from './model/treeRows'
 
 interface Root {
   label: string
@@ -31,17 +27,6 @@ interface FolderTreeProps {
 const PULL_REFRESH_THRESHOLD = 64
 const MAX_PULL_DISTANCE = 120
 
-function getExpandedAncestorPaths(path: string): string[] {
-  const parts = path.split('/').filter(Boolean)
-  const ancestors = ['/']
-  let current = ''
-  for (const part of parts) {
-    current = current ? `${current}/${part}` : `/${part}`
-    ancestors.push(current)
-  }
-  return ancestors
-}
-
 export default function FolderTree({
   active = true,
   current,
@@ -64,77 +49,24 @@ export default function FolderTree({
   const openActions = useCallback((path: string, anchor: { x: number; y: number }) => {
     handlers.current.onOpenActions?.(path, anchor)
   }, [handlers])
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(['/']))
-  const countCacheRef = useRef<Map<string, number>>(new Map())
-  const inflightRef = useRef<Map<string, Promise<number>>>(new Map())
+  const [expansion, setExpansion] = useState(() => ({ current, paths: new Set(expandedAncestorPaths(current)) }))
+  if (expansion.current !== current) {
+    setExpansion({ current, paths: new Set([...expansion.paths, ...expandedAncestorPaths(current)]) })
+  }
+  const expanded = expansion.paths
+  const setExpanded = useCallback((updater: (paths: Set<string>) => Set<string>) => {
+    setExpansion((previous) => ({ ...previous, paths: updater(previous.paths) }))
+  }, [])
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const [isPullRefreshing, setIsPullRefreshing] = useState(false)
   const [pullDistance, setPullDistance] = useState(0)
   const pullStartYRef = useRef<number | null>(null)
   const isPullingRef = useRef(false)
-  const queryClient = useQueryClient()
   const resetPullState = useCallback(() => {
     setPullDistance(0)
     pullStartYRef.current = null
     isPullingRef.current = false
   }, [])
-
-  const getSubtreeCount = useCallback(async (path: string): Promise<number> => {
-    const target = sanitizePath(path || '/')
-    const cache = countCacheRef.current
-    const inflight = inflightRef.current
-    const cached = cache.get(target)
-    if (cached !== undefined) return cached
-
-    const recursiveKey = folderQueryKey(target, { recursive: true })
-    const cachedRecursive = queryClient.getQueryData<BrowseFolderPayload>(recursiveKey)
-    if (cachedRecursive) {
-      const count = cachedRecursive.total_items ?? cachedRecursive.items.length
-      cache.set(target, count)
-      return count
-    }
-
-    const pending = inflight.get(target)
-    if (pending) return pending
-
-    const promise = (async () => {
-      try {
-        const state = queryClient.getQueryState(recursiveKey)
-        if (state?.fetchStatus === 'fetching') {
-          const folder = await queryClient.fetchQuery({
-            queryKey: recursiveKey,
-            queryFn: () => api.getFolder(target, { recursive: true }),
-          })
-          const count = folder.total_items ?? folder.items.length
-          cache.set(target, count)
-          return count
-        }
-        const count = await api.getFolderCount(target)
-        cache.set(target, count)
-        return count
-      } finally {
-        inflight.delete(target)
-      }
-    })()
-
-    inflight.set(target, promise)
-    return promise
-  }, [queryClient])
-
-  useEffect(() => {
-    countCacheRef.current.clear()
-    inflightRef.current.clear()
-  }, [countVersion])
-
-  useEffect(() => {
-    const ancestorPaths = getExpandedAncestorPaths(current)
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      for (const ancestorPath of ancestorPaths) {
-        next.add(ancestorPath)
-      }
-      return next
-    })
-  }, [current])
 
   const handlePullRefresh = useCallback(async () => {
     if (!onPullRefresh || isPullRefreshing) return
@@ -201,6 +133,7 @@ export default function FolderTree({
 
   return (
     <div
+      ref={setScrollElement}
       className={treeContainerClass}
       onTouchStart={onPullRefresh ? handleTouchStart : undefined}
       onTouchMove={onPullRefresh ? handleTouchMove : undefined}
@@ -216,26 +149,12 @@ export default function FolderTree({
           {isPullRefreshing ? 'Refreshing…' : (pullReady ? 'Release to refresh' : 'Pull to refresh')}
         </div>
       )}
-      <div className="p-1" role="tree" aria-label="Folders">
-        {roots.map(r => (
-          <TreeNode
-            active={active}
-            key={r.path}
-            path={r.path}
-            label={r.label}
-            depth={0}
-            current={current}
-            expanded={expanded}
-            setExpanded={setExpanded}
-            onOpen={openFolder}
-            onContextMenu={onContextMenu ? openContextMenu : undefined}
-            onOpenActions={onOpenActions ? openActions : undefined}
-            initial={data}
-            getSubtreeCount={getSubtreeCount}
-            countVersion={countVersion}
-          />
-        ))}
-      </div>
+      <FolderTreeRows
+        active={active} roots={roots} current={current} initial={data}
+        expanded={expanded} setExpanded={setExpanded} scrollElement={scrollElement}
+        onOpen={openFolder} onContextMenu={onContextMenu ? openContextMenu : undefined}
+        onOpenActions={onOpenActions ? openActions : undefined} countVersion={countVersion}
+      />
       {showResizeHandle && (
         <div
           className="toolbar-offset sidebar-resize-handle absolute bottom-0 left-[calc(var(--grid-left)-6px)]"
@@ -244,194 +163,4 @@ export default function FolderTree({
       )}
     </div>
   )
-}
-
-interface TreeNodeProps {
-  active: boolean
-  path: string
-  label: string
-  depth: number
-  current: string
-  expanded: Set<string>
-  setExpanded: (updater: (s: Set<string>) => Set<string>) => void
-  onOpen: (path: string) => void
-  onContextMenu?: (e: React.MouseEvent, path: string) => void
-  onOpenActions?: (path: string, anchor: { x: number; y: number }) => void
-  initial?: BrowseFolderPayload
-  getSubtreeCount: (path: string) => Promise<number>
-  countVersion?: number
-}
-
-const TreeNode = memo(function TreeNode({
-  active,
-  path,
-  label,
-  depth,
-  current,
-  expanded,
-  setExpanded,
-  onOpen,
-  onContextMenu,
-  onOpenActions,
-  initial,
-  getSubtreeCount,
-  countVersion,
-}: TreeNodeProps) {
-  const isExpanded = expanded.has(path)
-  const isActive = current === path
-  const shouldFetchFolder = shouldObserveFolderNode(active, path, isExpanded, isActive)
-  const { data, isError } = useFolder(path, { enabled: shouldFetchFolder })
-  const folderPayload = initial && path === initial.path ? initial : data
-  const hasFolderData = !!folderPayload
-  const isLeaf = hasFolderData ? folderPayload.folders.length === 0 : false
-  const [subtreeCount, setSubtreeCount] = useState<number | null>(
-    folderPayload ? folderPayload.items.length : null,
-  )
-
-  const onKeyDown = useFolderTreeKeyboardNav({
-    path,
-    isLeaf,
-    isExpanded,
-    setExpanded,
-    onOpen,
-  })
-
-  const toggle = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation()
-    if (isLeaf) return
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-      }
-      return next
-    })
-  }
-
-  const openActions = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation()
-    if (!onOpenActions) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    onOpenActions(path, { x: rect.right - 4, y: rect.bottom - 4 })
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    if (!active) return
-    if (!folderPayload) {
-      setSubtreeCount(null)
-      return
-    }
-    setSubtreeCount(folderPayload.items.length)
-    const shouldResolveRecursiveCount = isExpanded && (depth > 0 || isActive)
-    if (!shouldResolveRecursiveCount) {
-      return
-    }
-    getSubtreeCount(path)
-      .then((count) => {
-        if (!cancelled) setSubtreeCount(count)
-      })
-      .catch((err) => {
-        if (!cancelled) console.warn(`Failed to compute subtree count for ${path}:`, err)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [active, folderPayload, path, getSubtreeCount, countVersion, isExpanded, depth, isActive])
-
-  return (
-    <div>
-      <div
-        className={`tree-row flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer min-h-[40px] outline-none transition-colors ${isActive ? 'bg-accent/20 text-accent font-medium' : 'hover:bg-white/5 text-text'}`}
-        role="treeitem"
-        aria-level={depth+1}
-        aria-expanded={isLeaf ? undefined : isExpanded}
-        aria-selected={isActive}
-        tabIndex={isActive ? 0 : -1}
-        style={{ paddingLeft: 8 + depth * 14 }}
-        onClick={() => onOpen(path)}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          onContextMenu?.(e, path)
-        }}
-        onKeyDown={onKeyDown}
-      >
-        <button
-          type="button"
-          className="tree-expand-btn touch-manipulation"
-          onClick={toggle}
-          aria-label={isLeaf ? `No subfolders in ${label}` : `${isExpanded ? 'Collapse' : 'Expand'} ${label}`}
-          aria-expanded={isLeaf ? undefined : isExpanded}
-          disabled={isLeaf}
-        >
-          {isLeaf ? '•' : (isExpanded ? '▼' : '▶')}
-        </button>
-        <span className="flex-1 overflow-hidden truncate text-sm" title={label}>{middleTruncate(label, 28)}</span>
-        <span
-          className="tree-row-count text-[10px] opacity-50 bg-white/5 border border-white/5 rounded px-1.5 text-center"
-          data-pending={subtreeCount === null}
-          title={subtreeCount === null ? 'Folder item count loading' : `${subtreeCount.toLocaleString()} items`}
-          aria-label={subtreeCount === null ? 'Folder item count loading' : `${subtreeCount.toLocaleString()} items`}
-        >
-          {subtreeCount === null ? '…' : subtreeCount.toLocaleString()}
-        </span>
-        {onOpenActions ? (
-          <button
-            type="button"
-            className="tree-row-action-btn touch-manipulation"
-            aria-label={`Open actions for ${label}`}
-            aria-haspopup="menu"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={openActions}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="5" r="1.5" />
-              <circle cx="12" cy="12" r="1.5" />
-              <circle cx="12" cy="19" r="1.5" />
-            </svg>
-          </button>
-        ) : (
-          <span className="tree-row-action-btn tree-row-action-placeholder" aria-hidden="true" />
-        )}
-      </div>
-      {isExpanded && !folderPayload && (
-        <div
-          className={`tree-child-state ${isError ? 'text-danger' : 'text-muted'}`}
-          style={{ paddingLeft: 8 + (depth + 1) * 14 }}
-          role={isError ? 'alert' : 'status'}
-        >
-          {isError ? 'Failed to load folders' : 'Loading folders…'}
-        </div>
-      )}
-      {isExpanded && folderPayload?.folders?.map(d => (
-        <TreeNode
-          active={active}
-          key={d.name}
-          path={joinPath(path, d.name)}
-          label={d.name}
-          depth={depth+1}
-          current={current}
-          expanded={expanded}
-          setExpanded={setExpanded}
-          onOpen={onOpen}
-          onContextMenu={onContextMenu}
-          onOpenActions={onOpenActions}
-          getSubtreeCount={getSubtreeCount}
-          countVersion={countVersion}
-        />
-      ))}
-    </div>
-  )
-})
-
-export function shouldObserveFolderNode(
-  active: boolean,
-  path: string,
-  expanded: boolean,
-  current: boolean,
-): boolean {
-  return active && (path === '/' || expanded || current)
 }

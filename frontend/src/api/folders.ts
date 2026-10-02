@@ -338,8 +338,7 @@ export type UseFolderOptions = FolderQueryOptions & {
   enabled?: boolean
 }
 
-export function useFolder(path: string, options?: UseFolderOptions) {
-  const pollingEnabled = usePollingEnabled()
+export function folderQueryOptions(path: string, options: UseFolderOptions | undefined, pollingEnabled: boolean) {
   const folderOptions: GetFolderOptions = {
     recursive: options?.recursive ?? false,
     countOnly: options?.countOnly,
@@ -347,18 +346,23 @@ export function useFolder(path: string, options?: UseFolderOptions) {
     limit: options?.limit,
   }
   const recursiveQuery = !!folderOptions.recursive
-  return useQuery({
+  return {
     queryKey: folderQueryKey(path, folderOptions),
     queryFn: () => fetchFolder(path, folderOptions),
     enabled: options?.enabled ?? true,
     staleTime: 10_000,
     gcTime: recursiveQuery ? RECURSIVE_FOLDER_GC_TIME_MS : DEFAULT_FOLDER_GC_TIME_MS,
     retry: 2,
-    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 5000),
-    refetchOnWindowFocus: false,
-    refetchInterval: pollingEnabled ? FALLBACK_REFETCH_INTERVAL : false,
+    retryDelay: (attempt: number) => Math.min(1000 * Math.pow(2, attempt), 5000),
+    refetchOnWindowFocus: false as const,
+    refetchInterval: pollingEnabled ? FALLBACK_REFETCH_INTERVAL : false as const,
     refetchIntervalInBackground: pollingEnabled,
-  })
+  }
+}
+
+export function useFolder(path: string, options?: UseFolderOptions) {
+  const pollingEnabled = usePollingEnabled()
+  return useQuery(folderQueryOptions(path, options, pollingEnabled))
 }
 
 export type UseFolderFacetsOptions = BrowseQueryOptions & {
@@ -515,20 +519,24 @@ type UseFolderCountOptions = {
   enabled?: boolean
 }
 
-export function useFolderCount(path: string, options?: UseFolderCountOptions) {
-  const pollingEnabled = usePollingEnabled()
-  return useQuery({
+export function folderCountQueryOptions(path: string, options: UseFolderCountOptions | undefined, pollingEnabled: boolean) {
+  return {
     queryKey: ['folder-count', path] as const,
     queryFn: () => api.getFolderCount(path),
     enabled: options?.enabled ?? true,
     staleTime: 10_000,
     gcTime: DEFAULT_FOLDER_GC_TIME_MS,
     retry: 2,
-    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 5000),
-    refetchOnWindowFocus: false,
-    refetchInterval: pollingEnabled ? FALLBACK_REFETCH_INTERVAL : false,
+    retryDelay: (attempt: number) => Math.min(1000 * Math.pow(2, attempt), 5000),
+    refetchOnWindowFocus: false as const,
+    refetchInterval: pollingEnabled ? FALLBACK_REFETCH_INTERVAL : false as const,
     refetchIntervalInBackground: pollingEnabled,
-  })
+  }
+}
+
+export function useFolderCount(path: string, options?: UseFolderCountOptions) {
+  const pollingEnabled = usePollingEnabled()
+  return useQuery(folderCountQueryOptions(path, options, pollingEnabled))
 }
 
 export function useFolderFields(path: string, options?: UseFolderCountOptions) {

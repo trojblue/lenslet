@@ -26,6 +26,38 @@ describe('metrics histogram model utilities', () => {
     expect(histogram?.bins).toEqual([3, 0, 0, 0])
   })
 
+  it('bins large metric populations without exceeding the argument limit', () => {
+    const values = Array.from({ length: 250_000 }, (_, index) => index % 1000 - 500)
+    const originalFirst = values[0]
+    const originalLast = values[values.length - 1]
+    const histogram = computeHistogramFromValues(values, 10)
+
+    expect(histogram).toEqual({
+      bins: Array(10).fill(25_000),
+      min: -500,
+      max: 499,
+      count: 250_000,
+    })
+    expect(values[0]).toBe(originalFirst)
+    expect(values[values.length - 1]).toBe(originalLast)
+  })
+
+  it('clamps large filtered populations to the unchanged base domain', () => {
+    const values = Array.from({ length: 250_000 }, (_, index) => index % 2 ? 20 : -10)
+    const base = { bins: [1, 1], min: 0, max: 10, count: 2 }
+
+    expect(computeHistogramFromValues(values, 2, base)).toEqual({
+      bins: [125_000, 125_000], min: 0, max: 10, count: 250_000,
+    })
+    expect(base).toEqual({ bins: [1, 1], min: 0, max: 10, count: 2 })
+  })
+
+  it('preserves signed-zero extrema when expanding a constant domain', () => {
+    expect(computeHistogramFromValues([0, -0], 2)).toEqual({
+      bins: [2, 0], min: -0, max: 1, count: 2,
+    })
+  })
+
   it('reuses base histogram domain for secondary histograms', () => {
     const population = computeHistogramFromValues([0, 10], 5)
     const filtered = computeHistogramFromValues([10], 5, population ?? undefined)

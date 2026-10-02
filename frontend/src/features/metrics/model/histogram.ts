@@ -11,8 +11,15 @@ export interface Histogram {
 
 export function computeHistogramFromValues(values: number[], bins: number, base?: Histogram): Histogram | null {
   if (!values.length) return null
-  const min = base ? base.min : Math.min(...values)
-  let max = base ? base.max : Math.max(...values)
+  let min = base ? base.min : Infinity
+  let max = base ? base.max : -Infinity
+  if (!base) {
+    // A metric population can exceed the engine's function-argument limit.
+    for (const value of values) {
+      min = Math.min(min, value)
+      max = Math.max(max, value)
+    }
+  }
   if (min === max) max = min + 1
 
   const counts = new Array(bins).fill(0)

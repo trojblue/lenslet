@@ -778,6 +778,11 @@
 }
 
 .ui-json-key {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: inherit;
   cursor: pointer;
   text-decoration: none;
 }

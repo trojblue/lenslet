@@ -86,15 +86,14 @@ function MetadataSectionComponent({
         >
           {transitionStatusVisible ? 'Loading metadata…' : ''}
         </div>
-        {metaValueCopiedPath && (
-          <div className="ui-json-key-toast">
-            Copied value:
-            {' '}
-            {metaValueCopiedPath}
-          </div>
-        )}
+        <div className={`ui-json-key-toast ${metaValueCopiedPath ? '' : 'invisible'}`} role="status">
+          {metaValueCopiedPath ? `Copied value: ${metaValueCopiedPath}` : ''}
+        </div>
         <pre
           className={`ui-code-block ui-code-block-resizable ${metaHeightClass} overflow-auto whitespace-pre-wrap`}
+          tabIndex={0}
+          role="region"
+          aria-label="Image metadata"
         >
           {metaLoaded ? (
             metaDisplayNode ? (

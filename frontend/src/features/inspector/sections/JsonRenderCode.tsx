@@ -1,5 +1,6 @@
 import React from 'react'
 import type { JsonRenderNode, MetadataPathSegment } from '../model/metadataCompare'
+import { formatPathLabel } from '../model/metadataCompare'
 
 const JSON_INDENT = 2
 
@@ -50,16 +51,21 @@ function renderJsonNode(
           {node.entries.map((entry, idx) => (
             <React.Fragment key={JSON.stringify(entry.path)}>
               {' '.repeat(indent + JSON_INDENT)}
-              <span
-                className="ui-json-key"
-                style={jsonKeyStyle}
-                onClick={onPathClick ? (event) => {
-                  event.stopPropagation()
-                  onPathClick(entry.path)
-                } : undefined}
-              >
-                {JSON.stringify(entry.key)}
-              </span>
+              {onPathClick ? (
+                <button
+                  type="button"
+                  className="ui-json-key"
+                  style={jsonKeyStyle}
+                  aria-label={`Copy value for ${formatPathLabel(entry.path)}`}
+                  title={`Copy value for ${formatPathLabel(entry.path)}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onPathClick(entry.path)
+                  }}
+                >
+                  {JSON.stringify(entry.key)}
+                </button>
+              ) : <span style={jsonKeyStyle}>{JSON.stringify(entry.key)}</span>}
               {': '}
               {renderJsonNode(entry.value, indent + JSON_INDENT, onPathClick)}
               {idx < node.entries.length - 1 ? ',' : ''}

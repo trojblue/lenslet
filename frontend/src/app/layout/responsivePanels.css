@@ -1,0 +1,90 @@
+/* Existing panes keep one mounted instance across inline and overlay modes. */
+.responsive-panel,
+.responsive-panel-surface { display: contents; }
+.responsive-panel.is-overlay { position: fixed; inset: 0; z-index: 120; display: block; }
+.responsive-panel-backdrop { position: absolute; inset: 0; background: color-mix(in srgb, var(--bg) 72%, transparent); }
+.responsive-panel.is-overlay .responsive-panel-surface {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-inline-end: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  padding-block-start: env(safe-area-inset-top, 0px);
+  padding-block-end: env(safe-area-inset-bottom, 0px);
+}
+.responsive-panel.is-overlay[data-panel-side='right'] .responsive-panel-surface {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  border-inline-end: 0;
+  border-inline-start: 1px solid var(--border);
+}
+.responsive-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-block-size: 52px;
+  padding: 8px 12px;
+  border-block-end: 1px solid var(--border);
+  flex: none;
+}
+.responsive-panel-header h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.responsive-panel.is-overlay .app-left-panel,
+.responsive-panel.is-overlay .app-right-panel {
+  flex: 1;
+  min-block-size: 0;
+  inline-size: 100%;
+  border: 0;
+}
+.responsive-panel.is-overlay .sidebar-resize-handle { display: none; }
+
+/* Slot widths must reserve the same hit area as their actual controls. */
+.toolbar-shell .toolbar-slot-search-toggle { inline-size: auto; }
+.toolbar-shell .toolbar-slot-back { inline-size: auto; }
+.toolbar-shell .toolbar-left { flex: 1 1 auto; }
+.toolbar-shell .toolbar-scope { flex: 1 1 auto; overflow: hidden; }
+.toolbar-shell .toolbar-sort { flex: none; }
+
+.app-skip-link {
+  position: fixed;
+  inset-block-start: 8px;
+  inset-inline-start: 12px;
+  z-index: 200;
+  padding: 8px 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transform: translateY(-160%);
+}
+.app-skip-link:focus { transform: none; }
+
+/* Status chrome keeps its dismiss action on screen; text owns bounded overflow. */
+.grid-top-rail .grid-top-context-item { max-inline-size: 100%; min-inline-size: 0; }
+.grid-top-rail .grid-top-context-item > span:first-child {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.grid-top-rail .grid-top-context-item > button { flex: none; }
+
+@media (pointer: coarse) and (max-width: 900px) {
+  .toolbar-shell.toolbar-shell-compact .toolbar-back-btn { inline-size: 44px; min-inline-size: 44px; }
+  .toolbar-shell .toolbar-slot-search-toggle { min-inline-size: 44px; }
+  .toolbar-shell .sync-indicator-button { min-inline-size: 44px; }
+  .toolbar-search-input-mobile,
+  .responsive-panel input:not([type='range']):not([type='checkbox']):not([type='radio']),
+  .responsive-panel textarea { font-size: 16px; }
+}
+
+/* Give scope identity its own two-line slot rather than competing with count text. */
+@media (min-width: 901px) {
+  .toolbar-shell:not(.toolbar-shell-viewer) { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .toolbar-shell .toolbar-scope { flex-direction: column; align-items: flex-start; gap: 0; }
+  .toolbar-shell .toolbar-scope-text { inline-size: 100%; }
+  .toolbar-shell .toolbar-count { flex: none; text-align: start; max-inline-size: 100%; }
+}

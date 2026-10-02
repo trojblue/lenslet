@@ -1,5 +1,6 @@
 import type { MouseEvent, PointerEvent } from 'react'
 import { Calculator } from 'lucide-react'
+import SidebarResizeHandle, { type SidebarResizeControl } from '../../shared/ui/SidebarResizeHandle'
 import FolderTree from '../../features/folders/FolderTree'
 import DerivedScorePanel from '../../features/metrics/DerivedScorePanel'
 import MetricsPanel from '../../features/metrics/MetricsPanel'
@@ -77,6 +78,7 @@ type LeftSidebarProps = {
   onChangeFilters: (filters: FilterAST) => void
   onMetricsFacetDemandAction: (action: MetricsFacetDemandAction) => void
   onDerivedFacetFieldsChange?: (fields: BrowseFacetFields) => void
+  resizeControl?: SidebarResizeControl
   onResize: (event: PointerEvent<HTMLDivElement>) => void
   themePreset: ThemePresetId
   onThemePresetChange: (themeId: ThemePresetId) => void
@@ -95,7 +97,7 @@ type LeftSidebarProps = {
 
 const ROOTS = [{ label: 'Root', path: '/' }]
 const SIDEBAR_ICON_BUTTON_BASE = 'w-11 h-11 rounded-md border border-border flex items-center justify-center transition-colors'
-const SIDEBAR_ICON_BUTTON_ACTIVE = 'bg-accent-muted text-accent'
+const SIDEBAR_ICON_BUTTON_ACTIVE = 'bg-accent-muted text-accent-text'
 const SIDEBAR_ICON_BUTTON_INACTIVE = 'bg-surface text-text hover:bg-surface-hover'
 
 function getSidebarIconButtonClass(active: boolean): string {
@@ -154,6 +156,7 @@ export default function LeftSidebar({
   onMetricsFacetDemandAction,
   onDerivedFacetFieldsChange,
   onResize,
+  resizeControl,
   themePreset,
   onThemePresetChange,
   autoloadImageMetadata,
@@ -296,7 +299,7 @@ export default function LeftSidebar({
                   return (
                     <button
                       key={view.id}
-                      className={`text-left px-2 py-2 rounded-md text-sm ${active ? 'bg-accent-muted text-accent' : 'hover:bg-hover text-text'}`}
+                      className={`text-left px-2 py-2 rounded-md text-sm ${active ? 'bg-accent-muted text-accent-text' : 'hover:bg-hover text-text'}`}
                       onClick={() => onActivateView(view)}
                     >
                       {view.name}
@@ -385,8 +388,10 @@ export default function LeftSidebar({
         </div>
       </div>
       {contentOpen && (
-        <div
+        <SidebarResizeHandle
           className="toolbar-offset sidebar-resize-handle sidebar-resize-handle-left absolute bottom-0"
+          label="Resize browse tools"
+          control={resizeControl}
           onPointerDown={onResize}
         />
       )}

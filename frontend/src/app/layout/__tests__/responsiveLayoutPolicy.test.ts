@@ -200,6 +200,22 @@ describe('responsiveLayoutPolicy', () => {
     })
   })
 
+  it('offers explicit overlay access whenever inline panes cannot fit', () => {
+    for (const viewportWidth of [320, 390]) {
+      const phone = model({ viewportWidth })
+      expect(phone.panelModes).toEqual({ left: 'overlay', right: 'overlay' })
+      expect(phone.effectiveLeftOpen).toBe(false)
+      expect(phone.effectiveRightOpen).toBe(false)
+    }
+    expect(model({ viewportWidth: 1440, viewportHeight: 430 }).panelModes)
+      .toEqual({ left: 'overlay', right: 'overlay' })
+    expect(model({ viewportWidth: 760 }).panelModes)
+      .toEqual({ left: 'overlay', right: 'inline' })
+    expect(model({ viewportWidth: 900 }).panelModes)
+      .toEqual({ left: 'inline', right: 'inline' })
+    expect(model({ viewportWidth: 760, userRightOpen: false }).panelModes.left).toBe('inline')
+  })
+
   it('uses the same policy for drag constraints', () => {
     expect(resolveSidebarDragConstraint({
       viewportWidth: 1440,

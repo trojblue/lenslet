@@ -95,7 +95,6 @@ describe('Toolbar refresh trigger', () => {
         viewerActive
         onBack={() => {}}
         onRefreshRoot={() => {}}
-        onUploadClick={() => {}}
         themePreset="teal"
         onThemePresetChange={() => {}}
         autoloadImageMetadata={false}
@@ -110,7 +109,6 @@ describe('Toolbar refresh trigger', () => {
     expect(html).toContain('data-toolbar-slot="back"')
     expect(html).toMatch(/data-toolbar-control="back"[^>]*aria-hidden="false"/)
     expect(html).toMatch(/data-toolbar-control="refresh"(?=[^>]*aria-hidden="true")(?=[^>]*disabled="")(?=[^>]*tabindex="-1")/)
-    expect(html).toMatch(/data-toolbar-control="upload"(?=[^>]*aria-hidden="true")(?=[^>]*disabled="")(?=[^>]*tabindex="-1")/)
     expect(html).toMatch(/data-toolbar-control="search-desktop"(?=[^>]*aria-hidden="true")(?=[^>]*disabled="")(?=[^>]*tabindex="-1")/)
   })
 
@@ -134,6 +132,19 @@ describe('Toolbar refresh trigger', () => {
 
     expect(html).toContain('data-toolbar-slot="search-row"')
     expect(html).toMatch(/data-toolbar-control="search-mobile"[^>]*disabled=""[^>]*tabindex="-1"/)
+  })
+
+  it('renders the same owned search draft in desktop and mobile input slots', () => {
+    const props = {
+      onSearch: () => {}, searchValue: 'camera:wide sample',
+      themePreset: 'teal' as const, onThemePresetChange: () => {},
+      autoloadImageMetadata: false, onAutoloadImageMetadataChange: () => {},
+      proxyHttpOriginals: false, onProxyHttpOriginalsChange: () => {},
+      compareOrderMode: 'gallery' as const, onCompareOrderModeChange: () => {},
+    }
+    expect(renderToStaticMarkup(<Toolbar {...props} />)).toContain('value="camera:wide sample"')
+    mediaQueryMock.mockImplementation((query: string) => query.includes('900px'))
+    expect(renderToStaticMarkup(<Toolbar {...props} mobileSearchOpen />)).toContain('value="camera:wide sample"')
   })
 
   it('renders metric sort options from folder payload metric keys', () => {

@@ -22,7 +22,9 @@ import { GRID_ITEM_SIZE_CONTRACT } from '../../lib/gridItemSize'
 export interface ToolbarProps {
   rootRef?: React.RefObject<HTMLDivElement>
   onSearch: (q: string) => void
+  searchValue?: string
   viewerActive?: boolean
+  overlayActive?: boolean
   onBack?: () => void
   zoomPercent?: number
   onZoomPercentChange?: (p: number) => void
@@ -63,9 +65,6 @@ export interface ToolbarProps {
   onMobileSearchOpenChange?: (open: boolean) => void
   mobileDrawerOpen?: boolean
   onMobileDrawerOpenChange?: (open: boolean) => void
-  onUploadClick?: () => void
-  uploadBusy?: boolean
-  uploadDisabled?: boolean
   themePreset: ThemePresetId
   onThemePresetChange: (themeId: ThemePresetId) => void
   autoloadImageMetadata: boolean
@@ -88,7 +87,9 @@ export interface ToolbarProps {
 export default function Toolbar({
   rootRef,
   onSearch,
+  searchValue = '',
   viewerActive,
+  overlayActive = viewerActive,
   onBack,
   zoomPercent,
   onZoomPercentChange,
@@ -129,9 +130,6 @@ export default function Toolbar({
   onMobileSearchOpenChange,
   mobileDrawerOpen = true,
   onMobileDrawerOpenChange,
-  onUploadClick,
-  uploadBusy = false,
-  uploadDisabled = false,
   themePreset,
   onThemePresetChange,
   autoloadImageMetadata,
@@ -156,7 +154,7 @@ export default function Toolbar({
   const isNarrow = useMediaQuery(LAYOUT_MEDIA_QUERIES.narrow)
   const isPhone = useMediaQuery(LAYOUT_MEDIA_QUERIES.phone)
   const isToolbarCompact = useMediaQuery(LAYOUT_MEDIA_QUERIES.toolbarCompact)
-  const showMobileDrawer = isNarrow && !viewerActive
+  const showMobileDrawer = isNarrow && !overlayActive
   const isCompactViewer = Boolean(viewerActive) && isToolbarCompact
   const sortSlotsVisible = !isCompactViewer
   const topToolbarActionsVisible = !showMobileDrawer
@@ -164,8 +162,6 @@ export default function Toolbar({
   const showBackButton = Boolean(viewerActive && onBack)
   const showRefreshButton = Boolean(!viewerActive && onRefreshRoot)
   const showTopRefreshButton = showRefreshButton && topToolbarActionsVisible
-  const showUploadButton = Boolean(!viewerActive && onUploadClick)
-  const showTopUploadButton = showUploadButton && topToolbarActionsVisible
   const showDesktopSearch = Boolean(!viewerActive && !isNarrow)
   const showNarrowSearchControls = Boolean(!viewerActive && isNarrow)
   const showNarrowSearchToggle = showNarrowSearchControls
@@ -300,7 +296,6 @@ export default function Toolbar({
       <div className="toolbar-left flex items-center gap-4 min-w-0">
         <div className="toolbar-scope flex items-center gap-3 min-w-0">
           <div className="toolbar-scope-text flex flex-col min-w-0 leading-tight">
-            <span className="toolbar-scope-label text-[10px] uppercase tracking-widest text-muted">Scope</span>
             <span className="text-sm font-medium text-text truncate" title={scopeName}>
               {scopeName}
             </span>
@@ -385,7 +380,7 @@ export default function Toolbar({
             </div>
           </div>
         )}
-        {(showBackButton || topToolbarActionsVisible) && (
+        {showBackButton && (
           <div className="toolbar-slot toolbar-slot-back" data-toolbar-slot="back">
             <button
               data-toolbar-control="back"
@@ -506,28 +501,6 @@ export default function Toolbar({
             </button>
           </div>
         )}
-        {topToolbarActionsVisible && (
-          <div className="toolbar-slot toolbar-slot-upload" data-toolbar-slot="upload">
-            <button
-              data-toolbar-control="upload"
-              className={`btn toolbar-upload-btn ${showTopUploadButton ? '' : 'toolbar-control-hidden'} ${(uploadDisabled || uploadBusy) ? 'opacity-50 cursor-not-allowed' : ''}`}
-              onClick={() => showTopUploadButton && !uploadDisabled && !uploadBusy && onUploadClick?.()}
-              aria-label="Upload images"
-              title={uploadBusy ? 'Uploading…' : 'Upload images'}
-              aria-disabled={!showTopUploadButton || uploadDisabled || uploadBusy}
-              aria-hidden={!showTopUploadButton}
-              disabled={!showTopUploadButton || uploadDisabled || uploadBusy}
-              tabIndex={showTopUploadButton ? 0 : -1}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 16V5" />
-                <path d="M7 10l5-5 5 5" />
-                <path d="M4 19h16" />
-              </svg>
-              <span className="toolbar-upload-label">{uploadBusy ? 'Uploading…' : 'Upload'}</span>
-            </button>
-          </div>
-        )}
         {syncIndicator && (
           <SyncIndicator
             {...syncIndicator}
@@ -579,6 +552,7 @@ export default function Toolbar({
                 ref={searchInputRef}
                 aria-label="Search filename, tags, notes"
                 placeholder={searchDisabled ? (searchPlaceholder ?? 'Search disabled') : 'Search...'}
+                value={searchValue}
                 onChange={(e) => onSearch(e.target.value)}
                 className="toolbar-search-input input w-full focus:w-full select-text"
                 disabled={!showDesktopSearch || searchDisabled}
@@ -601,6 +575,7 @@ export default function Toolbar({
             aria-label="Search filename, tags, notes"
             aria-hidden={!mobileSearchInteractive}
             placeholder={searchPlaceholder ?? 'Search...'}
+            value={searchValue}
             onChange={(e) => onSearch(e.target.value)}
             className={`toolbar-search-input-mobile input input-lg w-full select-text ${mobileSearchInteractive ? '' : 'toolbar-control-hidden'}`}
             disabled={!mobileSearchInteractive}
@@ -620,8 +595,6 @@ export default function Toolbar({
           showSelectModeToggle={showSelectModeToggle}
           multiSelectMode={multiSelectMode}
           selectModeLabel={selectModeLabel}
-          uploadBusy={uploadBusy}
-          uploadDisabled={uploadDisabled}
           themePreset={themePreset}
           autoloadImageMetadata={autoloadImageMetadata}
           proxyHttpOriginals={proxyHttpOriginals}
@@ -656,7 +629,6 @@ export default function Toolbar({
           onToggleLeft={onToggleLeft}
           onToggleRight={onToggleRight}
           onToggleMultiSelectMode={onToggleMultiSelectMode}
-          onUploadClick={onUploadClick}
           onThemePresetChange={onThemePresetChange}
           onAutoloadImageMetadataChange={onAutoloadImageMetadataChange}
           onProxyHttpOriginalsChange={onProxyHttpOriginalsChange}

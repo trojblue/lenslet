@@ -250,5 +250,29 @@ export function useSidebars(
     )
   }
 
-  return { leftW, rightW, onResizeLeft, onResizeRight }
+  const keyboardResize = (side: 'left' | 'right', event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    const width = appRef.current?.getBoundingClientRect().width ?? window.innerWidth
+    const constraint = resolveSidebarDragConstraint({
+      viewportWidth: width,
+      activeSide: side,
+      userLeftOpen: options.userLeftOpen,
+      userRightOpen: options.userRightOpen,
+      leftPreferredWidth: leftW,
+      rightPreferredWidth: rightW,
+    })
+    if (constraint.disabled) return
+    event.preventDefault()
+    event.stopPropagation()
+    const delta = (event.key === 'ArrowRight' ? 1 : -1) * (side === 'left' ? 1 : -1) * (event.shiftKey ? 40 : 10)
+    const requested = event.key === 'Home' ? constraint.minWidth : event.key === 'End'
+      ? constraint.maxWidth : clampSidebarDragWidth(side === 'left' ? leftW : rightW, constraint) + delta
+    const next = clampSidebarDragWidth(requested, constraint)
+    setWidths((current) => ({ ...current, [side === 'left' ? 'leftW' : 'rightW']: next }))
+    try { persistSidebarWidth(window.localStorage, SIDEBAR_STORAGE_KEYS[side], next) } catch {}
+  }
+  return { leftW, rightW, onResizeLeft, onResizeRight,
+    onKeyboardResizeLeft: (event: React.KeyboardEvent<HTMLDivElement>) => keyboardResize('left', event),
+    onKeyboardResizeRight: (event: React.KeyboardEvent<HTMLDivElement>) => keyboardResize('right', event),
+  }
 }

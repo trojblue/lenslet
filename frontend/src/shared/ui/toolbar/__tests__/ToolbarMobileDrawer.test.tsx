@@ -17,8 +17,6 @@ const baseProps = {
   showSelectModeToggle: true,
   multiSelectMode: false,
   selectModeLabel: 'Select',
-  uploadBusy: false,
-  uploadDisabled: false,
   themePreset: 'teal' as const,
   autoloadImageMetadata: false,
   proxyHttpOriginals: false,
@@ -70,17 +68,15 @@ describe('ToolbarMobileDrawer theme mount', () => {
     expect(html).toContain('Settings (Teal)')
   })
 
-  it('removes unavailable select/upload commands from the drawer grid', () => {
+  it('removes unavailable select commands from the drawer grid', () => {
     const html = renderToStaticMarkup(
       <ToolbarMobileDrawer
         {...baseProps}
         showSelectModeToggle={false}
-        onUploadClick={undefined}
       />,
     )
 
     expect(html).not.toContain('data-toolbar-control="drawer-select"')
-    expect(html).not.toContain('data-toolbar-control="drawer-upload"')
     expect(html).not.toContain('toolbar-control-hidden')
   })
 
@@ -88,7 +84,6 @@ describe('ToolbarMobileDrawer theme mount', () => {
     const html = renderToStaticMarkup(
       <ToolbarMobileDrawer
         {...baseProps}
-        onUploadClick={() => {}}
         onToggleMultiSelectMode={() => {}}
       />,
     )
@@ -101,6 +96,5 @@ describe('ToolbarMobileDrawer theme mount', () => {
     expect(html).toContain('data-toolbar-control="drawer-filters"')
     expect(html).toContain('data-toolbar-control="drawer-refresh"')
     expect(html).toContain('data-toolbar-control="drawer-select"')
-    expect(html).toContain('data-toolbar-control="drawer-upload"')
   })
 })

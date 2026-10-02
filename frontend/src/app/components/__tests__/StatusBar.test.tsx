@@ -78,7 +78,7 @@ describe('StatusBar indexing banner lifecycle', () => {
       onDismissPersistenceWarning: noop,
     })
 
-    expect(html).toContain('Not persisted.')
+    expect(html).toContain('Read-only.')
     expect(html).toContain('aria-label="Dismiss persistence warning"')
   })
 
@@ -88,7 +88,7 @@ describe('StatusBar indexing banner lifecycle', () => {
       showPersistenceWarning: false,
     })
 
-    expect(html).not.toContain('Not persisted.')
+    expect(html).not.toContain('Read-only.')
   })
 
   it('renders a dismiss action for table source warnings', () => {

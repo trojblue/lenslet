@@ -1,3 +1,4 @@
+import SidebarResizeHandle, { type SidebarResizeControl } from '../../shared/ui/SidebarResizeHandle'
 import React, { Fragment, useEffect, useMemo, useCallback, useLayoutEffect, useRef } from 'react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -42,6 +43,7 @@ interface InspectorProps {
   compareA?: BrowseItemPayload | null
   compareB?: BrowseItemPayload | null
   onOpenCompare?: () => void
+  resizeControl?: SidebarResizeControl
   onResize?: (e: React.PointerEvent<HTMLDivElement>) => void
   onStarChanged?: (paths: string[], val: StarRating) => void
   sortSpec?: SortSpec
@@ -80,6 +82,7 @@ export default function Inspector({
   compareB = null,
   onOpenCompare,
   onResize,
+  resizeControl,
   onStarChanged,
   sortSpec,
   metricDisplayNames,
@@ -782,7 +785,7 @@ export default function Inspector({
           </SortableContext>
         </DndContext>
       )}
-      <div className={resizeHandleClass} onPointerDown={onResize} />
+      <SidebarResizeHandle className={resizeHandleClass} label="Resize Inspector" control={resizeControl} onPointerDown={onResize} />
     </div>
   )
 }

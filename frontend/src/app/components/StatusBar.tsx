@@ -150,8 +150,8 @@ export default function StatusBar({
     <div className="grid-top-status-list">
       {showReadOnlyWarning && (
         <div className="grid-top-context-item ui-banner ui-banner-danger text-xs flex items-center justify-between gap-3">
-          <span>
-            <span className="font-semibold">Not persisted.</span> Workspace is read-only; edits stay in memory until restart.
+          <span title="Workspace is read-only; edits stay in memory until restart.">
+            <span className="font-semibold">Read-only.</span> Edits are not saved.
           </span>
           {onDismissPersistenceWarning && (
             <button

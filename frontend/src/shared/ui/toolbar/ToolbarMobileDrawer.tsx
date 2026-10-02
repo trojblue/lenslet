@@ -23,8 +23,6 @@ export interface ToolbarMobileDrawerProps {
   showSelectModeToggle: boolean
   multiSelectMode: boolean
   selectModeLabel: string
-  uploadBusy: boolean
-  uploadDisabled: boolean
   themePreset: ThemePresetId
   autoloadImageMetadata: boolean
   proxyHttpOriginals: boolean
@@ -56,7 +54,6 @@ export interface ToolbarMobileDrawerProps {
   onToggleLeft?: () => void
   onToggleRight?: () => void
   onToggleMultiSelectMode?: () => void
-  onUploadClick?: () => void
   onThemePresetChange: (themeId: ThemePresetId) => void
   onAutoloadImageMetadataChange: (enabled: boolean) => void
   onProxyHttpOriginalsChange: (enabled: boolean) => void
@@ -75,8 +72,6 @@ export default function ToolbarMobileDrawer({
   showSelectModeToggle,
   multiSelectMode,
   selectModeLabel,
-  uploadBusy,
-  uploadDisabled,
   themePreset,
   autoloadImageMetadata,
   proxyHttpOriginals,
@@ -108,14 +103,12 @@ export default function ToolbarMobileDrawer({
   onToggleLeft,
   onToggleRight,
   onToggleMultiSelectMode,
-  onUploadClick,
   onThemePresetChange,
   onAutoloadImageMetadataChange,
   onProxyHttpOriginalsChange,
   onCompareOrderModeChange,
   onSourceColumnChange,
 }: ToolbarMobileDrawerProps): JSX.Element {
-  const canShowUpload = Boolean(onUploadClick)
   const refreshDisabled = refreshBusy || !refreshEnabled || !onRefreshRoot
   const refreshTitle = refreshBusy
     ? 'Refreshing root folder...'
@@ -221,7 +214,7 @@ export default function ToolbarMobileDrawer({
           aria-pressed={leftOpen}
           aria-label="Toggle left panel"
         >
-          Left
+          Browse
         </button>
         <button
           data-toolbar-control="drawer-right-panel"
@@ -231,7 +224,7 @@ export default function ToolbarMobileDrawer({
           aria-pressed={rightOpen}
           aria-label="Toggle right panel"
         >
-          Right
+          Inspector
         </button>
         {showSelectModeToggle && (
           <button
@@ -242,19 +235,6 @@ export default function ToolbarMobileDrawer({
             title={multiSelectMode ? 'Exit select mode' : 'Enter select mode'}
           >
             {selectModeLabel}
-          </button>
-        )}
-        {canShowUpload && (
-          <button
-            data-toolbar-control="drawer-upload"
-            className={`mobile-pill mobile-pill-upload ${uploadDisabled || uploadBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-            onClick={() => !uploadDisabled && !uploadBusy && onUploadClick?.()}
-            aria-label="Upload images"
-            title={uploadBusy ? 'Uploading...' : 'Upload images'}
-            aria-disabled={uploadDisabled || uploadBusy}
-            disabled={uploadDisabled || uploadBusy}
-          >
-            {uploadBusy ? 'Uploading...' : 'Upload'}
           </button>
         )}
       </div>

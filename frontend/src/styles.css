@@ -2,6 +2,7 @@
 @import "tailwindcss";
 @import './theme.css' layer(base);
 @import './motion.css';
+@import './app/layout/responsivePanels.css';
 @import './accessibility.css';
 
 ::selection {
@@ -1013,21 +1014,6 @@
   width: 72px;
 }
 
-.toolbar-slot-upload {
-  justify-content: flex-end;
-  width: 104px;
-}
-
-.toolbar-upload-btn {
-  width: 104px;
-  justify-content: flex-start;
-}
-
-.toolbar-upload-label {
-  min-width: 64px;
-  text-align: left;
-}
-
 .toolbar-slot-search-desktop {
   justify-content: flex-end;
   width: 240px;
@@ -1278,8 +1264,7 @@
     padding: 0 10px;
   }
 
-  .mobile-pill-select,
-  .mobile-pill-upload {
+  .mobile-pill-select {
     width: 100%;
     justify-content: center;
   }

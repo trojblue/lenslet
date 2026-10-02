@@ -51,7 +51,7 @@ settled snapshot.
 A requested target is pending until it reaches a terminal result. Pending must
 not be presented as absent, idle, empty, zero, or failed. A true empty or error
 state appears only when the active target settles with that result. Inspector
-Metadata with autoload disabled may truthfully present `Load meta` and
+Metadata with autoload disabled may truthfully present `Load metadata` and
 `PNG metadata not loaded yet`; autoload-enabled targets may not.
 
 ### R4 — Presentation-critical truth is available before paint
@@ -130,7 +130,7 @@ presentation throughout the silent interval.
 - Browse presentation keeps the previously settled identity while a compatible
   target is pending. For the first 800 milliseconds, no loading copy is shown;
   after that threshold a neutral status may appear only in its reserved slot
-  without clearing the retained presentation. Retained browse actions are inert
+without clearing the retained presentation. Retained browse actions are inert
   and expose `aria-busy`. Terminal success, empty, or error commits atomically.
   Incompatible source, table, workspace, or session changes invalidate
   retention immediately.
@@ -169,10 +169,32 @@ discard unsaved drafts, field selection, expansion, scroll position, query
 registration, or the last settled presentation. Reset occurs only on an
 explicit user reset or a documented incompatible scope boundary.
 
+When a tool pane cannot fit beside the gallery, an explicit open action presents
+that same mounted pane as a bounded overlay. Persisted desktop preferences do not
+automatically open a mobile dialog. Responsive presentation must preserve the
+pane's drafts, expansion, scroll and settled identity; it must not duplicate or
+reparent the tool into a second instance. Closing the overlay restores the invoking
+control's focus. A viewport change may suppress inline geometry, but must leave a
+working way to open folders, metrics and Inspector.
+
+Explicit navigation may change which toolbar actions exist. Back is a Viewer
+action and is absent in browse mode; the unused Upload action is removed rather
+than reserving empty space. This exception does not apply to asynchronous updates:
+refresh and search retain their established slots and roles while pending or
+disabled. Search text has one immediate draft owner across desktop and phone
+inputs, so changing viewport or opening the mobile search field cannot clear it.
+
 When a hidden tool becomes visible, its query requirements and cached
 presentation are available on its first visible frame. Mounting the tool may
 not be the event that discovers active fields through a child-to-parent passive
 effect.
+
+Virtualized tools retain their last measured window and nonzero row sizes while
+hidden. A zero viewport reported by ResizeObserver must not erase the rows
+needed for the first frame on return. Folder query demand and settled branch
+data belong to the tree, independently of virtual row mounting; collapsed
+branches can release inactive query observers while retaining their settled
+presentation. Workspace/source changes explicitly retire that tree state.
 
 ## Accessibility and verification
 
@@ -187,6 +209,11 @@ Transition explicit properties, never `all`. Keep focus indication immediate.
 Menus remain opaque on their first frame, and media promotion remains decoded
 and atomic. Reduced motion disables transitions/animations on elements and
 pseudo-elements without resetting functional media/drag transforms.
+
+Theme changes commit token values together with cosmetic transitions temporarily
+suppressed. Ordinary interaction transitions resume after that swap. Theme color
+roles distinguish solid accent fills from readable accent text; muted text remains
+legible on the selected surfaces where it is used.
 
 Inspector disclosures use intrinsic grid-track height transitions. An explicit
 expand/collapse action intentionally changes the body and following headers'

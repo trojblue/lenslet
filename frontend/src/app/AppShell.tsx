@@ -50,11 +50,11 @@ import {
 import { useSidebars } from './layout/useSidebars'
 import {
   resolveLeftToolToggle,
-  toggleLeftPanelContent,
   type LeftTool,
 } from './layout/sidebarLayout'
 import {
   buildResponsiveLayoutModel,
+  resolveSidebarDragConstraint,
   type OverlayMode,
 } from './layout/responsiveLayoutPolicy'
 import { useQueryClient } from '@tanstack/react-query'
@@ -75,6 +75,8 @@ import { cssVars } from '../lib/cssVars'
 import { fileCache, thumbCache } from '../lib/blobCache'
 import { thumbnailObjectUrlCache } from '../features/browse/model/thumbnailObjectUrlCache'
 import LeftSidebar from './components/LeftSidebar'
+import ResponsivePanel from './components/ResponsivePanel'
+import { useResponsivePanels } from './layout/useResponsivePanels'
 import GridTopStack from './components/GridTopStack'
 import { deriveIndicatorState } from './presenceUi'
 import { LONG_SYNC_THRESHOLD_MS } from '../lib/constants'
@@ -407,7 +409,7 @@ export default function AppShell({
     viewState: initialSharedViewState.viewState,
   })
 
-  const { leftW, rightW, onResizeLeft, onResizeRight } = useSidebars(appRef, {
+  const { leftW, rightW, onResizeLeft, onResizeRight, onKeyboardResizeLeft, onKeyboardResizeRight } = useSidebars(appRef, {
     userLeftOpen: leftOpen,
     userRightOpen: rightOpen,
   })
@@ -1213,15 +1215,47 @@ export default function AppShell({
     }))
   }, [requestGridContextRestore, starsInFilter])
 
+  const overlayMode = useMemo<OverlayMode>(() => {
+    if (compareOpen) return 'compare'
+    if (viewer) return 'viewer'
+    return 'none'
+  }, [compareOpen, viewer])
+
+  const layoutModel = useMemo(() => buildResponsiveLayoutModel({
+    viewportWidth,
+    viewportHeight,
+    userLeftOpen: leftOpen,
+    userRightOpen: rightOpen,
+    leftPreferredWidth: leftW,
+    rightPreferredWidth: rightW,
+    overlay: overlayMode,
+    mobileSearchOpen,
+    mobileDrawerOpen,
+  }), [
+    viewportWidth,
+    viewportHeight,
+    leftOpen,
+    rightOpen,
+    leftW,
+    rightW,
+    overlayMode,
+    mobileSearchOpen,
+    mobileDrawerOpen,
+  ])
+  const panels = useResponsivePanels(layoutModel, compareOpen, setLeftOpen, setRightOpen)
   const openMetricsPanel = useCallback(() => {
-    setLeftOpen(true)
+    panels.setPanelOpen('left', true)
     setLeftTool('metrics')
-  }, [])
+  }, [panels.setPanelOpen])
   const closeRightPanel = useCallback(() => {
-    setRightOpen(false)
-  }, [])
+    panels.setPanelOpen('right', false)
+  }, [panels.setPanelOpen])
 
   const handleLeftToolChange = useCallback((nextTool: LeftTool) => {
+    if (panels.sheet === 'left') {
+      setLeftTool(nextTool)
+      return
+    }
     const nextState = resolveLeftToolToggle({
       activeTool: leftToolRef.current,
       contentOpen: leftOpenRef.current,
@@ -1229,7 +1263,7 @@ export default function AppShell({
     })
     setLeftTool(nextState.nextTool)
     setLeftOpen(nextState.contentOpen)
-  }, [leftOpenRef, leftToolRef])
+  }, [leftOpenRef, leftToolRef, panels.sheet])
   const handleMetricsFacetDemandAction = useCallback((action: MetricsFacetDemandAction) => {
     setMetricsFacetDemandOwner((owner) => updateMetricsFacetDemandOwner(
       owner,
@@ -1368,51 +1402,31 @@ export default function AppShell({
     viewerOpen: Boolean(viewer),
     compareOpen,
     mobileSelectMode,
-    leftOpen,
-    rightOpen,
+    leftOpen: panels.leftVisible,
+    rightOpen: panels.rightVisible,
     viewportWidth,
     openFolder,
     setSelectedPaths,
-    setLeftOpen,
-    setRightOpen,
+    setLeftOpen: (open) => panels.setPanelOpen('left', open),
+    setRightOpen: (open) => panels.setPanelOpen('right', open),
     setMobileSelectMode,
     setMobileSearchOpen,
     focusDesktopSearch,
   })
 
-  const overlayMode = useMemo<OverlayMode>(() => {
-    if (compareOpen) return 'compare'
-    if (viewer) return 'viewer'
-    return 'none'
-  }, [compareOpen, viewer])
-
-  const layoutModel = useMemo(() => buildResponsiveLayoutModel({
-    viewportWidth,
-    viewportHeight,
-    userLeftOpen: leftOpen,
-    userRightOpen: rightOpen,
-    leftPreferredWidth: leftW,
-    rightPreferredWidth: rightW,
-    overlay: overlayMode,
-    mobileSearchOpen,
-    mobileDrawerOpen,
-  }), [
-    viewportWidth,
-    viewportHeight,
-    leftOpen,
-    rightOpen,
-    leftW,
-    rightW,
-    overlayMode,
-    mobileSearchOpen,
-    mobileDrawerOpen,
-  ])
-  const inspectorMountedRef = useRef(layoutModel.effectiveRightOpen)
-  if (layoutModel.effectiveRightOpen) inspectorMountedRef.current = true
+  const resizeControl = (side: 'left' | 'right') => {
+    const constraint = resolveSidebarDragConstraint({ viewportWidth, activeSide: side,
+      userLeftOpen: leftOpen, userRightOpen: rightOpen, leftPreferredWidth: leftW, rightPreferredWidth: rightW })
+    return { width: side === 'left' ? layoutModel.leftWidth : layoutModel.rightWidth,
+      min: constraint.minWidth, max: constraint.maxWidth,
+      onKeyDown: side === 'left' ? onKeyboardResizeLeft : onKeyboardResizeRight }
+  }
+  const inspectorMountedRef = useRef(panels.rightVisible)
+  if (panels.rightVisible) inspectorMountedRef.current = true
 
   const metricsPopulationFacetObserverEnabled = (
-    layoutModel.leftRailVisible
-    && layoutModel.effectiveLeftOpen
+    panels.leftRailVisible
+    && panels.leftVisible
     && (leftTool === 'metrics' || leftTool === 'derived')
     && hasPanelFacetFields
     && browseCapabilityKeysReady
@@ -1440,8 +1454,8 @@ export default function AppShell({
       : 'settled'
 
   const foldersSurfaceVisible = (
-    layoutModel.leftRailVisible
-    && layoutModel.effectiveLeftOpen
+    panels.leftRailVisible
+    && panels.leftVisible
     && leftTool === 'folders'
   )
   useLayoutEffect(() => {
@@ -1453,15 +1467,15 @@ export default function AppShell({
     const toolPanelHidden = activeToolPanel instanceof HTMLElement
       && activeToolPanel.dataset.leftToolPanel !== leftTool
     if (
-      !layoutModel.leftRailVisible
-      || !layoutModel.effectiveLeftOpen
+      !panels.leftRailVisible
+      || !panels.leftVisible
       || toolPanelHidden
     ) activeElement.blur()
   }, [
     ctx?.kind,
     foldersSurfaceVisible,
-    layoutModel.effectiveLeftOpen,
-    layoutModel.leftRailVisible,
+    panels.leftVisible,
+    panels.leftRailVisible,
     leftTool,
     setCtx,
   ])
@@ -1511,10 +1525,13 @@ export default function AppShell({
         '--mobile-drawer-h': mobileDrawerHeight,
       })}
     >
+      <a className="app-skip-link" href="#gallery-main" onClick={(event) => { event.preventDefault(); document.getElementById('gallery-main')?.focus() }}>Skip to gallery</a>
       <Toolbar
         rootRef={toolbarRef}
         onSearch={handleSearchChange}
+        searchValue={query}
         viewerActive={!!viewer}
+        overlayActive={overlayMode !== 'none'}
         onBack={closeViewer}
         zoomPercent={viewer ? currentZoom : undefined}
         onZoomPercentChange={requestViewerZoom}
@@ -1537,10 +1554,10 @@ export default function AppShell({
         onViewMode={handleViewModeChange}
         gridItemSize={gridItemSize}
         onGridItemSize={handleGridItemSizeChange}
-        leftOpen={leftOpen}
-        rightOpen={rightOpen}
-        onToggleLeft={() => setLeftOpen((v) => toggleLeftPanelContent(v))}
-        onToggleRight={()=> setRightOpen(v=>!v)}
+        leftOpen={panels.leftVisible}
+        rightOpen={panels.rightVisible}
+        onToggleLeft={() => panels.setPanelOpen('left', !panels.leftVisible)}
+        onToggleRight={() => panels.setPanelOpen('right', !panels.rightVisible)}
         onRefreshRoot={handleHeaderRefresh}
         refreshEnabled={refreshEnabled}
         refreshDisabledReason={refreshDisabledReason}
@@ -1593,14 +1610,15 @@ export default function AppShell({
         data-browse-rating-counts={JSON.stringify(starCounts)}
         data-selected-paths={JSON.stringify(selectedPaths)}
       >
+          <ResponsivePanel side="left" overlay={panels.sheet === 'left'} onClose={panels.closeSheet}>
           <LeftSidebar
-            visible={layoutModel.leftRailVisible}
+            visible={panels.leftRailVisible}
             leftTool={leftTool}
-            contentOpen={layoutModel.effectiveLeftOpen}
+            contentOpen={panels.leftVisible}
             onToolChange={handleLeftToolChange}
             compareEnabled={compareEnabled}
             compareActive={compareOpen}
-            onOpenCompare={openCompare}
+            onOpenCompare={() => { panels.closeSheet(); openCompare() }}
             views={views}
             activeViewId={activeViewId}
             onActivateView={activateView}
@@ -1644,6 +1662,7 @@ export default function AppShell({
             onMetricsFacetDemandAction={handleMetricsFacetDemandAction}
             onDerivedFacetFieldsChange={handleDerivedFacetFieldsChange}
             onResize={onResizeLeft}
+            resizeControl={resizeControl('left')}
             themePreset={themePreset}
             onThemePresetChange={handleThemePresetChange}
             autoloadImageMetadata={autoloadImageMetadata}
@@ -1658,7 +1677,8 @@ export default function AppShell({
             tableSourceSwitching={tableSourceSwitching}
             onTableSourceColumnChange={handleTableSourceColumnChange}
           />
-        <div className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col">
+          </ResponsivePanel>
+        <main id="gallery-main" tabIndex={-1} className="grid-shell col-start-2 row-start-2 relative overflow-hidden flex flex-col">
           <div aria-live="polite" className="sr-only">
             {selectedPaths.length ? `${selectedPaths.length} selected` : ''}
           </div>
@@ -1761,15 +1781,16 @@ export default function AppShell({
             </div>
           </div>
           {/* Bottom selection bar removed intentionally */}
-        </div>
+        </main>
+        <ResponsivePanel side="right" overlay={panels.sheet === 'right'} onClose={panels.closeSheet}>
         {inspectorMountedRef.current && (
           <LazySurfaceBoundary
-            resetKey={`inspector:${layoutModel.effectiveRightOpen ? 'open' : 'closed'}`}
+            resetKey={`inspector:${panels.rightVisible ? 'open' : 'closed'}`}
             fallback={(
               <InspectorFallback
                 message="Inspector could not load."
                 onClose={closeRightPanel}
-                visible={layoutModel.effectiveRightOpen}
+                visible={panels.rightVisible}
               />
             )}
           >
@@ -1779,7 +1800,7 @@ export default function AppShell({
                   message="Loading inspector..."
                   onClose={closeRightPanel}
                   busy
-                  visible={layoutModel.effectiveRightOpen}
+                  visible={panels.rightVisible}
                 />
               )}
             >
@@ -1789,14 +1810,15 @@ export default function AppShell({
                 comparePaths={comparePaths}
                 items={selectedItems}
                 presentationResetKey={inspectorPresentationResetKey}
-                visible={layoutModel.effectiveRightOpen}
+                visible={panels.rightVisible}
                 viewerCompareActive={compareOpen}
                 compareA={compareA}
                 compareB={compareB}
-                onOpenCompare={openCompare}
+                onOpenCompare={() => { panels.closeSheet(); openCompare() }}
                 sortSpec={viewState.sort}
                 metricDisplayNames={metricDisplayNames}
                 onResize={onResizeRight}
+                resizeControl={resizeControl('right')}
                 onStarChanged={(paths, val)=>{
                   const missing = paths.filter((path) => !browseEntityStore.patch({ path, star: val }))
                   if (missing.length) {
@@ -1807,7 +1829,7 @@ export default function AppShell({
                     })
                   }
                 }}
-                onFindSimilar={() => setSimilarityOpen(true)}
+                onFindSimilar={() => { panels.closeSheet(); setSimilarityOpen(true) }}
                 embeddingsAvailable={embeddingsAvailable}
                 embeddingsLoading={embeddingsLoading}
                 autoloadImageMetadata={autoloadImageMetadata}
@@ -1818,6 +1840,7 @@ export default function AppShell({
             </Suspense>
           </LazySurfaceBoundary>
         )}
+        </ResponsivePanel>
       </div>
       {similarityOpen && (
         <SimilarityModal

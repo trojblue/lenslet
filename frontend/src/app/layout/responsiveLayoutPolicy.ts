@@ -22,6 +22,7 @@ export interface ResponsiveLayoutInput {
 export interface ResponsiveLayoutModel {
   mode: LayoutMode
   shortHeight: boolean
+  panelModes: { left: 'inline' | 'overlay'; right: 'inline' | 'overlay' }
   centerMinWidth: number
 
   effectiveLeftOpen: boolean
@@ -153,6 +154,7 @@ export function buildResponsiveLayoutModel(input: ResponsiveLayoutInput): Respon
     return {
       mode,
       shortHeight,
+      panelModes: { left: 'overlay', right: 'overlay' },
       centerMinWidth,
       effectiveLeftOpen: false,
       effectiveRightOpen: false,
@@ -225,6 +227,12 @@ export function buildResponsiveLayoutModel(input: ResponsiveLayoutInput): Respon
   return {
     mode,
     shortHeight,
+    panelModes: {
+      left: availableForPanels >= RESPONSIVE_LAYOUT_CONSTANTS.leftContentMinWidth +
+        (input.userRightOpen ? RESPONSIVE_LAYOUT_CONSTANTS.rightInspectorMinUsableWidth : 0)
+        ? 'inline' : 'overlay',
+      right: inspectorCanPersist ? 'inline' : 'overlay',
+    },
     centerMinWidth,
     effectiveLeftOpen,
     effectiveRightOpen,

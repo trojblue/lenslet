@@ -1,0 +1,272 @@
+{
+  "command": "python -m scripts.browser.refinement --output-dir /tmp/lenslet-refinement-build3-final",
+  "result": "passed",
+  "rawEvidence": "/tmp/lenslet-refinement-build3-final",
+  "desktop": {
+    "focus": {
+      "searchFocus": {
+        "visible": true,
+        "outline": "auto",
+        "width": 2,
+        "color": "rgb(233, 229, 223)",
+        "shadow": "none"
+      },
+      "sliderFocus": {
+        "visible": true,
+        "outline": "auto",
+        "width": 2,
+        "color": "rgb(233, 229, 223)",
+        "shadow": "none"
+      },
+      "metadataFocus": {
+        "visible": true,
+        "outline": "auto",
+        "width": 2,
+        "color": "rgb(171, 164, 155)",
+        "shadow": "none"
+      },
+      "dividerFocus": {
+        "visible": true,
+        "outline": "auto",
+        "width": 2,
+        "color": "rgb(241, 245, 249)",
+        "shadow": "none"
+      }
+    },
+    "copiedMetadataValue": "beta prompt",
+    "themeChanges": 3,
+    "themePaintedFrames": 36,
+    "themeColorTransitions": 0,
+    "comparePair": "/quick_01_meta.png\u0000/quick_00_meta.png",
+    "modalEscapeLayers": 2,
+    "responsiveSearch": "sample"
+  },
+  "mobile320": {
+    "paintedFrameCount": 8,
+    "firstVisibleFrame": {
+      "draft": "Unsaved mobile draft at 320px",
+      "open": "false",
+      "bodyHeight": 0,
+      "inert": true,
+      "src": "blob:http://127.0.0.1:7137/d9102e32-1889-488b-a67c-bcf2136c412b",
+      "pixel": [
+        35,
+        126,
+        74,
+        255
+      ],
+      "complete": true,
+      "opacity": "1",
+      "width": 319,
+      "left": 1,
+      "right": 320
+    },
+    "allFrameDraftDisclosureMediaIdentityChecks": "passed",
+    "closeTarget": {
+      "width": 47.484375,
+      "height": 44,
+      "unobscured": true
+    },
+    "toolbarTargets": [
+      {
+        "name": "search-toggle",
+        "x": 214,
+        "y": 2,
+        "width": 44,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-toggle",
+        "x": 264,
+        "y": 2,
+        "width": 44,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-layout-grid",
+        "x": 12,
+        "y": 752,
+        "width": 93.328125,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-layout-adaptive",
+        "x": 113.328125,
+        "y": 752,
+        "width": 93.328125,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-sort-dir",
+        "x": 214.65625,
+        "y": 804,
+        "width": 93.34375,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-filters",
+        "x": 12,
+        "y": 856,
+        "width": 93.328125,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-left-panel",
+        "x": 214.65625,
+        "y": 856,
+        "width": 93.34375,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-right-panel",
+        "x": 12,
+        "y": 908,
+        "width": 93.328125,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-select",
+        "x": 113.328125,
+        "y": 908,
+        "width": 93.328125,
+        "height": 44,
+        "unobscured": true
+      }
+    ],
+    "actualFolderExport": "passed",
+    "unsavedDraftVerifiedAgainstBackend": true,
+    "rawEvidence": "/tmp/lenslet-refinement-build4-mobile320",
+    "build": "4",
+    "keyboardMenus": "first focus, Tab continuation, Home, End, scoped Escape, focus restoration"
+  },
+  "mobile390": {
+    "paintedFrameCount": 8,
+    "firstVisibleFrame": {
+      "draft": "Unsaved mobile draft at 390px",
+      "open": "false",
+      "bodyHeight": 0,
+      "inert": true,
+      "src": "blob:http://127.0.0.1:7157/d7b32181-a461-4e72-8a78-822ff9eca5b0",
+      "pixel": [
+        35,
+        126,
+        74,
+        255
+      ],
+      "complete": true,
+      "opacity": "1",
+      "width": 389,
+      "left": 1,
+      "right": 390
+    },
+    "allFrameDraftDisclosureMediaIdentityChecks": "passed",
+    "closeTarget": {
+      "width": 47.484375,
+      "height": 44,
+      "unobscured": true
+    },
+    "toolbarTargets": [
+      {
+        "name": "search-toggle",
+        "x": 284,
+        "y": 2,
+        "width": 44,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-toggle",
+        "x": 334,
+        "y": 2,
+        "width": 44,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-layout-grid",
+        "x": 12,
+        "y": 752,
+        "width": 116.65625,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-layout-adaptive",
+        "x": 136.65625,
+        "y": 752,
+        "width": 116.671875,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-sort-dir",
+        "x": 261.328125,
+        "y": 804,
+        "width": 116.65625,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-filters",
+        "x": 12,
+        "y": 856,
+        "width": 116.65625,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-left-panel",
+        "x": 261.328125,
+        "y": 856,
+        "width": 116.65625,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-right-panel",
+        "x": 12,
+        "y": 908,
+        "width": 116.65625,
+        "height": 44,
+        "unobscured": true
+      },
+      {
+        "name": "drawer-select",
+        "x": 136.65625,
+        "y": 908,
+        "width": 116.671875,
+        "height": 44,
+        "unobscured": true
+      }
+    ],
+    "actualFolderExport": "passed",
+    "unsavedDraftVerifiedAgainstBackend": true,
+    "rawEvidence": "/tmp/lenslet-refinement-build4-mobile390",
+    "build": "4",
+    "keyboardMenus": "first focus, Tab continuation, Home, End, scoped Escape, focus restoration"
+  },
+  "metricsRetry": {
+    "field": "zz_probe_metric_29",
+    "requestsBefore": 5,
+    "requestsAfter": 6,
+    "population": "Population: 1585",
+    "draft": "retain-this-draft",
+    "paintedFrameCount": 23,
+    "firstFrame": {
+      "height": 271.9375,
+      "state": "error",
+      "selected": "zz_probe_metric_29",
+      "draft": "retain-this-draft"
+    },
+    "maxCardHeightDeltaPx": 0.0,
+    "selectedMetricAndDerivedDraftStable": true
+  }
+}

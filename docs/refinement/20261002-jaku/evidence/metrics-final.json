@@ -1,0 +1,29 @@
+{
+  "status": "passed",
+  "base_url": "http://127.0.0.1:7144",
+  "scenario": "metrics",
+  "fixture_profile": "default",
+  "max_delta_px": 1.0,
+  "max_anchor_delta_px": 0.0,
+  "max_toolbar_delta_px": 0.0,
+  "max_top_stack_delta_px": 0.0,
+  "max_grid_width_delta_px": 0.0,
+  "max_inspector_delta_px": 0.0,
+  "check_groups": [
+    "fixture",
+    "categorical_selection",
+    "metric_field_transition",
+    "histogram_drag",
+    "facet_transitions",
+    "selection_and_virtualization",
+    "operator_dropdowns",
+    "derived",
+    "left_tool_continuity",
+    "narrow_390x844_structure",
+    "violations"
+  ],
+  "painted_trace_count": 25,
+  "painted_frames": 1133,
+  "nonempty_violations": [],
+  "command": "python -m scripts.browser.gui_jitter.probe --scenario metrics --port 7144 --output-json /tmp/lenslet-jaku-final-metrics/metrics.json"
+}

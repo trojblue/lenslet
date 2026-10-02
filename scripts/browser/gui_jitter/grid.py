@@ -348,6 +348,12 @@ def exercise_top_rail(
         timeout=config.browser_timeout_ms,
     )
     similarity_cleared = snapshot_grid(page)
+    # Detaching CDP clears the emulated zoom and may remove its warning.
+    # Observe the fixture while its emulation is still active.
+    zoom_message = page.get_by_text("Browser zoom 110%.", exact=True)
+    status_visible = zoom_message.is_visible() and page.get_by_role(
+        "button", name="Dismiss browser zoom warning", exact=True,
+    ).is_visible()
     cdp_session.detach()
 
     return {
@@ -359,7 +365,7 @@ def exercise_top_rail(
         "action_cleared": action_cleared,
         "similarity": similarity,
         "similarity_cleared": similarity_cleared,
-        "status_visible": page.locator('.grid-top-status-list').count() > 0,
+        "status_visible": status_visible,
     }
 
 

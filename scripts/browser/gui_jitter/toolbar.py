@@ -245,7 +245,7 @@ def snapshot_toolbar(page: Any) -> dict[str, Any]:
           const shell = document.querySelector('.toolbar-shell');
           if (!shell) return null;
           const appShell = document.querySelector('.app-shell');
-          const slotNames = ['back', 'refresh', 'nav', 'upload', 'search-desktop', 'search-toggle', 'search-row'];
+          const slotNames = ['back', 'refresh', 'nav', 'search-desktop', 'search-toggle', 'search-row'];
           const controlNames = ['back', 'refresh', 'upload', 'search-desktop', 'search-toggle', 'search-mobile'];
           const anchors = {};
           for (const slotName of slotNames) {
@@ -270,10 +270,16 @@ def snapshot_toolbar(page: Any) -> dict[str, Any]:
               continue;
             }
             const disabled = 'disabled' in node ? Boolean((node).disabled) : false;
+            const rect = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
             controls[controlName] = {
               disabled,
               tabIndex: node.tabIndex,
               ariaHidden: node.getAttribute('aria-hidden') === 'true',
+              visible: rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden'
+                && style.display !== 'none' && Number(style.opacity) > 0,
+              withinViewport: rect.left >= 0 && rect.top >= 0
+                && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight,
             };
           }
           const toolbarVarRaw = getComputedStyle(appShell || document.documentElement).getPropertyValue('--toolbar-h').trim();
@@ -872,7 +878,7 @@ def _capture_folder_and_context_surfaces(page: Any, timeout_ms: float) -> dict[s
         8.0 - float(narrow_menu["left"]),
         float(narrow_menu["right"]) - 152.0,
     )
-    page.set_viewport_size({"width": 800, "height": 920})
+    page.set_viewport_size({"width": 800, "height": 400})
     page.wait_for_timeout(100)
     cdp_session = page.context.new_cdp_session(page)
     try:
@@ -892,7 +898,26 @@ def _capture_folder_and_context_surfaces(page: Any, timeout_ms: float) -> dict[s
             }""",
             timeout=timeout_ms,
         )
+        page.keyboard.press("Escape")
+        menu.wait_for(state="detached", timeout=timeout_ms)
+        _start_utility_paint_trace(page, ".context-menu-panel")
+        grid_cell.evaluate("""node => node.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true,
+          clientX: visualViewport.offsetLeft + visualViewport.width - 2,
+          clientY: visualViewport.offsetTop + visualViewport.height - 2,
+        }))""")
+        menu.wait_for(state="visible", timeout=timeout_ms)
+        zoom_context_samples = _stop_utility_paint_trace(page)
         visual_menu = _rect(page, ".context-menu-panel")
+        # The short visual viewport must scroll rather than hide final actions.
+        menu.get_by_role("menuitem").last.scroll_into_view_if_needed()
+        last_action_visible = menu.get_by_role("menuitem").last.evaluate(
+            """node => {
+              const action = node.getBoundingClientRect();
+              const panel = node.closest('[role="menu"]').getBoundingClientRect();
+              return action.top >= panel.top && action.bottom <= panel.bottom;
+            }"""
+        )
         visual_bounds = page.evaluate(
             """() => {
               const viewport = window.visualViewport;
@@ -918,6 +943,9 @@ def _capture_folder_and_context_surfaces(page: Any, timeout_ms: float) -> dict[s
     )
     violations = _first_paint_violations("ContextMenu", context_samples)
     violations.extend(_first_paint_violations("Grid ContextMenu", grid_context_samples))
+    violations.extend(_first_paint_violations("Zoomed ContextMenu", zoom_context_samples))
+    if not last_action_visible:
+        violations.append("ContextMenu final action is unreachable in the zoomed visual viewport")
     if folder_delta > 1.0:
         violations.append(f"FolderTree parent anchors moved {folder_delta:.3f}px during hydration")
     if context_delta > 1.0:
@@ -939,8 +967,10 @@ def _capture_folder_and_context_surfaces(page: Any, timeout_ms: float) -> dict[s
         "context_visual_viewport": visual_bounds,
         "context_visual_menu": visual_menu,
         "context_visual_overflow_px": visual_overflow,
+        "context_visual_last_action_visible": last_action_visible,
         "context_samples": context_samples,
         "grid_context_samples": grid_context_samples,
+        "zoom_context_samples": zoom_context_samples,
         "hidden_tree_owner_dismissed_menu": True,
         "violations": violations,
     }
@@ -973,7 +1003,22 @@ def _capture_similarity_surface(page: Any, timeout_ms: float) -> dict[str, Any]:
         "footer": _rect(page, ".similarity-modal-footer"),
     }
     dialog.get_by_role("button", name="Find similar").click()
-    dialog.get_by_role("alert").wait_for(state="visible", timeout=timeout_ms)
+    page.wait_for_function(
+        """() => {
+          const field = document.querySelector('[aria-label="Find similar"] textarea[aria-invalid="true"]');
+          const message = document.getElementById(field?.getAttribute('aria-describedby') || '');
+          return field === document.activeElement && message instanceof HTMLElement
+            && message.getBoundingClientRect().height > 0 && Boolean(message.textContent?.trim());
+        }""",
+        timeout=timeout_ms,
+    )
+    field_validation = dialog.get_by_label("Vector (base64 float32)", exact=True).evaluate(
+        """field => ({
+          focused: field === document.activeElement,
+          invalid: field.getAttribute('aria-invalid'),
+          message: document.getElementById(field.getAttribute('aria-describedby') || '')?.textContent,
+        })"""
+    )
     error = {
         "shell": _rect(page, ".similarity-modal-shell"),
         "header": _rect(page, ".similarity-modal-header"),
@@ -1033,6 +1078,7 @@ def _capture_similarity_surface(page: Any, timeout_ms: float) -> dict[str, Any]:
     return {
         "samples": samples,
         "modal_delta_px": modal_delta,
+        "field_validation": field_validation,
         "body": body,
         "stale_lifetime": stale_lifetime,
         "violations": violations,
@@ -1122,7 +1168,7 @@ def exercise_toolbar_probe(
 
 def toolbar_slot_deltas(snapshots: ToolbarSnapshots) -> dict[str, float]:
     slot_deltas: dict[str, float] = {}
-    for slot_name in ("back", "refresh", "nav", "upload", "search-desktop", "search-toggle"):
+    for slot_name in ("back", "refresh", "nav", "search-desktop", "search-toggle"):
         comparisons = [
             delta
             for delta in (
@@ -1196,9 +1242,25 @@ def toolbar_violations(
             f"{toolbar_size_deltas(snapshots)!r}"
         )
 
-    assert_hidden_control_state(snapshots.desktop_browse, "back", "desktop browse state", violations)
+    # Back is owned by explicit Viewer mode; Upload has no gallery caller.
+    # Neither creates a dead browse slot. Async refresh/search still retain theirs.
+    viewer_back = snapshots.desktop_viewer.get("controls", {}).get("back")
+    if not isinstance(viewer_back, dict) or (
+        viewer_back.get("disabled") or viewer_back.get("ariaHidden")
+        or viewer_back.get("tabIndex") != 0 or not viewer_back.get("visible")
+        or not viewer_back.get("withinViewport")
+    ):
+        violations.append(f"desktop viewer state: Back was not visible and actionable: {viewer_back!r}")
+    for mode, snapshot in (
+        ("browse", snapshots.desktop_browse), ("viewer", snapshots.desktop_viewer),
+        ("restored", snapshots.desktop_restored), ("narrow", snapshots.narrow_closed),
+        ("narrow open", snapshots.narrow_open), ("narrow restored", snapshots.narrow_restored),
+    ):
+        if mode != "viewer" and snapshot.get("controls", {}).get("back") is not None:
+            violations.append(f"{mode}: viewer-only Back control was mounted")
+        if snapshot.get("controls", {}).get("upload") is not None:
+            violations.append(f"{mode}: unused Upload control was mounted")
     assert_hidden_control_state(snapshots.desktop_viewer, "refresh", "desktop viewer state", violations)
-    assert_hidden_control_state(snapshots.desktop_viewer, "upload", "desktop viewer state", violations)
     assert_hidden_control_state(snapshots.desktop_viewer, "search-desktop", "desktop viewer state", violations)
     assert_hidden_control_state(snapshots.narrow_closed, "search-mobile", "narrow browse closed state", violations)
     if snapshots.narrow_closed.get("searchRowPointerEvents") != "none":

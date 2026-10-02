@@ -37,5 +37,17 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [{
+            // Keep stable, eagerly used libraries cached across gallery updates.
+            // Do not capture optional feature dependencies such as drag-and-drop.
+            name: 'framework',
+            test: /node_modules[\\/](?:react(?:-dom)?|scheduler|@tanstack)[\\/]/,
+          }],
+        },
+      },
+    },
   }
 })

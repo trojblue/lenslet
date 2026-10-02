@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+import re
 
 from fastapi import FastAPI, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
 
-class NoCacheIndexStaticFiles(StaticFiles):
-    """Serve static assets with no-cache for the HTML shell."""
+_FINGERPRINTED_ASSET = re.compile(r"assets/[^/]+-[A-Za-z0-9_-]{8}\.(?:js|css)")
+
+
+class FrontendStaticFiles(StaticFiles):
+    """Revalidate the shell while retaining content-addressed Vite bundles."""
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         response = await super().get_response(path, scope)
@@ -19,6 +23,8 @@ class NoCacheIndexStaticFiles(StaticFiles):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
+        elif response.status_code in (200, 206, 304) and _FINGERPRINTED_ASSET.fullmatch(path):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
 
@@ -35,4 +41,4 @@ def load_frontend_shell(index_path: str, mtime_ns: int) -> str:
 def mount_frontend(app: FastAPI) -> None:
     frontend_dist = frontend_dist_path()
     if frontend_dist.is_dir():
-        app.mount("/", NoCacheIndexStaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+        app.mount("/", FrontendStaticFiles(directory=str(frontend_dist), html=True), name="frontend")

@@ -54,6 +54,39 @@ lenslet/
 
 ### Installing for Development
 
+Use a patched Python 3.11–3.13 interpreter: 3.11.18+, 3.12.16+, or 3.13.18+
+within those release lines (Pillow 13 requires Python 3.11+) and
+Node 22.23.4+, 24.22.1+, or 26.12.1+ within those release lines. Older Node
+releases include vulnerable TLS trust stores; `frontend/.npmrc` enforces the
+supported engine range and disables dependency lifecycle scripts. Review any
+new dependency that needs an install script before explicitly running it.
+
+Before installing packages in an existing or newly created Python environment,
+ensure pip is at least 26.2.2. Older pip vendors the compromised emSign trust
+root even when application certifi is updated. The
+[Python security advisory](https://discuss.python.org/t/information-for-python-users-regarding-emudhra-emsign-ca-certificate-security-incident/109576)
+provides this hash-verified bootstrap command for older installers:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+```
+
+The October 25
+[CPython security releases](https://www.python.org/downloads/release/python-31318/)
+also reject the compromised intermediate keys in `ssl`, protecting clients
+that use system trust. A virtual environment inherits its base interpreter;
+updating certifi alone does not update Python. After installing the dev extras,
+`python -m build --no-isolation` uses the audited environment and pinned
+Hatchling without bootstrapping another environment's installer.
+
+Update the operating system trust store and restart existing processes too.
+Lenslet's default HTTP clients use patched certifi; explicit custom CA bundles,
+external proxies, browsers, and other applications need their own updates.
+The constraints pin a tested Python stack, but do not lock every optional
+dependency. Audit each resolved environment as part of dependency updates.
+
 ```bash
 # Clone repository
 git clone <repo-url>

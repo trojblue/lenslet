@@ -8,7 +8,7 @@ from io import BytesIO
 from collections.abc import Iterable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import get_type_hints
+from typing import Any, get_type_hints
 
 import pytest
 from PIL import Image
@@ -136,6 +136,33 @@ def test_http_safety_accepts_only_http_urls() -> None:
         http_safety.require_http_url("file:///tmp/image.jpg")
     with pytest.raises(ValueError, match="Unsupported URL scheme"):
         http_safety.http_request("s3://bucket/key")
+
+
+def test_http_downloads_use_patched_trust_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ssl
+
+    contexts: list[ssl.SSLContext] = []
+
+    def capture_open(_url: str, *args: Any, **kwargs: Any) -> None:
+        contexts.append(kwargs["context"])
+
+    monkeypatch.setattr(http_safety.urllib.request, "urlopen", capture_open)
+    # HTTP can redirect to HTTPS, so both entry schemes must carry safe trust.
+    http_safety.open_http_url("http://example.com/image.jpg")
+    http_safety.open_http_url("https://example.com/image.jpg")
+    context = contexts[0]
+    assert context is contexts[1]
+    assert context.check_hostname
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.get_ca_certs()
+    assert not any(
+        "emSign ECC Root CA - G3" in str(cert["subject"])
+        for cert in context.get_ca_certs()
+    )
+
+    custom_context = ssl.create_default_context()
+    http_safety.open_http_url("https://example.com/image.jpg", context=custom_context)
+    assert contexts[-1] is custom_context
 
 
 def test_local_storage_resolve_path_preserves_commonpath_cause(

@@ -30,6 +30,16 @@ preview, Viewer, Compare, and ranking.
 
 ## State and geometry rules
 
+### Gallery visual hierarchy
+
+The workspace uses local system typography, a compact geometric Lenslet mark,
+and a small tracked wordmark beside the current scope. Scope and counts share
+the existing toolbar slot. Utility rails use quiet icon controls with an explicit
+active marker; the image grid uses restrained corners and left-aligned captions.
+Search is recessed relative to action buttons. These treatments live in
+`frontend/src/workspace.css` and their component owners, use the active theme's
+semantic colors, and retain the shared motion and responsive geometry contracts.
+
 ### R1 — Transient content does not create layout rows
 
 Status, diagnostics, counts, selection details, cursor values, and actions must

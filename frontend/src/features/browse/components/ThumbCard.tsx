@@ -114,7 +114,7 @@ export default function ThumbCard({
   }, [decoded, path, revealDecodedImage, url])
 
   const cardClassName = [
-    'absolute inset-0 bg-surface rounded-[10px] overflow-hidden select-none',
+    'absolute inset-0 bg-surface rounded-[4px] overflow-hidden select-none',
     'border border-border-subtle shadow-sm',
     selected
       ? 'ring-2 ring-accent border-transparent'

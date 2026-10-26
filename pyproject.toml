@@ -3,7 +3,7 @@ name = "lenslet"
 version = "0.4"
 description = "Lightweight image gallery server - no database, no files left behind"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 license = {text = "MIT"}
 authors = [
     {name = "yada", email = "trojblue@gmail.com"}
@@ -19,7 +19,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -30,7 +29,8 @@ dependencies = [
     "fastapi>=0.135,<0.136",
     "pydantic>=2.12,<2.13",
     "uvicorn[standard]>=0.41,<0.42",
-    "pillow>=12.1,<13",
+    "pillow>=13.0.0,<14",
+    "certifi>=2026.10.19",
     "pyarrow>=23.0,<24",
     "tqdm>=4.67,<5",
     "httpx>=0.27,<1",
@@ -39,6 +39,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "build>=1.2",
+    "hatchling==1.32.4",
     "pytest>=8.0",
     "ruff>=0.6.9",
     "playwright>=1.48.0",
@@ -49,6 +50,8 @@ s3 = [
 remote = [
     "unibox>=0.12",
     "huggingface-hub>=0.25",
+    "filelock>=4.2.1",
+    "setuptools>=84.1.0",
 ]
 embeddings = [
     "numpy>=1.26",
@@ -61,6 +64,8 @@ embed = [
     "numpy>=1.26",
     "torch>=2",
     "torchvision>=0.17",
+    "filelock>=4.2.1",
+    "setuptools>=84.1.0",
 ]
 
 [project.scripts]
@@ -71,7 +76,7 @@ Homepage = "https://github.com/trojblue/lenslet"
 Repository = "https://github.com/trojblue/lenslet"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

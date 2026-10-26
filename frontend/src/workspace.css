@@ -1,0 +1,78 @@
+/* Gallery art direction. Geometry and async presentation belong to their owners. */
+.workspace-mark {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+
+.workspace-wordmark {
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.workspace-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
+  letter-spacing: -0.025em;
+}
+
+.toolbar-shell {
+  box-shadow: 0 1px 0 var(--border-subtle);
+}
+
+.toolbar-count {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.workspace-tool {
+  position: relative;
+  cursor: pointer;
+}
+
+.workspace-tool[aria-pressed="true"]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 2px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--accent-text);
+}
+
+.workspace-tool:active:not(:disabled) {
+  background: var(--surface-active);
+}
+
+.workspace-saved-views {
+  background: var(--surface-overlay);
+}
+
+.thumb-filename {
+  letter-spacing: -0.015em;
+}
+
+/* Search is a recessed field; neighboring actions remain elevated controls. */
+.toolbar-search-input.input {
+  background: var(--surface-inset);
+  border-color: var(--border-subtle);
+}
+
+.toolbar-search-input.input:hover {
+  border-color: var(--border-hover);
+}
+
+@media (max-width: 900px) {
+  .toolbar-scope {
+    gap: 8px;
+  }
+
+  .workspace-mark {
+    width: 22px;
+    height: 22px;
+  }
+}

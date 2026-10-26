@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+from importlib.metadata import version
 import platform
+import re
 import shlex
 import shutil
 import subprocess  # nosec B404 - errors are reported for fixed argv setup commands.
@@ -105,6 +107,14 @@ def editable_target(extras: str) -> str:
 
 
 def install_python(args: argparse.Namespace) -> None:
+    if sys.version_info < (3, 11):
+        raise SystemExit("Lenslet requires Python 3.11+ for security-fixed Pillow.")
+    pip_version = re.fullmatch(r"(\d+)\.(\d+)(?:\.(\d+))?", version("pip"))
+    if pip_version is None or tuple(int(part or 0) for part in pip_version.groups()) < (26, 2, 2):
+        raise SystemExit(
+            "pip >=26.2.2 is required to remove the compromised emSign trust root. "
+            "Use the hash-verified bootstrap command in DEVELOPMENT.md first."
+        )
     command = [
         sys.executable,
         "-m",

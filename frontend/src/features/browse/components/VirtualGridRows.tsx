@@ -310,9 +310,9 @@ export default function VirtualGridRows({
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-center text-center gap-0.5 mt-2 px-1 text-text-secondary">
+                  <div className="flex flex-col items-start text-left gap-0.5 mt-2 px-1 text-text-secondary">
                     <div
-                      className="text-xs font-medium leading-[16px] thumb-filename line-clamp-2 break-words hyphens-auto text-center"
+                      className="text-xs font-medium leading-[16px] thumb-filename line-clamp-2 break-words hyphens-auto text-left"
                       title={item.name}
                     >
                       {renderHighlightedName(item.name, highlight)}

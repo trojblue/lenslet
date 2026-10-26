@@ -96,9 +96,9 @@ type LeftSidebarProps = {
 }
 
 const ROOTS = [{ label: 'Root', path: '/' }]
-const SIDEBAR_ICON_BUTTON_BASE = 'w-11 h-11 rounded-md border border-border flex items-center justify-center transition-colors'
+const SIDEBAR_ICON_BUTTON_BASE = 'workspace-tool w-11 h-11 rounded-md flex items-center justify-center transition-colors'
 const SIDEBAR_ICON_BUTTON_ACTIVE = 'bg-accent-muted text-accent-text'
-const SIDEBAR_ICON_BUTTON_INACTIVE = 'bg-surface text-text hover:bg-surface-hover'
+const SIDEBAR_ICON_BUTTON_INACTIVE = 'text-muted hover:bg-surface-hover hover:text-text'
 
 function getSidebarIconButtonClass(active: boolean): string {
   return `${SIDEBAR_ICON_BUTTON_BASE} ${active ? SIDEBAR_ICON_BUTTON_ACTIVE : SIDEBAR_ICON_BUTTON_INACTIVE}`
@@ -281,7 +281,7 @@ export default function LeftSidebar({
           ref={(element) => setInert(element, leftTool !== 'folders')}
           data-left-tool-panel="folders"
         >
-          <div className="px-2 py-2 border-b border-border">
+          <div className="workspace-saved-views px-3 py-3 border-b border-border">
             <div className="flex items-center justify-between mb-2">
               <div className="text-[11px] uppercase tracking-wide text-muted">Smart Folders</div>
               <button
@@ -308,7 +308,7 @@ export default function LeftSidebar({
                 })}
               </div>
             ) : (
-              <div className="text-xs text-muted px-1 py-1.5">No saved Smart Folders yet.</div>
+              <div className="text-xs text-muted px-1 py-1.5">Save a view to revisit it here.</div>
             )}
           </div>
           <FolderTree

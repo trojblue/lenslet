@@ -295,8 +295,13 @@ export default function Toolbar({
     >
       <div className="toolbar-left flex items-center gap-4 min-w-0">
         <div className="toolbar-scope flex items-center gap-3 min-w-0">
+          <svg className="workspace-mark" width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <rect x="2" y="2" width="28" height="28" rx="8" stroke="currentColor" />
+            <path d="M10 9v14h13M15 9h8v8h-8z" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
           <div className="toolbar-scope-text flex flex-col min-w-0 leading-tight">
-            <span className="text-sm font-medium text-text truncate" title={scopeName}>
+            <span className="workspace-wordmark">Lenslet</span>
+            <span className="workspace-title text-text truncate" title={scopeName}>
               {scopeName}
             </span>
           </div>

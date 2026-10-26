@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -325,6 +326,12 @@ def test_lint_repo_filters_candidates_and_counts_lines(tmp_path: Path, monkeypat
     assert lint_repo.should_scan_file(Path("src/.hidden.py")) is False
     assert list(lint_repo.iter_candidate_files(["src"])) == [Path("src/app.py")]
     assert lint_repo.count_lines(Path("src/app.py")) == 2
+
+
+def test_setup_rejects_compromised_pip_before_install(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(setup_dev, "version", lambda _name: "26.2")
+    with pytest.raises(SystemExit, match="pip >=26.2.2"):
+        setup_dev.install_python(SimpleNamespace())
 
 
 def test_setup_dev_command_helpers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

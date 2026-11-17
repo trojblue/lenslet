@@ -1,4 +1,4 @@
-export const ALLOWED_PATH = /^[\/@a-zA-Z0-9._\-\/]{1,512}$/
+export const ALLOWED_PATH = /^[\p{L}\p{M}\p{N} /@._-]{1,512}$/u
 
 export function sanitizePath(raw: string): string {
   try {

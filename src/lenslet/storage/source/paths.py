@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Iterable, Sequence
+import hashlib
 import os
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
@@ -69,6 +71,33 @@ def dedupe_path(path: str, seen: set[str]) -> str:
     while f"{stem}-{index}{ext}" in seen:
         index += 1
     return f"{stem}-{index}{ext}"
+
+
+def stable_unique_paths(paths: Sequence[str], sources: Sequence[str]) -> list[str]:
+    """Name rows that share a logical path by their own source, not by row order.
+
+    Labels are keyed by logical path, so a name must keep pointing at the same
+    image when the table is reordered. Every row of a shared path gets a suffix
+    derived from its source; unique paths are untouched. Rows that repeat the
+    same source are the same image, so numbering those is harmless.
+    """
+    counts = Counter(paths)
+    taken = {path for path, count in counts.items() if count == 1}
+    named: list[str] = []
+    for path, source in zip(paths, sources, strict=True):
+        if counts[path] == 1:
+            named.append(path)
+            continue
+        ext = PurePosixPath(path).suffix
+        stem = path[: -len(ext)] if ext else path
+        candidate = f"{stem}~{hashlib.sha256(source.encode('utf-8')).hexdigest()[:10]}{ext}"
+        unique, repeat = candidate, 2
+        while unique in taken:
+            unique = f"{candidate[: -len(ext)] if ext else candidate}-{repeat}{ext}"
+            repeat += 1
+        taken.add(unique)
+        named.append(unique)
+    return named
 
 
 def _s3_key_parts(raw: object) -> tuple[str, list[str]] | None:

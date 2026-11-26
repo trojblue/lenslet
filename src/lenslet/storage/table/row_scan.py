@@ -9,7 +9,6 @@ from ..image_media import ImageMime, normalize_image_mime, read_dimensions_fast
 from .index_types import TableIndexData, TableIndexInput
 from ..source.paths import (
     LocalSourcePathError,
-    dedupe_path,
     derive_http_logical_path,
     derive_logical_path,
     extract_name,
@@ -197,8 +196,8 @@ def _resolve_row_identity(
     context: TableIndexInput,
     columns: IndexColumns,
     idx: int,
-    seen_paths: set[str],
 ) -> RowIdentity | None:
+    """Resolve one row; shared logical paths are named later by stable_unique_paths."""
     table = context.table
     source = _coerce_source_value(columns.source_values[idx])
     if source is None:
@@ -224,9 +223,6 @@ def _resolve_row_identity(
     )
     if image_name is None:
         return None
-
-    logical_path = dedupe_path(logical_path, seen_paths)
-    seen_paths.add(logical_path)
 
     mime = normalize_image_mime(
         columns.mime_values[idx],

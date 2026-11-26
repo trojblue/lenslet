@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable
 
 from ..base import SidecarState
@@ -11,7 +11,7 @@ from ..search_text import normalize_search_path
 from ..source.backed import SourceBackedConfig, SourceBackedServices
 from ..source.media import MediaReadService
 from ..source.paths import (
-    dedupe_path,
+    stable_unique_paths,
     derive_http_logical_path,
     derive_logical_path,
     extract_name,
@@ -444,6 +444,23 @@ def _remember_row_slot(
     return row_to_slot
 
 
+def _assign_row_paths(
+    paths: list[str],
+    sources: list[str],
+    row_indices: list[int],
+    row_to_path: list[str | None],
+    remote_tasks: list[TableRowRemoteDimensionTask],
+) -> dict[str, int]:
+    """Give every row its final logical path once every row's path is known."""
+    paths[:] = stable_unique_paths(paths, sources)
+    path_to_row: dict[str, int] = {}
+    for path, row_idx in zip(paths, row_indices, strict=True):
+        path_to_row[path] = row_idx
+        row_to_path[row_idx] = path
+    remote_tasks[:] = [replace(task, path=row_to_path[task.row_idx] or task.path) for task in remote_tasks]
+    return path_to_row
+
+
 def _finish_row_store(
     *,
     row_count: int,
@@ -497,7 +514,6 @@ def build_table_row_store(
 
     table = context.table
     policy = context.policy
-    seen_paths: set[str] = set()
     skipped = LocalSkipCounts()
     remote_tasks: list[TableRowRemoteDimensionTask] = []
 
@@ -511,7 +527,6 @@ def build_table_row_store(
     sizes: list[int] = []
     mtimes: list[float] = []
     urls: list[str | None] = []
-    path_to_row: dict[str, int] = {}
     row_to_path: list[str | None] = [None] * table.row_count
     row_to_slot: list[int] | None = None
     row_dimensions: list[tuple[int, int] | None] = [None] * table.row_count
@@ -526,7 +541,7 @@ def build_table_row_store(
     )
 
     for row_idx in range(table.row_count):
-        identity = _resolve_row_identity(context, columns, row_idx, seen_paths)
+        identity = _resolve_row_identity(context, columns, row_idx)
         if identity is None:
             progress.step()
             continue
@@ -567,8 +582,6 @@ def build_table_row_store(
         sizes.append(size)
         mtimes.append(mtime or 0.0)
         urls.append(identity.source if identity.is_http else None)
-        path_to_row[identity.logical_path] = row_idx
-        row_to_path[row_idx] = identity.logical_path
         row_dimensions[row_idx] = discovered_dims or (width, height)
         folder_rows.setdefault(folder_norm, []).append(row_idx)
         _record_folder_children(
@@ -588,6 +601,7 @@ def build_table_row_store(
         progress.step()
 
     progress.finish()
+    path_to_row = _assign_row_paths(paths, sources, row_indices, row_to_path, remote_tasks)
     store = _finish_row_store(
         row_count=table.row_count,
         row_indices=row_indices,
@@ -624,7 +638,6 @@ def _build_uniform_http_row_store(
     table = context.table
     policy = context.policy
     row_count = table.row_count
-    seen_paths: set[str] = set()
     remote_tasks: list[TableRowRemoteDimensionTask] = []
 
     row_indices: list[int] = []
@@ -637,7 +650,6 @@ def _build_uniform_http_row_store(
     sizes: list[int] = []
     mtimes: list[float] = []
     urls: list[str | None] = []
-    path_to_row: dict[str, int] = {}
     row_to_path: list[str | None] = [None] * row_count
     row_to_slot: list[int] | None = None
     row_dimensions: list[tuple[int, int] | None] = [None] * row_count
@@ -707,10 +719,6 @@ def _build_uniform_http_row_store(
         explicit_name = _fast_text(name_values[row_idx]) if has_name_column else ""
         image_name = explicit_name or fallback_name or extract_name(logical_path) or "image"
 
-        if logical_path in seen_paths:
-            logical_path = dedupe_path(logical_path, seen_paths)
-        seen_paths.add(logical_path)
-
         mime = normalize_image_mime(mime_values[row_idx], image_name) if has_mime_column else context.source_resolver.guess_mime(image_name)
         size = (coerce_int(size_values[row_idx]) or 0) if has_size_column else 0
         mtime = (coerce_timestamp(mtime_values[row_idx]) or 0.0) if has_mtime_column else 0.0
@@ -740,8 +748,6 @@ def _build_uniform_http_row_store(
         sizes.append(size)
         mtimes.append(mtime)
         urls.append(source)
-        path_to_row[logical_path] = row_idx
-        row_to_path[row_idx] = logical_path
         row_dimensions[row_idx] = cached_dims or (width, height)
         folder_rows.setdefault(folder_norm, []).append(row_idx)
         _record_folder_children(
@@ -763,6 +769,7 @@ def _build_uniform_http_row_store(
     if remainder:
         progress.step(remainder)
     progress.finish()
+    path_to_row = _assign_row_paths(paths, sources, row_indices, row_to_path, remote_tasks)
     store = _finish_row_store(
         row_count=row_count,
         row_indices=row_indices,

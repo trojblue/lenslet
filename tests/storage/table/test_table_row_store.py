@@ -5,6 +5,7 @@ from typing import Any
 
 from PIL import Image
 
+from lenslet.storage.source.paths import stable_unique_paths
 from lenslet.storage.image_media import read_dimensions_from_bytes
 from lenslet.storage.source.backed import SourceBackedConfig, SourceBackedServices
 from lenslet.storage.source.paths import is_http_url, is_s3_uri
@@ -101,27 +102,29 @@ def test_row_store_preserves_http_aliases_duplicates_scope_and_original_rows() -
     result = build_table_row_store(context, build_index_columns(context))
     store = result.store
 
-    assert store.paths == (
-        "img.metanomaly.co/r2/encoded-image-key",
-        "logical/dup.jpg",
-        "logical/dup-2.jpg",
+    # Rows sharing a logical path are named by their own source, never by order.
+    first_dup, second_dup = stable_unique_paths(
+        ["logical/dup.jpg", "logical/dup.jpg"],
+        ["https://img.metanomaly.co/raw/first-dup.jpg", "https://img.metanomaly.co/raw/second-dup.jpg"],
     )
+    assert first_dup.startswith("logical/dup~") and first_dup.endswith(".jpg")
+    assert store.paths == ("img.metanomaly.co/r2/encoded-image-key", first_dup, second_dup)
     assert store.path_for_row_index(0) == "img.metanomaly.co/r2/encoded-image-key"
-    assert store.path_for_row_index(1) == "logical/dup.jpg"
-    assert store.path_for_row_index(2) == "logical/dup-2.jpg"
-    assert store.row_index_for_path("/logical/dup-2.jpg") == 2
+    assert store.path_for_row_index(1) == first_dup
+    assert store.path_for_row_index(2) == second_dup
+    assert store.row_index_for_path(f"/{second_dup}") == 2
     assert store.row_to_slot is None
     assert store.folder_dirs("/") == ("img.metanomaly.co", "logical")
     assert store.direct_rows("/logical") == (1, 2)
     assert store.count_in_scope("/logical") == 2
-    assert store.rows_in_scope("/logical") == (2, 1)
-    assert store.rows_in_scope_window("/logical", 1, 1) == (1,)
+    assert set(store.rows_in_scope("/logical")) == {1, 2}
+    assert store.rows_in_scope_window("/logical", 1, 1) == store.rows_in_scope("/logical")[1:]
     assert store.materialized_item_count == 0
     assert not hasattr(store, "items")
 
     item = store.materialize_item(2, metrics_provider=lambda row_idx: {"row": float(row_idx)})
 
-    assert item.path == "logical/dup-2.jpg"
+    assert item.path == second_dup
     assert item.row_idx == 2
     assert item.metrics == {"row": 2.0}
     assert store.materialized_item_count == 1

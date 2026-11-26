@@ -271,26 +271,39 @@ def test_table_browse_cache_signature_tracks_payload_metric_changes(tmp_path: Pa
     assert first.browse_cache_signature() != second.browse_cache_signature()
 
 
-def test_duplicate_logical_paths_keep_stable_row_mappings(tmp_path: Path) -> None:
+def test_duplicate_logical_paths_are_named_by_source_not_row_order(tmp_path: Path) -> None:
     first = tmp_path / "first.jpg"
     second = tmp_path / "second.jpg"
     _make_image(first)
     _make_image(second)
-
     rows = [
         {"source": str(first), "path": "dup.jpg"},
         {"source": str(second), "path": "dup.jpg"},
     ]
 
     storage = _table_storage(rows, skip_dimension_probe=True)
+    first_name = storage.path_for_row_index(0)
+    second_name = storage.path_for_row_index(1)
+    assert first_name != second_name
+    assert {first_name, second_name}.isdisjoint({"dup.jpg"})
+    assert storage.row_index_for_path(first_name) == 0
+    assert storage.row_index_for_path(second_name) == 1
+    assert sorted(item.path for item in storage.load_index("/").items) == sorted([first_name, second_name])
 
-    assert storage.path_for_row_index(0) == "dup.jpg"
-    assert storage.path_for_row_index(1) == "dup-2.jpg"
-    assert storage.row_index_for_path("dup.jpg") == 0
-    assert storage.row_index_for_path("dup-2.jpg") == 1
+    # Labels are keyed by these names, so reordering rows must not swap them.
+    reordered = _table_storage(list(reversed(rows)), skip_dimension_probe=True)
+    assert reordered.path_for_row_index(0) == second_name
+    assert reordered.path_for_row_index(1) == first_name
 
-    root_index = storage.load_index("/")
-    assert [item.path for item in root_index.items] == ["dup.jpg", "dup-2.jpg"]
+
+def test_rows_repeating_one_source_still_get_distinct_names(tmp_path: Path) -> None:
+    image = tmp_path / "same.jpg"
+    _make_image(image)
+    storage = _table_storage(
+        [{"source": str(image), "path": "dup.jpg"}, {"source": str(image), "path": "dup.jpg"}],
+        skip_dimension_probe=True,
+    )
+    assert len({storage.path_for_row_index(0), storage.path_for_row_index(1)}) == 2
 
 
 def test_table_storage_startup_and_counts_do_not_materialize_row_items() -> None:

@@ -51,9 +51,12 @@ export function NotesSection({
       <div className="space-y-2" data-inspector-terminal-error={statusMessage ? 'true' : 'false'}>
         <div className="h-20 min-w-0 overflow-hidden" data-inspector-conflict-slot="notes">
           {showConflictBanner ? (
-            <div className="ui-banner ui-banner-danger h-full text-xs">
-              <div className="font-semibold">Someone else changed these notes.</div>
-              <div className="text-[11px] text-muted mt-0.5">Your text is below, unsaved. Use latest discards it.</div>
+            <div
+              className="ui-banner ui-banner-danger h-full min-w-0 text-xs"
+              title="Your text below is not saved. Save mine overwrites their notes; Use latest discards your text."
+            >
+              <div className="font-semibold truncate">Someone else changed these notes.</div>
+              <div className="text-[11px] text-muted mt-0.5 truncate">Your text below is unsaved.</div>
               <div className="flex items-center gap-2 mt-1">
                 <button className="btn btn-sm" title="Overwrite their notes with your text" onClick={onApplyConflict}>
                   Save mine

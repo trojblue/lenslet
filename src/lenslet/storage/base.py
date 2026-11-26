@@ -226,6 +226,14 @@ class SidecarInventoryStorage(SidecarStateStorage, Protocol):
         """Replace storage sidecar entries from a caller-owned snapshot."""
         ...
 
+    def label_key(self, path: str) -> str:
+        """The identity a path's labels persist under: the image, not where it is listed."""
+        ...
+
+    def paths_for_label_key(self, key: str) -> tuple[str, ...]:
+        """Listed paths whose labels persist under ``key``; empty when the image is not listed."""
+        ...
+
 
 class TotalItemsStorage(Protocol):
     """Dataset-wide item count capability."""

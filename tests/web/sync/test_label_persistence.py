@@ -24,6 +24,12 @@ class _Storage:
     def set_sidecar(self, path: str, sidecar: dict) -> None:
         self.sidecars[path] = dict(sidecar)
 
+    def label_key(self, path: str) -> str:
+        return path
+
+    def paths_for_label_key(self, key: str) -> tuple[str, ...]:
+        return (key,)
+
 
 def _writer(
     workspace: Workspace,

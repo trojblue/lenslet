@@ -158,6 +158,7 @@ def build_record_update(
             "id": event_id,
             "type": event_type,
             **payload,
+            "key": context.storage.label_key(path),
             "mutation_result": {
                 "status": 200,
                 "payload": mutation_payload,
@@ -198,11 +199,13 @@ def runtime_for_workspace(
 ) -> AppRuntime:
     runtime.label_writer.flush_all()
     loaded = load_label_state(storage, workspace)
-    migrated_items = {
-        path: persistable_sidecar(sidecar)
+    # The new workspace keeps its own labels (listed or not) and adopts the live ones.
+    migrated_items = dict(loaded.items)
+    migrated_items.update({
+        storage.label_key(path): persistable_sidecar(sidecar)
         for path, sidecar in storage.sidecar_items()
         if should_persist_sidecar(sidecar)
-    }
+    })
     loaded = LoadedLabelState(
         last_event_id=loaded.last_event_id,
         items=migrated_items,

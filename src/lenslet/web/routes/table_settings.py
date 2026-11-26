@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from ...storage.table.storage import TableSourceColumnState, TableStorage
 from ..context import get_request_context
+from ..sync.labels import carry_labels
 from ..models import (
     TableSourceColumnOptionPayload,
     TableSourceColumnSwitchRequest,
@@ -52,10 +53,20 @@ def register_table_settings_routes(app: FastAPI) -> None:
         storage = context.storage
         if not isinstance(storage, TableStorage):
             raise HTTPException(404, "table source switching is only available in table mode")
-        try:
-            state = storage.switch_source_column(payload.source_column)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
+        runtime = context.runtime
+        # Hold the label write lock so no edit lands on a row while rows change
+        # images, then re-home every label onto the row that now shows its image.
+        with runtime.sidecar_lock:
+            labels = [(storage.label_key(path), sidecar) for path, sidecar in storage.sidecar_items()]
+            try:
+                state = storage.switch_source_column(payload.source_column)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            storage.replace_sidecars(carry_labels(
+                labels,
+                runtime.label_writer.latest_records(),
+                storage.paths_for_label_key,
+            ))
         if context.recursive_browse_cache is not None:
             context.recursive_browse_cache.invalidate_path("/")
         return _payload_from_state(state)

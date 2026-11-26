@@ -4,6 +4,9 @@ from collections.abc import Iterable
 
 from .base import SidecarState
 
+# Prefix of a label key that names an image by its source rather than its path.
+LABEL_SOURCE_KEY_PREFIX = "source:"
+
 
 def copy_sidecar_state(sidecar: SidecarState) -> SidecarState:
     copied = dict(sidecar)
@@ -69,3 +72,10 @@ class SidecarStateMixin:
             self._sidecar_replace_key(path): copy_sidecar_state(sidecar)
             for path, sidecar in sidecars.items()
         }
+
+    # A path names its own image unless a storage says otherwise.
+    def label_key(self, path: str) -> str:
+        return path
+
+    def paths_for_label_key(self, key: str) -> tuple[str, ...]:
+        return (key,)

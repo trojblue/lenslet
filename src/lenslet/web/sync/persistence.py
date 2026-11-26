@@ -4,7 +4,7 @@ import json
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal, TypedDict
 from uuid import uuid4
@@ -17,6 +17,7 @@ from .labels import (
     LoadedLabelState,
     SnapshotWriter,
     coerce_durable_mutation_result,
+    label_record_key,
     persistable_sidecar,
     should_persist_sidecar,
 )
@@ -244,17 +245,16 @@ class LabelWriteBuffer:
                 force=True,
             )
 
-    def latest_records(self, paths: Iterable[str]) -> dict[str, dict[str, object]]:
-        """Newest accepted label record per path, whether already durable or still pending."""
-        wanted = set(paths)
+    def latest_records(self) -> dict[str, dict[str, object]]:
+        """Newest accepted label record per label key, whether already durable or still pending."""
         with self._condition:
             records: dict[str, dict[str, object]] = {
-                path: dict(record) for path, record in self._durable_items.items() if path in wanted
+                key: dict(record) for key, record in self._durable_items.items()
             }
             for pending in self._pending:  # oldest first, so newer events win
-                path = pending.event.get("path")
-                if isinstance(path, str) and path in wanted:
-                    records[path] = dict(pending.event)
+                key = label_record_key(pending.event)
+                if key is not None:
+                    records[key] = dict(pending.event)
         return records
 
     def persist_state(self) -> None:
@@ -437,13 +437,13 @@ class LabelWriteBuffer:
         self._emit_status(status)
 
     def _apply_durable_event(self, event: Mapping[str, object]) -> None:
-        path = event.get("path")
-        if isinstance(path, str):
+        key = label_record_key(event)
+        if key is not None:
             sidecar = dict(event)
             if should_persist_sidecar(sidecar):
-                self._durable_items[path] = persistable_sidecar(sidecar)
+                self._durable_items[key] = persistable_sidecar(sidecar)
             else:
-                self._durable_items.pop(path, None)
+                self._durable_items.pop(key, None)
         mutation_id = event.get("mutation_id")
         mutation_result = coerce_durable_mutation_result(event.get("mutation_result"))
         if isinstance(mutation_id, str) and mutation_result is not None:

@@ -8,6 +8,7 @@ from typing import Any
 from PIL import Image
 
 from lenslet.storage.base import SidecarStorage
+from lenslet.storage.sidecar_state import LABEL_SOURCE_KEY_PREFIX
 from lenslet.workspace import Workspace
 
 
@@ -121,7 +122,7 @@ def _labels_snapshot(rated_count: int) -> dict[str, Any]:
     return {
         "version": 1,
         "last_event_id": rated_count,
-        "items": {_item_path(index): _rated_sidecar() for index in range(rated_count)},
+        "items": {item_label_key(index): _rated_sidecar() for index in range(rated_count)},
     }
 
 
@@ -138,6 +139,11 @@ def _rated_sidecar() -> dict[str, Any]:
 
 def _item_path(index: int) -> str:
     return f"/gallery/item_{index:05d}.jpg"
+
+
+def item_label_key(index: int) -> str:
+    """Every row shows the same file, so rows are told apart by their own path value."""
+    return f"{LABEL_SOURCE_KEY_PREFIX}shared.jpg path:{_item_path(index).lstrip('/')}"
 
 
 def _jpeg_payload() -> bytes:

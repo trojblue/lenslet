@@ -15,7 +15,7 @@ from scripts.browser.annotation_latency.probe import (
     BrowserRequestEvidence,
     filtered_gallery_url,
 )
-from scripts.perf.table_query_fixture import build_synthetic_table_fixture
+from scripts.perf.table_query_fixture import build_synthetic_table_fixture, item_label_key
 from lenslet.workspace import Workspace
 
 
@@ -100,7 +100,7 @@ def test_fixture_persists_requested_rated_sidecars_for_live_server(tmp_path: Pat
     assert snapshot is not None
     assert snapshot["last_event_id"] == 4
     assert len(snapshot["items"]) == 4
-    assert snapshot["items"]["/gallery/item_00000.jpg"]["star"] == 1
+    assert snapshot["items"][item_label_key(0)]["star"] == 1
 
 
 def test_baseline_summary_records_targets_without_claiming_acceptance(tmp_path: Path) -> None:

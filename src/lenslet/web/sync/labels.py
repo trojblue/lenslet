@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
 from ...metrics import coerce_finite_metric_value
 from ...storage.base import SidecarInventoryStorage, SidecarState
-from ...storage.sidecar_state import copy_sidecar_state, ensure_sidecar_fields
+from ...storage.sidecar_state import (
+    LABEL_SOURCE_KEY_PREFIX,
+    copy_sidecar_state,
+    ensure_sidecar_fields,
+)
 from ...workspace import Workspace, WorkspaceReadResult
 from ..paths import canonical_path
 from .events import EventBroker, IdempotencyCache, IdempotencyPayload
@@ -183,16 +187,61 @@ def merge_persisted_record(sidecar: SidecarState, record: Mapping[str, object]) 
     return True
 
 
-def restore_persisted_records(
-    snapshot: dict[str, SidecarState],
+def label_record_key(event: Mapping[str, object]) -> str | None:
+    """The label identity a persisted record belongs to; folder records name their path."""
+    key = event.get("key", event.get("path"))
+    if not isinstance(key, str):
+        return None
+    return key if key.startswith(LABEL_SOURCE_KEY_PREFIX) else canonical_path(key)
+
+
+def carry_labels(
+    labels: Iterable[tuple[str, SidecarState]],
     records: Mapping[str, Mapping[str, object]],
-) -> None:
-    """Bring a rebuilt index's sidecar snapshot up to the newest accepted records."""
-    for path, record in records.items():
-        current = snapshot.get(path)
+    paths_for_key: Callable[[str], tuple[str, ...]],
+) -> dict[str, SidecarState]:
+    """Re-home labels onto a rebuilt listing by image identity, not by display path.
+
+    ``labels`` are the live ``(label key, sidecar)`` pairs from before the change,
+    ``records`` the writer's newest accepted record per key (covering images
+    that were not listed before), and ``paths_for_key`` resolves a key in the new
+    listing. The result maps each listed path to its image's newest labels.
+    """
+    by_key: dict[str, SidecarState] = {}
+    for key, sidecar in labels:
+        current = by_key.get(key)
+        if current is None or sidecar.get("version", 1) > current.get("version", 1):
+            by_key[key] = sidecar
+    for key, record in records.items():
+        current = by_key.get(key)
         sidecar = ensure_sidecar_fields(copy_sidecar_state(current) if current is not None else {})
         if merge_persisted_record(sidecar, record):
-            snapshot[path] = sidecar
+            by_key[key] = sidecar
+    return {
+        path: copy_sidecar_state(sidecar)
+        for key, sidecar in by_key.items()
+        for path in paths_for_key(key)
+    }
+
+
+def _remember_durable(
+    durable: dict[str, PersistedSidecarRecord],
+    key: str,
+    record: Mapping[str, object],
+) -> None:
+    existing = durable.get(key)
+    version = record.get("version")
+    if existing is None or (isinstance(version, int) and version >= existing["version"]):
+        durable[key] = _coerce_persisted_record(record)
+
+
+def _apply_to_listed_paths(
+    storage: SidecarInventoryStorage,
+    key: str,
+    record: Mapping[str, object],
+) -> None:
+    for path in storage.paths_for_label_key(key):
+        _apply_persisted_record(storage, path, record)
 
 
 def _coerce_tags(value: object) -> list[str]:
@@ -273,11 +322,12 @@ def load_label_state(storage: SidecarInventoryStorage, workspace: Workspace) -> 
             max_event_id = raw_snapshot_id
         items = snapshot.get("items", {})
         if isinstance(items, dict):
-            for raw_path, record in items.items():
-                path = canonical_path(raw_path if isinstance(raw_path, str) else None)
-                if isinstance(record, Mapping):
-                    _apply_persisted_record(storage, path, record)
-                    durable_items[path] = _coerce_persisted_record(record)
+            for raw_key, record in items.items():
+                key = label_record_key({"key": raw_key}) if isinstance(raw_key, str) else None
+                if key and isinstance(record, Mapping):
+                    # Unlisted images keep their labels on disk for when they return.
+                    _remember_durable(durable_items, key, record)
+                    _apply_to_listed_paths(storage, key, record)
         mutations = snapshot.get("mutations", {})
         if isinstance(mutations, dict):
             for key, value in mutations.items():
@@ -294,10 +344,10 @@ def load_label_state(storage: SidecarInventoryStorage, workspace: Workspace) -> 
         max_event_id = max(max_event_id, event_id)
         if event_id <= last_snapshot_id:
             continue
-        raw_path = entry.get("path")
-        path = canonical_path(raw_path if isinstance(raw_path, str) else None)
-        if path and _apply_persisted_record(storage, path, entry):
-            durable_items[path] = _coerce_persisted_record(entry)
+        key = label_record_key(entry)
+        if key:
+            _remember_durable(durable_items, key, entry)
+            _apply_to_listed_paths(storage, key, entry)
         mutation_id = entry.get("mutation_id")
         mutation_result = coerce_durable_mutation_result(entry.get("mutation_result"))
         if isinstance(mutation_id, str) and mutation_result is not None:

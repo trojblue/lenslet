@@ -34,7 +34,7 @@ from ...media_policy import OriginalMediaPolicy, build_original_media_policy
 from ...metrics import coerce_finite_metric_value
 from ..base import SidecarState, join_storage_path
 from ..progress import ProgressBar
-from ..sidecar_state import default_sidecar_state
+from ..sidecar_state import LABEL_SOURCE_KEY_PREFIX, default_sidecar_state
 from ..source.backed import SourceBackedConfig, SourceBackedServices, SourceBackedStorageBase
 from ..source.state import SourceBackedIndexState, SourceRowIndexState
 from .categoricals import infer_categorical_columns, normalize_categorical_value
@@ -190,6 +190,11 @@ class TableStorageOptions:
     dimension_write_policy: str = "none"
     launch_warnings: tuple[str, ...] = ()
     source_refresh_tracker: TableSourceRefreshTracker | None = None
+    # A user table's logical paths are derived names (basename, path column,
+    # duplicate suffixes) that can later point at another image, so its labels
+    # belong to the row's source. A folder preindex's paths are the files' own
+    # locations, so there the path is the identity.
+    labels_follow_source: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,6 +361,8 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         self.root = os.path.abspath(options.root) if options.root else None
         self._root_real = os.path.realpath(self.root) if self.root else None
         self._allow_local = options.allow_local
+        self._labels_follow_source = options.labels_follow_source
+        self._label_paths: tuple[TableRowStore, dict[str, tuple[str, ...]]] | None = None
         self._skip_local_realpath_validation = bool(options.skip_local_realpath_validation)
         self._initialize_source_backed_state(
             config=SourceBackedConfig(
@@ -1553,6 +1560,33 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
     def replace_sidecars(self, sidecars: dict[str, SidecarState]) -> None:
         super().replace_sidecars(sidecars)
         self._table_query_engine.replace_sidecars(self._sidecars)
+
+    def label_key(self, path: str) -> str:
+        if not self._labels_follow_source:
+            return path
+        row_idx = self._require_row_store().row_index_for_path(path)
+        return path if row_idx is None else self._label_key_for_row(row_idx)
+
+    def paths_for_label_key(self, key: str) -> tuple[str, ...]:
+        store = self._require_row_store()
+        if not self._labels_follow_source:
+            return (key,) if store.row_index_for_path(key) is not None else ()
+        if self._label_paths is None or self._label_paths[0] is not store:
+            index: dict[str, list[str]] = {}
+            for path, row_idx in store.path_to_row.items():
+                index.setdefault(self._label_key_for_row(row_idx), []).append(canonical_sidecar_key(path))
+            self._label_paths = (store, {name: tuple(paths) for name, paths in index.items()})
+        return self._label_paths[1].get(key, ())
+
+    def _label_key_for_row(self, row_idx: int) -> str:
+        """A row's image, plus its own path value when the table names rows itself:
+        one image may appear in several rows that are labelled separately."""
+        key = LABEL_SOURCE_KEY_PREFIX + self._require_row_store().source_for_row(row_idx)
+        if self._path_column is None or self._path_column_aliases_source:
+            return key
+        value = self._column_value(self._path_column, row_idx)
+        name = str(value).strip() if value is not None else ""
+        return f"{key} path:{name}" if name else key
 
     def thumbnail_cache_key(self, path: str) -> str | None:
         try:

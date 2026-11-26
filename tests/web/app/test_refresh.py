@@ -285,7 +285,8 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
 
     storage_a = TableStorage(
         [{"path": "/shots/first.jpg", "source": str(first_image)}],
-        options=TableStorageOptions(root=None, skip_dimension_probe=True),
+        # Stands in for the folder preindex, whose paths are the files themselves.
+        options=TableStorageOptions(root=None, skip_dimension_probe=True, labels_follow_source=False),
     )
     transferred_sidecar = storage_a.ensure_sidecar("/shots/first.jpg")
     transferred_sidecar.update({"notes": "transferred", "version": 2})
@@ -295,7 +296,8 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
             {"path": "/shots/first.jpg", "source": str(first_image)},
             {"path": "/shots/second.jpg", "source": str(second_image)},
         ],
-        options=TableStorageOptions(root=None, skip_dimension_probe=True),
+        # Stands in for the folder preindex, whose paths are the files themselves.
+        options=TableStorageOptions(root=None, skip_dimension_probe=True, labels_follow_source=False),
     )
     preindex_states = [
         (storage_a, workspace_a, "sig-a"),

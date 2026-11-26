@@ -8,6 +8,7 @@ import {
   resetBrowseRequestBudgetForTests,
 } from './requestBudget'
 import type {
+  ItemLabels,
   BrowseFolderPayload,
   BrowseQueryRequest,
   BrowseQueryResponse,
@@ -625,6 +626,15 @@ export const api = {
 
   getSyncState: (): Promise<LabelPersistenceState> => {
     return fetchJSON<LabelPersistenceState>(apiUrl('/sync/state')).promise
+  },
+
+  getItemLabels: async (paths: readonly string[]): Promise<ItemLabels[]> => {
+    const response = await fetchJSON<{ items: ItemLabels[] }>(apiUrl('/item/labels'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths }),
+    }).promise
+    return response.items
   },
 
   getItemDetail: (path: string): Promise<BrowseItemPayload> => {

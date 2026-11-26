@@ -1,4 +1,4 @@
-import type { BrowseItemPayload } from '../../../lib/types'
+import type { BrowseItemPayload, ItemLabels } from '../../../lib/types'
 
 export type RatingRecord = {
   path: string
@@ -41,9 +41,16 @@ export function toRatingsCsv(items: RatingRecord[]): string {
   return [header, ...lines].join('\n')
 }
 
-// Helper to map displayed items (without sidecars) into rating records quickly
-export function mapItemsToRatings(items: BrowseItemPayload[]): RatingRecord[] {
+/**
+ * Join listed items with their saved labels. Labels come from the server, never
+ * from what this tab displays, so the export matches what is actually saved.
+ */
+export function mapItemsToRatings(
+  items: BrowseItemPayload[],
+  labels: ReadonlyMap<string, ItemLabels>,
+): RatingRecord[] {
   return items.map(it => {
+    const saved = labels.get(it.path)
     const parts = it.path.split('/').filter(Boolean)
     parts.pop() // remove filename
     const folder = parts.length ? `/${parts.join('/')}` : '/'
@@ -51,12 +58,13 @@ export function mapItemsToRatings(items: BrowseItemPayload[]): RatingRecord[] {
       path: it.path,
       folder,
       name: it.name,
-      star: it.star ?? null,
+      star: saved ? saved.star : null,
       type: it.mime,
       size: it.size,
       width: it.width,
       height: it.height,
-      // tags/notes are not available without sidecar fetch; keep empty
+      tags: saved?.tags ?? [],
+      notes: saved?.notes ?? '',
     }
   })
 }

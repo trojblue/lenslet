@@ -21,6 +21,9 @@ from ..context import AppContext, get_app_context, get_request_context
 from ..models import (
     ErrorResponse,
     ImageMetadataResponse,
+    ItemLabels,
+    ItemLabelsRequest,
+    ItemLabelsResponse,
     Sidecar,
     SidecarConflictResponse,
     SidecarMutationResponse,
@@ -196,6 +199,21 @@ def register_item_routes(
     def get_item(path: str, request: Request) -> Sidecar:
         storage, path = _resolve_image_request(path, request)
         return build_sidecar(storage, path)
+
+    @app.post("/item/labels", response_model=ItemLabelsResponse)
+    def get_item_labels(body: ItemLabelsRequest, request: Request) -> ItemLabelsResponse:
+        """Saved labels for many images at once, e.g. for exports; missing images are skipped."""
+        storage = storage_from_request(request)
+        items: list[ItemLabels] = []
+        for raw_path in body.paths:
+            path = canonical_path(raw_path)
+            try:
+                ensure_image(storage, path)
+            except HTTPException:
+                continue
+            sidecar = build_sidecar(storage, path)
+            items.append(ItemLabels(path=path, star=sidecar.star, tags=sidecar.tags, notes=sidecar.notes))
+        return ItemLabelsResponse(items=items)
 
     @app.get("/item/detail", response_model=BrowseItemPayload)
     def get_item_detail(path: str, request: Request) -> BrowseItemPayload:

@@ -172,6 +172,7 @@ python -m lenslet.cli /path/to/images --reload
   - The active folder query contract is `path`, `recursive`, and `count_only`.
 - `GET /item?path=<path>` - Get item metadata
 - `PATCH /item?path=<path>` - Update labels (`set_star`, `set_notes`, `set_tags`, `add_tags`, `remove_tags`); requires `Idempotency-Key` and `If-Match: <version>`, and returns 409 `version_conflict` when the record moved
+- `POST /item/labels` - Saved star, tags and notes for `{"paths": [...]}` (used by metadata exports); missing images are skipped
 - `GET /thumb?path=<path>` - Get/generate thumbnail
 - `GET /file?path=<path>` - Get original file
   - Local-backed sources are served via streaming responses

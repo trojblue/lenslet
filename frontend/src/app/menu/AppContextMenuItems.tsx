@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { mapItemsToRatings, toRatingsCsv, toRatingsJson } from '../../features/ratings/services/exportRatings'
 import { FIND_SIMILAR_SELECT_SINGLE_REASON } from '../../features/inspector/model/findSimilarAvailability'
 import { api } from '../../api/client'
-import type { ContextMenuState, BrowseItemPayload } from '../../lib/types'
+import type { ContextMenuState, BrowseItemPayload, ItemLabels } from '../../lib/types'
 import ContextMenu, { type MenuItem } from './ContextMenu'
 import { getPathName } from '../routing/hash'
 import { downloadBlob } from '../../lib/download'
@@ -84,8 +84,15 @@ function getExportMime(format: ExportFormat): string {
   return format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8'
 }
 
-function buildRatingsExportContent(items: BrowseItemPayload[], format: ExportFormat): string {
-  const ratings = mapItemsToRatings(items)
+type FetchItemLabels = (paths: readonly string[]) => Promise<ItemLabels[]>
+
+async function buildRatingsExportContent(
+  items: BrowseItemPayload[],
+  format: ExportFormat,
+  fetchLabels: FetchItemLabels,
+): Promise<string> {
+  const saved = await fetchLabels(items.map((item) => item.path))
+  const ratings = mapItemsToRatings(items, new Map(saved.map((labels) => [labels.path, labels])))
   return format === 'csv' ? toRatingsCsv(ratings) : toRatingsJson(ratings)
 }
 
@@ -101,6 +108,7 @@ type SelectionExportHandlerParams = {
   closeMenu: () => void
   download: typeof downloadBlob
   timestamp: () => string
+  fetchLabels?: FetchItemLabels
   onActionStart?: () => void
   onActionError?: (action: string, error: unknown) => void
 }
@@ -113,24 +121,26 @@ export function buildSelectionExportHandler({
   closeMenu,
   download,
   timestamp,
+  fetchLabels = api.getItemLabels,
   onActionStart,
   onActionError,
 }: SelectionExportHandlerParams): () => void {
   return () => {
     setExporting(format)
     onActionStart?.()
-    try {
-      const selectedSet = new Set(selectedPaths)
-      const selectedItems = items.filter((item) => selectedSet.has(item.path))
-      const content = buildRatingsExportContent(selectedItems, format)
-      const mime = getExportMime(format)
-      download(new Blob([content], { type: mime }), `metadata_selection_${timestamp()}.${format}`)
-    } catch (error) {
-      onActionError?.('Export selection metadata failed', error)
-    } finally {
-      setExporting(null)
-      closeMenu()
-    }
+    const selectedSet = new Set(selectedPaths)
+    const selectedItems = items.filter((item) => selectedSet.has(item.path))
+    void buildRatingsExportContent(selectedItems, format, fetchLabels)
+      .then((content) => {
+        download(new Blob([content], { type: getExportMime(format) }), `metadata_selection_${timestamp()}.${format}`)
+      })
+      .catch((error: unknown) => {
+        onActionError?.('Export selection metadata failed', error)
+      })
+      .finally(() => {
+        setExporting(null)
+        closeMenu()
+      })
   }
 }
 
@@ -187,7 +197,7 @@ export default function AppContextMenuItems({
     const folderPath = ctx.kind === 'tree' ? ctx.payload.path : current
     try {
       const folderItems = await fetchRecursiveFolderItems(folderPath)
-      const content = buildRatingsExportContent(folderItems, format)
+      const content = await buildRatingsExportContent(folderItems, format, api.getItemLabels)
       const mime = getExportMime(format)
       const slug = folderPath === '/' ? 'root' : (folderPath.replace(/^\/+/, '') || 'root').replace(/\//g, '_')
       downloadBlob(new Blob([content], { type: mime }), `metadata_${slug}_${timestampLabel()}.${format}`)

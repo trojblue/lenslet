@@ -108,3 +108,23 @@ def test_one_image_in_two_named_rows_keeps_separate_labels(tmp_path: Path) -> No
     with _client(tmp_path, list(reversed(rows))) as client:
         assert _notes(client, "/caption-a.jpg") == "first caption"
         assert _notes(client, "/caption-b.jpg") == ""
+
+
+def test_item_labels_returns_saved_labels_for_export(tmp_path: Path) -> None:
+    first = _image(tmp_path / "a.jpg", (1, 2, 3))
+    second = _image(tmp_path / "b.jpg", (3, 2, 1))
+    rows = [{"path": "a.jpg", "source": first}, {"path": "b.jpg", "source": second}]
+    with _client(tmp_path, rows) as client:
+        version = client.get("/item", params={"path": "/a.jpg"}).json()["version"]
+        client.patch(
+            "/item",
+            params={"path": "/a.jpg"},
+            headers={"Idempotency-Key": "export", "If-Match": str(version)},
+            json={"base_version": version, "set_star": 4, "set_tags": ["keep"], "set_notes": "sharp"},
+        )
+        response = client.post("/item/labels", json={"paths": ["/a.jpg", "/missing.jpg", "b.jpg"]})
+    assert response.status_code == 200
+    assert response.json()["items"] == [
+        {"path": "/a.jpg", "star": 4, "tags": ["keep"], "notes": "sharp"},
+        {"path": "/b.jpg", "star": None, "tags": [], "notes": ""},
+    ]

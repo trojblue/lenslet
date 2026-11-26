@@ -564,6 +564,23 @@ class TableSourceColumnSwitchRequest(BaseModel):
     source_column: str
 
 
+class ItemLabelsRequest(BaseModel):
+    paths: list[str]
+
+
+class ItemLabels(BaseModel):
+    path: str
+    star: StarRating | None = None
+    tags: list[str] = Field(default_factory=list)
+    notes: str = ""
+
+
+class ItemLabelsResponse(BaseModel):
+    """The saved labels of the requested images that still exist, in request order."""
+
+    items: list[ItemLabels]
+
+
 class Sidecar(BaseModel):
     v: int = 1
     tags: list[str] = Field(default_factory=list)

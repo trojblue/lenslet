@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildSelectionExportHandler,
   buildFindSimilarMenuItem,
@@ -139,14 +139,14 @@ describe('buildFindSimilarMenuItem', () => {
 })
 
 describe('buildSelectionExportHandler', () => {
-  it('returns a synchronous handler that exports selected items and closes the menu', async () => {
+  it('exports the saved labels of the selected items, not the displayed ones', async () => {
     const states: Array<'csv' | 'json' | null> = []
     const downloads: Array<{ blob: Blob; name: string }> = []
     let closeCalls = 0
     const handler = buildSelectionExportHandler({
       format: 'json',
       selectedPaths: ['/gallery/a.jpg'],
-      items: [browseItem('/gallery/a.jpg', 5), browseItem('/gallery/b.jpg')],
+      items: [browseItem('/gallery/a.jpg', 1), browseItem('/gallery/b.jpg')],
       setExporting: (format) => states.push(format),
       closeMenu: () => {
         closeCalls += 1
@@ -155,20 +155,25 @@ describe('buildSelectionExportHandler', () => {
         downloads.push({ blob, name })
       },
       timestamp: () => '2026-05-31T00-00-00-000Z',
+      fetchLabels: async (paths) => paths.map((path) => ({
+        path, star: 5, tags: ['keep', 'sharp'], notes: 'saved note',
+      })),
     })
 
     const result = handler()
-    const exportedText = await downloads[0].blob.text()
+    await vi.waitFor(() => expect(downloads).toHaveLength(1))
+    const exported = JSON.parse(await downloads[0].blob.text())
 
     expect(result).toBeUndefined()
+    expect(exported).toMatchObject([
+      { path: '/gallery/a.jpg', star: 5, tags: ['keep', 'sharp'], notes: 'saved note' },
+    ])
     expect(states).toEqual(['json', null])
     expect(closeCalls).toBe(1)
     expect(downloads[0].name).toBe('metadata_selection_2026-05-31T00-00-00-000Z.json')
-    expect(exportedText).toContain('/gallery/a.jpg')
-    expect(exportedText).not.toContain('/gallery/b.jpg')
   })
 
-  it('reports selection export failures through the app action channel', () => {
+  it('reports selection export failures through the app action channel', async () => {
     const states: Array<'csv' | 'json' | null> = []
     const errors: Array<{ action: string; error: unknown }> = []
     let startCalls = 0
@@ -186,6 +191,7 @@ describe('buildSelectionExportHandler', () => {
         throw failure
       },
       timestamp: () => '2026-05-31T00-00-00-000Z',
+      fetchLabels: async () => [],
       onActionStart: () => {
         startCalls += 1
       },
@@ -193,8 +199,7 @@ describe('buildSelectionExportHandler', () => {
     })
 
     handler()
-
-    expect(states).toEqual(['csv', null])
+    await vi.waitFor(() => expect(states).toEqual(['csv', null]))
     expect(startCalls).toBe(1)
     expect(closeCalls).toBe(1)
     expect(errors).toEqual([{ action: 'Export selection metadata failed', error: failure }])

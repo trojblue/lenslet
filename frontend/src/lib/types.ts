@@ -22,6 +22,14 @@ export type BrowseItemPayload = {
   original_media?: OriginalMediaPolicy | null
 }
 
+/** An image's saved labels as the server holds them. */
+export type ItemLabels = {
+  path: string
+  star: StarRating | null
+  tags: string[]
+  notes: string
+}
+
 export type OriginalMediaPolicy = {
   mode:
     | 'local_streaming'

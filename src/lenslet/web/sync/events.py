@@ -204,8 +204,18 @@ class EventBroker:
             }
 
 
+# Clients resend an unanswered write under its original key until it is known to
+# be on disk, possibly after being offline for a while; the key must outlive that.
+IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
+IDEMPOTENCY_MAX_ENTRIES = 10_000
+
+
 class IdempotencyCache:
-    def __init__(self, ttl_seconds: int = 600, max_entries: int = 10_000) -> None:
+    def __init__(
+        self,
+        ttl_seconds: int = IDEMPOTENCY_TTL_SECONDS,
+        max_entries: int = IDEMPOTENCY_MAX_ENTRIES,
+    ) -> None:
         self._ttl = ttl_seconds
         self._max_entries = max_entries
         self._store: dict[str, IdempotencyCacheEntry] = {}

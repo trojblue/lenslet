@@ -208,7 +208,7 @@ def runtime_for_workspace(
         items=migrated_items,
         mutations=loaded.mutations,
     )
-    idempotency_cache = IdempotencyCache(ttl_seconds=600, max_entries=10_000)
+    idempotency_cache = IdempotencyCache()
     idempotency_cache.seed(loaded.mutations)
     label_writer = LabelWriteBuffer(
         workspace,

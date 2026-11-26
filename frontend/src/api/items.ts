@@ -4,6 +4,7 @@ import { api, makeIdempotencyKey } from './client'
 import { usePollingEnabled } from './polling'
 import { FetchError } from '../lib/fetcher'
 import type {
+  AcceptedEventIdentity,
   BrowseItemPayload,
   Sidecar,
   SidecarMutationResponse,
@@ -114,7 +115,22 @@ export type AnnotationEdit = {
   removeTags?: string[]
 }
 
+/**
+ * A PATCH the server may already have applied. Until its result is known to be
+ * on disk it is only ever resent byte-for-byte under the same Idempotency-Key,
+ * so the server replays it instead of applying it twice.
+ */
+type SentRequest = {
+  edit: AnnotationEdit
+  patch: SidecarPatch
+  ifMatch: number
+  key: string
+}
+
 type QueuedEdit = {
+  /** Sent earlier with no settled answer; resent, in order, before `edit`. */
+  unconfirmed: SentRequest[]
+  /** Not yet sent. */
   edit: AnnotationEdit
   queuedAt: number
   attempts: number
@@ -130,6 +146,8 @@ const RETRY_MAX_MS = 30_000
 const queued = new Map<string, QueuedEdit>()
 const sending = new Map<string, QueuedEdit>()
 const failedPaths = new Map<string, string>()
+/** Accepted but not yet on disk, by Idempotency-Key, in send order. */
+const awaitingDurability = new Map<string, { path: string; request: SentRequest; accepted: AcceptedEventIdentity }>()
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 
 const conflictByPath = new Map<string, ConflictEntry>()
@@ -193,7 +211,10 @@ function updateSyncState() {
   notifySync({ state: 'idle' })
 }
 
-labelPersistenceTracker.subscribe(() => updateSyncState())
+labelPersistenceTracker.subscribe(() => {
+  settleDurability()
+  updateSyncState()
+})
 
 function getOldestInflightStart(): number | null {
   let oldest: number | null = null
@@ -203,9 +224,9 @@ function getOldestInflightStart(): number | null {
   return oldest
 }
 
-/** True while any annotation edit is queued, being sent, or awaiting retry. */
+/** True while any annotation edit is queued, being sent, awaiting retry, or not yet on disk. */
 export function hasUnsavedAnnotations(): boolean {
-  return queued.size > 0 || sending.size > 0 || conflictByPath.size > 0
+  return queued.size > 0 || sending.size > 0 || awaitingDurability.size > 0 || conflictByPath.size > 0
 }
 
 function notifyConflict(path: string) {
@@ -388,6 +409,8 @@ export function tagEditBetween(from: readonly string[], to: readonly string[]): 
   return edit
 }
 
+const NO_EDIT: AnnotationEdit = {}
+
 function isEmptyEdit(edit: AnnotationEdit): boolean {
   return edit.star === undefined && !edit.notes && !edit.appendNotes
     && !edit.addTags?.length && !edit.removeTags?.length
@@ -438,6 +461,13 @@ function isRetryable(error: unknown): boolean {
   return error.status === 0 || error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500
 }
 
+/** The only answer that proves a write was not applied: its base version had moved. */
+function isVersionConflict(error: unknown): boolean {
+  if (!(error instanceof FetchError) || error.status !== 409) return false
+  const body = error.body as { error?: unknown } | null | undefined
+  return body?.error === 'version_conflict'
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof FetchError && error.status === 404) return 'image no longer exists'
   if (error instanceof FetchError && error.status === 403) return 'not allowed to edit labels'
@@ -446,12 +476,54 @@ function errorMessage(error: unknown): string {
 
 class VersionRaceError extends Error {}
 
+/** Older writes for the path came back (a lost server epoch); they must go first. */
+class RequeueBehindError extends Error {}
+
+/** What a send has not yet settled; read back by the caller when the send fails. */
+type SendJob = {
+  unconfirmed: SentRequest[]
+  edit: AnnotationEdit
+}
+
+async function submit(path: string, request: SentRequest): Promise<void> {
+  const response = await api.patchSidecar(path, request.patch, {
+    idempotencyKey: request.key,
+    ifMatch: request.ifMatch,
+  })
+  observeMutationPersistence(path, response)
+  publishAnnotationMutationResponse({ path, response, changedFields: changedFieldsForEdit(request.edit) })
+  if (response.accepted_event && response.persistence === 'pending') {
+    awaitingDurability.set(request.key, { path, request, accepted: response.accepted_event })
+  }
+}
+
+// Resend what may already be applied; a version conflict proves it (and every
+// later write for this path) was not, so those fold back into the open edit.
+async function confirmUnconfirmed(path: string, job: SendJob): Promise<void> {
+  while (job.unconfirmed.length > 0) {
+    try {
+      await submit(path, job.unconfirmed[0])
+      job.unconfirmed.shift()
+    } catch (error) {
+      if (!isVersionConflict(error)) throw error
+      job.edit = [...job.unconfirmed, { edit: job.edit }].reduce<AnnotationEdit>(
+        (merged, next) => mergeAnnotationEdits(merged, next.edit),
+        NO_EDIT,
+      )
+      job.unconfirmed = []
+    }
+  }
+}
+
 // Read the current record, peel off a notes edit another writer has overtaken,
 // then write with If-Match so nothing can land between the read and the write.
-async function sendEdit(path: string, edit: AnnotationEdit): Promise<void> {
-  let pending = edit
+async function sendEdit(path: string, job: SendJob): Promise<void> {
+  await confirmUnconfirmed(path, job)
   for (let race = 0; race < MAX_VERSION_RACES; race += 1) {
+    if (queued.get(path)?.unconfirmed.length) throw new RequeueBehindError()
+    if (isEmptyEdit(job.edit)) return
     const current = await api.getSidecar(path)
+    let pending = job.edit
     if (pending.notes) {
       const serverNotes = current.notes ?? ''
       const { from, to } = pending.notes
@@ -464,22 +536,44 @@ async function sendEdit(path: string, edit: AnnotationEdit): Promise<void> {
         pending = rest
       }
     }
+    job.edit = pending
     if (isEmptyEdit(pending)) return
+    const request: SentRequest = {
+      edit: pending,
+      patch: { ...toPatch(pending, current), base_version: current.version },
+      ifMatch: current.version,
+      key: makeIdempotencyKey('patch'),
+    }
+    job.unconfirmed = [request]
+    job.edit = NO_EDIT
     try {
-      const response = await api.patchSidecar(
-        path,
-        { ...toPatch(pending, current), base_version: current.version },
-        { idempotencyKey: makeIdempotencyKey('patch'), ifMatch: current.version },
-      )
-      observeMutationPersistence(path, response)
-      publishAnnotationMutationResponse({ path, response, changedFields: changedFieldsForEdit(pending) })
+      await submit(path, request)
+      job.unconfirmed = []
       return
     } catch (error) {
-      if (error instanceof FetchError && error.status === 409) continue
-      throw error
+      if (!isVersionConflict(error)) throw error
+      job.unconfirmed = []
+      job.edit = pending
     }
   }
   throw new VersionRaceError('the image kept changing while saving')
+}
+
+// A server that restarted before saving lost these writes; send them again.
+function settleDurability(): void {
+  let requeued = false
+  for (const [key, awaiting] of awaitingDurability) {
+    const state = labelPersistenceTracker.durabilityOf(awaiting.accepted)
+    if (state === 'pending') continue
+    awaitingDurability.delete(key)
+    if (state === 'durable') continue
+    const entry = queued.get(awaiting.path)
+    queued.set(awaiting.path, entry
+      ? { ...entry, unconfirmed: [...entry.unconfirmed, awaiting.request], retryAt: 0 }
+      : { unconfirmed: [awaiting.request], edit: NO_EDIT, queuedAt: Date.now(), attempts: 0, retryAt: 0, error: null })
+    requeued = true
+  }
+  if (requeued) scheduleSends()
 }
 
 function scheduleSends(): void {
@@ -507,28 +601,34 @@ function scheduleSends(): void {
 function startSend(path: string, entry: QueuedEdit): void {
   queued.delete(path)
   sending.set(path, entry)
-  void sendEdit(path, entry.edit).then(
+  const job: SendJob = { unconfirmed: [...entry.unconfirmed], edit: entry.edit }
+  void sendEdit(path, job).then(
     () => {
       failedPaths.delete(path)
     },
     (error: unknown) => {
-      if (isRetryable(error)) {
-        // Keep the edit, ahead of anything queued meanwhile, and retry with backoff.
+      if (error instanceof RequeueBehindError || isRetryable(error)) {
+        // Keep the work, behind any lost older writes and ahead of anything
+        // queued meanwhile; retry with backoff unless it only had to wait.
         const later = queued.get(path)
-        const attempts = entry.attempts + 1
+        const behind = error instanceof RequeueBehindError
+        const attempts = behind ? entry.attempts : entry.attempts + 1
         queued.set(path, {
-          edit: later ? mergeAnnotationEdits(entry.edit, later.edit) : entry.edit,
+          unconfirmed: [...(later?.unconfirmed ?? []), ...job.unconfirmed],
+          edit: later ? mergeAnnotationEdits(job.edit, later.edit) : job.edit,
           queuedAt: entry.queuedAt,
           attempts,
-          retryAt: Date.now() + Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (attempts - 1)),
-          error: errorMessage(error),
+          retryAt: behind ? 0 : Date.now() + Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (attempts - 1)),
+          error: behind ? null : errorMessage(error),
         })
         return
       }
       // The server will never accept this edit: say so, and restore server truth.
       failedPaths.set(path, errorMessage(error))
+      const refused = [...entry.unconfirmed.map((request) => request.edit), entry.edit]
+        .reduce(mergeAnnotationEdits, NO_EDIT)
       void api.getSidecar(path).then(
-        (current) => publishServerSidecar(path, current, changedFieldsForEdit(entry.edit)),
+        (current) => publishServerSidecar(path, current, changedFieldsForEdit(refused)),
         () => undefined,
       )
     },
@@ -548,7 +648,7 @@ export function enqueueAnnotationEdit(path: string, edit: AnnotationEdit): void 
   const existing = queued.get(path)
   queued.set(path, existing
     ? { ...existing, edit: mergeAnnotationEdits(existing.edit, edit), retryAt: 0 }
-    : { edit, queuedAt: Date.now(), attempts: 0, retryAt: 0, error: null })
+    : { unconfirmed: [], edit, queuedAt: Date.now(), attempts: 0, retryAt: 0, error: null })
   scheduleSends()
 }
 
@@ -572,6 +672,7 @@ export function resetAnnotationQueueForTests(): void {
   retryTimer = null
   queued.clear()
   sending.clear()
+  awaitingDurability.clear()
   failedPaths.clear()
   conflictByPath.clear()
   updateSyncState()

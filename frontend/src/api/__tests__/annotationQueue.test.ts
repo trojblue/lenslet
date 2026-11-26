@@ -8,6 +8,10 @@ const server: Server = new Map()
 const patches: Array<{ path: string; body: SidecarPatch; ifMatch?: number }> = []
 let failNextPatch: Array<FetchError | Error> = []
 let raceBeforeNextPatch: ((path: string) => void) | null = null
+let loseNextResponse = false
+let persistence: { epoch: string; pending: boolean } = { epoch: 'b', pending: false }
+let nextEventId = 1
+const answered = new Map<string, SidecarMutationResponse>()
 
 function sidecar(overrides: Partial<Sidecar> = {}): Sidecar {
   return { v: 1, tags: [], notes: '', star: null, version: 1, updated_at: '', updated_by: 'server', ...overrides }
@@ -34,7 +38,13 @@ vi.mock('../client', () => ({
       if (!current) throw new FetchError(404, 'not found', path)
       return { ...current }
     }),
-    patchSidecar: vi.fn(async (path: string, body: SidecarPatch, opts?: { ifMatch?: number }) => {
+    patchSidecar: vi.fn(async (
+      path: string,
+      body: SidecarPatch,
+      opts?: { ifMatch?: number; idempotencyKey?: string },
+    ) => {
+      const replay = opts?.idempotencyKey ? answered.get(opts.idempotencyKey) : undefined
+      if (replay) return replay
       raceBeforeNextPatch?.(path)
       raceBeforeNextPatch = null
       const failure = failNextPatch.shift()
@@ -42,17 +52,23 @@ vi.mock('../client', () => ({
       const current = server.get(path)
       if (!current) throw new FetchError(404, 'not found', path)
       if (opts?.ifMatch !== current.version) {
-        throw new FetchError(409, 'version_conflict', path, { current })
+        throw new FetchError(409, 'version_conflict', path, { error: 'version_conflict', current })
       }
       patches.push({ path, body, ifMatch: opts?.ifMatch })
       const next = applyPatch(current, body)
       server.set(path, next)
+      const eventId = nextEventId++
       const response: SidecarMutationResponse = {
         sidecar: next,
         mutation_id: 'm',
-        accepted_event: null,
-        persistence: 'saved',
-        durable_watermark: { boot_epoch: 'b', event_id: 1 },
+        accepted_event: { boot_epoch: persistence.epoch, event_id: eventId },
+        persistence: persistence.pending ? 'pending' : 'saved',
+        durable_watermark: { boot_epoch: persistence.epoch, event_id: persistence.pending ? 0 : eventId },
+      }
+      if (opts?.idempotencyKey) answered.set(opts.idempotencyKey, response)
+      if (loseNextResponse) {
+        loseNextResponse = false
+        throw new TypeError('connection reset')
       }
       return response
     }),
@@ -60,6 +76,24 @@ vi.mock('../client', () => ({
 }))
 
 const items = await import('../items')
+const { labelPersistenceTracker } = await import('../labelPersistence')
+
+function serverStatus(epoch: string, durableEventId: number) {
+  return {
+    enabled: true,
+    boot_epoch: epoch,
+    state: 'saved' as const,
+    durable_watermark: { boot_epoch: epoch, event_id: durableEventId },
+    pending_count: 0,
+    pending_bytes: 0,
+    max_pending_count: 10_000,
+    max_pending_bytes: 1,
+    oldest_pending_age_ms: null,
+    error: null,
+    failure_total: 0,
+    deadline_breach_total: 0,
+  }
+}
 
 async function settle(): Promise<void> {
   for (let i = 0; i < 20; i += 1) await vi.advanceTimersByTimeAsync(0)
@@ -78,6 +112,11 @@ describe('annotation queue', () => {
     patches.length = 0
     failNextPatch = []
     raceBeforeNextPatch = null
+    loseNextResponse = false
+    persistence = { epoch: 'b', pending: false }
+    nextEventId = 1
+    answered.clear()
+    labelPersistenceTracker.reset()
     items.resetAnnotationQueueForTests()
   })
 
@@ -168,6 +207,49 @@ describe('annotation queue', () => {
     await settle()
     expect(server.get('/a.jpg')?.star).toBe(4)
     expect(patches.length).toBeLessThanOrEqual(2)
+  })
+
+  it('resends an applied write whose answer was lost instead of applying it twice', async () => {
+    server.set('/a.jpg', sidecar({ notes: 'old' }))
+    loseNextResponse = true
+    items.enqueueAnnotationEdits(['/a.jpg'], { appendNotes: 'new', star: 2 })
+    await settle()
+    // Another writer rates the image after our (unacknowledged) write landed.
+    server.set('/a.jpg', applyPatch(server.get('/a.jpg')!, { set_star: 5 }))
+    await vi.advanceTimersByTimeAsync(1_000)
+    await settle()
+    expect(server.get('/a.jpg')).toMatchObject({ notes: 'old\nnew', star: 5 })
+    expect(items.hasUnsavedAnnotations()).toBe(false)
+  })
+
+  it('keeps an accepted write until it is on disk, and resends it if the server lost it', async () => {
+    server.set('/a.jpg', sidecar({ notes: '' }))
+    persistence = { epoch: 'e1', pending: true }
+    labelPersistenceTracker.observeStatus(serverStatus('e1', 0))
+    items.enqueueAnnotationEdit('/a.jpg', { appendNotes: 'kept', star: 3 })
+    await settle()
+    expect(items.hasUnsavedAnnotations()).toBe(true)
+
+    // The server crashes before saving: its replacement starts from disk.
+    server.set('/a.jpg', sidecar({ notes: '' }))
+    answered.clear()
+    persistence = { epoch: 'e2', pending: false }
+    labelPersistenceTracker.observeStatus(serverStatus('e2', 0))
+    await settle()
+    expect(server.get('/a.jpg')).toMatchObject({ notes: 'kept', star: 3 })
+    expect(items.hasUnsavedAnnotations()).toBe(false)
+  })
+
+  it('forgets an accepted write once the server reports it saved', async () => {
+    server.set('/a.jpg', sidecar())
+    persistence = { epoch: 'e1', pending: true }
+    labelPersistenceTracker.observeStatus(serverStatus('e1', 0))
+    items.enqueueAnnotationEdit('/a.jpg', { star: 4 })
+    await settle()
+    expect(items.hasUnsavedAnnotations()).toBe(true)
+    labelPersistenceTracker.observeStatus(serverStatus('e1', 1))
+    expect(items.hasUnsavedAnnotations()).toBe(false)
+    expect(patches).toHaveLength(1)
   })
 
   it('composes tag diffs so later edits win and cancel earlier ones', () => {

@@ -150,6 +150,16 @@ export class LabelPersistenceTracker {
     return Array.from(this.repairs, ([path, token]) => ({ path, token }))
   }
 
+  /**
+   * Whether an accepted write has reached disk. An identity from a retired
+   * epoch was accepted by a server that stopped before saving it.
+   */
+  durabilityOf(identity: AcceptedEventIdentity): 'durable' | 'pending' | 'lost' {
+    if (this.retiredEpochs.has(identity.boot_epoch)) return 'lost'
+    if (identity.boot_epoch === this.bootEpoch && identity.event_id <= this.durableEventId) return 'durable'
+    return 'pending'
+  }
+
   acknowledgeRepairs(repairs: readonly LabelPersistenceRepair[]): void {
     let changed = false
     for (const repair of repairs) {

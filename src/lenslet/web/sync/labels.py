@@ -324,6 +324,6 @@ def init_sync_state(
     loaded = load_label_state(storage, workspace)
     broker = EventBroker(buffer_size=500)
     broker.set_next_id(loaded.last_event_id + 1)
-    idempotency = IdempotencyCache(ttl_seconds=600, max_entries=10_000)
+    idempotency = IdempotencyCache()
     idempotency.seed(loaded.mutations)
     return broker, idempotency, loaded

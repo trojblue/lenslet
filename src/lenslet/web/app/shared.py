@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -47,7 +47,7 @@ from ..sync.labels import (
     persistable_sidecar,
     should_persist_sidecar,
 )
-from ..sync.persistence import LabelWriteBuffer
+from ..sync.persistence import AcceptedEventIdentity, LabelWriteBuffer
 
 _BYTES_PER_MIB = 1024 * 1024
 DEFAULT_THUMB_CACHE_CAP_BYTES = 200 * _BYTES_PER_MIB
@@ -137,56 +137,86 @@ def build_record_update(
         if mutation_id is not None:
             payload["mutation_id"] = mutation_id
         payload["changed_fields"] = list(changed_fields)
+        label_key = context.storage.label_key(path)
         event_id = runtime.broker.reserve()
-        accepted_event = runtime.label_writer.accepted_identity(event_id)
-        persistence = runtime.label_writer.status()
-        mutation_payload = {
-            "sidecar": dict(mutation_sidecar_payload or {}),
-            "mutation_id": mutation_id or f"event:{event_id}",
-            "accepted_event": dict(accepted_event),
-            "persistence": "pending",
-            "durable_watermark": dict(persistence["durable_watermark"]),
-        }
-        payload.update(
-            {
-                "accepted_event": dict(accepted_event),
-                "persistence": "pending",
-                "durable_watermark": dict(persistence["durable_watermark"]),
-            }
-        )
-        entry = {
-            "id": event_id,
-            "type": event_type,
-            **payload,
-            "key": context.storage.label_key(path),
-            "mutation_result": {
-                "status": 200,
-                "payload": mutation_payload,
-                "fingerprint": mutation_fingerprint,
-            },
-        }
+        # Any failure from here on must release the reservation: an open one
+        # holds back every later event from being broadcast.
+        admitted = False
         try:
+            event = _label_event(
+                runtime, event_id, event_type, payload, label_key,
+                mutation_id=mutation_id,
+                mutation_fingerprint=mutation_fingerprint,
+                mutation_sidecar_payload=mutation_sidecar_payload,
+            )
             with request_phase("writer"):
-                runtime.label_writer.accept(entry)
-        except LabelPersistenceError:
-            runtime.broker.cancel_reserved(event_id)
-            raise
-        try:
+                runtime.label_writer.accept(event.entry)
+            admitted = True
             commit()
             runtime.label_writer.mark_ready(event_id)
         except BaseException:
-            runtime.label_writer.cancel(event_id)
+            if admitted:
+                runtime.label_writer.cancel(event_id)
             runtime.broker.cancel_reserved(event_id)
             raise
-        runtime.broker.publish_reserved(event_id, event_type, payload)
+        runtime.broker.publish_reserved(event_id, event_type, event.payload)
         return RecordUpdateResult(
             event_id=event_id,
-            accepted_event=accepted_event,
+            accepted_event=event.accepted_event,
             persistence=runtime.label_writer.status(),
-            mutation_payload=mutation_payload,
+            mutation_payload=event.mutation_payload,
         )
 
     return _record_update
+
+
+@dataclass(frozen=True, slots=True)
+class _LabelEvent:
+    entry: dict
+    payload: dict
+    accepted_event: AcceptedEventIdentity
+    mutation_payload: dict
+
+
+def _label_event(
+    runtime: AppRuntime,
+    event_id: int,
+    event_type: SyncEventName,
+    payload: dict,
+    label_key: str,
+    *,
+    mutation_id: str | None,
+    mutation_fingerprint: str | None,
+    mutation_sidecar_payload: dict | None,
+) -> _LabelEvent:
+    """The label-log entry for a reserved event, and the payload broadcast for it."""
+    accepted_event = runtime.label_writer.accepted_identity(event_id)
+    watermark = dict(runtime.label_writer.status()["durable_watermark"])
+    mutation_payload = {
+        "sidecar": dict(mutation_sidecar_payload or {}),
+        "mutation_id": mutation_id or f"event:{event_id}",
+        "accepted_event": dict(accepted_event),
+        "persistence": "pending",
+        "durable_watermark": watermark,
+    }
+    payload = {
+        **payload,
+        "accepted_event": dict(accepted_event),
+        "persistence": "pending",
+        "durable_watermark": dict(watermark),
+    }
+    entry = {
+        "id": event_id,
+        "type": event_type,
+        **payload,
+        "key": label_key,
+        "mutation_result": {
+            "status": 200,
+            "payload": mutation_payload,
+            "fingerprint": mutation_fingerprint,
+        },
+    }
+    return _LabelEvent(entry, payload, accepted_event, mutation_payload)
 
 
 def runtime_for_workspace(

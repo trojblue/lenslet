@@ -119,7 +119,8 @@ def test_common_route_helpers_apply_sidecar_patch() -> None:
 
 
 def test_web_sidecar_helpers_normalize_state_and_patch_payloads() -> None:
-    assert web_paths.canonical_path(" animals//cats/ ") == "/animals/cats"
+    assert web_paths.canonical_path("animals//cats/") == "/animals/cats"
+    assert web_paths.canonical_path("/cats/tabby.jpg ") == "/cats/tabby.jpg "
     assert request_headers.parse_if_match('W/"7"') == 7
     assert request_headers.parse_if_match("not-a-version") is None
 
@@ -290,7 +291,7 @@ def test_build_folder_index_recursive_without_cache_uses_canonical_scope() -> No
 
     payload = browse.build_folder_index(
         storage,
-        " animals/ ",
+        "animals//",
         lambda _storage, item: BrowseItemPayload(
             path=item.path,
             name=item.name,
@@ -333,7 +334,7 @@ def test_build_folder_index_recursive_count_only_uses_canonical_scope_without_it
 
     payload = browse.build_folder_index(
         storage,
-        " animals/ ",
+        "animals//",
         fail_item,
         recursive=True,
         count_only=True,
@@ -382,7 +383,7 @@ def test_build_folder_index_recursive_window_uses_window_loader() -> None:
 
     payload = browse.build_folder_index(
         storage,
-        " animals/ ",
+        "animals//",
         lambda _storage, item: BrowseItemPayload(
             path=item.path,
             name=item.name,

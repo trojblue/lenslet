@@ -207,21 +207,19 @@ def carry_labels(
     that were not listed before), and ``paths_for_key`` resolves a key in the new
     listing. The result maps each listed path to its image's newest labels.
     """
-    by_key: dict[str, SidecarState] = {}
+    carried: dict[str, SidecarState] = {}
     for key, sidecar in labels:
-        current = by_key.get(key)
-        if current is None or sidecar.get("version", 1) > current.get("version", 1):
-            by_key[key] = sidecar
+        for path in paths_for_key(key):
+            current = carried.get(path)
+            if current is None or sidecar.get("version", 1) > current.get("version", 1):
+                carried[path] = copy_sidecar_state(sidecar)
     for key, record in records.items():
-        current = by_key.get(key)
-        sidecar = ensure_sidecar_fields(copy_sidecar_state(current) if current is not None else {})
-        if merge_persisted_record(sidecar, record):
-            by_key[key] = sidecar
-    return {
-        path: copy_sidecar_state(sidecar)
-        for key, sidecar in by_key.items()
-        for path in paths_for_key(key)
-    }
+        for path in paths_for_key(key):
+            current = carried.get(path)
+            sidecar = ensure_sidecar_fields(copy_sidecar_state(current) if current is not None else {})
+            if merge_persisted_record(sidecar, record):
+                carried[path] = sidecar
+    return carried
 
 
 def _remember_durable(

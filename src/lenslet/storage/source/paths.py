@@ -53,7 +53,7 @@ def normalize_item_path(path: str) -> str:
 
 
 def canonical_sidecar_key(path: str) -> str:
-    cleaned = (path or "").replace("\\", "/").strip()
+    cleaned = (path or "").replace("\\", "/")
     if not cleaned:
         return "/"
     cleaned = "/" + cleaned.lstrip("/")

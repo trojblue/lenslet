@@ -8,6 +8,7 @@ import hashlib
 import logging
 import os
 import time
+import unicodedata
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -1561,27 +1562,31 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
         super().replace_sidecars(sidecars)
         self._table_query_engine.replace_sidecars(self._sidecars)
 
+    # Label keys compare in Unicode NFC: the same name written decomposed (as
+    # some macOS file systems store it) still finds its labels after a move.
     def label_key(self, path: str) -> str:
-        if not self._labels_follow_source:
-            return path
         row_idx = self._require_row_store().row_index_for_path(path)
-        return path if row_idx is None else self._label_key_for_row(row_idx)
+        return unicodedata.normalize("NFC", path if row_idx is None else self._label_key_for_row(row_idx))
 
     def paths_for_label_key(self, key: str) -> tuple[str, ...]:
         store = self._require_row_store()
-        if not self._labels_follow_source:
-            return (key,) if store.row_index_for_path(key) is not None else ()
         if self._label_paths is None or self._label_paths[0] is not store:
             index: dict[str, list[str]] = {}
             for path, row_idx in store.path_to_row.items():
-                index.setdefault(self._label_key_for_row(row_idx), []).append(canonical_sidecar_key(path))
+                index.setdefault(
+                    unicodedata.normalize("NFC", self._label_key_for_row(row_idx)), [],
+                ).append(canonical_sidecar_key(path))
             self._label_paths = (store, {name: tuple(paths) for name, paths in index.items()})
-        return self._label_paths[1].get(key, ())
+        return self._label_paths[1].get(unicodedata.normalize("NFC", key), ())
 
     def _label_key_for_row(self, row_idx: int) -> str:
-        """A row's image, plus its own path value when the table names rows itself:
-        one image may appear in several rows that are labelled separately."""
-        key = LABEL_SOURCE_KEY_PREFIX + self._require_row_store().source_for_row(row_idx)
+        """A folder row is its file. A table row is its image, plus its own path
+        value when the table names rows itself: one image may appear in several
+        rows that are labelled separately."""
+        store = self._require_row_store()
+        if not self._labels_follow_source:
+            return canonical_sidecar_key(store.path_for_row_index(row_idx) or "")
+        key = LABEL_SOURCE_KEY_PREFIX + store.source_for_row(row_idx)
         if self._path_column is None or self._path_column_aliases_source:
             return key
         value = self._column_value(self._path_column, row_idx)

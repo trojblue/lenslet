@@ -27,10 +27,14 @@ def register_event_routes(app: FastAPI) -> None:
 
         async def event_stream() -> AsyncIterator[str]:
             try:
+                if broker.missed(last_event_id):
+                    # Too far behind to replay: the client must reload label state.
+                    yield "event: resync\ndata: {}\n\n"
                 for record in broker.replay(last_event_id):
                     yield format_sse(record)
                 while True:
-                    if await request.is_disconnected():
+                    if await request.is_disconnected() or broker.overflowed(queue):
+                        # A subscriber that fell behind reconnects and replays what it missed.
                         break
                     try:
                         record = await asyncio.wait_for(queue.get(), timeout=15)

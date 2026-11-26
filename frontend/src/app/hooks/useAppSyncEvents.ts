@@ -17,6 +17,7 @@ import {
 } from '../../api/labelPersistence'
 import {
   itemDetailQueryKey,
+  pendingAnnotationStar,
   setSidecarQueryDataForPath,
   sidecarQueryKey,
   subscribeAnnotationMutationResponses,
@@ -214,6 +215,12 @@ export function useAppSyncEvents({
       },
       eventId: number | null,
     ) => {
+      const existing = queryClient.getQueryData<Sidecar>(sidecarQueryKey(payload.path))
+      // A replayed or late answer older than what is shown must not roll it back.
+      if (existing && payload.version !== undefined && payload.version < existing.version) return
+      // A rating the server has not answered yet stays on screen over other updates.
+      const pendingStar = pendingAnnotationStar(payload.path)
+      if (pendingStar !== undefined) payload = { ...payload, star: pendingStar }
       const accepted = reconciler.accept({
         mutationId: mutationIdentity(payload, 'item-updated', eventId),
         changedFields: payload.changed_fields ?? ['unknown'],
@@ -234,7 +241,6 @@ export function useAppSyncEvents({
           payload.durable_watermark,
         )
       }
-      const existing = queryClient.getQueryData<Sidecar>(sidecarQueryKey(payload.path))
       const sidecar: Sidecar = {
         ...existing,
         v: 1,
@@ -251,7 +257,7 @@ export function useAppSyncEvents({
       markRecentTouch(payload.path, 'item-updated', payload.updated_at)
       updateLastEdited(payload.updated_at)
       setLocalStarOverrides((prev) => {
-        if (prev[payload.path] === undefined) return prev
+        if (prev[payload.path] === undefined || pendingStar !== undefined) return prev
         const next = { ...prev }
         delete next[payload.path]
         return next
@@ -271,6 +277,15 @@ export function useAppSyncEvents({
     const offEvents = subscribeEvents((evt: SyncEvent) => {
       if (evt.type === 'table-source') {
         requestHealthRefresh()
+        return
+      }
+      if (evt.type === 'resync') {
+        // The server could not replay what this tab missed: reload label state.
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['item'], refetchType: 'active' }),
+          queryClient.invalidateQueries({ queryKey: ['item-detail'], refetchType: 'active' }),
+          reconciler.reconcileAll(),
+        ])
         return
       }
       if (evt.type === 'persistence') {

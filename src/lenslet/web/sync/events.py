@@ -84,6 +84,10 @@ class EventBroker:
         self._next_publish_id = 1
         self._reservations: dict[int, SyncEventRecord | None | object] = {}
         self._clients: set[asyncio.Queue[SyncEventRecord]] = set()
+        # Subscribers that fell behind and lost events; their stream ends so
+        # they reconnect and replay from the last event they saw.
+        self._overflowed: set[asyncio.Queue[SyncEventRecord]] = set()
+        self._evicted_through = 0
         self._lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._replay_miss_total = 0
@@ -154,16 +158,25 @@ class EventBroker:
                 continue
             if not isinstance(record, dict):
                 raise RuntimeError("invalid event reservation")
+            if self._buffer.maxlen is not None and len(self._buffer) == self._buffer.maxlen:
+                self._evicted_through = self._buffer[0]["id"]
             self._buffer.append(record)
             records.append(record)
         return records
 
     def _broadcast(self, record: SyncEventRecord) -> None:
         for queue in list(self._clients):
+            if queue in self._overflowed:
+                continue
             if queue.full():
                 self._dropped_client_event_total += 1
+                self._overflowed.add(queue)
                 continue
             queue.put_nowait(record)
+
+    def overflowed(self, queue: asyncio.Queue[SyncEventRecord]) -> bool:
+        """Whether this subscriber missed events and must reconnect to replay them."""
+        return queue in self._overflowed
 
     def register(self) -> asyncio.Queue[SyncEventRecord]:
         queue: asyncio.Queue[SyncEventRecord] = asyncio.Queue(maxsize=200)
@@ -174,6 +187,17 @@ class EventBroker:
     def unregister(self, queue: asyncio.Queue[SyncEventRecord]) -> None:
         with self._lock:
             self._clients.discard(queue)
+            self._overflowed.discard(queue)
+
+    def missed(self, last_id: int | None) -> bool:
+        """Whether events after ``last_id`` were already dropped from the replay buffer."""
+        if last_id is None:
+            return False
+        with self._lock:
+            if last_id >= self._evicted_through:
+                return False
+            self._replay_miss_total += 1
+            return True
 
     def replay(self, last_id: int | None) -> list[SyncEventRecord]:
         if last_id is None:
@@ -181,12 +205,9 @@ class EventBroker:
         with self._lock:
             if not self._buffer:
                 return []
-            oldest_id = self._buffer[0]["id"]
             newest_id = self._buffer[-1]["id"]
             if last_id >= newest_id:
                 return []
-            if last_id < oldest_id - 1:
-                self._replay_miss_total += 1
             return [item for item in self._buffer if item["id"] > last_id]
 
     def diagnostics(self) -> EventBrokerDiagnostics:

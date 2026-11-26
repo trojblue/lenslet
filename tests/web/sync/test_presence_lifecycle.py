@@ -518,7 +518,7 @@ async def _run_presence_diagnostics_counters(app) -> None:
         broker = get_app_runtime(app).broker
         for i in range(620):
             broker.publish("item-updated", {"path": f"/bulk/{i}.jpg", "version": i + 1})
-        _ = broker.replay(1)
+        assert broker.missed(1) is True
 
         diag = await client.get("/presence/diagnostics")
         assert diag.status_code == 200
@@ -629,3 +629,25 @@ def test_presence_multi_client_refresh_move_reconnect_convergence(
     monkeypatch.setattr("lenslet.web.sync.presence.time.monotonic", clock.monotonic)
     app = _build_test_app(tmp_path, presence_view_ttl=0.2, presence_edit_ttl=0.2, presence_prune_interval=0.1)
     asyncio.run(_run_presence_multi_client_convergence(app, clock=clock))
+
+
+def test_broker_reports_events_a_reconnecting_client_can_no_longer_replay() -> None:
+    broker = EventBroker(buffer_size=3)
+    ids = [broker.publish("item-updated", {"path": f"/{index}.jpg"}) for index in range(5)]
+    assert broker.missed(None) is False
+    assert broker.missed(ids[1]) is False  # everything after it is still buffered
+    assert broker.missed(ids[0]) is True  # ids[1] was evicted before the client saw it
+    assert [record["id"] for record in broker.replay(ids[1])] == ids[2:]
+
+
+def test_broker_ends_a_subscriber_that_fell_behind_so_it_replays() -> None:
+    broker = EventBroker()
+    queue = broker.register()
+    record = {"id": 1, "event": "item-updated", "data": {"path": "/a.jpg"}}
+    for _ in range(queue.maxsize):
+        broker._broadcast(record)
+    assert broker.overflowed(queue) is False
+    broker._broadcast(record)
+    assert broker.overflowed(queue) is True
+    broker.unregister(queue)
+    assert broker.overflowed(queue) is False

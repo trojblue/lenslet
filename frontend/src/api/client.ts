@@ -225,6 +225,7 @@ export type SyncEvent =
   | { type: 'persistence'; id: number | null; data: LabelPersistenceState }
   | { type: 'presence'; id: number | null; data: PresenceEvent }
   | { type: 'table-source'; id: number | null; data: TableSourceRefreshPayload }
+  | { type: 'resync'; id: number | null; data: Record<string, never> }
 
 export type PresenceSessionResponse = PresenceEvent & {
   client_id: string
@@ -326,6 +327,7 @@ function openEventSource(): void {
   es.addEventListener('persistence', handle('persistence'))
   es.addEventListener('presence', handle('presence'))
   es.addEventListener('table-source', handle('table-source'))
+  es.addEventListener('resync', handle('resync'))
 
   es.onopen = () => {
     resetReconnect()

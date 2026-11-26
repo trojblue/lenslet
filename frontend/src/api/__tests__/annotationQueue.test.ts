@@ -252,6 +252,17 @@ describe('annotation queue', () => {
     expect(patches).toHaveLength(1)
   })
 
+  it('reports the unanswered rating for an image until the server answers it', async () => {
+    server.set('/a.jpg', sidecar({ star: 1 }))
+    items.enqueueAnnotationEdit('/a.jpg', { star: 3 })
+    expect(items.pendingAnnotationStar('/a.jpg')).toBe(3)
+    items.enqueueAnnotationEdit('/a.jpg', { addTags: ['x'] })
+    expect(items.pendingAnnotationStar('/a.jpg')).toBe(3)
+    await settle()
+    expect(server.get('/a.jpg')?.star).toBe(3)
+    expect(items.pendingAnnotationStar('/a.jpg')).toBeUndefined()
+  })
+
   it('composes tag diffs so later edits win and cancel earlier ones', () => {
     expect(items.mergeAnnotationEdits({ addTags: ['a', 'b'] }, { removeTags: ['a'] }))
       .toEqual({ addTags: ['b'], removeTags: ['a'] })

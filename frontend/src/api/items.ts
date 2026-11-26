@@ -144,7 +144,7 @@ const RETRY_BASE_MS = 1_000
 const RETRY_MAX_MS = 30_000
 
 const queued = new Map<string, QueuedEdit>()
-const sending = new Map<string, QueuedEdit>()
+const sending = new Map<string, SendJob>()
 const failedPaths = new Map<string, string>()
 /** Accepted but not yet on disk, by Idempotency-Key, in send order. */
 const awaitingDurability = new Map<string, { path: string; request: SentRequest; accepted: AcceptedEventIdentity }>()
@@ -222,6 +222,22 @@ function getOldestInflightStart(): number | null {
     oldest = oldest == null ? entry.queuedAt : Math.min(oldest, entry.queuedAt)
   }
   return oldest
+}
+
+/**
+ * The rating the user last gave `path` that the server has not answered yet.
+ * It is shown over any server state that arrives meanwhile.
+ */
+export function pendingAnnotationStar(path: string): StarRating | undefined {
+  const job = sending.get(path)
+  const later = queued.get(path)
+  const edits = [
+    ...(job ? [...job.unconfirmed.map((request) => request.edit), job.edit] : []),
+    ...(later ? [...later.unconfirmed.map((request) => request.edit), later.edit] : []),
+  ]
+  let star: StarRating | undefined
+  for (const edit of edits) if (edit.star !== undefined) star = edit.star
+  return star
 }
 
 /** True while any annotation edit is queued, being sent, awaiting retry, or not yet on disk. */
@@ -483,13 +499,18 @@ class RequeueBehindError extends Error {}
 type SendJob = {
   unconfirmed: SentRequest[]
   edit: AnnotationEdit
+  queuedAt: number
 }
 
-async function submit(path: string, request: SentRequest): Promise<void> {
-  const response = await api.patchSidecar(path, request.patch, {
+function submit(path: string, request: SentRequest): Promise<SidecarMutationResponse> {
+  return api.patchSidecar(path, request.patch, {
     idempotencyKey: request.key,
     ifMatch: request.ifMatch,
   })
+}
+
+// Publish an answer only once the request is no longer counted as unanswered.
+function settle(path: string, request: SentRequest, response: SidecarMutationResponse): void {
   observeMutationPersistence(path, response)
   publishAnnotationMutationResponse({ path, response, changedFields: changedFieldsForEdit(request.edit) })
   if (response.accepted_event && response.persistence === 'pending') {
@@ -502,8 +523,10 @@ async function submit(path: string, request: SentRequest): Promise<void> {
 async function confirmUnconfirmed(path: string, job: SendJob): Promise<void> {
   while (job.unconfirmed.length > 0) {
     try {
-      await submit(path, job.unconfirmed[0])
+      const request = job.unconfirmed[0]
+      const response = await submit(path, request)
       job.unconfirmed.shift()
+      settle(path, request, response)
     } catch (error) {
       if (!isVersionConflict(error)) throw error
       job.edit = [...job.unconfirmed, { edit: job.edit }].reduce<AnnotationEdit>(
@@ -547,8 +570,9 @@ async function sendEdit(path: string, job: SendJob): Promise<void> {
     job.unconfirmed = [request]
     job.edit = NO_EDIT
     try {
-      await submit(path, request)
+      const response = await submit(path, request)
       job.unconfirmed = []
+      settle(path, request, response)
       return
     } catch (error) {
       if (!isVersionConflict(error)) throw error
@@ -600,8 +624,8 @@ function scheduleSends(): void {
 
 function startSend(path: string, entry: QueuedEdit): void {
   queued.delete(path)
-  sending.set(path, entry)
-  const job: SendJob = { unconfirmed: [...entry.unconfirmed], edit: entry.edit }
+  const job: SendJob = { unconfirmed: [...entry.unconfirmed], edit: entry.edit, queuedAt: entry.queuedAt }
+  sending.set(path, job)
   void sendEdit(path, job).then(
     () => {
       failedPaths.delete(path)

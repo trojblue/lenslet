@@ -43,10 +43,11 @@ def test_writable_workspace_without_trusted_origins_is_read_only(
         headers={"Origin": LOCAL_ORIGIN},
     ) as client:
         health = client.get("/health")
-        response = client.put(
+        response = client.patch(
             "/item",
             params={"path": "/sample.jpg"},
-            json={"tags": ["blocked"], "notes": "blocked", "star": 1},
+            headers={"Idempotency-Key": "blocked", "If-Match": "1"},
+            json={"base_version": 1, "set_tags": ["blocked"], "set_notes": "blocked", "set_star": 1},
         )
         item = client.get("/item", params={"path": "/sample.jpg"})
 
@@ -86,10 +87,11 @@ def test_default_local_app_does_not_trust_default_port_origin(tmp_path: Path) ->
 
     with TestClient(app, base_url="http://localhost:9090", headers={"Origin": LOCAL_ORIGIN}) as client:
         health = client.get("/health")
-        response = client.put(
+        response = client.patch(
             "/item",
             params={"path": "/sample.jpg"},
-            json={"tags": ["blocked"], "notes": "blocked", "star": 1},
+            headers={"Idempotency-Key": "blocked", "If-Match": "1"},
+            json={"base_version": 1, "set_tags": ["blocked"], "set_notes": "blocked", "set_star": 1},
         )
 
     assert health.status_code == 200

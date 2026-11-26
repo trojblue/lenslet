@@ -76,17 +76,16 @@ def test_item_mutations_publish_modeled_openapi_contracts(tmp_path: Path) -> Non
     _make_image(tmp_path / "sample.jpg")
     schema = _trusted_app(tmp_path).openapi()
 
-    put_responses = schema["paths"]["/item"]["put"]["responses"]
+    assert "put" not in schema["paths"]["/item"], "PATCH with If-Match is the only label write"
     patch_responses = schema["paths"]["/item"]["patch"]["responses"]
 
-    assert put_responses["200"]["content"]["application/json"]["schema"]["$ref"].endswith("/Sidecar")
     assert patch_responses["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/SidecarMutationResponse",
     )
     assert patch_responses["409"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/SidecarConflictResponse",
     )
-    assert put_responses["403"]["content"]["application/json"]["schema"]["$ref"].endswith("/ErrorResponse")
+    assert patch_responses["403"]["content"]["application/json"]["schema"]["$ref"].endswith("/ErrorResponse")
     assert patch_responses["500"]["content"]["application/json"]["schema"]["$ref"].endswith("/ErrorResponse")
 
 
@@ -104,14 +103,6 @@ def test_read_only_workspace_rejects_item_mutations(tmp_path: Path) -> None:
         ),
     ):
         client = TestClient(app)
-        put_response = client.put(
-            "/item",
-            params={"path": path},
-            json={"tags": [], "notes": "blocked", "star": 1},
-        )
-        assert put_response.status_code == 403
-        assert put_response.json() == mutation_denial_payload(READ_ONLY_MUTATION_POLICY)
-
         patch_response = client.patch(
             "/item",
             params={"path": path},

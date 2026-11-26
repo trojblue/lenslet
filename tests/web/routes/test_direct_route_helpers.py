@@ -33,20 +33,6 @@ def test_common_route_helpers_copy_and_update_sidecar_state() -> None:
 
     assert original == {"tags": ["old"], "metrics": {"score": 0.5}, "version": 2}
 
-    updated = item_routes._put_item_sidecar_state(
-        original,
-        SimpleNamespace(tags=["cat"], notes="note", star=1),
-        "tester",
-        ensure_sidecar_fields=lambda sidecar_state: sidecar_state,
-        now_iso=lambda: "2026-05-30T00:00:00+00:00",
-    )
-
-    assert updated["tags"] == ["cat"]
-    assert updated["notes"] == "note"
-    assert updated["star"] == 1
-    assert updated["version"] == 3
-    assert updated["updated_by"] == "tester"
-
 
 def test_common_route_helpers_resolve_patch_expected_version() -> None:
     assert item_routes._resolve_patch_expected_version(SidecarPatch(base_version=2), None) == (2, None)

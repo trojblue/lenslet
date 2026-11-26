@@ -654,16 +654,6 @@ export const api = {
     return fetchJSON<ImageMetadataResponse>(apiUrl(`/metadata?path=${encodeURIComponent(path)}`)).promise
   },
 
-  putSidecar: (path: string, body: Sidecar): Promise<Sidecar> => {
-    return fetchJSON<Sidecar>(apiUrl(`/item?path=${encodeURIComponent(path)}`), {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    }).promise
-  },
-
   getHealth: (): Promise<HealthResponse> => {
     return fetchJSON<HealthResponse>(apiUrl('/health')).promise
   },

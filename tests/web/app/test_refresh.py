@@ -16,6 +16,16 @@ from lenslet.workspace import Workspace
 LOCAL_ORIGIN = "http://localhost:7070"
 
 
+
+def _patch_labels(client, path: str, *, tags: list[str], notes: str, star: int):
+    version = client.get("/item", params={"path": path}).json()["version"]
+    return client.patch(
+        "/item",
+        params={"path": path},
+        headers={"Idempotency-Key": f"test-{path}-{version}", "If-Match": str(version)},
+        json={"base_version": version, "set_tags": tags, "set_notes": notes, "set_star": star},
+    )
+
 def _trusted_client(app) -> TestClient:
     return TestClient(app, base_url=LOCAL_ORIGIN, headers={"Origin": LOCAL_ORIGIN})
 
@@ -180,13 +190,9 @@ def test_refresh_endpoint_preserves_sidecar_annotations(tmp_path: Path):
     app = _trusted_app(root)
     client = _trusted_client(app)
 
-    put = client.put(
-        "/item",
-        params={"path": "/shots/first.jpg"},
-        json={"tags": ["keep"], "notes": "persist", "star": 5},
-    )
+    put = _patch_labels(client, "/shots/first.jpg", tags=["keep"], notes="persist", star=5)
     assert put.status_code == 200
-    assert put.json()["notes"] == "persist"
+    assert put.json()["sidecar"]["notes"] == "persist"
 
     _make_image(img2)
     refresh = client.post("/refresh", params={"path": "/shots"})
@@ -395,10 +401,8 @@ def test_refresh_swaps_health_index_og_and_views_from_current_context(
 
         thumb_after = client.get("/thumb", params={"path": "/shots/first.jpg"})
         assert thumb_after.status_code == 200
-        update_after = client.put(
-            "/item",
-            params={"path": "/shots/first.jpg"},
-            json={"tags": ["beta"], "notes": "workspace-b", "star": 5},
+        update_after = _patch_labels(
+            client, "/shots/first.jpg", tags=["beta"], notes="workspace-b", star=5,
         )
         assert update_after.status_code == 200
         context = get_app_context(app)

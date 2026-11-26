@@ -91,24 +91,6 @@ def _resolve_image_request(path: str, request: Request) -> tuple[ItemRouteStorag
     return storage, resolved_path
 
 
-def _put_item_sidecar_state(
-    base_sidecar_state: SidecarState,
-    body: Sidecar,
-    updated_by: str,
-    *,
-    ensure_sidecar_fields: Callable[[SidecarState], SidecarState],
-    now_iso: Callable[[], str],
-) -> SidecarState:
-    sidecar_state = ensure_sidecar_fields(copy_sidecar_state(base_sidecar_state))
-    sidecar_state["tags"] = list(body.tags)
-    sidecar_state["notes"] = body.notes
-    sidecar_state["star"] = body.star
-    sidecar_state["version"] = sidecar_state.get("version", 1) + 1
-    sidecar_state["updated_at"] = now_iso()
-    sidecar_state["updated_by"] = updated_by
-    return sidecar_state
-
-
 def _resolve_patch_expected_version(
     body: SidecarPatch,
     if_match_header: str | None,
@@ -228,42 +210,6 @@ def register_item_routes(
     def get_metadata(path: str, request: Request) -> ImageMetadataResponse:
         storage, path = _resolve_image_request(path, request)
         return build_image_metadata(storage, path)
-
-    @app.put("/item", response_model=Sidecar, responses=mutation_error_responses)
-    def put_item(path: str, body: Sidecar, request: Request) -> Sidecar | JSONResponse:
-        mark_request_handler_started()
-        context = get_request_context(request)
-        if denied := deny_if_mutation_forbidden(request, writes_enabled=context.workspace.can_write):
-            return denied
-        storage, path = _resolve_image_request(path, request)
-        runtime = context.runtime
-        updated_by = updated_by_from_request(request)
-        with request_phase("mutation"):
-            with runtime.sidecar_lock:
-                if get_app_context(request.app) is not context:
-                    return _stale_context_response()
-                sidecar_snapshot = _put_item_sidecar_state(
-                    storage.get_sidecar_readonly(path),
-                    body,
-                    updated_by,
-                    ensure_sidecar_fields=ensure_sidecar_fields,
-                    now_iso=now_iso,
-                )
-                sidecar = build_sidecar_from_state(storage, path, sidecar_snapshot)
-                try:
-                    previous_sidecar = storage.get_sidecar_readonly(path)
-                    record_update(
-                        path,
-                        sidecar_snapshot,
-                        "item-updated",
-                        lambda: storage.set_sidecar(path, copy_sidecar_state(sidecar_snapshot)),
-                        mutation_id=f"put:{uuid4()}",
-                        changed_fields=_changed_sidecar_fields(previous_sidecar, sidecar_snapshot),
-                        mutation_sidecar_payload=sidecar.model_dump(),
-                    )
-                except LabelPersistenceError:
-                    return _label_persistence_error_response()
-            return sidecar
 
     @app.patch(
         "/item",

@@ -171,7 +171,7 @@ python -m lenslet.cli /path/to/images --reload
   - `count_only=1` returns the recursive count without materializing the item payload.
   - The active folder query contract is `path`, `recursive`, and `count_only`.
 - `GET /item?path=<path>` - Get item metadata
-- `PUT /item?path=<path>` - Update item metadata
+- `PATCH /item?path=<path>` - Update labels (`set_star`, `set_notes`, `set_tags`, `add_tags`, `remove_tags`); requires `Idempotency-Key` and `If-Match: <version>`, and returns 409 `version_conflict` when the record moved
 - `GET /thumb?path=<path>` - Get/generate thumbnail
 - `GET /file?path=<path>` - Get original file
   - Local-backed sources are served via streaming responses

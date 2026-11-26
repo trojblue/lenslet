@@ -156,11 +156,16 @@ describe('annotation queue', () => {
     expect(items.getConflict('/a.jpg')).toMatchObject({ mine: 'mine', current: { notes: 'theirs' } })
     expect(status()).toMatchObject({ state: 'error', message: 'conflicting notes on a.jpg' })
 
+    // Text typed while the conflict is open lives in the conflict until resolved.
+    items.updateConflictMine('/a.jpg', 'mine, revised')
+    expect(items.getConflict('/a.jpg')?.mine).toBe('mine, revised')
+    expect(items.hasUnsavedAnnotations()).toBe(true)
+
     // Keep mine: overwrite exactly the server text the user has now seen.
     items.clearConflict('/a.jpg')
-    items.enqueueAnnotationEdit('/a.jpg', { notes: { from: 'theirs', to: 'mine' } })
+    items.enqueueAnnotationEdit('/a.jpg', { notes: { from: 'theirs', to: 'mine, revised' } })
     await settle()
-    expect(server.get('/a.jpg')?.notes).toBe('mine')
+    expect(server.get('/a.jpg')?.notes).toBe('mine, revised')
   })
 
   it('re-reads and resends when another write lands between read and write', async () => {

@@ -298,6 +298,14 @@ export function useSidecarConflict(path: string | null) {
   return entry
 }
 
+/** The user kept editing an unresolved conflict: it holds their latest text, unsaved. */
+export function updateConflictMine(path: string, mine: string): void {
+  const existing = conflictByPath.get(path)
+  if (!existing || existing.mine === mine) return
+  conflictByPath.set(path, { ...existing, mine })
+  notifyConflict(path)
+}
+
 /** Server truth moved; a conflict resolves itself once the server holds the user's text. */
 export function updateConflictFromServer(path: string, current: Sidecar): void {
   const existing = conflictByPath.get(path)

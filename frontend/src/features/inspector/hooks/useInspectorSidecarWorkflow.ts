@@ -4,6 +4,7 @@ import {
   clearConflict,
   enqueueAnnotationEdit,
   setSidecarQueryDataForPath,
+  updateConflictMine,
 } from '../../../api/items'
 import type { ConflictEntry } from '../../../api/items'
 import type { Sidecar } from '../../../lib/types'
@@ -186,6 +187,9 @@ export function useInspectorSidecarWorkflow({
   const handleNotesChange = useCallback((value: string) => {
     const draft = draftRef.current
     writeDraft({ ...draft, values: { ...draft.values, notes: value }, dirty: { ...draft.dirty, notes: true } })
+    // Conflicted text is never auto-saved; the conflict keeps it across navigation.
+    const target = ownerRef.current
+    if (conflictOpenRef.current && target.path && !target.multi) updateConflictMine(target.path, value)
     notifyLocalTyping(true)
   }, [notifyLocalTyping, writeDraft])
 

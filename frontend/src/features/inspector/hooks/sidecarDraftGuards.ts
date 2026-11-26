@@ -55,7 +55,7 @@ export function hasSemanticTagsChange(currentTags: string, baselineTags: string)
 /**
  * Turn the dirty fields of a draft into a queue edit relative to what the user
  * started from. Multi-select drafts apply to images with different values, so
- * their tags only add and their notes overwrite unconditionally.
+ * they only ever add: tags are added and notes are appended to each image.
  */
 export function buildDraftAnnotationEdit(
   current: SidecarDraft,
@@ -65,11 +65,12 @@ export function buildDraftAnnotationEdit(
 ): AnnotationEdit | null {
   let edit: AnnotationEdit = {}
   if (dirty.notes && hasSemanticNotesChange(current.notes, baseline.notes)) {
-    edit.notes = { from: multi ? null : baseline.notes, to: current.notes }
+    if (!multi) edit.notes = { from: baseline.notes, to: current.notes }
+    else if (current.notes.trim()) edit.appendNotes = current.notes.trim()
   }
   if (dirty.tags && hasSemanticTagsChange(current.tags, baseline.tags)) {
     const tags = tagEditBetween(multi ? [] : parseSidecarTags(baseline.tags), parseSidecarTags(current.tags))
     edit = mergeAnnotationEdits(edit, tags)
   }
-  return edit.notes || edit.addTags?.length || edit.removeTags?.length ? edit : null
+  return edit.notes || edit.appendNotes || edit.addTags?.length || edit.removeTags?.length ? edit : null
 }

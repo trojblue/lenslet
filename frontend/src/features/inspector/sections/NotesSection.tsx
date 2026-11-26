@@ -71,15 +71,15 @@ export function NotesSection({
         </div>
         <textarea
           className="ui-textarea inspector-input w-full scrollbar-thin"
-          placeholder="Add notes"
+          placeholder={multi ? "Add a note to each selected item" : "Add notes"}
           value={notes}
           onChange={(e) => onNotesChange(e.target.value)}
           onBlur={onNotesBlur}
           disabled={disabled}
-          aria-label={multi ? 'Notes for selected items' : 'Notes'}
+          aria-label={multi ? 'Note to add to each selected item' : 'Notes'}
         />
         <div>
-          <div className="ui-label">{multi ? 'Tags (apply to all, comma-separated)' : 'Tags (comma-separated)'}</div>
+          <div className="ui-label">{multi ? 'Tags to add to each item (comma-separated)' : 'Tags (comma-separated)'}</div>
           <input
             className="ui-input inspector-input w-full"
             placeholder="tag1, tag2"

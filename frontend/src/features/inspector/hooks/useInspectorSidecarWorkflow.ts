@@ -117,16 +117,24 @@ export function useInspectorSidecarWorkflow({
     if (edit) {
       for (const targetPath of target.targets) enqueueAnnotationEdit(targetPath, edit)
     }
-    // Multi-select fields are "apply to all" inputs, so their baseline stays empty.
-    const adopt = (field: keyof SidecarDraft) => flushing[field] && !target.multi
     const dirty = { notes: draft.dirty.notes && !flushing.notes, tags: draft.dirty.tags && !flushing.tags }
-    draftRef.current = {
-      values: draft.values,
-      baseline: {
-        notes: adopt('notes') ? draft.values.notes : draft.baseline.notes,
-        tags: adopt('tags') ? draft.values.tags : draft.baseline.tags,
-      },
-      dirty,
+    if (target.multi) {
+      // "Add to all" inputs empty once added, so typing again never adds twice.
+      const values = {
+        notes: flushing.notes ? '' : draft.values.notes,
+        tags: flushing.tags ? '' : draft.values.tags,
+      }
+      draftRef.current = { values, baseline: draft.baseline, dirty }
+      if (values.notes !== draft.values.notes || values.tags !== draft.values.tags) setValues(values)
+    } else {
+      draftRef.current = {
+        values: draft.values,
+        baseline: {
+          notes: flushing.notes ? draft.values.notes : draft.baseline.notes,
+          tags: flushing.tags ? draft.values.tags : draft.baseline.tags,
+        },
+        dirty,
+      }
     }
     if (!dirty.notes && !dirty.tags) notifyLocalTyping(false)
   }, [notifyLocalTyping])

@@ -84,6 +84,17 @@ describe('inspector sidecar draft guards', () => {
     ).toEqual({ addTags: ['reviewed'] })
   })
 
+  it('appends a multi-select note instead of overwriting each image', () => {
+    expect(
+      buildDraftAnnotationEdit(
+        { notes: '  reviewed  ', tags: '' },
+        { notes: '', tags: '' },
+        { notes: true, tags: false },
+        { multi: true },
+      ),
+    ).toEqual({ appendNotes: 'reviewed' })
+  })
+
   it('ignores fields the user did not touch', () => {
     expect(
       buildDraftAnnotationEdit(

@@ -103,11 +103,13 @@ function observeMutationPersistence(path: string, response: SidecarMutationRespo
  * - `star` is absolute (the latest rating wins);
  * - `notes` remembers the text the user started from, and conflicts only when
  *   another writer changed it since;
+ * - `appendNotes` adds a paragraph to whatever notes each image already has;
  * - tags are add/remove diffs that the server merges.
  */
 export type AnnotationEdit = {
   star?: StarRating
-  notes?: { from: string | null; to: string }
+  notes?: { from: string; to: string }
+  appendNotes?: string
   addTags?: string[]
   removeTags?: string[]
 }
@@ -363,6 +365,8 @@ export function mergeAnnotationEdits(earlier: AnnotationEdit, later: AnnotationE
       to: later.notes ? later.notes.to : earlier.notes!.to,
     }
   }
+  const appended = [earlier.appendNotes, later.appendNotes].filter(Boolean).join('\n')
+  if (appended) merged.appendNotes = appended
   const laterAdd = new Set(uniqueTags(later.addTags))
   const laterRemove = new Set(uniqueTags(later.removeTags))
   const add = [...uniqueTags(earlier.addTags).filter((tag) => !laterRemove.has(tag)), ...laterAdd]
@@ -385,13 +389,22 @@ export function tagEditBetween(from: readonly string[], to: readonly string[]): 
 }
 
 function isEmptyEdit(edit: AnnotationEdit): boolean {
-  return edit.star === undefined && !edit.notes && !edit.addTags?.length && !edit.removeTags?.length
+  return edit.star === undefined && !edit.notes && !edit.appendNotes
+    && !edit.addTags?.length && !edit.removeTags?.length
 }
 
-function toPatch(edit: AnnotationEdit): SidecarPatch {
+function appendParagraph(notes: string, paragraph: string): string {
+  return notes ? `${notes}\n${paragraph}` : paragraph
+}
+
+// Notes are written as whole text; an append is resolved against the record just read.
+function toPatch(edit: AnnotationEdit, current: Sidecar): SidecarPatch {
   const patch: SidecarPatch = {}
   if (edit.star !== undefined) patch.set_star = edit.star
-  if (edit.notes) patch.set_notes = edit.notes.to
+  const notes = edit.notes ? edit.notes.to : current.notes ?? ''
+  if (edit.notes || edit.appendNotes) {
+    patch.set_notes = edit.appendNotes ? appendParagraph(notes, edit.appendNotes) : notes
+  }
   if (edit.addTags?.length) patch.add_tags = edit.addTags
   if (edit.removeTags?.length) patch.remove_tags = edit.removeTags
   return patch
@@ -400,7 +413,7 @@ function toPatch(edit: AnnotationEdit): SidecarPatch {
 function changedFieldsForEdit(edit: AnnotationEdit): string[] {
   const changed: string[] = []
   if (edit.star !== undefined) changed.push('star')
-  if (edit.notes) changed.push('notes')
+  if (edit.notes || edit.appendNotes) changed.push('notes')
   if (edit.addTags?.length || edit.removeTags?.length) changed.push('tags')
   return changed
 }
@@ -442,7 +455,7 @@ async function sendEdit(path: string, edit: AnnotationEdit): Promise<void> {
     if (pending.notes) {
       const serverNotes = current.notes ?? ''
       const { from, to } = pending.notes
-      if (serverNotes === to || (from !== null && serverNotes !== from)) {
+      if (serverNotes === to || serverNotes !== from) {
         if (serverNotes !== to) {
           setConflict(path, { path, current, mine: to, receivedAt: new Date().toISOString() })
           publishServerSidecar(path, current, ['notes'])
@@ -455,7 +468,7 @@ async function sendEdit(path: string, edit: AnnotationEdit): Promise<void> {
     try {
       const response = await api.patchSidecar(
         path,
-        { ...toPatch(pending), base_version: current.version },
+        { ...toPatch(pending, current), base_version: current.version },
         { idempotencyKey: makeIdempotencyKey('patch'), ifMatch: current.version },
       )
       observeMutationPersistence(path, response)

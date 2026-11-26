@@ -151,6 +151,15 @@ describe('annotation queue', () => {
     expect(items.hasUnsavedAnnotations()).toBe(false)
   })
 
+  it('appends a multi-select note to each image without replacing existing notes', async () => {
+    server.set('/a.jpg', sidecar({ notes: 'blurry' }))
+    server.set('/b.jpg', sidecar())
+    items.enqueueAnnotationEdits(['/a.jpg', '/b.jpg'], { appendNotes: 'reviewed' })
+    await settle()
+    expect(server.get('/a.jpg')?.notes).toBe('blurry\nreviewed')
+    expect(server.get('/b.jpg')?.notes).toBe('reviewed')
+  })
+
   it('coalesces rapid edits to one image and sends the latest intent', async () => {
     server.set('/a.jpg', sidecar())
     items.enqueueAnnotationEdit('/a.jpg', { star: 1 })

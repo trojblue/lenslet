@@ -230,6 +230,15 @@ class Workspace:
             return None
         return self.root / "labels.snapshot.json"
 
+    def labels_lock_path(self) -> Path | None:
+        """Lock file guarding the label log and snapshot against a second writer."""
+        if not self.can_write:
+            return None
+        log_path = self.labels_log_path()
+        if log_path is None:
+            return None
+        return log_path.with_name(log_path.name.removesuffix(".log.jsonl") + ".lock")
+
     def read_labels_snapshot(self) -> dict[str, Any] | None:
         result = self.read_labels_snapshot_result()
         if result.has_issue:

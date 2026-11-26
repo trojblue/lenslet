@@ -10,6 +10,7 @@ from typing import Literal, TypedDict
 from uuid import uuid4
 
 from ...workspace import Workspace
+from ...workspace_lock import acquire_workspace_lock
 from .events import EventBroker, IdempotencyCache
 from .labels import (
     LabelPersistenceError,
@@ -114,6 +115,8 @@ class LabelWriteBuffer:
         self._thread: threading.Thread | None = None
         self._stopping = False
         self._snapshotter = SnapshotWriter(workspace)
+        lock_path = workspace.labels_lock_path()
+        self._lease = acquire_workspace_lock(lock_path) if lock_path is not None else None
 
     @property
     def boot_epoch(self) -> str:
@@ -268,6 +271,8 @@ class LabelWriteBuffer:
             thread.join(timeout=max(5.0, self._io_margin_seconds + 1.0))
             if thread.is_alive() and error is None:
                 error = LabelPersistenceError("label writer did not stop")
+        if self._lease is not None and (thread is None or not thread.is_alive()):
+            self._lease.release()
         if error is not None:
             raise error
 

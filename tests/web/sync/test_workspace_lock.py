@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from fastapi.testclient import TestClient
+
 from lenslet.server import create_app
 from lenslet.workspace import Workspace
 from lenslet.workspace_lock import WorkspaceLockedError, acquire_workspace_lock
@@ -36,7 +38,7 @@ def test_second_process_cannot_write_labels_for_the_same_dataset(tmp_path: Path)
     )
     try:
         assert holder.stdout is not None and holder.stdout.readline().strip() == "held"
-        with pytest.raises(WorkspaceLockedError, match="another Lenslet process"):
+        with pytest.raises(WorkspaceLockedError, match="another Lenslet server"):
             create_app(str(root))
     finally:
         holder.communicate(input="")
@@ -44,30 +46,26 @@ def test_second_process_cannot_write_labels_for_the_same_dataset(tmp_path: Path)
     create_app(str(root)).state  # noqa: B018 - construction is the assertion
 
 
-def test_one_process_shares_the_lock_until_every_holder_releases(tmp_path: Path) -> None:
+def test_second_app_in_the_same_process_cannot_write_labels(tmp_path: Path) -> None:
+    root = _dataset(tmp_path)
+    with TestClient(create_app(str(root))) as first:
+        assert first.get("/health").status_code == 200
+        with pytest.raises(WorkspaceLockedError, match="another Lenslet server"):
+            create_app(str(root))
+    # Shutting the first app down releases its claim.
+    with TestClient(create_app(str(root))) as second:
+        assert second.get("/health").status_code == 200
+
+
+def test_lease_release_is_idempotent(tmp_path: Path) -> None:
     lock_path = Workspace.for_dataset(str(_dataset(tmp_path)), True).labels_lock_path()
     assert lock_path is not None
-    first = acquire_workspace_lock(lock_path)
-    second = acquire_workspace_lock(lock_path)
-    first.release()
-    first.release()  # idempotent: must not drop the second holder's claim
-    probe = subprocess.run(
-        [sys.executable, "-c", (
-            "import fcntl,os,sys; fd=os.open(sys.argv[1], os.O_RDWR);"
-            "fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)"
-        ), str(lock_path)],
-        capture_output=True,
-    )
-    assert probe.returncode != 0, "lock was released while a holder remained"
-    second.release()
-    probe = subprocess.run(
-        [sys.executable, "-c", (
-            "import fcntl,os,sys; fd=os.open(sys.argv[1], os.O_RDWR);"
-            "fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)"
-        ), str(lock_path)],
-        capture_output=True,
-    )
-    assert probe.returncode == 0
+    lease = acquire_workspace_lock(lock_path)
+    with pytest.raises(WorkspaceLockedError):
+        acquire_workspace_lock(lock_path)
+    lease.release()
+    lease.release()
+    acquire_workspace_lock(lock_path).release()
 
 
 def test_read_only_workspace_takes_no_lock(tmp_path: Path) -> None:

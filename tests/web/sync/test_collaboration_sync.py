@@ -398,7 +398,7 @@ def test_labels_persist_via_snapshot_and_log(tmp_path: Path) -> None:
             )
 
     asyncio.run(_run())
-    get_app_runtime(app).label_writer.flush_all()
+    get_app_runtime(app).label_writer.close()
 
     snapshot_path = tmp_path / ".lenslet" / "labels.snapshot.json"
     log_path = tmp_path / ".lenslet" / "labels.log.jsonl"
@@ -441,6 +441,7 @@ def test_durable_idempotency_survives_restart_with_new_boot_epoch(tmp_path: Path
     )
     assert same_process_replay.json()["persistence"] == "saved"
     durable_log = get_app_context(app).workspace.read_labels_log()
+    get_app_runtime(app).label_writer.close()
 
     restarted = _trusted_app(tmp_path)
     restarted_client = TestClient(restarted, base_url=LOCAL_ORIGIN)

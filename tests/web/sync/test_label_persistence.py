@@ -109,8 +109,9 @@ def test_admission_enforces_exact_count_and_byte_caps(tmp_path: Path) -> None:
         (json.dumps(_event(probe, 1), separators=(",", ":")) + "\n").encode("utf-8")
     )
 
+    probe.close()
     count_writer, _ = _writer(
-        workspace,
+        Workspace(root=tmp_path / "count" / ".lenslet", can_write=True),
         now,
         max_pending_events=2,
         max_pending_bytes=encoded_size * 10,
@@ -121,7 +122,7 @@ def test_admission_enforces_exact_count_and_byte_caps(tmp_path: Path) -> None:
         count_writer.accept(_event(count_writer, 3))
 
     byte_writer, _ = _writer(
-        workspace,
+        Workspace(root=tmp_path / "bytes" / ".lenslet", can_write=True),
         now,
         max_pending_events=2,
         max_pending_bytes=encoded_size,
@@ -322,6 +323,7 @@ def test_restart_recovers_durable_prefix_and_repairs_crash_partial_tail(tmp_path
     assert loaded.last_event_id == 1
     assert storage.sidecars["/sample.jpg"]["notes"] == "saved"
 
+    writer.close()  # the crashed process no longer holds the workspace
     restarted = LabelWriteBuffer(
         workspace,
         loaded,

@@ -224,9 +224,6 @@ class LabelWriteBuffer:
         while True:
             with self._condition:
                 if not self._pending:
-                    durable_items = dict(self._durable_items)
-                    durable_mutations = dict(self._durable_mutations)
-                    watermark = self._durable_event_id
                     break
                 if not all(item.ready for item in self._pending):
                     raise LabelPersistenceError("cannot flush an uncommitted label reservation")
@@ -237,13 +234,8 @@ class LabelWriteBuffer:
             if attempts > retries:
                 status = self.status()
                 raise LabelPersistenceError(status["error"] or "failed to flush label updates")
-        if watermark > 0 or durable_items or durable_mutations:
-            self._snapshotter.maybe_write(
-                durable_items,
-                durable_mutations,
-                watermark,
-                force=True,
-            )
+        with self._flush_lock:
+            self._write_snapshot(force=True)
 
     def latest_records(self) -> dict[str, dict[str, object]]:
         """Newest accepted label record per label key, whether already durable or still pending."""
@@ -258,17 +250,20 @@ class LabelWriteBuffer:
         return records
 
     def persist_state(self) -> None:
+        with self._flush_lock:
+            if not self._write_snapshot(force=True, even_if_empty=True):
+                raise LabelPersistenceError("failed to persist replacement label state")
+
+    def _write_snapshot(self, *, force: bool, even_if_empty: bool = False) -> bool:
+        """Snapshot durable state and compact the log. Callers hold ``_flush_lock``,
+        so snapshots never go backwards and compaction never races an append."""
         with self._condition:
             durable_items = dict(self._durable_items)
             durable_mutations = dict(self._durable_mutations)
             watermark = self._durable_event_id
-        if not self._snapshotter.maybe_write(
-            durable_items,
-            durable_mutations,
-            watermark,
-            force=True,
-        ):
-            raise LabelPersistenceError("failed to persist replacement label state")
+        if not (even_if_empty or watermark > 0 or durable_items or durable_mutations):
+            return True
+        return self._snapshotter.maybe_write(durable_items, durable_mutations, watermark, force=force)
 
     def close(self) -> None:
         error: BaseException | None = None
@@ -388,12 +383,9 @@ class LabelWriteBuffer:
             self._durable_event_id = int(batch[-1].event["id"])
             self._failure = None
             self._next_retry_at = 0.0
-            durable_items = dict(self._durable_items)
-            durable_mutations = dict(self._durable_mutations)
-            watermark = self._durable_event_id
             status = self._status_locked(completed_at)
             self._condition.notify_all()
-        self._snapshotter.maybe_write(durable_items, durable_mutations, watermark)
+        self._write_snapshot(force=False)  # flush_due holds _flush_lock
         self._emit_status(status)
         return True
 

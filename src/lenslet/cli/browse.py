@@ -178,8 +178,8 @@ def _workspace_mode_label(workspace: Workspace | None) -> str | None:
         return None
     if not workspace.can_write:
         return "read-only"
-    if workspace.is_temp_workspace():
-        return "temp"
+    if workspace.is_detached_workspace():
+        return "detached"
     if workspace.views_override is not None:
         return "parquet-sidecar"
     if workspace.root is not None:
@@ -383,7 +383,7 @@ def _workspace_label_for_banner(args: BrowseCliArgs, target_info: BrowseTarget) 
     if args.share:
         return "shared read-only"
     if args.no_write:
-        return "temp cache (--no-write)"
+        return "writable (detached workspace, --no-write)"
     if target_info.is_table_file:
         return "writable (parquet sidecar)"
     return "writable (.lenslet workspace)"
@@ -446,7 +446,7 @@ def _prepare_dataset_workspace_or_exit(
 
     target = _local_browse_target_or_exit(target_info)
     if args.no_write:
-        dataset_workspace = Workspace.for_temp_dataset(str(target))
+        dataset_workspace = Workspace.for_detached_dataset(str(target))
     else:
         dataset_workspace = Workspace.for_dataset(str(target), can_write=True)
     preindex_signature = None
@@ -472,7 +472,7 @@ def _prepare_dataset_workspace_or_exit(
             dataset_workspace = preindex_result.workspace
     if args.no_write:
         print(
-            f"[lenslet] No-write: using temp workspace {dataset_workspace.root} "
+            f"[lenslet] No-write: labels and caches go to {dataset_workspace.root} "
             "(thumb cache cap 200 MB)."
         )
     return dataset_workspace, preindex_signature
@@ -546,7 +546,7 @@ def _create_remote_table_app_or_exit(plan: BrowseLaunchPlan) -> object:
 def _create_table_file_app_or_exit(plan: BrowseLaunchPlan, target: Path) -> object:
     args = plan.args
     workspace = (
-        Workspace.for_temp_dataset(str(target))
+        Workspace.for_detached_dataset(str(target))
         if args.no_write
         else Workspace.for_parquet(target, can_write=True)
     )

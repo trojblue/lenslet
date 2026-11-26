@@ -170,7 +170,7 @@ def test_normalize_browse_args_disables_cache_write_for_no_write(
     assert normalized.dimension_cache == "workspace"
     assert args.cache_dimensions is True
     captured = capsys.readouterr()
-    assert "--no-write uses a temp workspace dimension cache" in captured.out
+    assert "--no-write keeps the dimension cache in the detached workspace" in captured.out
 
 
 def test_browse_args_parser_and_normalizer_are_directly_covered(

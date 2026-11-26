@@ -90,31 +90,32 @@ def test_workspace_read_only_write_operations_raise_permission_error(tmp_path: P
         workspace.append_labels_log({"id": 1})
 
 
-def test_temp_workspace_key_is_stable_for_same_dataset_root(tmp_path: Path) -> None:
+def test_detached_workspace_key_is_stable_for_same_dataset_root(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
-    stable_a = Workspace.for_temp_dataset(dataset_root)
-    stable_b = Workspace.for_temp_dataset(dataset_root / ".." / "dataset")
-    other = Workspace.for_temp_dataset(tmp_path / "other")
+    stable_a = Workspace.for_detached_dataset(dataset_root)
+    stable_b = Workspace.for_detached_dataset(dataset_root / ".." / "dataset")
+    other = Workspace.for_detached_dataset(tmp_path / "other")
 
     assert stable_a.root == stable_b.root
     assert stable_a.root != other.root
-    assert stable_a.is_temp_workspace() is True
+    assert stable_a.is_detached_workspace() is True
 
 
-def test_temp_workspace_root_resolves_gettempdir_lazily(
+def test_detached_workspace_lives_in_the_user_state_directory_not_temp(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    temp_root = tmp_path / "runtime-temp"
-    dataset_root = tmp_path / "dataset"
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
 
-    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(temp_root))
-
-    workspace = Workspace.for_temp_dataset(dataset_root)
+    workspace = Workspace.for_detached_dataset(tmp_path / "dataset")
 
     assert workspace.root is not None
-    assert workspace.root.parent == temp_root / "lenslet"
-    assert workspace.is_temp_workspace() is True
+    assert workspace.root.parent == state_home / "lenslet" / "workspaces"
+    monkeypatch.delenv("XDG_STATE_HOME")
+    default = Workspace.for_detached_dataset(tmp_path / "dataset").root
+    assert default is not None
+    assert default.parent == Path.home() / ".local" / "state" / "lenslet" / "workspaces"
 
 
 def test_workspace_read_results_distinguish_missing_and_invalid_views(tmp_path: Path) -> None:

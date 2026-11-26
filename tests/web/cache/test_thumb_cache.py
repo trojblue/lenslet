@@ -21,7 +21,7 @@ def test_thumb_cache_enforces_max_disk_bytes(tmp_path):
 
 
 def test_thumb_cache_from_workspace_uses_default_cap(tmp_path):
-    workspace = Workspace(root=tmp_path / ".lenslet", can_write=True, is_temp=False)
+    workspace = Workspace(root=tmp_path / ".lenslet", can_write=True, is_detached=False)
 
     cache = thumb_cache_from_workspace(workspace, enabled=True)
 

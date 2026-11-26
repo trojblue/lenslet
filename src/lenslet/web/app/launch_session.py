@@ -110,8 +110,8 @@ def _workspace_label(workspace_mode: str | None) -> str | None:
         return None
     if workspace_mode == "parquet-sidecar":
         return "writable sidecar"
-    if workspace_mode == "temp":
-        return "temp workspace"
+    if workspace_mode == "detached":
+        return "detached workspace"
     if workspace_mode == "workspace":
         return "workspace"
     return workspace_mode

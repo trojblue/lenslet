@@ -71,7 +71,7 @@ For each proposed change, examine the existing system and redesign it into the m
 - If you touch UI assets, note whether `src/lenslet/frontend/` was regenerated and how.
 
 ## Security & Configuration Tips
-- Source datasets stay read-only (no writes into image directories or S3 sources), but Lenslet may write workspace state/caches under `.lenslet/`, `<table>.lenslet.json`, `<table>.cache/`, or `/tmp/lenslet` when using `--no-write`.
+- Source datasets stay read-only (no writes into image directories or S3 sources), but Lenslet may write workspace state/caches under `.lenslet/`, `<table>.lenslet.json`, `<table>.cache/`, or the per-user detached workspace (`$XDG_STATE_HOME/lenslet/workspaces/`, default `~/.local/state`) when using `--no-write` or when the dataset's own workspace is not writable.
 - Avoid sensitive paths and real user data; use small placeholders in tests/docs.
 - Default host/port is `127.0.0.1:7070`; document any changes in `README.md`.
 

@@ -94,7 +94,7 @@ def resolve_local_workspace(root_path: str, options: LocalAppOptions) -> Workspa
     workspace = options.workspace
     if workspace is None:
         if options.no_write:
-            workspace = Workspace.for_temp_dataset(root_path)
+            workspace = Workspace.for_detached_dataset(root_path)
         else:
             workspace = Workspace.for_dataset(root_path, can_write=True)
     try:

@@ -162,8 +162,8 @@ def _workspace_id_for_browse_storage(storage: BrowseStorage, workspace: Workspac
 def _workspace_mode(workspace: Workspace) -> str:
     if not workspace.can_write:
         return "read-only"
-    if workspace.is_temp_workspace():
-        return "temp"
+    if workspace.is_detached_workspace():
+        return "detached"
     if workspace.views_override is not None:
         return "parquet-sidecar"
     if workspace.root is not None:

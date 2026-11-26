@@ -97,7 +97,7 @@ Options:
   --probe-dimensions           Probe missing image dimensions during table load
   --no-thumb-cache             Disable thumbnail cache when a workspace is available
   --no-og-preview              Disable dataset-based social preview image
-  --no-write                   Use a temp workspace under /tmp/lenslet (keeps source read-only)
+  --no-write                   Keep the source read-only; labels/caches go to ~/.local/state/lenslet/workspaces
   --trust-remote-paths         Allow remote parquet/HF tables to read local filesystem paths
   --embedding-column NAME      Embedding column name (repeatable, comma-separated allowed)
   --embedding-metric NAME:METRIC
@@ -443,11 +443,11 @@ The following items are intentionally deferred from the hotpath sprint:
 
 - **Workspace files**: `.lenslet/views.json` stores Smart Folders; optional thumbnail cache lives under `.lenslet/thumbs/`
   - For Parquet, views live at `<table>.lenslet.json` and thumbs at `<table>.cache/thumbs/`
-  - With `--no-write`, workspace files go under `/tmp/lenslet/<dataset-hash>/` instead
+  - With `--no-write`, workspace files go under `$XDG_STATE_HOME/lenslet/workspaces/<dataset-hash>/` (default `~/.local/state`) instead
 - **Embedding cache**: `.lenslet/embeddings_cache/` (or `<table>.cache/embeddings_cache/`) stores cached embedding indexes
 - **Read-only sources**: The server never writes into your image directories or S3 buckets
 - **Labels**: Tags/notes/ratings are editable in the UI (session-only) and exportable as JSON/CSV
-- **No-write mode**: Pass `--no-write` to keep the dataset read-only; caches and views are stored under `/tmp/lenslet/<dataset-hash>/` (thumbnail cache capped at 200 MB)
+- **No-write mode**: Pass `--no-write` to keep the dataset read-only; labels, caches and views are stored under `$XDG_STATE_HOME/lenslet/workspaces/<dataset-hash>/` (default `~/.local/state`), which survives reboots (thumbnail cache capped at 200 MB)
 - **Remote writes**: `--share` is read-only by default. Adding `--allow-remote-writes` lets anyone who can reach the server modify labels, Smart Folders, and other workspace state; use it only with trusted viewers.
 - **Formats**: Supports JPEG, PNG, and WebP
 - **Hidden files**: Files/folders starting with `.` are ignored

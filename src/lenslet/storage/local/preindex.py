@@ -436,10 +436,12 @@ def _resolve_preindex_workspace(root: Path, workspace: Workspace, signature: str
         workspace.ensure()
         return workspace
 
-    temp_root = Workspace.temp_root() / signature
-    temp_workspace = Workspace(root=temp_root, can_write=True, is_temp=True)
-    temp_workspace.ensure()
-    return temp_workspace
+    # The dataset's own workspace is not writable: keep its index and labels in
+    # the per-user detached workspace for this dataset, which outlives reboots
+    # and stays the same when the files change.
+    detached = Workspace.for_detached_dataset(root)
+    detached.ensure()
+    return detached
 
 
 def _effective_workers(total: int) -> int:

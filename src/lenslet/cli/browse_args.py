@@ -176,7 +176,10 @@ def _build_browse_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-write",
         action="store_true",
-        help="Use a temp workspace under the system temp directory (keeps the source dataset read-only)",
+        help=(
+            "Keep the source dataset read-only; labels and caches go to a per-user workspace "
+            "under $XDG_STATE_HOME/lenslet/workspaces (default ~/.local/state)"
+        ),
     )
     parser.add_argument(
         "--trust-remote-paths",
@@ -281,6 +284,6 @@ def _parse_browse_args_or_exit(argv: list[str] | None) -> BrowseCliArgs:
 
 def _normalize_browse_args(args: BrowseCliArgs) -> BrowseCliArgs:
     if args.no_write and args.dimension_cache == "source":
-        print("[lenslet] --no-write uses a temp workspace dimension cache instead of writing source Parquet.")
+        print("[lenslet] --no-write keeps the dimension cache in the detached workspace instead of the source Parquet.")
         return replace(args, dimension_cache="workspace", cache_dimensions=False)
     return args

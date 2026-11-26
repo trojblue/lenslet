@@ -1,7 +1,6 @@
 from __future__ import annotations
 import json
 import os
-import tempfile
 from dataclasses import dataclass
 import hashlib
 from pathlib import Path
@@ -31,11 +30,7 @@ class Workspace:
     can_write: bool
     memory_views: dict[str, Any] | None = None
     views_override: Path | None = None
-    is_temp: bool = False
-
-    @staticmethod
-    def temp_root() -> Path:
-        return Path(tempfile.gettempdir()) / "lenslet"
+    is_detached: bool = False
 
     @staticmethod
     def dataset_cache_key(dataset_root: str | Path) -> str:
@@ -43,14 +38,23 @@ class Workspace:
         digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()
         return digest
 
-    @classmethod
-    def for_temp_dataset(cls, dataset_root: str | Path) -> "Workspace":
-        key = cls.dataset_cache_key(dataset_root)
-        root = cls.temp_root() / key
-        return cls(root=root, can_write=True, is_temp=True)
+    @staticmethod
+    def detached_root() -> Path:
+        """Per-user home of workspaces kept outside a dataset that must stay untouched.
 
-    def is_temp_workspace(self) -> bool:
-        return self.is_temp
+        They hold labels, which are user data, so they live in the XDG state
+        directory rather than a temp directory that reboots or cleaners empty.
+        """
+        state = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+        return Path(state) / "lenslet" / "workspaces"
+
+    @classmethod
+    def for_detached_dataset(cls, dataset_root: str | Path) -> "Workspace":
+        key = cls.dataset_cache_key(dataset_root)
+        return cls(root=cls.detached_root() / key, can_write=True, is_detached=True)
+
+    def is_detached_workspace(self) -> bool:
+        return self.is_detached
 
     @classmethod
     def for_dataset(cls, dataset_root: str | None, can_write: bool) -> "Workspace":

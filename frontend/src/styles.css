@@ -858,6 +858,10 @@
   line-height: 1;
 }
 
+.sync-indicator-local[data-unsaved="true"] {
+  color: var(--danger);
+}
+
 .sync-dot-offline {
   background: var(--border-strong);
 }

@@ -8,6 +8,7 @@ const BASE_PROPS = {
   connectionLabel: 'Connected',
   lastEditedLabel: 'just now',
   hasEdits: true,
+  unsaved: false,
   recentTouches: [{ path: '/sample.jpg', label: 'sample.jpg', timeLabel: '1m ago' }],
   isNarrow: false,
 }
@@ -29,5 +30,15 @@ describe('SyncIndicator stable text slots', () => {
 
     expect(html).toContain('typing…')
     expect(html).toContain('data-active="true"')
+  })
+
+  it('shows unsaved edits in the same slot without opening the card', () => {
+    const html = renderToStaticMarkup(
+      <SyncIndicator {...BASE_PROPS} localTypingActive unsaved syncLabel="Not saved — a.jpg, retrying" />,
+    )
+
+    expect(html).toContain('>unsaved<')
+    expect(html).toContain('data-unsaved="true"')
+    expect(html).toContain('title="Not saved — a.jpg, retrying"')
   })
 })

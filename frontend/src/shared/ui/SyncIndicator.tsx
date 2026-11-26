@@ -11,6 +11,8 @@ export type SyncIndicatorData = {
   lastEditedLabel: string
   hasEdits: boolean
   localTypingActive: boolean
+  /** An annotation edit has not reached the server; shown without opening the card. */
+  unsaved: boolean
   recentTouches: Array<{
     path: string
     label: string
@@ -38,6 +40,7 @@ export default function SyncIndicator({
   lastEditedLabel,
   hasEdits,
   localTypingActive,
+  unsaved,
   recentTouches,
   isNarrow,
 }: SyncIndicatorProps): JSX.Element {
@@ -105,8 +108,8 @@ export default function SyncIndicator({
         onClick={() => (open ? closeCard() : setOpen(true))}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label="Sync status"
-        title={presenceText}
+        aria-label={unsaved ? 'Sync status: unsaved edits' : 'Sync status'}
+        title={unsaved ? syncLabel : presenceText}
       >
         <span className={`sync-indicator-dot ${DOT_CLASS[state]}`} aria-hidden="true" />
         {!isNarrow && (
@@ -115,10 +118,11 @@ export default function SyncIndicator({
         {!isNarrow && (
           <span
             className="sync-indicator-local"
-            data-active={localTypingActive}
-            aria-hidden={!localTypingActive}
+            data-active={unsaved || localTypingActive}
+            data-unsaved={unsaved}
+            aria-hidden={!unsaved && !localTypingActive}
           >
-            {localTypingActive ? 'typing…' : '\u00a0'}
+            {unsaved ? 'unsaved' : localTypingActive ? 'typing…' : '\u00a0'}
           </span>
         )}
       </button>

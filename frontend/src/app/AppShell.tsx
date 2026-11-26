@@ -1630,6 +1630,7 @@ export default function AppShell({
           lastEditedLabel,
           hasEdits,
           localTypingActive,
+          unsaved: syncStatus.state === 'error',
           recentTouches: recentTouchesDisplay,
         }}
       />

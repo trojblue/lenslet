@@ -19,8 +19,8 @@ import { api, cancelBrowseRequests } from '../api/client'
 import type { FullFilePrefetchContext } from '../api/client'
 import { useFolderFacets } from '../api/folders'
 import {
-  bulkUpdateSidecars,
-  queueSidecarUpdate,
+  enqueueAnnotationEdits,
+  hasUnsavedAnnotations,
   updateItemDetailQueryDataForPath,
   useOldestInflightAgeMs,
   useSyncStatus,
@@ -1408,15 +1408,25 @@ export default function AppShell({
     })
   }, [])
 
+  // Show the rating now; the annotation queue saves it, retries failures, and
+  // restores server truth if the server refuses it.
   const rateSelection = useCallback((paths: readonly string[], star: StarRating) => {
     if (!paths.length) return
-    clearActionFeedback()
     applyLocalStars(paths, star)
-    const save = paths.length > 1
-      ? bulkUpdateSidecars([...paths], { star })
-      : queueSidecarUpdate(paths[0], { star })
-    void save.catch((error) => reportActionError('Rating update failed', error))
-  }, [applyLocalStars, clearActionFeedback, reportActionError])
+    enqueueAnnotationEdits(paths, { star })
+  }, [applyLocalStars])
+
+  // Leaving with queued, failed or still-typed annotations asks first.
+  const localTypingActiveRef = useLatestRef(localTypingActive)
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedAnnotations() && !localTypingActiveRef.current) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
 
   useAppKeyboardShortcuts({
     current,
@@ -1843,7 +1853,7 @@ export default function AppShell({
                 metricDisplayNames={metricDisplayNames}
                 onResize={onResizeRight}
                 resizeControl={resizeControl('right')}
-                onStarChanged={applyLocalStars}
+                onRate={rateSelection}
                 onFindSimilar={() => { panels.closeSheet(); setSimilarityOpen(true) }}
                 embeddingsAvailable={embeddingsAvailable}
                 embeddingsLoading={embeddingsLoading}

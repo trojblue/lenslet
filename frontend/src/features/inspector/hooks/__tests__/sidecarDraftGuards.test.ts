@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildSidecarDraft,
-  buildDirtySidecarDraftPatch,
+  buildDraftAnnotationEdit,
   hasSemanticNotesChange,
   hasSemanticTagsChange,
   mergeAuthoritativeSidecarDraft,
@@ -54,20 +54,44 @@ describe('inspector sidecar draft guards', () => {
     ).toEqual({ notes: 'remote notes', tags: 'local-tag' })
   })
 
-  it('builds a minimal patch for dirty fields owned by a superseded selection', () => {
+  it('describes single-image edits relative to what the user started from', () => {
     expect(
-      buildDirtySidecarDraftPatch(
-        { notes: 'draft A', tags: 'a, b' },
-        { notes: 'settled A', tags: 'a' },
+      buildDraftAnnotationEdit(
+        { notes: 'draft A', tags: 'a, c' },
+        { notes: 'settled A', tags: 'a, b' },
         { notes: true, tags: true },
+        { multi: false },
       ),
-    ).toEqual({ notes: 'draft A', tags: ['a', 'b'] })
+    ).toEqual({ notes: { from: 'settled A', to: 'draft A' }, addTags: ['c'], removeTags: ['b'] })
     expect(
-      buildDirtySidecarDraftPatch(
-        { notes: 'settled A', tags: 'a' },
-        { notes: 'settled A', tags: 'a' },
+      buildDraftAnnotationEdit(
+        { notes: 'settled A', tags: 'b, a' },
+        { notes: 'settled A', tags: 'a, b' },
         { notes: true, tags: true },
+        { multi: false },
       ),
-    ).toEqual({})
+    ).toBeNull()
+  })
+
+  it('only adds tags across a multi-selection and never removes per-image tags', () => {
+    expect(
+      buildDraftAnnotationEdit(
+        { notes: '', tags: 'reviewed' },
+        { notes: '', tags: '' },
+        { notes: false, tags: true },
+        { multi: true },
+      ),
+    ).toEqual({ addTags: ['reviewed'] })
+  })
+
+  it('ignores fields the user did not touch', () => {
+    expect(
+      buildDraftAnnotationEdit(
+        { notes: 'remote', tags: 'x' },
+        { notes: 'older', tags: '' },
+        { notes: false, tags: false },
+        { multi: false },
+      ),
+    ).toBeNull()
   })
 })

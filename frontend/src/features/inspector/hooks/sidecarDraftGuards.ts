@@ -1,3 +1,4 @@
+import { mergeAnnotationEdits, tagEditBetween, type AnnotationEdit } from '../../../api/items'
 import type { Sidecar } from '../../../lib/types'
 
 export type SidecarDraft = {
@@ -8,11 +9,6 @@ export type SidecarDraft = {
 export type SidecarDraftDirtyFields = {
   notes: boolean
   tags: boolean
-}
-
-export type SidecarDraftPatch = {
-  notes?: string
-  tags?: string[]
 }
 
 export function buildSidecarDraft(sidecar: Pick<Sidecar, 'notes' | 'tags'> | undefined): SidecarDraft {
@@ -56,17 +52,24 @@ export function hasSemanticTagsChange(currentTags: string, baselineTags: string)
   return !tagsEqual(parseSidecarTags(currentTags), parseSidecarTags(baselineTags))
 }
 
-export function buildDirtySidecarDraftPatch(
+/**
+ * Turn the dirty fields of a draft into a queue edit relative to what the user
+ * started from. Multi-select drafts apply to images with different values, so
+ * their tags only add and their notes overwrite unconditionally.
+ */
+export function buildDraftAnnotationEdit(
   current: SidecarDraft,
   baseline: SidecarDraft,
   dirty: SidecarDraftDirtyFields,
-): SidecarDraftPatch {
-  const patch: SidecarDraftPatch = {}
+  { multi }: { multi: boolean },
+): AnnotationEdit | null {
+  let edit: AnnotationEdit = {}
   if (dirty.notes && hasSemanticNotesChange(current.notes, baseline.notes)) {
-    patch.notes = current.notes
+    edit.notes = { from: multi ? null : baseline.notes, to: current.notes }
   }
   if (dirty.tags && hasSemanticTagsChange(current.tags, baseline.tags)) {
-    patch.tags = parseSidecarTags(current.tags)
+    const tags = tagEditBetween(multi ? [] : parseSidecarTags(baseline.tags), parseSidecarTags(current.tags))
+    edit = mergeAnnotationEdits(edit, tags)
   }
-  return patch
+  return edit.notes || edit.addTags?.length || edit.removeTags?.length ? edit : null
 }

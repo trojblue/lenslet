@@ -225,9 +225,6 @@ describe('inspector metadata section rendering', () => {
         findSimilarDisabledReason={null}
         star={null}
         onSelectStar={noop}
-        hasStarConflict={false}
-        onApplyConflict={noop}
-        onKeepTheirs={noop}
         currentItem={{
           path: '/images/a.jpg',
           size: 2048,

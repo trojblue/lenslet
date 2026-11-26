@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useQuery, type QueryClient } from '@tanstack/react-query'
 import { api, makeIdempotencyKey } from './client'
 import { usePollingEnabled } from './polling'
 import { FetchError } from '../lib/fetcher'
-import type { BrowseItemPayload, Sidecar, SidecarMutationResponse, SidecarPatch } from '../lib/types'
+import type {
+  BrowseItemPayload,
+  Sidecar,
+  SidecarMutationResponse,
+  SidecarPatch,
+  StarRating,
+} from '../lib/types'
 import {
   labelPersistenceTracker,
   requestLabelPersistenceRefresh,
@@ -44,17 +50,19 @@ export function updateItemDetailQueryDataForPath(
   queryClient.setQueriesData<BrowseItemPayload>({ queryKey: itemDetailQueryKey(path) }, updater)
 }
 
-type UpdateFields = Partial<Omit<Sidecar, 'v' | 'version' | 'updated_at' | 'updated_by'>>
-
 export type SyncStatus = {
   state: 'idle' | 'syncing' | 'saving' | 'error'
   message?: string
 }
 
+/**
+ * Another writer changed an image's notes after the user started editing them.
+ * `mine` is the user's text; it stays here until they keep or discard it.
+ */
 export type ConflictEntry = {
   path: string
   current: Sidecar
-  pending: SidecarPatch
+  mine: string
   receivedAt: string
 }
 
@@ -88,23 +96,39 @@ function observeMutationPersistence(path: string, response: SidecarMutationRespo
   }
 }
 
-const DEFAULT_SIDECAR: Sidecar = {
-  v: 1,
-  tags: [],
-  notes: '',
-  version: 1,
-  updated_at: '',
-  updated_by: 'web',
+
+/**
+ * One user intent for one image. Edits describe what changed rather than a whole
+ * record, so concurrent writers merge instead of overwriting each other:
+ * - `star` is absolute (the latest rating wins);
+ * - `notes` remembers the text the user started from, and conflicts only when
+ *   another writer changed it since;
+ * - tags are add/remove diffs that the server merges.
+ */
+export type AnnotationEdit = {
+  star?: StarRating
+  notes?: { from: string | null; to: string }
+  addTags?: string[]
+  removeTags?: string[]
 }
 
-const pendingPatches = new Map<string, UpdateFields>()
+type QueuedEdit = {
+  edit: AnnotationEdit
+  queuedAt: number
+  attempts: number
+  retryAt: number
+  error: string | null
+}
 
-const inflightByPath = new Map<string, Promise<void>>()
+const MAX_CONCURRENT_SENDS = 6
+const MAX_VERSION_RACES = 4
+const RETRY_BASE_MS = 1_000
+const RETRY_MAX_MS = 30_000
 
-const inflightStartByPath = new Map<string, number>()
-
-const directInflightStartById = new Map<number, number>()
-let directInflightSeq = 0
+const queued = new Map<string, QueuedEdit>()
+const sending = new Map<string, QueuedEdit>()
+const failedPaths = new Map<string, string>()
+let retryTimer: ReturnType<typeof setTimeout> | null = null
 
 const conflictByPath = new Map<string, ConflictEntry>()
 const conflictListeners = new Map<string, Set<(entry: ConflictEntry | null) => void>>()
@@ -114,28 +138,44 @@ const FALLBACK_SIDECAR_INTERVAL = 12_000
 const syncListeners = new Set<(status: SyncStatus) => void>()
 const inflightAgeListeners = new Set<(oldestStart: number | null) => void>()
 let syncState: SyncStatus = { state: 'idle' }
-let syncError: string | null = null
-let directInflight = 0
+
+function fileName(path: string): string {
+  return path.split('/').pop() || path
+}
+
+function describePaths(paths: string[]): string {
+  return paths.length === 1 ? fileName(paths[0]) : `${paths.length} images`
+}
 
 function notifySync(next: SyncStatus) {
   syncState = next
   for (const listener of syncListeners) {
     listener(next)
   }
+  const oldest = getOldestInflightStart()
+  for (const listener of inflightAgeListeners) {
+    listener(oldest)
+  }
 }
 
+// Status is derived from the queue itself, so one image's success can never
+// hide another image's unsaved edit.
 function updateSyncState() {
-  const hasConflict = conflictByPath.size > 0
-  const pending = pendingPatches.size + inflightByPath.size + directInflight
-  if (hasConflict) {
-    notifySync({ state: 'error', message: 'Conflict detected' })
+  if (conflictByPath.size > 0) {
+    notifySync({ state: 'error', message: `conflicting notes on ${describePaths([...conflictByPath.keys()])}` })
     return
   }
-  if (syncError) {
-    notifySync({ state: 'error', message: syncError })
+  const retrying = [...queued.entries()].filter(([, entry]) => entry.error !== null)
+  if (retrying.length > 0) {
+    notifySync({ state: 'error', message: `${describePaths(retrying.map(([path]) => path))}, retrying` })
     return
   }
-  if (pending > 0) {
+  if (failedPaths.size > 0) {
+    const [, error] = failedPaths.entries().next().value as [string, string]
+    notifySync({ state: 'error', message: `${describePaths([...failedPaths.keys()])}: ${error}` })
+    return
+  }
+  if (queued.size + sending.size > 0) {
     notifySync({ state: 'syncing' })
     return
   }
@@ -155,51 +195,15 @@ labelPersistenceTracker.subscribe(() => updateSyncState())
 
 function getOldestInflightStart(): number | null {
   let oldest: number | null = null
-  for (const ts of inflightStartByPath.values()) {
-    oldest = oldest == null ? ts : Math.min(oldest, ts)
-  }
-  for (const ts of directInflightStartById.values()) {
-    oldest = oldest == null ? ts : Math.min(oldest, ts)
+  for (const entry of [...queued.values(), ...sending.values()]) {
+    oldest = oldest == null ? entry.queuedAt : Math.min(oldest, entry.queuedAt)
   }
   return oldest
 }
 
-function notifyInflightAge(): void {
-  const next = getOldestInflightStart()
-  for (const listener of inflightAgeListeners) {
-    listener(next)
-  }
-}
-
-function setSyncError(message: string) {
-  syncError = message
-  updateSyncState()
-}
-
-function clearSyncError() {
-  if (!syncError) return
-  syncError = null
-  updateSyncState()
-}
-
-function bumpDirectInflight(delta: number) {
-  directInflight = Math.max(0, directInflight + delta)
-  updateSyncState()
-}
-
-function trackDirectInflightStart(): number {
-  directInflightSeq += 1
-  const id = directInflightSeq
-  directInflightStartById.set(id, Date.now())
-  notifyInflightAge()
-  return id
-}
-
-function trackDirectInflightEnd(id?: number | null): void {
-  if (id == null) return
-  if (directInflightStartById.delete(id)) {
-    notifyInflightAge()
-  }
+/** True while any annotation edit is queued, being sent, or awaiting retry. */
+export function hasUnsavedAnnotations(): boolean {
+  return queued.size > 0 || sending.size > 0 || conflictByPath.size > 0
 }
 
 function notifyConflict(path: string) {
@@ -255,6 +259,19 @@ export function useSidecarConflict(path: string | null) {
   return entry
 }
 
+/** Server truth moved; a conflict resolves itself once the server holds the user's text. */
+export function updateConflictFromServer(path: string, current: Sidecar): void {
+  const existing = conflictByPath.get(path)
+  if (!existing) return
+  if ((current.notes ?? '') === existing.mine) {
+    clearConflict(path)
+    return
+  }
+  conflictByPath.set(path, { ...existing, current })
+  notifyConflict(path)
+  updateSyncState()
+}
+
 export function subscribeSyncStatus(listener: (status: SyncStatus) => void): () => void {
   syncListeners.add(listener)
   listener(syncState)
@@ -306,115 +323,6 @@ export function useOldestInflightAgeMs(): number | null {
   return ageMs
 }
 
-function buildPatch(fields: UpdateFields): SidecarPatch {
-  const patch: SidecarPatch = {}
-  if (Object.prototype.hasOwnProperty.call(fields, 'star')) {
-    patch.set_star = fields.star ?? null
-  }
-  if (Object.prototype.hasOwnProperty.call(fields, 'notes')) {
-    patch.set_notes = fields.notes ?? ''
-  }
-  if (Object.prototype.hasOwnProperty.call(fields, 'tags')) {
-    patch.set_tags = Array.isArray(fields.tags) ? fields.tags : []
-  }
-  return patch
-}
-
-function hasPatchFields(patch: SidecarPatch): boolean {
-  return (
-    patch.set_star !== undefined ||
-    patch.set_notes !== undefined ||
-    patch.set_tags !== undefined ||
-    (patch.add_tags?.length ?? 0) > 0 ||
-    (patch.remove_tags?.length ?? 0) > 0
-  )
-}
-
-function changedFieldsForPatch(patch: SidecarPatch): string[] {
-  const changed: string[] = []
-  if (patch.set_star !== undefined) changed.push('star')
-  if (patch.set_notes !== undefined) changed.push('notes')
-  if (
-    patch.set_tags !== undefined
-    || (patch.add_tags?.length ?? 0) > 0
-    || (patch.remove_tags?.length ?? 0) > 0
-  ) {
-    changed.push('tags')
-  }
-  return changed
-}
-
-function normalizeTags(values: string[] | null | undefined): string[] {
-  const out: string[] = []
-  const seen = new Set<string>()
-  for (const raw of values ?? []) {
-    if (typeof raw !== 'string') continue
-    const val = raw.trim()
-    if (!val || seen.has(val)) continue
-    seen.add(val)
-    out.push(val)
-  }
-  return out
-}
-
-function tagsEqual(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}
-
-function isPatchSatisfied(patch: SidecarPatch, current: Sidecar): boolean {
-  if (patch.set_star !== undefined && (current.star ?? null) !== patch.set_star) {
-    return false
-  }
-  if (patch.set_notes !== undefined && (current.notes ?? '') !== (patch.set_notes ?? '')) {
-    return false
-  }
-  if (patch.set_tags !== undefined) {
-    const wanted = normalizeTags(patch.set_tags)
-    const existing = normalizeTags(current.tags)
-    return tagsEqual(wanted, existing)
-  }
-  const existing = normalizeTags(current.tags)
-  for (const tag of normalizeTags(patch.add_tags)) {
-    if (!existing.includes(tag)) return false
-  }
-  for (const tag of normalizeTags(patch.remove_tags)) {
-    if (existing.includes(tag)) return false
-  }
-  return true
-}
-
-function captureConflict(path: string, patch: SidecarPatch, err: unknown): boolean {
-  if (err instanceof FetchError && err.status === 409) {
-    const body = err.body as { current?: Sidecar } | null
-    if (body?.current) {
-      setConflict(path, {
-        path,
-        current: body.current,
-        pending: patch,
-        receivedAt: new Date().toISOString(),
-      })
-      return true
-    }
-  }
-  return false
-}
-
-export function updateConflictFromServer(path: string, current: Sidecar): void {
-  const existing = conflictByPath.get(path)
-  if (!existing) return
-  if (isPatchSatisfied(existing.pending, current)) {
-    clearConflict(path)
-    return
-  }
-  conflictByPath.set(path, { ...existing, current })
-  notifyConflict(path)
-  updateSyncState()
-}
-
 export function useSidecar(path: string, enabled = true, scopeKey?: string) {
   const pollingEnabled = usePollingEnabled()
   return useQuery({
@@ -440,205 +348,218 @@ export function useItemDetail(path: string, enabled = true, scopeKey?: string) {
   })
 }
 
-// Direct edits use patch semantics so optimistic cache updates can surface
-// version conflicts instead of overwriting a newer server value.
-export function useUpdateSidecar(path: string, scopeKey?: string) {
-  const qc = useQueryClient()
+function uniqueTags(values: readonly string[] | undefined): string[] {
+  return [...new Set((values ?? []).map((tag) => tag.trim()).filter(Boolean))]
+}
 
-  return useMutation({
-    mutationFn: async ({ patch, baseVersion, idempotencyKey }: { patch: UpdateFields; baseVersion: number; idempotencyKey: string }) => {
-      const body = buildPatch(patch)
-      if (!hasPatchFields(body)) {
-        return {
-          sidecar: qc.getQueryData<Sidecar>(sidecarQueryKey(path, scopeKey)) ?? DEFAULT_SIDECAR,
-          mutation_id: idempotencyKey,
-          accepted_event: null,
-          persistence: 'saved' as const,
-          durable_watermark: { boot_epoch: 'client-noop', event_id: 0 },
-        }
-      }
-      const payload = { ...body, base_version: baseVersion }
-      try {
-        return await api.patchSidecar(path, payload, {
-          idempotencyKey,
-          ifMatch: baseVersion,
-        })
-      } catch (err) {
-        captureConflict(path, body, err)
-        throw err
-      }
-    },
-    retry: (attempt, err) => {
-      if (err instanceof FetchError && err.status === 409) return false
-      return attempt < 2
-    },
-    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 4000),
-    onMutate: () => {
-      clearSyncError()
-      bumpDirectInflight(1)
-      const inflightId = trackDirectInflightStart()
-      return { inflightId }
-    },
-    onSuccess: (data, variables) => {
-      clearConflict(path)
-      setSidecarQueryDataForPath(qc, path, data.sidecar)
-      if (data.durable_watermark.boot_epoch !== 'client-noop') {
-        observeMutationPersistence(path, data)
-      }
-      if (data.sidecar.version !== variables.baseVersion) {
-        publishAnnotationMutationResponse({
-          path,
-          response: data,
-          changedFields: changedFieldsForPatch(buildPatch(variables.patch)),
-        })
-      }
-    },
-    onError: (err) => {
-      if (err instanceof FetchError && err.status === 409) return
-      if (err instanceof FetchError) {
-        setSyncError(err.message)
-      } else {
-        setSyncError('Failed to save')
-      }
-    },
-    onSettled: (_data, _err, _vars, context) => {
-      bumpDirectInflight(-1)
-      trackDirectInflightEnd(context?.inflightId)
+/** Compose `later` on top of `earlier` as if both had been applied in order. */
+export function mergeAnnotationEdits(earlier: AnnotationEdit, later: AnnotationEdit): AnnotationEdit {
+  const merged: AnnotationEdit = {}
+  if (later.star !== undefined) merged.star = later.star
+  else if (earlier.star !== undefined) merged.star = earlier.star
+  if (earlier.notes || later.notes) {
+    merged.notes = {
+      from: earlier.notes ? earlier.notes.from : later.notes!.from,
+      to: later.notes ? later.notes.to : earlier.notes!.to,
+    }
+  }
+  const laterAdd = new Set(uniqueTags(later.addTags))
+  const laterRemove = new Set(uniqueTags(later.removeTags))
+  const add = [...uniqueTags(earlier.addTags).filter((tag) => !laterRemove.has(tag)), ...laterAdd]
+  const remove = [...uniqueTags(earlier.removeTags).filter((tag) => !laterAdd.has(tag)), ...laterRemove]
+  if (add.length) merged.addTags = uniqueTags(add)
+  if (remove.length) merged.removeTags = uniqueTags(remove)
+  return merged
+}
+
+/** Diff an edited tag list against the tags the user started from. */
+export function tagEditBetween(from: readonly string[], to: readonly string[]): AnnotationEdit {
+  const before = new Set(uniqueTags(from))
+  const after = new Set(uniqueTags(to))
+  const edit: AnnotationEdit = {}
+  const addTags = [...after].filter((tag) => !before.has(tag))
+  const removeTags = [...before].filter((tag) => !after.has(tag))
+  if (addTags.length) edit.addTags = addTags
+  if (removeTags.length) edit.removeTags = removeTags
+  return edit
+}
+
+function isEmptyEdit(edit: AnnotationEdit): boolean {
+  return edit.star === undefined && !edit.notes && !edit.addTags?.length && !edit.removeTags?.length
+}
+
+function toPatch(edit: AnnotationEdit): SidecarPatch {
+  const patch: SidecarPatch = {}
+  if (edit.star !== undefined) patch.set_star = edit.star
+  if (edit.notes) patch.set_notes = edit.notes.to
+  if (edit.addTags?.length) patch.add_tags = edit.addTags
+  if (edit.removeTags?.length) patch.remove_tags = edit.removeTags
+  return patch
+}
+
+function changedFieldsForEdit(edit: AnnotationEdit): string[] {
+  const changed: string[] = []
+  if (edit.star !== undefined) changed.push('star')
+  if (edit.notes) changed.push('notes')
+  if (edit.addTags?.length || edit.removeTags?.length) changed.push('tags')
+  return changed
+}
+
+/** Publish server truth for a path through the same channel as accepted writes. */
+function publishServerSidecar(path: string, sidecar: Sidecar, changedFields: string[]): void {
+  publishAnnotationMutationResponse({
+    path,
+    changedFields,
+    response: {
+      sidecar,
+      mutation_id: makeIdempotencyKey('server-truth'),
+      accepted_event: null,
+      persistence: 'saved',
+      durable_watermark: { boot_epoch: 'client-truth', event_id: 0 },
     },
   })
 }
 
-const BULK_CONCURRENCY = 6
-
-export async function bulkUpdateSidecars(
-  paths: string[],
-  fields: UpdateFields
-): Promise<void> {
-  if (!paths.length) return
-
-  let idx = 0
-  const errors: Array<{ path: string; error: unknown }> = []
-
-  const worker = async (): Promise<void> => {
-    while (idx < paths.length) {
-      const currentIdx = idx++
-      const p = paths[currentIdx]
-      try {
-        await queueSidecarUpdate(p, fields)
-      } catch (error) {
-        errors.push({ path: p, error })
-        console.error(`[bulkUpdateSidecars] Failed for ${p}:`, error)
-      }
-    }
-  }
-
-  const workers = Array.from(
-    { length: Math.min(BULK_CONCURRENCY, paths.length) },
-    () => worker()
-  )
-  await Promise.all(workers)
-
-  if (errors.length === paths.length) {
-    throw new Error(`All ${paths.length} sidecar updates failed`)
-  }
+function isRetryable(error: unknown): boolean {
+  if (!(error instanceof FetchError)) return true
+  return error.status === 0 || error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500
 }
 
-// Rapid updates for one path are coalesced into one flush; later patches replace
-// pending fields until the current server version is fetched.
-export async function queueSidecarUpdate(
-  path: string,
-  patch: UpdateFields
-): Promise<void> {
-  const existing = pendingPatches.get(path) || {}
-  pendingPatches.set(path, { ...existing, ...patch })
-  clearSyncError()
-  updateSyncState()
+function errorMessage(error: unknown): string {
+  if (error instanceof FetchError && error.status === 404) return 'image no longer exists'
+  if (error instanceof FetchError && error.status === 403) return 'not allowed to edit labels'
+  return error instanceof Error && error.message ? error.message : 'failed to save'
+}
 
-  const existingFlush = inflightByPath.get(path)
-  if (existingFlush) return existingFlush
+class VersionRaceError extends Error {}
 
-  inflightStartByPath.set(path, Date.now())
-  notifyInflightAge()
-
-  const flush = (async (): Promise<void> => {
+// Read the current record, peel off a notes edit another writer has overtaken,
+// then write with If-Match so nothing can land between the read and the write.
+async function sendEdit(path: string, edit: AnnotationEdit): Promise<void> {
+  let pending = edit
+  for (let race = 0; race < MAX_VERSION_RACES; race += 1) {
+    const current = await api.getSidecar(path)
+    if (pending.notes) {
+      const serverNotes = current.notes ?? ''
+      const { from, to } = pending.notes
+      if (serverNotes === to || (from !== null && serverNotes !== from)) {
+        if (serverNotes !== to) {
+          setConflict(path, { path, current, mine: to, receivedAt: new Date().toISOString() })
+          publishServerSidecar(path, current, ['notes'])
+        }
+        const { notes: _overtaken, ...rest } = pending
+        pending = rest
+      }
+    }
+    if (isEmptyEdit(pending)) return
     try {
-      while (pendingPatches.has(path)) {
-        const toSend = pendingPatches.get(path)
-        if (!toSend) break
-
-        const body = buildPatch(toSend)
-        if (!hasPatchFields(body)) {
-          if (pendingPatches.get(path) === toSend) {
-            pendingPatches.delete(path)
-          }
-          continue
-        }
-
-        let baseVersion = 1
-        try {
-          const base = await api.getSidecar(path)
-          baseVersion = base.version ?? 1
-        } catch {
-          baseVersion = 1
-        }
-
-        const payload = { ...body, base_version: baseVersion }
-
-        try {
-          const response = await api.patchSidecar(path, payload, {
-            idempotencyKey: makeIdempotencyKey('patch'),
-            ifMatch: baseVersion,
-          })
-          observeMutationPersistence(path, response)
-          if (response.sidecar.version !== baseVersion) {
-            publishAnnotationMutationResponse({
-              path,
-              response,
-              changedFields: changedFieldsForPatch(body),
-            })
-          }
-          clearConflict(path)
-          if (pendingPatches.get(path) === toSend) {
-            pendingPatches.delete(path)
-          }
-        } catch (err) {
-          const isConflict = captureConflict(path, body, err)
-          if (isConflict) {
-            const latest = pendingPatches.get(path)
-            if (latest && latest !== toSend) {
-              const latestPatch = buildPatch(latest)
-              if (hasPatchFields(latestPatch)) {
-                const entry = conflictByPath.get(path)
-                if (entry) {
-                  conflictByPath.set(path, { ...entry, pending: latestPatch })
-                  notifyConflict(path)
-                }
-              }
-            }
-            pendingPatches.delete(path)
-          } else {
-            if (err instanceof FetchError) {
-              setSyncError(err.message)
-            } else {
-              setSyncError('Failed to save')
-            }
-          }
-          throw err
-        }
-      }
-    } finally {
-      inflightByPath.delete(path)
-      inflightStartByPath.delete(path)
-      notifyInflightAge()
-      updateSyncState()
+      const response = await api.patchSidecar(
+        path,
+        { ...toPatch(pending), base_version: current.version },
+        { idempotencyKey: makeIdempotencyKey('patch'), ifMatch: current.version },
+      )
+      observeMutationPersistence(path, response)
+      publishAnnotationMutationResponse({ path, response, changedFields: changedFieldsForEdit(pending) })
+      return
+    } catch (error) {
+      if (error instanceof FetchError && error.status === 409) continue
+      throw error
     }
-  })()
-
-  inflightByPath.set(path, flush)
-  updateSyncState()
-  return flush
+  }
+  throw new VersionRaceError('the image kept changing while saving')
 }
 
-export function hasPendingUpdate(path: string): boolean {
-  return pendingPatches.has(path) || inflightByPath.has(path)
+function scheduleSends(): void {
+  if (retryTimer !== null) {
+    clearTimeout(retryTimer)
+    retryTimer = null
+  }
+  const now = Date.now()
+  let nextRetryAt = Number.POSITIVE_INFINITY
+  for (const [path, entry] of queued) {
+    if (sending.has(path)) continue
+    if (entry.retryAt > now) {
+      nextRetryAt = Math.min(nextRetryAt, entry.retryAt)
+      continue
+    }
+    if (sending.size >= MAX_CONCURRENT_SENDS) break
+    startSend(path, entry)
+  }
+  if (Number.isFinite(nextRetryAt)) {
+    retryTimer = setTimeout(scheduleSends, nextRetryAt - now)
+  }
+  updateSyncState()
+}
+
+function startSend(path: string, entry: QueuedEdit): void {
+  queued.delete(path)
+  sending.set(path, entry)
+  void sendEdit(path, entry.edit).then(
+    () => {
+      failedPaths.delete(path)
+    },
+    (error: unknown) => {
+      if (isRetryable(error)) {
+        // Keep the edit, ahead of anything queued meanwhile, and retry with backoff.
+        const later = queued.get(path)
+        const attempts = entry.attempts + 1
+        queued.set(path, {
+          edit: later ? mergeAnnotationEdits(entry.edit, later.edit) : entry.edit,
+          queuedAt: entry.queuedAt,
+          attempts,
+          retryAt: Date.now() + Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (attempts - 1)),
+          error: errorMessage(error),
+        })
+        return
+      }
+      // The server will never accept this edit: say so, and restore server truth.
+      failedPaths.set(path, errorMessage(error))
+      void api.getSidecar(path).then(
+        (current) => publishServerSidecar(path, current, changedFieldsForEdit(entry.edit)),
+        () => undefined,
+      )
+    },
+  ).finally(() => {
+    sending.delete(path)
+    scheduleSends()
+  })
+}
+
+/**
+ * The single write path for annotations. Edits for one image coalesce, are sent
+ * one at a time per image, and stay queued (retrying with backoff) until the
+ * server accepts them or rejects them permanently.
+ */
+export function enqueueAnnotationEdit(path: string, edit: AnnotationEdit): void {
+  if (isEmptyEdit(edit)) return
+  const existing = queued.get(path)
+  queued.set(path, existing
+    ? { ...existing, edit: mergeAnnotationEdits(existing.edit, edit), retryAt: 0 }
+    : { edit, queuedAt: Date.now(), attempts: 0, retryAt: 0, error: null })
+  scheduleSends()
+}
+
+export function enqueueAnnotationEdits(paths: readonly string[], edit: AnnotationEdit): void {
+  for (const path of paths) enqueueAnnotationEdit(path, edit)
+}
+
+/** Retry everything now, e.g. when connectivity returns. */
+export function retryAnnotationEdits(): void {
+  for (const entry of queued.values()) entry.retryAt = 0
+  scheduleSends()
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', retryAnnotationEdits)
+}
+
+/** Test hook: forget all queue state. */
+export function resetAnnotationQueueForTests(): void {
+  if (retryTimer !== null) clearTimeout(retryTimer)
+  retryTimer = null
+  queued.clear()
+  sending.clear()
+  failedPaths.clear()
+  conflictByPath.clear()
+  updateSyncState()
 }

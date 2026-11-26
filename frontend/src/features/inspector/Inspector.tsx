@@ -3,8 +3,7 @@ import React, { Fragment, useEffect, useMemo, useCallback, useLayoutEffect, useR
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQueryClient } from '@tanstack/react-query'
-import { useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict } from '../../api/items'
-import { makeIdempotencyKey } from '../../api/client'
+import { useSidecarConflict } from '../../api/items'
 import type { BrowseItemPayload, MetricDisplayNames, SortSpec, StarRating } from '../../lib/types'
 import {
   buildMetadataPathCopyPayload,
@@ -44,7 +43,8 @@ interface InspectorProps {
   onOpenCompare?: () => void
   resizeControl?: SidebarResizeControl
   onResize?: (e: React.PointerEvent<HTMLDivElement>) => void
-  onStarChanged?: (paths: string[], val: StarRating) => void
+  /** Rate images; the app owns optimistic display and saving. */
+  onRate?: (paths: readonly string[], val: StarRating) => void
   sortSpec?: SortSpec
   metricDisplayNames?: MetricDisplayNames | null
   onFindSimilar?: () => void
@@ -82,7 +82,7 @@ export default function Inspector({
   onOpenCompare,
   onResize,
   resizeControl,
-  onStarChanged,
+  onRate,
   sortSpec,
   metricDisplayNames,
   onFindSimilar,
@@ -196,19 +196,10 @@ export default function Inspector({
     metadataCompareAvailable,
     autoloadMetadataCompare: autoloadImageMetadata,
   })
-  const mut = useUpdateSidecar(presentedPath ?? '', presentationResetKey)
-
-  const mutateSidecar = useCallback(
-    (patch: { notes?: string; tags?: string[]; star?: StarRating | null }, baseVersion: number) => {
-      mut.mutate({ patch, baseVersion, idempotencyKey: makeIdempotencyKey('patch') })
-    },
-    [mut],
-  )
-
   const {
     tags,
     notes,
-    conflictFields,
+    notesConflict,
     applyConflict,
     keepTheirs,
     handleNotesChange,
@@ -222,10 +213,7 @@ export default function Inspector({
     multi,
     sidecar: data,
     conflict,
-    star,
     queryClient: qc,
-    mutateSidecar,
-    onStarChanged,
     onLocalTypingChange,
   })
 
@@ -463,27 +451,9 @@ export default function Inspector({
   ])
 
   const handleSelectStar = useCallback((value: StarRating) => {
-    onActionStart?.()
-    if (multi) {
-      onStarChanged?.(presentedSelectedPaths, value)
-      void bulkUpdateSidecars(presentedSelectedPaths, { star: value }).catch((error) => {
-        onActionError?.('Bulk rating update failed', error)
-      })
-      return
-    }
-    if (!presentedPath) return
-    onStarChanged?.([presentedPath], value)
-    void queueSidecarUpdate(presentedPath, { star: value }).catch((error) => {
-      onActionError?.('Rating update failed', error)
-    })
-  }, [
-    multi,
-    onActionError,
-    onActionStart,
-    onStarChanged,
-    presentedPath,
-    presentedSelectedPaths,
-  ])
+    if (multi) onRate?.(presentedSelectedPaths, value)
+    else if (presentedPath) onRate?.([presentedPath], value)
+  }, [multi, onRate, presentedPath, presentedSelectedPaths])
 
   const handleToggleShowPilInfo = useCallback(() => {
     setTargetShowPilInfo((prev) => !prev)
@@ -507,8 +477,7 @@ export default function Inspector({
     reorderSectionOrder(activeId, overId)
   }, [reorderSectionOrder])
 
-  const showNotesConflictBanner = !multi && !!conflict && (conflictFields.tags || conflictFields.notes)
-  const hasStarConflict = !multi && !!conflict && conflictFields.star
+  const showNotesConflictBanner = notesConflict
 
   const resizeHandleClass = 'toolbar-offset sidebar-resize-handle sidebar-resize-handle-right absolute bottom-0'
   const widgetContext: InspectorWidgetContext = {
@@ -580,9 +549,6 @@ export default function Inspector({
       multi,
       star,
       onSelectStar: handleSelectStar,
-      hasStarConflict,
-      onApplyConflict: applyConflict,
-      onKeepTheirs: keepTheirs,
       currentItem,
       sourceValue,
       sortSpec,

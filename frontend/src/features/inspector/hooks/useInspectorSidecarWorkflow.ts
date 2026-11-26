@@ -1,26 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
 import {
-  bulkUpdateSidecars,
   clearConflict,
-  queueSidecarUpdate,
+  enqueueAnnotationEdit,
   setSidecarQueryDataForPath,
 } from '../../../api/items'
 import type { ConflictEntry } from '../../../api/items'
-import type { Sidecar, StarRating } from '../../../lib/types'
+import type { Sidecar } from '../../../lib/types'
 import {
+  buildDraftAnnotationEdit,
   buildSidecarDraft,
-  buildDirtySidecarDraftPatch,
   mergeAuthoritativeSidecarDraft,
-  parseSidecarTags,
   type SidecarDraft,
+  type SidecarDraftDirtyFields,
 } from './sidecarDraftGuards'
-
-type SidecarPatch = {
-  notes?: string
-  tags?: string[]
-  star?: StarRating | null
-}
 
 type UseInspectorSidecarWorkflowParams = {
   path: string | null
@@ -29,23 +22,48 @@ type UseInspectorSidecarWorkflowParams = {
   multi: boolean
   sidecar: Sidecar | undefined
   conflict: ConflictEntry | null
-  star: StarRating | null
   queryClient: QueryClient
-  mutateSidecar: (patch: SidecarPatch, baseVersion: number) => void
-  onStarChanged?: (paths: string[], value: StarRating) => void
   onLocalTypingChange?: (active: boolean) => void
 }
 
 type UseInspectorSidecarWorkflowResult = {
   tags: string
   notes: string
-  conflictFields: { tags: boolean; notes: boolean; star: boolean }
+  notesConflict: boolean
   applyConflict: () => void
   keepTheirs: () => void
   handleNotesChange: (value: string) => void
   handleNotesBlur: () => void
   handleTagsChange: (value: string) => void
   handleTagsBlur: () => void
+}
+
+/** Who a draft belongs to: edits are always saved to the images they were typed for. */
+type DraftOwner = {
+  identity: string | null
+  path: string | null
+  targets: string[]
+  multi: boolean
+}
+
+type DraftState = {
+  values: SidecarDraft
+  /** What the user started editing from; it only follows the server for clean fields. */
+  baseline: SidecarDraft
+  dirty: SidecarDraftDirtyFields
+}
+
+const CLEAN: SidecarDraftDirtyFields = { notes: false, tags: false }
+const ALL_FIELDS: SidecarDraftDirtyFields = { notes: true, tags: true }
+const TAGS_ONLY: SidecarDraftDirtyFields = { notes: false, tags: true }
+
+function draftOwner(path: string | null, selectedPaths: string[], multi: boolean, resetKey: string): DraftOwner {
+  return {
+    identity: path ? JSON.stringify([resetKey, path, selectedPaths]) : null,
+    path,
+    targets: multi ? [...selectedPaths] : path ? [path] : [],
+    multi,
+  }
 }
 
 export function useInspectorSidecarWorkflow({
@@ -55,217 +73,158 @@ export function useInspectorSidecarWorkflow({
   multi,
   sidecar,
   conflict,
-  star,
   queryClient,
-  mutateSidecar,
-  onStarChanged,
   onLocalTypingChange,
 }: UseInspectorSidecarWorkflowParams): UseInspectorSidecarWorkflowResult {
-  const draftIdentity = useMemo(
-    () => (path ? JSON.stringify([resetKey, path, selectedPaths]) : null),
-    [path, resetKey, selectedPaths],
+  const owner = useMemo(
+    () => draftOwner(path, selectedPaths, multi, resetKey),
+    [multi, path, resetKey, selectedPaths],
   )
   const authoritativeDraft = useMemo(
     () => buildSidecarDraft(path && !multi ? sidecar : undefined),
     [multi, path, sidecar],
   )
-  const [tags, setTags] = useState(() => authoritativeDraft.tags)
-  const [notes, setNotes] = useState(() => authoritativeDraft.notes)
-  const [draftOwnerIdentity, setDraftOwnerIdentity] = useState<string | null>(draftIdentity)
+  const [values, setValues] = useState<SidecarDraft>(authoritativeDraft)
+  const [valuesOwner, setValuesOwner] = useState<string | null>(owner.identity)
+  const ownerRef = useRef(owner)
+  const draftRef = useRef<DraftState>({ values: authoritativeDraft, baseline: authoritativeDraft, dirty: CLEAN })
   const localTypingActiveRef = useRef(false)
-  const notesDirtyRef = useRef(false)
-  const tagsDirtyRef = useRef(false)
-  const draftOwnerRef = useRef({
-    identity: draftIdentity,
-    path,
-    selectedPaths: [...selectedPaths],
-    multi,
-    resetKey,
-  })
-  const baselineDraftRef = useRef<SidecarDraft>(authoritativeDraft)
+  // An unresolved notes conflict keeps the user's text out of automatic saves;
+  // it stays in the conflict entry (and the status bar) until resolved.
+  const conflictOpen = !!conflict && !multi
+  const conflictOpenRef = useRef(conflictOpen)
+  conflictOpenRef.current = conflictOpen
+  const shownConflictRef = useRef<string | null>(null)
 
-  const notifyLocalTyping = useCallback(
-    (active: boolean) => {
-      if (localTypingActiveRef.current === active) return
-      localTypingActiveRef.current = active
-      onLocalTypingChange?.(active)
-    },
-    [onLocalTypingChange],
-  )
+  const notifyLocalTyping = useCallback((active: boolean) => {
+    if (localTypingActiveRef.current === active) return
+    localTypingActiveRef.current = active
+    onLocalTypingChange?.(active)
+  }, [onLocalTypingChange])
 
-  const resetDraftState = useCallback(
-    (nextDraft: SidecarDraft) => {
-      baselineDraftRef.current = nextDraft
-      notesDirtyRef.current = false
-      tagsDirtyRef.current = false
-      setTags(nextDraft.tags)
-      setNotes(nextDraft.notes)
-      notifyLocalTyping(false)
-    },
-    [notifyLocalTyping],
-  )
+  const writeDraft = useCallback((next: DraftState) => {
+    draftRef.current = next
+    setValues(next.values)
+  }, [])
 
+  // Save what the user typed to the images it was typed for, then mark those fields clean.
+  const flushDraft = useCallback((fields?: SidecarDraftDirtyFields) => {
+    fields ??= conflictOpenRef.current ? TAGS_ONLY : ALL_FIELDS
+    const draft = draftRef.current
+    const target = ownerRef.current
+    const flushing = { notes: draft.dirty.notes && fields.notes, tags: draft.dirty.tags && fields.tags }
+    const edit = buildDraftAnnotationEdit(draft.values, draft.baseline, flushing, { multi: target.multi })
+    if (edit) {
+      for (const targetPath of target.targets) enqueueAnnotationEdit(targetPath, edit)
+    }
+    // Multi-select fields are "apply to all" inputs, so their baseline stays empty.
+    const adopt = (field: keyof SidecarDraft) => flushing[field] && !target.multi
+    const dirty = { notes: draft.dirty.notes && !flushing.notes, tags: draft.dirty.tags && !flushing.tags }
+    draftRef.current = {
+      values: draft.values,
+      baseline: {
+        notes: adopt('notes') ? draft.values.notes : draft.baseline.notes,
+        tags: adopt('tags') ? draft.values.tags : draft.baseline.tags,
+      },
+      dirty,
+    }
+    if (!dirty.notes && !dirty.tags) notifyLocalTyping(false)
+  }, [notifyLocalTyping])
+
+  // Any new owner (selection, folder, source, workspace) saves the previous draft first.
   useEffect(() => {
-    if (draftOwnerRef.current.identity !== draftIdentity) {
-      const previousOwner = draftOwnerRef.current
-      const pendingPatch = buildDirtySidecarDraftPatch(
-        { notes, tags },
-        baselineDraftRef.current,
-        { notes: notesDirtyRef.current, tags: tagsDirtyRef.current },
-      )
-      if (
-        previousOwner.resetKey === resetKey
-        && previousOwner.path
-        && Object.keys(pendingPatch).length > 0
-      ) {
-        if (previousOwner.multi && previousOwner.selectedPaths.length > 0) {
-          void bulkUpdateSidecars(previousOwner.selectedPaths, pendingPatch)
-        } else {
-          void queueSidecarUpdate(previousOwner.path, pendingPatch)
-        }
-      }
-      draftOwnerRef.current = {
-        identity: draftIdentity,
-        path,
-        selectedPaths: [...selectedPaths],
-        multi,
-        resetKey,
-      }
-      setDraftOwnerIdentity(draftIdentity)
-      resetDraftState(authoritativeDraft)
-      return
+    if (ownerRef.current.identity === owner.identity) return
+    flushDraft()
+    ownerRef.current = owner
+    shownConflictRef.current = null
+    setValuesOwner(owner.identity)
+    writeDraft({ values: authoritativeDraft, baseline: authoritativeDraft, dirty: CLEAN })
+  }, [authoritativeDraft, flushDraft, owner, writeDraft])
+
+  // Server truth moved: adopt it only for fields the user is not editing.
+  useEffect(() => {
+    if (ownerRef.current.identity !== owner.identity) return
+    const draft = draftRef.current
+    const baseline = {
+      notes: draft.dirty.notes ? draft.baseline.notes : authoritativeDraft.notes,
+      tags: draft.dirty.tags ? draft.baseline.tags : authoritativeDraft.tags,
     }
-    baselineDraftRef.current = authoritativeDraft
-    const mergedDraft = mergeAuthoritativeSidecarDraft(
-      { notes, tags },
-      authoritativeDraft,
-      { notes: notesDirtyRef.current, tags: tagsDirtyRef.current },
-    )
-    if (!notesDirtyRef.current) setNotes(mergedDraft.notes)
-    if (!tagsDirtyRef.current) setTags(mergedDraft.tags)
-  }, [
-    authoritativeDraft,
-    draftIdentity,
-    multi,
-    notes,
-    path,
-    resetDraftState,
-    resetKey,
-    selectedPaths,
-    tags,
-  ])
+    const merged = mergeAuthoritativeSidecarDraft(draft.values, authoritativeDraft, draft.dirty)
+    const unchanged = merged.notes === draft.values.notes && merged.tags === draft.values.tags
+      && baseline.notes === draft.baseline.notes && baseline.tags === draft.baseline.tags
+    if (!unchanged) writeDraft({ values: merged, baseline, dirty: draft.dirty })
+  }, [authoritativeDraft, owner.identity, writeDraft])
 
-  useEffect(
-    () => () => {
-      notifyLocalTyping(false)
-    },
-    [notifyLocalTyping],
-  )
+  // A notes conflict puts the user's text back in the field, unsaved, until resolved.
+  useEffect(() => {
+    if (!conflict || multi || conflict.path !== ownerRef.current.path) return
+    const shown = `${conflict.path}\u0000${conflict.receivedAt}`
+    if (shownConflictRef.current === shown) return
+    shownConflictRef.current = shown
+    const draft = draftRef.current
+    writeDraft({
+      values: { ...draft.values, notes: conflict.mine },
+      baseline: { ...draft.baseline, notes: conflict.current.notes ?? '' },
+      dirty: { ...draft.dirty, notes: true },
+    })
+    notifyLocalTyping(true)
+  }, [conflict, multi, notifyLocalTyping, writeDraft])
 
-  const commitSidecar = useCallback(
-    (patch: SidecarPatch) => {
-      if (multi && selectedPaths.length) {
-        bulkUpdateSidecars(selectedPaths, patch)
-        return
-      }
-      if (!path) return
-      mutateSidecar(patch, sidecar?.version ?? 1)
-    },
-    [multi, mutateSidecar, path, selectedPaths, sidecar?.version],
-  )
+  // Unmounting (lazy-surface reset, layout swap) must not drop a draft either.
+  useEffect(() => () => flushDraft(), [flushDraft])
 
-  const conflictFields = useMemo(
-    () => ({
-      tags: !!conflict?.pending.set_tags,
-      notes: conflict?.pending.set_notes !== undefined,
-      star: conflict?.pending.set_star !== undefined,
-    }),
-    [conflict],
-  )
+  const handleBlur = useCallback(() => flushDraft(), [flushDraft])
 
-  const handleNotesChange = useCallback(
-    (value: string) => {
-      setNotes(value)
-      notesDirtyRef.current = true
-      notifyLocalTyping(true)
-    },
-    [notifyLocalTyping],
-  )
+  const handleNotesChange = useCallback((value: string) => {
+    const draft = draftRef.current
+    writeDraft({ ...draft, values: { ...draft.values, notes: value }, dirty: { ...draft.dirty, notes: true } })
+    notifyLocalTyping(true)
+  }, [notifyLocalTyping, writeDraft])
 
-  const commitDirtyDraft = useCallback(() => {
-    const pendingPatch = buildDirtySidecarDraftPatch(
-      { notes, tags },
-      baselineDraftRef.current,
-      { notes: notesDirtyRef.current, tags: tagsDirtyRef.current },
-    )
-    notesDirtyRef.current = false
-    tagsDirtyRef.current = false
-    if (Object.keys(pendingPatch).length > 0) {
-      commitSidecar(pendingPatch)
-      baselineDraftRef.current = {
-        notes: pendingPatch.notes !== undefined ? notes : baselineDraftRef.current.notes,
-        tags: pendingPatch.tags !== undefined ? tags : baselineDraftRef.current.tags,
-      }
-    }
-    notifyLocalTyping(false)
-  }, [commitSidecar, notes, notifyLocalTyping, tags])
+  const handleTagsChange = useCallback((value: string) => {
+    const draft = draftRef.current
+    writeDraft({ ...draft, values: { ...draft.values, tags: value }, dirty: { ...draft.dirty, tags: true } })
+    notifyLocalTyping(true)
+  }, [notifyLocalTyping, writeDraft])
 
-  const handleNotesBlur = commitDirtyDraft
-
-  const handleTagsChange = useCallback(
-    (value: string) => {
-      setTags(value)
-      tagsDirtyRef.current = true
-      notifyLocalTyping(true)
-    },
-    [notifyLocalTyping],
-  )
-
-  const handleTagsBlur = commitDirtyDraft
-
+  // Keep mine: overwrite exactly the server text the user has now been shown.
   const applyConflict = useCallback(() => {
     if (!conflict || !path) return
-    const patch: SidecarPatch = {}
-    if (conflict.pending.set_tags !== undefined) {
-      patch.tags = parseSidecarTags(tags)
+    const draft = draftRef.current
+    draftRef.current = {
+      ...draft,
+      baseline: { ...draft.baseline, notes: conflict.current.notes ?? '' },
+      dirty: { ...draft.dirty, notes: true },
     }
-    if (conflict.pending.set_notes !== undefined) {
-      patch.notes = notes
-    }
-    if (conflict.pending.set_star !== undefined) {
-      patch.star = star ?? null
-    }
-    mutateSidecar(patch, conflict.current.version ?? 1)
-  }, [conflict, mutateSidecar, notes, path, star, tags])
+    clearConflict(path)
+    flushDraft(ALL_FIELDS)
+  }, [conflict, flushDraft, path])
 
   const keepTheirs = useCallback(() => {
     if (!conflict || !path) return
-    const current = conflict.current
-    const currentDraft = buildSidecarDraft(current)
-    baselineDraftRef.current = currentDraft
-    notesDirtyRef.current = false
-    tagsDirtyRef.current = false
-    setTags(currentDraft.tags)
-    setNotes(currentDraft.notes)
-    notifyLocalTyping(false)
-    setSidecarQueryDataForPath(queryClient, path, current)
+    const theirs = conflict.current.notes ?? ''
+    const draft = draftRef.current
+    writeDraft({
+      values: { ...draft.values, notes: theirs },
+      baseline: { ...draft.baseline, notes: theirs },
+      dirty: { ...draft.dirty, notes: false },
+    })
+    if (!draftRef.current.dirty.tags) notifyLocalTyping(false)
+    setSidecarQueryDataForPath(queryClient, path, conflict.current)
     clearConflict(path)
-    onStarChanged?.([path], current.star ?? null)
-  }, [conflict, notifyLocalTyping, onStarChanged, path, queryClient])
+  }, [conflict, notifyLocalTyping, path, queryClient, writeDraft])
 
-  const projectedDraft = draftOwnerIdentity === draftIdentity
-    ? { notes, tags }
-    : authoritativeDraft
+  const projected = valuesOwner === owner.identity ? values : authoritativeDraft
 
   return {
-    tags: projectedDraft.tags,
-    notes: projectedDraft.notes,
-    conflictFields,
+    tags: projected.tags,
+    notes: projected.notes,
+    notesConflict: conflictOpen,
     applyConflict,
     keepTheirs,
     handleNotesChange,
-    handleNotesBlur,
+    handleNotesBlur: handleBlur,
     handleTagsChange,
-    handleTagsBlur,
+    handleTagsBlur: handleBlur,
   }
 }

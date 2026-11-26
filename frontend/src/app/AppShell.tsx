@@ -19,6 +19,8 @@ import { api, cancelBrowseRequests } from '../api/client'
 import type { FullFilePrefetchContext } from '../api/client'
 import { useFolderFacets } from '../api/folders'
 import {
+  bulkUpdateSidecars,
+  queueSidecarUpdate,
   updateItemDetailQueryDataForPath,
   useOldestInflightAgeMs,
   useSyncStatus,
@@ -1396,6 +1398,26 @@ export default function AppShell({
     openFolder,
   })
 
+  const applyLocalStars = useCallback((paths: readonly string[], star: StarRating) => {
+    const missing = paths.filter((path) => !browseEntityStore.patch({ path, star }))
+    if (!missing.length) return
+    setLocalStarOverrides((prev) => {
+      const next = { ...prev }
+      for (const path of missing) next[path] = star
+      return next
+    })
+  }, [])
+
+  const rateSelection = useCallback((paths: readonly string[], star: StarRating) => {
+    if (!paths.length) return
+    clearActionFeedback()
+    applyLocalStars(paths, star)
+    const save = paths.length > 1
+      ? bulkUpdateSidecars([...paths], { star })
+      : queueSidecarUpdate(paths[0], { star })
+    void save.catch((error) => reportActionError('Rating update failed', error))
+  }, [applyLocalStars, clearActionFeedback, reportActionError])
+
   useAppKeyboardShortcuts({
     current,
     items,
@@ -1413,6 +1435,7 @@ export default function AppShell({
     setMobileSelectMode,
     setMobileSearchOpen,
     focusDesktopSearch,
+    setStar: rateSelection,
   })
 
   const resizeControl = (side: 'left' | 'right') => {
@@ -1820,16 +1843,7 @@ export default function AppShell({
                 metricDisplayNames={metricDisplayNames}
                 onResize={onResizeRight}
                 resizeControl={resizeControl('right')}
-                onStarChanged={(paths, val)=>{
-                  const missing = paths.filter((path) => !browseEntityStore.patch({ path, star: val }))
-                  if (missing.length) {
-                    setLocalStarOverrides((prev) => {
-                      const next = { ...prev }
-                      for (const path of missing) next[path] = val
-                      return next
-                    })
-                  }
-                }}
+                onStarChanged={applyLocalStars}
                 onFindSimilar={() => { panels.closeSheet(); setSimilarityOpen(true) }}
                 embeddingsAvailable={embeddingsAvailable}
                 embeddingsLoading={embeddingsLoading}

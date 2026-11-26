@@ -40,7 +40,6 @@ type UseInspectorSidecarWorkflowResult = {
   tags: string
   notes: string
   conflictFields: { tags: boolean; notes: boolean; star: boolean }
-  commitSidecar: (patch: SidecarPatch) => void
   applyConflict: () => void
   keepTheirs: () => void
   handleNotesChange: (value: string) => void
@@ -262,7 +261,6 @@ export function useInspectorSidecarWorkflow({
     tags: projectedDraft.tags,
     notes: projectedDraft.notes,
     conflictFields,
-    commitSidecar,
     applyConflict,
     keepTheirs,
     handleNotesChange,

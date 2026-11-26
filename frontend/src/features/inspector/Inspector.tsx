@@ -6,7 +6,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useUpdateSidecar, bulkUpdateSidecars, queueSidecarUpdate, useSidecarConflict } from '../../api/items'
 import { makeIdempotencyKey } from '../../api/client'
 import type { BrowseItemPayload, MetricDisplayNames, SortSpec, StarRating } from '../../lib/types'
-import { isInputElement } from '../../lib/keyboard'
 import {
   buildMetadataPathCopyPayload,
   buildJsonRenderNode,
@@ -210,7 +209,6 @@ export default function Inspector({
     tags,
     notes,
     conflictFields,
-    commitSidecar,
     applyConflict,
     keepTheirs,
     handleNotesChange,
@@ -277,39 +275,6 @@ export default function Inspector({
     () => selectedItems.reduce((acc, it) => acc + (it.size || 0), 0),
     [selectedItems],
   )
-
-  useEffect(() => {
-    if (!presentedPath || transitioning || !visible) return
-
-    const onKey = (e: KeyboardEvent) => {
-      if (isInputElement(e.target)) return
-
-      const k = e.key
-      if (!/^[0-5]$/.test(k)) return
-
-      e.preventDefault()
-      const val: StarRating = k === '0' ? null : (Number(k) as 1 | 2 | 3 | 4 | 5)
-
-      if (multi) {
-        commitSidecar({ star: val })
-        onStarChanged?.(presentedSelectedPaths, val)
-        return
-      }
-      commitSidecar({ star: val })
-      onStarChanged?.([presentedPath], val)
-    }
-
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [
-    commitSidecar,
-    multi,
-    onStarChanged,
-    presentedPath,
-    presentedSelectedPaths,
-    transitioning,
-    visible,
-  ])
 
   const filename = presentedPath ? presentedPath.split('/').pop() || presentedPath : ''
   const ext = useMemo(() => {

@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
-import type { BrowseItemPayload } from '../../lib/types'
+import type { BrowseItemPayload, StarRating } from '../../lib/types'
 import {
-  hasActiveModalDialog,
+  getTopmostModalDialog,
   isInputElement,
   isKeyboardControlTarget,
 } from '../../lib/keyboard'
@@ -19,6 +19,8 @@ export type AppKeyboardShortcutEvent = {
   targetIsInput: boolean
   targetIsKeyboardControl: boolean
   activeModalOpen: boolean
+  /** The only modal is the narrow-layout Inspector sheet, which still rates the selection. */
+  modalIsInspectorSheet: boolean
 }
 
 export type AppKeyboardShortcutContext = {
@@ -40,6 +42,7 @@ export type AppKeyboardShortcutResolution =
   | { kind: 'exitMobileSelectMode' }
   | { kind: 'openMobileSearch' }
   | { kind: 'focusDesktopSearch' }
+  | { kind: 'setStar'; star: StarRating }
 
 export type UseAppKeyboardShortcutsParams = {
   current: string
@@ -58,14 +61,34 @@ export type UseAppKeyboardShortcutsParams = {
   setMobileSelectMode: (open: boolean) => void
   setMobileSearchOpen: (open: boolean) => void
   focusDesktopSearch: () => void
+  /** Rate the requested selection; must not depend on what the Inspector presents. */
+  setStar: (paths: readonly string[], star: StarRating) => void
 }
 
 const NO_SHORTCUT: AppKeyboardShortcutResolution = { kind: 'none' }
+
+function resolveStarShortcut(
+  event: AppKeyboardShortcutEvent,
+  context: AppKeyboardShortcutContext,
+): AppKeyboardShortcutResolution | null {
+  if (!/^[0-5]$/.test(event.key)) return null
+  const modalBlocks = event.activeModalOpen && !event.modalIsInspectorSheet
+  if (
+    event.altKey || event.ctrlKey || event.metaKey
+    || event.targetIsInput || modalBlocks || context.compareOpen || !context.selectedCount
+  ) {
+    return NO_SHORTCUT
+  }
+  return { kind: 'setStar', star: event.key === '0' ? null : (Number(event.key) as 1 | 2 | 3 | 4 | 5) }
+}
 
 export function resolveAppKeyboardShortcut(
   event: AppKeyboardShortcutEvent,
   context: AppKeyboardShortcutContext,
 ): AppKeyboardShortcutResolution {
+  // Ratings target the selection, so they also apply in the viewer and over focused buttons.
+  const star = resolveStarShortcut(event, context)
+  if (star) return star
   if (context.viewerOpen || context.compareOpen || event.activeModalOpen) {
     return NO_SHORTCUT
   }
@@ -118,6 +141,7 @@ export function resolveAppKeyboardShortcut(
 }
 
 function keyboardEventSnapshot(event: KeyboardEvent): AppKeyboardShortcutEvent {
+  const modal = getTopmostModalDialog()
   return {
     key: event.key,
     altKey: event.altKey,
@@ -126,7 +150,8 @@ function keyboardEventSnapshot(event: KeyboardEvent): AppKeyboardShortcutEvent {
     shiftKey: event.shiftKey,
     targetIsInput: isInputElement(event.target),
     targetIsKeyboardControl: isKeyboardControlTarget(event.target),
-    activeModalOpen: hasActiveModalDialog(),
+    activeModalOpen: modal !== null,
+    modalIsInspectorSheet: modal?.matches('.responsive-panel[data-panel-side="right"]') ?? false,
   }
 }
 
@@ -169,6 +194,8 @@ export function useAppKeyboardShortcuts(params: UseAppKeyboardShortcutsParams): 
         state.setSelectedPaths([])
       } else if (resolution.kind === 'exitMobileSelectMode') {
         state.setMobileSelectMode(false)
+      } else if (resolution.kind === 'setStar') {
+        state.setStar(state.selectedPaths, resolution.star)
       } else if (resolution.kind === 'openMobileSearch') {
         state.setMobileSearchOpen(true)
       } else {

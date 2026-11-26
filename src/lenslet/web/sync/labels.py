@@ -8,7 +8,7 @@ from typing import Any, TypedDict
 
 from ...metrics import coerce_finite_metric_value
 from ...storage.base import SidecarInventoryStorage, SidecarState
-from ...storage.sidecar_state import ensure_sidecar_fields
+from ...storage.sidecar_state import copy_sidecar_state, ensure_sidecar_fields
 from ...workspace import Workspace, WorkspaceReadResult
 from ..paths import canonical_path
 from .events import EventBroker, IdempotencyCache, IdempotencyPayload
@@ -144,6 +144,14 @@ def _apply_persisted_record(
     record: Mapping[str, object],
 ) -> bool:
     sidecar = ensure_sidecar_fields(storage.ensure_sidecar(path))
+    if not merge_persisted_record(sidecar, record):
+        return False
+    storage.set_sidecar(path, sidecar)
+    return True
+
+
+def merge_persisted_record(sidecar: SidecarState, record: Mapping[str, object]) -> bool:
+    """Apply a persisted label record onto ``sidecar`` if it is newer; return whether it was."""
     incoming_version = record.get("version", sidecar.get("version", 1))
     if not isinstance(incoming_version, int):
         incoming_version = sidecar.get("version", 1)
@@ -167,8 +175,19 @@ def _apply_persisted_record(
     updated_by = record.get("updated_by")
     if isinstance(updated_by, str) and updated_by:
         sidecar["updated_by"] = updated_by
-    storage.set_sidecar(path, sidecar)
     return True
+
+
+def restore_persisted_records(
+    snapshot: dict[str, SidecarState],
+    records: Mapping[str, Mapping[str, object]],
+) -> None:
+    """Bring a rebuilt index's sidecar snapshot up to the newest accepted records."""
+    for path, record in records.items():
+        current = snapshot.get(path)
+        sidecar = ensure_sidecar_fields(copy_sidecar_state(current) if current is not None else {})
+        if merge_persisted_record(sidecar, record):
+            snapshot[path] = sidecar
 
 
 def _coerce_tags(value: object) -> list[str]:

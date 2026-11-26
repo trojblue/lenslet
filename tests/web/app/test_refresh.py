@@ -205,6 +205,40 @@ def test_refresh_endpoint_preserves_sidecar_annotations(tmp_path: Path):
     assert payload["star"] == 5
 
 
+def _patch(client: TestClient, path: str, body: dict, key: str) -> dict:
+    version = client.get("/item", params={"path": path}).json()["version"]
+    response = client.patch(
+        "/item",
+        params={"path": path},
+        headers={"Idempotency-Key": key, "If-Match": str(version)},
+        json={**body, "base_version": version},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["sidecar"]
+
+
+def test_refresh_restores_labels_of_a_file_that_was_briefly_missing(tmp_path: Path) -> None:
+    image = tmp_path / "a.jpg"
+    _make_image(image)
+    _make_image(tmp_path / "b.jpg")
+    with _trusted_client(_trusted_app(tmp_path)) as client:
+        _patch(client, "/a.jpg", {"set_star": 5, "set_notes": "keep"}, "label")
+        image.rename(tmp_path / "a.bak")
+        assert client.post("/refresh", params={"path": "/"}).status_code == 200
+        (tmp_path / "a.bak").rename(image)
+        assert client.post("/refresh", params={"path": "/"}).status_code == 200
+
+        restored = client.get("/item", params={"path": "/a.jpg"}).json()
+        assert (restored["star"], restored["notes"]) == (5, "keep")
+        # Editing afterwards must build on the restored record, not a blank one.
+        edited = _patch(client, "/a.jpg", {"add_tags": ["x"]}, "tag")
+        assert (edited["star"], edited["notes"], edited["tags"]) == (5, "keep", ["x"])
+
+    with _trusted_client(_trusted_app(tmp_path)) as client:
+        reloaded = client.get("/item", params={"path": "/a.jpg"}).json()
+        assert (reloaded["star"], reloaded["notes"], reloaded["tags"]) == (5, "keep", ["x"])
+
+
 def test_refresh_endpoint_dataset_mode_is_noop():
     app = create_app_from_datasets({"demo": []})
     client = TestClient(app)

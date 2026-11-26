@@ -41,7 +41,7 @@ from ..permissions import deny_if_mutation_forbidden
 from ..record_update import RecordUpdateFn
 from ..paths import canonical_path
 from ..runtime import AppRuntime
-from ..sync.labels import LabelPersistenceError
+from ..sync.labels import LabelPersistenceError, restore_persisted_records
 from .base import create_api_app
 from .builder import (
     BrowseAppAdapters,
@@ -351,10 +351,14 @@ def refresh_preindex_storage(
         )
 
     def _transfer_sidecars() -> None:
-        if isinstance(current_storage, TableStorage) and isinstance(preindex_storage, TableStorage):
-            preindex_storage.replace_sidecars(
-                current_storage.sidecar_snapshot_for_paths(preindex_storage.row_index_map().values())
-            )
+        if not (isinstance(current_storage, TableStorage) and isinstance(preindex_storage, TableStorage)):
+            return
+        paths = [canonical_path(path) for path in preindex_storage.row_index_map().values()]
+        snapshot = current_storage.sidecar_snapshot_for_paths(paths)
+        # A file missing from the previous index (moved away, then back) has no
+        # in-memory labels there; the writer still holds its accepted record.
+        restore_persisted_records(snapshot, context.runtime.label_writer.latest_records(paths))
+        preindex_storage.replace_sidecars(snapshot)
 
     if not workspace_rebound:
         updated_context = _stage_context(context.runtime)

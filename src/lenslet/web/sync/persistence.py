@@ -4,7 +4,7 @@ import json
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Literal, TypedDict
 from uuid import uuid4
@@ -243,6 +243,19 @@ class LabelWriteBuffer:
                 watermark,
                 force=True,
             )
+
+    def latest_records(self, paths: Iterable[str]) -> dict[str, dict[str, object]]:
+        """Newest accepted label record per path, whether already durable or still pending."""
+        wanted = set(paths)
+        with self._condition:
+            records: dict[str, dict[str, object]] = {
+                path: dict(record) for path, record in self._durable_items.items() if path in wanted
+            }
+            for pending in self._pending:  # oldest first, so newer events win
+                path = pending.event.get("path")
+                if isinstance(path, str) and path in wanted:
+                    records[path] = dict(pending.event)
+        return records
 
     def persist_state(self) -> None:
         with self._condition:

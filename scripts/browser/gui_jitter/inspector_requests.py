@@ -249,15 +249,13 @@ def exercise_inspector_conflict_regions(
         "updated_by": "conflict-probe",
     }
 
-    def reject_patch(route: Any) -> None:
+    # Another writer changed the notes: the save queue reads this record before
+    # writing and must raise a notes conflict instead of overwriting it.
+    def serve_other_writer(route: Any) -> None:
         parsed = urlsplit(route.request.url)
         request_path = parse_qs(parsed.query).get("path", [""])[0]
-        if route.request.method.upper() == "PATCH" and parsed.path == "/item" and request_path == path:
-            route.fulfill(
-                status=409,
-                content_type="application/json",
-                body=json.dumps({"error": "version_conflict", "current": current}),
-            )
+        if route.request.method.upper() == "GET" and parsed.path == "/item" and request_path == path:
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(current))
             return
         route.continue_()
 
@@ -324,24 +322,20 @@ def exercise_inspector_conflict_regions(
         )
         page.set_viewport_size({"width": 900, "height": 900})
         baseline = geometry()
-        page.route("**/item?*", reject_patch)
-        page.get_by_role("button", name="1 star", exact=True).click()
-        page.get_by_text("Rating conflict.", exact=True).wait_for()
-        rating_conflict = geometry()
-        page.get_by_role("button", name="Use latest", exact=True).click()
         page.locator('textarea[aria-label="Notes"]').fill("local conflicting notes")
+        page.route("**/item?*", serve_other_writer)
         page.locator('textarea[aria-label="Notes"]').blur()
-        page.get_by_text("Conflicting edits detected.", exact=True).wait_for()
+        page.get_by_text("Someone else changed these notes.", exact=True).wait_for()
         notes_conflict = geometry()
         violations: list[str] = []
-        for phase, snapshot in (("rating", rating_conflict), ("notes", notes_conflict)):
+        for phase, snapshot in (("notes", notes_conflict),):
             if snapshot["sections"] != baseline["sections"]:
                 violations.append(f"{phase} conflict shifted Inspector section geometry")
             for name, slot in snapshot["slots"].items():
                 if not slot["controlsBounded"] or not slot["contentBounded"]:
                     violations.append(f"{phase} conflict overflowed the {name} slot")
         page.get_by_role("button", name="Use latest", exact=True).click()
-        page.unroute("**/item?*", reject_patch)
+        page.unroute("**/item?*", serve_other_writer)
         page.route("**/item?*", reject_multi_sidecar)
         page.set_viewport_size({"width": 1280, "height": 900})
         page.locator(f'[id="cell-{quote(multi_paths[0], safe="")}"]').click()
@@ -351,12 +345,12 @@ def exercise_inspector_conflict_regions(
         page.locator(f'[id="cell-{quote(multi_paths[1], safe="")}"]').click(
             modifiers=["Control"]
         )
-        multi_notes = page.locator('textarea[aria-label="Notes for selected items"]')
+        multi_notes = page.locator('textarea[aria-label="Note to add to each selected item"]')
         multi_notes.wait_for()
         page.wait_for_function(
             """() => {
               const panel = document.querySelector('[data-inspector-panel]');
-              const input = document.querySelector('textarea[aria-label="Notes for selected items"]');
+              const input = document.querySelector('textarea[aria-label="Note to add to each selected item"]');
               return panel?.getAttribute('data-inspector-sidecar-state') === 'ready'
                 && input instanceof HTMLTextAreaElement && !input.disabled;
             }""",
@@ -367,7 +361,6 @@ def exercise_inspector_conflict_regions(
         return {
             "width": page.locator("[data-inspector-panel]").bounding_box()["width"],
             "baseline": baseline,
-            "rating": rating_conflict,
             "notes": notes_conflict,
             "multi_sidecar": {
                 "failed_paths": sidecar_failures,

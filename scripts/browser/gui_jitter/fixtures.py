@@ -11,6 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from PIL import Image, PngImagePlugin
 
+from lenslet.storage.sidecar_state import LABEL_SOURCE_KEY_PREFIX
 from scripts.browser.gui_jitter.shared import write_bytes_atomic, write_json_atomic
 
 METRICS_FIXTURE_ROW_COUNT = 1_585
@@ -103,7 +104,10 @@ def fixture_image_paths(root: Path) -> list[Path]:
 def write_fixture_labels_snapshot(root: Path) -> None:
     items: dict[str, Any] = {}
     for idx, image_path in enumerate(fixture_image_paths(root)):
-        path = f"/{image_path.relative_to(root).as_posix()}"
+        rel_path = image_path.relative_to(root).as_posix()
+        # The gallery reads items.parquet, so labels belong to each row's image
+        # (its source) and its own path value, not to the displayed path.
+        label_key = f"{LABEL_SOURCE_KEY_PREFIX}{(root / rel_path).resolve()} path:{rel_path}"
         score = round((idx % 7) / 7.0, 6)
         sentinel = image_path.stem.replace("quick_", "")
         inspector_fixture = image_path.name.startswith("quick_")
@@ -119,7 +123,7 @@ def write_fixture_labels_snapshot(root: Path) -> None:
             "probe_score": score,
             "probe_rank": float(idx),
         }
-        items[path] = item
+        items[label_key] = item
 
     write_json_atomic(
         root / ".lenslet" / "labels.snapshot.json",

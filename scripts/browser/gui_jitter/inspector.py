@@ -1397,7 +1397,7 @@ def exercise_dirty_selection_routing(
                     }""",
                     timeout=browser_timeout_ms,
                 )
-                labels = ("Notes for selected items", "Tags for selected items")
+                labels = ("Note to add to each selected item", "Tags for selected items")
             else:
                 wait_for_inspector_hydrated(page, target_path, browser_timeout_ms)
                 labels = ("Notes", "Tags")

@@ -426,6 +426,14 @@ def exercise_inspector_hard_reset(
     )
     page.wait_for_timeout(34)
     page.unroute("**/thumb?*", delay_thumbnail)
+    # Later phases share this server; give them back the original images, whose
+    # labels belong to those images rather than to the row's display path.
+    restored = page.request.post(
+        page.url.split("#", 1)[0].rstrip("/") + "/table/source-column",
+        data={"source_column": "source"},
+    )
+    if not restored.ok:
+        raise RuntimeError(f"failed to restore the source column: {restored.status}")
     summary = summarize_inspector_hard_reset_trace(
         stop_painted_frame_trace(page),
         previous_reset_key=previous_reset_key or "",

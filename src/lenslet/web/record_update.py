@@ -26,6 +26,7 @@ class RecordUpdateFn(Protocol):
         commit: Callable[[], None],
         *,
         mutation_id: str | None = None,
+        mutation_fingerprint: str | None = None,
         changed_fields: tuple[str, ...] = (),
         mutation_sidecar_payload: IdempotencyPayload | None = None,
     ) -> RecordUpdateResult: ...

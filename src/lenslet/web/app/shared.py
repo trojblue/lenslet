@@ -127,6 +127,7 @@ def build_record_update(
         commit: Callable[[], None],
         *,
         mutation_id: str | None = None,
+        mutation_fingerprint: str | None = None,
         changed_fields: tuple[str, ...] = (),
         mutation_sidecar_payload: dict | None = None,
     ) -> RecordUpdateResult:
@@ -157,7 +158,11 @@ def build_record_update(
             "id": event_id,
             "type": event_type,
             **payload,
-            "mutation_result": {"status": 200, "payload": mutation_payload},
+            "mutation_result": {
+                "status": 200,
+                "payload": mutation_payload,
+                "fingerprint": mutation_fingerprint,
+            },
         }
         try:
             with request_phase("writer"):

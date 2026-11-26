@@ -34,6 +34,7 @@ class PersistedSidecarRecord(_PersistedSidecarRecordRequired, total=False):
 class PersistedMutationResult(TypedDict):
     status: int
     payload: IdempotencyPayload
+    fingerprint: str | None
 
 
 class LabelsSnapshotPayload(TypedDict):
@@ -97,7 +98,11 @@ class SnapshotWriter:
             "last_event_id": last_event_id,
             "items": {path: dict(record) for path, record in items.items()},
             "mutations": {
-                key: {"status": result["status"], "payload": dict(result["payload"])}
+                key: {
+                    "status": result["status"],
+                    "payload": dict(result["payload"]),
+                    "fingerprint": result["fingerprint"],
+                }
                 for key, result in mutations.items()
             },
         }
@@ -245,7 +250,12 @@ def coerce_durable_mutation_result(value: object) -> PersistedMutationResult | N
     if isinstance(accepted_event, dict):
         durable_payload["persistence"] = "saved"
         durable_payload["durable_watermark"] = dict(accepted_event)
-    return {"status": status, "payload": durable_payload}
+    fingerprint = value.get("fingerprint")
+    return {
+        "status": status,
+        "payload": durable_payload,
+        "fingerprint": fingerprint if isinstance(fingerprint, str) else None,
+    }
 
 
 def load_label_state(storage: SidecarInventoryStorage, workspace: Workspace) -> LoadedLabelState:

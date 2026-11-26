@@ -54,6 +54,22 @@ class IdempotencyCacheEntry:
     created_at: float
     status: int
     payload: IdempotencyPayload
+    fingerprint: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IdempotencyClaim:
+    """Outcome of presenting an Idempotency-Key with the request it names.
+
+    - ``new``: the caller owns the key and must ``set`` or ``release`` it;
+    - ``replay``: the same request already finished; return its result;
+    - ``mismatch``: the key already names a different request;
+    - ``busy``: the same request is still running past the wait budget.
+    """
+
+    kind: Literal["new", "replay", "mismatch", "busy"]
+    status: int = 0
+    payload: IdempotencyPayload | None = None
 
 
 def format_sse(record: SyncEventRecord) -> str:
@@ -193,6 +209,7 @@ class IdempotencyCache:
         self._ttl = ttl_seconds
         self._max_entries = max_entries
         self._store: dict[str, IdempotencyCacheEntry] = {}
+        self._inflight: dict[str, tuple[str, threading.Event]] = {}
         self._lock = threading.Lock()
 
     def _prune(self, now: float) -> None:
@@ -202,24 +219,56 @@ class IdempotencyCache:
         while len(self._store) > self._max_entries:
             self._store.pop(next(iter(self._store)))
 
-    def get(self, key: str) -> tuple[int, IdempotencyPayload] | None:
-        now = time.time()
-        with self._lock:
-            self._prune(now)
-            entry = self._store.get(key)
-            if not entry:
-                return None
-            return entry.status, entry.payload
+    def claim(self, key: str, fingerprint: str, *, wait_seconds: float = 30.0) -> IdempotencyClaim:
+        """Atomically decide who handles ``key``; a concurrent duplicate waits for the first."""
+        while True:
+            with self._lock:
+                self._prune(time.time())
+                entry = self._store.get(key)
+                if entry is not None:
+                    if entry.fingerprint != fingerprint:
+                        return IdempotencyClaim("mismatch")
+                    return IdempotencyClaim("replay", entry.status, entry.payload)
+                running = self._inflight.get(key)
+                if running is None:
+                    self._inflight[key] = (fingerprint, threading.Event())
+                    return IdempotencyClaim("new")
+                if running[0] != fingerprint:
+                    return IdempotencyClaim("mismatch")
+                done = running[1]
+            if not done.wait(wait_seconds):
+                return IdempotencyClaim("busy")
 
-    def set(self, key: str, status: int, payload: IdempotencyPayload) -> None:
+    def release(self, key: str) -> None:
+        """Give up a claimed key without a result, waking any waiting duplicate."""
+        with self._lock:
+            running = self._inflight.pop(key, None)
+        if running is not None:
+            running[1].set()
+
+    def set(
+        self,
+        key: str,
+        status: int,
+        payload: IdempotencyPayload,
+        *,
+        fingerprint: str | None = None,
+    ) -> None:
+        """Record a result; ``fingerprint`` defaults to the one already bound to ``key``."""
         now = time.time()
         with self._lock:
             self._prune(now)
             existing = self._store.get(key)
-            if existing is not None and _would_regress_durable_result(existing.payload, payload):
-                return
-            self._store[key] = IdempotencyCacheEntry(created_at=now, status=status, payload=payload)
+            running = self._inflight.pop(key, None)
+            if fingerprint is None:
+                fingerprint = existing.fingerprint if existing else running[0] if running else None
+            if existing is None or not _would_regress_durable_result(existing.payload, payload):
+                self._store[key] = IdempotencyCacheEntry(
+                    created_at=now, status=status, payload=payload, fingerprint=fingerprint,
+                )
             self._prune(now)
+        if running is not None:
+            running[1].set()
 
     def seed(
         self,
@@ -236,10 +285,12 @@ class IdempotencyCache:
                 payload = entry.get("payload")
                 if not isinstance(key, str) or not isinstance(status, int) or not isinstance(payload, dict):
                     continue
+                fingerprint = entry.get("fingerprint")
                 self._store[key] = IdempotencyCacheEntry(
                     created_at=now,
                     status=status,
                     payload=dict(payload),
+                    fingerprint=fingerprint if isinstance(fingerprint, str) else None,
                 )
             self._prune(now)
 

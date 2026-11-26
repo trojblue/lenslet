@@ -686,3 +686,62 @@ def test_non_local_origin_rejects_mutations_before_write_flow(tmp_path: Path) ->
     )
     assert view_response.status_code == 403
     assert view_response.json() == mutation_denial_payload(_trusted_policy())
+
+
+def _patch_with_key(client: TestClient, path: str, key: str, body: dict) -> object:
+    version = client.get("/item", params={"path": path}).json()["version"]
+    return client.patch(
+        "/item",
+        params={"path": path},
+        headers=_origin_headers({"Idempotency-Key": key, "If-Match": str(version)}),
+        json={**body, "base_version": version},
+    )
+
+
+def test_reused_idempotency_key_cannot_answer_for_a_different_request(tmp_path: Path) -> None:
+    _make_image(tmp_path / "a.jpg")
+    _make_image(tmp_path / "b.jpg")
+    with TestClient(_trusted_app(tmp_path), base_url=LOCAL_ORIGIN) as client:
+        assert _patch_with_key(client, "/a.jpg", "shared", {"set_star": 5}).status_code == 200
+        reused = _patch_with_key(client, "/b.jpg", "shared", {"set_star": 2})
+        assert reused.status_code == 422
+        assert reused.json()["error"] == "idempotency_key_reused"
+        assert client.get("/item", params={"path": "/b.jpg"}).json()["star"] is None
+        assert client.get("/item", params={"path": "/a.jpg"}).json()["star"] == 5
+
+
+def test_concurrent_retry_waits_for_the_original_result(tmp_path: Path, monkeypatch) -> None:
+    _make_image(tmp_path / "a.jpg")
+    app = _trusted_app(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    original_apply = item_routes._apply_sidecar_patch
+
+    def slow_apply(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return original_apply(*args, **kwargs)
+
+    monkeypatch.setattr(item_routes, "_apply_sidecar_patch", slow_apply)
+    with TestClient(app, base_url=LOCAL_ORIGIN) as client:
+        version = client.get("/item", params={"path": "/a.jpg"}).json()["version"]
+        request = {
+            "params": {"path": "/a.jpg"},
+            "headers": _origin_headers({"Idempotency-Key": "retry", "If-Match": str(version)}),
+            "json": {"set_star": 3, "base_version": version},
+        }
+        responses: dict[str, object] = {}
+        first = threading.Thread(target=lambda: responses.setdefault("first", client.patch("/item", **request)))
+        first.start()
+        assert entered.wait(5)
+        retry = threading.Thread(target=lambda: responses.setdefault("retry", client.patch("/item", **request)))
+        retry.start()
+        time.sleep(0.2)  # the retry is now waiting on the claimed key
+        release.set()
+        first.join(5)
+        retry.join(5)
+
+    assert responses["first"].status_code == 200
+    assert responses["retry"].status_code == 200
+    assert responses["retry"].json()["sidecar"]["star"] == 3
+    assert responses["retry"].json()["mutation_id"] == responses["first"].json()["mutation_id"]

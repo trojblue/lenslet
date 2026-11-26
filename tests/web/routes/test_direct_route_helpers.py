@@ -90,6 +90,7 @@ def test_common_route_helpers_apply_sidecar_patch() -> None:
         commit,
         *,
         mutation_id: str | None = None,
+        mutation_fingerprint: str | None = None,
         changed_fields: tuple[str, ...] = (),
         mutation_sidecar_payload: dict | None = None,
     ):

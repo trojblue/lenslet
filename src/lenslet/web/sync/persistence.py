@@ -452,6 +452,7 @@ class LabelWriteBuffer:
                 mutation_id,
                 mutation_result["status"],
                 mutation_result["payload"],
+                fingerprint=mutation_result["fingerprint"],
             )
             while len(self._durable_mutations) > MAX_PENDING_EVENTS:
                 self._durable_mutations.pop(next(iter(self._durable_mutations)))

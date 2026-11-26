@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Callable
 from uuid import uuid4
@@ -15,7 +17,7 @@ from ..browse import (
     ensure_image,
     storage_from_request,
 )
-from ..context import get_app_context, get_request_context
+from ..context import AppContext, get_app_context, get_request_context
 from ..models import (
     ErrorResponse,
     ImageMetadataResponse,
@@ -33,7 +35,7 @@ from ..sidecars import (
     apply_patch_to_sidecar,
     updated_by_from_request,
 )
-from ..sync.events import IdempotencyCache, IdempotencyPayload
+from ..sync.events import IdempotencyCache, IdempotencyClaim, IdempotencyPayload
 from ..time import now_iso
 from ..sync.labels import LabelPersistenceError
 from ...storage.base import ItemRouteStorage, SidecarState
@@ -135,6 +137,7 @@ def _apply_sidecar_patch(
     record_update: RecordUpdateFn,
     *,
     mutation_id: str | None = None,
+    mutation_fingerprint: str | None = None,
 ) -> PatchApplicationResult:
     current_sidecar_state = ensure_sidecar_fields(copy_sidecar_state(storage.get_sidecar_readonly(path)))
     if expected_version != current_sidecar_state.get("version", 1):
@@ -158,6 +161,7 @@ def _apply_sidecar_patch(
         "item-updated",
         lambda: storage.set_sidecar(path, copy_sidecar_state(sidecar_snapshot)),
         mutation_id=mutation_id,
+        mutation_fingerprint=mutation_fingerprint,
         changed_fields=_changed_sidecar_fields(current_sidecar_state, sidecar_snapshot),
         mutation_sidecar_payload=sidecar_payload,
     )
@@ -172,6 +176,25 @@ def _cached_json_response(
 ) -> JSONResponse:
     idempotency_cache.set(key, status, payload)
     return JSONResponse(status_code=status, content=payload)
+
+
+def _patch_fingerprint(path: str, body: SidecarPatch, if_match: str | None) -> str:
+    """Identify the request an Idempotency-Key names: same key, same path and patch."""
+    request = {"path": path, "body": body.model_dump(mode="json", exclude_unset=True), "if_match": if_match}
+    encoded = json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _claimed_patch_response(claim: IdempotencyClaim) -> JSONResponse:
+    if claim.kind == "replay" and claim.payload is not None:
+        return JSONResponse(status_code=claim.status, content=claim.payload)
+    if claim.kind == "mismatch":
+        return _error_response(
+            422,
+            "idempotency_key_reused",
+            "Idempotency-Key was already used for a different request",
+        )
+    return _error_response(409, "idempotency_key_in_flight", "the same request is still being applied; retry")
 
 
 def register_item_routes(
@@ -258,11 +281,29 @@ def register_item_routes(
         idem_key = request.headers.get("Idempotency-Key")
         if not idem_key:
             return _error_response(400, "missing_idempotency_key", "Idempotency-Key header required")
-        cached = idempotency_cache.get(idem_key)
-        if cached:
-            status, payload = cached
-            return JSONResponse(status_code=status, content=payload)
+        fingerprint = _patch_fingerprint(path, body, request.headers.get("If-Match"))
+        claim = idempotency_cache.claim(idem_key, fingerprint)
+        if claim.kind != "new":
+            return _claimed_patch_response(claim)
+        try:
+            return _apply_claimed_patch(
+                request, context, storage, path, body, idem_key, fingerprint, record_update,
+            )
+        finally:
+            idempotency_cache.release(idem_key)  # no-op once a result was recorded
 
+    def _apply_claimed_patch(
+        request: Request,
+        context: AppContext,
+        storage: ItemRouteStorage,
+        path: str,
+        body: SidecarPatch,
+        idem_key: str,
+        fingerprint: str,
+        record_update: RecordUpdateFn,
+    ) -> JSONResponse:
+        runtime = context.runtime
+        idempotency_cache = runtime.idempotency_cache
         expected, error = _resolve_patch_expected_version(body, request.headers.get("If-Match"))
         if error is not None:
             status, payload = error
@@ -288,6 +329,7 @@ def register_item_routes(
                         updated_by_from_request(request),
                         record_update,
                         mutation_id=idem_key,
+                        mutation_fingerprint=fingerprint,
                     )
             except LabelPersistenceError:
                 return _label_persistence_error_response()

@@ -37,6 +37,7 @@ export type OriginalMediaPolicy = {
 }
 
 export type BrowseFolderEntryPayload = {
+  total_items?: number | null
   name: string
   kind: 'branch' | 'leaf-real' | 'leaf-pointer'
 }

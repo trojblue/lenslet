@@ -110,7 +110,7 @@ export default memo(function FolderTreeRows(props: FolderTreeRowsProps) {
       {visible.map(({ index, key, start }) => {
         const row = rows[index]
         const selected = current === row.path
-        const count = counts[row.path] ?? (row.leaf ? row.payload?.items.length : null) ?? null
+        const count = row.totalItems ?? counts[row.path] ?? (row.leaf ? row.payload?.items.length : null) ?? null
         const countPending = count === null && (pendingCounts.has(row.path) || (active && row.expanded && !row.payload && !errors.has(row.path)))
         const countLabel = count !== null ? `${count.toLocaleString()} items` : countPending ? 'Folder item count loading' : 'Expand folder to load its item count'
         return (

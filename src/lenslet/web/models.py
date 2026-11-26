@@ -59,6 +59,7 @@ class OriginalMediaPolicyPayload(BaseModel):
 
 
 class BrowseFolderEntryPayload(BaseModel):
+    total_items: int | None = Field(default=None, ge=0)
     name: str
     kind: Literal["branch", "leaf-real", "leaf-pointer"] = "branch"
 

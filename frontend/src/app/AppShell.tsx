@@ -380,7 +380,8 @@ export default function AppShell({
     () => initialPersistedSettings.autoloadImageMetadata ?? true,
   )
   const [proxyHttpOriginals, setProxyHttpOriginals] = useState(
-    () => initialPersistedSettings.proxyHttpOriginals ?? false,
+    // Public share pages can point to image hosts on the server’s private network.
+    () => initialPersistedSettings.proxyHttpOriginals ?? window.location.hostname.endsWith('.trycloudflare.com'),
   )
   const [compareOrderMode, setCompareOrderMode] = useState<CompareOrderMode>(
     () => initialPersistedSettings.compareOrderMode ?? 'gallery',

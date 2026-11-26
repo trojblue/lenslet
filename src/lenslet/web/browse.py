@@ -854,8 +854,16 @@ def _load_folder_index(storage: BrowseStorage, canonical: str, *, recursive: boo
         raise HTTPException(404, "folder not found") from exc
 
 
-def _folder_entries(index: Any) -> list[BrowseFolderEntryPayload]:
-    return [BrowseFolderEntryPayload(name=d, kind="branch") for d in sorted(index.dirs)]
+def _indexed_folder_counts(storage: BrowseStorage, path: str) -> dict[str, int]:
+    # Only indexed backends opt in; do not recursively scan each child folder.
+    read_counts = getattr(storage, "folder_counts", None)
+    return read_counts(path) if callable(read_counts) else {}
+
+
+def _folder_entries(storage: BrowseStorage, path: str, index: Any) -> list[BrowseFolderEntryPayload]:
+    counts = _indexed_folder_counts(storage, path)
+    return [BrowseFolderEntryPayload(name=d, kind="branch", total_items=counts.get(d))
+            for d in sorted(index.dirs)]
 
 
 def _direct_folder_total_items(index: Any) -> int:
@@ -878,7 +886,7 @@ def _build_direct_folder_payload(
             path=canonical,
             generated_at=index.generated_at,
             items=[],
-            folders=_folder_entries(index),
+            folders=_folder_entries(storage, canonical, index),
             metric_keys=[],
             categorical_keys=[],
             total_items=_direct_folder_total_items(index),
@@ -888,7 +896,7 @@ def _build_direct_folder_payload(
         path=canonical,
         generated_at=index.generated_at,
         items=[to_item(storage, it) for it in index.items],
-        folders=_folder_entries(index),
+        folders=_folder_entries(storage, canonical, index),
         metric_keys=_metric_keys_for_folder(storage, canonical, index, recursive=False),
         categorical_keys=_categorical_keys_for_folder(storage, canonical, index, recursive=False),
         total_items=None,
@@ -955,7 +963,7 @@ def _build_recursive_folder_payload(
             path=canonical,
             generated_at=index.generated_at,
             items=[],
-            folders=_folder_entries(index),
+            folders=_folder_entries(storage, canonical, index),
             metric_keys=[],
             categorical_keys=[],
             total_items=total_items,
@@ -980,7 +988,7 @@ def _build_recursive_folder_payload(
         path=canonical,
         generated_at=index.generated_at,
         items=[to_item(storage, snapshot) for snapshot in snapshots],
-        folders=_folder_entries(index),
+        folders=_folder_entries(storage, canonical, index),
         metric_keys=_metric_keys_for_folder(
             storage,
             canonical,
@@ -1066,6 +1074,7 @@ def _query_result_payload(
     spec: BrowseQuerySpec,
 ) -> BrowseQueryResponse:
     with request_phase("projection"):
+        folder_counts = _indexed_folder_counts(storage, result.path)
         items = [
             item if isinstance(item, BrowseItemPayload) else to_item(storage, item)
             for item in result.items
@@ -1082,7 +1091,8 @@ def _query_result_payload(
             limit=result.limit,
             items=items,
             folders=[
-                BrowseFolderEntryPayload(name=folder.name, kind=folder.kind)
+                BrowseFolderEntryPayload(name=folder.name, kind=folder.kind,
+                                         total_items=folder_counts.get(folder.name))
                 for folder in result.folders
             ],
             metric_keys=list(result.metric_keys),
@@ -1265,8 +1275,8 @@ def _fallback_browse_query_result(
             for record in evaluation.window
         ),
         folders=tuple(
-            BrowseQueryFolderEntry(name=folder.name, kind=folder.kind)
-            for folder in _folder_entries(index)
+            BrowseQueryFolderEntry(name=name, kind="branch")
+            for name in sorted(index.dirs)
         ),
         metric_keys=tuple(
             key for key in spec.projection.metric_keys if key in available_metric_keys

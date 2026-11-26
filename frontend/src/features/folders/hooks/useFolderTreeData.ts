@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useQueries, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import { folderCountQueryOptions, folderQueryOptions } from '../../../api/folders'
 import { usePollingEnabled } from '../../../api/polling'
+import { joinPath } from '../../../lib/paths'
 import type { BrowseFolderPayload } from '../../../lib/types'
 import type { FolderRoot } from '../model/treeRows'
 
@@ -54,9 +55,15 @@ export function useFolderTreeData(
     values: Object.fromEntries(results.map((result, index) => [paths[index], result.data])),
     pending: results.flatMap((result, index) => result.isFetching && result.data == null ? [paths[index]] : []),
   }), [paths])
+  const indexedCounts = useMemo(() => Object.fromEntries(
+    Object.values(payloads).flatMap((payload) => payload.folders.flatMap((folder) => (
+      folder.total_items == null ? [] : [[joinPath(payload.path, folder.name), folder.total_items]]
+    ))),
+  ), [payloads])
   const countQueries = useQueries({
     queries: paths.map((path) => folderCountQueryOptions(path, {
-      enabled: active && !!payloads[path] && expanded.has(path)
+      enabled: active && indexedCounts[path] == null && !!payloads[path] && expanded.has(path)
+        && (rootPaths.has(path) || !!payloads[path.slice(0, path.lastIndexOf('/')) || '/'])
         && (path !== '/' || current === path),
     }, polling)),
     combine: combineCounts,

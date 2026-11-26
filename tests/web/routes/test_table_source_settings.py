@@ -313,3 +313,28 @@ def test_projected_parquet_source_column_switch_keeps_q_metric_keys(
     assert folder_payload["metric_keys"] == ["q1", "q2"]
     assert folder_payload["items"][0]["metrics"] == {"q1": 0.2}
     assert folder_payload["items"][1]["metrics"] == {"q1": 0.8, "q2": 0.0}
+
+
+def test_parent_counts_are_shared_and_follow_source_rebuild() -> None:
+    rows = [
+        {"source": "https://example.test/a.jpg", "alternate": "https://example.test/a.jpg", "path": "score/nested/a.jpg"},
+        {"source": "https://example.test/b.jpg", "alternate": None, "path": "score/b.jpg"},
+        {"source": "https://example.test/c.jpg", "alternate": "https://example.test/c.jpg", "path": "other/c.jpg"},
+    ]
+    app = create_app_from_table(rows, options=TableAppOptions(
+        source_column="source", path_column="path", skip_dimension_probe=True,
+    ))
+    def counts(client):
+        response = client.get('/folders', params={'path': '/'})
+        assert response.status_code == 200
+        assert response.json()['items'] == []
+        return {entry['name']: entry['total_items'] for entry in response.json()['folders']}
+
+    with TestClient(app) as client:
+        assert counts(client) == {'other': 1, 'score': 2}
+        # A new viewer gets counts without requesting children or image details.
+        other = TestClient(app)
+        assert counts(other) == {'other': 1, 'score': 2}
+        switched = client.post('/table/source-column', json={'source_column': 'alternate'})
+        assert switched.status_code == 200
+        assert counts(client) == {'other': 1, 'score': 1}

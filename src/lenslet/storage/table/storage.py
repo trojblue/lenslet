@@ -1624,6 +1624,12 @@ class TableStorage(SourceBackedStorageBase[TableRowViewItem]):
     def count_in_scope(self, path: str) -> int:
         return self._require_row_store().count_in_scope(path)
 
+    def folder_counts(self, path: str) -> dict[str, int]:
+        """Read child totals from one active index, without materializing images."""
+        store = self._require_row_store()
+        return {name: store.count_in_scope(self.join(path, name))
+                for name in store.folder_dirs(path)}
+
     def facet_summary_for_scope(
         self,
         path: str,

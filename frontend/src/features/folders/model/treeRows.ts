@@ -1,7 +1,7 @@
 import type { BrowseFolderPayload } from '../../../lib/types'
 import { joinPath } from '../../../lib/paths'
 
-export type FolderRoot = { label: string; path: string }
+export type FolderRoot = { label: string; path: string; totalItems?: number | null }
 export type FolderTreeRow = {
   kind: 'folder' | 'pending' | 'error'
   path: string
@@ -11,6 +11,7 @@ export type FolderTreeRow = {
   siblings: number
   expanded: boolean
   leaf: boolean
+  totalItems?: number | null
   payload?: BrowseFolderPayload
 }
 
@@ -39,6 +40,7 @@ export function flattenFolderRows(
       rows.push({
         kind: 'folder', path: entry.path, label: entry.label, depth,
         position: index + 1, siblings: entries.length, expanded: open, leaf, payload,
+        totalItems: entry.totalItems,
       })
       if (!open) return
       if (!payload) {
@@ -50,7 +52,7 @@ export function flattenFolderRows(
         return
       }
       append(payload.folders.map((folder) => ({
-        label: folder.name, path: joinPath(entry.path, folder.name),
+        label: folder.name, path: joinPath(entry.path, folder.name), totalItems: folder.total_items,
       })), depth + 1)
     })
   }

@@ -137,6 +137,12 @@ export function BasicsSection({
         </button>
       )}
     >
+      {typeof tableFields?.refined_description === 'string' && tableFields.refined_description && (
+        <div className="mb-3" data-inspector-row-id="table:refined_description">
+          <div className="ui-kv-label">Refined description</div>
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm">{tableFields.refined_description}</p>
+        </div>
+      )}
       <div className="inspector-star-row flex items-center gap-2 text-xs mb-1" role="radiogroup" aria-label="Star rating">
         <span className="ui-kv-label inspector-star-label w-16 shrink-0">{multi ? 'Rating (all)' : 'Rating'}</span>
         <div className="inspector-star-controls flex items-center gap-1">
@@ -281,7 +287,7 @@ export function BasicsSection({
             )
           })()}
           {(() => {
-            const entries = tableFields ? Object.entries(tableFields) : []
+            const entries = tableFields ? Object.entries(tableFields).filter(([key, value]) => key !== 'refined_description' || typeof value !== 'string') : []
             if (!entries.length) return null
             return (
               <details className="mt-3">

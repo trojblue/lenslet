@@ -10,6 +10,16 @@ const folder = (path: string, children: string[]): BrowseFolderPayload => ({
 const roots = [{ path: '/', label: 'Root' }]
 
 describe('logical folder rows', () => {
+  it('shows indexed counts for unopened children and replaces them on refresh', () => {
+    const root = folder('/', ['alpha', 'beta'])
+    root.folders[0].total_items = 42
+    root.folders[1].total_items = 0
+    const rows = () => flattenFolderRows(roots, new Set(['/']), { '/': root }, new Set())
+    expect(rows().slice(1).map((row) => row.totalItems)).toEqual([42, 0])
+    root.folders[0].total_items = 7
+    expect(rows()[1].totalItems).toBe(7)
+  })
+
   it('preserves depth, sibling position and cached expanded descendants regardless of viewport', () => {
     const payloads = { '/': folder('/', ['alpha', 'beta']), '/alpha': folder('/alpha', ['nested']) }
     const expanded = new Set(['/', '/alpha'])

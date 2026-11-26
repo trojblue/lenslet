@@ -64,7 +64,8 @@ export function useFolderRefreshActions({
           return false
         }
         const keyPath = typeof queryKey[1] === 'string' ? queryKey[1] : ''
-        return matches(keyPath)
+        // Parent listings also own descendant totals.
+        return matches(keyPath) || keyPath === '/' || target.startsWith(`${keyPath}/`)
       },
     })
   }, [queryClient])
